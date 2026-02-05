@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="The 10 Commandments of Power and Diplomacy by Charles-Maurice de Talleyrand-Périgord.">
+  <meta property="og:title" content="The Talleyrand Decalogue">
+  <meta property="og:description" content="An immersive exploration of power and diplomacy.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The Talleyrand Decalogue">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/favicon.ico">
+  <title>The Talleyrand Decalogue</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      background-color: #000000;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #000000 !important;
+      color: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+    .font-serif-classic {
+      font-family: 'Cormorant Garamond', serif;
+    }
+    .font-cinzel {
+      font-family: 'Cinzel', serif;
+    }
+    
+    @keyframes fade-in-up {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+      animation: fade-in-up 1s ease-out forwards;
+    }
+
+    /* Print Styles to force High-Contrast Black/White/Red/Yellow */
+    @media print {
+      @page {
+        margin: 0;
+        size: auto;
+      }
+      
+      html, body {
+        background-color: #000000 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100%;
+        height: auto;
+      }
+      
+      #root, #dossier-container {
+        background-color: #000000 !important;
+        width: 100% !important;
+        display: block !important;
+      }
+
+      /* Force background and text colors for all elements */
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+
+      header, main, footer, div, section, span, h1, h2, h3, h4, p {
+        background-color: transparent !important;
+      }
+
+      /* Seamless visual flow */
+      .animate-fade-in {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        opacity: 1 !important;
+        transform: none !important;
+        margin-bottom: 0 !important;
+        padding-bottom: 4rem !important;
+      }
+
+      /* Hardcoded high-contrast values for printer interpretation */
+      .text-yellow-400 { color: #facc15 !important; }
+      .text-red-600 { color: #dc2626 !important; }
+      .text-red-500 { color: #ef4444 !important; }
+      .bg-red-600 { background-color: #dc2626 !important; }
+      .bg-black { background-color: #000000 !important; }
+      .border-red-600 { border-color: #dc2626 !important; }
+      .border-zinc-800 { border-color: #27272a !important; }
+      .border-zinc-900 { border-color: #18181b !important; }
+      
+      footer {
+        background-color: #000000 !important;
+        color: #ffffff !important;
+        border-top: 4px solid #ffffff !important;
+        padding-top: 4rem !important;
+        padding-bottom: 4rem !important;
+        page-break-before: avoid;
+      }
+      
+      .print-hidden { display: none !important; }
+    }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "html-to-image": "https://esm.sh/html-to-image@1.11.11"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

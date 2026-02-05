@@ -1,0 +1,94 @@
+:root {
+  background-color: #000000;
+  --color-gold: #facc15;
+  --color-red: #dc2626;
+  --color-off-white: #f5f5f0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #000000;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #000000; 
+}
+::-webkit-scrollbar-thumb {
+  background: #333; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #dc2626; 
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+.font-serif-classic {
+  font-family: 'Cormorant Garamond', serif;
+}
+.font-sans {
+  font-family: 'Inter', sans-serif;
+}
+
+.text-clamp-title {
+  font-size: clamp(3rem, 10vw, 8rem);
+  line-height: 0.9;
+}
+.text-clamp-subtitle {
+  font-size: clamp(1.5rem, 4vw, 3rem);
+}
+.text-clamp-law {
+  font-size: clamp(1.5rem, 3.5vw, 3rem);
+}
+.text-clamp-body {
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+}
+
+.bg-noise {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+@media print {
+  @page { margin: 0; size: auto; }
+  html, body { background-color: #fff !important; color: #000 !important; }
+  .bg-noise, .print\:hidden { display: none !important; }
+  .text-white { color: #000 !important; }
+  .bg-black { background-color: #fff !important; }
+  .border-white { border-color: #000 !important; }
+}

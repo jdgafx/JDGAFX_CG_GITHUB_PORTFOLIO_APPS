@@ -1,0 +1,17 @@
+{
+  "name": "The Talleyrand Decalogue",
+  "short_name": "Talleyrand",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "description": "The 10 Commandments of Power and Diplomacy by Charles-Maurice de Talleyrand-Périgord.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "orientation": "portrait"
+}
