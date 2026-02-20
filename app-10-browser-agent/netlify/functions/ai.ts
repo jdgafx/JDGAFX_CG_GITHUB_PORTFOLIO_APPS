@@ -73,7 +73,17 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
       throw new Error('No content in response')
     }
 
-    const parsed = JSON.parse(content) as { steps: unknown }
+    // Strip markdown code fences if present
+    let jsonText = content.trim()
+    const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (codeBlockMatch?.[1]) {
+      jsonText = codeBlockMatch[1].trim()
+    } else {
+      const start = jsonText.indexOf('{')
+      const end = jsonText.lastIndexOf('}')
+      if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1)
+    }
+    const parsed = JSON.parse(jsonText) as { steps: unknown }
 
     return new Response(JSON.stringify(parsed), {
       status: 200,

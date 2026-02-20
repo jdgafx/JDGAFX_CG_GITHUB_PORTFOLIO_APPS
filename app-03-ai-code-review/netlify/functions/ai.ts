@@ -64,7 +64,17 @@ Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, n
       throw new Error('Unexpected response type from OpenRouter')
     }
 
-    const reviewData = JSON.parse(rawText) as { comments: unknown[] }
+    // Strip markdown code fences if present
+    let jsonText = rawText.trim()
+    const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (codeBlockMatch?.[1]) {
+      jsonText = codeBlockMatch[1].trim()
+    } else {
+      const start = jsonText.indexOf('{')
+      const end = jsonText.lastIndexOf('}')
+      if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1)
+    }
+    const reviewData = JSON.parse(jsonText) as { comments: unknown[] }
     return Response.json({ success: true, data: reviewData })
   } catch (error) {
     console.error('Review error:', error)
