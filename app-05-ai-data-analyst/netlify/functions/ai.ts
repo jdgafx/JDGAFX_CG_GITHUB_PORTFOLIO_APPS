@@ -1,6 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })
 
 interface RequestBody {
   question: string
@@ -33,10 +31,7 @@ Columns: ${headers.join(', ')}
 Sample rows:
 ${JSON.stringify(sampleRows, null, 2)}`
 
-    const message = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1024,
-      system: `You are a data analyst assistant. Given a dataset schema and sample data, generate a query plan to answer the user's question.
+    const systemPrompt = `You are a data analyst assistant. Given a dataset schema and sample data, generate a query plan to answer the user's question.
 
 Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 {
@@ -63,21 +58,37 @@ Rules:
 - "filter" and "sortBy" are optional — only include them if relevant
 - groupBy and aggregate.field must be actual column names from the dataset
 - For count queries, aggregate.field can be any column (count ignores the field value)
-- Choose the most appropriate chartType for the data pattern`,
-      messages: [
-        {
-          role: 'user',
-          content: `Dataset:\n${schemaDescription}\n\nQuestion: ${question}`,
-        },
-      ],
+- Choose the most appropriate chartType for the data pattern`
+
+    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-3.5-haiku',
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Dataset:\n${schemaDescription}\n\nQuestion: ${question}` },
+        ],
+      }),
     })
 
-    const contentBlock = message.content[0]
-    if (!contentBlock || contentBlock.type !== 'text') {
-      throw new Error('No text response from Claude')
+    if (!aiResponse.ok) {
+      throw new Error(`OpenRouter error: ${aiResponse.status} ${aiResponse.statusText}`)
     }
 
-    const text = contentBlock.text.trim()
+    const aiData = (await aiResponse.json()) as {
+      choices: Array<{ message: { content: string } }>
+    }
+    const rawText = aiData.choices[0]?.message?.content
+    if (!rawText) {
+      throw new Error('No text response from OpenRouter')
+    }
+
+    const text = rawText.trim()
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch || !jsonMatch[0]) {
       throw new Error('No JSON found in response')

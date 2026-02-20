@@ -1,8 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
@@ -40,24 +36,35 @@ Severity guidelines:
 
 Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, no markdown, no explanation.`
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: `Review this ${lang}:\n\n\`\`\`${lang}\n${code}\n\`\`\``,
-        },
-      ],
+    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-3.5-haiku',
+        max_tokens: 2048,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Review this ${lang}:\n\n\`\`\`${lang}\n${code}\n\`\`\`` },
+        ],
+      }),
     })
 
-    const content = response.content[0]
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude')
+    if (!aiResponse.ok) {
+      throw new Error(`OpenRouter error: ${aiResponse.status} ${aiResponse.statusText}`)
     }
 
-    const reviewData = JSON.parse(content.text) as { comments: unknown[] }
+    const aiData = (await aiResponse.json()) as {
+      choices: Array<{ message: { content: string } }>
+    }
+    const rawText = aiData.choices[0]?.message?.content
+    if (!rawText) {
+      throw new Error('Unexpected response type from OpenRouter')
+    }
+
+    const reviewData = JSON.parse(rawText) as { comments: unknown[] }
     return Response.json({ success: true, data: reviewData })
   } catch (error) {
     console.error('Review error:', error)

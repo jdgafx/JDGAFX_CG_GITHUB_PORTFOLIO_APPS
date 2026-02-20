@@ -1,8 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
@@ -31,19 +27,38 @@ export default async (req: Request): Promise<Response> => {
       { role: 'user', content: message },
     ]
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1024,
-      system: 'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise and conversational — ideally 1-3 sentences. You are being used via voice interface.',
-      messages,
+    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-3.5-haiku',
+        max_tokens: 1024,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise and conversational — ideally 1-3 sentences. You are being used via voice interface.',
+          },
+          ...messages,
+        ],
+      }),
     })
 
-    const content = response.content[0]
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude')
+    if (!aiResponse.ok) {
+      throw new Error(`OpenRouter error: ${aiResponse.status} ${aiResponse.statusText}`)
     }
 
-    return Response.json({ response: content.text })
+    const aiData = (await aiResponse.json()) as {
+      choices: Array<{ message: { content: string } }>
+    }
+    const rawText = aiData.choices[0]?.message?.content
+    if (!rawText) {
+      throw new Error('Unexpected response type from OpenRouter')
+    }
+
+    return Response.json({ response: rawText })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unexpected error occurred'
     return Response.json({ error: message }, { status: 500 })

@@ -1,6 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })
 
 interface RequestBody {
   question: string
@@ -86,24 +84,35 @@ export default async (req: Request): Promise<Response> => {
       )
     }
 
-    const message = await client.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: buildUserMessage(question, chunks, documentTitle),
-        },
-      ],
+    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-3.5-haiku',
+        max_tokens: 2048,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
+        ],
+      }),
     })
 
-    const textContent = message.content[0]
-    if (!textContent || textContent.type !== 'text') {
-      throw new Error('Unexpected response type from Claude')
+    if (!aiResponse.ok) {
+      throw new Error(`OpenRouter error: ${aiResponse.status} ${aiResponse.statusText}`)
     }
 
-    const jsonText = extractJson(textContent.text)
+    const aiData = (await aiResponse.json()) as {
+      choices: Array<{ message: { content: string } }>
+    }
+    const rawText = aiData.choices[0]?.message?.content
+    if (!rawText) {
+      throw new Error('Unexpected response type from OpenRouter')
+    }
+
+    const jsonText = extractJson(rawText)
     const result = JSON.parse(jsonText) as AiResponse
 
     return new Response(JSON.stringify(result), {

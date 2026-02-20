@@ -1,8 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk'
-
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
   }
 
   const body = await req.json() as {
@@ -20,8 +23,6 @@ export default async function handler(req: Request): Promise<Response> {
 
   const { metrics } = body
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
   const prompt = `You are an expert SaaS analytics consultant. Analyze these API usage metrics from the last 15 days and provide 4-5 concise, actionable insights:
 
 Metrics:
@@ -36,25 +37,65 @@ Provide specific, data-driven insights. Be direct and actionable. Format as numb
 
   const stream = new ReadableStream({
     async start(controller) {
-      const messageStream = await client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 1024,
-        stream: true,
-        messages: [{ role: 'user', content: prompt }],
-      })
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'anthropic/claude-3.5-haiku',
+            max_tokens: 1024,
+            stream: true,
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        })
 
-      for await (const event of messageStream) {
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'text_delta'
-        ) {
-          const payload = JSON.stringify({ text: event.delta.text })
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`))
+        if (!response.ok) {
+          const errText = await response.text()
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: `Error: ${response.status} ${errText}` })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+          return
         }
-      }
 
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-      controller.close()
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || !trimmed.startsWith('data: ')) continue
+            const data = trimmed.slice(6)
+            if (data === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(data)
+              const delta = parsed.choices?.[0]?.delta?.content
+              if (delta) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: delta })}\n\n`))
+              }
+            } catch (_) { }
+          }
+        }
+
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: `Error: ${message}` })}\n\n`))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      }
     },
   })
 

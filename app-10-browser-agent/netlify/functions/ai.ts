@@ -1,22 +1,31 @@
-import Anthropic from '@anthropic-ai/sdk'
-import type { Handler } from '@netlify/functions'
+export default async (req: Request): Promise<Response> => {
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 })
+  }
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-export const handler: Handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' }
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   let task: string
   try {
-    const body = JSON.parse(event.body ?? '{}') as { task?: string }
+    const body = (await req.json()) as { task?: string }
     task = body.task ?? ''
     if (!task) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'task is required' }) }
+      return new Response(JSON.stringify({ error: 'task is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   const systemPrompt = `You are a browser automation AI. Given a user task, return a JSON array of browser automation steps.
@@ -35,31 +44,49 @@ Return ONLY valid JSON. No markdown. No explanation. Example format:
 Generate 6-10 steps that realistically simulate completing the user's task in a browser.`
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: `Task: ${task}` }],
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-sonnet-4',
+        max_tokens: 2048,
+        stream: false,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Task: ${task}` },
+        ],
+      }),
     })
 
-    const content = message.content[0]
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type')
+    if (!response.ok) {
+      const errText = await response.text()
+      throw new Error(`OpenRouter error: ${response.status} ${errText}`)
     }
 
-    const parsed = JSON.parse(content.text) as { steps: unknown }
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> }
+    const content = data.choices?.[0]?.message?.content
 
-    return {
-      statusCode: 200,
+    if (!content) {
+      throw new Error('No content in response')
+    }
+
+    const parsed = JSON.parse(content) as { steps: unknown }
+
+    return new Response(JSON.stringify(parsed), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(parsed),
-    }
+    })
   } catch {
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Failed to generate scenario' }),
-    }
+    return new Response(
+      JSON.stringify({ error: 'Failed to generate scenario' }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )
   }
 }
 

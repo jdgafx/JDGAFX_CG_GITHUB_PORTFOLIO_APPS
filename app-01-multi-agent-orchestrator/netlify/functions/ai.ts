@@ -1,6 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 interface AgentConfig {
   role: string
@@ -90,32 +88,69 @@ export default async (req: Request): Promise<Response> => {
           let agentOutput = ''
           let tokenCount = 0
 
-          const response = await client.messages.create({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 2048,
-            system: agent.systemPrompt,
-            messages: [{ role: 'user', content: userMessage }],
-            stream: true,
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'anthropic/claude-sonnet-4',
+              max_tokens: 2048,
+              stream: true,
+              messages: [
+                { role: 'system', content: agent.systemPrompt },
+                { role: 'user', content: userMessage },
+              ],
+            }),
           })
 
-          for await (const event of response) {
-            if (
-              event.type === 'content_block_delta' &&
-              event.delta.type === 'text_delta'
-            ) {
-              agentOutput += event.delta.text
-              controller.enqueue(
-                encoder.encode(
-                  sseEvent({
-                    type: 'agent_chunk',
-                    agent: agent.role,
-                    content: event.delta.text,
-                  }),
-                ),
-              )
-            }
-            if (event.type === 'message_delta' && event.usage) {
-              tokenCount = event.usage.output_tokens
+          if (!response.ok || !response.body) {
+            throw new Error(`OpenRouter error: ${response.status} ${response.statusText}`)
+          }
+
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed || !trimmed.startsWith('data: ')) continue
+              const data = trimmed.slice(6)
+              if (data === '[DONE]') continue
+
+              try {
+                const parsed = JSON.parse(data) as {
+                  choices?: Array<{ delta?: { content?: string } }>
+                  usage?: { completion_tokens?: number }
+                }
+                const content = parsed.choices?.[0]?.delta?.content
+                if (content) {
+                  agentOutput += content
+                  controller.enqueue(
+                    encoder.encode(
+                      sseEvent({
+                        type: 'agent_chunk',
+                        agent: agent.role,
+                        content,
+                      }),
+                    ),
+                  )
+                }
+                if (parsed.usage?.completion_tokens) {
+                  tokenCount = parsed.usage.completion_tokens
+                }
+              } catch {
+                // skip malformed SSE lines
+              }
             }
           }
 
