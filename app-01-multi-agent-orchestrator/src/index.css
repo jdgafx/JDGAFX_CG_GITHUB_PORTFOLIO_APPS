@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0a0e1a;
+  --color-bg-secondary: #111827;
+  --color-bg-card: rgba(17, 24, 39, 0.7);
+  --color-bg-card-hover: rgba(17, 24, 39, 0.9);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-active: rgba(0, 212, 255, 0.3);
+  --color-accent: #00d4ff;
+  --color-accent-dim: rgba(0, 212, 255, 0.15);
+  --color-accent-glow: rgba(0, 212, 255, 0.4);
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-success: #00ff88;
+  --color-warning: #ffa500;
+  --color-error: #ff3366;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  height: 100dvh;
+}
+
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Glass morphism utility */
+.glass {
+  background: var(--color-bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--color-border);
+}
+
+.glass-active {
+  background: var(--color-bg-card-hover);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--color-border-active);
+  box-shadow: 0 0 30px var(--color-accent-dim), inset 0 0 30px rgba(0, 212, 255, 0.03);
+}
+
+/* Glow effects */
+.glow-accent {
+  box-shadow: 0 0 20px var(--color-accent-dim), 0 0 60px rgba(0, 212, 255, 0.08);
+}
+
+.text-glow {
+  text-shadow: 0 0 20px var(--color-accent-glow);
+}
+
+/* Pulse animation for active agents */
+@keyframes agent-pulse {
+  0%, 100% { box-shadow: 0 0 10px var(--color-accent-dim); }
+  50% { box-shadow: 0 0 30px var(--color-accent-glow), 0 0 60px var(--color-accent-dim); }
+}
+
+.agent-active {
+  animation: agent-pulse 2s ease-in-out infinite;
+}
+
+/* Typing cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+  content: '▊';
+  color: var(--color-accent);
+  animation: blink 1s step-end infinite;
+  margin-left: 1px;
+}
+
+/* React Flow overrides */
+.react-flow__background {
+  background: var(--color-bg-primary) !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--color-accent) !important;
+  stroke-opacity: 0.3;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-opacity: 0.7;
+  stroke-dasharray: 5;
+  animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+  to { stroke-dashoffset: -10; }
+}
+
+.react-flow__controls {
+  background: var(--color-bg-card) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  fill: var(--color-text-secondary) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-accent-dim) !important;
+  fill: var(--color-accent) !important;
+}
