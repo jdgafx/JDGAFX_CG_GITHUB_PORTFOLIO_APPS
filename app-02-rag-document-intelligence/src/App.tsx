@@ -121,7 +121,7 @@ export default function App() {
           >
             DocMind
           </span>
-          <span className="text-xs hidden sm:inline" style={{ color: 'var(--color-text-muted)' }}>Upload a PDF document, then ask questions about it. AI answers based on the actual content.</span>
+          <span className="text-xs hidden sm:inline" style={{ color: 'var(--color-text-muted)' }}>RAG Document Intelligence</span>
           {document && (
             <div
               className="flex items-center gap-2 px-3 py-1 rounded-full"
@@ -172,6 +172,11 @@ export default function App() {
           </div>
         )}
       </header>
+      <div className="w-full px-5 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)', background: 'rgba(0,255,136,0.02)' }}>
+        <p className="text-xs leading-relaxed max-w-3xl" style={{ color: 'var(--color-text-muted)', margin: 0 }}>
+          Upload any PDF document and ask questions about it in plain English. DocMind parses the file client-side, splits it into searchable chunks, then sends your question plus the most relevant passages to Claude AI for an accurate, context-grounded answer. Every response includes source chunk indices and a confidence score so you can verify the answer against the original document.
+        </p>
+      </div>
 
       <main className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait">

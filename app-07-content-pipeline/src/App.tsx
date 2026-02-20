@@ -94,7 +94,7 @@ export default function App() {
               <Sparkles className="h-5 w-5 text-lime-400" />
             </div>
             <h1 className="text-xl font-semibold tracking-tight text-white">ContentForge</h1>
-            <p className="text-xs text-slate-500 hidden sm:block">Enter a topic and watch AI generate polished content through a 5-step pipeline: Research, Outline, Draft, Edit, and Polish.</p>
+            <p className="text-xs text-slate-500 hidden sm:block">Agentic Content Pipeline</p>
           </div>
           {allDone && (
             <button
@@ -107,6 +107,11 @@ export default function App() {
           )}
         </div>
       </header>
+      <div className="border-b border-white/5 px-6 py-2" style={{ background: 'rgba(132,204,22,0.02)' }}>
+        <p className="mx-auto max-w-5xl text-xs text-slate-500 leading-relaxed" style={{ margin: 0 }}>
+          Enter any topic and choose a content type (blog post, technical article, marketing copy, newsletter, or social thread). ContentForge runs a 5-step AI pipeline — Research, Outline, Draft, Edit, and Polish — with each stage streaming in real time. Watch as Claude gathers facts, structures an outline, writes a full draft, refines the language, and produces publication-ready content. Copy the final polished output with one click.
+        </p>
+      </div>
 
       <main className="mx-auto max-w-5xl px-6 py-8">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row">

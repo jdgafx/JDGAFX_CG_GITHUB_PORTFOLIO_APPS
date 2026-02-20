@@ -406,7 +406,7 @@ export default function App() {
                 CodeLens<span style={{ color: '#ffa500' }}> AI</span>
               </h1>
               <p style={{ margin: 0, fontSize: '12px', color: '#4b5563', lineHeight: 1.3 }}>
-                Paste your code and get an instant AI review with line-by-line feedback and improvement suggestions.
+                AI-Powered Code Review Agent
               </p>
             </div>
           </div>
@@ -439,6 +439,11 @@ export default function App() {
           </div>
         </div>
       </header>
+      <div style={{ width: '100%', padding: '8px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,165,0,0.02)', flexShrink: 0 }}>
+        <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
+          Paste code in any supported language (JavaScript, TypeScript, Python, Rust, Go, Java, C++, and more) and get an instant AI-powered review. Claude analyzes your code line-by-line, flagging critical bugs, warnings, and suggestions with severity ratings. Each comment links to the exact line number, includes an explanation of the issue, and recommends a fix. Use this to catch bugs, improve code quality, and learn best practices.
+        </p>
+      </div>
 
       <main
         style={{

@@ -204,8 +204,13 @@ export default function App() {
     <div className="mesh-bg noise min-h-screen relative">
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
         <Header />
+        <div className="mt-3 rounded-xl px-4 py-2" style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.1)' }}>
+          <p className="text-xs text-slate-500 leading-relaxed" style={{ margin: 0, maxWidth: 860 }}>
+            Compare Claude AI models head-to-head. Select 2 or 3 models (Haiku 4.5, Sonnet 4.6, Sonnet 4), enter a prompt, and watch all responses stream simultaneously in real time. Each panel shows latency, input/output token counts, and estimated cost. The fastest model gets a trophy badge. Adjust temperature and max tokens in Settings.
+          </p>
+        </div>
 
-        <div className="mt-8 space-y-4">
+        <div className="mt-5 space-y-4">
           <PromptSection
             prompt={prompt}
             setPrompt={setPrompt}
@@ -340,7 +345,7 @@ function Header() {
             Model<span style={{ color: '#3b82f6' }}>Arena</span>
           </h1>
           <p className="text-xs text-slate-500 font-medium">
-            Compare Claude AI models side by side. Send the same prompt to multiple models and see which responds faster and better.
+            Multi-Model LLM Playground
           </p>
         </div>
       </div>

@@ -222,7 +222,7 @@ export default function App() {
           >
             Data<span style={{ color: '#ff3366' }}>Pilot</span>
           </span>
-          <span style={{ fontSize: 11, color: '#4a4a6a', fontWeight: 400, marginLeft: 4 }}>Upload CSV data or use samples, ask questions in plain English, get instant charts.</span>
+          <span style={{ fontSize: 11, color: '#4a4a6a', fontWeight: 400, marginLeft: 4 }}>AI Data Analyst</span>
         </div>
 
         <div ref={dropdownRef} style={{ position: 'relative' }}>
@@ -351,6 +351,11 @@ export default function App() {
           onChange={handleFileUpload}
         />
       </header>
+      <div style={{ width: '100%', padding: '8px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,51,102,0.02)', flexShrink: 0 }}>
+        <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
+          Upload your own CSV file or choose from built-in sample datasets (sales, analytics, weather). Ask questions in plain English — Claude AI interprets your query, generates a data analysis plan, and executes it client-side against your data. Results are displayed as interactive Recharts bar charts, line charts, and data tables. Supports filtering, aggregation, and trend analysis.
+        </p>
+      </div>
 
       <div
         style={{
