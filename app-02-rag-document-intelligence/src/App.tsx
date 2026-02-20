@@ -121,6 +121,7 @@ export default function App() {
           >
             DocMind
           </span>
+          <span className="text-xs hidden sm:inline" style={{ color: 'var(--color-text-muted)' }}>Upload a PDF document, then ask questions about it. AI answers based on the actual content.</span>
           {document && (
             <div
               className="flex items-center gap-2 px-3 py-1 rounded-full"
@@ -207,6 +208,9 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+      <footer className="text-center py-3 text-xs shrink-0" style={{ color: '#475569', borderTop: '1px solid var(--color-border)' }}>
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

@@ -60,7 +60,7 @@ export default async function handler(req: Request): Promise<Response> {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'anthropic/claude-sonnet-4',
+            model: 'anthropic/claude-sonnet-4.6',
             max_tokens: 1024,
             stream: true,
             messages: [

@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mic, MicOff, Volume2, Loader2, MessageCircle } from 'lucide-react'
+import { Mic, MicOff, Volume2, Loader2, MessageCircle, Send } from 'lucide-react'
 import { transcribe, chat } from './lib/api'
 import type { Message } from './lib/api'
 
@@ -10,6 +10,8 @@ export default function App() {
   const [appState, setAppState] = useState<AppState>('idle')
   const [messages, setMessages] = useState<Message[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [textInput, setTextInput] = useState('')
+  const [hasMic, setHasMic] = useState(true)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -18,6 +20,40 @@ export default function App() {
   const animFrameRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+
+  useEffect(() => {
+    navigator.mediaDevices?.enumerateDevices().then(devices => {
+      const audioInput = devices.some(d => d.kind === 'audioinput' && d.deviceId)
+      setHasMic(audioInput)
+    }).catch(() => setHasMic(false))
+  }, [])
+
+  const handleTextSubmit = useCallback(async () => {
+    const text = textInput.trim()
+    if (!text || appState !== 'idle') return
+    setTextInput('')
+    setError(null)
+
+    const userMessage: Message = { role: 'user', content: text }
+    setMessages(prev => [...prev, userMessage])
+    setAppState('thinking')
+
+    try {
+      const response = await chat(text, messages)
+      const assistantMessage: Message = { role: 'assistant', content: response }
+      setMessages(prev => [...prev, assistantMessage])
+      setAppState('speaking')
+      const utterance = new SpeechSynthesisUtterance(response)
+      utterance.rate = 1.0
+      utterance.pitch = 1.0
+      utterance.onend = () => setAppState('idle')
+      utterance.onerror = () => setAppState('idle')
+      speechSynthesis.speak(utterance)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI failed')
+      setAppState('idle')
+    }
+  }, [textInput, appState, messages])
 
   const drawWaveform = useCallback(() => {
     const canvas = canvasRef.current
@@ -195,8 +231,9 @@ export default function App() {
     } else if (appState === 'idle') {
       try {
         await startRecording()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Microphone access denied')
+      } catch {
+        setHasMic(false)
+        setError('No microphone found. Use the text input below to chat.')
         setAppState('idle')
       }
     } else if (appState === 'speaking') {
@@ -294,6 +331,27 @@ export default function App() {
           </div>
         </div>
 
+        <div className="w-full flex gap-2">
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
+            placeholder={hasMic ? 'Or type a message...' : 'Type a message...'}
+            disabled={appState !== 'idle'}
+            className="flex-1 px-4 py-3 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 disabled:opacity-50"
+            style={{ background: '#18181b', border: '1px solid #27272a' }}
+          />
+          <button
+            onClick={handleTextSubmit}
+            disabled={!textInput.trim() || appState !== 'idle'}
+            className="px-4 py-3 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
+          >
+            <Send size={16} />
+          </button>
+        </div>
+
         <AnimatePresence>
           {error && (
             <motion.div
@@ -348,7 +406,7 @@ export default function App() {
       </main>
 
       <footer className="pb-6 text-center text-xs text-zinc-600">
-        Powered by Groq Whisper + Claude
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
       </footer>
     </div>
   )

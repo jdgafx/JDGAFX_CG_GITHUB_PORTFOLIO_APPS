@@ -30,28 +30,28 @@ interface ModelResult {
 
 const MODELS: ModelConfig[] = [
   {
-    id: 'claude-3-5-haiku-20241022',
-    name: 'claude-3-5-haiku-20241022',
-    label: 'Claude 3.5 Haiku',
-    shortName: 'Haiku',
+    id: 'claude-haiku-4.5',
+    name: 'claude-haiku-4.5',
+    label: 'Claude Haiku 4.5',
+    shortName: 'Haiku 4.5',
     color: '#f59e0b',
-    costPer1kInput: 0.00025,
-    costPer1kOutput: 0.00125,
+    costPer1kInput: 0.001,
+    costPer1kOutput: 0.005,
   },
   {
-    id: 'claude-sonnet-4-20250514',
-    name: 'claude-sonnet-4-20250514',
-    label: 'Claude Sonnet 4',
-    shortName: 'Sonnet 4',
+    id: 'claude-sonnet-4.6',
+    name: 'claude-sonnet-4.6',
+    label: 'Claude Sonnet 4.6',
+    shortName: 'Sonnet 4.6',
     color: '#3b82f6',
     costPer1kInput: 0.003,
     costPer1kOutput: 0.015,
   },
   {
-    id: 'claude-3-5-sonnet-20241022',
-    name: 'claude-3-5-sonnet-20241022',
-    label: 'Claude 3.5 Sonnet',
-    shortName: 'Sonnet 3.5',
+    id: 'claude-sonnet-4',
+    name: 'claude-sonnet-4',
+    label: 'Claude Sonnet 4',
+    shortName: 'Sonnet 4',
     color: '#8b5cf6',
     costPer1kInput: 0.003,
     costPer1kOutput: 0.015,
@@ -80,8 +80,8 @@ export default function App() {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(1024)
   const [selectedModels, setSelectedModels] = useState<string[]>([
-    'claude-3-5-haiku-20241022',
-    'claude-sonnet-4-20250514',
+    'claude-haiku-4.5',
+    'claude-sonnet-4.6',
   ])
   const [results, setResults] = useState<Record<string, ModelResult>>({})
   const [running, setRunning] = useState(false)
@@ -306,6 +306,9 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        <footer className="text-center py-4 text-xs text-slate-600">
+          Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+        </footer>
       </div>
     </div>
   )
@@ -336,8 +339,8 @@ function Header() {
           <h1 className="text-2xl font-black tracking-tight text-white">
             Model<span style={{ color: '#3b82f6' }}>Arena</span>
           </h1>
-          <p className="text-xs text-slate-500 font-medium tracking-widest uppercase">
-            Claude Comparison Lab
+          <p className="text-xs text-slate-500 font-medium">
+            Compare Claude AI models side by side. Send the same prompt to multiple models and see which responds faster and better.
           </p>
         </div>
       </div>

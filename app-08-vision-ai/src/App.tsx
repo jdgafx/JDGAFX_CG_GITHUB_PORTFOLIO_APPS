@@ -195,7 +195,7 @@ export default function App() {
           </div>
           <span className="font-bold text-sm tracking-tight">VisionLab</span>
           <span className="hidden sm:block text-white/20 text-xs font-light">
-            Multimodal Vision AI
+            Upload an image and let AI describe, analyze, extract text from, or answer questions about what it sees.
           </span>
         </div>
 
@@ -570,6 +570,9 @@ export default function App() {
         className="hidden"
         onChange={handleInputChange}
       />
+      <footer className="relative z-10 text-center py-3 text-xs text-white/20 border-t border-white/[0.04]">
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

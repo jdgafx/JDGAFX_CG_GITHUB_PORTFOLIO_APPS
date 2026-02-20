@@ -94,6 +94,7 @@ export default function App() {
               <Sparkles className="h-5 w-5 text-lime-400" />
             </div>
             <h1 className="text-xl font-semibold tracking-tight text-white">ContentForge</h1>
+            <p className="text-xs text-slate-500 hidden sm:block">Enter a topic and watch AI generate polished content through a 5-step pipeline: Research, Outline, Draft, Edit, and Polish.</p>
           </div>
           {allDone && (
             <button
@@ -286,6 +287,9 @@ export default function App() {
           </motion.div>
         )}
       </main>
+      <footer className="text-center py-3 text-xs text-slate-600 border-t border-white/5">
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

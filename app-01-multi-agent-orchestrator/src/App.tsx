@@ -161,6 +161,7 @@ export default function App() {
             <Bot size={20} />
           </div>
           <span style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', letterSpacing: -0.3 }}>AgentFlow</span>
+          <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8, fontWeight: 400 }}>Enter a research topic and watch 4 AI agents collaborate in real time.</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, fontSize: 13, color: '#94a3b8' }}>
           {isRunning && (
@@ -314,6 +315,9 @@ export default function App() {
           </button>
         </div>
       </div>
+      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

@@ -222,6 +222,7 @@ export default function App() {
           >
             Data<span style={{ color: '#ff3366' }}>Pilot</span>
           </span>
+          <span style={{ fontSize: 11, color: '#4a4a6a', fontWeight: 400, marginLeft: 4 }}>Upload CSV data or use samples, ask questions in plain English, get instant charts.</span>
         </div>
 
         <div ref={dropdownRef} style={{ position: 'relative' }}>
@@ -925,6 +926,9 @@ export default function App() {
           )}
         </aside>
       </div>
+      <footer style={{ textAlign: 'center', padding: '8px 0', fontSize: 11, color: '#4a4a6a', borderTop: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

@@ -406,7 +406,7 @@ export default function App() {
                 CodeLens<span style={{ color: '#ffa500' }}> AI</span>
               </h1>
               <p style={{ margin: 0, fontSize: '12px', color: '#4b5563', lineHeight: 1.3 }}>
-                AI-powered code review
+                Paste your code and get an instant AI review with line-by-line feedback and improvement suggestions.
               </p>
             </div>
           </div>
@@ -764,6 +764,9 @@ export default function App() {
           </motion.button>
         </div>
       </main>
+      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

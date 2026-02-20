@@ -666,7 +666,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">BrowseBot</h1>
-              <p className="text-xs text-slate-500">AI Browser Automation</p>
+              <p className="text-xs text-slate-500">Describe a web task and watch AI plan step-by-step browser automation with simulated clicks, typing, and navigation.</p>
             </div>
           </div>
 
@@ -804,6 +804,9 @@ export default function App() {
           <StepTimeline steps={steps} currentStepIndex={currentStepIndex} />
         )}
       </div>
+      <footer className="text-center py-3 text-xs text-slate-600 border-t border-slate-800/40">
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

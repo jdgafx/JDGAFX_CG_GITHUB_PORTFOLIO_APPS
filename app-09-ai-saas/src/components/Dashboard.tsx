@@ -176,6 +176,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
               <BarChart3 size={18} color="white" />
             </div>
             <span style={{ fontSize: '18px', fontWeight: 700, color: '#f1f5f9' }}>InsightHub</span>
+            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>AI-powered analytics dashboard with intelligent business insights.</span>
             {isDemoMode && (
               <span
                 style={{
@@ -507,6 +508,9 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
           )}
         </motion.div>
       </main>
+      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(99,102,241,0.1)' }}>
+        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      </footer>
     </div>
   )
 }

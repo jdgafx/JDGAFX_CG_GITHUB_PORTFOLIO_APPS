@@ -43,8 +43,8 @@ Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, n
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-3.5-haiku',
-        max_tokens: 2048,
+        model: 'anthropic/claude-haiku-4.5',
+        max_tokens: 1024,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Review this ${lang}:\n\n\`\`\`${lang}\n${code}\n\`\`\`` },
