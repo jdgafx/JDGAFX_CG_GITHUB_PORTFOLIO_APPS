@@ -176,7 +176,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
               <BarChart3 size={18} color="white" />
             </div>
             <span style={{ fontSize: '18px', fontWeight: 700, color: '#f1f5f9' }}>InsightHub</span>
-            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>AI-powered analytics dashboard with intelligent business insights.</span>
+            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>Track API usage, token consumption, response times, and costs across your AI integrations. Click &quot;Generate AI Insights&quot; to get Claude-powered analysis of your metrics with actionable recommendations.</span>
             {isDemoMode && (
               <span
                 style={{

@@ -263,6 +263,11 @@ export default function App() {
         </div>
         <span className="text-xs text-zinc-500 font-mono">Voice AI Assistant</span>
       </header>
+      <div className="w-full px-8 py-3 border-b border-zinc-800/30" style={{ background: 'rgba(139,92,246,0.03)' }}>
+        <p className="text-xs text-zinc-400 leading-relaxed max-w-2xl mx-auto text-center" style={{ margin: 0 }}>
+          Speak or type to chat with an AI assistant. Tap the microphone to record your voice — it gets transcribed in real time using Groq Whisper, sent to Claude AI for a response, then spoken back to you with text-to-speech. No mic? Use the text input below instead.
+        </p>
+      </div>
 
       <main className="flex-1 flex flex-col items-center justify-center gap-10 px-6 py-12 w-full max-w-2xl mx-auto">
         <div className="flex flex-col items-center gap-6 w-full">
