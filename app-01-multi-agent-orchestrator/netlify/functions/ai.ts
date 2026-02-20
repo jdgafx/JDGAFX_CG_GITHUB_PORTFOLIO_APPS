@@ -5,6 +5,7 @@ interface AgentConfig {
   name: string
   systemPrompt: string
   buildUserMessage: (query: string, context: Record<string, string>) => string
+  maxTokens: number
 }
 
 const agents: AgentConfig[] = [
@@ -15,6 +16,7 @@ const agents: AgentConfig[] = [
       'You are a world-class research agent. Your task is to deeply research a topic and provide comprehensive, factual findings with specific data points, statistics, and key insights. Be thorough but concise. Cite sources where possible. Use markdown formatting.',
     buildUserMessage: (query: string) =>
       `Research the following topic thoroughly. Provide key findings, important data points, relevant statistics, and emerging trends.\n\nTopic: ${query}`,
+    maxTokens: 1024,
   },
   {
     role: 'analyst',
@@ -23,6 +25,7 @@ const agents: AgentConfig[] = [
       'You are an expert analytical agent. You take raw research findings and structure them into a clear, insightful analysis. Identify patterns, correlations, implications, and actionable insights. Use markdown formatting with headers and bullet points.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
       `Analyze the following research findings on "${query}". Identify key patterns, implications, and insights.\n\nResearch Findings:\n${ctx['researcher']}`,
+    maxTokens: 1024,
   },
   {
     role: 'critic',
@@ -31,6 +34,7 @@ const agents: AgentConfig[] = [
       'You are a rigorous critical review agent. You examine analyses for gaps, biases, logical fallacies, missing perspectives, and areas that need deeper investigation. Be constructive but thorough. Use markdown formatting.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
       `Critically review this analysis on "${query}". Identify gaps, potential biases, missing perspectives, and areas for improvement.\n\nAnalysis:\n${ctx['analyst']}`,
+    maxTokens: 1024,
   },
   {
     role: 'synthesizer',
@@ -39,6 +43,7 @@ const agents: AgentConfig[] = [
       'You are a master synthesis agent. You combine research findings, analysis, and critical review into a final, polished, comprehensive report. The report should be well-structured, actionable, and ready for executive consumption. Use markdown formatting with clear sections.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
       `Create a final comprehensive report on "${query}" by synthesizing all inputs below.\n\nResearch Findings:\n${ctx['researcher']}\n\nAnalysis:\n${ctx['analyst']}\n\nCritical Review:\n${ctx['critic']}`,
+    maxTokens: 4096,
   },
 ]
 
@@ -96,7 +101,7 @@ export default async (req: Request): Promise<Response> => {
             },
             body: JSON.stringify({
               model: 'anthropic/claude-haiku-4.5',
-              max_tokens: 1024,
+              max_tokens: agent.maxTokens,
               stream: true,
               messages: [
                 { role: 'system', content: agent.systemPrompt },

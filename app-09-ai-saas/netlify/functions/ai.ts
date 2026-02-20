@@ -8,20 +8,17 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
   }
 
-  const body = await req.json() as {
-    metrics: {
-      totalApiCalls: number
-      totalTokens: number
-      avgResponseTime: number
-      totalCost: number
-      apiCallsTrend: number
-      tokensTrend: number
-      responseTimeTrend: number
-      costTrend: number
-    }
+  let body: { metrics?: { totalApiCalls: number; totalTokens: number; avgResponseTime: number; totalCost: number; apiCallsTrend: number; tokensTrend: number; responseTimeTrend: number; costTrend: number } }
+  try {
+    body = await req.json() as typeof body
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
 
   const { metrics } = body
+  if (!metrics || typeof metrics.totalApiCalls !== 'number') {
+    return new Response(JSON.stringify({ error: 'metrics object with totalApiCalls is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
 
   const prompt = `You are an expert SaaS analytics consultant. Analyze these API usage metrics from the last 15 days and provide 4-5 concise, actionable insights:
 

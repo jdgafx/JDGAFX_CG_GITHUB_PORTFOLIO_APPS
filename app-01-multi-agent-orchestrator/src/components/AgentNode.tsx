@@ -27,12 +27,12 @@ export function AgentNode({ data }: { data: AgentState }) {
     >
       <Handle
         type="target"
-        position={Position.Left}
+        position={Position.Top}
         style={{ background: '#00d4ff', border: 'none', width: 8, height: 8 }}
       />
       <Handle
         type="source"
-        position={Position.Right}
+        position={Position.Bottom}
         style={{ background: '#00d4ff', border: 'none', width: 8, height: 8 }}
       />
 

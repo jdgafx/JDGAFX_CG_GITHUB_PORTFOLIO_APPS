@@ -17,8 +17,16 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
   }
 
-  const body = (await req.json()) as RequestBody
+  let body: RequestBody
+  try {
+    body = (await req.json()) as RequestBody
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
   const { image, mediaType, mode, question } = body
+  if (!image || !mode) {
+    return new Response(JSON.stringify({ error: 'image and mode are required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
 
   const systemPrompts: Record<string, string> = {
     describe:
