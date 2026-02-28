@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Chris G. — AI Engineer &amp; Full-Stack Developer</title>
-  <meta name="description" content="Portfolio of Chris G. 10 production AI applications: multi-agent orchestration, RAG systems, voice AI, computer vision, browser automation, and more." />
-  <meta name="theme-color" content="#050508" />
+  <title>Chris G. — Generative AI &amp; Hyperagentic Engineer</title>
+  <meta name="description" content="Chris G. — Generative AI & Hyperagentic Engineer. 10 production AI apps built with Claude Code, Anthropic API, React 19, TypeScript, and serverless architecture." />
+  <meta name="theme-color" content="#0a0a0a" />
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Chris G. — AI Engineer & Full-Stack Developer" />
-  <meta property="og:description" content="10 live AI applications spanning multi-agent orchestration, RAG, voice AI, computer vision, and browser automation." />
+  <meta property="og:title" content="Chris G. — Generative AI & Hyperagentic Engineer" />
+  <meta property="og:description" content="10 production AI apps built with Claude Code, Anthropic API, React 19, TypeScript, and serverless architecture." />
   <meta property="og:url" content="https://jdgafx.github.io/JDGAFX_CG_GITHUB_PORTFOLIO_APPS/" />
   <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="Chris G. — AI Engineer & Full-Stack Developer" />
-  <meta name="twitter:description" content="10 live AI applications spanning multi-agent orchestration, RAG, voice AI, computer vision, and browser automation." />
+  <meta name="twitter:title" content="Chris G. — Generative AI & Hyperagentic Engineer" />
+  <meta name="twitter:description" content="10 production AI apps built with Claude Code, Anthropic API, React 19, TypeScript, and serverless architecture." />
   <!-- Favicon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -117,7 +117,7 @@
 
     .nav-brand {
       font-family: var(--mono);
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 500;
       color: var(--gold);
       letter-spacing: 2px;
@@ -132,7 +132,7 @@
     }
 
     .nav-links a {
-      font-size: 13px;
+      font-size: 15px;
       color: var(--text-dim);
       text-decoration: none;
       letter-spacing: 0.5px;
@@ -152,26 +152,39 @@
 
     .hero-eyebrow {
       font-family: var(--serif);
-      font-size: clamp(36px, 6vw, 64px);
+      font-size: clamp(44px, 7vw, 80px);
       font-weight: 400;
       letter-spacing: -1px;
       color: var(--gold);
-      margin-bottom: 16px;
-      line-height: 1.1;
+      margin-bottom: 12px;
+      line-height: 1.05;
       opacity: 0;
       animation: fadeUp 0.8s 0.3s cubic-bezier(0.16,1,0.3,1) forwards;
     }
 
+    .hero-role {
+      font-family: var(--mono);
+      font-size: clamp(14px, 2vw, 18px);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--accent-blue);
+      margin-bottom: 32px;
+      opacity: 0;
+      animation: fadeUp 0.9s 0.45s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .hero-role .red { color: var(--accent-red); }
+
     .hero h1 {
       font-family: var(--serif);
-      font-size: clamp(48px, 8vw, 96px);
+      font-size: clamp(52px, 8.5vw, 104px);
       font-weight: 400;
-      line-height: 1.05;
-      letter-spacing: -2px;
+      line-height: 1.02;
+      letter-spacing: -3px;
       color: var(--text);
-      max-width: 900px;
+      max-width: 960px;
       opacity: 0;
-      animation: fadeUp 1s 0.5s cubic-bezier(0.16,1,0.3,1) forwards;
+      animation: fadeUp 1s 0.55s cubic-bezier(0.16,1,0.3,1) forwards;
     }
 
     .hero h1 em {
@@ -180,10 +193,10 @@
     }
 
     .hero-sub {
-      font-size: clamp(15px, 2vw, 18px);
+      font-size: clamp(17px, 2.2vw, 22px);
       color: var(--text-dim);
-      max-width: 540px;
-      margin-top: 28px;
+      max-width: 620px;
+      margin-top: 32px;
       font-weight: 300;
       line-height: 1.7;
       opacity: 0;
@@ -206,12 +219,12 @@
 
     .hero-meta-value {
       font-family: var(--serif);
-      font-size: 32px;
+      font-size: 38px;
       color: var(--text);
     }
 
     .hero-meta-label {
-      font-size: 11px;
+      font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 2px;
       color: var(--text-muted);
@@ -256,7 +269,7 @@
 
     .section-label {
       font-family: var(--mono);
-      font-size: 11px;
+      font-size: 13px;
       letter-spacing: 4px;
       text-transform: uppercase;
       color: var(--gold);
@@ -265,7 +278,7 @@
 
     .section-title {
       font-family: var(--serif);
-      font-size: clamp(32px, 5vw, 52px);
+      font-size: clamp(36px, 5.5vw, 60px);
       font-weight: 400;
       letter-spacing: -1px;
       line-height: 1.15;
@@ -333,7 +346,7 @@
 
     .app-number {
       font-family: var(--mono);
-      font-size: 11px;
+      font-size: 13px;
       color: var(--text-muted);
       letter-spacing: 1px;
     }
@@ -351,10 +364,10 @@
 
     .app-status {
       font-family: var(--mono);
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 1px;
       text-transform: uppercase;
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: 100px;
       border: 1px solid rgba(255,255,255,0.08);
       color: var(--text-dim);
@@ -366,10 +379,10 @@
 
     .app-name {
       font-family: var(--serif);
-      font-size: 26px;
+      font-size: 30px;
       font-weight: 400;
       letter-spacing: -0.5px;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       transition: color 0.3s;
     }
 
@@ -378,16 +391,16 @@
     }
 
     .app-subtitle {
-      font-size: 13px;
+      font-size: 15px;
       color: var(--text-muted);
       margin-bottom: 14px;
       font-weight: 400;
     }
 
     .app-desc {
-      font-size: 14px;
+      font-size: 16px;
       color: var(--text-dim);
-      line-height: 1.65;
+      line-height: 1.7;
       font-weight: 300;
     }
 
@@ -407,9 +420,9 @@
 
     .app-tech span {
       font-family: var(--mono);
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 0.5px;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 4px;
       background: rgba(255,255,255,0.04);
       color: var(--text-muted);
@@ -475,7 +488,7 @@
 
     .tech-bar-item {
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 14px;
       color: var(--text-muted);
       letter-spacing: 1px;
       display: flex;
@@ -507,7 +520,7 @@
 
     .footer-brand {
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 14px;
       color: var(--text-muted);
       letter-spacing: 2px;
     }
@@ -519,7 +532,7 @@
     }
 
     .footer-links a {
-      font-size: 13px;
+      font-size: 15px;
       color: var(--text-muted);
       text-decoration: none;
       transition: color 0.3s;
@@ -593,12 +606,14 @@
     <!-- HERO -->
     <section class="hero">
       <div class="container">
-        <p class="hero-eyebrow">Chris G. &mdash; AI Engineer</p>
-        <h1>I build <em>AI systems</em> that actually ship</h1>
+        <p class="hero-eyebrow">Chris G.</p>
+        <p class="hero-role">Generative AI <span class="red">&bull;</span> Hyperagentic Engineer</p>
+        <h1>I build <em>AI agents</em> that actually ship</h1>
         <p class="hero-sub">
-          10 production applications spanning multi-agent orchestration,
-          RAG pipelines, voice AI, computer vision, and real-time streaming &mdash;
-          a hyperagentic approach to software where AI agents don't just assist, they execute.
+          10 production apps built with Claude Code and the Anthropic API &mdash;
+          multi-agent orchestration, RAG pipelines, voice AI, computer vision,
+          and real-time streaming. Hyperagentic development where AI agents
+          don't just assist, they execute.
         </p>
         <div class="hero-meta">
           <div class="hero-meta-item">
@@ -606,11 +621,11 @@
             <span class="hero-meta-label">Live Apps</span>
           </div>
           <div class="hero-meta-item">
-            <span class="hero-meta-value">Full-Stack</span>
-            <span class="hero-meta-label">React + Serverless</span>
+            <span class="hero-meta-value">Claude</span>
+            <span class="hero-meta-label">Anthropic API</span>
           </div>
           <div class="hero-meta-item">
-            <span class="hero-meta-value">AI-Native</span>
+            <span class="hero-meta-value">Agentic</span>
             <span class="hero-meta-label">Multi-Agent Architecture</span>
           </div>
         </div>
@@ -624,43 +639,52 @@
     <!-- TECH BAR -->
     <div class="container">
       <div class="tech-bar">
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Claude Code</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Anthropic API</div>
         <div class="tech-bar-item"><div class="tech-bar-dot"></div>Multi-Agent AI</div>
         <div class="tech-bar-item"><div class="tech-bar-dot"></div>RAG Pipelines</div>
-        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Claude API</div>
         <div class="tech-bar-item"><div class="tech-bar-dot"></div>React 19</div>
-        <div class="tech-bar-item"><div class="tech-bar-dot"></div>TypeScript</div>
-        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Node.js</div>
-        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Serverless</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>TypeScript 5</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Vite 6</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Tailwind v4</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Netlify Functions</div>
         <div class="tech-bar-item"><div class="tech-bar-dot"></div>Supabase</div>
         <div class="tech-bar-item"><div class="tech-bar-dot"></div>SSE Streaming</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Node.js</div>
       </div>
     </div>
 
     <!-- ABOUT -->
-    <section id="about" style="padding: 60px 0 20px">
-      <div class="container" style="max-width: 720px; text-align: center">
+    <section id="about" style="padding: 80px 0 40px">
+      <div class="container" style="max-width: 780px; text-align: center">
         <p class="section-label">About</p>
-        <h2 class="section-title" style="margin-bottom: 24px">Who I Am</h2>
-        <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.05rem; line-height: 1.75; margin-bottom: 16px">
-          I'm Chris &mdash; a full-stack AI engineer who ships production systems, not prototypes.
-          I work across the entire stack: React frontends, serverless backends, real-time streaming,
-          multi-agent orchestration, RAG pipelines, and computer vision. Every app in this portfolio
-          is live, deployed, and handling real requests.
+        <h2 class="section-title" style="margin-bottom: 28px">Who I Am</h2>
+        <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.2rem; line-height: 1.8; margin-bottom: 20px">
+          I'm Chris &mdash; a generative AI and hyperagentic engineer who ships production systems,
+          not prototypes. I build with <strong style="color: var(--text)">Claude Code</strong>,
+          the <strong style="color: var(--text)">Anthropic API</strong>, and the latest
+          Claude models (Haiku 4.5, Sonnet 4.6, Opus 4.6) to create multi-agent systems
+          that reason, collaborate, and deliver results autonomously.
         </p>
-        <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.05rem; line-height: 1.75; margin-bottom: 28px">
-          I practice hyperagentic development &mdash; building systems where multiple AI agents
-          collaborate, reason, and deliver results autonomously. The ten applications below
-          are the proof.
+        <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.2rem; line-height: 1.8; margin-bottom: 20px">
+          My stack: React 19, TypeScript 5, Vite 6, Tailwind v4, Netlify Functions,
+          Supabase, SSE streaming, and agentic AI orchestration. Every app below is live,
+          deployed, and handling real requests on serverless infrastructure.
+        </p>
+        <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.2rem; line-height: 1.8; margin-bottom: 32px">
+          I practice <strong style="color: var(--gold)">hyperagentic development</strong> &mdash;
+          where AI agents don't just assist, they architect, code, test, and deploy.
+          The ten applications below are the proof.
         </p>
         <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap">
           <a href="https://github.com/jdgafx" target="_blank" rel="noopener"
-             style="font-family: var(--mono); font-size: 0.82rem; color: var(--gold); text-decoration: none; border: 1px solid var(--gold-dim); padding: 8px 20px; border-radius: 6px; transition: background 0.2s"
-             onmouseover="this.style.background='rgba(196,162,101,0.1)'" onmouseout="this.style.background='transparent'">
+             style="font-family: var(--mono); font-size: 0.95rem; color: var(--gold); text-decoration: none; border: 1px solid var(--gold-dim); padding: 10px 24px; border-radius: 6px; transition: background 0.2s"
+             onmouseover="this.style.background='rgba(245,197,24,0.1)'" onmouseout="this.style.background='transparent'">
             GitHub &rarr;
           </a>
           <a href="mailto:jdgafx@users.noreply.github.com"
-             style="font-family: var(--mono); font-size: 0.82rem; color: var(--gold); text-decoration: none; border: 1px solid var(--gold-dim); padding: 8px 20px; border-radius: 6px; transition: background 0.2s"
-             onmouseover="this.style.background='rgba(196,162,101,0.1)'" onmouseout="this.style.background='transparent'">
+             style="font-family: var(--mono); font-size: 0.95rem; color: var(--accent-blue); text-decoration: none; border: 1px solid rgba(37,99,235,0.2); padding: 10px 24px; border-radius: 6px; transition: background 0.2s"
+             onmouseover="this.style.background='rgba(37,99,235,0.1)'" onmouseout="this.style.background='transparent'">
             Contact &rarr;
           </a>
         </div>
