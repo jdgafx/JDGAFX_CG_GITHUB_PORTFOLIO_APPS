@@ -6,7 +6,7 @@ import Dashboard from './components/Dashboard'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
-  const [isDemoMode, setIsDemoMode] = useState(false)
+  const [isDemoMode, setIsDemoMode] = useState(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
