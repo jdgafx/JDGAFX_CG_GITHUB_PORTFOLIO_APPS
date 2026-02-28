@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JDGAFX — AI Portfolio</title>
+  <meta name="description" content="10 production AI applications by jdgafx. Multi-agent orchestration, RAG intelligence, code review, voice AI, data analysis, and more." />
+  <meta name="theme-color" content="#050508" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    :root {
+      --bg: #050508;
+      --bg-elevated: #0c0c12;
+      --bg-card: #0f0f18;
+      --text: #e8e4df;
+      --text-dim: #8a8690;
+      --text-muted: #5a5660;
+      --gold: #c4a265;
+      --gold-dim: rgba(196,162,101,0.12);
+      --border: rgba(255,255,255,0.06);
+      --serif: 'Instrument Serif', Georgia, serif;
+      --sans: 'Outfit', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    ::selection {
+      background: var(--gold);
+      color: var(--bg);
+    }
+
+    /* ---- NOISE TEXTURE ---- */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ---- AMBIENT GRADIENTS ---- */
+    .ambient {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 600px 400px at 15% 10%, rgba(196,162,101,0.04) 0%, transparent 100%),
+        radial-gradient(ellipse 500px 500px at 85% 85%, rgba(100,80,160,0.03) 0%, transparent 100%),
+        radial-gradient(ellipse 800px 300px at 50% 50%, rgba(196,162,101,0.015) 0%, transparent 100%);
+    }
+
+    /* ---- LAYOUT ---- */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 clamp(20px, 5vw, 60px);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ---- NAV ---- */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px 0;
+      transition: all 0.4s cubic-bezier(0.16,1,0.3,1);
+    }
+
+    nav.scrolled {
+      background: rgba(5,5,8,0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+
+    nav .container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-brand {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-decoration: none;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 13px;
+      color: var(--text-dim);
+      text-decoration: none;
+      letter-spacing: 0.5px;
+      transition: color 0.3s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    /* ---- HERO ---- */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-top: 80px;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 24px;
+      opacity: 0;
+      animation: fadeUp 0.8s 0.3s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .hero h1 {
+      font-family: var(--serif);
+      font-size: clamp(48px, 8vw, 96px);
+      font-weight: 400;
+      line-height: 1.05;
+      letter-spacing: -2px;
+      color: var(--text);
+      max-width: 900px;
+      opacity: 0;
+      animation: fadeUp 1s 0.5s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .hero h1 em {
+      font-style: italic;
+      color: var(--gold);
+    }
+
+    .hero-sub {
+      font-size: clamp(15px, 2vw, 18px);
+      color: var(--text-dim);
+      max-width: 540px;
+      margin-top: 28px;
+      font-weight: 300;
+      line-height: 1.7;
+      opacity: 0;
+      animation: fadeUp 1s 0.7s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 40px;
+      margin-top: 48px;
+      opacity: 0;
+      animation: fadeUp 1s 0.9s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .hero-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .hero-meta-value {
+      font-family: var(--serif);
+      font-size: 32px;
+      color: var(--text);
+    }
+
+    .hero-meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+    }
+
+    .scroll-indicator {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      animation: fadeUp 1s 1.2s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+
+    .scroll-indicator span {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .scroll-line {
+      width: 1px;
+      height: 40px;
+      background: linear-gradient(to bottom, var(--gold), transparent);
+      animation: scrollPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes scrollPulse {
+      0%,100% { opacity: 0.3; transform: scaleY(0.6); }
+      50% { opacity: 1; transform: scaleY(1); }
+    }
+
+    /* ---- SECTION HEADERS ---- */
+    .section-header {
+      padding: 120px 0 60px;
+    }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-family: var(--serif);
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 400;
+      letter-spacing: -1px;
+      line-height: 1.15;
+    }
+
+    /* ---- APP GRID ---- */
+    .apps-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+      padding-bottom: 120px;
+    }
+
+    @media (max-width: 768px) {
+      .apps-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ---- APP CARD ---- */
+    .app-card {
+      position: relative;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      transition: all 0.5s cubic-bezier(0.16,1,0.3,1);
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(30px);
+    }
+
+    .app-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .app-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 16px;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+
+    .app-card:hover {
+      border-color: rgba(255,255,255,0.12);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .app-card:hover::before {
+      opacity: 1;
+    }
+
+    .app-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .app-number {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    .app-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .app-status {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 100px;
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text-dim);
+    }
+
+    .app-card-body {
+      flex: 1;
+    }
+
+    .app-name {
+      font-family: var(--serif);
+      font-size: 26px;
+      font-weight: 400;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+      transition: color 0.3s;
+    }
+
+    .app-card:hover .app-name {
+      color: var(--card-accent, var(--gold));
+    }
+
+    .app-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      font-weight: 400;
+    }
+
+    .app-desc {
+      font-size: 14px;
+      color: var(--text-dim);
+      line-height: 1.65;
+      font-weight: 300;
+    }
+
+    .app-card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .app-tech {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .app-tech span {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.04);
+      color: var(--text-muted);
+    }
+
+    .app-arrow {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      transition: all 0.3s;
+      flex-shrink: 0;
+    }
+
+    .app-card:hover .app-arrow {
+      border-color: var(--card-accent, var(--gold));
+      color: var(--card-accent, var(--gold));
+      transform: translate(2px, -2px);
+    }
+
+    /* ---- FEATURED CARD (spans 2 cols) ---- */
+    .app-card.featured {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      gap: 40px;
+      padding: 44px;
+    }
+
+    .app-card.featured .app-card-body {
+      max-width: 560px;
+    }
+
+    .app-card.featured .app-preview {
+      flex: 1;
+      min-height: 200px;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      .app-card.featured {
+        flex-direction: column;
+        grid-column: 1;
+      }
+    }
+
+    /* ---- TECH STACK SECTION ---- */
+    .tech-bar {
+      display: flex;
+      gap: 32px;
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 120px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tech-bar-item {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tech-bar-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      opacity: 0.5;
+    }
+
+    /* ---- FOOTER ---- */
+    footer {
+      padding: 60px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    footer .container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-brand {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+
+    .footer-links a:hover { color: var(--gold); }
+
+    /* ---- ANIMATIONS ---- */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ---- ACCENT GLOW PER CARD ---- */
+    .app-card[data-accent="cyan"]    { --card-accent: #00d4ff; }
+    .app-card[data-accent="emerald"] { --card-accent: #00ff88; }
+    .app-card[data-accent="orange"]  { --card-accent: #ffa500; }
+    .app-card[data-accent="violet"]  { --card-accent: #8b5cf6; }
+    .app-card[data-accent="rose"]    { --card-accent: #ff3366; }
+    .app-card[data-accent="blue"]    { --card-accent: #3b82f6; }
+    .app-card[data-accent="lime"]    { --card-accent: #84cc16; }
+    .app-card[data-accent="crimson"] { --card-accent: #f43f5e; }
+    .app-card[data-accent="indigo"]  { --card-accent: #818cf8; }
+    .app-card[data-accent="teal"]    { --card-accent: #14b8a6; }
+
+    .app-card[data-accent="cyan"]::before    { background: radial-gradient(ellipse at 30% 20%, rgba(0,212,255,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="emerald"]::before { background: radial-gradient(ellipse at 30% 20%, rgba(0,255,136,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="orange"]::before  { background: radial-gradient(ellipse at 30% 20%, rgba(255,165,0,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="violet"]::before  { background: radial-gradient(ellipse at 30% 20%, rgba(139,92,246,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="rose"]::before    { background: radial-gradient(ellipse at 30% 20%, rgba(255,51,102,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="blue"]::before    { background: radial-gradient(ellipse at 30% 20%, rgba(59,130,246,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="lime"]::before    { background: radial-gradient(ellipse at 30% 20%, rgba(132,204,22,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="crimson"]::before { background: radial-gradient(ellipse at 30% 20%, rgba(244,63,94,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="indigo"]::before  { background: radial-gradient(ellipse at 30% 20%, rgba(129,140,248,0.06) 0%, transparent 60%); }
+    .app-card[data-accent="teal"]::before    { background: radial-gradient(ellipse at 30% 20%, rgba(20,184,166,0.06) 0%, transparent 60%); }
+
+    .app-icon[data-accent="cyan"]    { background: rgba(0,212,255,0.1);  color: #00d4ff; }
+    .app-icon[data-accent="emerald"] { background: rgba(0,255,136,0.1);  color: #00ff88; }
+    .app-icon[data-accent="orange"]  { background: rgba(255,165,0,0.1);  color: #ffa500; }
+    .app-icon[data-accent="violet"]  { background: rgba(139,92,246,0.1); color: #8b5cf6; }
+    .app-icon[data-accent="rose"]    { background: rgba(255,51,102,0.1); color: #ff3366; }
+    .app-icon[data-accent="blue"]    { background: rgba(59,130,246,0.1); color: #3b82f6; }
+    .app-icon[data-accent="lime"]    { background: rgba(132,204,22,0.1); color: #84cc16; }
+    .app-icon[data-accent="crimson"] { background: rgba(244,63,94,0.1);  color: #f43f5e; }
+    .app-icon[data-accent="indigo"]  { background: rgba(129,140,248,0.1);color: #818cf8; }
+    .app-icon[data-accent="teal"]    { background: rgba(20,184,166,0.1); color: #14b8a6; }
+
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 600px) {
+      .hero-meta { flex-wrap: wrap; gap: 24px; }
+      .nav-links { gap: 16px; }
+      .tech-bar { gap: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+
+  <nav id="nav">
+    <div class="container">
+      <a href="#" class="nav-brand">JDGAFX</a>
+      <ul class="nav-links">
+        <li><a href="#apps">Apps</a></li>
+        <li><a href="https://github.com/jdgafx" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="container">
+        <p class="hero-eyebrow">AI Engineering Portfolio</p>
+        <h1>Building the <em>future</em> with intelligent software</h1>
+        <p class="hero-sub">
+          10 production applications showcasing multi-agent orchestration,
+          RAG systems, voice AI, computer vision, and real-time streaming &mdash;
+          each independently deployed and battle-tested.
+        </p>
+        <div class="hero-meta">
+          <div class="hero-meta-item">
+            <span class="hero-meta-value">10</span>
+            <span class="hero-meta-label">Applications</span>
+          </div>
+          <div class="hero-meta-item">
+            <span class="hero-meta-value">Live</span>
+            <span class="hero-meta-label">Production</span>
+          </div>
+          <div class="hero-meta-item">
+            <span class="hero-meta-value">Full-Stack</span>
+            <span class="hero-meta-label">React + Serverless</span>
+          </div>
+        </div>
+      </div>
+      <div class="scroll-indicator">
+        <span>Scroll</span>
+        <div class="scroll-line"></div>
+      </div>
+    </section>
+
+    <!-- TECH BAR -->
+    <div class="container">
+      <div class="tech-bar">
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>React 19</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>TypeScript 5.7</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Vite 6</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Tailwind v4</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Netlify Functions</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>Claude API</div>
+        <div class="tech-bar-item"><div class="tech-bar-dot"></div>OpenRouter</div>
+      </div>
+    </div>
+
+    <!-- APPS -->
+    <section id="apps">
+      <div class="container">
+        <div class="section-header">
+          <p class="section-label">01 &mdash; 10</p>
+          <h2 class="section-title">The Collection</h2>
+        </div>
+
+        <div class="apps-grid">
+
+          <!-- APP 01 — FEATURED -->
+          <a href="https://jdgafx-app-01-multi-agent-orchestrator.netlify.app" target="_blank" rel="noopener"
+             class="app-card featured" data-accent="cyan">
+            <div class="app-card-body">
+              <div class="app-card-top">
+                <span class="app-number">01</span>
+                <span class="app-status">Live</span>
+              </div>
+              <div style="margin: 20px 0">
+                <div class="app-icon" data-accent="cyan">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="m2 14 6-6 6 6 6-6"/></svg>
+                </div>
+              </div>
+              <h3 class="app-name">AgentFlow</h3>
+              <p class="app-subtitle">Multi-Agent Research Orchestrator</p>
+              <p class="app-desc">
+                Interactive React Flow graph orchestrating 4 AI agents in sequence:
+                Researcher, Analyst, Critic, Synthesizer. Real-time SSE streaming with
+                visual pipeline status, token counts, and downloadable PDF/DOCX reports.
+              </p>
+              <div class="app-card-footer">
+                <div class="app-tech">
+                  <span>React Flow</span>
+                  <span>SSE</span>
+                  <span>Multi-Agent</span>
+                  <span>PDF/DOCX</span>
+                </div>
+                <div class="app-arrow">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+                </div>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 02 -->
+          <a href="https://jdgafx-app-02-rag-document-intelligence.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="emerald">
+            <div class="app-card-top">
+              <span class="app-number">02</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13h4"/><path d="M10 17h4"/></svg>
+              </div>
+              <h3 class="app-name">DocMind</h3>
+              <p class="app-subtitle">RAG Document Intelligence</p>
+              <p class="app-desc">
+                Upload PDFs and query them with natural language. Client-side parsing with
+                in-context RAG, source highlighting, and confidence-scored answers.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>PDF.js</span>
+                <span>RAG</span>
+                <span>Chunking</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 03 -->
+          <a href="https://jdgafx-app-03-ai-code-review.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="orange">
+            <div class="app-card-top">
+              <span class="app-number">03</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="orange">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              </div>
+              <h3 class="app-name">CodeLens AI</h3>
+              <p class="app-subtitle">Intelligent Code Review</p>
+              <p class="app-desc">
+                Paste code and receive inline AI reviews with severity ratings,
+                line-by-line annotations, and actionable improvement recommendations.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Code Analysis</span>
+                <span>Annotations</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 04 -->
+          <a href="https://jdgafx-app-04-voice-ai-assistant.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="violet">
+            <div class="app-card-top">
+              <span class="app-number">04</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="violet">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+              </div>
+              <h3 class="app-name">VoxAI</h3>
+              <p class="app-subtitle">Voice AI Assistant</p>
+              <p class="app-desc">
+                Voice-powered AI with real-time waveform visualization. Mic capture
+                via Web Audio API, Groq Whisper STT, and browser TTS playback.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Web Audio</span>
+                <span>Whisper</span>
+                <span>TTS</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 05 -->
+          <a href="https://jdgafx-app-05-ai-data-analyst.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="rose">
+            <div class="app-card-top">
+              <span class="app-number">05</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="rose">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+              </div>
+              <h3 class="app-name">DataPilot</h3>
+              <p class="app-subtitle">AI Data Analyst</p>
+              <p class="app-desc">
+                Upload CSV data, ask natural language questions, get interactive
+                Recharts visualizations. AI generates query plans executed client-side.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Recharts</span>
+                <span>CSV</span>
+                <span>NL Queries</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 06 -->
+          <a href="https://jdgafx-app-06-llm-playground.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="blue">
+            <div class="app-card-top">
+              <span class="app-number">06</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></svg>
+              </div>
+              <h3 class="app-name">ModelArena</h3>
+              <p class="app-subtitle">Multi-Model LLM Playground</p>
+              <p class="app-desc">
+                Side-by-side Claude model comparison. Watch responses stream simultaneously
+                with latency, token count, and cost metrics. Winner detection built in.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Streaming</span>
+                <span>Comparison</span>
+                <span>Metrics</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 07 -->
+          <a href="https://jdgafx-app-07-content-pipeline.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="lime">
+            <div class="app-card-top">
+              <span class="app-number">07</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="lime">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>
+              </div>
+              <h3 class="app-name">ContentForge</h3>
+              <p class="app-subtitle">Agentic Content Pipeline</p>
+              <p class="app-desc">
+                5-step AI content pipeline: Research, Outline, Draft, Edit, Polish.
+                Full SSE streaming with step progress and expandable output per stage.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Pipeline</span>
+                <span>5-Step</span>
+                <span>SSE</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 08 -->
+          <a href="https://jdgafx-app-08-vision-ai.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="crimson">
+            <div class="app-card-top">
+              <span class="app-number">08</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="crimson">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </div>
+              <h3 class="app-name">VisionLab</h3>
+              <p class="app-subtitle">Multimodal Vision AI</p>
+              <p class="app-desc">
+                Upload images for Claude Vision analysis. Object detection, scene analysis,
+                text extraction, and visual Q&A with streaming multimodal AI.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Vision</span>
+                <span>Multimodal</span>
+                <span>Streaming</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 09 -->
+          <a href="https://jdgafx-app-09-ai-saas.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="indigo">
+            <div class="app-card-top">
+              <span class="app-number">09</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="indigo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+              </div>
+              <h3 class="app-name">InsightHub</h3>
+              <p class="app-subtitle">AI-Powered SaaS Dashboard</p>
+              <p class="app-desc">
+                Analytics dashboard with Supabase auth. Interactive Recharts metrics,
+                usage tracking, and Claude-generated AI insights with streaming analysis.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Supabase</span>
+                <span>Recharts</span>
+                <span>Auth</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+          <!-- APP 10 -->
+          <a href="https://jdgafx-app-10-browser-agent.netlify.app" target="_blank" rel="noopener"
+             class="app-card" data-accent="teal">
+            <div class="app-card-top">
+              <span class="app-number">10</span>
+              <span class="app-status">Live</span>
+            </div>
+            <div class="app-card-body">
+              <div class="app-icon" data-accent="teal">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="M3 9h18"/><circle cx="7" cy="6" r="0.5" fill="currentColor"/><circle cx="10" cy="6" r="0.5" fill="currentColor"/></svg>
+              </div>
+              <h3 class="app-name">BrowseBot</h3>
+              <p class="app-subtitle">Browser Agent Demo</p>
+              <p class="app-desc">
+                Visual AI browser automation demo. Animated browser chrome with cursor
+                movements, click ripples, typing animations, and real-time agent thought process.
+              </p>
+            </div>
+            <div class="app-card-footer">
+              <div class="app-tech">
+                <span>Automation</span>
+                <span>Animation</span>
+                <span>Agent</span>
+              </div>
+              <div class="app-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
+              </div>
+            </div>
+          </a>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="container">
+        <span class="footer-brand">JDGAFX &copy; 2026</span>
+        <ul class="footer-links">
+          <li><a href="https://github.com/jdgafx" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/jdgafx/JDGAFX_CG_GITHUB_PORTFOLIO_APPS" target="_blank" rel="noopener">Source</a></li>
+        </ul>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    // Scroll-triggered card reveals
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry, i) => {
+        if (entry.isIntersecting) {
+          const delay = Array.from(document.querySelectorAll('.app-card'))
+            .indexOf(entry.target) * 80;
+          setTimeout(() => entry.target.classList.add('visible'), delay);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.app-card').forEach(card => observer.observe(card));
+
+    // Nav scroll state
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 40);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+  </script>
+</body>
+</html>
