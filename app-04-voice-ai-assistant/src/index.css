@@ -4,7 +4,7 @@
   --color-accent: #8b5cf6;
   --color-accent-light: #a78bfa;
   --color-accent-dark: #6d28d9;
-  --font-sans: "Inter", sans-serif;
+  --font-sans: "Lexend", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 }
 
@@ -17,7 +17,7 @@ html, body {
   padding: 0;
   background: #09090b;
   color: #fafafa;
-  font-family: "Inter", sans-serif;
+  font-family: "Lexend", sans-serif;
   min-height: 100vh;
 }
 

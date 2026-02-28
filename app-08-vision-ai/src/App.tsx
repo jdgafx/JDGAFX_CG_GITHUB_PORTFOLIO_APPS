@@ -207,7 +207,13 @@ export default function App() {
       <header className="relative z-10 h-12 flex items-center px-5 border-b border-white/[0.06] bg-black/30 backdrop-blur-2xl flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-rose-500/15 ring-1 ring-rose-500/25 flex items-center justify-center">
-            <Eye size={13} className="text-rose-400" />
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+              <path d="M2 16S7 6 16 6s14 10 14 10-5 10-14 10S2 16 2 16z" stroke="#f43f5e" strokeWidth="1.5" fill="#f43f5e" fillOpacity="0.08"/>
+              <circle cx="16" cy="16" r="6" stroke="#f43f5e" strokeWidth="1.5" fill="#f43f5e" fillOpacity="0.15"/>
+              <circle cx="16" cy="16" r="3" fill="#f43f5e"/>
+              <circle cx="16" cy="16" r="1" fill="#fda4af"/>
+              <path d="M16 6v-2M16 28v-2M6 16H4M28 16h-2" stroke="#fb7185" strokeWidth="1" opacity="0.4" strokeLinecap="round"/>
+            </svg>
           </div>
           <span className="font-bold text-sm tracking-tight">VisionLab</span>
           <span className="hidden sm:block text-white/20 text-xs font-light">
@@ -229,7 +235,7 @@ export default function App() {
       {/* Description */}
       <div className="relative z-10 px-5 py-2 border-b border-white/[0.04] flex-shrink-0" style={{ background: 'rgba(244,63,94,0.02)' }}>
         <p className="text-xs text-gray-500 leading-relaxed max-w-3xl" style={{ margin: 0 }}>
-          Upload any image (JPG, PNG, WebP, GIF) and choose an analysis mode. Describe generates a detailed natural-language description of the scene. Analyze identifies objects, composition, colors, and visual patterns. Extract pulls out any text, labels, or numbers visible in the image. Q&amp;A lets you ask specific questions about the image content. Powered by Claude Sonnet 4.6 with streaming responses.
+          Upload a photo and pick what you want to know. It can describe the whole scene, break down objects and composition, pull out any visible text, or answer specific questions about what's in the image. Uses Claude's vision model, not a toy.
         </p>
       </div>
 

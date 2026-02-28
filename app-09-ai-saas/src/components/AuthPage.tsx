@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart3, Mail, Lock, ArrowRight, Zap } from 'lucide-react'
+import { Mail, Lock, ArrowRight, Zap } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 interface AuthPageProps {
@@ -86,7 +86,15 @@ export default function AuthPage({ onDemoMode }: AuthPageProps) {
               className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
             >
-              <BarChart3 size={20} color="white" />
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <rect x="3" y="3" width="26" height="26" rx="4" stroke="#fff" strokeWidth="1.5" fill="rgba(255,255,255,0.1)"/>
+                <line x1="3" y1="11" x2="29" y2="11" stroke="#fff" strokeWidth="1" opacity="0.3"/>
+                <line x1="11" y1="11" x2="11" y2="29" stroke="#fff" strokeWidth="1" opacity="0.3"/>
+                <rect x="14" y="15" width="5" height="3" rx="0.5" fill="#fff" opacity="0.5"/>
+                <rect x="14" y="20" width="8" height="3" rx="0.5" fill="#fff" opacity="0.7"/>
+                <rect x="14" y="25" width="3" height="2" rx="0.5" fill="#c4b5fd"/>
+                <path d="M5 5h4M5 7h2" stroke="#c4b5fd" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+              </svg>
             </div>
             <div>
               <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#f1f5f9', margin: 0 }}>

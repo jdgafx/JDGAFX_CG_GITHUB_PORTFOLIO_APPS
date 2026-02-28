@@ -7,7 +7,6 @@ import {
   Keyboard,
   Download,
   CheckCircle2,
-  Bot,
   Play,
   Square,
   ChevronDown,
@@ -15,6 +14,7 @@ import {
   Zap,
   Clock,
   Gauge,
+  Bot,
 } from 'lucide-react'
 import type { BotStep, SpeedMode, StepAction } from './types'
 import { generateScenario } from './lib/api'
@@ -663,7 +663,17 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="w-9 h-9 bg-teal-500 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.4)]">
-                <Bot size={20} className="text-white" />
+                <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                  <rect x="3" y="5" width="26" height="18" rx="3" stroke="#fff" strokeWidth="1.5" fill="rgba(255,255,255,0.1)"/>
+                  <line x1="3" y1="10" x2="29" y2="10" stroke="#fff" strokeWidth="1" opacity="0.3"/>
+                  <circle cx="7" cy="7.5" r="1.2" fill="#f43f5e"/>
+                  <circle cx="11" cy="7.5" r="1.2" fill="#fbbf24"/>
+                  <circle cx="15" cy="7.5" r="1.2" fill="#22c55e"/>
+                  <path d="M20 26l3-3 3 3" stroke="#2dd4bf" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M23 23v-6" stroke="#2dd4bf" strokeWidth="2" strokeLinecap="round"/>
+                  <rect x="8" y="14" width="10" height="2" rx="1" fill="#fff" opacity="0.3"/>
+                  <rect x="8" y="18" width="6" height="2" rx="1" fill="#fff" opacity="0.2"/>
+                </svg>
               </div>
               <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-teal-400 rounded-full border-2 border-slate-900" />
             </div>
@@ -697,7 +707,7 @@ export default function App() {
       </header>
       <div className="border-b border-slate-800/40 px-6 py-2" style={{ background: 'rgba(20,184,166,0.02)' }}>
         <p className="max-w-7xl mx-auto text-xs text-slate-500 leading-relaxed" style={{ margin: 0 }}>
-          Describe any web task in plain English — like "find the cheapest flight" or "fill out a form" — and watch a simulated AI browser agent break it down into discrete steps. The agent navigates pages, finds elements, clicks buttons, types text, extracts data, and verifies results, all visualized in a live animated browser window with cursor movements, click ripples, and typing animations. A real-time thought panel shows the agent's reasoning at each step. Choose from preset tasks or write your own.
+          Describe a web task — 'find the cheapest flight' or 'fill out this form' — and watch a simulated browser agent work through it step by step. You'll see the cursor move, buttons get clicked, text get typed, and a running log of what the agent is thinking at each point.
         </p>
       </div>
 

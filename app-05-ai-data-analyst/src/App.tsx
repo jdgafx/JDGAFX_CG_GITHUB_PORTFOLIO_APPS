@@ -209,7 +209,15 @@ export default function App() {
               justifyContent: 'center',
             }}
           >
-            <BarChart2 size={16} color="#ff3366" />
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+              <rect x="3" y="18" width="5" height="11" rx="1.5" fill="#ff3366" opacity="0.5"/>
+              <rect x="10" y="12" width="5" height="17" rx="1.5" fill="#ff3366" opacity="0.7"/>
+              <rect x="17" y="6" width="5" height="23" rx="1.5" fill="#ff3366"/>
+              <rect x="24" y="14" width="5" height="15" rx="1.5" fill="#ff6b9d" opacity="0.6"/>
+              <path d="M5 17L12 11L19 5L27 13" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="5" cy="17" r="2" fill="#ffd700"/>
+              <circle cx="19" cy="5" r="2" fill="#ffd700"/>
+            </svg>
           </div>
           <span
             style={{
@@ -353,7 +361,7 @@ export default function App() {
       </header>
       <div style={{ width: '100%', padding: '8px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,51,102,0.02)', flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
-          Upload your own CSV file or choose from built-in sample datasets (sales, analytics, weather). Ask questions in plain English — Claude AI interprets your query, generates a data analysis plan, and executes it client-side against your data. Results are displayed as interactive Recharts bar charts, line charts, and data tables. Supports filtering, aggregation, and trend analysis.
+          Load a CSV or pick one of the sample datasets, then ask questions like you're talking to a colleague. The AI figures out what you're looking for, crunches the numbers right in your browser, and draws the chart that tells the story.
         </p>
       </div>
 

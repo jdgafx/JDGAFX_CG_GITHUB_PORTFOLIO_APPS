@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, X, RotateCcw } from 'lucide-react'
+import { X, RotateCcw } from 'lucide-react'
 import { UploadZone } from './components/UploadZone'
 import { DocumentViewer } from './components/DocumentViewer'
 import { ChatInterface } from './components/ChatInterface'
@@ -112,7 +112,12 @@ export default function App() {
               border: '1px solid var(--color-border-accent)',
             }}
           >
-            <FileText size={14} style={{ color: 'var(--color-accent)' }} />
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+              <rect x="4" y="3" width="16" height="21" rx="2.5" fill="#00ff88" opacity="0.2" stroke="#00ff88" strokeWidth="1.5"/>
+              <rect x="8" y="7" width="16" height="21" rx="2.5" fill="#00ff88" opacity="0.12" stroke="#00ff88" strokeWidth="1.5"/>
+              <circle cx="22" cy="22" r="6.5" stroke="#00d4ff" strokeWidth="2"/>
+              <line x1="27" y1="27" x2="30" y2="30" stroke="#00d4ff" strokeWidth="2.5" strokeLinecap="round"/>
+            </svg>
           </div>
           <span
             className="font-bold tracking-tight text-glow"
@@ -177,7 +182,7 @@ export default function App() {
       </header>
       <div className="w-full px-5 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)', background: 'rgba(0,255,136,0.02)' }}>
         <p className="text-xs leading-relaxed max-w-3xl" style={{ color: 'var(--color-text-muted)', margin: 0 }}>
-          Upload any PDF document and ask questions about it in plain English. DocMind parses the file client-side, splits it into searchable chunks, then sends your question plus the most relevant passages to Claude AI for an accurate, context-grounded answer. Every response includes source chunk indices and a confidence score so you can verify the answer against the original document.
+          Drop a PDF in here, then ask it anything. The app chops the document into searchable pieces, finds the parts that matter most, and gives you a straight answer with page references and a confidence score so you know how much to trust it.
         </p>
       </div>
 

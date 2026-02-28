@@ -10,7 +10,7 @@ import {
   type Node,
   type Edge,
 } from '@xyflow/react'
-import { Bot, ChevronRight, Square, Download, FileText } from 'lucide-react'
+import { ChevronRight, Square, Download, FileText } from 'lucide-react'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
 import { saveAs } from 'file-saver'
 import { jsPDF } from 'jspdf'
@@ -333,7 +333,15 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ padding: 7, borderRadius: 10, background: 'rgba(0,212,255,0.12)', color: '#00d4ff', display: 'flex' }}>
-              <Bot size={20} />
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <circle cx="7" cy="7" r="5" fill="#00d4ff"/>
+                <circle cx="25" cy="7" r="5" fill="#00d4ff" opacity="0.6"/>
+                <circle cx="7" cy="25" r="5" fill="#00d4ff" opacity="0.4"/>
+                <circle cx="25" cy="25" r="5" fill="#00ff88"/>
+                <path d="M12 7L20 7M7 12L7 20M25 12L25 20M12 25L20 25" stroke="#00d4ff" strokeWidth="1.5" opacity="0.25"/>
+                <path d="M12 7L25 25" stroke="url(#af1)" strokeWidth="2.5" strokeLinecap="round"/>
+                <defs><linearGradient id="af1" x1="12" y1="7" x2="25" y2="25"><stop stopColor="#00d4ff"/><stop offset="1" stopColor="#00ff88"/></linearGradient></defs>
+              </svg>
             </div>
             <span style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', letterSpacing: -0.3 }}>AgentFlow</span>
           </div>
@@ -350,7 +358,7 @@ export default function App() {
           </div>
         </div>
         <p style={{ margin: '7px 0 0 0', fontSize: 11.5, color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
-          Multi-Agent AI Research Pipeline — Enter any research topic and watch 4 specialized AI agents collaborate in sequence: a Researcher gathers findings, an Analyst identifies patterns, a Critic reviews for gaps, and a Synthesizer produces a polished final report. Download the complete report as PDF or Word document when finished.
+          Type in a research topic and four AI agents get to work — one digs up the facts, another spots the patterns, a third pokes holes in the logic, and the last one ties it all together into a clean report you can download as PDF or Word.
         </p>
       </header>
 

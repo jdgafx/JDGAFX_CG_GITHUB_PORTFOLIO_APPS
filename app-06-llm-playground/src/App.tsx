@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Trophy, Clock, Hash, DollarSign, Play, Square,
-  ChevronDown, ChevronUp, Settings, Cpu, CheckCircle2
+  ChevronDown, ChevronUp, Settings, CheckCircle2
 } from 'lucide-react'
 import { streamModel } from './lib/api'
 
@@ -206,7 +206,7 @@ export default function App() {
         <Header />
         <div className="mt-3 rounded-xl px-4 py-2" style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.1)' }}>
           <p className="text-xs text-slate-500 leading-relaxed" style={{ margin: 0, maxWidth: 860 }}>
-            Compare Claude AI models head-to-head. Select 2 or 3 models (Haiku 4.5, Sonnet 4.6, Sonnet 4), enter a prompt, and watch all responses stream simultaneously in real time. Each panel shows latency, input/output token counts, and estimated cost. The fastest model gets a trophy badge. Adjust temperature and max tokens in Settings.
+            Pick two or three Claude models, type a prompt, and watch them race. Responses stream in side-by-side so you can compare quality, speed, and cost in real time. The app crowns a winner when they're done.
           </p>
         </div>
 
@@ -334,7 +334,13 @@ function Header() {
             className="w-10 h-10 rounded-xl flex items-center justify-center"
             style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
           >
-            <Cpu size={20} className="text-white" />
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+              <rect x="2" y="6" width="12" height="20" rx="2.5" stroke="#fff" strokeWidth="1.5" fill="rgba(255,255,255,0.15)"/>
+              <rect x="18" y="6" width="12" height="20" rx="2.5" stroke="#93c5fd" strokeWidth="1.5" fill="rgba(147,197,253,0.15)"/>
+              <path d="M8 12h0M8 16h0M8 20h0" stroke="#fff" strokeWidth="3" strokeLinecap="round"/>
+              <path d="M24 12h0M24 16h0M24 20h0" stroke="#93c5fd" strokeWidth="3" strokeLinecap="round"/>
+              <path d="M14 16h4" stroke="#93c5fd" strokeWidth="1.5" strokeDasharray="2 2"/>
+            </svg>
           </div>
           <div
             className="absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#0a0e1a] glow-pulse"

@@ -3,8 +3,8 @@
 @theme {
   --color-accent: #ffa500;
   --color-bg-primary: #0a0e1a;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Source Sans 3', system-ui, sans-serif;
+  --font-mono: 'Fira Code', 'JetBrains Mono', monospace;
 }
 
 *,
@@ -19,7 +19,7 @@ body {
   padding: 0;
   background-color: #0a0e1a;
   color: #e2e8f0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Source Sans 3', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
