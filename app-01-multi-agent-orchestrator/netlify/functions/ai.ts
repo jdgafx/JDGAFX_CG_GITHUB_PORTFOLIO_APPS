@@ -67,10 +67,21 @@ export default async (req: Request): Promise<Response> => {
     return new Response('Method not allowed', { status: 405, headers: { 'Access-Control-Allow-Origin': '*' } })
   }
 
-  const { query } = (await req.json()) as { query: string }
+  let query: string
+  try {
+    const body = (await req.json()) as { query?: string }
+    query = body.query ?? ''
+  } catch {
+    return new Response('Invalid JSON', { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } })
+  }
 
   if (!query || typeof query !== 'string') {
     return new Response('Missing query', { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } })
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } })
   }
 
   const encoder = new TextEncoder()
@@ -101,7 +112,7 @@ export default async (req: Request): Promise<Response> => {
           const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({

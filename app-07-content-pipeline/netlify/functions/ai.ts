@@ -70,20 +70,38 @@ async function streamStep(
   }
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 export default async (req: Request): Promise<Response> => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500 })
+    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 
-  const { topic, contentType } = await req.json() as { topic: string; contentType: string }
+  let topic: string
+  let contentType: string
+  try {
+    const body = await req.json() as { topic?: string; contentType?: string }
+    topic = body.topic ?? ''
+    contentType = body.contentType ?? 'blog post'
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
 
   if (!topic) {
-    return new Response(JSON.stringify({ error: 'Topic required' }), { status: 400 })
+    return new Response(JSON.stringify({ error: 'Topic required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 
   const encoder = new TextEncoder()
@@ -135,6 +153,7 @@ export default async (req: Request): Promise<Response> => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
     },
   })
 }

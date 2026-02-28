@@ -7,13 +7,16 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:8888', changeOrigin: true },
+    },
+  },
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
           recharts: ['recharts'],
-          supabase: ['@supabase/supabase-js'],
-          vendor: ['react', 'react-dom'],
         },
       },
     },

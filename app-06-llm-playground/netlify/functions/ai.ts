@@ -17,14 +17,24 @@ function resolveModel(model: string): string {
   return model
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 export default async (req: Request): Promise<Response> => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 })
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500, headers: corsHeaders })
   }
 
   let body: {
@@ -38,13 +48,13 @@ export default async (req: Request): Promise<Response> => {
   try {
     body = await req.json() as typeof body
   } catch {
-    return new Response('Invalid JSON', { status: 400 })
+    return new Response('Invalid JSON', { status: 400, headers: corsHeaders })
   }
 
   const { model, messages, system, max_tokens = 1024, temperature = 0.7 } = body
 
   if (!model || !messages?.length) {
-    return new Response('model and messages are required', { status: 400 })
+    return new Response('model and messages are required', { status: 400, headers: corsHeaders })
   }
 
   const orModel = resolveModel(model)

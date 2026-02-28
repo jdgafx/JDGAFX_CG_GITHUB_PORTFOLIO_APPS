@@ -19,7 +19,7 @@ export default async (req: Request): Promise<Response> => {
   }
 
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY

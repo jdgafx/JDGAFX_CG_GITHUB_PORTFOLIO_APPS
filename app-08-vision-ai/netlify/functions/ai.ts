@@ -7,25 +7,35 @@ interface RequestBody {
   question?: string
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 export default async function handler(req: Request): Promise<Response> {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500, headers: corsHeaders })
   }
 
   let body: RequestBody
   try {
     body = (await req.json()) as RequestBody
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
   const { image, mediaType, mode, question } = body
   if (!image || !mode) {
-    return new Response(JSON.stringify({ error: 'image and mode are required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'image and mode are required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 
   const systemPrompts: Record<string, string> = {
@@ -149,6 +159,7 @@ export default async function handler(req: Request): Promise<Response> {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
     },
   })
 }

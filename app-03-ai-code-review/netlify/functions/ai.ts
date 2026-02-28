@@ -50,10 +50,15 @@ Severity guidelines:
 
 Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, no markdown, no explanation.`
 
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (!apiKey) {
+      return Response.json({ success: false, error: 'OPENROUTER_API_KEY not configured' }, { status: 500, headers: corsHeaders })
+    }
+
     const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
