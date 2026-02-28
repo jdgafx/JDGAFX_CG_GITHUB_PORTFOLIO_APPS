@@ -1,74 +1,68 @@
-
-
 interface AgentConfig {
   role: string
   name: string
   systemPrompt: string
   buildUserMessage: (query: string, context: Record<string, string>) => string
   maxTokens: number
+  /** Hard wall-clock timeout per agent — abort stream after this many ms */
+  timeoutMs: number
 }
 
-/** Trim context to stay within time budget — long inputs = slow generation */
-function trimCtx(text: string, maxChars = 1200): string {
-  return text.length > maxChars ? text.slice(0, maxChars) + '\n\n[Trimmed for brevity]' : text
+/** Trim context to stay within time budget — shorter input = faster generation */
+function trimCtx(text: string, maxChars = 800): string {
+  return text.length > maxChars ? text.slice(0, maxChars) + '\n[trimmed]' : text
 }
 
+/**
+ * Time budget: Netlify functions timeout at 26s.
+ * 4 agents × ~5s each = ~20s generation + ~4s network overhead = 24s.
+ * Per-agent timeouts guarantee we never exceed the budget.
+ */
 const agents: AgentConfig[] = [
   {
     role: 'researcher',
     name: 'Researcher',
-    systemPrompt: 'Research agent. Provide concise factual findings with data. Markdown. 3-5 bullet points max.',
+    systemPrompt:
+      'You are a research assistant. Give 3-5 bullet points with key facts. Use markdown. STRICT LIMIT: 150 words max. Do NOT write long paragraphs.',
     buildUserMessage: (query: string) =>
-      `Research: ${query}\n\nProvide 3-5 key findings with data points. Be brief.`,
-    maxTokens: 500,
+      `Research: ${query}\n\n3-5 bullet points only. Be extremely concise.`,
+    maxTokens: 250,
+    timeoutMs: 5500,
   },
   {
     role: 'analyst',
     name: 'Analyst',
-    systemPrompt: 'Analyst agent. Identify patterns and implications from research. Markdown. Be concise.',
-    buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Analyze findings on "${query}". Key patterns and insights.\n\n${trimCtx(ctx['researcher'])}`,
-    maxTokens: 500,
+    systemPrompt:
+      'You are an analyst. Identify 2-3 key patterns from the research. Markdown bullets. STRICT LIMIT: 150 words max.',
+    buildUserMessage: (_query: string, ctx: Record<string, string>) =>
+      `Analyze:\n${trimCtx(ctx['researcher'])}\n\n2-3 key patterns only. Extremely concise.`,
+    maxTokens: 250,
+    timeoutMs: 5500,
   },
   {
     role: 'critic',
     name: 'Critic',
-    systemPrompt: 'Critic agent. Identify gaps and missing perspectives. Constructive and brief. Markdown.',
-    buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Review analysis on "${query}". Note gaps.\n\n${trimCtx(ctx['analyst'])}`,
-    maxTokens: 400,
+    systemPrompt:
+      'You are a critic. Note 2-3 gaps or missing angles. Markdown bullets. STRICT LIMIT: 100 words max.',
+    buildUserMessage: (_query: string, ctx: Record<string, string>) =>
+      `Review:\n${trimCtx(ctx['analyst'])}\n\n2-3 gaps only. Very brief.`,
+    maxTokens: 200,
+    timeoutMs: 4500,
   },
   {
     role: 'synthesizer',
     name: 'Synthesizer',
-    systemPrompt: 'Synthesis agent. Combine inputs into a polished final report with clear sections. Markdown.',
+    systemPrompt:
+      'You are a synthesis agent. Combine research, analysis, and critique into a final report with clear markdown sections. Be comprehensive but concise — aim for 200-300 words.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx['researcher'])}\n\nAnalysis:\n${trimCtx(ctx['analyst'])}\n\nReview:\n${trimCtx(ctx['critic'])}`,
-    maxTokens: 1000,
+      `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx['researcher'])}\n\nAnalysis:\n${trimCtx(ctx['analyst'])}\n\nGaps:\n${trimCtx(ctx['critic'])}`,
+    maxTokens: 500,
+    timeoutMs: 8000,
   },
 ]
 
-/** Zero delays — 4 sequential calls within 26s Netlify timeout leaves no room for idle time */
-const AGENT_DELAYS = [0, 0, 0, 0]
-
 function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`
-}
-
-/** Single retry on 429 with short backoff — can't afford long retries within Netlify's timeout */
-async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
-  const response = await fetch(url, init)
-  if (response.ok) return response
-  // One fast retry on rate limit
-  if (response.status === 429) {
-    await new Promise(r => setTimeout(r, 1000))
-    const retry = await fetch(url, init)
-    if (retry.ok) return retry
-    const body = await retry.text().catch(() => '')
-    throw new Error(`OpenRouter 429 after retry: ${body || retry.statusText}`)
-  }
-  const body = await response.text().catch(() => '')
-  throw new Error(`OpenRouter ${response.status}: ${body || response.statusText}`)
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -113,147 +107,215 @@ export default async (req: Request): Promise<Response> => {
         for (let i = 0; i < agents.length; i++) {
           const agent = agents[i]
 
-          // Minimal delay between agents if configured
-          const delayMs = AGENT_DELAYS[i]
-          if (delayMs > 0) {
-            await new Promise(r => setTimeout(r, delayMs))
-          }
-
           controller.enqueue(
             encoder.encode(
-              sseEvent({
-                type: 'agent_start',
-                agent: agent.role,
-              }),
+              sseEvent({ type: 'agent_start', agent: agent.role }),
             ),
           )
 
           const userMessage = agent.buildUserMessage(query, context)
           let agentOutput = ''
           let tokenCount = 0
+          let timedOut = false
 
-          const response = await fetchOnce(
-            'https://openrouter.ai/api/v1/chat/completions',
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
+          // Per-agent AbortController enforces the hard timeout
+          const agentAbort = new AbortController()
+          const timer = setTimeout(() => agentAbort.abort(), agent.timeoutMs)
+
+          try {
+            const response = await fetch(
+              'https://openrouter.ai/api/v1/chat/completions',
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: 'google/gemini-2.0-flash-001',
+                  max_tokens: agent.maxTokens,
+                  stream: true,
+                  messages: [
+                    { role: 'system', content: agent.systemPrompt },
+                    { role: 'user', content: userMessage },
+                  ],
+                }),
+                signal: agentAbort.signal,
               },
-              body: JSON.stringify({
-                model: 'anthropic/claude-haiku-4.5',
-                max_tokens: agent.maxTokens,
-                stream: true,
-                messages: [
-                  { role: 'system', content: agent.systemPrompt },
-                  { role: 'user', content: userMessage },
-                ],
-              }),
-            },
-          )
+            )
 
-          if (!response.body) {
-            throw new Error(`No response body from OpenRouter for ${agent.role}`)
-          }
-
-          const reader = response.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() ?? ''
-
-            for (const line of lines) {
-              const trimmed = line.trim()
-              if (!trimmed || !trimmed.startsWith('data: ')) continue
-              const data = trimmed.slice(6)
-              if (data === '[DONE]') continue
-
-              try {
-                const parsed = JSON.parse(data) as {
-                  choices?: Array<{ delta?: { content?: string } }>
-                  usage?: { completion_tokens?: number }
+            if (!response.ok) {
+              const body = await response.text().catch(() => '')
+              // Single fast retry on 429
+              if (response.status === 429) {
+                await new Promise(r => setTimeout(r, 800))
+                const retry = await fetch(
+                  'https://openrouter.ai/api/v1/chat/completions',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${apiKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'google/gemini-2.0-flash-001',
+                      max_tokens: agent.maxTokens,
+                      stream: true,
+                      messages: [
+                        { role: 'system', content: agent.systemPrompt },
+                        { role: 'user', content: userMessage },
+                      ],
+                    }),
+                    signal: agentAbort.signal,
+                  },
+                )
+                if (!retry.ok) {
+                  throw new Error(`OpenRouter ${retry.status} after retry`)
                 }
-                const content = parsed.choices?.[0]?.delta?.content
-                if (content) {
-                  agentOutput += content
-                  controller.enqueue(
-                    encoder.encode(
-                      sseEvent({
-                        type: 'agent_chunk',
-                        agent: agent.role,
-                        content,
-                      }),
-                    ),
-                  )
+                // Process the retry response below — reassign not possible, so inline
+                if (retry.body) {
+                  const reader = retry.body.getReader()
+                  const decoder = new TextDecoder()
+                  let buffer = ''
+                  try {
+                    while (true) {
+                      const { done, value } = await reader.read()
+                      if (done) break
+                      buffer += decoder.decode(value, { stream: true })
+                      const lines = buffer.split('\n')
+                      buffer = lines.pop() ?? ''
+                      for (const line of lines) {
+                        const trimmed = line.trim()
+                        if (!trimmed || !trimmed.startsWith('data: ')) continue
+                        const data = trimmed.slice(6)
+                        if (data === '[DONE]') continue
+                        try {
+                          const parsed = JSON.parse(data)
+                          const content = parsed.choices?.[0]?.delta?.content
+                          if (content) {
+                            agentOutput += content
+                            controller.enqueue(
+                              encoder.encode(sseEvent({ type: 'agent_chunk', agent: agent.role, content })),
+                            )
+                          }
+                          if (parsed.usage?.completion_tokens) tokenCount = parsed.usage.completion_tokens
+                        } catch { /* skip */ }
+                      }
+                    }
+                  } catch { timedOut = agentAbort.signal.aborted }
                 }
-                if (parsed.usage?.completion_tokens) {
-                  tokenCount = parsed.usage.completion_tokens
+                // Skip the main response processing
+                clearTimeout(timer)
+                context[agent.role] = agentOutput || '(No output — rate limited)'
+                controller.enqueue(
+                  encoder.encode(sseEvent({ type: 'agent_complete', agent: agent.role, tokens: tokenCount })),
+                )
+                continue
+              }
+              throw new Error(`OpenRouter ${response.status}: ${body || response.statusText}`)
+            }
+
+            if (!response.body) {
+              throw new Error(`No response body for ${agent.role}`)
+            }
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() ?? ''
+
+                for (const line of lines) {
+                  const trimmed = line.trim()
+                  if (!trimmed || !trimmed.startsWith('data: ')) continue
+                  const data = trimmed.slice(6)
+                  if (data === '[DONE]') continue
+
+                  try {
+                    const parsed = JSON.parse(data)
+                    const content = parsed.choices?.[0]?.delta?.content
+                    if (content) {
+                      agentOutput += content
+                      controller.enqueue(
+                        encoder.encode(sseEvent({ type: 'agent_chunk', agent: agent.role, content })),
+                      )
+                    }
+                    if (parsed.usage?.completion_tokens) {
+                      tokenCount = parsed.usage.completion_tokens
+                    }
+                  } catch { /* skip malformed SSE */ }
                 }
-              } catch {
-                // skip malformed SSE lines
+              }
+            } catch {
+              // AbortController killed the stream — use partial output
+              timedOut = agentAbort.signal.aborted
+            }
+
+            // Flush remaining buffer
+            if (buffer.trim()) {
+              for (const line of buffer.split('\n')) {
+                const trimmed = line.trim()
+                if (!trimmed || !trimmed.startsWith('data: ')) continue
+                const data = trimmed.slice(6)
+                if (data === '[DONE]') continue
+                try {
+                  const parsed = JSON.parse(data)
+                  const content = parsed.choices?.[0]?.delta?.content
+                  if (content) {
+                    agentOutput += content
+                    controller.enqueue(
+                      encoder.encode(sseEvent({ type: 'agent_chunk', agent: agent.role, content })),
+                    )
+                  }
+                  if (parsed.usage?.completion_tokens) tokenCount = parsed.usage.completion_tokens
+                } catch { /* skip */ }
               }
             }
-          }
-
-          // Flush remaining buffer
-          if (buffer.trim()) {
-            for (const line of buffer.split('\n')) {
-              const trimmed = line.trim()
-              if (!trimmed || !trimmed.startsWith('data: ')) continue
-              const data = trimmed.slice(6)
-              if (data === '[DONE]') continue
-              try {
-                const parsed = JSON.parse(data) as {
-                  choices?: Array<{ delta?: { content?: string } }>
-                  usage?: { completion_tokens?: number }
-                }
-                const content = parsed.choices?.[0]?.delta?.content
-                if (content) {
-                  agentOutput += content
-                  controller.enqueue(
-                    encoder.encode(sseEvent({ type: 'agent_chunk', agent: agent.role, content })),
-                  )
-                }
-                if (parsed.usage?.completion_tokens) tokenCount = parsed.usage.completion_tokens
-              } catch { /* skip */ }
+          } catch (err) {
+            // Fetch itself was aborted (timeout before first byte)
+            timedOut = agentAbort.signal.aborted
+            if (!timedOut) {
+              // Real error, not a timeout
+              throw err
             }
+          } finally {
+            clearTimeout(timer)
           }
 
-          context[agent.role] = agentOutput
+          if (timedOut && agentOutput) {
+            // We got partial output before timeout — that's fine, use it
+            controller.enqueue(
+              encoder.encode(
+                sseEvent({ type: 'agent_chunk', agent: agent.role, content: '\n\n*(response trimmed for speed)*' }),
+              ),
+            )
+            agentOutput += '\n\n*(response trimmed for speed)*'
+          }
+
+          context[agent.role] = agentOutput || '(No output generated)'
 
           controller.enqueue(
             encoder.encode(
-              sseEvent({
-                type: 'agent_complete',
-                agent: agent.role,
-                tokens: tokenCount,
-              }),
+              sseEvent({ type: 'agent_complete', agent: agent.role, tokens: tokenCount }),
             ),
           )
         }
 
         controller.enqueue(
-          encoder.encode(
-            sseEvent({ type: 'session_complete', agent: 'synthesizer' }),
-          ),
+          encoder.encode(sseEvent({ type: 'session_complete', agent: 'synthesizer' })),
         )
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
         controller.enqueue(
-          encoder.encode(
-            sseEvent({
-              type: 'agent_error',
-              agent: 'system',
-              error: message,
-            }),
-          ),
+          encoder.encode(sseEvent({ type: 'agent_error', agent: 'system', error: message })),
         )
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } finally {
