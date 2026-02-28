@@ -19,11 +19,20 @@ export async function transcribe(blob: Blob): Promise<string> {
   })
 
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Transcribe failed: ${err}`)
+    let errMessage = 'Transcription failed'
+    try {
+      const errData = await res.json() as { error?: string }
+      if (errData.error) errMessage = errData.error
+    } catch {
+      // Response wasn't JSON, use generic message
+    }
+    throw new Error(errMessage)
   }
 
-  const data = await res.json() as { text: string }
+  const data = await res.json() as { text?: string }
+  if (!data.text) {
+    throw new Error('No transcription returned')
+  }
   return data.text
 }
 
@@ -35,10 +44,19 @@ export async function chat(message: string, history: Message[]): Promise<string>
   })
 
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`AI failed: ${err}`)
+    let errMessage = 'AI request failed'
+    try {
+      const errData = await res.json() as { error?: string }
+      if (errData.error) errMessage = errData.error
+    } catch {
+      // Response wasn't JSON, use generic message
+    }
+    throw new Error(errMessage)
   }
 
-  const data = await res.json() as { response: string }
+  const data = await res.json() as { response?: string }
+  if (!data.response) {
+    throw new Error('No response from AI')
+  }
   return data.response
 }

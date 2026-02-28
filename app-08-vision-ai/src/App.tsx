@@ -23,6 +23,8 @@ interface GalleryItem {
   name: string
   mode: AnalysisMode
   result: string
+  base64Data?: string
+  mediaType?: string
 }
 
 const MODES: Array<{ id: AnalysisMode; label: string; icon: LucideIcon }> = [
@@ -54,6 +56,9 @@ function LoadingDots() {
   )
 }
 
+const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+
 export default function App() {
   const [currentFile, setCurrentFile] = useState<File | null>(null)
   const [currentUrl, setCurrentUrl] = useState('')
@@ -65,6 +70,7 @@ export default function App() {
   const [isZoomed, setIsZoomed] = useState(false)
   const [gallery, setGallery] = useState<GalleryItem[]>([])
   const [activeGalleryId, setActiveGalleryId] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const analysisRef = useRef<HTMLDivElement>(null)
@@ -84,7 +90,19 @@ export default function App() {
   }, [])
 
   const loadFile = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) return
+    setUploadError('')
+
+    if (!ACCEPTED_TYPES.includes(file.type) && !file.type.startsWith('image/')) {
+      setUploadError(`Unsupported file type: ${file.type || 'unknown'}. Please use JPG, PNG, WebP, or GIF.`)
+      return
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+      setUploadError(`Image is too large (${sizeMB}MB). Maximum size is 4MB.`)
+      return
+    }
+
     const url = URL.createObjectURL(file)
     objectUrlsRef.current.push(url)
     setCurrentUrl(url)
@@ -93,6 +111,24 @@ export default function App() {
     setActiveGalleryId(null)
     accTextRef.current = ''
   }, [])
+
+  // Clipboard paste support (Ctrl+V / Cmd+V for screenshots)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) loadFile(file)
+          return
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [loadFile])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -127,31 +163,71 @@ export default function App() {
     setCurrentFile(null)
     setAnalysisText('')
     setActiveGalleryId(null)
+    setUploadError('')
     accTextRef.current = ''
   }, [])
 
   const handleAnalyze = useCallback(async () => {
     if ((!currentFile && !currentUrl) || isLoading) return
 
+    // Q&A mode: warn if question is empty
+    if (mode === 'qa' && !question.trim()) {
+      setAnalysisText('Please enter a question about the image before analyzing in Q&A mode.')
+      return
+    }
+
     let fileToAnalyze = currentFile
-    if (!fileToAnalyze && currentUrl) {
-      try {
-        const resp = await fetch(currentUrl)
-        const blob = await resp.blob()
-        const galleryItem = gallery.find(g => g.id === activeGalleryId)
-        fileToAnalyze = new File([blob], galleryItem?.name ?? 'gallery-image.jpg', { type: blob.type })
-      } catch {
-        setAnalysisText('Could not reload image for re-analysis. Please re-upload the image.')
-        return
+
+    // For gallery re-analysis: reconstruct file from stored base64 data
+    if (!fileToAnalyze && currentUrl && activeGalleryId) {
+      const galleryItem = gallery.find(g => g.id === activeGalleryId)
+      if (galleryItem?.base64Data && galleryItem?.mediaType) {
+        try {
+          const byteString = atob(galleryItem.base64Data)
+          const bytes = new Uint8Array(byteString.length)
+          for (let i = 0; i < byteString.length; i++) {
+            bytes[i] = byteString.charCodeAt(i)
+          }
+          fileToAnalyze = new File([bytes], galleryItem.name, { type: galleryItem.mediaType })
+        } catch {
+          setAnalysisText('Could not reconstruct image for re-analysis. Please re-upload the image.')
+          return
+        }
+      } else {
+        // Fallback: try fetching the object URL
+        try {
+          const resp = await fetch(currentUrl)
+          const blob = await resp.blob()
+          fileToAnalyze = new File([blob], galleryItem?.name ?? 'gallery-image.jpg', { type: blob.type })
+        } catch {
+          setAnalysisText('Could not reload image for re-analysis. Please re-upload the image.')
+          return
+        }
       }
     }
     if (!fileToAnalyze) return
 
     setIsLoading(true)
     setAnalysisText('')
+    setUploadError('')
     accTextRef.current = ''
 
+    // Read file as base64 for gallery storage
     const analyzeFile = fileToAnalyze
+    let base64ForGallery = ''
+    let mediaTypeForGallery = analyzeFile.type || 'image/jpeg'
+    try {
+      const arrayBuf = await analyzeFile.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuf)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      base64ForGallery = btoa(binary)
+    } catch {
+      // Non-critical: gallery re-analyze may not work for this image
+    }
+
     await analyzeImage({
       file: analyzeFile,
       mode,
@@ -170,13 +246,15 @@ export default function App() {
             name: analyzeFile.name,
             mode,
             result,
+            base64Data: base64ForGallery,
+            mediaType: mediaTypeForGallery,
           },
           ...prev.slice(0, 11),
         ])
       },
       onError: err => {
         setIsLoading(false)
-        setAnalysisText(`⚠️ ${err.message}`)
+        setAnalysisText(`Error: ${err.message}`)
       },
     })
   }, [currentFile, currentUrl, isLoading, mode, question, gallery, activeGalleryId])
@@ -285,10 +363,10 @@ export default function App() {
 
                   <div className="text-center">
                     <p className="text-base font-medium text-gray-200">
-                      Drop image or click to upload
+                      Drop, paste, or click to upload
                     </p>
                     <p className="text-sm text-gray-600 mt-1">
-                      JPG, PNG, WebP, GIF supported
+                      JPG, PNG, WebP, GIF up to 4MB
                     </p>
                   </div>
 
@@ -305,8 +383,14 @@ export default function App() {
                   </div>
                 </button>
 
+                {uploadError && (
+                  <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-rose-400 text-sm text-center">
+                    {uploadError}
+                  </div>
+                )}
+
                 <p className="text-center text-gray-700 text-xs mt-4">
-                  Powered by Claude Vision · Describe, analyze, extract, and query images with AI
+                  Powered by Claude Vision · Describe, analyze, extract, and query images with AI · Paste from clipboard supported
                 </p>
               </motion.div>
             </motion.div>

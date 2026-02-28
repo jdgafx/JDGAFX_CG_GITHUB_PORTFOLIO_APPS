@@ -6,6 +6,9 @@ import type { Message } from './lib/api'
 
 type AppState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking'
 
+const MAX_HISTORY_MESSAGES = 20
+const MAX_TEXT_INPUT_LENGTH = 2000
+
 export default function App() {
   const [appState, setAppState] = useState<AppState>('idle')
   const [messages, setMessages] = useState<Message[]>([])
@@ -20,6 +23,39 @@ export default function App() {
   const animFrameRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  const messagesRef = useRef<Message[]>([])
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
+
+  // Keep messagesRef in sync so recorder.onstop always has current messages
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  // Auto-scroll to the latest message
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  // Cleanup on unmount: stop speech, recording, animation
+  useEffect(() => {
+    return () => {
+      speechSynthesis.cancel()
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     navigator.mediaDevices?.enumerateDevices().then(devices => {
@@ -35,11 +71,14 @@ export default function App() {
     setError(null)
 
     const userMessage: Message = { role: 'user', content: text }
-    setMessages(prev => [...prev, userMessage])
+    const updatedMessages = [...messages, userMessage]
+    setMessages(updatedMessages)
     setAppState('thinking')
 
     try {
-      const response = await chat(text, messages)
+      // Send trimmed history to avoid token overflow
+      const historyToSend = updatedMessages.slice(-MAX_HISTORY_MESSAGES)
+      const response = await chat(text, historyToSend.slice(0, -1))
       const assistantMessage: Message = { role: 'assistant', content: response }
       setMessages(prev => [...prev, assistantMessage])
       setAppState('speaking')
@@ -47,7 +86,10 @@ export default function App() {
       utterance.rate = 1.0
       utterance.pitch = 1.0
       utterance.onend = () => setAppState('idle')
-      utterance.onerror = () => setAppState('idle')
+      utterance.onerror = () => {
+        setError('Voice playback failed. Response is shown in chat.')
+        setAppState('idle')
+      }
       speechSynthesis.speak(utterance)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI failed')
@@ -191,18 +233,23 @@ export default function App() {
       }
 
       if (!text.trim()) {
-        setError('No speech detected')
+        setError('No speech detected. Try speaking louder or closer to the microphone.')
         setAppState('idle')
         return
       }
 
       const userMessage: Message = { role: 'user', content: text }
-      setMessages(prev => [...prev, userMessage])
+      // Use ref for current messages to avoid stale closure
+      const currentMessages = messagesRef.current
+      const updatedMessages = [...currentMessages, userMessage]
+      setMessages(updatedMessages)
       setAppState('thinking')
 
       let response = ''
       try {
-        response = await chat(text, messages)
+        // Send trimmed history to avoid token overflow
+        const historyToSend = updatedMessages.slice(-MAX_HISTORY_MESSAGES)
+        response = await chat(text, historyToSend.slice(0, -1))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'AI failed')
         setAppState('idle')
@@ -217,13 +264,16 @@ export default function App() {
       utterance.rate = 1.0
       utterance.pitch = 1.0
       utterance.onend = () => setAppState('idle')
-      utterance.onerror = () => setAppState('idle')
+      utterance.onerror = () => {
+        setError('Voice playback failed. Response is shown in chat.')
+        setAppState('idle')
+      }
       speechSynthesis.speak(utterance)
     }
 
     recorder.start(100)
     setAppState('recording')
-  }, [messages])
+  }, [])
 
   const handleMicClick = useCallback(async () => {
     if (appState === 'recording') {
@@ -244,10 +294,10 @@ export default function App() {
 
   const stateLabel: Record<AppState, string> = {
     idle: 'Tap to speak',
-    recording: 'Recording… tap to stop',
-    transcribing: 'Transcribing…',
-    thinking: 'Thinking…',
-    speaking: 'Speaking…',
+    recording: 'Recording\u2026 tap to stop',
+    transcribing: 'Transcribing\u2026',
+    thinking: 'Thinking\u2026',
+    speaking: 'Speaking\u2026 tap to stop',
   }
 
   const isProcessing = appState === 'transcribing' || appState === 'thinking'
@@ -345,10 +395,11 @@ export default function App() {
           <input
             type="text"
             value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
+            onChange={(e) => setTextInput(e.target.value.slice(0, MAX_TEXT_INPUT_LENGTH))}
             onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
             placeholder={hasMic ? 'Or type a message...' : 'Type a message...'}
             disabled={appState !== 'idle'}
+            maxLength={MAX_TEXT_INPUT_LENGTH}
             className="flex-1 px-4 py-3 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 disabled:opacity-50"
             style={{ background: '#18181b', border: '1px solid #27272a' }}
           />
@@ -410,6 +461,7 @@ export default function App() {
                   </motion.div>
                 ))}
               </AnimatePresence>
+              <div ref={chatEndRef} />
             </div>
           </div>
         )}

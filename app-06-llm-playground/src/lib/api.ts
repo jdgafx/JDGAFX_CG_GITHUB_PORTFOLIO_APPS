@@ -59,17 +59,11 @@ export async function streamModel(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-
+  const processLines = (lines: string[]) => {
     for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data: ')) continue
+      const data = trimmed.slice(6).trim()
       if (data === '[DONE]') continue
 
       try {
@@ -79,5 +73,20 @@ export async function streamModel(
         // skip malformed SSE lines
       }
     }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    processLines(lines)
+  }
+
+  // Process any remaining data in the buffer after the stream ends
+  if (buffer.trim()) {
+    processLines([buffer])
   }
 }

@@ -105,6 +105,7 @@ export default function App() {
     if (csv) {
       setParsedData(parseCSV(csv))
       setCurrentResult(null)
+      setError(null)
     }
   }, [selectedDataset])
 
@@ -118,17 +119,45 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // Reset the input so re-selecting the same file triggers onChange
+    e.target.value = ''
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setError('Please upload a .csv file.')
+      return
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 5 MB.`)
+      return
+    }
+
+    setError(null)
     const reader = new FileReader()
     reader.onload = (evt) => {
       const text = evt.target?.result as string
       if (text) {
-        const parsed = parseCSV(text)
-        setParsedData(parsed)
-        setCurrentResult(null)
+        try {
+          const parsed = parseCSV(text)
+          setParsedData(parsed)
+          setCurrentResult(null)
+          if (parsed.truncated) {
+            setError(`Large file: showing first 10,000 of ${parsed.totalRows?.toLocaleString()} rows.`)
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to parse CSV file.')
+          setParsedData(null)
+        }
       }
+    }
+    reader.onerror = () => {
+      setError('Failed to read the file. Please try again.')
     }
     reader.readAsText(file)
   }
@@ -341,13 +370,14 @@ export default function App() {
           <div
             style={{
               fontSize: '11px',
-              color: '#4a4a6a',
+              color: parsedData.truncated ? '#ffaa00' : '#4a4a6a',
               padding: '3px 8px',
-              background: 'rgba(255,255,255,0.04)',
+              background: parsedData.truncated ? 'rgba(255,170,0,0.08)' : 'rgba(255,255,255,0.04)',
               borderRadius: '4px',
             }}
           >
             {parsedData.rows.length} rows · {parsedData.headers.length} columns
+            {parsedData.truncated && ` (of ${parsedData.totalRows?.toLocaleString()})`}
           </div>
         )}
 
@@ -785,7 +815,7 @@ export default function App() {
                       )}
                     </pre>
                     <div style={{ color: '#4a4a6a', marginTop: '8px', fontSize: '10px' }}>
-                      {currentResult.labels.length} groups · {currentResult.datasets[0]?.values.reduce((a, b) => a + b, 0).toLocaleString()} total
+                      {currentResult.labels.length} groups · {(currentResult.datasets[0]?.values.reduce((a, b) => a + b, 0) ?? 0).toLocaleString()} total
                     </div>
                   </div>
                 </div>

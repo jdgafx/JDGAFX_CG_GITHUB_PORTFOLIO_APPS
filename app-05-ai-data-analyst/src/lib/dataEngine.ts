@@ -1,6 +1,8 @@
 import Papa from 'papaparse'
 import type { ParsedData, QueryPlan } from '../types'
 
+const MAX_ROWS = 10_000
+
 export function parseCSV(csvString: string): ParsedData {
   const result = Papa.parse<Record<string, string>>(csvString, {
     header: true,
@@ -9,10 +11,20 @@ export function parseCSV(csvString: string): ParsedData {
     transform: (v: string) => v.trim(),
   })
 
-  const headers = result.meta.fields ?? []
-  const rows = result.data
+  if (result.errors.length > 0 && (!result.data || result.data.length === 0)) {
+    throw new Error(`CSV parse error: ${result.errors[0]?.message ?? 'Invalid CSV format'}`)
+  }
 
-  return { headers, rows }
+  const headers = result.meta.fields ?? []
+  if (headers.length === 0) {
+    throw new Error('CSV has no columns. Check that the file contains a header row.')
+  }
+
+  const rows = result.data.length > MAX_ROWS
+    ? result.data.slice(0, MAX_ROWS)
+    : result.data
+
+  return { headers, rows, truncated: result.data.length > MAX_ROWS, totalRows: result.data.length }
 }
 
 export function executeQuery(

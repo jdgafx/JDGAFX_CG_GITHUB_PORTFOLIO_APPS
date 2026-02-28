@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, RotateCcw } from 'lucide-react'
 import { UploadZone } from './components/UploadZone'
@@ -20,6 +20,7 @@ export default function App() {
   const [extractError, setExtractError] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [highlightedChunks, setHighlightedChunks] = useState<number[]>([])
+  const requestIdRef = useRef(0)
 
   const handleFileSelect = useCallback(async (file: File) => {
     setExtractError(null)
@@ -59,8 +60,15 @@ export default function App() {
     setQuestion('')
     setIsLoading(true)
 
+    // Track request ID to ignore stale responses from rapid submissions
+    const currentRequestId = ++requestIdRef.current
+
     try {
       const result = await askQuestion(userMsg.content, document.chunks, document.title)
+
+      // Ignore response if a newer request was made while this one was in flight
+      if (currentRequestId !== requestIdRef.current) return
+
       const aiMsg: Message = {
         id: generateId(),
         role: 'assistant',
@@ -71,6 +79,8 @@ export default function App() {
       }
       setMessages(prev => [...prev, aiMsg])
     } catch (err) {
+      if (currentRequestId !== requestIdRef.current) return
+
       const errMsg: Message = {
         id: generateId(),
         role: 'assistant',
@@ -80,7 +90,9 @@ export default function App() {
       }
       setMessages(prev => [...prev, errMsg])
     } finally {
-      setIsLoading(false)
+      if (currentRequestId === requestIdRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [question, document, isLoading])
 

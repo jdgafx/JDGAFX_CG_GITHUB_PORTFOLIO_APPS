@@ -26,17 +26,24 @@ export default async (req: Request): Promise<Response> => {
       return Response.json({ error: 'message is required' }, { status: 400, headers: corsHeaders })
     }
 
+    if (message.length > 5000) {
+      return Response.json({ error: 'Message exceeds maximum allowed length' }, { status: 400, headers: corsHeaders })
+    }
+
     const historyMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
     if (Array.isArray(history)) {
       for (const item of history as Array<{ role: string; content: string }>) {
-        if (item.role === 'user' || item.role === 'assistant') {
-          historyMessages.push({ role: item.role, content: item.content })
+        if ((item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string') {
+          historyMessages.push({ role: item.role, content: item.content.slice(0, 5000) })
         }
       }
     }
 
+    // Keep only the last 20 history messages to avoid token overflow
+    const trimmedHistory = historyMessages.slice(-20)
+
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      ...historyMessages,
+      ...trimmedHistory,
       { role: 'user', content: message },
     ]
 

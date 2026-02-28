@@ -29,6 +29,8 @@ export interface QueryPlan {
 export interface ParsedData {
   headers: string[]
   rows: Record<string, string>[]
+  truncated?: boolean
+  totalRows?: number
 }
 
 export interface AnalysisResult {
