@@ -23,15 +23,17 @@
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
     :root {
-      --bg: #050508;
-      --bg-elevated: #0c0c12;
-      --bg-card: #0f0f18;
-      --text: #e8e4df;
-      --text-dim: #8a8690;
-      --text-muted: #5a5660;
-      --gold: #c4a265;
-      --gold-dim: rgba(196,162,101,0.12);
-      --border: rgba(255,255,255,0.06);
+      --bg: #0a0a0a;
+      --bg-elevated: #111111;
+      --bg-card: #141414;
+      --text: #ffffff;
+      --text-dim: #a0a0a0;
+      --text-muted: #666666;
+      --gold: #f5c518;
+      --gold-dim: rgba(245,197,24,0.12);
+      --accent-blue: #2563eb;
+      --accent-red: #ef4444;
+      --border: rgba(255,255,255,0.08);
       --serif: 'Instrument Serif', Georgia, serif;
       --sans: 'Outfit', system-ui, sans-serif;
       --mono: 'JetBrains Mono', monospace;
@@ -52,8 +54,8 @@
     }
 
     ::selection {
-      background: var(--gold);
-      color: var(--bg);
+      background: var(--accent-blue);
+      color: #ffffff;
     }
 
     /* ---- NOISE TEXTURE ---- */
@@ -74,9 +76,9 @@
       pointer-events: none;
       z-index: 0;
       background:
-        radial-gradient(ellipse 600px 400px at 15% 10%, rgba(196,162,101,0.04) 0%, transparent 100%),
-        radial-gradient(ellipse 500px 500px at 85% 85%, rgba(100,80,160,0.03) 0%, transparent 100%),
-        radial-gradient(ellipse 800px 300px at 50% 50%, rgba(196,162,101,0.015) 0%, transparent 100%);
+        radial-gradient(ellipse 600px 400px at 15% 10%, rgba(37,99,235,0.05) 0%, transparent 100%),
+        radial-gradient(ellipse 500px 500px at 85% 85%, rgba(239,68,68,0.04) 0%, transparent 100%),
+        radial-gradient(ellipse 800px 300px at 50% 50%, rgba(245,197,24,0.02) 0%, transparent 100%);
     }
 
     /* ---- LAYOUT ---- */
@@ -149,12 +151,13 @@
     }
 
     .hero-eyebrow {
-      font-family: var(--mono);
-      font-size: 11px;
-      letter-spacing: 4px;
-      text-transform: uppercase;
+      font-family: var(--serif);
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 400;
+      letter-spacing: -1px;
       color: var(--gold);
-      margin-bottom: 24px;
+      margin-bottom: 16px;
+      line-height: 1.1;
       opacity: 0;
       animation: fadeUp 0.8s 0.3s cubic-bezier(0.16,1,0.3,1) forwards;
     }
@@ -173,7 +176,7 @@
 
     .hero h1 em {
       font-style: italic;
-      color: var(--gold);
+      color: var(--accent-blue);
     }
 
     .hero-sub {
@@ -237,7 +240,7 @@
     .scroll-line {
       width: 1px;
       height: 40px;
-      background: linear-gradient(to bottom, var(--gold), transparent);
+      background: linear-gradient(to bottom, var(--accent-blue), transparent);
       animation: scrollPulse 2s ease-in-out infinite;
     }
 
