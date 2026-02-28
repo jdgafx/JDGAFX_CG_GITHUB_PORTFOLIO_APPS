@@ -2,7 +2,8 @@ import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Trophy, Clock, Hash, DollarSign, Play, Square,
-  ChevronDown, ChevronUp, Settings, CheckCircle2
+  ChevronDown, ChevronUp, Settings, CheckCircle2,
+  RotateCcw, AlertTriangle,
 } from 'lucide-react'
 import { streamModel } from './lib/api'
 
@@ -87,6 +88,7 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [winnerId, setWinnerId] = useState<string | null>(null)
   const abortRefs = useRef<Record<string, AbortController>>({})
+  const stoppedRef = useRef(false)
 
   const toggleModel = (id: string) => {
     setSelectedModels(prev => {
@@ -102,7 +104,7 @@ export default function App() {
   const updateResult = useCallback((modelId: string, patch: Partial<ModelResult>) => {
     setResults(prev => ({
       ...prev,
-      [modelId]: { ...prev[modelId], ...patch },
+      [modelId]: { ...(prev[modelId] ?? createEmptyResult()), ...patch },
     }))
   }, [])
 
@@ -111,6 +113,7 @@ export default function App() {
 
     Object.values(abortRefs.current).forEach(c => c.abort())
     abortRefs.current = {}
+    stoppedRef.current = false
 
     const initial: Record<string, ModelResult> = {}
     selectedModels.forEach(id => {
@@ -122,18 +125,20 @@ export default function App() {
 
     const messages = [{ role: 'user' as const, content: prompt }]
     const completedTimes: Record<string, number> = {}
+    const modelsToRun = [...selectedModels]
 
     const checkDone = (modelId: string, latency: number) => {
+      if (stoppedRef.current) return
       completedTimes[modelId] = latency
-      if (Object.keys(completedTimes).length === selectedModels.length) {
-        const fastest = Object.entries(completedTimes).sort((a, b) => a[1] - b[1])[0][0]
-        setWinnerId(fastest)
+      if (Object.keys(completedTimes).length === modelsToRun.length) {
+        const fastest = Object.entries(completedTimes).sort((a, b) => a[1] - b[1])[0]
+        if (fastest) setWinnerId(fastest[0])
         setRunning(false)
       }
     }
 
     await Promise.allSettled(
-      selectedModels.map(async (modelId) => {
+      modelsToRun.map(async (modelId) => {
         const ctrl = new AbortController()
         abortRefs.current[modelId] = ctrl
 
@@ -144,17 +149,21 @@ export default function App() {
             systemPrompt || undefined,
             { temperature, max_tokens: maxTokens },
             (chunk: import('./lib/api').StreamChunk) => {
+              if (stoppedRef.current) return
               if (chunk.type === 'text') {
-                setResults(prev => ({
-                  ...prev,
-                  [modelId]: {
-                    ...prev[modelId],
-                    text: prev[modelId].text + chunk.text,
-                  },
-                }))
+                setResults(prev => {
+                  const existing = prev[modelId] ?? createEmptyResult()
+                  return {
+                    ...prev,
+                    [modelId]: {
+                      ...existing,
+                      text: existing.text + chunk.text,
+                    },
+                  }
+                })
               } else if (chunk.type === 'done') {
-                const latency = chunk.latencyMs ?? (Date.now() - (initial[modelId].startTime ?? Date.now()))
-                const cfg = MODELS.find(m => m.id === modelId)!
+                const latency = chunk.latencyMs ?? (Date.now() - (initial[modelId]?.startTime ?? Date.now()))
+                const cfg = MODELS.find(m => m.id === modelId)
                 const cost = cfg
                   ? ((chunk.inputTokens ?? 0) / 1000 * cfg.costPer1kInput) +
                     ((chunk.outputTokens ?? 0) / 1000 * cfg.costPer1kOutput)
@@ -173,12 +182,16 @@ export default function App() {
             ctrl.signal,
           )
         } catch (err) {
+          if (stoppedRef.current) return
           if ((err as Error).name !== 'AbortError') {
             updateResult(modelId, {
               streaming: false,
               done: true,
               error: (err as Error).message,
             })
+            checkDone(modelId, Infinity)
+          } else {
+            // Aborted -- count as done so running state resolves
             checkDone(modelId, Infinity)
           }
         }
@@ -187,6 +200,7 @@ export default function App() {
   }
 
   const handleStop = () => {
+    stoppedRef.current = true
     Object.values(abortRefs.current).forEach(c => c.abort())
     abortRefs.current = {}
     selectedModels.forEach(id => {
@@ -194,6 +208,15 @@ export default function App() {
         updateResult(id, { streaming: false, done: true })
       }
     })
+    setRunning(false)
+  }
+
+  const handleClear = () => {
+    stoppedRef.current = true
+    Object.values(abortRefs.current).forEach(c => c.abort())
+    abortRefs.current = {}
+    setResults({})
+    setWinnerId(null)
     setRunning(false)
   }
 
@@ -253,7 +276,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
             {!running ? (
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -276,6 +299,24 @@ export default function App() {
                 <Square size={16} fill="currentColor" />
                 Stop
               </motion.button>
+            )}
+            {hasResults && !running && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleClear}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-slate-400 hover:text-slate-200 transition-all border border-white/10 hover:border-white/20"
+              >
+                <RotateCcw size={14} />
+                Clear
+              </motion.button>
+            )}
+            {!running && (
+              <span className="text-xs text-slate-600 hidden sm:inline">
+                Ctrl+Enter to run
+              </span>
             )}
           </div>
         </div>
@@ -580,7 +621,7 @@ function ResponsePanel({
           <div
             className="w-2 h-2 rounded-full flex-shrink-0"
             style={{
-              backgroundColor: result.streaming ? model.color : result.done && !result.error ? '#22c55e' : '#ef4444',
+              backgroundColor: result.streaming ? model.color : result.error ? '#ef4444' : result.done ? '#22c55e' : model.color,
               animation: result.streaming ? 'glow-pulse 1s ease-in-out infinite' : undefined,
             }}
           />
@@ -598,8 +639,9 @@ function ResponsePanel({
       </div>
 
       {result.error && (
-        <div className="p-4 text-sm text-red-400 bg-red-500/5 border-b border-red-500/10">
-          ⚠ {result.error}
+        <div className="p-4 text-sm text-red-400 bg-red-500/5 border-b border-red-500/10 flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+          <span>{result.error}</span>
         </div>
       )}
 

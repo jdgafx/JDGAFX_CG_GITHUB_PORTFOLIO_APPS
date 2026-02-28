@@ -19,14 +19,25 @@ export async function runPipeline(
   contentType: string,
   callbacks: PipelineCallbacks
 ): Promise<void> {
-  const response = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic, contentType }),
-  })
+  let response: Response
+  try {
+    response = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, contentType }),
+    })
+  } catch (err) {
+    callbacks.onError(`Network error: ${err instanceof Error ? err.message : 'Failed to connect'}`)
+    return
+  }
 
   if (!response.ok) {
-    callbacks.onError(`Request failed: ${response.status}`)
+    let detail = `${response.status}`
+    try {
+      const body = await response.text()
+      if (body) detail += ` - ${body.slice(0, 200)}`
+    } catch { /* ignore */ }
+    callbacks.onError(`Request failed: ${detail}`)
     return
   }
 
@@ -38,42 +49,63 @@ export async function runPipeline(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  let pipelineCompleted = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  const processLine = (line: string) => {
+    if (!line.startsWith('data: ')) return
+    const payload = line.slice(6).trim()
+    if (payload === '[DONE]') return
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
+    try {
+      const event = JSON.parse(payload) as StepEvent
+      switch (event.type) {
+        case 'step_start':
+          if (event.step) callbacks.onStepStart(event.step)
+          break
+        case 'step_chunk':
+          if (event.step && event.content) callbacks.onStepChunk(event.step, event.content)
+          break
+        case 'step_complete':
+          if (event.step && event.content) callbacks.onStepComplete(event.step, event.content)
+          break
+        case 'pipeline_complete':
+          pipelineCompleted = true
+          callbacks.onPipelineComplete()
+          break
+        case 'error':
+          callbacks.onError(event.content ?? 'Unknown error')
+          break
+      }
+    } catch {
+      // skip malformed JSON
+    }
+  }
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6).trim()
-      if (payload === '[DONE]') continue
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-      try {
-        const event = JSON.parse(payload) as StepEvent
-        switch (event.type) {
-          case 'step_start':
-            if (event.step) callbacks.onStepStart(event.step)
-            break
-          case 'step_chunk':
-            if (event.step && event.content) callbacks.onStepChunk(event.step, event.content)
-            break
-          case 'step_complete':
-            if (event.step && event.content) callbacks.onStepComplete(event.step, event.content)
-            break
-          case 'pipeline_complete':
-            callbacks.onPipelineComplete()
-            break
-          case 'error':
-            callbacks.onError(event.content ?? 'Unknown error')
-            break
-        }
-      } catch {
-        continue
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        processLine(line)
       }
     }
+
+    // Flush any remaining buffer content after stream ends
+    if (buffer.trim()) {
+      processLine(buffer)
+    }
+  } catch (err) {
+    callbacks.onError(`Stream error: ${err instanceof Error ? err.message : 'Connection lost'}`)
+    return
+  }
+
+  // Safety net: if stream ended without a pipeline_complete event, notify the UI
+  if (!pipelineCompleted) {
+    callbacks.onPipelineComplete()
   }
 }

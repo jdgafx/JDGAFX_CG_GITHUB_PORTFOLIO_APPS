@@ -318,6 +318,7 @@ export default function App() {
     if (!code.trim() || isLoading) return
     setIsLoading(true)
     setError(null)
+    setReviewResult(null)
     setHighlightedLine(null)
     try {
       const result = await reviewCode(code, language)
@@ -330,7 +331,8 @@ export default function App() {
   }
 
   const handleCommentClick = (line: number) => {
-    setHighlightedLine((prev) => (prev === line ? null : line))
+    const clampedLine = Math.min(line, code.split('\n').length)
+    setHighlightedLine((prev) => (prev === clampedLine ? null : clampedLine))
   }
 
   const sortedComments = reviewResult
@@ -341,7 +343,10 @@ export default function App() {
   const warningCount = reviewResult?.comments.filter((c) => c.severity === 'warning').length ?? 0
   const infoCount = reviewResult?.comments.filter((c) => c.severity === 'info').length ?? 0
 
-  const btnDisabled = isLoading || !code.trim()
+  const codeLength = code.length
+  const MAX_CODE_LENGTH = 50000
+  const isOverLimit = codeLength > MAX_CODE_LENGTH
+  const btnDisabled = isLoading || !code.trim() || isOverLimit
 
   return (
     <div
@@ -511,8 +516,8 @@ export default function App() {
             />
           </div>
 
-          <span style={{ fontSize: '12px', color: '#374151' }}>
-            {code.split('\n').length} lines
+          <span style={{ fontSize: '12px', color: isOverLimit ? '#ef4444' : '#374151' }}>
+            {code.split('\n').length} lines{isOverLimit ? ` (${(codeLength / 1000).toFixed(0)}k / ${MAX_CODE_LENGTH / 1000}k chars)` : ''}
           </span>
 
           <div style={{ flex: 1 }} />
@@ -717,7 +722,7 @@ export default function App() {
                 <AnimatePresence>
                   {sortedComments.map((comment, i) => (
                     <ReviewCard
-                      key={`${i}-${comment.severity}`}
+                      key={`${comment.line}-${comment.severity}-${i}`}
                       comment={comment}
                       index={i}
                       onClick={() => handleCommentClick(comment.line)}

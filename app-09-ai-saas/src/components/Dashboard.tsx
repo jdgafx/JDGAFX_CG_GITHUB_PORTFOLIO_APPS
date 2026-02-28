@@ -160,7 +160,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
             justifyContent: 'space-between',
           }}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
             <div
               style={{
                 width: '36px',
@@ -170,6 +170,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexShrink: 0,
               }}
             >
               <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
@@ -182,8 +183,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
                 <path d="M5 5h4M5 7h2" stroke="#c4b5fd" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
               </svg>
             </div>
-            <span style={{ fontSize: '18px', fontWeight: 700, color: '#f1f5f9' }}>InsightHub</span>
-            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>A mock SaaS analytics dashboard with real auth (via Supabase) and AI-generated business insights. Tracks API calls, feature usage, error rates, and latency over 30 days with interactive charts. The AI reads the numbers and tells you what's actually happening.</span>
+            <span style={{ fontSize: '18px', fontWeight: 700, color: '#f1f5f9', flexShrink: 0 }}>InsightHub</span>
             {isDemoMode && (
               <span
                 style={{
@@ -195,6 +195,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
                   color: '#fbbf24',
                   border: '1px solid rgba(251,191,36,0.2)',
                   letterSpacing: '0.5px',
+                  flexShrink: 0,
                 }}
               >
                 DEMO
@@ -226,6 +227,12 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
           </div>
         </div>
       </header>
+
+      <div style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.02)' }}>
+        <p style={{ maxWidth: '1400px', margin: '0 auto', padding: '8px 24px', fontSize: '11px', color: '#475569', lineHeight: '1.5' }}>
+          A mock SaaS analytics dashboard with real auth (via Supabase) and AI-generated business insights. Tracks API calls, feature usage, error rates, and latency over 30 days with interactive charts. The AI reads the numbers and tells you what's actually happening.
+        </p>
+      </div>
 
       <main style={{ maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' }}>
         <motion.div
@@ -283,7 +290,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
             gap: '20px',
             marginBottom: '24px',
           }}

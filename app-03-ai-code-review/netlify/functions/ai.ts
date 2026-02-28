@@ -93,7 +93,12 @@ Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, n
       const end = jsonText.lastIndexOf('}')
       if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1)
     }
-    const reviewData = JSON.parse(jsonText) as { comments: unknown[] }
+    let reviewData: { comments: unknown[] }
+    try {
+      reviewData = JSON.parse(jsonText) as { comments: unknown[] }
+    } catch {
+      throw new Error('AI returned an invalid response. Please try again.')
+    }
 
     const validSeverities = ['critical', 'warning', 'info']
     const validatedComments = Array.isArray(reviewData.comments)

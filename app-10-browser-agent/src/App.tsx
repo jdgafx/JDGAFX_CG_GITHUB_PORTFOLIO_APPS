@@ -375,10 +375,11 @@ function BrowserChrome({
   )
 }
 
-function AgentThoughts({ steps, currentStepIndex, isRunning }: {
+function AgentThoughts({ steps, currentStepIndex, isRunning, completed }: {
   steps: BotStep[]
   currentStepIndex: number
   isRunning: boolean
+  completed: boolean
 }) {
   const currentStep = steps[currentStepIndex]
   const [displayedThought, setDisplayedThought] = useState('')
@@ -465,7 +466,7 @@ function AgentThoughts({ steps, currentStepIndex, isRunning }: {
           </motion.div>
         ))}
 
-        {!isRunning && steps.length > 0 && currentStepIndex >= steps.length - 1 && (
+        {completed && steps.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -515,10 +516,10 @@ function StepTimeline({ steps, currentStepIndex }: {
     <div className="bg-slate-900/80 rounded-2xl border border-slate-700/50 p-4">
       <div className="relative flex items-center gap-0">
         <div className="absolute top-5 left-0 right-0 h-0.5 bg-slate-700 z-0" />
-        {steps.length > 1 && (
+        {steps.length > 0 && (
           <motion.div
             className="absolute top-5 left-0 h-0.5 bg-gradient-to-r from-teal-600 to-teal-400 z-0"
-            animate={{ width: `${(currentStepIndex / (steps.length - 1)) * 100}%` }}
+            animate={{ width: `${steps.length === 1 ? 100 : (currentStepIndex / (steps.length - 1)) * 100}%` }}
             transition={{ duration: 0.5 }}
           />
         )}
@@ -573,6 +574,7 @@ export default function App() {
   const [typedText, setTypedText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
+  const [completed, setCompleted] = useState(false)
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const presetRef = useRef<HTMLDivElement>(null)
@@ -583,6 +585,7 @@ export default function App() {
   const runSteps = useCallback((stepsToRun: BotStep[], startIndex: number) => {
     if (startIndex >= stepsToRun.length) {
       setIsRunning(false)
+      setCompleted(true)
       return
     }
 
@@ -611,7 +614,9 @@ export default function App() {
 
   const handleRun = async () => {
     if (!task.trim()) return
+    handleStop()
     setError(null)
+    setCompleted(false)
     setIsLoading(true)
     setSteps([])
     setCurrentStepIndex(-1)
@@ -633,9 +638,14 @@ export default function App() {
   }
 
   const handleStop = () => {
-    if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
-    if (typeTimerRef.current) clearInterval(typeTimerRef.current)
-    typeTimerRef.current = null
+    if (stepTimerRef.current) {
+      clearTimeout(stepTimerRef.current)
+      stepTimerRef.current = null
+    }
+    if (typeTimerRef.current) {
+      clearInterval(typeTimerRef.current)
+      typeTimerRef.current = null
+    }
     setIsRunning(false)
   }
 
@@ -645,11 +655,13 @@ export default function App() {
     setCurrentStepIndex(-1)
     setTypedText('')
     setError(null)
+    setCompleted(false)
   }
 
   useEffect(() => {
     return () => {
       if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
+      if (typeTimerRef.current) clearInterval(typeTimerRef.current)
     }
   }, [])
 
@@ -761,7 +773,13 @@ export default function App() {
               <textarea
                 value={task}
                 onChange={(e) => setTask(e.target.value)}
-                placeholder="Describe what you want the agent to do... e.g. 'Find the cheapest flight from NYC to LA next Friday'"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (task.trim() && !isRunning && !isLoading) handleRun()
+                  }
+                }}
+                placeholder="Describe what you want the agent to do... e.g. 'Find the cheapest flight from NYC to LA next Friday' (Enter to run, Shift+Enter for new line)"
                 rows={2}
                 className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-teal-500/60 focus:shadow-[0_0_0_3px_rgba(20,184,166,0.1)] transition-all font-mono"
               />
@@ -821,6 +839,7 @@ export default function App() {
               steps={steps}
               currentStepIndex={currentStepIndex}
               isRunning={isRunning}
+              completed={completed}
             />
           </div>
         </div>

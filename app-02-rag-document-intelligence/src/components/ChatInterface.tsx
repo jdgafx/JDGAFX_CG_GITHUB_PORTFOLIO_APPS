@@ -1,7 +1,71 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SendHorizontal, Bot, User, ChevronDown, AlertCircle, Loader2, MessageSquare } from 'lucide-react'
 import type { Message } from '../types'
+
+/** Lightweight inline markdown: bold, inline code */
+function renderInline(text: string): ReactNode[] {
+  // Split on **bold** and `code` patterns
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{part.slice(2, -2)}</strong>
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code
+          key={i}
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            padding: '1px 5px',
+            borderRadius: 4,
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.85em',
+            color: 'var(--color-accent)',
+          }}
+        >
+          {part.slice(1, -1)}
+        </code>
+      )
+    }
+    return <span key={i}>{part}</span>
+  })
+}
+
+/** Render markdown-like text: headings, lists, bold, code */
+function renderMarkdown(text: string): ReactNode[] {
+  return text.split('\n').map((line, i) => {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('### ')) {
+      return <div key={i} style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-accent)', marginTop: 12, marginBottom: 4 }}>{trimmed.slice(4)}</div>
+    }
+    if (trimmed.startsWith('## ')) {
+      return <div key={i} style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)', marginTop: 14, marginBottom: 6 }}>{trimmed.slice(3)}</div>
+    }
+    if (trimmed.startsWith('# ')) {
+      return <div key={i} style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-text-primary)', marginTop: 14, marginBottom: 6 }}>{trimmed.slice(2)}</div>
+    }
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      return (
+        <div key={i} style={{ paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
+          <span style={{ position: 'absolute', left: 2, color: 'var(--color-accent)' }}>&#8226;</span>
+          {renderInline(trimmed.slice(2))}
+        </div>
+      )
+    }
+    if (/^\d+\.\s/.test(trimmed)) {
+      const num = trimmed.match(/^(\d+)\./)?.[1]
+      return (
+        <div key={i} style={{ paddingLeft: 18, position: 'relative', marginBottom: 3 }}>
+          <span style={{ position: 'absolute', left: 0, color: 'var(--color-accent)', fontWeight: 700, fontSize: 12 }}>{num}.</span>
+          {renderInline(trimmed.replace(/^\d+\.\s*/, ''))}
+        </div>
+      )
+    }
+    if (trimmed === '') return <div key={i} style={{ height: 6 }} />
+    return <div key={i} style={{ marginBottom: 3 }}>{renderInline(trimmed)}</div>
+  })
+}
 
 interface ChatInterfaceProps {
   messages: Message[]
@@ -36,6 +100,14 @@ export function ChatInterface({
     },
     [question, isLoading, onSubmit],
   )
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [question])
 
   return (
     <div className="flex flex-col h-full">
@@ -254,12 +326,12 @@ function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
               color: 'var(--color-text-primary)',
               fontFamily: 'var(--font-body)',
               lineHeight: '1.65',
-              whiteSpace: 'pre-wrap',
+              whiteSpace: isUser ? 'pre-wrap' : undefined,
               wordBreak: 'break-word',
               marginTop: !isUser && confidenceLabel ? '8px' : '0',
             }}
           >
-            {message.content}
+            {isUser ? message.content : renderMarkdown(message.content)}
           </div>
         </div>
 

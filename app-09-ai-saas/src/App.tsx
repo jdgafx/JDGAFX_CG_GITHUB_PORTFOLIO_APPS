@@ -6,17 +6,21 @@ import Dashboard from './components/Dashboard'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
-  const [isDemoMode, setIsDemoMode] = useState(true)
+  const [isDemoMode, setIsDemoMode] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!supabase) {
+      // No Supabase configured — go straight to demo mode
+      setIsDemoMode(true)
       setLoading(false)
       return
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
+      setLoading(false)
+    }).catch(() => {
       setLoading(false)
     })
 
@@ -31,7 +35,11 @@ export default function App() {
 
   const handleLogout = async () => {
     if (!isDemoMode && supabase) {
-      await supabase.auth.signOut()
+      try {
+        await supabase.auth.signOut()
+      } catch {
+        // Sign out failed, clear local state anyway
+      }
     }
     setIsDemoMode(false)
     setSession(null)

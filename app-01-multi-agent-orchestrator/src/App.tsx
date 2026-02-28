@@ -179,6 +179,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AgentRole>('researcher')
   const [elapsed, setElapsed] = useState(0)
   const [totalTokens, setTotalTokens] = useState(0)
+  const [pipelineError, setPipelineError] = useState<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -217,12 +218,16 @@ export default function App() {
         setTotalTokens(prev => prev + tokens)
         setEdges(prev => prev.map(e => ({ ...e, animated: false })))
       } else if (event.type === 'agent_error') {
-        setAgents(prev => {
-          if (!(event.agent in prev)) return prev
-          const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'error' as const } }
-          syncNodes(next)
-          return next
-        })
+        if (event.agent in agents) {
+          setAgents(prev => {
+            if (!(event.agent in prev)) return prev
+            const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'error' as const } }
+            syncNodes(next)
+            return next
+          })
+        }
+        // Show error to user regardless of which agent (including 'system')
+        setPipelineError(event.error ?? 'An error occurred during processing.')
       } else if (event.type === 'session_complete') {
         setIsPipelineComplete(true)
         setActiveTab('synthesizer')
@@ -242,6 +247,7 @@ export default function App() {
     setElapsed(0)
     setIsRunning(true)
     setIsPipelineComplete(false)
+    setPipelineError(null)
     setActiveTab('researcher')
 
     const start = Date.now()
@@ -253,10 +259,16 @@ export default function App() {
     try {
       await startResearch(query, handleEvent, ctrl.signal)
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') console.error(err)
+      if ((err as Error).name !== 'AbortError') {
+        console.error(err)
+        setPipelineError((err as Error).message || 'An unexpected error occurred.')
+      }
     } finally {
       setIsRunning(false)
-      if (timerRef.current) clearInterval(timerRef.current)
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
       setEdges(prev => prev.map(e => ({ ...e, animated: false })))
     }
   }, [query, isRunning, handleEvent, syncNodes, setEdges])
@@ -292,7 +304,10 @@ export default function App() {
   useEffect(
     () => () => {
       abortRef.current?.abort()
-      if (timerRef.current) clearInterval(timerRef.current)
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
     },
     [],
   )
@@ -627,6 +642,41 @@ export default function App() {
         </div>
       )}
 
+      {pipelineError && (
+        <div
+          style={{
+            padding: '10px 20px',
+            borderTop: '1px solid rgba(255,51,102,0.25)',
+            background: 'rgba(255,51,102,0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ff3366', flexShrink: 0 }} />
+          <span style={{ flex: 1, fontSize: 13, color: '#ff3366', lineHeight: 1.4 }}>
+            {pipelineError}
+          </span>
+          <button
+            onClick={() => setPipelineError(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ff3366',
+              cursor: 'pointer',
+              fontSize: 16,
+              padding: '0 4px',
+              fontFamily: 'inherit',
+              opacity: 0.7,
+            }}
+            aria-label="Dismiss error"
+          >
+            x
+          </button>
+        </div>
+      )}
+
       <div
         style={{
           padding: '12px 20px',
@@ -639,10 +689,12 @@ export default function App() {
           <input
             type="text"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => setQuery(e.target.value.slice(0, 500))}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleStart()}
             placeholder="Enter research query..."
             disabled={isRunning}
+            maxLength={500}
+            aria-label="Research query"
             style={{
               flex: 1,
               padding: '10px 16px',
@@ -658,6 +710,7 @@ export default function App() {
           <button
             onClick={isRunning ? handleStop : handleStart}
             disabled={!isRunning && !query.trim()}
+            aria-label={isRunning ? 'Stop research' : 'Start research'}
             style={{
               display: 'flex',
               alignItems: 'center',

@@ -2,6 +2,9 @@ import { useRef, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { FileText, Upload, Loader2 } from 'lucide-react'
 
+/** Max file size: 25 MB */
+const MAX_FILE_SIZE = 25 * 1024 * 1024
+
 interface UploadZoneProps {
   onFileSelect: (file: File) => void
   isProcessing: boolean
@@ -9,18 +12,36 @@ interface UploadZoneProps {
 
 export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFile = useCallback(
     (file: File) => {
-      if (
+      setFileError(null)
+
+      const isValidType =
         file.type === 'application/pdf' ||
         file.type === 'text/plain' ||
         file.name.endsWith('.pdf') ||
         file.name.endsWith('.txt')
-      ) {
-        onFileSelect(file)
+
+      if (!isValidType) {
+        setFileError(`Unsupported file type: "${file.name.split('.').pop()?.toUpperCase() || 'unknown'}". Please upload a PDF or TXT file.`)
+        return
       }
+
+      if (file.size > MAX_FILE_SIZE) {
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1)
+        setFileError(`File too large (${sizeMb} MB). Maximum allowed size is 25 MB.`)
+        return
+      }
+
+      if (file.size === 0) {
+        setFileError('This file appears to be empty.')
+        return
+      }
+
+      onFileSelect(file)
     },
     [onFileSelect],
   )
@@ -173,6 +194,21 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
           />
         </motion.div>
 
+        {fileError && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4 mx-auto max-w-md px-4 py-3 rounded-lg text-sm"
+            style={{
+              background: 'rgba(239,68,68,0.1)',
+              border: '1px solid rgba(239,68,68,0.3)',
+              color: '#ef4444',
+            }}
+          >
+            {fileError}
+          </motion.div>
+        )}
+
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -180,7 +216,7 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
           className="text-center mt-6 text-sm"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          All processing happens client-side. Your document never leaves your browser.
+          All processing happens client-side. Your document never leaves your browser (max 25 MB).
         </motion.p>
       </motion.div>
     </div>

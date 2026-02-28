@@ -33,15 +33,20 @@ export default function App() {
   const [steps, setSteps] = useState<StepState[]>(makeInitialSteps)
   const [isRunning, setIsRunning] = useState(false)
   const [expandedStep, setExpandedStep] = useState<StepId | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const activeRef = useRef<HTMLDivElement>(null)
+  const prevActiveContentLen = useRef(0)
 
+  // Auto-scroll only when the active step's content grows (streaming)
   useEffect(() => {
-    if (activeRef.current) {
+    const activeStep = steps.find(s => s.status === 'active')
+    const currentLen = activeStep?.content.length ?? 0
+    if (activeRef.current && currentLen > prevActiveContentLen.current) {
       activeRef.current.scrollTop = activeRef.current.scrollHeight
     }
-  }, [steps, expandedStep])
+    prevActiveContentLen.current = currentLen
+  }, [steps])
 
   const activeStep = steps.find(s => s.status === 'active')
   const lastComplete = [...steps].reverse().find(s => s.status === 'complete')
@@ -52,16 +57,19 @@ export default function App() {
     setError('')
     setSteps(makeInitialSteps())
     setExpandedStep(null)
+    prevActiveContentLen.current = 0
 
     await runPipeline(topic, contentType, {
       onStepStart(step) {
+        prevActiveContentLen.current = 0
         setSteps(prev => prev.map(s => s.id === step ? { ...s, status: 'active', content: '' } : s))
       },
       onStepChunk(step, chunk) {
         setSteps(prev => prev.map(s => s.id === step ? { ...s, content: s.content + chunk } : s))
       },
-      onStepComplete(step) {
-        setSteps(prev => prev.map(s => s.id === step ? { ...s, status: 'complete' } : s))
+      onStepComplete(step, fullContent) {
+        // Use server-authoritative content to reconcile any missed chunks
+        setSteps(prev => prev.map(s => s.id === step ? { ...s, status: 'complete', content: fullContent || s.content } : s))
       },
       onPipelineComplete() {
         setIsRunning(false)
@@ -73,14 +81,11 @@ export default function App() {
     })
   }, [topic, contentType, isRunning])
 
-  const handleCopy = useCallback(() => {
-    const final = steps.find(s => s.id === 'polish')
-    if (final?.content) {
-      void navigator.clipboard.writeText(final.content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }, [steps])
+  const handleCopy = useCallback((content: string, id: string) => {
+    void navigator.clipboard.writeText(content)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }, [])
 
   const completedSteps = steps.filter(s => s.status === 'complete')
   const allDone = completedSteps.length === 5
@@ -102,13 +107,13 @@ export default function App() {
             <h1 className="text-xl font-semibold tracking-tight text-white">ContentForge</h1>
             <p className="text-xs text-slate-500 hidden sm:block">Agentic Content Pipeline</p>
           </div>
-          {allDone && (
+          {allDone && lastComplete && (
             <button
-              onClick={handleCopy}
+              onClick={() => handleCopy(lastComplete.content, 'final')}
               className="flex items-center gap-2 rounded-lg bg-lime-500/10 px-4 py-2 text-sm font-medium text-lime-400 transition hover:bg-lime-500/20"
             >
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? 'Copied!' : 'Copy Final'}
+              {copiedId === 'final' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copiedId === 'final' ? 'Copied!' : 'Copy Final'}
             </button>
           )}
         </div>
@@ -233,21 +238,34 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   className="rounded-xl border border-white/5 bg-surface-raised overflow-hidden"
                 >
-                  <button
-                    onClick={() => setExpandedStep(isExpanded ? null : step.id)}
-                    className="flex w-full items-center justify-between px-5 py-3 text-left transition hover:bg-white/[0.02]"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-4 w-4 text-lime-400/70" />
-                      <span className="text-sm font-medium text-slate-300">{step.label}</span>
-                      <Check className="h-3.5 w-3.5 text-lime-500" />
-                    </div>
-                    {isExpanded ? (
-                      <ChevronUp className="h-4 w-4 text-slate-500" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-slate-500" />
-                    )}
-                  </button>
+                  <div className="flex items-center justify-between px-5 py-3">
+                    <button
+                      onClick={() => setExpandedStep(isExpanded ? null : step.id)}
+                      className="flex flex-1 items-center justify-between text-left transition hover:bg-white/[0.02] rounded-lg -m-1 p-1"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-lime-400/70" />
+                        <span className="text-sm font-medium text-slate-300">{step.label}</span>
+                        <Check className="h-3.5 w-3.5 text-lime-500" />
+                      </div>
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4 text-slate-500" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-slate-500" />
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCopy(step.content, step.id)
+                      }}
+                      className="ml-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-white/5 hover:text-slate-300"
+                      title={`Copy ${step.label} output`}
+                    >
+                      {copiedId === step.id ? <Check className="h-3 w-3 text-lime-400" /> : <Copy className="h-3 w-3" />}
+                      <span className="hidden sm:inline">{copiedId === step.id ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
                   <AnimatePresence>
                     {isExpanded && (
                       <motion.div

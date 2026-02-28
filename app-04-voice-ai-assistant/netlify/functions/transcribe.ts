@@ -25,8 +25,14 @@ export default async (req: Request): Promise<Response> => {
     return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: corsHeaders })
   }
 
-  if (!body.audio) {
+  if (!body.audio || typeof body.audio !== 'string') {
     return Response.json({ error: 'Missing audio field' }, { status: 400, headers: corsHeaders })
+  }
+
+  // Reject audio larger than 25MB (Groq limit)
+  const estimatedSize = body.audio.length * 0.75
+  if (estimatedSize > 25 * 1024 * 1024) {
+    return Response.json({ error: 'Audio file too large (max 25MB)' }, { status: 400, headers: corsHeaders })
   }
 
   const audioBuffer = Buffer.from(body.audio, 'base64')

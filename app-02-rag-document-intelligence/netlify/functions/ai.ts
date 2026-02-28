@@ -84,6 +84,26 @@ export default async (req: Request): Promise<Response> => {
       )
     }
 
+    if (typeof question !== 'string' || question.length > 2000) {
+      return new Response(
+        JSON.stringify({ error: 'Question must be a string of 2000 characters or fewer.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (!Array.isArray(chunks) || chunks.length > 30) {
+      return new Response(
+        JSON.stringify({ error: 'Too many chunks provided. Maximum is 30.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    // Truncate overly long chunks to prevent token overflow
+    const maxChunkLen = 2000
+    const sanitizedChunks = chunks.map((c: string) =>
+      typeof c === 'string' ? c.slice(0, maxChunkLen) : ''
+    )
+
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) {
       return new Response(
@@ -103,7 +123,7 @@ export default async (req: Request): Promise<Response> => {
         max_tokens: 1024,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
+          { role: 'user', content: buildUserMessage(question, sanitizedChunks, documentTitle) },
         ],
       }),
     })
