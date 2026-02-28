@@ -469,6 +469,12 @@ export default function App() {
                     {currentFile?.name ?? 'Gallery image'}
                   </p>
                 </motion.div>
+
+                {uploadError && (
+                  <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-rose-400 text-sm text-center max-w-md">
+                    {uploadError}
+                  </div>
+                )}
               </div>
 
               {/* Right: Analysis Panel */}

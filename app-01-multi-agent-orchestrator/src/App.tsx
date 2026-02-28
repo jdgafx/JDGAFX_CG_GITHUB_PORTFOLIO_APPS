@@ -194,38 +194,40 @@ export default function App() {
 
   const handleEvent = useCallback(
     (event: StreamEvent) => {
+      const agentRole = event.agent as AgentRole
       if (event.type === 'agent_start') {
-        setActiveTab(event.agent)
+        if (event.agent === 'system') return
+        setActiveTab(agentRole)
         setAgents(prev => {
-          const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'working' as const, startTime: Date.now() } }
+          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'working' as const, startTime: Date.now() } }
           syncNodes(next)
           return next
         })
-        setEdges(prev => prev.map(e => ({ ...e, animated: e.source === event.agent || e.target === event.agent })))
+        setEdges(prev => prev.map(e => ({ ...e, animated: e.source === agentRole || e.target === agentRole })))
       } else if (event.type === 'agent_chunk') {
         setAgents(prev => {
-          const next = { ...prev, [event.agent]: { ...prev[event.agent], output: prev[event.agent].output + (event.content ?? '') } }
+          if (!(event.agent in prev)) return prev
+          const next = { ...prev, [agentRole]: { ...prev[agentRole], output: prev[agentRole].output + (event.content ?? '') } }
           syncNodes(next)
           return next
         })
       } else if (event.type === 'agent_complete') {
         const tokens = event.tokens ?? 0
         setAgents(prev => {
-          const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'complete' as const, tokens, endTime: Date.now() } }
+          if (!(event.agent in prev)) return prev
+          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'complete' as const, tokens, endTime: Date.now() } }
           syncNodes(next)
           return next
         })
         setTotalTokens(prev => prev + tokens)
         setEdges(prev => prev.map(e => ({ ...e, animated: false })))
       } else if (event.type === 'agent_error') {
-        if (event.agent in agents) {
-          setAgents(prev => {
-            if (!(event.agent in prev)) return prev
-            const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'error' as const } }
-            syncNodes(next)
-            return next
-          })
-        }
+        setAgents(prev => {
+          if (!(event.agent in prev)) return prev
+          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'error' as const } }
+          syncNodes(next)
+          return next
+        })
         // Show error to user regardless of which agent (including 'system')
         setPipelineError(event.error ?? 'An error occurred during processing.')
       } else if (event.type === 'session_complete') {
