@@ -47,8 +47,44 @@ const agents: AgentConfig[] = [
   },
 ]
 
+/** Progressive delays between agents — longer before synthesizer to avoid rate limits */
+const AGENT_DELAYS = [0, 1500, 2000, 3000]
+
+/** Max retries for transient API failures (429, 502, 503, 504) */
+const MAX_RETRIES = 3
+
+/** Retryable HTTP status codes */
+const RETRYABLE = new Set([429, 502, 503, 504])
+
 function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retries: number = MAX_RETRIES,
+): Promise<Response> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, init)
+      if (response.ok) return response
+      if (!RETRYABLE.has(response.status) || attempt === retries) {
+        const body = await response.text().catch(() => '')
+        throw new Error(`OpenRouter ${response.status}: ${body || response.statusText}`)
+      }
+      // Exponential backoff: 2s, 4s, 8s
+      const backoff = Math.pow(2, attempt + 1) * 1000
+      await new Promise(r => setTimeout(r, backoff))
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt === retries) throw lastError
+      const backoff = Math.pow(2, attempt + 1) * 1000
+      await new Promise(r => setTimeout(r, backoff))
+    }
+  }
+  throw lastError ?? new Error('Fetch failed after retries')
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -89,13 +125,20 @@ export default async (req: Request): Promise<Response> => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+      /** Send a keepalive comment to prevent Netlify from closing the idle connection */
+      const keepalive = () => controller.enqueue(encoder.encode(': keepalive\n\n'))
 
       try {
         for (let i = 0; i < agents.length; i++) {
           const agent = agents[i]
-          // Pause between agents to avoid rate limiting
-          if (i > 0) await delay(1200)
+
+          // Progressive delay between agents — send keepalive so connection stays open
+          const delayMs = AGENT_DELAYS[i]
+          if (delayMs > 0) {
+            keepalive()
+            await new Promise(r => setTimeout(r, delayMs))
+          }
+
           controller.enqueue(
             encoder.encode(
               sseEvent({
@@ -109,25 +152,28 @@ export default async (req: Request): Promise<Response> => {
           let agentOutput = ''
           let tokenCount = 0
 
-          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
+          const response = await fetchWithRetry(
+            'https://openrouter.ai/api/v1/chat/completions',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'anthropic/claude-haiku-4.5',
+                max_tokens: agent.maxTokens,
+                stream: true,
+                messages: [
+                  { role: 'system', content: agent.systemPrompt },
+                  { role: 'user', content: userMessage },
+                ],
+              }),
             },
-            body: JSON.stringify({
-              model: 'anthropic/claude-haiku-4.5',
-              max_tokens: agent.maxTokens,
-              stream: true,
-              messages: [
-                { role: 'system', content: agent.systemPrompt },
-                { role: 'user', content: userMessage },
-              ],
-            }),
-          })
+          )
 
-          if (!response.ok || !response.body) {
-            throw new Error(`OpenRouter error: ${response.status} ${response.statusText}`)
+          if (!response.body) {
+            throw new Error(`No response body from OpenRouter for ${agent.role}`)
           }
 
           const reader = response.body.getReader()
@@ -172,6 +218,30 @@ export default async (req: Request): Promise<Response> => {
               } catch {
                 // skip malformed SSE lines
               }
+            }
+          }
+
+          // Flush remaining buffer
+          if (buffer.trim()) {
+            for (const line of buffer.split('\n')) {
+              const trimmed = line.trim()
+              if (!trimmed || !trimmed.startsWith('data: ')) continue
+              const data = trimmed.slice(6)
+              if (data === '[DONE]') continue
+              try {
+                const parsed = JSON.parse(data) as {
+                  choices?: Array<{ delta?: { content?: string } }>
+                  usage?: { completion_tokens?: number }
+                }
+                const content = parsed.choices?.[0]?.delta?.content
+                if (content) {
+                  agentOutput += content
+                  controller.enqueue(
+                    encoder.encode(sseEvent({ type: 'agent_chunk', agent: agent.role, content })),
+                  )
+                }
+                if (parsed.usage?.completion_tokens) tokenCount = parsed.usage.completion_tokens
+              } catch { /* skip */ }
             }
           }
 
