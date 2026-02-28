@@ -218,6 +218,7 @@ export default function App() {
             setSystemPrompt={setSystemPrompt}
             showSystem={showSystem}
             setShowSystem={setShowSystem}
+            onSubmit={handleCompare}
           />
 
           <div className="flex flex-col sm:flex-row gap-4">
@@ -358,7 +359,7 @@ function Header() {
 }
 
 function PromptSection({
-  prompt, setPrompt, systemPrompt, setSystemPrompt, showSystem, setShowSystem,
+  prompt, setPrompt, systemPrompt, setSystemPrompt, showSystem, setShowSystem, onSubmit,
 }: {
   prompt: string
   setPrompt: (v: string) => void
@@ -366,6 +367,7 @@ function PromptSection({
   setSystemPrompt: (v: string) => void
   showSystem: boolean
   setShowSystem: (v: boolean) => void
+  onSubmit: () => void
 }) {
   return (
     <div className="glass rounded-2xl p-4 space-y-3">
@@ -409,6 +411,7 @@ function PromptSection({
         onKeyDown={e => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault()
+            onSubmit()
           }
         }}
       />

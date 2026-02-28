@@ -38,9 +38,15 @@ function fileToBase64(file: File): Promise<Base64Result> {
   })
 }
 
+const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+
 export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
   const { file, mode, question, onChunk, onComplete, onError } = opts
   try {
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error('Image is too large. Please use an image under 4MB.')
+    }
+
     const { data, mediaType } = await fileToBase64(file)
 
     const res = await fetch('/api/ai', {
@@ -54,12 +60,16 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
+    let buffer = ''
 
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
-      const chunk = decoder.decode(value, { stream: true })
-      for (const line of chunk.split('\n')) {
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
         if (!line.startsWith('data: ')) continue
         const payload = line.slice(6).trim()
         if (payload === '[DONE]') continue

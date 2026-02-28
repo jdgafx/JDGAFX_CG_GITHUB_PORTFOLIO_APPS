@@ -22,9 +22,30 @@ export default async (req: Request): Promise<Response> => {
     return new Response('Method not allowed', { status: 405 })
   }
 
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    })
+  }
+
   try {
     const body = (await req.json()) as RequestBody
     const { question, headers, sampleRows, rowCount } = body
+
+    if (!question || typeof question !== 'string') {
+      return new Response(JSON.stringify({ error: 'question is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      })
+    }
+    if (!Array.isArray(headers) || headers.length === 0) {
+      return new Response(JSON.stringify({ error: 'headers array is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      })
+    }
 
     const schemaDescription = `Dataset with ${rowCount} rows.
 Columns: ${headers.join(', ')}
@@ -63,7 +84,7 @@ Rules:
     const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -89,7 +110,8 @@ Rules:
     }
 
     const text = rawText.trim()
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const cleaned = text.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '')
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
     if (!jsonMatch || !jsonMatch[0]) {
       throw new Error('No JSON found in response')
     }

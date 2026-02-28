@@ -51,7 +51,7 @@ Provide specific, data-driven insights. Be direct and actionable. Format as numb
 
         if (!response.ok) {
           const errText = await response.text()
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: `Error: ${response.status} ${errText}` })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: `API error ${response.status}: ${errText}` })}\n\n`))
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
           return
@@ -89,7 +89,7 @@ Provide specific, data-driven insights. Be direct and actionable. Format as numb
         controller.close()
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: `Error: ${message}` })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`))
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       }

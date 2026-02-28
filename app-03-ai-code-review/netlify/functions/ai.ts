@@ -1,8 +1,18 @@
 
 
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 export default async (req: Request): Promise<Response> => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return Response.json({ success: false, error: 'Method not allowed' }, { status: 405 })
+    return Response.json({ success: false, error: 'Method not allowed' }, { status: 405, headers: corsHeaders })
   }
 
   try {
@@ -10,7 +20,11 @@ export default async (req: Request): Promise<Response> => {
     const { code, language } = body
 
     if (!code || typeof code !== 'string') {
-      return Response.json({ success: false, error: 'Code is required' }, { status: 400 })
+      return Response.json({ success: false, error: 'Code is required' }, { status: 400, headers: corsHeaders })
+    }
+
+    if (code.length > 50000) {
+      return Response.json({ success: false, error: 'Code exceeds maximum allowed length of 50,000 characters' }, { status: 400, headers: corsHeaders })
     }
 
     const lang = typeof language === 'string' ? language : 'code'
@@ -75,11 +89,27 @@ Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, n
       if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1)
     }
     const reviewData = JSON.parse(jsonText) as { comments: unknown[] }
-    return Response.json({ success: true, data: reviewData })
+
+    const validSeverities = ['critical', 'warning', 'info']
+    const validatedComments = Array.isArray(reviewData.comments)
+      ? reviewData.comments.filter((c: unknown): boolean => {
+          if (!c || typeof c !== 'object') return false
+          const comment = c as Record<string, unknown>
+          return (
+            typeof comment.line === 'number' &&
+            typeof comment.severity === 'string' &&
+            validSeverities.includes(comment.severity) &&
+            typeof comment.message === 'string' &&
+            typeof comment.suggestion === 'string'
+          )
+        })
+      : []
+
+    return Response.json({ success: true, data: { comments: validatedComments } }, { headers: corsHeaders })
   } catch (error) {
     console.error('Review error:', error)
     const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-    return Response.json({ success: false, error: message }, { status: 500 })
+    return Response.json({ success: false, error: message }, { status: 500, headers: corsHeaders })
   }
 }
 

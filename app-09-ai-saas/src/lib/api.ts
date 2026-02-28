@@ -35,9 +35,11 @@ export async function getInsights(
         const data = line.slice(6).trim()
         if (data === '[DONE]') return
         try {
-          const parsed = JSON.parse(data) as { text: string }
+          const parsed = JSON.parse(data) as { text?: string; error?: string }
+          if (parsed.error) throw new Error(parsed.error)
           if (parsed.text) onChunk(parsed.text)
-        } catch {
+        } catch (e) {
+          if (e instanceof Error && e.message) throw e
           void 0
         }
       }

@@ -86,7 +86,12 @@ export default async (req: Request): Promise<Response> => {
           return
         }
 
-        const reader = response.body!.getReader()
+        if (!response.body) {
+          send({ type: 'error', message: 'No response body from upstream API' })
+          controller.close()
+          return
+        }
+        const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
         let inputTokens = 0
