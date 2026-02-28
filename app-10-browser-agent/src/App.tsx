@@ -574,6 +574,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const presetRef = useRef<HTMLDivElement>(null)
   const speedRef = useRef(speed)
 
@@ -589,13 +590,17 @@ export default function App() {
     setCurrentStepIndex(startIndex)
     setTypedText('')
 
+    if (typeTimerRef.current) clearInterval(typeTimerRef.current)
     if (step.action === 'type' && step.value) {
       const val = step.value
       let i = 0
-      const typeTimer = setInterval(() => {
+      typeTimerRef.current = setInterval(() => {
         i++
         setTypedText(val.slice(0, i))
-        if (i >= val.length) clearInterval(typeTimer)
+        if (i >= val.length) {
+          if (typeTimerRef.current) clearInterval(typeTimerRef.current)
+          typeTimerRef.current = null
+        }
       }, 60)
     }
 
@@ -629,6 +634,8 @@ export default function App() {
 
   const handleStop = () => {
     if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
+    if (typeTimerRef.current) clearInterval(typeTimerRef.current)
+    typeTimerRef.current = null
     setIsRunning(false)
   }
 

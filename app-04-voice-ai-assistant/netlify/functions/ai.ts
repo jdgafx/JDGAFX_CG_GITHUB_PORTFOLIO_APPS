@@ -1,13 +1,21 @@
-
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
 
 export default async (req: Request): Promise<Response> => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405 })
+    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return Response.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500 })
+    return Response.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500, headers: corsHeaders })
   }
 
   try {
@@ -15,7 +23,7 @@ export default async (req: Request): Promise<Response> => {
     const { message, history } = body
 
     if (!message || typeof message !== 'string') {
-      return Response.json({ error: 'message is required' }, { status: 400 })
+      return Response.json({ error: 'message is required' }, { status: 400, headers: corsHeaders })
     }
 
     const historyMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
@@ -63,10 +71,10 @@ export default async (req: Request): Promise<Response> => {
       throw new Error('Unexpected response type from OpenRouter')
     }
 
-    return Response.json({ response: rawText })
+    return Response.json({ response: rawText }, { headers: corsHeaders })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-    return Response.json({ error: message }, { status: 500 })
+    return Response.json({ error: message }, { status: 500, headers: corsHeaders })
   }
 }
 

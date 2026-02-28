@@ -1,23 +1,33 @@
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 export default async function handler(req: Request): Promise<Response> {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return new Response('OPENROUTER_API_KEY not configured', { status: 500 })
+    return new Response('OPENROUTER_API_KEY not configured', { status: 500, headers: corsHeaders })
   }
 
   let body: { metrics?: { totalApiCalls: number; totalTokens: number; avgResponseTime: number; totalCost: number; apiCallsTrend: number; tokensTrend: number; responseTimeTrend: number; costTrend: number } }
   try {
     body = await req.json() as typeof body
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 
   const { metrics } = body
   if (!metrics || typeof metrics.totalApiCalls !== 'number') {
-    return new Response(JSON.stringify({ error: 'metrics object with totalApiCalls is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'metrics object with totalApiCalls is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 
   const prompt = `You are an expert SaaS analytics consultant. Analyze these API usage metrics from the last 15 days and provide 4-5 concise, actionable insights:
@@ -57,7 +67,13 @@ Provide specific, data-driven insights. Be direct and actionable. Format as numb
           return
         }
 
-        const reader = response.body!.getReader()
+        if (!response.body) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Empty response body' })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+          return
+        }
+        const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 

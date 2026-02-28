@@ -84,10 +84,18 @@ export default async (req: Request): Promise<Response> => {
       )
     }
 
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
