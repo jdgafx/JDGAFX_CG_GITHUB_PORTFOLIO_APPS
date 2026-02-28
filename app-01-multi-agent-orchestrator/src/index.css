@@ -113,6 +113,22 @@ body {
   background: var(--color-bg-primary) !important;
 }
 
+/* Lock the canvas — static pipeline, no dragging */
+.react-flow__pane {
+  cursor: default !important;
+}
+
+.react-flow__node {
+  cursor: default !important;
+  pointer-events: auto !important;
+}
+
+/* Disable the grab handles so nodes never look draggable */
+.react-flow__handle {
+  pointer-events: none !important;
+  opacity: 0.5;
+}
+
 .react-flow__edge-path {
   stroke: var(--color-accent) !important;
   stroke-opacity: 0.3;
