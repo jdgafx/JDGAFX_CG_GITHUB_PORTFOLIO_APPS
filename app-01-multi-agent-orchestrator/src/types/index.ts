@@ -26,7 +26,7 @@ export interface ResearchSession {
 
 export interface StreamEvent {
   type: 'agent_start' | 'agent_chunk' | 'agent_complete' | 'agent_error' | 'session_complete'
-  agent: AgentRole
+  agent: AgentRole | 'system'
   content?: string
   tokens?: number
   error?: string
