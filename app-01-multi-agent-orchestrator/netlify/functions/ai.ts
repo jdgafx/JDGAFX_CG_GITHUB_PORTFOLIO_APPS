@@ -64,13 +64,13 @@ export default async (req: Request): Promise<Response> => {
   }
 
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: { 'Access-Control-Allow-Origin': '*' } })
   }
 
   const { query } = (await req.json()) as { query: string }
 
   if (!query || typeof query !== 'string') {
-    return new Response('Missing query', { status: 400 })
+    return new Response('Missing query', { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } })
   }
 
   const encoder = new TextEncoder()

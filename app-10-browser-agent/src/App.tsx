@@ -234,8 +234,8 @@ function BrowserChrome({
 }) {
   const currentStep = steps[currentStepIndex]
   const [urlText, setUrlText] = useState('')
-  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>()
-  const [rippleCounter, setRippleCounter] = useState(0)
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([])
+  const rippleCounterRef = useRef(0)
   const contentRef = useRef<HTMLDivElement>(null)
   const cursorRef = useRef<HTMLDivElement>(null)
 
@@ -257,14 +257,13 @@ function BrowserChrome({
     const rect = contentRef.current.getBoundingClientRect()
     const x = rect.width * 0.4 + Math.random() * rect.width * 0.3
     const y = rect.height * 0.3 + Math.random() * rect.height * 0.3
-    const id = rippleCounter
-    setRippleCounter((c) => c + 1)
-    setRipples((prev) => [...(prev ?? []), { id, x, y }])
+    const id = rippleCounterRef.current++
+    setRipples((prev) => [...prev, { id, x, y }])
     const timer = setTimeout(() => {
-      setRipples((prev) => prev?.filter((r) => r.id !== id))
+      setRipples((prev) => prev.filter((r) => r.id !== id))
     }, 600)
     return () => clearTimeout(timer)
-  }, [currentStep?.action, currentStepIndex, rippleCounter])
+  }, [currentStep?.action, currentStepIndex])
 
   const cursorPositions: Record<StepAction, { x: number; y: number }> = {
     navigate: { x: 50, y: 30 },
@@ -359,7 +358,7 @@ function BrowserChrome({
           </motion.div>
         )}
 
-        {(ripples ?? []).map((r) => (
+        {ripples.map((r) => (
           <motion.div
             key={r.id}
             className="absolute pointer-events-none z-40"
@@ -576,8 +575,11 @@ export default function App() {
   const [showPresets, setShowPresets] = useState(false)
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const presetRef = useRef<HTMLDivElement>(null)
+  const speedRef = useRef(speed)
 
-  const runSteps = useCallback((stepsToRun: BotStep[], startIndex: number, currentSpeed: SpeedMode) => {
+  useEffect(() => { speedRef.current = speed }, [speed])
+
+  const runSteps = useCallback((stepsToRun: BotStep[], startIndex: number) => {
     if (startIndex >= stepsToRun.length) {
       setIsRunning(false)
       return
@@ -598,8 +600,8 @@ export default function App() {
     }
 
     stepTimerRef.current = setTimeout(() => {
-      runSteps(stepsToRun, startIndex + 1, currentSpeed)
-    }, SPEED_DELAYS[currentSpeed])
+      runSteps(stepsToRun, startIndex + 1)
+    }, SPEED_DELAYS[speedRef.current])
   }, [])
 
   const handleRun = async () => {
@@ -615,12 +617,13 @@ export default function App() {
       setSteps(result)
       setIsRunning(true)
       setIsLoading(false)
-      runSteps(result, 0, speed)
+      runSteps(result, 0)
     } catch {
+      setError('API unavailable — running demo scenario instead.')
       setIsLoading(false)
       setSteps(DEMO_STEPS)
       setIsRunning(true)
-      runSteps(DEMO_STEPS, 0, speed)
+      runSteps(DEMO_STEPS, 0)
     }
   }
 

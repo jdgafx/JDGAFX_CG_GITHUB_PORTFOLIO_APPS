@@ -100,7 +100,13 @@ export default async function handler(req: Request): Promise<Response> {
           return
         }
 
-        const reader = response.body!.getReader()
+        const body = response.body
+        if (!body) {
+          send({ error: 'Empty response body from upstream' })
+          controller.close()
+          return
+        }
+        const reader = body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 

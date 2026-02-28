@@ -131,13 +131,29 @@ export default function App() {
   }, [])
 
   const handleAnalyze = useCallback(async () => {
-    if (!currentFile || isLoading) return
+    if ((!currentFile && !currentUrl) || isLoading) return
+
+    let fileToAnalyze = currentFile
+    if (!fileToAnalyze && currentUrl) {
+      try {
+        const resp = await fetch(currentUrl)
+        const blob = await resp.blob()
+        const galleryItem = gallery.find(g => g.id === activeGalleryId)
+        fileToAnalyze = new File([blob], galleryItem?.name ?? 'gallery-image.jpg', { type: blob.type })
+      } catch {
+        setAnalysisText('Could not reload image for re-analysis. Please re-upload the image.')
+        return
+      }
+    }
+    if (!fileToAnalyze) return
+
     setIsLoading(true)
     setAnalysisText('')
     accTextRef.current = ''
 
+    const analyzeFile = fileToAnalyze
     await analyzeImage({
-      file: currentFile,
+      file: analyzeFile,
       mode,
       question: mode === 'qa' ? question : undefined,
       onChunk: text => {
@@ -151,7 +167,7 @@ export default function App() {
           {
             id: Date.now().toString(),
             url: currentUrl,
-            name: currentFile.name,
+            name: analyzeFile.name,
             mode,
             result,
           },
@@ -163,7 +179,7 @@ export default function App() {
         setAnalysisText(`⚠️ ${err.message}`)
       },
     })
-  }, [currentFile, isLoading, mode, question, currentUrl])
+  }, [currentFile, currentUrl, isLoading, mode, question, gallery, activeGalleryId])
 
   const loadGalleryItem = useCallback((item: GalleryItem) => {
     setCurrentUrl(item.url)
@@ -415,7 +431,7 @@ export default function App() {
                 <div className="p-3 border-b border-white/[0.06] flex-shrink-0">
                   <button
                     onClick={() => void handleAnalyze()}
-                    disabled={isLoading || !currentFile}
+                    disabled={isLoading || (!currentFile && !currentUrl)}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-all duration-200 shadow-[0_0_20px_rgba(244,63,94,0.25)] hover:shadow-[0_0_28px_rgba(244,63,94,0.4)]"
                   >
                     {isLoading ? (

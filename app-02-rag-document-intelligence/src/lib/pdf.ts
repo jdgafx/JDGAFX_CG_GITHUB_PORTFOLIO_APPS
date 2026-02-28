@@ -56,7 +56,7 @@ export function chunkText(text: string, maxChars: number = 500): string[] {
       chunks.push(chunk)
     }
 
-    start = Math.max(start + 1, end - overlap)
+    start = Math.max(start + Math.floor(maxChars / 2), end - overlap)
   }
 
   return chunks

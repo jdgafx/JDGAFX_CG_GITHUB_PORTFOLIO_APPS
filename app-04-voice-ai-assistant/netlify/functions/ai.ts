@@ -5,6 +5,11 @@ export default async (req: Request): Promise<Response> => {
     return Response.json({ error: 'Method not allowed' }, { status: 405 })
   }
 
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    return Response.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500 })
+  }
+
   try {
     const body = (await req.json()) as { message?: unknown; history?: unknown }
     const { message, history } = body
@@ -30,7 +35,7 @@ export default async (req: Request): Promise<Response> => {
     const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

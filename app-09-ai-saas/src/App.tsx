@@ -10,6 +10,11 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
@@ -25,7 +30,7 @@ export default function App() {
   }, [])
 
   const handleLogout = async () => {
-    if (!isDemoMode) {
+    if (!isDemoMode && supabase) {
       await supabase.auth.signOut()
     }
     setIsDemoMode(false)

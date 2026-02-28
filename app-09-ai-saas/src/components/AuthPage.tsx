@@ -21,6 +21,12 @@ export default function AuthPage({ onDemoMode }: AuthPageProps) {
     setSuccessMsg('')
     setLoading(true)
 
+    if (!supabase) {
+      setError('Authentication is not configured. Use Demo Mode instead.')
+      setLoading(false)
+      return
+    }
+
     if (isLogin) {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) setError(error.message)

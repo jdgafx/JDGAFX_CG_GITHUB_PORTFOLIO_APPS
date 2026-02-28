@@ -113,7 +113,27 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const jsonText = extractJson(rawText)
-    const result = JSON.parse(jsonText) as AiResponse
+
+    let result: AiResponse
+    try {
+      result = JSON.parse(jsonText) as AiResponse
+    } catch {
+      return new Response(
+        JSON.stringify({ error: 'The AI returned a malformed response. Please try again.' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (
+      typeof result.answer !== 'string' ||
+      !Array.isArray(result.source_chunk_indices) ||
+      typeof result.confidence !== 'number'
+    ) {
+      return new Response(
+        JSON.stringify({ error: 'The AI returned an invalid response structure. Please try again.' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

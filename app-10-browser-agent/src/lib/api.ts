@@ -12,5 +12,16 @@ export async function generateScenario(task: string): Promise<BotStep[]> {
   }
 
   const data = await response.json() as { steps: BotStep[] }
-  return data.steps
+
+  if (!Array.isArray(data.steps)) throw new Error('Invalid response format')
+
+  const validActions = ['navigate', 'find', 'click', 'type', 'extract', 'verify']
+  const steps = data.steps.filter((s: any) =>
+    s && typeof s.action === 'string' && validActions.includes(s.action) &&
+    typeof s.target === 'string' && typeof s.thought === 'string'
+  )
+
+  if (steps.length === 0) throw new Error('No valid steps generated')
+
+  return steps
 }

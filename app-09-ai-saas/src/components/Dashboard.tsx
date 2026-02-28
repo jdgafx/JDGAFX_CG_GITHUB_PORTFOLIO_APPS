@@ -231,7 +231,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
             API Analytics
           </h2>
           <p style={{ fontSize: '14px', color: '#64748b' }}>
-            Last 15 days · All metrics based on real usage patterns
+            Last 30 days · All metrics based on real usage patterns
           </p>
         </motion.div>
 

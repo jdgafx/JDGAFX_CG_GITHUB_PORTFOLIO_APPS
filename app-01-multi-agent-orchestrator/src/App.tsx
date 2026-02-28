@@ -215,6 +215,7 @@ export default function App() {
         setEdges(prev => prev.map(e => ({ ...e, animated: false })))
       } else if (event.type === 'agent_error') {
         setAgents(prev => {
+          if (!(event.agent in prev)) return prev
           const next = { ...prev, [event.agent]: { ...prev[event.agent], status: 'error' as const } }
           syncNodes(next)
           return next

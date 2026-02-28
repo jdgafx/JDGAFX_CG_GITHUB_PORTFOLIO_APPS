@@ -13,6 +13,7 @@ async function streamStep(
   systemPrompt: string,
   userMessage: string,
   onChunk: (text: string) => void,
+  maxTokens: number = 1024,
 ): Promise<void> {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -22,7 +23,7 @@ async function streamStep(
     },
     body: JSON.stringify({
       model: 'anthropic/claude-haiku-4.5',
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -36,7 +37,11 @@ async function streamStep(
     throw new Error(`OpenRouter error: ${response.status} ${errText}`)
   }
 
-  const reader = response.body!.getReader()
+  const body = response.body
+  if (!body) {
+    throw new Error('Empty response body from upstream')
+  }
+  const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
 
@@ -101,13 +106,18 @@ export default async (req: Request): Promise<Response> => {
 
         let stepContent = ''
 
+        const stepMaxTokens = (step === 'draft' || step === 'edit' || step === 'polish') ? 2048 : 1024
+
         try {
           await streamStep(apiKey, systemPrompt, userMessage, (text) => {
             stepContent += text
             send({ type: 'step_chunk', step, content: text })
-          })
+          }, stepMaxTokens)
         } catch (err) {
-          send({ type: 'step_chunk', step, content: `Error: ${(err as Error).message}` })
+          send({ type: 'error', content: `Step '${step}' failed: ${(err as Error).message}` })
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+          return
         }
 
         context = stepContent

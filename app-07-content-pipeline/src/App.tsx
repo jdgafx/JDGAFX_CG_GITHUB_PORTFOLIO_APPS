@@ -41,7 +41,7 @@ export default function App() {
     if (activeRef.current) {
       activeRef.current.scrollTop = activeRef.current.scrollHeight
     }
-  })
+  }, [steps, expandedStep])
 
   const activeStep = steps.find(s => s.status === 'active')
   const lastComplete = [...steps].reverse().find(s => s.status === 'complete')

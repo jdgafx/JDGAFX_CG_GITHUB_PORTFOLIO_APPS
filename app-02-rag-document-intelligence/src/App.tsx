@@ -17,10 +17,12 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [highlightedChunks, setHighlightedChunks] = useState<number[]>([])
 
   const handleFileSelect = useCallback(async (file: File) => {
+    setExtractError(null)
     setIsProcessing(true)
     try {
       const { text, pages } = await extractText(file)
@@ -35,7 +37,8 @@ export default function App() {
       setMessages([])
       setHighlightedChunks([])
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to extract text'
+      const msg = err instanceof Error ? err.message : 'Failed to extract text from file'
+      setExtractError(msg)
       console.error('Extract error:', msg)
     } finally {
       setIsProcessing(false)
@@ -190,6 +193,18 @@ export default function App() {
               className="h-full"
             >
               <UploadZone onFileSelect={handleFileSelect} isProcessing={isProcessing} />
+              {extractError && (
+                <div
+                  className="mx-auto mt-4 max-w-md px-4 py-3 rounded-lg text-sm"
+                  style={{
+                    background: 'rgba(239,68,68,0.1)',
+                    border: '1px solid rgba(239,68,68,0.3)',
+                    color: '#ef4444',
+                  }}
+                >
+                  {extractError}
+                </div>
+              )}
             </motion.div>
           ) : (
             <motion.div
