@@ -279,6 +279,47 @@ export default function App() {
   const activeAgent = agents[activeTab]
   const isActiveWorking = activeAgent.status === 'working' || activeAgent.status === 'thinking'
 
+  const AGENT_COLORS: Record<AgentRole, string> = {
+    researcher: '#00d4ff',
+    analyst: '#ffa500',
+    critic: '#ff3366',
+    synthesizer: '#00ff88',
+  }
+
+  function renderMarkdown(text: string, agentColor: string) {
+    return text.split('\n').map((line, i) => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('### ')) {
+        return <div key={i} style={{ fontSize: 15, fontWeight: 700, color: agentColor, marginTop: 16, marginBottom: 6, fontFamily: 'inherit' }}>{trimmed.slice(4)}</div>
+      }
+      if (trimmed.startsWith('## ')) {
+        return <div key={i} style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', marginTop: 20, marginBottom: 8, borderBottom: `1px solid ${agentColor}33`, paddingBottom: 6 }}>{trimmed.slice(3)}</div>
+      }
+      if (trimmed.startsWith('# ')) {
+        return <div key={i} style={{ fontSize: 19, fontWeight: 800, color: '#f1f5f9', marginTop: 20, marginBottom: 10 }}>{trimmed.slice(2)}</div>
+      }
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        return <div key={i} style={{ paddingLeft: 16, position: 'relative', marginBottom: 4 }}><span style={{ position: 'absolute', left: 2, color: agentColor }}>•</span>{renderInline(trimmed.slice(2))}</div>
+      }
+      if (/^\d+\.\s/.test(trimmed)) {
+        const num = trimmed.match(/^(\d+)\./)?.[1]
+        return <div key={i} style={{ paddingLeft: 20, position: 'relative', marginBottom: 4 }}><span style={{ position: 'absolute', left: 0, color: agentColor, fontWeight: 700, fontSize: 12 }}>{num}.</span>{renderInline(trimmed.replace(/^\d+\.\s*/, ''))}</div>
+      }
+      if (trimmed === '') return <div key={i} style={{ height: 8 }} />
+      return <div key={i} style={{ marginBottom: 4 }}>{renderInline(trimmed)}</div>
+    })
+  }
+
+  function renderInline(text: string) {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} style={{ color: '#f1f5f9', fontWeight: 700 }}>{part.slice(2, -2)}</strong>
+      }
+      return <span key={i}>{part}</span>
+    })
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0a0e1a' }}>
       <header
@@ -396,7 +437,9 @@ export default function App() {
 
         <div
           style={{
-            width: 400,
+            width: '50%',
+            minWidth: 400,
+            maxWidth: 700,
             display: 'flex',
             flexDirection: 'column',
             borderLeft: '1px solid rgba(255,255,255,0.08)',
@@ -443,19 +486,19 @@ export default function App() {
             style={{
               flex: 1,
               overflowY: 'auto',
-              padding: '16px',
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12,
-              lineHeight: 1.65,
-              color: '#94a3b8',
-              whiteSpace: 'pre-wrap',
+              padding: '20px 24px',
+              fontSize: 14,
+              lineHeight: 1.75,
+              color: '#cbd5e1',
               wordBreak: 'break-word',
             }}
           >
             {activeAgent.output ? (
-              <span className={isActiveWorking ? 'typing-cursor' : ''}>{activeAgent.output}</span>
+              <div className={isActiveWorking ? 'typing-cursor' : ''}>
+                {renderMarkdown(activeAgent.output, AGENT_COLORS[activeTab])}
+              </div>
             ) : (
-              <span style={{ color: '#475569', fontStyle: 'italic' }}>
+              <span style={{ color: '#475569', fontStyle: 'italic', fontSize: 13 }}>
                 {activeAgent.status === 'idle' ? 'Waiting for task...' : 'Processing...'}
               </span>
             )}

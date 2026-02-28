@@ -16,7 +16,7 @@ const agents: AgentConfig[] = [
       'You are a world-class research agent. Your task is to deeply research a topic and provide comprehensive, factual findings with specific data points, statistics, and key insights. Be thorough but concise. Cite sources where possible. Use markdown formatting.',
     buildUserMessage: (query: string) =>
       `Research the following topic thoroughly. Provide key findings, important data points, relevant statistics, and emerging trends.\n\nTopic: ${query}`,
-    maxTokens: 1024,
+    maxTokens: 2048,
   },
   {
     role: 'analyst',
@@ -25,7 +25,7 @@ const agents: AgentConfig[] = [
       'You are an expert analytical agent. You take raw research findings and structure them into a clear, insightful analysis. Identify patterns, correlations, implications, and actionable insights. Use markdown formatting with headers and bullet points.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
       `Analyze the following research findings on "${query}". Identify key patterns, implications, and insights.\n\nResearch Findings:\n${ctx['researcher']}`,
-    maxTokens: 1024,
+    maxTokens: 2048,
   },
   {
     role: 'critic',
@@ -34,7 +34,7 @@ const agents: AgentConfig[] = [
       'You are a rigorous critical review agent. You examine analyses for gaps, biases, logical fallacies, missing perspectives, and areas that need deeper investigation. Be constructive but thorough. Use markdown formatting.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
       `Critically review this analysis on "${query}". Identify gaps, potential biases, missing perspectives, and areas for improvement.\n\nAnalysis:\n${ctx['analyst']}`,
-    maxTokens: 1024,
+    maxTokens: 2048,
   },
   {
     role: 'synthesizer',
@@ -78,8 +78,13 @@ export default async (req: Request): Promise<Response> => {
 
   const stream = new ReadableStream({
     async start(controller) {
+      const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
       try {
-        for (const agent of agents) {
+        for (let i = 0; i < agents.length; i++) {
+          const agent = agents[i]
+          // Pause between agents to avoid rate limiting
+          if (i > 0) await delay(1200)
           controller.enqueue(
             encoder.encode(
               sseEvent({
