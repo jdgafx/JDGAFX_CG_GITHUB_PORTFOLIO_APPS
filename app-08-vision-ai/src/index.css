@@ -16,7 +16,7 @@
   --color-accent: #f43f5e;
   --color-accent-dim: #be123c;
 
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: 'Darker Grotesque', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
@@ -29,7 +29,7 @@ html {
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Darker Grotesque', sans-serif;
   background-color: #080810;
   color: #e2e8f0;
   margin: 0;

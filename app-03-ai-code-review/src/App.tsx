@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Code2,
   Zap,
   AlertTriangle,
   Info,
@@ -351,7 +350,7 @@ export default function App() {
         backgroundColor: '#0a0e1a',
         display: 'flex',
         flexDirection: 'column',
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: "'Source Sans 3', system-ui, sans-serif",
       }}
     >
       <header
@@ -390,7 +389,13 @@ export default function App() {
                 flexShrink: 0,
               }}
             >
-              <Code2 size={18} color="#fff" />
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <path d="M11 7L4 16L11 25" stroke="#ffa500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M21 7L28 16L21 25" stroke="#ff6b00" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="3" y1="16" x2="29" y2="16" stroke="#ffd700" strokeWidth="1.5" opacity="0.5"/>
+                <circle cx="16" cy="16" r="3" fill="#ffa500" opacity="0.3"/>
+                <circle cx="16" cy="16" r="1.5" fill="#ffa500"/>
+              </svg>
             </div>
             <div>
               <h1
@@ -441,7 +446,7 @@ export default function App() {
       </header>
       <div style={{ width: '100%', padding: '8px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,165,0,0.02)', flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
-          Paste code in any supported language (JavaScript, TypeScript, Python, Rust, Go, Java, C++, and more) and get an instant AI-powered review. Claude analyzes your code line-by-line, flagging critical bugs, warnings, and suggestions with severity ratings. Each comment links to the exact line number, includes an explanation of the issue, and recommends a fix. Use this to catch bugs, improve code quality, and learn best practices.
+          Paste your code — any language — and get a line-by-line review in seconds. It flags bugs and security issues as critical, highlights things worth fixing as warnings, and offers suggestions where the code could be cleaner. Each comment links directly to the line it's talking about.
         </p>
       </div>
 
@@ -479,7 +484,7 @@ export default function App() {
                 fontSize: '13px',
                 color: '#e2e8f0',
                 cursor: 'pointer',
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: "'Source Sans 3', sans-serif",
                 outline: 'none',
               }}
             >
@@ -747,7 +752,7 @@ export default function App() {
               fontSize: '14px',
               fontWeight: 600,
               cursor: btnDisabled ? 'not-allowed' : 'pointer',
-              fontFamily: "'Inter', sans-serif",
+              fontFamily: "'Source Sans 3', sans-serif",
               letterSpacing: '0.01em',
               boxShadow: btnDisabled
                 ? 'none'

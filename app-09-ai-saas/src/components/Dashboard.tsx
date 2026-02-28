@@ -12,7 +12,6 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import {
-  BarChart3,
   TrendingUp,
   TrendingDown,
   Zap,
@@ -173,10 +172,18 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
                 justifyContent: 'center',
               }}
             >
-              <BarChart3 size={18} color="white" />
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <rect x="3" y="3" width="26" height="26" rx="4" stroke="#fff" strokeWidth="1.5" fill="rgba(255,255,255,0.1)"/>
+                <line x1="3" y1="11" x2="29" y2="11" stroke="#fff" strokeWidth="1" opacity="0.3"/>
+                <line x1="11" y1="11" x2="11" y2="29" stroke="#fff" strokeWidth="1" opacity="0.3"/>
+                <rect x="14" y="15" width="5" height="3" rx="0.5" fill="#fff" opacity="0.5"/>
+                <rect x="14" y="20" width="8" height="3" rx="0.5" fill="#fff" opacity="0.7"/>
+                <rect x="14" y="25" width="3" height="2" rx="0.5" fill="#c4b5fd"/>
+                <path d="M5 5h4M5 7h2" stroke="#c4b5fd" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+              </svg>
             </div>
             <span style={{ fontSize: '18px', fontWeight: 700, color: '#f1f5f9' }}>InsightHub</span>
-            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>Track API usage, token consumption, response times, and costs across your AI integrations. Click &quot;Generate AI Insights&quot; to get Claude-powered analysis of your metrics with actionable recommendations.</span>
+            <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 8 }}>A mock SaaS analytics dashboard with real auth (via Supabase) and AI-generated business insights. Tracks API calls, feature usage, error rates, and latency over 30 days with interactive charts. The AI reads the numbers and tells you what's actually happening.</span>
             {isDemoMode && (
               <span
                 style={{

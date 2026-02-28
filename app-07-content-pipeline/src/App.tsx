@@ -91,7 +91,13 @@ export default function App() {
         <div className="mx-auto flex max-w-5xl items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-lime-500/10">
-              <Sparkles className="h-5 w-5 text-lime-400" />
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <rect x="3" y="4" width="26" height="5" rx="2" fill="#84cc16" opacity="0.25"/>
+                <rect x="3" y="12" width="26" height="5" rx="2" fill="#84cc16" opacity="0.45"/>
+                <rect x="3" y="20" width="26" height="5" rx="2" fill="#84cc16" opacity="0.65"/>
+                <rect x="3" y="28" width="16" height="2" rx="1" fill="#84cc16" opacity="0.85"/>
+                <path d="M24 24l4-4m0 0l-4-4m4 4h-8" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
             <h1 className="text-xl font-semibold tracking-tight text-white">ContentForge</h1>
             <p className="text-xs text-slate-500 hidden sm:block">Agentic Content Pipeline</p>
@@ -109,7 +115,7 @@ export default function App() {
       </header>
       <div className="border-b border-white/5 px-6 py-2" style={{ background: 'rgba(132,204,22,0.02)' }}>
         <p className="mx-auto max-w-5xl text-xs text-slate-500 leading-relaxed" style={{ margin: 0 }}>
-          Enter any topic and choose a content type (blog post, technical article, marketing copy, newsletter, or social thread). ContentForge runs a 5-step AI pipeline — Research, Outline, Draft, Edit, and Polish — with each stage streaming in real time. Watch as Claude gathers facts, structures an outline, writes a full draft, refines the language, and produces publication-ready content. Copy the final polished output with one click.
+          Give it a topic and a format — blog post, newsletter, whatever — and watch five stages of AI writing happen live. It researches, outlines, drafts, edits, and polishes, streaming every word so you can see exactly how the piece comes together.
         </p>
       </div>
 
