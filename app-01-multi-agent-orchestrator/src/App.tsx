@@ -183,6 +183,10 @@ export default function App() {
 
   const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const outputEndRef = useRef<HTMLDivElement>(null)
+  const outputScrollRef = useRef<HTMLDivElement>(null)
+  const [transitioning, setTransitioning] = useState(false)
+  const prevTabRef = useRef<AgentRole>(activeTab)
 
   const [nodes, setNodes, onNodesChange] = useNodesState(buildNodes(DEFAULT_AGENTS))
   const [edges, setEdges, onEdgesChange] = useEdgesState(STATIC_EDGES)
@@ -313,6 +317,27 @@ export default function App() {
     },
     [],
   )
+
+  // Auto-scroll output panel to bottom as content streams in
+  useEffect(() => {
+    const el = outputScrollRef.current
+    if (!el) return
+    // Only auto-scroll if user is near the bottom (within 120px)
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (nearBottom) {
+      outputEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [agents[activeTab].output, activeTab])
+
+  // Trigger transition animation when tab changes
+  useEffect(() => {
+    if (prevTabRef.current !== activeTab) {
+      setTransitioning(true)
+      prevTabRef.current = activeTab
+      const t = setTimeout(() => setTransitioning(false), 350)
+      return () => clearTimeout(t)
+    }
+  }, [activeTab])
 
   const activeAgent = agents[activeTab]
   const isActiveWorking = activeAgent.status === 'working' || activeAgent.status === 'thinking'
@@ -467,23 +492,38 @@ export default function App() {
 
               {isRunning && (
                 <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-                  {AGENT_ORDER.map(role => (
-                    <div
-                      key={role}
-                      style={{
-                        flex: 1,
-                        height: 3,
-                        borderRadius: 2,
-                        background:
-                          agents[role].status === 'complete'
-                            ? '#00ff88'
-                            : agents[role].status === 'working'
-                              ? '#00d4ff'
-                              : 'rgba(255,255,255,0.08)',
-                        transition: 'background 0.3s',
-                      }}
-                    />
-                  ))}
+                  {AGENT_ORDER.map(role => {
+                    const c = AGENT_COLORS[role]
+                    const isWorking = agents[role].status === 'working' || agents[role].status === 'thinking'
+                    const isComplete = agents[role].status === 'complete'
+                    return (
+                      <div
+                        key={role}
+                        style={{
+                          flex: 1,
+                          height: 4,
+                          borderRadius: 2,
+                          background: 'rgba(255,255,255,0.06)',
+                          overflow: 'hidden',
+                          position: 'relative',
+                        }}
+                      >
+                        <div
+                          className={isWorking ? 'progress-fill-active' : ''}
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            borderRadius: 2,
+                            background: isComplete ? '#00ff88' : isWorking ? `linear-gradient(90deg, ${c}, ${c}aa)` : 'transparent',
+                            boxShadow: isComplete ? `0 0 6px #00ff8880` : isWorking ? `0 0 8px ${c}60` : 'none',
+                            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                            transform: isComplete || isWorking ? 'scaleX(1)' : 'scaleX(0)',
+                            transformOrigin: 'left',
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -508,36 +548,57 @@ export default function App() {
               flexShrink: 0,
             }}
           >
-            {AGENT_ORDER.map(role => (
-              <button
-                key={role}
-                onClick={() => setActiveTab(role)}
-                style={{
-                  flex: 1,
-                  padding: '10px 4px',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  textTransform: 'capitalize',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: activeTab === role ? '2px solid #00d4ff' : '2px solid transparent',
-                  color: activeTab === role ? '#00d4ff' : '#64748b',
-                  cursor: 'pointer',
-                  transition: 'color 0.15s',
-                }}
-              >
-                {role}
-                {agents[role].status === 'complete' && (
-                  <span style={{ color: '#00ff88', marginLeft: 3 }}>✓</span>
-                )}
-                {(agents[role].status === 'working' || agents[role].status === 'thinking') && (
-                  <span style={{ color: '#00d4ff', marginLeft: 3 }}>●</span>
-                )}
-              </button>
-            ))}
+            {AGENT_ORDER.map(role => {
+              const color = AGENT_COLORS[role]
+              const isActive = activeTab === role
+              const isWorking = agents[role].status === 'working' || agents[role].status === 'thinking'
+              const isComplete = agents[role].status === 'complete'
+              return (
+                <button
+                  key={role}
+                  onClick={() => setActiveTab(role)}
+                  className={isWorking ? 'tab-working' : ''}
+                  style={{
+                    flex: 1,
+                    padding: '10px 4px',
+                    fontSize: 11,
+                    fontWeight: isActive ? 700 : 500,
+                    textTransform: 'capitalize',
+                    background: isActive ? `${color}0a` : 'transparent',
+                    border: 'none',
+                    borderBottom: isActive ? `2px solid ${color}` : '2px solid transparent',
+                    color: isActive ? color : isComplete ? '#00ff88' : isWorking ? color : '#64748b',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    position: 'relative',
+                  }}
+                >
+                  {role}
+                  {isComplete && (
+                    <span className="check-pop" style={{ color: '#00ff88', marginLeft: 4, display: 'inline-block' }}>✓</span>
+                  )}
+                  {isWorking && (
+                    <span className="dot-pulse" style={{ color, marginLeft: 4, display: 'inline-block' }}>●</span>
+                  )}
+                  {isActive && (
+                    <span style={{
+                      position: 'absolute',
+                      bottom: -1,
+                      left: '20%',
+                      right: '20%',
+                      height: 2,
+                      background: color,
+                      borderRadius: 1,
+                      boxShadow: `0 0 8px ${color}, 0 0 16px ${color}40`,
+                    }} />
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           <div
+            ref={outputScrollRef}
             style={{
               flex: 1,
               overflowY: 'auto',
@@ -546,23 +607,52 @@ export default function App() {
               lineHeight: 1.75,
               color: '#cbd5e1',
               wordBreak: 'break-word',
+              position: 'relative',
             }}
           >
-            {activeAgent.output ? (
-              <div className={isActiveWorking ? 'typing-cursor' : ''}>
-                {renderMarkdown(activeAgent.output, AGENT_COLORS[activeTab])}
-              </div>
-            ) : (
-              <span style={{ color: '#475569', fontStyle: 'italic', fontSize: 13 }}>
-                {activeAgent.status === 'idle' ? 'Waiting for task...' : 'Processing...'}
-              </span>
+            {/* Colored top-edge glow when agent is active */}
+            {isActiveWorking && (
+              <div style={{
+                position: 'sticky',
+                top: -20,
+                left: 0,
+                right: 0,
+                height: 2,
+                marginBottom: 16,
+                background: `linear-gradient(90deg, transparent, ${AGENT_COLORS[activeTab]}, transparent)`,
+                boxShadow: `0 0 12px ${AGENT_COLORS[activeTab]}60, 0 2px 20px ${AGENT_COLORS[activeTab]}30`,
+                borderRadius: 1,
+                animation: 'scanline 2s ease-in-out infinite',
+              }} />
             )}
+
+            <div
+              className={`output-content ${transitioning ? 'output-enter' : ''} ${isActiveWorking ? 'typing-cursor' : ''}`}
+              style={{ minHeight: 40 }}
+            >
+              {activeAgent.output ? (
+                renderMarkdown(activeAgent.output, AGENT_COLORS[activeTab])
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#475569', fontStyle: 'italic', fontSize: 13 }}>
+                  {isActiveWorking ? (
+                    <>
+                      <span className="spinner" style={{ display: 'inline-block', width: 14, height: 14, border: `2px solid ${AGENT_COLORS[activeTab]}30`, borderTopColor: AGENT_COLORS[activeTab], borderRadius: '50%' }} />
+                      <span>Agent is thinking...</span>
+                    </>
+                  ) : (
+                    <span>Waiting for task...</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div ref={outputEndRef} style={{ height: 1 }} />
           </div>
         </div>
       </div>
 
       {isPipelineComplete && (
         <div
+          className="export-bar-enter"
           style={{
             padding: '12px 20px',
             borderTop: '1px solid rgba(0,255,136,0.25)',
