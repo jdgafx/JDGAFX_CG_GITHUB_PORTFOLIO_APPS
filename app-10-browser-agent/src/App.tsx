@@ -714,7 +714,7 @@ export default function App() {
       </header>
       <div className="border-b border-slate-800/40 px-6 py-2" style={{ background: 'rgba(20,184,166,0.02)' }}>
         <p className="max-w-7xl mx-auto text-xs text-slate-500 leading-relaxed" style={{ margin: 0 }}>
-          Describe a web task — 'find the cheapest flight' or 'fill out this form' — and watch a simulated browser agent work through it step by step. You'll see the cursor move, buttons get clicked, text get typed, and a running log of what the agent is thinking at each point.
+          Describe a web task — 'find the cheapest flight' or 'fill out this form' — and watch an autonomous browser agent work through it step by step. You'll see the cursor move, buttons get clicked, text get typed, and a running log of what the agent is thinking at each point.
         </p>
       </div>
 
