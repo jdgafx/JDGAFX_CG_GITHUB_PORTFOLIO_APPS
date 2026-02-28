@@ -13,78 +13,64 @@ const agents: AgentConfig[] = [
     role: 'researcher',
     name: 'Researcher',
     systemPrompt:
-      'You are a world-class research agent. Your task is to deeply research a topic and provide comprehensive, factual findings with specific data points, statistics, and key insights. Be thorough but concise. Cite sources where possible. Use markdown formatting.',
+      'You are a research agent. Provide concise, factual findings with key data points and statistics. Use markdown. Keep it focused — 3-5 key points max.',
     buildUserMessage: (query: string) =>
-      `Research the following topic thoroughly. Provide key findings, important data points, relevant statistics, and emerging trends.\n\nTopic: ${query}`,
-    maxTokens: 2048,
+      `Research this topic. Provide 3-5 key findings with data points.\n\nTopic: ${query}`,
+    maxTokens: 800,
   },
   {
     role: 'analyst',
     name: 'Analyst',
     systemPrompt:
-      'You are an expert analytical agent. You take raw research findings and structure them into a clear, insightful analysis. Identify patterns, correlations, implications, and actionable insights. Use markdown formatting with headers and bullet points.',
+      'You are an analytical agent. Structure research into clear insights. Identify patterns and implications. Use markdown. Be concise.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Analyze the following research findings on "${query}". Identify key patterns, implications, and insights.\n\nResearch Findings:\n${ctx['researcher']}`,
-    maxTokens: 2048,
+      `Analyze these findings on "${query}". Identify key patterns and insights.\n\n${ctx['researcher']}`,
+    maxTokens: 800,
   },
   {
     role: 'critic',
     name: 'Critic',
     systemPrompt:
-      'You are a rigorous critical review agent. You examine analyses for gaps, biases, logical fallacies, missing perspectives, and areas that need deeper investigation. Be constructive but thorough. Use markdown formatting.',
+      'You are a critical review agent. Identify gaps, biases, and missing perspectives. Be constructive and concise. Use markdown.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Critically review this analysis on "${query}". Identify gaps, potential biases, missing perspectives, and areas for improvement.\n\nAnalysis:\n${ctx['analyst']}`,
-    maxTokens: 2048,
+      `Review this analysis on "${query}". Note gaps and improvements.\n\n${ctx['analyst']}`,
+    maxTokens: 600,
   },
   {
     role: 'synthesizer',
     name: 'Synthesizer',
     systemPrompt:
-      'You are a master synthesis agent. You combine research findings, analysis, and critical review into a final, polished, comprehensive report. The report should be well-structured, actionable, and ready for executive consumption. Use markdown formatting with clear sections.',
+      'You are a synthesis agent. Combine all inputs into a polished, comprehensive final report with clear sections. Use markdown formatting.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Create a final comprehensive report on "${query}" by synthesizing all inputs below.\n\nResearch Findings:\n${ctx['researcher']}\n\nAnalysis:\n${ctx['analyst']}\n\nCritical Review:\n${ctx['critic']}`,
-    maxTokens: 4096,
+      `Create a final report on "${query}" from these inputs.\n\nResearch:\n${ctx['researcher']}\n\nAnalysis:\n${ctx['analyst']}\n\nReview:\n${ctx['critic']}`,
+    maxTokens: 1500,
   },
 ]
 
-/** Progressive delays between agents — longer before synthesizer to avoid rate limits */
-const AGENT_DELAYS = [0, 1500, 2000, 3000]
-
-/** Max retries for transient API failures (429, 502, 503, 504) */
-const MAX_RETRIES = 3
-
-/** Retryable HTTP status codes */
-const RETRYABLE = new Set([429, 502, 503, 504])
+/**
+ * Minimal delays between agents — Netlify functions have a ~26s wall-clock timeout.
+ * Every millisecond counts. Just enough gap to avoid OpenRouter rate limits.
+ */
+const AGENT_DELAYS = [0, 200, 200, 300]
 
 function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
-  retries: number = MAX_RETRIES,
-): Promise<Response> {
-  let lastError: Error | null = null
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(url, init)
-      if (response.ok) return response
-      if (!RETRYABLE.has(response.status) || attempt === retries) {
-        const body = await response.text().catch(() => '')
-        throw new Error(`OpenRouter ${response.status}: ${body || response.statusText}`)
-      }
-      // Exponential backoff: 2s, 4s, 8s
-      const backoff = Math.pow(2, attempt + 1) * 1000
-      await new Promise(r => setTimeout(r, backoff))
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-      if (attempt === retries) throw lastError
-      const backoff = Math.pow(2, attempt + 1) * 1000
-      await new Promise(r => setTimeout(r, backoff))
-    }
+/** Single retry on 429 with short backoff — can't afford long retries within Netlify's timeout */
+async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
+  const response = await fetch(url, init)
+  if (response.ok) return response
+  // One fast retry on rate limit
+  if (response.status === 429) {
+    await new Promise(r => setTimeout(r, 1000))
+    const retry = await fetch(url, init)
+    if (retry.ok) return retry
+    const body = await retry.text().catch(() => '')
+    throw new Error(`OpenRouter 429 after retry: ${body || retry.statusText}`)
   }
-  throw lastError ?? new Error('Fetch failed after retries')
+  const body = await response.text().catch(() => '')
+  throw new Error(`OpenRouter ${response.status}: ${body || response.statusText}`)
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -152,7 +138,7 @@ export default async (req: Request): Promise<Response> => {
           let agentOutput = ''
           let tokenCount = 0
 
-          const response = await fetchWithRetry(
+          const response = await fetchOnce(
             'https://openrouter.ai/api/v1/chat/completions',
             {
               method: 'POST',
