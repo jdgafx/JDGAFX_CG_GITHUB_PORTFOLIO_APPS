@@ -108,6 +108,113 @@ body {
   margin-left: 1px;
 }
 
+/* ── Agent transition: output panel slides up and fades in ── */
+@keyframes outputEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.output-content {
+  animation: none;
+}
+
+.output-enter {
+  animation: outputEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Scanline glow across the top when agent is active ── */
+@keyframes scanline {
+  0%, 100% { opacity: 0.4; transform: scaleX(0.6); }
+  50% { opacity: 1; transform: scaleX(1); }
+}
+
+/* ── Checkmark pop when agent completes ── */
+@keyframes checkPop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.check-pop {
+  animation: checkPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Pulsing dot for working agents ── */
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.dot-pulse {
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+/* ── Tab working shimmer ── */
+@keyframes tabShimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.tab-working {
+  background-size: 200% 100% !important;
+  animation: tabShimmer 2s linear infinite;
+}
+
+/* ── Progress bar active pulse ── */
+@keyframes progressPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.progress-fill-active {
+  animation: progressPulse 1.5s ease-in-out infinite;
+}
+
+/* ── Spinner for thinking state ── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Export bar slides up ── */
+@keyframes exportBarEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.export-bar-enter {
+  animation: exportBarEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Enhanced edge animation during data flow ── */
+@keyframes edgeGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px var(--color-accent-glow));
+    stroke-width: 2;
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--color-accent-glow)) drop-shadow(0 0 16px var(--color-accent-dim));
+    stroke-width: 3;
+  }
+}
+
 /* React Flow overrides */
 .react-flow__background {
   background: var(--color-bg-primary) !important;
@@ -135,11 +242,11 @@ body {
 }
 
 .react-flow__edge.animated .react-flow__edge-path {
-  stroke-opacity: 0.9;
+  stroke-opacity: 1;
   stroke-width: 2.5;
   stroke-dasharray: 8 4;
-  animation: dash 0.6s linear infinite;
-  filter: drop-shadow(0 0 4px var(--color-accent-glow));
+  animation: dash 0.5s linear infinite, edgeGlow 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px var(--color-accent-glow));
 }
 
 @keyframes dash {
