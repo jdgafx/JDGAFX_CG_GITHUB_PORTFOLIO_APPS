@@ -8,50 +8,48 @@ interface AgentConfig {
   maxTokens: number
 }
 
+/** Trim context to stay within time budget — long inputs = slow generation */
+function trimCtx(text: string, maxChars = 1200): string {
+  return text.length > maxChars ? text.slice(0, maxChars) + '\n\n[Trimmed for brevity]' : text
+}
+
 const agents: AgentConfig[] = [
   {
     role: 'researcher',
     name: 'Researcher',
-    systemPrompt:
-      'You are a research agent. Provide concise, factual findings with key data points and statistics. Use markdown. Keep it focused — 3-5 key points max.',
+    systemPrompt: 'Research agent. Provide concise factual findings with data. Markdown. 3-5 bullet points max.',
     buildUserMessage: (query: string) =>
-      `Research this topic. Provide 3-5 key findings with data points.\n\nTopic: ${query}`,
-    maxTokens: 800,
+      `Research: ${query}\n\nProvide 3-5 key findings with data points. Be brief.`,
+    maxTokens: 500,
   },
   {
     role: 'analyst',
     name: 'Analyst',
-    systemPrompt:
-      'You are an analytical agent. Structure research into clear insights. Identify patterns and implications. Use markdown. Be concise.',
+    systemPrompt: 'Analyst agent. Identify patterns and implications from research. Markdown. Be concise.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Analyze these findings on "${query}". Identify key patterns and insights.\n\n${ctx['researcher']}`,
-    maxTokens: 800,
+      `Analyze findings on "${query}". Key patterns and insights.\n\n${trimCtx(ctx['researcher'])}`,
+    maxTokens: 500,
   },
   {
     role: 'critic',
     name: 'Critic',
-    systemPrompt:
-      'You are a critical review agent. Identify gaps, biases, and missing perspectives. Be constructive and concise. Use markdown.',
+    systemPrompt: 'Critic agent. Identify gaps and missing perspectives. Constructive and brief. Markdown.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Review this analysis on "${query}". Note gaps and improvements.\n\n${ctx['analyst']}`,
-    maxTokens: 600,
+      `Review analysis on "${query}". Note gaps.\n\n${trimCtx(ctx['analyst'])}`,
+    maxTokens: 400,
   },
   {
     role: 'synthesizer',
     name: 'Synthesizer',
-    systemPrompt:
-      'You are a synthesis agent. Combine all inputs into a polished, comprehensive final report with clear sections. Use markdown formatting.',
+    systemPrompt: 'Synthesis agent. Combine inputs into a polished final report with clear sections. Markdown.',
     buildUserMessage: (query: string, ctx: Record<string, string>) =>
-      `Create a final report on "${query}" from these inputs.\n\nResearch:\n${ctx['researcher']}\n\nAnalysis:\n${ctx['analyst']}\n\nReview:\n${ctx['critic']}`,
-    maxTokens: 1500,
+      `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx['researcher'])}\n\nAnalysis:\n${trimCtx(ctx['analyst'])}\n\nReview:\n${trimCtx(ctx['critic'])}`,
+    maxTokens: 1000,
   },
 ]
 
-/**
- * Minimal delays between agents — Netlify functions have a ~26s wall-clock timeout.
- * Every millisecond counts. Just enough gap to avoid OpenRouter rate limits.
- */
-const AGENT_DELAYS = [0, 200, 200, 300]
+/** Zero delays — 4 sequential calls within 26s Netlify timeout leaves no room for idle time */
+const AGENT_DELAYS = [0, 0, 0, 0]
 
 function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`
@@ -111,17 +109,13 @@ export default async (req: Request): Promise<Response> => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      /** Send a keepalive comment to prevent Netlify from closing the idle connection */
-      const keepalive = () => controller.enqueue(encoder.encode(': keepalive\n\n'))
-
       try {
         for (let i = 0; i < agents.length; i++) {
           const agent = agents[i]
 
-          // Progressive delay between agents — send keepalive so connection stays open
+          // Minimal delay between agents if configured
           const delayMs = AGENT_DELAYS[i]
           if (delayMs > 0) {
-            keepalive()
             await new Promise(r => setTimeout(r, delayMs))
           }
 
