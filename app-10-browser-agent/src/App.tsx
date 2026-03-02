@@ -97,6 +97,7 @@ const DEMO_STEPS: BotStep[] = [
   {
     action: 'extract',
     target: 'flight prices list',
+    value: '1. Spirit Airlines — $189, 6:15 AM, Nonstop\n2. United Airlines — $234, 8:30 AM, Nonstop\n3. Delta Air Lines — $267, 11:45 AM, Nonstop\n4. American Airlines — $312, 2:20 PM, Nonstop',
     thought: 'Found 47 results. Extracting price data from the cheapest options...',
     url: 'https://google.com/flights/results',
     pageContent: 'flights-results',
@@ -104,7 +105,7 @@ const DEMO_STEPS: BotStep[] = [
   {
     action: 'verify',
     target: 'cheapest flight',
-    value: '$189',
+    value: 'Cheapest: Spirit Airlines $189, departing 6:15 AM JFK→LAX, Nonstop, 5h 45m',
     thought: 'Verified! Cheapest flight is $189 on Spirit Airlines at 6:15 AM.',
     url: 'https://google.com/flights/results',
     pageContent: 'flights-results',
@@ -206,17 +207,201 @@ function MockPageContent({ pageContent, currentAction, typedText }: {
     )
   }
 
+  if (pageContent === 'job-board' || pageContent === 'job-results') {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
+          <div className="flex gap-2 mb-2">
+            {['All Jobs', 'Remote', 'Full-time', 'Contract'].map((tab) => (
+              <div
+                key={tab}
+                className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  tab === 'All Jobs'
+                    ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                    : 'text-slate-400'
+                }`}
+              >
+                {tab}
+              </div>
+            ))}
+          </div>
+          <div className={`bg-slate-600/60 rounded-lg px-3 py-2 border ${
+            currentAction === 'find' || currentAction === 'type'
+              ? 'border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.3)]'
+              : 'border-slate-500/30'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Search size={14} className="text-slate-400" />
+              <span className="text-sm text-white font-mono">
+                {typedText || 'Search jobs...'}
+                {currentAction === 'type' && typedText.length < 20 && (
+                  <span className="cursor-blink text-teal-400">|</span>
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {pageContent === 'job-results' && (
+          <div className="space-y-2">
+            {[
+              { title: 'Senior Frontend Developer', company: 'TechCorp', pay: '$120k-150k', tag: 'Remote' },
+              { title: 'Full Stack Engineer', company: 'StartupXYZ', pay: '$95k-130k', tag: 'Hybrid' },
+              { title: 'React Developer', company: 'DigitalCo', pay: '$85k-110k', tag: 'Remote' },
+              { title: 'UI/UX Engineer', company: 'DesignLab', pay: '$100k-135k', tag: 'On-site' },
+            ].map((job, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className={`bg-slate-700/60 rounded-lg p-3 flex items-center justify-between border ${
+                  currentAction === 'extract'
+                    ? 'border-teal-500/60 shadow-[0_0_12px_rgba(20,184,166,0.2)]'
+                    : 'border-slate-600/30'
+                }`}
+              >
+                <div>
+                  <div className="text-sm font-medium text-white">{job.title}</div>
+                  <div className="text-xs text-slate-400">{job.company}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full border border-teal-500/30">
+                    {job.tag}
+                  </span>
+                  <div className="text-sm font-bold text-white">{job.pay}</div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (pageContent === 'ecommerce' || pageContent === 'ecommerce-results') {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="bg-slate-700/50 rounded-xl p-3 flex items-center gap-2">
+          <Search size={14} className="text-slate-400" />
+          <span className="text-sm text-slate-300 font-mono">{typedText || 'Search products...'}</span>
+        </div>
+        {pageContent === 'ecommerce-results' && (
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { name: 'Premium Headphones', price: '$89.99', rating: '4.7' },
+              { name: 'Wireless Earbuds', price: '$49.99', rating: '4.5' },
+              { name: 'Studio Monitors', price: '$199.99', rating: '4.8' },
+              { name: 'Bluetooth Speaker', price: '$34.99', rating: '4.3' },
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.08 }}
+                className={`bg-slate-700/60 rounded-lg p-3 border ${
+                  currentAction === 'extract' && i === 0
+                    ? 'border-teal-500/60'
+                    : 'border-slate-600/30'
+                }`}
+              >
+                <div className="h-12 bg-slate-600/40 rounded mb-2" />
+                <div className="text-xs font-medium text-white">{item.name}</div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-sm font-bold text-teal-400">{item.price}</span>
+                  <span className="text-xs text-slate-400">{item.rating}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+        {pageContent === 'ecommerce' && (
+          <div className="grid grid-cols-2 gap-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="bg-slate-700/40 rounded-lg p-3 border border-slate-600/20">
+                <div className="h-16 bg-slate-600/40 rounded mb-2" />
+                <div className="h-3 bg-slate-600/30 rounded w-3/4 mb-1" />
+                <div className="h-3 bg-slate-600/20 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (pageContent === 'form') {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
+          <div className="text-sm font-medium text-white mb-2">Application Form</div>
+          {['Full Name', 'Email', 'Phone', 'Experience'].map((field, i) => (
+            <div key={field} className={`bg-slate-600/60 rounded-lg px-3 py-2 border ${
+              currentAction === 'type' && i === 0
+                ? 'border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.3)]'
+                : 'border-slate-500/30'
+            }`}>
+              <div className="text-xs text-slate-400 mb-1">{field}</div>
+              <div className="text-sm text-white font-mono h-5">
+                {currentAction === 'type' && i === 0 && typedText}
+              </div>
+            </div>
+          ))}
+          <div className="bg-teal-500 rounded-lg px-4 py-2 text-center text-white text-sm font-semibold mt-2">
+            Submit
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (pageContent === 'search-results') {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="bg-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
+          <Search size={14} className="text-slate-400" />
+          <span className="text-sm text-slate-300">{typedText || 'Search...'}</span>
+        </div>
+        <div className="space-y-3">
+          {[
+            { title: 'Top Result — Best Match', desc: 'Highly relevant content matching your search criteria...' },
+            { title: 'Second Result', desc: 'Another relevant result with useful information...' },
+            { title: 'Third Result', desc: 'Additional context and related content found...' },
+          ].map((r, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className={`p-3 border-b border-slate-700/40 ${
+                currentAction === 'extract' && i === 0 ? 'bg-teal-500/5 rounded-lg border-teal-500/30' : ''
+              }`}
+            >
+              <div className="text-sm text-teal-400 font-medium">{r.title}</div>
+              <div className="text-xs text-slate-400 mt-1">{r.desc}</div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // generic fallback — more interesting than gray boxes
   return (
     <div className="p-4 space-y-3">
-      <div className="h-8 bg-slate-700/60 rounded-lg w-3/4" />
-      <div className="grid grid-cols-3 gap-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 bg-slate-700/60 rounded-xl" />
-        ))}
+      <div className="bg-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
+        <Globe size={14} className="text-slate-400" />
+        <span className="text-xs text-slate-400 font-mono truncate">Loading page content...</span>
       </div>
-      <div className="space-y-2">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-6 bg-slate-700/40 rounded" style={{ width: `${70 + i * 7}%` }} />
+      <div className="bg-slate-700/40 rounded-xl p-4 space-y-2">
+        <div className="h-4 bg-slate-600/40 rounded w-2/3" />
+        <div className="h-3 bg-slate-600/30 rounded w-full" />
+        <div className="h-3 bg-slate-600/30 rounded w-5/6" />
+        <div className="h-3 bg-slate-600/20 rounded w-3/4" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {[1, 2].map((i) => (
+          <div key={i} className="bg-slate-700/30 rounded-lg p-3 h-20" />
         ))}
       </div>
     </div>
@@ -466,18 +651,43 @@ function AgentThoughts({ steps, currentStepIndex, isRunning, completed }: {
           </motion.div>
         ))}
 
-        {completed && steps.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-4 p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl"
-          >
-            <div className="flex items-center gap-2 text-teal-400 text-sm font-semibold">
-              <CheckCircle2 size={16} />
-              Task completed successfully
-            </div>
-          </motion.div>
-        )}
+        {completed && steps.length > 0 && (() => {
+          const resultSteps = steps.filter(s => (s.action === 'extract' || s.action === 'verify') && s.value)
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 space-y-3"
+            >
+              <div className="p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl">
+                <div className="flex items-center gap-2 text-teal-400 text-sm font-semibold">
+                  <CheckCircle2 size={16} />
+                  Task completed successfully
+                </div>
+              </div>
+              {resultSteps.length > 0 && (
+                <div className="p-4 bg-slate-800/80 border border-teal-500/20 rounded-xl">
+                  <div className="text-xs text-teal-500 font-mono font-semibold uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Download size={12} />
+                    Results
+                  </div>
+                  <div className="space-y-2">
+                    {resultSteps.map((step, i) => (
+                      <div key={i} className="p-3 bg-slate-700/50 rounded-lg border border-slate-600/30">
+                        <div className="text-xs text-slate-400 mb-1 uppercase tracking-wide">
+                          {step.action === 'extract' ? 'Extracted' : 'Verified'}: {step.target}
+                        </div>
+                        <div className="text-sm text-white whitespace-pre-wrap leading-relaxed font-mono">
+                          {step.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )
+        })()}
 
         {steps.length === 0 && !isRunning && (
           <div className="text-center text-slate-500 py-8">
