@@ -44,9 +44,17 @@ Each step must have:
 - action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
 - target: what element or URL is targeted (string)
 - thought: what the AI is thinking in this step (string, 1-2 sentences, first person)
-- value?: optional string (text to type, or value to verify)
+- value?: optional string (text to type, or value to verify/extract)
 - url?: current URL after this step
-- pageContent?: one of "flights-search" | "flights-results" | "ecommerce" | "form" | "generic"
+- pageContent?: one of "flights-search" | "flights-results" | "job-board" | "job-results" | "ecommerce" | "ecommerce-results" | "form" | "search-results" | "generic"
+
+IMPORTANT RULES:
+- The LAST step MUST be action "verify" or "extract" that summarizes the findings.
+- For "extract" steps, the "value" field MUST contain the actual data found (e.g. a list of results, prices, job titles, etc.) — be specific with real-sounding data.
+- For job searches: use pageContent "job-board" then "job-results" and include 3-5 realistic job listings in the final extract value.
+- For price comparisons: include real-sounding prices and product names.
+- For form filling: show confirmation of submission.
+- Always include concrete, specific data in extract/verify values — never leave them vague.
 
 Return ONLY valid JSON. No markdown. No explanation. Example format:
 {"steps": [{"action": "navigate", "target": "google.com", "thought": "Opening Google...", "url": "https://google.com", "pageContent": "generic"}]}
@@ -61,7 +69,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-            model: 'anthropic/claude-haiku-4.5',
+            model: 'google/gemini-2.0-flash-001',
             max_tokens: 1024,
         stream: false,
         messages: [
