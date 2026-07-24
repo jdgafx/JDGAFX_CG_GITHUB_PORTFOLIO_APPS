@@ -69,7 +69,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-            model: 'google/gemini-2.0-flash-001',
+            model: 'google/gemini-2.5-flash',
             max_tokens: 1024,
         stream: false,
         messages: [
@@ -107,9 +107,10 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
-  } catch {
+  } catch (err) {
+    const detail = err instanceof Error ? err.message.slice(0, 300) : 'unknown error'
     return new Response(
-      JSON.stringify({ error: 'Failed to generate scenario' }),
+      JSON.stringify({ error: `Failed to generate scenario: ${detail}` }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

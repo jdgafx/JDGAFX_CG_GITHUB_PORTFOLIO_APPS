@@ -5,9 +5,9 @@ const MODEL_MAP: Record<string, string> = {
   'claude-haiku-4.5': 'anthropic/claude-haiku-4.5',
   'claude-sonnet-4.6': 'anthropic/claude-sonnet-4.6',
   'claude-sonnet-4': 'anthropic/claude-sonnet-4',
-  'claude-3-5-haiku-20241022': 'anthropic/claude-3.5-haiku',
+  'claude-3-5-haiku-20241022': 'anthropic/claude-haiku-4.5',
   'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
-  'claude-3-5-sonnet-20241022': 'anthropic/claude-3.5-sonnet',
+  'claude-3-5-sonnet-20241022': 'anthropic/claude-sonnet-4.6',
 }
 
 function resolveModel(model: string): string {
