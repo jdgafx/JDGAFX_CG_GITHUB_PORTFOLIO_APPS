@@ -22,7 +22,7 @@ async function streamStep(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'anthropic/claude-haiku-4.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: maxTokens,
       stream: true,
       messages: [

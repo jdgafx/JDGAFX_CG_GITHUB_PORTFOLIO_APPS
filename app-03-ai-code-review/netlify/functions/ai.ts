@@ -62,7 +62,7 @@ Provide 3-8 meaningful comments. Focus on real issues. Return ONLY valid JSON, n
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-haiku-4.5',
+        model: '~anthropic/claude-haiku-latest',
         max_tokens: 1024,
         messages: [
           { role: 'system', content: systemPrompt },

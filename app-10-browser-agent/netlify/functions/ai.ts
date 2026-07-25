@@ -69,7 +69,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: '~google/gemini-flash-latest',
             max_tokens: 1024,
         stream: false,
         messages: [

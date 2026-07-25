@@ -52,7 +52,7 @@ Provide specific, data-driven insights. Be direct and actionable. Format as numb
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'anthropic/claude-haiku-4.5',
+            model: '~anthropic/claude-haiku-latest',
             max_tokens: 1024,
             stream: true,
             messages: [{ role: 'user', content: prompt }],

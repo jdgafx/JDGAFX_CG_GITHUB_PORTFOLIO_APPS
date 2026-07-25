@@ -54,7 +54,7 @@ export default async (req: Request): Promise<Response> => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-haiku-4.5',
+        model: '~anthropic/claude-haiku-latest',
         max_tokens: 1024,
         messages: [
           {
