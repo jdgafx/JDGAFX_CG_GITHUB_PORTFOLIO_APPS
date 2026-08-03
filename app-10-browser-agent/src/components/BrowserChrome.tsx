@@ -65,7 +65,7 @@ export default function BrowserChrome({ steps, currentStepIndex, typedText, spee
           <div className="w-3 h-3 rounded-full bg-green-400/80" />
         </div>
 
-        <div className="flex-1 bg-slate-700/60 rounded-lg px-3 py-1.5 flex items-center gap-2 border border-slate-600/30">
+        <div className="flex-1 min-w-0 bg-slate-700/60 rounded-lg px-3 py-1.5 flex items-center gap-2 border border-slate-600/30">
           <div className="w-3 h-3 text-teal-500 flex-shrink-0">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />

@@ -41,10 +41,13 @@ export function fieldValuesAt(steps: BotStep[], currentStepIndex: number, typedT
 
 const LEADING_MARKER = /^\s*(?:[-*•]|\d+[.)])\s*/
 const DETAIL_SPLIT = /\s+[—–]\s+|\s+-\s+(?!\$?\s?\d)|\s*\|\s*/
-const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]?`
+// Magnitude words ride the amount ("$780 Billion") or the value reads off by 10^9.
+const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*(?:billion|million|trillion|thousand|bn|[kmb])?\b`
 // Unit rides each amount ("$85/hr - $120/hr"), not just the whole range; "to" is a valid separator.
 // Any short word can be a unit (night, person, seat, ...) — a whitelist just fails on the next one.
-const UNIT = String.raw`(?:\s*\/\s*[A-Za-z][A-Za-z.]{0,8})?`
+// Units repeat ("/ sq ft / yr") and may carry one short second word ("sq ft") — but never a
+// connective, or "$450/yr to $600/yr" loses its range separator to the unit.
+const UNIT = String.raw`(?:\s*\/\s*[A-Za-z][A-Za-z.]{0,8}(?:\s+(?!(?:to|or|and)\b)[A-Za-z]{1,4}\b)?)*`
 const MONEY = String.raw`\$\s?${AMOUNT}${UNIT}`
 const VALUE_TOKEN = new RegExp(`${MONEY}(?:\\s*(?:[-–—]|\\bto\\b)\\s*${MONEY})?|\\b\\d+(?:\\.\\d+)?%`, 'i')
 
@@ -63,9 +66,13 @@ export function parseResultRows(value: string): ResultRow[] {
       const tail = rest.join(' · ').trim()
       // Only lift a headline value when the line actually split — scraping prose
       // pulls mid-sentence amounts (a cancellation fee) up as the row's "price".
-      const match = tail ? tail.match(VALUE_TOKEN) : undefined
-      const detail = tail
-        .replace(VALUE_TOKEN, '')
+      const found = tail ? tail.match(VALUE_TOKEN) : null
+      // ...and only when the token sits at an edge of the detail: lifting from the middle
+      // leaves a dangling label behind ("Base: · Equity: ...") and orphans the value.
+      const atEdge =
+        found?.index !== undefined && (found.index === 0 || found.index + found[0].length === tail.length)
+      const match = atEdge && found ? found : undefined
+      const detail = (match ? tail.replace(match[0], '') : tail)
         .replace(/\s*[,·]\s*(?=[,·]|$)/g, '')
         .replace(/,(?=\s*\/)/g, '')
         .replace(/\s{2,}/g, ' ')
