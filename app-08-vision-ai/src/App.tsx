@@ -1,31 +1,22 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Camera,
-  Upload,
-  ZoomIn,
-  ZoomOut,
-  X,
-  Loader2,
-  Eye,
-  BarChart2,
-  MessageSquare,
-  FileText,
-  Send,
-} from 'lucide-react'
+import { Upload, Eye, BarChart2, MessageSquare, FileText } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { analyzeImage } from './lib/api'
+import {
+  analyzeImage,
+  isCancellation,
+  ACCEPTED_LABEL,
+  ACCEPTED_TYPES,
+  MAX_FILE_SIZE,
+} from './lib/api'
 import type { AnalysisMode } from './lib/api'
-
-interface GalleryItem {
-  id: string
-  url: string
-  name: string
-  mode: AnalysisMode
-  result: string
-  base64Data?: string
-  mediaType?: string
-}
+import { createThumbnailUrl } from './lib/image'
+import AnalysisPanel from './components/AnalysisPanel'
+import DropZone from './components/DropZone'
+import ImageStage from './components/ImageStage'
+import HistoryStrip from './components/HistoryStrip'
+import type { GalleryItem } from './components/HistoryStrip'
+import ZoomOverlay from './components/ZoomOverlay'
 
 const MODES: Array<{ id: AnalysisMode; label: string; icon: LucideIcon }> = [
   { id: 'describe', label: 'Describe', icon: Eye },
@@ -41,30 +32,18 @@ const MODE_LABELS: Record<AnalysisMode, string> = {
   extract: 'Extract',
 }
 
-function LoadingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5 ml-1">
-      {[0, 1, 2].map(i => (
-        <motion.span
-          key={i}
-          className="block w-1 h-1 rounded-full bg-rose-400"
-          animate={{ opacity: [0.2, 1, 0.2] }}
-          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.3 }}
-        />
-      ))}
-    </span>
-  )
-}
-
-const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const HISTORY_LIMIT = 12
 
 export default function App() {
   const [currentFile, setCurrentFile] = useState<File | null>(null)
   const [currentUrl, setCurrentUrl] = useState('')
   const [mode, setMode] = useState<AnalysisMode>('describe')
   const [question, setQuestion] = useState('')
+  const [questionError, setQuestionError] = useState('')
   const [analysisText, setAnalysisText] = useState('')
+  const [isTruncated, setIsTruncated] = useState(false)
+  const [errorText, setErrorText] = useState('')
+  const [noticeText, setNoticeText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isZoomed, setIsZoomed] = useState(false)
@@ -75,42 +54,64 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const analysisRef = useRef<HTMLDivElement>(null)
   const accTextRef = useRef('')
-  const objectUrlsRef = useRef<string[]>([])
+  const currentUrlRef = useRef('')
+  const galleryRef = useRef<GalleryItem[]>([])
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const el = analysisRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [analysisText])
 
+  // Release every object URL this component owns when it goes away.
   useEffect(() => {
-    const urls = objectUrlsRef.current
     return () => {
-      for (const url of urls) URL.revokeObjectURL(url)
+      abortRef.current?.abort()
+      if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current)
+      for (const item of galleryRef.current) URL.revokeObjectURL(item.previewUrl)
     }
   }, [])
 
-  const loadFile = useCallback((file: File) => {
-    setUploadError('')
-
-    if (!ACCEPTED_TYPES.includes(file.type) && !file.type.startsWith('image/')) {
-      setUploadError(`Unsupported file type: ${file.type || 'unknown'}. Please use JPG, PNG, WebP, or GIF.`)
-      return
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-      setUploadError(`Image is too large (${sizeMB}MB). Maximum size is 4MB.`)
-      return
-    }
-
+  const setDisplayedImage = useCallback((file: File) => {
+    if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current)
     const url = URL.createObjectURL(file)
-    objectUrlsRef.current.push(url)
+    currentUrlRef.current = url
     setCurrentUrl(url)
     setCurrentFile(file)
-    setAnalysisText('')
-    setActiveGalleryId(null)
-    accTextRef.current = ''
   }, [])
+
+  const resetResults = useCallback(() => {
+    accTextRef.current = ''
+    setAnalysisText('')
+    setIsTruncated(false)
+    setErrorText('')
+    setNoticeText('')
+  }, [])
+
+  const loadFile = useCallback(
+    (file: File) => {
+      setUploadError('')
+
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        setUploadError(
+          `Unsupported file type: ${file.type || 'unknown'}. Please use ${ACCEPTED_LABEL}.`,
+        )
+        return
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        setUploadError(`Image is too large (${sizeMB}MB). Maximum size is 4MB.`)
+        return
+      }
+
+      setDisplayedImage(file)
+      resetResults()
+      setQuestionError('')
+      setActiveGalleryId(null)
+    },
+    [resetResults, setDisplayedImage],
+  )
 
   // Clipboard paste support (Ctrl+V / Cmd+V for screenshots)
   useEffect(() => {
@@ -154,121 +155,135 @@ export default function App() {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
       if (file) loadFile(file)
+      // Allow re-selecting the same file after a clear.
+      e.target.value = ''
     },
     [loadFile],
   )
 
   const clearImage = useCallback(() => {
+    abortRef.current?.abort()
+    if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current)
+    currentUrlRef.current = ''
     setCurrentUrl('')
     setCurrentFile(null)
-    setAnalysisText('')
     setActiveGalleryId(null)
     setUploadError('')
-    accTextRef.current = ''
+    setQuestionError('')
+    resetResults()
+  }, [resetResults])
+
+  const addToGallery = useCallback(async (file: File, item: Omit<GalleryItem, 'previewUrl'>) => {
+    const previewUrl = (await createThumbnailUrl(file)) ?? URL.createObjectURL(file)
+    const previous = galleryRef.current
+    const next = [{ ...item, previewUrl }, ...previous].slice(0, HISTORY_LIMIT)
+    for (const dropped of previous) {
+      if (!next.includes(dropped)) URL.revokeObjectURL(dropped.previewUrl)
+    }
+    galleryRef.current = next
+    setGallery(next)
   }, [])
 
-  const handleAnalyze = useCallback(async () => {
-    if ((!currentFile && !currentUrl) || isLoading) return
+  const clearGallery = useCallback(() => {
+    for (const item of galleryRef.current) URL.revokeObjectURL(item.previewUrl)
+    galleryRef.current = []
+    setGallery([])
+    setActiveGalleryId(null)
+  }, [])
 
-    // Q&A mode: warn if question is empty
+  const handleAnalyze = useCallback(() => {
+    if (!currentFile || isLoading) return
+
     if (mode === 'qa' && !question.trim()) {
-      setAnalysisText('Please enter a question about the image before analyzing in Q&A mode.')
+      setQuestionError('Enter a question before running a Q&A analysis.')
       return
     }
 
-    let fileToAnalyze = currentFile
-
-    // For gallery re-analysis: reconstruct file from stored base64 data
-    if (!fileToAnalyze && currentUrl && activeGalleryId) {
-      const galleryItem = gallery.find(g => g.id === activeGalleryId)
-      if (galleryItem?.base64Data && galleryItem?.mediaType) {
-        try {
-          const byteString = atob(galleryItem.base64Data)
-          const bytes = new Uint8Array(byteString.length)
-          for (let i = 0; i < byteString.length; i++) {
-            bytes[i] = byteString.charCodeAt(i)
-          }
-          fileToAnalyze = new File([bytes], galleryItem.name, { type: galleryItem.mediaType })
-        } catch {
-          setAnalysisText('Could not reconstruct image for re-analysis. Please re-upload the image.')
-          return
-        }
-      } else {
-        // Fallback: try fetching the object URL
-        try {
-          const resp = await fetch(currentUrl)
-          const blob = await resp.blob()
-          fileToAnalyze = new File([blob], galleryItem?.name ?? 'gallery-image.jpg', { type: blob.type })
-        } catch {
-          setAnalysisText('Could not reload image for re-analysis. Please re-upload the image.')
-          return
-        }
-      }
-    }
-    if (!fileToAnalyze) return
-
-    setIsLoading(true)
-    setAnalysisText('')
+    setQuestionError('')
     setUploadError('')
-    accTextRef.current = ''
+    resetResults()
+    setIsLoading(true)
 
-    // Read file as base64 for gallery storage
-    const analyzeFile = fileToAnalyze
-    let base64ForGallery = ''
-    let mediaTypeForGallery = analyzeFile.type || 'image/jpeg'
-    try {
-      const arrayBuf = await analyzeFile.arrayBuffer()
-      const bytes = new Uint8Array(arrayBuf)
-      let binary = ''
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i])
-      }
-      base64ForGallery = btoa(binary)
-    } catch {
-      // Non-critical: gallery re-analyze may not work for this image
-    }
+    const controller = new AbortController()
+    abortRef.current = controller
 
-    await analyzeImage({
-      file: analyzeFile,
-      mode,
-      question: mode === 'qa' ? question : undefined,
+    const file = currentFile
+    const runMode = mode
+    let truncated = false
+
+    void analyzeImage({
+      file,
+      mode: runMode,
+      question: runMode === 'qa' ? question : undefined,
+      signal: controller.signal,
       onChunk: text => {
         accTextRef.current += text
         setAnalysisText(accTextRef.current)
       },
+      onTruncated: () => {
+        truncated = true
+        setIsTruncated(true)
+      },
       onComplete: () => {
         setIsLoading(false)
-        const result = accTextRef.current
-        setGallery((prev: GalleryItem[]) => [
-          {
-            id: Date.now().toString(),
-            url: currentUrl,
-            name: analyzeFile.name,
-            mode,
-            result,
-            base64Data: base64ForGallery,
-            mediaType: mediaTypeForGallery,
-          },
-          ...prev.slice(0, 11),
-        ])
+        abortRef.current = null
+        void addToGallery(file, {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          name: file.name,
+          mode: runMode,
+          result: accTextRef.current,
+          truncated,
+        })
       },
       onError: err => {
         setIsLoading(false)
-        setAnalysisText(`Error: ${err.message}`)
+        abortRef.current = null
+        // Keep whatever streamed before the failure; the notice explains the gap.
+        if (isCancellation(err)) {
+          setNoticeText('Analysis cancelled. Anything above is only a partial result.')
+        } else {
+          setErrorText(err.message)
+        }
       },
     })
-  }, [currentFile, currentUrl, isLoading, mode, question, gallery, activeGalleryId])
+  }, [addToGallery, currentFile, isLoading, mode, question, resetResults])
 
-  const loadGalleryItem = useCallback((item: GalleryItem) => {
-    setCurrentUrl(item.url)
-    setCurrentFile(null)
-    setMode(item.mode)
-    setAnalysisText(item.result)
-    setActiveGalleryId(item.id)
-    accTextRef.current = item.result
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort()
   }, [])
 
+  const handleModeChange = useCallback(
+    (next: AnalysisMode) => {
+      if (next === mode) return
+      setMode(next)
+      setQuestionError('')
+      // The previous answer belongs to the previous mode.
+      resetResults()
+      setActiveGalleryId(null)
+    },
+    [mode, resetResults],
+  )
+
+  const loadGalleryItem = useCallback(
+    (item: GalleryItem) => {
+      abortRef.current?.abort()
+      setDisplayedImage(item.file)
+      setMode(item.mode)
+      setQuestionError('')
+      setUploadError('')
+      accTextRef.current = item.result
+      setAnalysisText(item.result)
+      setIsTruncated(item.truncated)
+      setErrorText('')
+      setNoticeText('')
+      setActiveGalleryId(item.id)
+    },
+    [setDisplayedImage],
+  )
+
   const hasImage = Boolean(currentUrl)
+  const imageLabel = currentFile?.name ?? 'the uploaded image'
 
   return (
     <div className="min-h-screen bg-[#080810] flex flex-col text-white">
@@ -285,7 +300,7 @@ export default function App() {
       <header className="relative z-10 h-12 flex items-center px-5 border-b border-white/[0.06] bg-black/30 backdrop-blur-2xl flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-rose-500/15 ring-1 ring-rose-500/25 flex items-center justify-center">
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
               <path d="M2 16S7 6 16 6s14 10 14 10-5 10-14 10S2 16 2 16z" stroke="#f43f5e" strokeWidth="1.5" fill="#f43f5e" fillOpacity="0.08"/>
               <circle cx="16" cy="16" r="6" stroke="#f43f5e" strokeWidth="1.5" fill="#f43f5e" fillOpacity="0.15"/>
               <circle cx="16" cy="16" r="3" fill="#f43f5e"/>
@@ -302,6 +317,8 @@ export default function App() {
         <div className="ml-auto">
           <button
             onClick={() => fileInputRef.current?.click()}
+            title={`Upload an image (${ACCEPTED_LABEL}, up to 4MB)`}
+            aria-label="Upload an image"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/[0.08] border border-white/[0.08] text-xs text-gray-400 hover:text-white transition-all duration-200"
           >
             <Upload size={13} />
@@ -321,81 +338,17 @@ export default function App() {
       <main className="relative z-10 flex-1 flex flex-col min-h-0">
         <AnimatePresence mode="wait">
           {!hasImage ? (
-            /* ── Drop Zone ── */
-            <motion.div
+            <DropZone
               key="dropzone"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex items-center justify-center p-6"
+              modes={MODES}
+              isDragging={isDragging}
+              uploadError={uploadError}
+              onPick={() => fileInputRef.current?.click()}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-            >
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, ease: 'easeOut' }}
-                className="w-full max-w-lg"
-              >
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-5 py-16 px-8 transition-all duration-300 cursor-pointer ${
-                    isDragging
-                      ? 'border-rose-500/60 bg-rose-500/[0.04]'
-                      : 'border-white/[0.08] hover:border-rose-500/30 hover:bg-white/[0.015]'
-                  }`}
-                >
-                  <motion.div
-                    animate={isDragging ? { scale: 1.1 } : { scale: 1 }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                    className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 ${
-                      isDragging
-                        ? 'bg-rose-500/15 ring-1 ring-rose-500/30'
-                        : 'bg-white/[0.04]'
-                    }`}
-                  >
-                    <Camera
-                      size={26}
-                      className={isDragging ? 'text-rose-400' : 'text-gray-600'}
-                    />
-                  </motion.div>
-
-                  <div className="text-center">
-                    <p className="text-base font-medium text-gray-200">
-                      Drop, paste, or click to upload
-                    </p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      JPG, PNG, WebP, GIF up to 4MB
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap justify-center gap-1.5">
-                    {MODES.map(({ id, label, icon: Icon }) => (
-                      <span
-                        key={id}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06] text-gray-600 text-xs"
-                      >
-                        <Icon size={11} />
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                </button>
-
-                {uploadError && (
-                  <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-rose-400 text-sm text-center">
-                    {uploadError}
-                  </div>
-                )}
-
-                <p className="text-center text-gray-700 text-xs mt-4">
-                  Powered by Claude Vision · Describe, analyze, extract, and query images with AI · Paste from clipboard supported
-                </p>
-              </motion.div>
-            </motion.div>
+            />
           ) : (
-            /* ── Split Layout ── */
             <motion.div
               key="split"
               initial={{ opacity: 0 }}
@@ -403,289 +356,68 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col lg:flex-row min-h-0"
             >
-              {/* Left: Image Display */}
-              <div
-                className="lg:flex-1 flex flex-col items-center justify-center p-5 min-h-[40vh] lg:min-h-0 relative"
+              <ImageStage
+                url={currentUrl}
+                label={imageLabel}
+                fileName={currentFile?.name ?? 'Gallery image'}
+                isDragging={isDragging}
+                uploadError={uploadError}
+                onZoom={() => setIsZoomed(true)}
+                onClear={clearImage}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-              >
-                {isDragging && (
-                  <div className="absolute inset-4 rounded-xl border-2 border-dashed border-rose-500/50 bg-rose-500/[0.04] flex items-center justify-center pointer-events-none z-10">
-                    <p className="text-rose-400 text-sm font-medium">
-                      Drop to replace image
-                    </p>
-                  </div>
-                )}
+              />
 
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.4, ease: 'easeOut' }}
-                  className="relative group max-w-full"
-                >
-                  <div
-                    className="relative rounded-xl overflow-hidden cursor-zoom-in"
-                    style={{
-                      boxShadow:
-                        '0 0 0 1px rgba(244,63,94,0.12), 0 0 60px rgba(244,63,94,0.08), 0 20px 60px rgba(0,0,0,0.5)',
-                    }}
-                    onClick={() => setIsZoomed(true)}
-                  >
-                    <img
-                      src={currentUrl}
-                      alt="Analysis target"
-                      className="max-w-full object-contain block"
-                      style={{ maxHeight: 'calc(100vh - 18rem)' }}
-                    />
-
-                    {/* Hover overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                    {/* Toolbar */}
-                    <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <button
-                        className="w-7 h-7 rounded-lg bg-black/70 backdrop-blur-sm flex items-center justify-center text-gray-300 hover:text-white transition-colors"
-                        onClick={e => {
-                          e.stopPropagation()
-                          setIsZoomed(true)
-                        }}
-                      >
-                        <ZoomIn size={13} />
-                      </button>
-                      <button
-                        className="w-7 h-7 rounded-lg bg-black/70 backdrop-blur-sm flex items-center justify-center text-gray-300 hover:text-rose-400 transition-colors"
-                        onClick={e => {
-                          e.stopPropagation()
-                          clearImage()
-                        }}
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-gray-700 text-xs mt-2 text-center truncate max-w-xs">
-                    {currentFile?.name ?? 'Gallery image'}
-                  </p>
-                </motion.div>
-
-                {uploadError && (
-                  <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-rose-400 text-sm text-center max-w-md">
-                    {uploadError}
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Analysis Panel */}
-              <div className="lg:w-[44%] xl:w-[42%] flex flex-col border-t lg:border-t-0 lg:border-l border-white/[0.06] bg-black/20 min-h-0">
-                {/* Mode selector */}
-                <div className="p-3 border-b border-white/[0.06] flex flex-wrap gap-1.5 flex-shrink-0">
-                  {MODES.map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      onClick={() => setMode(id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
-                        mode === id
-                          ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,0.4)]'
-                          : 'bg-white/[0.04] text-gray-500 hover:bg-white/[0.08] hover:text-gray-300 border border-white/[0.08]'
-                      }`}
-                    >
-                      <Icon size={12} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Q&A input */}
-                <AnimatePresence>
-                  {mode === 'qa' && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden flex-shrink-0"
-                    >
-                      <div className="p-3 border-b border-white/[0.06]">
-                        <input
-                          type="text"
-                          value={question}
-                          onChange={e => setQuestion(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') void handleAnalyze()
-                          }}
-                          placeholder="Ask a question about this image…"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-700 focus:outline-none focus:border-rose-500/40 focus:bg-rose-500/[0.03] transition-all duration-200"
-                        />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Analyze button */}
-                <div className="p-3 border-b border-white/[0.06] flex-shrink-0">
-                  <button
-                    onClick={() => void handleAnalyze()}
-                    disabled={isLoading || (!currentFile && !currentUrl)}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-all duration-200 shadow-[0_0_20px_rgba(244,63,94,0.25)] hover:shadow-[0_0_28px_rgba(244,63,94,0.4)]"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        <span>Analyzing</span>
-                        <LoadingDots />
-                      </>
-                    ) : (
-                      <>
-                        <Send size={14} />
-                        <span>Analyze Image</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Analysis results */}
-                <div
-                  ref={analysisRef}
-                  className="flex-1 overflow-y-auto p-4 min-h-0"
-                >
-                  {isLoading && !analysisText ? (
-                    /* Skeleton */
-                    <div className="space-y-2.5 pt-1">
-                      {Array.from({ length: 6 }, (_, i) => (
-                        <div
-                          key={i}
-                          className="h-2.5 rounded-full bg-white/[0.05] animate-pulse"
-                          style={{ width: `${92 - i * 8}%` }}
-                        />
-                      ))}
-                    </div>
-                  ) : analysisText ? (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3 }}
-                      className="text-sm text-gray-300 leading-[1.8] whitespace-pre-wrap"
-                      style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.8rem' }}
-                    >
-                      {analysisText}
-                      {isLoading && (
-                        <span className="inline-block w-0.5 h-3.5 bg-rose-500 ml-0.5 animate-pulse align-middle" />
-                      )}
-                    </motion.div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                      <div className="w-10 h-10 rounded-xl bg-white/[0.03] flex items-center justify-center">
-                        {(() => {
-                          const found = MODES.find(m => m.id === mode)
-                          if (!found) return null
-                          const Icon = found.icon
-                          return <Icon size={18} className="text-gray-700" />
-                        })()}
-                      </div>
-                      <div>
-                        <p className="text-gray-600 text-sm">
-                          Ready to {MODE_LABELS[mode].toLowerCase()}
-                        </p>
-                        <p className="text-gray-800 text-xs mt-0.5">
-                          Press Analyze Image to start
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <AnalysisPanel
+                modes={MODES}
+                modeLabels={MODE_LABELS}
+                mode={mode}
+                onModeChange={handleModeChange}
+                question={question}
+                questionError={questionError}
+                onQuestionChange={value => {
+                  setQuestion(value)
+                  if (questionError) setQuestionError('')
+                }}
+                isLoading={isLoading}
+                canAnalyze={Boolean(currentFile)}
+                analysisText={analysisText}
+                isTruncated={isTruncated}
+                errorText={errorText}
+                noticeText={noticeText}
+                scrollRef={analysisRef}
+                onAnalyze={handleAnalyze}
+                onCancel={handleCancel}
+              />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
-      {/* Gallery strip */}
       <AnimatePresence>
         {gallery.length > 0 && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="relative z-10 border-t border-white/[0.06] bg-black/30 backdrop-blur-xl flex-shrink-0"
-          >
-            <div className="flex items-center gap-2 px-4 py-2.5 overflow-x-auto">
-              <span className="text-gray-700 text-xs flex-shrink-0">History</span>
-              <div className="w-px h-4 bg-white/[0.06] flex-shrink-0" />
-              {gallery.map(item => (
-                <motion.button
-                  key={item.id}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => loadGalleryItem(item)}
-                  className={`flex-shrink-0 w-11 h-11 rounded-lg overflow-hidden transition-all duration-200 ${
-                    activeGalleryId === item.id
-                      ? 'ring-2 ring-rose-500 ring-offset-1 ring-offset-[#080810]'
-                      : 'ring-1 ring-white/[0.08] hover:ring-rose-500/40'
-                  }`}
-                  title={`${item.name} · ${MODE_LABELS[item.mode]}`}
-                >
-                  <img
-                    src={item.url}
-                    alt={item.name}
-                    className="w-full h-full object-cover"
-                  />
-                </motion.button>
-              ))}
-            </div>
-          </motion.div>
+          <HistoryStrip
+            items={gallery}
+            activeId={activeGalleryId}
+            modeLabels={MODE_LABELS}
+            atCapacity={gallery.length >= HISTORY_LIMIT}
+            onSelect={loadGalleryItem}
+            onClear={clearGallery}
+          />
         )}
       </AnimatePresence>
 
-      {/* Zoom overlay */}
       <AnimatePresence>
-        {isZoomed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black/92 backdrop-blur-2xl flex items-center justify-center p-8"
-            onClick={() => setIsZoomed(false)}
-          >
-            <div className="absolute top-4 right-4 flex gap-2">
-              <button
-                className="w-9 h-9 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] flex items-center justify-center text-gray-300 hover:text-white transition-colors"
-                onClick={() => setIsZoomed(false)}
-              >
-                <ZoomOut size={16} />
-              </button>
-              <button
-                className="w-9 h-9 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] flex items-center justify-center text-gray-300 hover:text-white transition-colors"
-                onClick={() => setIsZoomed(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <motion.img
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              src={currentUrl}
-              alt="Zoomed view"
-              className="max-w-full max-h-full object-contain rounded-xl"
-              onClick={e => e.stopPropagation()}
-            />
-          </motion.div>
+        {isZoomed && currentUrl && (
+          <ZoomOverlay src={currentUrl} label={imageLabel} onClose={() => setIsZoomed(false)} />
         )}
       </AnimatePresence>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
+        accept={ACCEPTED_TYPES.join(',')}
         className="hidden"
         onChange={handleInputChange}
       />

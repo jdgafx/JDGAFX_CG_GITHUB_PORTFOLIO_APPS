@@ -1,7 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import type { TextItem } from 'pdfjs-dist/types/src/display/api'
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { pageMarkerPattern } from './chunk'
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+// Bundled with the app rather than pulled from a CDN, so the page keeps working
+// offline and needs no third-party script origin in the CSP.
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 export interface ExtractResult {
   text: string
@@ -55,38 +59,9 @@ export async function extractText(file: File): Promise<ExtractResult> {
   }
 
   const trimmed = fullText.trim()
-  if (!trimmed || trimmed.replace(/--- Page \d+ ---/g, '').trim().length === 0) {
+  if (!trimmed || trimmed.replace(pageMarkerPattern(), '').trim().length === 0) {
     throw new Error('No readable text found in this PDF. It may be a scanned document or contain only images.')
   }
 
   return { text: trimmed, pages: numPages }
-}
-
-export function chunkText(text: string, maxChars: number = 500): string[] {
-  const overlap = 50
-  const chunks: string[] = []
-  let start = 0
-
-  while (start < text.length) {
-    let end = start + maxChars
-
-    if (end < text.length) {
-      const searchWindow = text.slice(end, Math.min(end + 120, text.length))
-      const sentenceEnd = searchWindow.search(/[.!?\n]/)
-      if (sentenceEnd !== -1) {
-        end = end + sentenceEnd + 1
-      }
-    } else {
-      end = text.length
-    }
-
-    const chunk = text.slice(start, end).trim()
-    if (chunk.length > 20) {
-      chunks.push(chunk)
-    }
-
-    start = Math.max(start + Math.floor(maxChars / 2), end - overlap)
-  }
-
-  return chunks
 }

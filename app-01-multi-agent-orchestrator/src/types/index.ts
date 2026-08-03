@@ -1,6 +1,6 @@
 export type AgentRole = 'researcher' | 'analyst' | 'critic' | 'synthesizer'
 
-export type AgentStatus = 'idle' | 'thinking' | 'working' | 'complete' | 'error'
+export type AgentStatus = 'idle' | 'thinking' | 'working' | 'complete' | 'stopped' | 'error'
 
 export interface AgentState {
   id: AgentRole
@@ -8,7 +8,15 @@ export interface AgentState {
   description: string
   status: AgentStatus
   output: string
+  /** Content tokens reported by the server — excludes upstream reasoning tokens. */
   tokens: number
+  /** Non-zero means the model spent budget thinking; surfaced as a warning. */
+  reasoningTokens: number
+  /** Upstream stop reason: 'stop' when the agent finished, 'length'/'timeout' when cut off. */
+  finish: string | null
+  /** Per-agent token ceiling, used to show real generation progress. */
+  maxTokens: number
+  error?: string
   startTime?: number
   endTime?: number
 }
@@ -29,5 +37,8 @@ export interface StreamEvent {
   agent: AgentRole | 'system'
   content?: string
   tokens?: number
+  reasoningTokens?: number
+  finish?: string | null
+  maxTokens?: number
   error?: string
 }

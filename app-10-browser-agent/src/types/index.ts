@@ -12,7 +12,23 @@ export interface BotStep {
   value?: string
   thought: string
   url?: string
-  pageContent?: string
+  pageContent?: PageContentType
 }
 
 export type SpeedMode = 'slow' | 'normal' | 'fast'
+
+/** Named input on the mock page that a "type" step is aimed at. */
+export type FieldKey =
+  | 'origin' | 'destination' | 'date'
+  | 'name' | 'email' | 'phone' | 'experience'
+  | 'search'
+
+/** Text committed to each mock input so far in the run. */
+export type FieldValues = Partial<Record<FieldKey, string>>
+
+/** One row of extracted data, shared by the mock page and the results panel. */
+export interface ResultRow {
+  title: string
+  detail?: string
+  value?: string
+}

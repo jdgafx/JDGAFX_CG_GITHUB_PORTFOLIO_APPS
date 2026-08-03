@@ -33,15 +33,20 @@ export interface ParsedData {
   totalRows?: number
 }
 
-export interface AnalysisResult {
+export interface EngineResult {
   labels: string[]
   datasets: { name: string; values: number[] }[]
+  warnings: string[]
+}
+
+export interface AnalysisResult extends EngineResult {
   queryPlan: QueryPlan
 }
 
 export interface HistoryEntry {
   id: string
   question: string
+  dataset: string
   result: AnalysisResult
   timestamp: Date
 }

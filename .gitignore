@@ -1,9 +1,27 @@
+# Dependencies & build output
 node_modules/
 dist/
 .netlify/
+*.tsbuildinfo
+
+# Environment
 *.local
 .env
 .env.*
 !.env.example
+
+# OS
 .DS_Store
-*.tsbuildinfo
+
+# Local agent tooling / session state (not part of the portfolio)
+.claude/
+.claude-flow/
+graphify-out/
+CLAUDE.md
+.acceptance/
+RESUME.md
+.remember/
+
+# Personal sysadmin toolkit — lives in its own repo
+Linux-Sysconfig-Package-and-Xfer/
+n8n-automations/local/.env

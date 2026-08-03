@@ -1,285 +1,35 @@
-import { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Zap,
-  AlertTriangle,
-  Info,
-  AlertCircle,
-  ChevronDown,
-  Loader2,
-  FileCode2,
-} from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { motion } from 'framer-motion'
+import { ChevronDown, Loader2, Trash2, Wand2, X, Zap } from 'lucide-react'
+import { Header } from './components/Header'
+import { CodeEditor } from './components/CodeEditor'
+import { ReviewPanel } from './components/ReviewPanel'
 import { reviewCode } from './lib/api'
-import type { ReviewComment, ReviewResult, Severity } from './types'
+import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from './lib/limits'
+import {
+  LANGUAGES,
+  LINE_HEIGHT,
+  SAMPLE_CODE,
+  SAMPLE_LANGUAGE,
+  SEVERITY_CONFIG,
+  SEVERITY_ORDER,
+} from './constants'
+import type { ReviewResult, Severity } from './types'
 
-interface IconProps {
-  size?: number
-  color?: string
-  strokeWidth?: number
-  style?: React.CSSProperties
-}
+const ALL_SEVERITIES_ON: Record<Severity, boolean> = { critical: true, warning: true, info: true }
 
-interface SeverityInfo {
-  label: string
-  color: string
-  bg: string
-  borderColor: string
-  icon: React.ComponentType<IconProps>
-}
-
-const LANGUAGES = [
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'python', label: 'Python' },
-  { value: 'rust', label: 'Rust' },
-  { value: 'go', label: 'Go' },
-  { value: 'java', label: 'Java' },
-  { value: 'cpp', label: 'C++' },
-  { value: 'css', label: 'CSS' },
-  { value: 'html', label: 'HTML' },
-  { value: 'sql', label: 'SQL' },
-]
-
-const SEVERITY_CONFIG: Record<Severity, SeverityInfo> = {
-  critical: {
-    label: 'Critical',
-    color: '#ef4444',
-    bg: 'rgba(239, 68, 68, 0.08)',
-    borderColor: '#ef4444',
-    icon: AlertCircle,
-  },
-  warning: {
-    label: 'Warning',
-    color: '#ffa500',
-    bg: 'rgba(255, 165, 0, 0.08)',
-    borderColor: '#ffa500',
-    icon: AlertTriangle,
-  },
-  info: {
-    label: 'Info',
-    color: '#60a5fa',
-    bg: 'rgba(96, 165, 250, 0.08)',
-    borderColor: '#60a5fa',
-    icon: Info,
-  },
-}
-
-const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
-
-function getFileExt(lang: string): string {
-  if (lang === 'javascript') return 'js'
-  if (lang === 'typescript') return 'ts'
-  if (lang === 'python') return 'py'
-  if (lang === 'rust') return 'rs'
-  if (lang === 'cpp') return 'cpp'
-  if (lang === 'java') return 'java'
-  if (lang === 'go') return 'go'
-  return lang
-}
-
-interface LineNumbersProps {
-  lineCount: number
-  highlightedLine: number | null
-  scrollRef: React.RefObject<HTMLDivElement | null>
-}
-
-function LineNumbers({ lineCount, highlightedLine, scrollRef }: LineNumbersProps) {
-  return (
-    <div
-      ref={scrollRef}
-      style={{
-        width: '52px',
-        minWidth: '52px',
-        overflowY: 'hidden',
-        backgroundColor: '#0a0f1a',
-        borderRight: '1px solid rgba(255,255,255,0.05)',
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: '13px',
-        lineHeight: '24px',
-        userSelect: 'none',
-        flexShrink: 0,
-      }}
-    >
-      {Array.from({ length: lineCount }, (_, i) => i + 1).map((num) => (
-        <div
-          key={num}
-          style={{
-            height: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            paddingRight: '10px',
-            backgroundColor:
-              num === highlightedLine ? 'rgba(255, 165, 0, 0.12)' : 'transparent',
-            color: num === highlightedLine ? '#ffa500' : '#374151',
-            borderLeft:
-              num === highlightedLine ? '2px solid #ffa500' : '2px solid transparent',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          {num}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-interface ReviewCardProps {
-  comment: ReviewComment
-  index: number
-  onClick: () => void
-  isActive: boolean
-}
-
-function ReviewCard({ comment, index, onClick, isActive }: ReviewCardProps) {
-  const config = SEVERITY_CONFIG[comment.severity]
-  const Icon = config.icon
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
-      transition={{ delay: index * 0.06, duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
-      onClick={onClick}
-      style={{
-        background: isActive ? config.bg : 'rgba(255,255,255,0.02)',
-        border: `1px solid ${isActive ? config.borderColor + '55' : 'rgba(255,255,255,0.06)'}`,
-        borderLeft: `4px solid ${config.color}`,
-        borderRadius: '8px',
-        padding: '14px 16px',
-        cursor: 'pointer',
-        marginBottom: '10px',
-        transition: 'background 0.2s ease, border-color 0.2s ease',
-      }}
-      whileHover={{ backgroundColor: config.bg }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '2px 8px',
-            borderRadius: '999px',
-            fontSize: '11px',
-            fontWeight: 600,
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase' as const,
-            backgroundColor: config.bg,
-            color: config.color,
-            border: `1px solid ${config.color}44`,
-          }}
-        >
-          <Icon size={10} />
-          {config.label}
-        </span>
-        <span
-          style={{
-            fontSize: '12px',
-            color: '#4b5563',
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          Line {comment.line}
-        </span>
-      </div>
-
-      <p
-        style={{
-          margin: '0 0 8px 0',
-          fontSize: '13.5px',
-          color: '#e2e8f0',
-          lineHeight: 1.55,
-          fontWeight: 500,
-        }}
-      >
-        {comment.message}
-      </p>
-
-      <div
-        style={{
-          fontSize: '12.5px',
-          color: '#94a3b8',
-          lineHeight: 1.55,
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          paddingTop: '8px',
-        }}
-      >
-        <span style={{ color: '#ffa500', fontWeight: 600 }}>Suggestion: </span>
-        {comment.suggestion}
-      </div>
-    </motion.div>
-  )
-}
-
-function SkeletonCard({ index }: { index: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: index * 0.07 }}
-      style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)',
-        borderLeft: '4px solid rgba(255,255,255,0.08)',
-        borderRadius: '8px',
-        padding: '14px 16px',
-        marginBottom: '10px',
-      }}
-    >
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-        <div className="skeleton" style={{ width: '72px', height: '20px', borderRadius: '999px' }} />
-        <div className="skeleton" style={{ width: '52px', height: '20px', borderRadius: '4px' }} />
-      </div>
-      <div className="skeleton" style={{ width: '88%', height: '14px', borderRadius: '4px', marginBottom: '6px' }} />
-      <div className="skeleton" style={{ width: '65%', height: '14px', borderRadius: '4px', marginBottom: '12px' }} />
-      <div className="skeleton" style={{ width: '100%', height: '14px', borderRadius: '4px' }} />
-    </motion.div>
-  )
-}
-
-function EmptyState() {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        gap: '16px',
-        textAlign: 'center',
-        padding: '40px 24px',
-      }}
-    >
-      <div
-        style={{
-          width: '72px',
-          height: '72px',
-          borderRadius: '16px',
-          background: 'rgba(255,165,0,0.06)',
-          border: '1px solid rgba(255,165,0,0.12)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <FileCode2 size={32} color="#ffa500" strokeWidth={1.5} />
-      </div>
-      <div>
-        <p style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: 600, color: '#6b7280' }}>
-          No Review Yet
-        </p>
-        <p style={{ margin: 0, fontSize: '13px', color: '#4b5563', lineHeight: 1.65 }}>
-          Paste your code in the editor and
-          <br />
-          click{' '}
-          <strong style={{ color: '#ffa500' }}>Review Code</strong> to begin
-        </p>
-      </div>
-    </div>
-  )
+const TOOL_BUTTON: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '6px 12px',
+  borderRadius: '8px',
+  border: '1px solid rgba(255,255,255,0.08)',
+  background: 'rgba(255,255,255,0.04)',
+  color: '#94a3b8',
+  fontSize: '12.5px',
+  fontFamily: "'Source Sans 3', sans-serif",
+  cursor: 'pointer',
 }
 
 export default function App() {
@@ -289,196 +39,188 @@ export default function App() {
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null)
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [filters, setFilters] = useState<Record<Severity, boolean>>(ALL_SEVERITIES_ON)
+  const [copied, setCopied] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lineNumbersRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const lineCount = Math.max(code.split('\n').length, 20)
+  const codeLength = code.length
+  const isOverLimit = codeLength > MAX_CODE_LENGTH
+  const btnDisabled = isLoading || !code.trim() || isOverLimit
 
-  const handleTextareaScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = e.currentTarget.scrollTop
-    }
-  }
+  const sortedComments = reviewResult
+    ? reviewResult.comments
+        .slice()
+        .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.line - b.line)
+    : []
+  const visibleComments = sortedComments.filter((c) => filters[c.severity])
+  const counts: Record<Severity, number> = { critical: 0, warning: 0, info: 0 }
+  for (const c of sortedComments) counts[c.severity] += 1
+
+  // Drop the in-flight review and the pending copy reset when the component goes away.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
 
   useEffect(() => {
-    if (highlightedLine !== null) {
-      const lineHeight = 24
-      const scrollTo = Math.max(0, (highlightedLine - 1) * lineHeight - 80)
-      if (textareaRef.current) {
-        textareaRef.current.scrollTop = scrollTo
-      }
-      if (lineNumbersRef.current) {
-        lineNumbersRef.current.scrollTop = scrollTo
-      }
-    }
+    if (highlightedLine === null) return
+    const el = textareaRef.current
+    if (!el) return
+    const centered = (highlightedLine - 1) * LINE_HEIGHT - el.clientHeight / 2 + LINE_HEIGHT / 2
+    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight)
+    const next = Math.min(Math.max(0, centered), maxScroll)
+    el.scrollTop = next
+    if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = next
   }, [highlightedLine])
 
-  const handleReview = async () => {
-    if (!code.trim() || isLoading) return
+  const handleReview = useCallback(async () => {
+    if (!code.trim() || isOverLimit || isLoading) return
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setIsLoading(true)
     setError(null)
     setReviewResult(null)
     setHighlightedLine(null)
+    setFilters(ALL_SEVERITIES_ON)
+    setCopied(false)
     try {
-      const result = await reviewCode(code, language)
+      const result = await reviewCode(code, language, controller.signal)
+      if (controller.signal.aborted) return
       setReviewResult(result)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Review failed')
+      if (controller.signal.aborted && (err as Error)?.name === 'AbortError') return
+      if ((err as Error)?.name === 'TimeoutError') {
+        setError('The review took too long to come back. Try a shorter snippet.')
+      } else {
+        setError(err instanceof Error ? err.message : 'Review failed. Please try again.')
+      }
     } finally {
-      setIsLoading(false)
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        setIsLoading(false)
+      }
     }
+  }, [code, language, isLoading, isOverLimit])
+
+  const handleCancel = () => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setIsLoading(false)
+    setError(null)
+  }
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        void handleReview()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleReview])
+
+  const handleCodeChange = (value: string) => {
+    setCode(value)
+    setHighlightedLine(null)
+  }
+
+  const handleLoadSample = () => {
+    setLanguage(SAMPLE_LANGUAGE)
+    setCode(SAMPLE_CODE)
+    setReviewResult(null)
+    setError(null)
+    setHighlightedLine(null)
+    textareaRef.current?.focus()
+  }
+
+  const handleClear = () => {
+    setCode('')
+    setReviewResult(null)
+    setError(null)
+    setHighlightedLine(null)
+    textareaRef.current?.focus()
   }
 
   const handleCommentClick = (line: number) => {
-    const clampedLine = Math.min(line, code.split('\n').length)
-    setHighlightedLine((prev) => (prev === clampedLine ? null : clampedLine))
+    setHighlightedLine((prev) => (prev === line ? null : line))
   }
 
-  const sortedComments = reviewResult
-    ? reviewResult.comments.slice().sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
-    : []
+  const handleToggleFilter = (severity: Severity) => {
+    setFilters((prev) => ({ ...prev, [severity]: !prev[severity] }))
+  }
 
-  const criticalCount = reviewResult?.comments.filter((c) => c.severity === 'critical').length ?? 0
-  const warningCount = reviewResult?.comments.filter((c) => c.severity === 'warning').length ?? 0
-  const infoCount = reviewResult?.comments.filter((c) => c.severity === 'info').length ?? 0
-
-  const codeLength = code.length
-  const MAX_CODE_LENGTH = 50000
-  const isOverLimit = codeLength > MAX_CODE_LENGTH
-  const btnDisabled = isLoading || !code.trim() || isOverLimit
+  const handleCopy = async () => {
+    if (!reviewResult) return
+    const header = `CodeLens AI review - ${language}, ${reviewResult.lineCount} line${reviewResult.lineCount !== 1 ? 's' : ''}, ${reviewResult.comments.length} issue${reviewResult.comments.length !== 1 ? 's' : ''}`
+    const body = sortedComments
+      .map(
+        (c) =>
+          `[${SEVERITY_CONFIG[c.severity].label.toUpperCase()}] Line ${c.line}\n  ${c.message}\n  Suggestion: ${c.suggestion}`,
+      )
+      .join('\n\n')
+    try {
+      await navigator.clipboard.writeText(`${header}\n\n${body}\n`)
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: '#0a0e1a',
-        display: 'flex',
-        flexDirection: 'column',
-        fontFamily: "'Source Sans 3', system-ui, sans-serif",
-      }}
-    >
-      <header
+    <div className="app-shell" style={{ backgroundColor: '#0a0e1a' }}>
+      <Header
+        counts={counts}
+        filters={filters}
+        hasResults={!!reviewResult && sortedComments.length > 0}
+        onToggleFilter={handleToggleFilter}
+      />
+
+      <div
         style={{
-          padding: '16px 24px',
+          width: '100%',
+          padding: '8px 24px',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(10,14,26,0.9)',
-          backdropFilter: 'blur(12px)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
+          background: 'rgba(255,165,0,0.02)',
+          flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            maxWidth: '1400px',
-            margin: '0 auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap' as const,
-            gap: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '9px',
-                background: 'linear-gradient(135deg, #ffa500, #ff6b00)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 0 20px rgba(255,165,0,0.3)',
-                flexShrink: 0,
-              }}
-            >
-              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-                <path d="M11 7L4 16L11 25" stroke="#ffa500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M21 7L28 16L21 25" stroke="#ff6b00" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <line x1="3" y1="16" x2="29" y2="16" stroke="#ffd700" strokeWidth="1.5" opacity="0.5"/>
-                <circle cx="16" cy="16" r="3" fill="#ffa500" opacity="0.3"/>
-                <circle cx="16" cy="16" r="1.5" fill="#ffa500"/>
-              </svg>
-            </div>
-            <div>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: '18px',
-                  fontWeight: 700,
-                  color: '#f1f5f9',
-                  letterSpacing: '-0.02em',
-                  lineHeight: 1.2,
-                }}
-              >
-                CodeLens<span style={{ color: '#ffa500' }}> AI</span>
-              </h1>
-              <p style={{ margin: 0, fontSize: '12px', color: '#4b5563', lineHeight: 1.3 }}>
-                AI-Powered Code Review Agent
-              </p>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' as const }}>
-            {(['critical', 'warning', 'info'] as Severity[]).map((sev) => {
-              const conf = SEVERITY_CONFIG[sev]
-              const Icon = conf.icon
-              return (
-                <span
-                  key={sev}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '4px 10px',
-                    borderRadius: '999px',
-                    fontSize: '11px',
-                    fontWeight: 500,
-                    backgroundColor: 'rgba(255,255,255,0.03)',
-                    color: conf.color,
-                    border: `1px solid ${conf.color}22`,
-                  }}
-                >
-                  <Icon size={11} />
-                  {conf.label}
-                </span>
-              )
-            })}
-          </div>
-        </div>
-      </header>
-      <div style={{ width: '100%', padding: '8px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,165,0,0.02)', flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
           Paste your code — any language — and get a line-by-line review in seconds. It flags bugs and security issues as critical, highlights things worth fixing as warnings, and offers suggestions where the code could be cleaner. Each comment links directly to the line it's talking about.
         </p>
       </div>
 
-      <main
-        style={{
-          flex: 1,
-          maxWidth: '1400px',
-          margin: '0 auto',
-          width: '100%',
-          padding: '20px 24px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '14px',
-        }}
-      >
+      <main className="app-main">
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             flexWrap: 'wrap' as const,
+            flexShrink: 0,
           }}
         >
+          <label htmlFor="language-select" className="sr-only">
+            Code language
+          </label>
           <div style={{ position: 'relative' }}>
             <select
+              id="language-select"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
+              title="Tell the reviewer which language this snippet is written in"
               style={{
                 appearance: 'none' as const,
                 WebkitAppearance: 'none' as const,
@@ -516,231 +258,89 @@ export default function App() {
             />
           </div>
 
-          <span style={{ fontSize: '12px', color: isOverLimit ? '#ef4444' : '#374151' }}>
-            {code.split('\n').length} lines{isOverLimit ? ` (${(codeLength / 1000).toFixed(0)}k / ${MAX_CODE_LENGTH / 1000}k chars)` : ''}
+          <span
+            style={{ fontSize: '12px', color: isOverLimit ? '#ef4444' : '#374151' }}
+            title={`${codeLength.toLocaleString('en-US')} of ${MAX_CODE_LENGTH.toLocaleString('en-US')} characters used`}
+          >
+            {code.split('\n').length} lines
           </span>
+
+          {isOverLimit && (
+            <span role="alert" style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600 }}>
+              {OVER_LIMIT_MESSAGE} — remove{' '}
+              {(codeLength - MAX_CODE_LENGTH).toLocaleString('en-US')} characters to review it.
+            </span>
+          )}
 
           <div style={{ flex: 1 }} />
 
-          <AnimatePresence>
-            {reviewResult && !isLoading && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{ display: 'flex', gap: '10px', alignItems: 'center' }}
-              >
-                {criticalCount > 0 && (
-                  <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 500 }}>
-                    {criticalCount} critical
-                  </span>
-                )}
-                {warningCount > 0 && (
-                  <span style={{ fontSize: '12px', color: '#ffa500', fontWeight: 500 }}>
-                    {warningCount} warning{warningCount > 1 ? 's' : ''}
-                  </span>
-                )}
-                {infoCount > 0 && (
-                  <span style={{ fontSize: '12px', color: '#60a5fa', fontWeight: 500 }}>
-                    {infoCount} info
-                  </span>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            title="Load a short JavaScript snippet with known problems to try the reviewer"
+            style={TOOL_BUTTON}
+          >
+            <Wand2 size={13} />
+            Sample code
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={!code}
+            title={code ? 'Empty the editor and discard the current review' : 'The editor is already empty'}
+            style={{ ...TOOL_BUTTON, opacity: code ? 1 : 0.4, cursor: code ? 'pointer' : 'not-allowed' }}
+          >
+            <Trash2 size={13} />
+            Clear
+          </button>
         </div>
 
         <div className="split-layout">
-          <div
-            className="editor-panel"
-            style={{
-              borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.06)',
-              overflow: 'hidden',
-              background: '#0d1117',
-            }}
-          >
-            <div
-              style={{
-                padding: '9px 14px',
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: '#0a0f1a',
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ display: 'flex', gap: '5px' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', opacity: 0.6 }} />
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ffa500', opacity: 0.6 }} />
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e', opacity: 0.6 }} />
-              </div>
-              <span style={{ fontSize: '12px', color: '#374151', marginLeft: '4px' }}>
-                code.{getFileExt(language)}
-              </span>
-              <div style={{ flex: 1 }} />
-              <div
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: code.trim() ? '#22c55e' : '#374151',
-                  transition: 'background 0.3s ease',
-                }}
-              />
-            </div>
+          <CodeEditor
+            code={code}
+            language={language}
+            highlightedLine={highlightedLine}
+            textareaRef={textareaRef}
+            lineNumbersRef={lineNumbersRef}
+            onChange={handleCodeChange}
+            onSubmit={() => void handleReview()}
+          />
 
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                overflow: 'hidden',
-                minHeight: 0,
-              }}
-            >
-              <LineNumbers
-                lineCount={lineCount}
-                highlightedLine={highlightedLine}
-                scrollRef={lineNumbersRef}
-              />
-              <textarea
-                ref={textareaRef}
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value)
-                  setHighlightedLine(null)
-                }}
-                onScroll={handleTextareaScroll}
-                placeholder={'// Paste your code here...\n// Supports JS, TS, Python, Rust, Go, and more'}
-                spellCheck={false}
-                style={{
-                  flex: 1,
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  color: '#e2e8f0',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: '13px',
-                  lineHeight: '24px',
-                  padding: '0 16px',
-                  resize: 'none',
-                  tabSize: 2,
-                  overflowY: 'scroll',
-                  overflowX: 'auto',
-                  whiteSpace: 'pre',
-                  caretColor: '#ffa500',
-                }}
-              />
-            </div>
-          </div>
-
-          <div
-            className="review-panel"
-            style={{
-              borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.06)',
-              overflow: 'hidden',
-              background: 'rgba(255,255,255,0.01)',
-            }}
-          >
-            <div
-              style={{
-                padding: '9px 14px',
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'rgba(0,0,0,0.2)',
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ fontSize: '11px', color: '#4b5563', fontWeight: 600, letterSpacing: '0.06em' }}>
-                REVIEW RESULTS
-              </span>
-              <AnimatePresence>
-                {reviewResult && (
-                  <motion.span
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    style={{
-                      marginLeft: 'auto',
-                      fontSize: '11px',
-                      padding: '2px 8px',
-                      borderRadius: '999px',
-                      background: 'rgba(255,165,0,0.1)',
-                      color: '#ffa500',
-                      border: '1px solid rgba(255,165,0,0.2)',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {reviewResult.comments.length} issue{reviewResult.comments.length !== 1 ? 's' : ''}
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '14px',
-                minHeight: 0,
-              }}
-            >
-              {isLoading ? (
-                <>
-                  {[0, 1, 2, 3].map((i) => (
-                    <SkeletonCard key={i} index={i} />
-                  ))}
-                </>
-              ) : error ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    gap: '12px',
-                    textAlign: 'center',
-                    padding: '40px 24px',
-                  }}
-                >
-                  <AlertCircle size={32} color="#ef4444" strokeWidth={1.5} />
-                  <div>
-                    <p style={{ margin: '0 0 6px', fontWeight: 600, color: '#ef4444', fontSize: '14px' }}>
-                      Review Failed
-                    </p>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#6b7280', lineHeight: 1.5 }}>
-                      {error}
-                    </p>
-                  </div>
-                </div>
-              ) : reviewResult ? (
-                <AnimatePresence>
-                  {sortedComments.map((comment, i) => (
-                    <ReviewCard
-                      key={`${comment.line}-${comment.severity}-${i}`}
-                      comment={comment}
-                      index={i}
-                      onClick={() => handleCommentClick(comment.line)}
-                      isActive={highlightedLine === comment.line}
-                    />
-                  ))}
-                </AnimatePresence>
-              ) : (
-                <EmptyState />
-              )}
-            </div>
-          </div>
+          <ReviewPanel
+            isLoading={isLoading}
+            error={error}
+            reviewResult={reviewResult}
+            visibleComments={visibleComments}
+            hiddenCount={sortedComments.length - visibleComments.length}
+            highlightedLine={highlightedLine}
+            copied={copied}
+            onCommentClick={handleCommentClick}
+            onRetry={() => void handleReview()}
+            onCopy={() => void handleCopy()}
+          />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: '8px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '10px',
+            paddingBottom: '8px',
+            flexShrink: 0,
+          }}
+        >
           <motion.button
-            onClick={handleReview}
+            type="button"
+            onClick={() => void handleReview()}
             disabled={btnDisabled}
+            title={
+              isOverLimit
+                ? `${OVER_LIMIT_MESSAGE} — trim the snippet before reviewing`
+                : !code.trim()
+                  ? 'Paste some code first'
+                  : 'Send this code for AI review (Ctrl/Cmd+Enter)'
+            }
             whileHover={btnDisabled ? {} : { scale: 1.02 }}
             whileTap={btnDisabled ? {} : { scale: 0.97 }}
             style={{
@@ -767,7 +367,7 @@ export default function App() {
           >
             {isLoading ? (
               <>
-                <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
+                <Loader2 size={16} className="spin" />
                 Analyzing...
               </>
             ) : (
@@ -777,9 +377,31 @@ export default function App() {
               </>
             )}
           </motion.button>
+
+          {isLoading && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              title="Stop this review and keep the editor as it is"
+              style={{ ...TOOL_BUTTON, padding: '10px 18px', color: '#e2e8f0' }}
+            >
+              <X size={14} />
+              Cancel
+            </button>
+          )}
         </div>
       </main>
-      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+
+      <footer
+        style={{
+          textAlign: 'center',
+          padding: '12px 0',
+          fontSize: 11,
+          color: '#475569',
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          flexShrink: 0,
+        }}
+      >
         Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
       </footer>
     </div>

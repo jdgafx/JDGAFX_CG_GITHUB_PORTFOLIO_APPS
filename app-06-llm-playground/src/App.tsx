@@ -1,77 +1,14 @@
 import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Trophy, Clock, Hash, DollarSign, Play, Square,
-  ChevronDown, ChevronUp, Settings, CheckCircle2,
-  RotateCcw, AlertTriangle,
-} from 'lucide-react'
+import { Play, Square, ChevronDown, ChevronUp, Settings, RotateCcw } from 'lucide-react'
 import { streamModel } from './lib/api'
+import type { ModelResult } from './models'
+import { MODELS, createEmptyResult, estimateCost } from './models'
+import { Header, PromptSection, ModelSelector, SettingsPanel, WinnerBanner } from './components/Controls'
+import { ResponsePanel } from './components/ResponsePanel'
 
-interface ModelConfig {
-  id: string
-  name: string
-  label: string
-  shortName: string
-  color: string
-  costPer1kInput: number
-  costPer1kOutput: number
-}
-
-interface ModelResult {
-  text: string
-  latencyMs: number | null
-  inputTokens: number | null
-  outputTokens: number | null
-  cost: number | null
-  streaming: boolean
-  done: boolean
-  error: string | null
-  startTime: number | null
-}
-
-const MODELS: ModelConfig[] = [
-  {
-    id: 'claude-haiku-4.5',
-    name: 'claude-haiku-4.5',
-    label: 'Claude Haiku (Latest)',
-    shortName: 'Haiku',
-    color: '#f59e0b',
-    costPer1kInput: 0.001,
-    costPer1kOutput: 0.005,
-  },
-  {
-    id: 'claude-sonnet-4.6',
-    name: 'claude-sonnet-4.6',
-    label: 'Claude Sonnet (Latest)',
-    shortName: 'Sonnet',
-    color: '#3b82f6',
-    costPer1kInput: 0.003,
-    costPer1kOutput: 0.015,
-  },
-  {
-    id: 'claude-opus',
-    name: 'claude-opus',
-    label: 'Claude Opus (Latest)',
-    shortName: 'Opus',
-    color: '#8b5cf6',
-    costPer1kInput: 0.015,
-    costPer1kOutput: 0.075,
-  },
-]
-
-function createEmptyResult(): ModelResult {
-  return {
-    text: '',
-    latencyMs: null,
-    inputTokens: null,
-    outputTokens: null,
-    cost: null,
-    streaming: false,
-    done: false,
-    error: null,
-    startTime: null,
-  }
-}
+const MAX_SELECTED = 3
+const MIN_SELECTED = 2
 
 export default function App() {
   const [prompt, setPrompt] = useState('')
@@ -84,6 +21,9 @@ export default function App() {
     'claude-haiku-4.5',
     'claude-sonnet-4.6',
   ])
+  // Model list frozen at submit time, so changing the selection mid-run or
+  // after a run never re-maps the results grid onto the wrong models.
+  const [runModels, setRunModels] = useState<string[]>([])
   const [results, setResults] = useState<Record<string, ModelResult>>({})
   const [running, setRunning] = useState(false)
   const [winnerId, setWinnerId] = useState<string | null>(null)
@@ -93,10 +33,10 @@ export default function App() {
   const toggleModel = (id: string) => {
     setSelectedModels(prev => {
       if (prev.includes(id)) {
-        if (prev.length <= 2) return prev
+        if (prev.length <= MIN_SELECTED) return prev
         return prev.filter(m => m !== id)
       }
-      if (prev.length >= 3) return prev
+      if (prev.length >= MAX_SELECTED) return prev
       return [...prev, id]
     })
   }
@@ -109,30 +49,38 @@ export default function App() {
   }, [])
 
   const handleCompare = async () => {
-    if (!prompt.trim() || running) return
+    if (!prompt.trim() || running || selectedModels.length < MIN_SELECTED) return
 
     Object.values(abortRefs.current).forEach(c => c.abort())
     abortRefs.current = {}
     stoppedRef.current = false
 
+    const modelsToRun = [...selectedModels]
+    const startTimes: Record<string, number> = {}
     const initial: Record<string, ModelResult> = {}
-    selectedModels.forEach(id => {
-      initial[id] = { ...createEmptyResult(), streaming: true, startTime: Date.now() }
+    modelsToRun.forEach(id => {
+      startTimes[id] = Date.now()
+      initial[id] = { ...createEmptyResult(), streaming: true, startTime: startTimes[id] }
     })
+    setRunModels(modelsToRun)
     setResults(initial)
     setWinnerId(null)
     setRunning(true)
 
     const messages = [{ role: 'user' as const, content: prompt }]
-    const completedTimes: Record<string, number> = {}
-    const modelsToRun = [...selectedModels]
+    const completed: Record<string, number> = {}
 
-    const checkDone = (modelId: string, latency: number) => {
+    // A model is only eligible to win if it produced a full response: errors,
+    // cancellations and truncations record as ineligible but still settle the run.
+    const settle = (modelId: string, latency: number, eligible: boolean) => {
       if (stoppedRef.current) return
-      completedTimes[modelId] = latency
-      if (Object.keys(completedTimes).length === modelsToRun.length) {
-        const fastest = Object.entries(completedTimes).sort((a, b) => a[1] - b[1])[0]
-        if (fastest) setWinnerId(fastest[0])
+      if (modelId in completed) return
+      completed[modelId] = eligible ? latency : Infinity
+      if (Object.keys(completed).length === modelsToRun.length) {
+        const ranked = Object.entries(completed)
+          .filter(([, ms]) => Number.isFinite(ms))
+          .sort((a, b) => a[1] - b[1])
+        setWinnerId(ranked.length > 0 ? ranked[0][0] : null)
         setRunning(false)
       }
     }
@@ -148,36 +96,46 @@ export default function App() {
             messages,
             systemPrompt || undefined,
             { temperature, max_tokens: maxTokens },
-            (chunk: import('./lib/api').StreamChunk) => {
+            (chunk) => {
               if (stoppedRef.current) return
+
               if (chunk.type === 'text') {
                 setResults(prev => {
                   const existing = prev[modelId] ?? createEmptyResult()
                   return {
                     ...prev,
-                    [modelId]: {
-                      ...existing,
-                      text: existing.text + chunk.text,
-                    },
+                    [modelId]: { ...existing, text: existing.text + chunk.text },
                   }
                 })
-              } else if (chunk.type === 'done') {
-                const latency = chunk.latencyMs ?? (Date.now() - (initial[modelId]?.startTime ?? Date.now()))
-                const cfg = MODELS.find(m => m.id === modelId)
-                const cost = cfg
-                  ? ((chunk.inputTokens ?? 0) / 1000 * cfg.costPer1kInput) +
-                    ((chunk.outputTokens ?? 0) / 1000 * cfg.costPer1kOutput)
-                  : 0
+                return
+              }
+
+              if (chunk.type === 'error') {
                 updateResult(modelId, {
                   streaming: false,
                   done: true,
-                  latencyMs: latency,
-                  inputTokens: chunk.inputTokens ?? null,
-                  outputTokens: chunk.outputTokens ?? null,
-                  cost,
+                  error: chunk.message,
+                  latencyMs: Date.now() - startTimes[modelId],
                 })
-                checkDone(modelId, latency)
+                settle(modelId, Infinity, false)
+                return
               }
+
+              const latency = chunk.latencyMs ?? Date.now() - startTimes[modelId]
+              const reported = typeof chunk.cost === 'number' ? chunk.cost : null
+              const cost = reported ?? estimateCost(modelId, chunk.inputTokens, chunk.outputTokens)
+              updateResult(modelId, {
+                streaming: false,
+                done: true,
+                latencyMs: latency,
+                inputTokens: chunk.inputTokens ?? null,
+                outputTokens: chunk.outputTokens ?? null,
+                cost,
+                costEstimated: reported === null && cost !== null,
+                servedModel: chunk.servedModel ?? null,
+                truncated: chunk.truncated === true,
+              })
+              settle(modelId, latency, chunk.truncated !== true)
             },
             ctrl.signal,
           )
@@ -188,12 +146,10 @@ export default function App() {
               streaming: false,
               done: true,
               error: (err as Error).message,
+              latencyMs: Date.now() - startTimes[modelId],
             })
-            checkDone(modelId, Infinity)
-          } else {
-            // Aborted -- count as done so running state resolves
-            checkDone(modelId, Infinity)
           }
+          settle(modelId, Infinity, false)
         }
       }),
     )
@@ -203,11 +159,23 @@ export default function App() {
     stoppedRef.current = true
     Object.values(abortRefs.current).forEach(c => c.abort())
     abortRefs.current = {}
-    selectedModels.forEach(id => {
-      if (results[id]?.streaming) {
-        updateResult(id, { streaming: false, done: true })
-      }
+    setResults(prev => {
+      const next = { ...prev }
+      runModels.forEach(id => {
+        const res = next[id]
+        if (res?.streaming) {
+          next[id] = {
+            ...res,
+            streaming: false,
+            done: true,
+            cancelled: true,
+            latencyMs: res.startTime ? Date.now() - res.startTime : res.latencyMs,
+          }
+        }
+      })
+      return next
     })
+    setWinnerId(null)
     setRunning(false)
   }
 
@@ -216,12 +184,14 @@ export default function App() {
     Object.values(abortRefs.current).forEach(c => c.abort())
     abortRefs.current = {}
     setResults({})
+    setRunModels([])
     setWinnerId(null)
     setRunning(false)
   }
 
-  const hasResults = Object.keys(results).length > 0
-  const allDone = hasResults && selectedModels.every(id => results[id]?.done)
+  const hasResults = runModels.length > 0
+  const allDone = hasResults && runModels.every(id => results[id]?.done)
+  const canRun = prompt.trim().length > 0 && selectedModels.length >= MIN_SELECTED
 
   return (
     <div className="mesh-bg noise min-h-screen relative">
@@ -229,7 +199,10 @@ export default function App() {
         <Header />
         <div className="mt-3 rounded-xl px-4 py-2" style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.1)' }}>
           <p className="text-xs text-slate-500 leading-relaxed" style={{ margin: 0, maxWidth: 860 }}>
-            Pick two or three Claude models, type a prompt, and watch them race. Responses stream in side-by-side so you can compare quality, speed, and cost in real time. The app crowns a winner when they're done.
+            Pick two or three Claude models, type a prompt, and watch them race. Responses stream in
+            side-by-side so you can compare quality, tokens, and cost in real time. When the run
+            finishes, the model that returned a complete response in the least time is flagged as the
+            fastest response.
           </p>
         </div>
 
@@ -249,6 +222,9 @@ export default function App() {
 
             <button
               onClick={() => setShowSettings(s => !s)}
+              aria-expanded={showSettings}
+              aria-controls="settings-panel"
+              title="Adjust temperature and the max output tokens sent to every model"
               className="glass glass-hover flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-slate-400 hover:text-slate-200 transition-all"
             >
               <Settings size={15} />
@@ -260,6 +236,7 @@ export default function App() {
           <AnimatePresence>
             {showSettings && (
               <motion.div
+                id="settings-panel"
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
@@ -276,24 +253,31 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <div className="flex gap-3 items-center">
+          <div className="flex gap-3 items-center flex-wrap">
             {!running ? (
               <motion.button
+                key="compare"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleCompare}
-                disabled={!prompt.trim() || selectedModels.length < 2}
-                className="flex items-center gap-2 px-8 py-3 bg-accent text-white rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all glow-blue hover:bg-blue-500"
-                style={{ backgroundColor: '#3b82f6' }}
+                disabled={!canRun}
+                title={
+                  canRun
+                    ? 'Send the prompt to every selected model and stream the responses side by side'
+                    : 'Enter a prompt and select at least two models first'
+                }
+                className="flex items-center gap-2 px-8 py-3 bg-accent hover:bg-accent-dark text-white rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all glow-blue"
               >
                 <Play size={16} fill="currentColor" />
                 Compare Models
               </motion.button>
             ) : (
               <motion.button
+                key="stop"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleStop}
+                title="Cancel every in-flight request and keep whatever text has streamed so far"
                 className="flex items-center gap-2 px-8 py-3 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl font-semibold text-sm hover:bg-red-500/30 transition-all"
               >
                 <Square size={16} fill="currentColor" />
@@ -307,6 +291,7 @@ export default function App() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleClear}
+                title="Remove the current results and start over"
                 className="flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-slate-400 hover:text-slate-200 transition-all border border-white/10 hover:border-white/20"
               >
                 <RotateCcw size={14} />
@@ -314,7 +299,7 @@ export default function App() {
               </motion.button>
             )}
             {!running && (
-              <span className="text-xs text-slate-600 hidden sm:inline">
+              <span className="text-xs text-slate-600 hidden sm:inline" title="Keyboard shortcut for Compare Models">
                 Ctrl+Enter to run
               </span>
             )}
@@ -333,13 +318,14 @@ export default function App() {
                 <WinnerBanner winnerId={winnerId} results={results} />
               )}
               <div
-                className="grid gap-4 mt-4"
-                style={{ gridTemplateColumns: `repeat(${selectedModels.length}, 1fr)` }}
+                className={`grid gap-4 mt-4 grid-cols-1 ${
+                  runModels.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+                }`}
               >
-                {selectedModels.map(modelId => {
-                  const cfg = MODELS.find(m => m.id === modelId)!
+                {runModels.map(modelId => {
+                  const cfg = MODELS.find(m => m.id === modelId)
                   const res = results[modelId]
-                  if (!res) return null
+                  if (!cfg || !res) return null
                   return (
                     <ResponsePanel
                       key={modelId}
@@ -357,361 +343,6 @@ export default function App() {
           Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
         </footer>
       </div>
-    </div>
-  )
-}
-
-function Header() {
-  return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="flex items-center justify-between"
-    >
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
-          >
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="6" width="12" height="20" rx="2.5" stroke="#fff" strokeWidth="1.5" fill="rgba(255,255,255,0.15)"/>
-              <rect x="18" y="6" width="12" height="20" rx="2.5" stroke="#93c5fd" strokeWidth="1.5" fill="rgba(147,197,253,0.15)"/>
-              <path d="M8 12h0M8 16h0M8 20h0" stroke="#fff" strokeWidth="3" strokeLinecap="round"/>
-              <path d="M24 12h0M24 16h0M24 20h0" stroke="#93c5fd" strokeWidth="3" strokeLinecap="round"/>
-              <path d="M14 16h4" stroke="#93c5fd" strokeWidth="1.5" strokeDasharray="2 2"/>
-            </svg>
-          </div>
-          <div
-            className="absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#0a0e1a] glow-pulse"
-            style={{ backgroundColor: '#22c55e' }}
-          />
-        </div>
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-white">
-            Model<span style={{ color: '#3b82f6' }}>Arena</span>
-          </h1>
-          <p className="text-xs text-slate-500 font-medium">
-            Multi-Model LLM Playground
-          </p>
-        </div>
-      </div>
-      <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
-        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 glow-pulse" />
-        Live Streaming
-      </div>
-    </motion.header>
-  )
-}
-
-function PromptSection({
-  prompt, setPrompt, systemPrompt, setSystemPrompt, showSystem, setShowSystem, onSubmit,
-}: {
-  prompt: string
-  setPrompt: (v: string) => void
-  systemPrompt: string
-  setSystemPrompt: (v: string) => void
-  showSystem: boolean
-  setShowSystem: (v: boolean) => void
-  onSubmit: () => void
-}) {
-  return (
-    <div className="glass rounded-2xl p-4 space-y-3">
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-          Prompt
-        </label>
-        <button
-          onClick={() => setShowSystem(!showSystem)}
-          className="text-xs text-slate-500 hover:text-blue-400 transition-colors flex items-center gap-1"
-        >
-          {showSystem ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          System Prompt
-        </button>
-      </div>
-
-      <AnimatePresence>
-        {showSystem && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-          >
-            <textarea
-              value={systemPrompt}
-              onChange={e => setSystemPrompt(e.target.value)}
-              placeholder="Optional system prompt..."
-              rows={2}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-blue-500/50 transition-colors font-mono"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <textarea
-        value={prompt}
-        onChange={e => setPrompt(e.target.value)}
-        placeholder="Enter your prompt to compare models side by side..."
-        rows={4}
-        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-blue-500/50 transition-colors"
-        onKeyDown={e => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault()
-            onSubmit()
-          }
-        }}
-      />
-    </div>
-  )
-}
-
-function ModelSelector({
-  selectedModels,
-  toggleModel,
-}: {
-  selectedModels: string[]
-  toggleModel: (id: string) => void
-}) {
-  return (
-    <div className="flex-1 flex items-center gap-2 flex-wrap">
-      <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest mr-1">
-        Models:
-      </span>
-      {MODELS.map(m => {
-        const selected = selectedModels.includes(m.id)
-        return (
-          <motion.button
-            key={m.id}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => toggleModel(m.id)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-              selected
-                ? 'text-white border-transparent'
-                : 'text-slate-500 border-white/10 glass-hover'
-            }`}
-            style={selected ? { backgroundColor: m.color + '33', borderColor: m.color + '66', color: m.color } : {}}
-          >
-            {selected && <CheckCircle2 size={12} />}
-            {m.shortName}
-          </motion.button>
-        )
-      })}
-      <span className="text-xs text-slate-600 ml-2">
-        {selectedModels.length}/3 selected
-      </span>
-    </div>
-  )
-}
-
-function SettingsPanel({
-  temperature,
-  setTemperature,
-  maxTokens,
-  setMaxTokens,
-}: {
-  temperature: number
-  setTemperature: (v: number) => void
-  maxTokens: number
-  setMaxTokens: (v: number) => void
-}) {
-  return (
-    <div className="glass rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-            Temperature
-          </label>
-          <span className="text-xs font-mono text-blue-400">{temperature.toFixed(2)}</span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={temperature}
-          onChange={e => setTemperature(parseFloat(e.target.value))}
-          className="w-full accent-blue-500"
-        />
-        <div className="flex justify-between text-xs text-slate-600">
-          <span>Precise</span>
-          <span>Creative</span>
-        </div>
-      </div>
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-            Max Tokens
-          </label>
-          <span className="text-xs font-mono text-blue-400">{maxTokens.toLocaleString()}</span>
-        </div>
-        <input
-          type="range"
-          min="256"
-          max="4096"
-          step="256"
-          value={maxTokens}
-          onChange={e => setMaxTokens(parseInt(e.target.value))}
-          className="w-full accent-blue-500"
-        />
-        <div className="flex justify-between text-xs text-slate-600">
-          <span>256</span>
-          <span>4096</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function WinnerBanner({ winnerId, results }: { winnerId: string; results: Record<string, ModelResult> }) {
-  const model = MODELS.find(m => m.id === winnerId)
-  const res = results[winnerId]
-  if (!model) return null
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="relative overflow-hidden glass rounded-2xl p-4 flex items-center gap-4 border"
-      style={{ borderColor: model.color + '40' }}
-    >
-      <div className="absolute inset-0 winner-shimmer opacity-30" />
-      <div
-        className="relative w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: model.color + '20' }}
-      >
-        <Trophy size={20} style={{ color: model.color }} />
-      </div>
-      <div className="relative">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Fastest Response</p>
-        <p className="font-bold text-white">
-          {model.label}
-          {res.latencyMs && (
-            <span className="text-sm font-normal text-slate-400 ml-2">
-              {(res.latencyMs / 1000).toFixed(2)}s
-            </span>
-          )}
-        </p>
-      </div>
-    </motion.div>
-  )
-}
-
-function ResponsePanel({
-  model,
-  result,
-  isWinner,
-}: {
-  model: ModelConfig
-  result: ModelResult
-  isWinner: boolean
-}) {
-  return (
-    <motion.div
-      layout
-      className={`glass rounded-2xl overflow-hidden flex flex-col transition-all ${isWinner ? 'glow-blue' : ''}`}
-      style={isWinner ? { borderColor: model.color + '50' } : {}}
-    >
-      <div
-        className="px-4 py-3 flex items-center justify-between border-b border-white/5"
-        style={{ borderBottomColor: model.color + '15' }}
-      >
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{
-              backgroundColor: result.streaming ? model.color : result.error ? '#ef4444' : result.done ? '#22c55e' : model.color,
-              animation: result.streaming ? 'glow-pulse 1s ease-in-out infinite' : undefined,
-            }}
-          />
-          <span className="text-sm font-bold text-white">{model.label}</span>
-          {isWinner && (
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-semibold"
-              style={{ backgroundColor: model.color + '25', color: model.color }}
-            >
-              🏆 Fastest
-            </span>
-          )}
-        </div>
-        <span className="text-xs font-mono text-slate-600">{model.id.split('-').slice(-1)[0]}</span>
-      </div>
-
-      {result.error && (
-        <div className="p-4 text-sm text-red-400 bg-red-500/5 border-b border-red-500/10 flex items-start gap-2">
-          <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
-          <span>{result.error}</span>
-        </div>
-      )}
-
-      <div className="flex-1 p-4 min-h-48 max-h-[500px] overflow-y-auto">
-        {result.text ? (
-          <p className={`text-sm text-slate-200 leading-relaxed whitespace-pre-wrap ${result.streaming ? 'streaming-cursor' : ''}`}>
-            {result.text}
-          </p>
-        ) : result.streaming ? (
-          <div className="flex items-center gap-2 text-slate-500 text-sm">
-            <span className="streaming-cursor" />
-            <span>Generating...</span>
-          </div>
-        ) : null}
-      </div>
-
-      {result.done && (
-        <div className="px-4 py-3 border-t border-white/5 grid grid-cols-3 gap-2">
-          <Metric
-            icon={<Clock size={11} />}
-            label="Latency"
-            value={result.latencyMs ? `${(result.latencyMs / 1000).toFixed(2)}s` : '—'}
-            color={model.color}
-          />
-          <Metric
-            icon={<Hash size={11} />}
-            label="Tokens"
-            value={result.outputTokens ? `${result.outputTokens}` : '—'}
-            color={model.color}
-          />
-          <Metric
-            icon={<DollarSign size={11} />}
-            label="Cost"
-            value={result.cost !== null ? `$${result.cost.toFixed(5)}` : '—'}
-            color={model.color}
-          />
-        </div>
-      )}
-
-      {result.streaming && (
-        <div className="px-4 py-2 border-t border-white/5">
-          <div className="h-0.5 rounded-full overflow-hidden bg-white/5">
-            <motion.div
-              className="h-full rounded-full"
-              style={{ backgroundColor: model.color }}
-              animate={{ x: ['-100%', '200%'] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-            />
-          </div>
-        </div>
-      )}
-    </motion.div>
-  )
-}
-
-function Metric({
-  icon, label, value, color,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  color: string
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1" style={{ color }}>
-        {icon}
-        <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">{label}</span>
-      </div>
-      <span className="text-xs font-mono font-semibold text-slate-300">{value}</span>
     </div>
   )
 }

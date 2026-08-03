@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { SendHorizontal, Bot, User, ChevronDown, AlertCircle, Loader2, MessageSquare } from 'lucide-react'
+import { SendHorizontal, Bot, User, ChevronDown, AlertCircle, Loader2, MessageSquare, Square } from 'lucide-react'
+import { CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from '../lib/constants'
 import type { Message } from '../types'
 
 /** Lightweight inline markdown: bold, inline code */
@@ -71,8 +72,11 @@ interface ChatInterfaceProps {
   messages: Message[]
   isLoading: boolean
   question: string
+  /** Page number per chunk index, used to label cited sources. */
+  chunkPages: number[]
   onQuestionChange: (q: string) => void
   onSubmit: () => void
+  onCancel: () => void
   onHighlightChunks: (indices: number[]) => void
 }
 
@@ -80,8 +84,10 @@ export function ChatInterface({
   messages,
   isLoading,
   question,
+  chunkPages,
   onQuestionChange,
   onSubmit,
+  onCancel,
   onHighlightChunks,
 }: ChatInterfaceProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -109,8 +115,10 @@ export function ChatInterface({
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`
   }, [question])
 
+  const canSend = question.trim().length > 0 && !isLoading
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div
         className="px-5 py-3 flex items-center gap-2 shrink-0"
         style={{
@@ -127,7 +135,7 @@ export function ChatInterface({
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
         {messages.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -154,6 +162,7 @@ export function ChatInterface({
             <MessageBubble
               key={msg.id}
               message={msg}
+              chunkPages={chunkPages}
               onHoverSources={onHighlightChunks}
             />
           ))}
@@ -172,13 +181,29 @@ export function ChatInterface({
               <Bot size={14} style={{ color: 'var(--color-accent)' }} />
             </div>
             <div
-              className="px-4 py-3 rounded-xl flex items-center gap-2"
+              className="px-4 py-3 rounded-xl flex items-center gap-3"
               style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}
             >
               <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
               <span className="text-sm" style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
                 Analyzing document...
               </span>
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="Stop generating this answer"
+                title="Stop generating this answer"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                style={{
+                  color: 'var(--color-text-secondary)',
+                  background: 'var(--color-bg-card-hover)',
+                  border: '1px solid var(--color-border)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                <Square size={9} />
+                stop
+              </button>
             </div>
           </motion.div>
         )}
@@ -194,12 +219,17 @@ export function ChatInterface({
           className="flex items-end gap-2 rounded-xl p-2"
           style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}
         >
+          <label htmlFor="docmind-question" className="sr-only">
+            Ask a question about the document
+          </label>
           <textarea
+            id="docmind-question"
             ref={inputRef}
             value={question}
             onChange={e => onQuestionChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question about the document..."
+            title="Type a question. Enter sends it, Shift+Enter adds a new line."
             rows={1}
             className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none"
             style={{
@@ -210,17 +240,26 @@ export function ChatInterface({
             }}
           />
           <button
+            type="button"
             onClick={onSubmit}
-            disabled={!question.trim() || isLoading}
+            disabled={!canSend}
+            aria-label="Send question"
+            title={
+              isLoading
+                ? 'Waiting for the current answer to finish'
+                : question.trim()
+                  ? 'Send this question (Enter)'
+                  : 'Type a question first'
+            }
             className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-150"
             style={{
-              background: question.trim() && !isLoading ? 'var(--color-accent)' : 'var(--color-bg-card-hover)',
-              cursor: question.trim() && !isLoading ? 'pointer' : 'not-allowed',
+              background: canSend ? 'var(--color-accent)' : 'var(--color-bg-card-hover)',
+              cursor: canSend ? 'pointer' : 'not-allowed',
             }}
           >
             <SendHorizontal
               size={14}
-              style={{ color: question.trim() && !isLoading ? '#000' : 'var(--color-text-muted)' }}
+              style={{ color: canSend ? '#000' : 'var(--color-text-muted)' }}
             />
           </button>
         </div>
@@ -234,39 +273,27 @@ export function ChatInterface({
 
 interface MessageBubbleProps {
   message: Message
+  chunkPages: number[]
   onHoverSources: (indices: number[]) => void
 }
 
-function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
+function MessageBubble({ message, chunkPages, onHoverSources }: MessageBubbleProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const isUser = message.role === 'user'
+  const confidence = message.confidence
 
-  const confidenceColor =
-    message.confidence !== undefined
-      ? message.confidence > 0.8
-        ? 'var(--color-success)'
-        : message.confidence > 0.5
-          ? 'var(--color-warning)'
-          : 'var(--color-error)'
-      : undefined
+  const band =
+    confidence === undefined
+      ? undefined
+      : confidence >= CONFIDENCE_HIGH
+        ? { label: 'High', color: 'var(--color-success)', bg: 'rgba(0,255,136,0.12)' }
+        : confidence >= CONFIDENCE_MEDIUM
+          ? { label: 'Medium', color: 'var(--color-warning)', bg: 'var(--color-warning-dim)' }
+          : { label: 'Low', color: 'var(--color-error)', bg: 'var(--color-error-dim)' }
 
-  const confidenceBg =
-    message.confidence !== undefined
-      ? message.confidence > 0.8
-        ? 'rgba(0,255,136,0.12)'
-        : message.confidence > 0.5
-          ? 'var(--color-warning-dim)'
-          : 'var(--color-error-dim)'
-      : undefined
+  const percent = confidence === undefined ? '' : `${Math.round(confidence * 100)}%`
 
-  const confidenceLabel =
-    message.confidence !== undefined
-      ? message.confidence > 0.8
-        ? 'High'
-        : message.confidence > 0.5
-          ? 'Medium'
-          : 'Low'
-      : undefined
+  const sourceCount = message.sourceChunks?.length ?? 0
 
   return (
     <motion.div
@@ -299,22 +326,23 @@ function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
         )}
 
         <div className="relative max-w-[90%]">
-          {!isUser && confidenceLabel && (
+          {!isUser && band && (
             <div
               className="absolute -top-3 right-2 px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
+              title={`The assistant rated its own certainty at ${percent}, based on how directly the retrieved passages answer your question`}
               style={{
-                background: confidenceBg,
-                color: confidenceColor,
-                border: `1px solid ${confidenceColor}33`,
+                background: band.bg,
+                color: band.color,
+                border: `1px solid ${band.color}33`,
                 fontFamily: 'var(--font-mono)',
                 fontSize: '0.65rem',
               }}
             >
               <span
                 className="w-1.5 h-1.5 rounded-full"
-                style={{ background: confidenceColor }}
+                style={{ background: band.color }}
               />
-              {confidenceLabel} confidence
+              {band.label} confidence · {percent}
             </div>
           )}
 
@@ -322,21 +350,24 @@ function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
             className="px-4 py-3 rounded-xl text-sm leading-relaxed"
             style={{
               background: isUser ? 'rgba(255,255,255,0.06)' : 'var(--color-bg-card)',
-              border: `1px solid ${isUser ? 'var(--color-border)' : 'var(--color-border)'}`,
+              border: '1px solid var(--color-border)',
               color: 'var(--color-text-primary)',
               fontFamily: 'var(--font-body)',
               lineHeight: '1.65',
               whiteSpace: isUser ? 'pre-wrap' : undefined,
               wordBreak: 'break-word',
-              marginTop: !isUser && confidenceLabel ? '8px' : '0',
+              marginTop: !isUser && band ? '8px' : '0',
             }}
           >
             {isUser ? message.content : renderMarkdown(message.content)}
           </div>
         </div>
 
-        {!isUser && message.sourceChunks && message.sourceChunks.length > 0 && (
+        {!isUser && message.sourceChunks && sourceCount > 0 && (
           <button
+            type="button"
+            aria-expanded={sourcesOpen}
+            title="Show which passages this answer came from. Hover to highlight them in the document."
             className="flex items-center gap-1.5 text-xs px-3 py-1 rounded-lg transition-all duration-150"
             style={{
               color: 'var(--color-accent)',
@@ -346,11 +377,12 @@ function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
             }}
             onMouseEnter={() => onHoverSources(message.sourceChunks ?? [])}
             onMouseLeave={() => onHoverSources([])}
+            onFocus={() => onHoverSources(message.sourceChunks ?? [])}
+            onBlur={() => onHoverSources([])}
             onClick={() => setSourcesOpen(v => !v)}
           >
             <span>
-              {message.sourceChunks.length} source
-              {message.sourceChunks.length !== 1 ? 's' : ''} used
+              {sourceCount} source{sourceCount !== 1 ? 's' : ''} used
             </span>
             <ChevronDown
               size={11}
@@ -377,26 +409,39 @@ function MessageBubble({ message, onHoverSources }: MessageBubbleProps) {
                 className="flex flex-wrap gap-1.5 pt-1"
                 style={{ maxWidth: '90%' }}
               >
-                {message.sourceChunks.map(idx => (
-                  <span
-                    key={idx}
-                    className="text-xs px-2 py-0.5 rounded"
-                    style={{
-                      background: 'var(--color-accent-dim)',
-                      color: 'var(--color-accent)',
-                      fontFamily: 'var(--font-mono)',
-                      border: '1px solid var(--color-border-accent)',
-                    }}
-                  >
-                    chunk {idx + 1}
-                  </span>
-                ))}
+                {message.sourceChunks.map(idx => {
+                  const page = chunkPages[idx]
+                  return (
+                    <span
+                      key={idx}
+                      className="text-xs px-2 py-0.5 rounded"
+                      title={
+                        page === undefined
+                          ? `Passage ${idx + 1} of the document`
+                          : `Passage ${idx + 1}, starting on page ${page}`
+                      }
+                      style={{
+                        background: 'var(--color-accent-dim)',
+                        color: 'var(--color-accent)',
+                        fontFamily: 'var(--font-mono)',
+                        border: '1px solid var(--color-border-accent)',
+                      }}
+                    >
+                      chunk {idx + 1}
+                      {page !== undefined && ` · p.${page}`}
+                    </span>
+                  )
+                })}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        <span
+          className="text-xs"
+          style={{ color: 'var(--color-text-muted)' }}
+          title={message.timestamp.toLocaleString()}
+        >
           {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>

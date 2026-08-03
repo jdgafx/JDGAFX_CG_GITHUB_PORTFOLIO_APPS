@@ -85,12 +85,49 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+/* Screen-reader-only labels */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * The shell owns the viewport height so the editor gutter and textarea are bounded
+ * and scroll internally. Without this the gutter's per-line rows grow the page and
+ * the textarea can never scroll, which breaks jump-to-line.
+ */
+.app-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 /* Responsive split layout */
 .split-layout {
   display: flex;
   gap: 16px;
   flex: 1;
-  min-height: 480px;
+  min-height: 0;
 }
 
 .editor-panel {
@@ -98,6 +135,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 .review-panel {
@@ -105,9 +143,27 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+}
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
+  .app-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .app-main {
+    padding: 16px;
+  }
+
   .split-layout {
     flex-direction: column;
   }
@@ -116,7 +172,7 @@ body {
   .review-panel {
     flex: none;
     width: 100%;
-    min-height: 380px;
+    height: 60vh;
   }
 }
 

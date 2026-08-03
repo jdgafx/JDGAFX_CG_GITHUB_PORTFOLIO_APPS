@@ -1,777 +1,30 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Globe,
-  Search,
-  MousePointer2,
-  Keyboard,
-  Download,
-  CheckCircle2,
-  Play,
-  Square,
+  AlertTriangle,
   ChevronDown,
-  Loader2,
-  Zap,
   Clock,
+  FlaskConical,
   Gauge,
-  Bot,
+  Loader2,
+  Play,
+  RotateCw,
+  Square,
+  Zap,
 } from 'lucide-react'
-import type { BotStep, SpeedMode, StepAction } from './types'
+import type { BotStep, SpeedMode } from './types'
 import { generateScenario } from './lib/api'
+import { PRESETS, SPEED_DELAYS, SPEED_HINTS, SPEED_POLL_MS } from './lib/constants'
+import { typingIntervalMs } from './lib/scenario'
+import { SAMPLE_STEPS } from './lib/sample'
+import BrowserChrome from './components/BrowserChrome'
+import AgentThoughts from './components/AgentThoughts'
+import StepTimeline from './components/StepTimeline'
 
-const PRESETS = [
-  'Find cheapest flight NYC to LA next Friday',
-  'Extract product data from e-commerce page',
-  'Fill out job application form',
-  'Compare prices across 3 online stores',
-  'Book a restaurant reservation for Saturday 7pm',
-]
-
-const ACTION_META: Record<StepAction, { icon: typeof Globe; label: string; color: string }> = {
-  navigate: { icon: Globe, label: 'Navigate', color: '#14b8a6' },
-  find: { icon: Search, label: 'Find', color: '#06b6d4' },
-  click: { icon: MousePointer2, label: 'Click', color: '#8b5cf6' },
-  type: { icon: Keyboard, label: 'Type', color: '#f59e0b' },
-  extract: { icon: Download, label: 'Extract', color: '#10b981' },
-  verify: { icon: CheckCircle2, label: 'Verify', color: '#14b8a6' },
-}
-
-const SPEED_DELAYS: Record<SpeedMode, number> = {
-  slow: 4000,
-  normal: 2500,
-  fast: 1200,
-}
-
-const DEMO_STEPS: BotStep[] = [
-  {
-    action: 'navigate',
-    target: 'google.com/flights',
-    thought: 'Opening Google Flights to search for available routes...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-search',
-  },
-  {
-    action: 'find',
-    target: 'origin input field',
-    thought: 'Locating the departure city input field on the page...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-search',
-  },
-  {
-    action: 'click',
-    target: 'origin input',
-    thought: 'Clicking the origin field to start entering departure city...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-search',
-  },
-  {
-    action: 'type',
-    target: 'origin input',
-    value: 'New York (JFK)',
-    thought: 'Typing the departure airport code and city name...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-search',
-  },
-  {
-    action: 'find',
-    target: 'destination input',
-    thought: 'Now searching for the destination field to enter arrival city...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-search',
-  },
-  {
-    action: 'type',
-    target: 'destination input',
-    value: 'Los Angeles (LAX)',
-    thought: 'Entering the destination airport — LAX for Los Angeles...',
-    url: 'https://google.com/flights',
-    pageContent: 'flights-results',
-  },
-  {
-    action: 'click',
-    target: 'Search button',
-    thought: 'Submitting the search to find available flights...',
-    url: 'https://google.com/flights/results',
-    pageContent: 'flights-results',
-  },
-  {
-    action: 'extract',
-    target: 'flight prices list',
-    value: '1. Spirit Airlines — $189, 6:15 AM, Nonstop\n2. United Airlines — $234, 8:30 AM, Nonstop\n3. Delta Air Lines — $267, 11:45 AM, Nonstop\n4. American Airlines — $312, 2:20 PM, Nonstop',
-    thought: 'Found 47 results. Extracting price data from the cheapest options...',
-    url: 'https://google.com/flights/results',
-    pageContent: 'flights-results',
-  },
-  {
-    action: 'verify',
-    target: 'cheapest flight',
-    value: 'Cheapest: Spirit Airlines $189, departing 6:15 AM JFK→LAX, Nonstop, 5h 45m',
-    thought: 'Verified! Cheapest flight is $189 on Spirit Airlines at 6:15 AM.',
-    url: 'https://google.com/flights/results',
-    pageContent: 'flights-results',
-  },
-]
-
-function MockPageContent({ pageContent, currentAction, typedText }: {
-  pageContent?: string
-  currentAction: StepAction
-  typedText: string
-}) {
-  if (pageContent === 'flights-search' || pageContent === 'flights-results') {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
-          <div className="flex gap-2 mb-2">
-            {['Flights', 'Hotels', 'Car Hire', 'Holidays'].map((tab) => (
-              <div
-                key={tab}
-                className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  tab === 'Flights'
-                    ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
-                    : 'text-slate-400'
-                }`}
-              >
-                {tab}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div
-              className={`bg-slate-600/60 rounded-lg px-3 py-2 border ${
-                currentAction === 'click' || currentAction === 'type'
-                  ? 'border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.3)]'
-                  : 'border-slate-500/30'
-              }`}
-            >
-              <div className="text-xs text-slate-400 mb-1">From</div>
-              <div className="text-sm text-white font-mono">
-                {typedText || 'New York (JFK)'}
-                {currentAction === 'type' && typedText.length < 14 && (
-                  <span className="cursor-blink text-teal-400">|</span>
-                )}
-              </div>
-            </div>
-            <div className="bg-slate-600/60 rounded-lg px-3 py-2 border border-slate-500/30">
-              <div className="text-xs text-slate-400 mb-1">To</div>
-              <div className="text-sm text-white font-mono">Los Angeles (LAX)</div>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <div className="bg-slate-600/60 rounded-lg px-3 py-2 border border-slate-500/30 flex-1">
-              <div className="text-xs text-slate-400 mb-1">Date</div>
-              <div className="text-sm text-white">Fri, 28 Feb</div>
-            </div>
-            <div className="bg-teal-500 rounded-lg px-4 py-2 flex items-center gap-2 text-white text-sm font-semibold">
-              <Search size={14} />
-              Search
-            </div>
-          </div>
-        </div>
-
-        {pageContent === 'flights-results' && (
-          <div className="space-y-2">
-            {[
-              { airline: 'Spirit Airlines', time: '6:15 AM', price: '$189', badge: 'Cheapest' },
-              { airline: 'United Airlines', time: '8:30 AM', price: '$234', badge: '' },
-              { airline: 'Delta Air Lines', time: '11:45 AM', price: '$267', badge: '' },
-              { airline: 'American Airlines', time: '2:20 PM', price: '$312', badge: '' },
-            ].map((flight, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`bg-slate-700/60 rounded-lg p-3 flex items-center justify-between border ${
-                  i === 0 && currentAction === 'extract'
-                    ? 'border-teal-500/60 shadow-[0_0_12px_rgba(20,184,166,0.2)]'
-                    : 'border-slate-600/30'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-medium text-white">{flight.airline}</div>
-                  <div className="text-xs text-slate-400">{flight.time} · Nonstop</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {flight.badge && (
-                    <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full border border-teal-500/30">
-                      {flight.badge}
-                    </span>
-                  )}
-                  <div className="text-lg font-bold text-white">{flight.price}</div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (pageContent === 'job-board' || pageContent === 'job-results') {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
-          <div className="flex gap-2 mb-2">
-            {['All Jobs', 'Remote', 'Full-time', 'Contract'].map((tab) => (
-              <div
-                key={tab}
-                className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  tab === 'All Jobs'
-                    ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
-                    : 'text-slate-400'
-                }`}
-              >
-                {tab}
-              </div>
-            ))}
-          </div>
-          <div className={`bg-slate-600/60 rounded-lg px-3 py-2 border ${
-            currentAction === 'find' || currentAction === 'type'
-              ? 'border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.3)]'
-              : 'border-slate-500/30'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Search size={14} className="text-slate-400" />
-              <span className="text-sm text-white font-mono">
-                {typedText || 'Search jobs...'}
-                {currentAction === 'type' && typedText.length < 20 && (
-                  <span className="cursor-blink text-teal-400">|</span>
-                )}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {pageContent === 'job-results' && (
-          <div className="space-y-2">
-            {[
-              { title: 'Senior Frontend Developer', company: 'TechCorp', pay: '$120k-150k', tag: 'Remote' },
-              { title: 'Full Stack Engineer', company: 'StartupXYZ', pay: '$95k-130k', tag: 'Hybrid' },
-              { title: 'React Developer', company: 'DigitalCo', pay: '$85k-110k', tag: 'Remote' },
-              { title: 'UI/UX Engineer', company: 'DesignLab', pay: '$100k-135k', tag: 'On-site' },
-            ].map((job, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`bg-slate-700/60 rounded-lg p-3 flex items-center justify-between border ${
-                  currentAction === 'extract'
-                    ? 'border-teal-500/60 shadow-[0_0_12px_rgba(20,184,166,0.2)]'
-                    : 'border-slate-600/30'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-medium text-white">{job.title}</div>
-                  <div className="text-xs text-slate-400">{job.company}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full border border-teal-500/30">
-                    {job.tag}
-                  </span>
-                  <div className="text-sm font-bold text-white">{job.pay}</div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (pageContent === 'ecommerce' || pageContent === 'ecommerce-results') {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="bg-slate-700/50 rounded-xl p-3 flex items-center gap-2">
-          <Search size={14} className="text-slate-400" />
-          <span className="text-sm text-slate-300 font-mono">{typedText || 'Search products...'}</span>
-        </div>
-        {pageContent === 'ecommerce-results' && (
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { name: 'Premium Headphones', price: '$89.99', rating: '4.7' },
-              { name: 'Wireless Earbuds', price: '$49.99', rating: '4.5' },
-              { name: 'Studio Monitors', price: '$199.99', rating: '4.8' },
-              { name: 'Bluetooth Speaker', price: '$34.99', rating: '4.3' },
-            ].map((item, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.08 }}
-                className={`bg-slate-700/60 rounded-lg p-3 border ${
-                  currentAction === 'extract' && i === 0
-                    ? 'border-teal-500/60'
-                    : 'border-slate-600/30'
-                }`}
-              >
-                <div className="h-12 bg-slate-600/40 rounded mb-2" />
-                <div className="text-xs font-medium text-white">{item.name}</div>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-sm font-bold text-teal-400">{item.price}</span>
-                  <span className="text-xs text-slate-400">{item.rating}</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-        {pageContent === 'ecommerce' && (
-          <div className="grid grid-cols-2 gap-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="bg-slate-700/40 rounded-lg p-3 border border-slate-600/20">
-                <div className="h-16 bg-slate-600/40 rounded mb-2" />
-                <div className="h-3 bg-slate-600/30 rounded w-3/4 mb-1" />
-                <div className="h-3 bg-slate-600/20 rounded w-1/2" />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (pageContent === 'form') {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
-          <div className="text-sm font-medium text-white mb-2">Application Form</div>
-          {['Full Name', 'Email', 'Phone', 'Experience'].map((field, i) => (
-            <div key={field} className={`bg-slate-600/60 rounded-lg px-3 py-2 border ${
-              currentAction === 'type' && i === 0
-                ? 'border-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.3)]'
-                : 'border-slate-500/30'
-            }`}>
-              <div className="text-xs text-slate-400 mb-1">{field}</div>
-              <div className="text-sm text-white font-mono h-5">
-                {currentAction === 'type' && i === 0 && typedText}
-              </div>
-            </div>
-          ))}
-          <div className="bg-teal-500 rounded-lg px-4 py-2 text-center text-white text-sm font-semibold mt-2">
-            Submit
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (pageContent === 'search-results') {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="bg-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
-          <Search size={14} className="text-slate-400" />
-          <span className="text-sm text-slate-300">{typedText || 'Search...'}</span>
-        </div>
-        <div className="space-y-3">
-          {[
-            { title: 'Top Result — Best Match', desc: 'Highly relevant content matching your search criteria...' },
-            { title: 'Second Result', desc: 'Another relevant result with useful information...' },
-            { title: 'Third Result', desc: 'Additional context and related content found...' },
-          ].map((r, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className={`p-3 border-b border-slate-700/40 ${
-                currentAction === 'extract' && i === 0 ? 'bg-teal-500/5 rounded-lg border-teal-500/30' : ''
-              }`}
-            >
-              <div className="text-sm text-teal-400 font-medium">{r.title}</div>
-              <div className="text-xs text-slate-400 mt-1">{r.desc}</div>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  // generic fallback — more interesting than gray boxes
-  return (
-    <div className="p-4 space-y-3">
-      <div className="bg-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
-        <Globe size={14} className="text-slate-400" />
-        <span className="text-xs text-slate-400 font-mono truncate">Loading page content...</span>
-      </div>
-      <div className="bg-slate-700/40 rounded-xl p-4 space-y-2">
-        <div className="h-4 bg-slate-600/40 rounded w-2/3" />
-        <div className="h-3 bg-slate-600/30 rounded w-full" />
-        <div className="h-3 bg-slate-600/30 rounded w-5/6" />
-        <div className="h-3 bg-slate-600/20 rounded w-3/4" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {[1, 2].map((i) => (
-          <div key={i} className="bg-slate-700/30 rounded-lg p-3 h-20" />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function BrowserChrome({
-  steps,
-  currentStepIndex,
-  typedText,
-}: {
-  steps: BotStep[]
-  currentStepIndex: number
-  typedText: string
-}) {
-  const currentStep = steps[currentStepIndex]
-  const [urlText, setUrlText] = useState('')
-  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([])
-  const rippleCounterRef = useRef(0)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const cursorRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!currentStep?.url) return
-    const url = currentStep.url
-    let i = 0
-    setUrlText('')
-    const timer = setInterval(() => {
-      i++
-      setUrlText(url.slice(0, i))
-      if (i >= url.length) clearInterval(timer)
-    }, 30)
-    return () => clearInterval(timer)
-  }, [currentStep?.url])
-
-  useEffect(() => {
-    if (currentStep?.action !== 'click' || !contentRef.current) return
-    const rect = contentRef.current.getBoundingClientRect()
-    const x = rect.width * 0.4 + Math.random() * rect.width * 0.3
-    const y = rect.height * 0.3 + Math.random() * rect.height * 0.3
-    const id = rippleCounterRef.current++
-    setRipples((prev) => [...prev, { id, x, y }])
-    const timer = setTimeout(() => {
-      setRipples((prev) => prev.filter((r) => r.id !== id))
-    }, 600)
-    return () => clearTimeout(timer)
-  }, [currentStep?.action, currentStepIndex])
-
-  const cursorPositions: Record<StepAction, { x: number; y: number }> = {
-    navigate: { x: 50, y: 30 },
-    find: { x: 40, y: 45 },
-    click: { x: 55, y: 55 },
-    type: { x: 42, y: 42 },
-    extract: { x: 60, y: 65 },
-    verify: { x: 50, y: 50 },
-  }
-
-  const cursorPos = currentStep ? cursorPositions[currentStep.action] : { x: 50, y: 50 }
-
-  return (
-    <div className="relative h-full bg-slate-900 rounded-2xl overflow-hidden border border-slate-700/50 shadow-2xl">
-      <div className="bg-slate-800 px-4 py-3 flex items-center gap-3 border-b border-slate-700/60">
-        <div className="flex gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-red-400/80" />
-          <div className="w-3 h-3 rounded-full bg-yellow-400/80" />
-          <div className="w-3 h-3 rounded-full bg-green-400/80" />
-        </div>
-
-        <div className="flex-1 bg-slate-700/60 rounded-lg px-3 py-1.5 flex items-center gap-2 border border-slate-600/30">
-          <div className="w-3 h-3 text-teal-500 flex-shrink-0">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-              <path d="M2 12h20" />
-            </svg>
-          </div>
-          <span className="font-mono text-xs text-slate-300 flex-1 truncate">
-            {urlText}
-            {urlText.length < (currentStep?.url?.length ?? 0) && (
-              <span className="cursor-blink text-teal-400">|</span>
-            )}
-          </span>
-        </div>
-
-        <div className="flex gap-1">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="w-5 h-5 bg-slate-700/60 rounded" />
-          ))}
-        </div>
-      </div>
-
-      <div ref={contentRef} className="relative overflow-hidden" style={{ height: 'calc(100% - 52px)' }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentStep?.pageContent ?? 'empty'}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="h-full overflow-y-auto"
-          >
-            {currentStep ? (
-              <MockPageContent
-                pageContent={currentStep.pageContent}
-                currentAction={currentStep.action}
-                typedText={typedText}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center text-slate-500">
-                  <Globe size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Waiting for task...</p>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-        {currentStep && (
-          <motion.div
-            ref={cursorRef}
-            className="absolute w-4 h-4 pointer-events-none z-50"
-            animate={{
-              left: `${cursorPos.x}%`,
-              top: `${cursorPos.y}%`,
-            }}
-            transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-          >
-            <div className="relative">
-              <div className="w-3 h-3 bg-teal-500 rounded-full shadow-[0_0_8px_rgba(20,184,166,0.8)]" />
-              {currentStep.action === 'click' && (
-                <motion.div
-                  className="absolute inset-0 w-3 h-3 bg-teal-400 rounded-full"
-                  animate={{ scale: [1, 2.5], opacity: [0.6, 0] }}
-                  transition={{ duration: 0.4, repeat: Infinity, repeatDelay: 0.6 }}
-                />
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {ripples.map((r) => (
-          <motion.div
-            key={r.id}
-            className="absolute pointer-events-none z-40"
-            style={{ left: r.x, top: r.y, transform: 'translate(-50%, -50%)' }}
-            initial={{ scale: 0, opacity: 0.8 }}
-            animate={{ scale: 3, opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="w-8 h-8 rounded-full border-2 border-teal-400" />
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function AgentThoughts({ steps, currentStepIndex, isRunning, completed }: {
-  steps: BotStep[]
-  currentStepIndex: number
-  isRunning: boolean
-  completed: boolean
-}) {
-  const currentStep = steps[currentStepIndex]
-  const [displayedThought, setDisplayedThought] = useState('')
-  const [isTyping, setIsTyping] = useState(false)
-
-  useEffect(() => {
-    if (!currentStep?.thought) {
-      setDisplayedThought('')
-      return
-    }
-    setIsTyping(true)
-    setDisplayedThought('')
-    const thought = currentStep.thought
-    let i = 0
-    const timer = setInterval(() => {
-      i++
-      setDisplayedThought(thought.slice(0, i))
-      if (i >= thought.length) {
-        clearInterval(timer)
-        setIsTyping(false)
-      }
-    }, 25)
-    return () => clearInterval(timer)
-  }, [currentStep?.thought, currentStepIndex])
-
-  return (
-    <div className="h-full flex flex-col bg-slate-900/80 rounded-2xl border border-slate-700/50 overflow-hidden">
-      <div className="px-4 py-3 border-b border-slate-700/50 flex items-center gap-2">
-        <div className="relative">
-          <Bot size={18} className="text-teal-500" />
-          {isRunning && (
-            <motion.div
-              className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-teal-400 rounded-full"
-              animate={{ scale: [1, 1.4, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            />
-          )}
-        </div>
-        <span className="text-sm font-semibold text-slate-200">Agent Thoughts</span>
-        {isRunning && (
-          <div className="ml-auto flex gap-0.5">
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                className="w-1 h-1 bg-teal-500 rounded-full"
-                animate={{ y: [0, -4, 0] }}
-                transition={{ duration: 0.6, delay: i * 0.15, repeat: Infinity }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {steps.slice(0, currentStepIndex + 1).map((step, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3 }}
-            className={`flex gap-3 ${i === currentStepIndex ? 'opacity-100' : 'opacity-50'}`}
-          >
-            <div className="flex-shrink-0 mt-0.5">
-              {i < currentStepIndex ? (
-                <CheckCircle2 size={14} className="text-teal-500" />
-              ) : (
-                <div
-                  className="w-3.5 h-3.5 rounded-full border-2 border-teal-500 mt-0.5"
-                  style={{ backgroundColor: i === currentStepIndex ? 'transparent' : '#14b8a6' }}
-                />
-              )}
-            </div>
-            <div className="flex-1">
-              <div className="text-xs text-teal-500 font-mono font-semibold uppercase tracking-wider mb-0.5">
-                {ACTION_META[step.action].label} · Step {i + 1}
-              </div>
-              <p className="text-sm text-slate-300 leading-relaxed">
-                {i === currentStepIndex ? displayedThought : step.thought}
-                {i === currentStepIndex && isTyping && (
-                  <span className="cursor-blink text-teal-400 ml-0.5">▋</span>
-                )}
-              </p>
-            </div>
-          </motion.div>
-        ))}
-
-        {completed && steps.length > 0 && (() => {
-          const resultSteps = steps.filter(s => (s.action === 'extract' || s.action === 'verify') && s.value)
-          return (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-4 space-y-3"
-            >
-              <div className="p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl">
-                <div className="flex items-center gap-2 text-teal-400 text-sm font-semibold">
-                  <CheckCircle2 size={16} />
-                  Task completed successfully
-                </div>
-              </div>
-              {resultSteps.length > 0 && (
-                <div className="p-4 bg-slate-800/80 border border-teal-500/20 rounded-xl">
-                  <div className="text-xs text-teal-500 font-mono font-semibold uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <Download size={12} />
-                    Results
-                  </div>
-                  <div className="space-y-2">
-                    {resultSteps.map((step, i) => (
-                      <div key={i} className="p-3 bg-slate-700/50 rounded-lg border border-slate-600/30">
-                        <div className="text-xs text-slate-400 mb-1 uppercase tracking-wide">
-                          {step.action === 'extract' ? 'Extracted' : 'Verified'}: {step.target}
-                        </div>
-                        <div className="text-sm text-white whitespace-pre-wrap leading-relaxed font-mono">
-                          {step.value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          )
-        })()}
-
-        {steps.length === 0 && !isRunning && (
-          <div className="text-center text-slate-500 py-8">
-            <Bot size={32} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm">Agent ready. Describe a task to begin.</p>
-          </div>
-        )}
-      </div>
-
-      <div className="px-4 py-3 border-t border-slate-700/50">
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Step {Math.max(currentStepIndex + 1, 0)} of {steps.length || '—'}</span>
-          <span className="font-mono text-teal-600">BrowseBot v1.0</span>
-        </div>
-        {steps.length > 0 && (
-          <div className="mt-2 h-1 bg-slate-700 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-teal-600 to-teal-400 rounded-full"
-              animate={{ width: `${((currentStepIndex + 1) / steps.length) * 100}%` }}
-              transition={{ duration: 0.5 }}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StepTimeline({ steps, currentStepIndex }: {
-  steps: BotStep[]
-  currentStepIndex: number
-}) {
-  if (steps.length === 0) return null
-
-  return (
-    <div className="bg-slate-900/80 rounded-2xl border border-slate-700/50 p-4">
-      <div className="relative flex items-center gap-0">
-        <div className="absolute top-5 left-0 right-0 h-0.5 bg-slate-700 z-0" />
-        {steps.length > 0 && (
-          <motion.div
-            className="absolute top-5 left-0 h-0.5 bg-gradient-to-r from-teal-600 to-teal-400 z-0"
-            animate={{ width: `${steps.length === 1 ? 100 : (currentStepIndex / (steps.length - 1)) * 100}%` }}
-            transition={{ duration: 0.5 }}
-          />
-        )}
-
-        {steps.map((step, i) => {
-          const meta = ACTION_META[step.action]
-          const Icon = meta.icon
-          const isActive = i === currentStepIndex
-          const isDone = i < currentStepIndex
-
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1.5 relative z-10">
-              <motion.div
-                className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                  isActive
-                    ? 'border-teal-500 bg-teal-500/20 shadow-[0_0_16px_rgba(20,184,166,0.4)]'
-                    : isDone
-                    ? 'border-teal-700 bg-teal-900/40'
-                    : 'border-slate-600 bg-slate-800'
-                }`}
-                animate={isActive ? { scale: [1, 1.05, 1] } : { scale: 1 }}
-                transition={{ duration: 1.5, repeat: isActive ? Infinity : 0 }}
-              >
-                {isDone ? (
-                  <CheckCircle2 size={16} className="text-teal-500" />
-                ) : (
-                  <Icon size={16} className={isActive ? 'text-teal-400' : 'text-slate-500'} />
-                )}
-              </motion.div>
-              <span
-                className={`text-xs font-medium ${
-                  isActive ? 'text-teal-400' : isDone ? 'text-teal-700' : 'text-slate-600'
-                }`}
-              >
-                {meta.label}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+const SPEED_ICONS: Record<SpeedMode, typeof Clock> = {
+  slow: Clock,
+  normal: Gauge,
+  fast: Zap,
 }
 
 export default function App() {
@@ -785,12 +38,25 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
   const [completed, setCompleted] = useState(false)
+  const [stopped, setStopped] = useState(false)
+  const [isSample, setIsSample] = useState(false)
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const presetRef = useRef<HTMLDivElement>(null)
   const speedRef = useRef(speed)
 
   useEffect(() => { speedRef.current = speed }, [speed])
+
+  const clearTimers = useCallback(() => {
+    if (stepTimerRef.current) {
+      clearTimeout(stepTimerRef.current)
+      stepTimerRef.current = null
+    }
+    if (typeTimerRef.current) {
+      clearInterval(typeTimerRef.current)
+      typeTimerRef.current = null
+    }
+  }, [])
 
   const runSteps = useCallback((stepsToRun: BotStep[], startIndex: number) => {
     if (startIndex >= stepsToRun.length) {
@@ -803,77 +69,98 @@ export default function App() {
     setCurrentStepIndex(startIndex)
     setTypedText('')
 
-    if (typeTimerRef.current) clearInterval(typeTimerRef.current)
+    if (typeTimerRef.current) {
+      clearInterval(typeTimerRef.current)
+      typeTimerRef.current = null
+    }
     if (step.action === 'type' && step.value) {
       const val = step.value
       let i = 0
       typeTimerRef.current = setInterval(() => {
         i++
         setTypedText(val.slice(0, i))
-        if (i >= val.length) {
-          if (typeTimerRef.current) clearInterval(typeTimerRef.current)
+        if (i >= val.length && typeTimerRef.current) {
+          clearInterval(typeTimerRef.current)
           typeTimerRef.current = null
         }
-      }, 60)
+      }, typingIntervalMs(speedRef.current, val.length))
     }
 
-    stepTimerRef.current = setTimeout(() => {
-      runSteps(stepsToRun, startIndex + 1)
-    }, SPEED_DELAYS[speedRef.current])
+    // Poll rather than schedule the full delay up front, so a speed change mid-step applies now.
+    const startedAt = Date.now()
+    const tick = () => {
+      const delay = SPEED_DELAYS[speedRef.current]
+      const remaining = delay - (Date.now() - startedAt)
+      if (remaining <= 0) {
+        runSteps(stepsToRun, startIndex + 1)
+        return
+      }
+      stepTimerRef.current = setTimeout(tick, Math.min(SPEED_POLL_MS, remaining))
+    }
+    stepTimerRef.current = setTimeout(tick, SPEED_POLL_MS)
   }, [])
 
+  const startRun = useCallback((stepsToRun: BotStep[], sample: boolean) => {
+    clearTimers()
+    setCompleted(false)
+    setStopped(false)
+    setIsSample(sample)
+    setSteps(stepsToRun)
+    setCurrentStepIndex(-1)
+    setTypedText('')
+    setIsRunning(true)
+    runSteps(stepsToRun, 0)
+  }, [clearTimers, runSteps])
+
   const handleRun = async () => {
-    if (!task.trim()) return
-    handleStop()
+    const trimmed = task.trim()
+    if (!trimmed) return
+    clearTimers()
     setError(null)
     setCompleted(false)
+    setStopped(false)
+    setIsSample(false)
+    setIsRunning(false)
     setIsLoading(true)
     setSteps([])
     setCurrentStepIndex(-1)
     setTypedText('')
 
     try {
-      const result = await generateScenario(task)
-      setSteps(result)
-      setIsRunning(true)
+      const result = await generateScenario(trimmed)
       setIsLoading(false)
-      runSteps(result, 0)
-    } catch {
-      setError('API unavailable — running demo scenario instead.')
+      startRun(result, false)
+    } catch (err) {
       setIsLoading(false)
-      setSteps(DEMO_STEPS)
-      setIsRunning(true)
-      runSteps(DEMO_STEPS, 0)
+      setError(err instanceof Error ? err.message : 'The agent service could not be reached.')
     }
+  }
+
+  const handleRunSample = () => startRun(SAMPLE_STEPS, true)
+
+  const handleRestart = () => {
+    if (steps.length > 0) startRun(steps, isSample)
   }
 
   const handleStop = () => {
-    if (stepTimerRef.current) {
-      clearTimeout(stepTimerRef.current)
-      stepTimerRef.current = null
-    }
-    if (typeTimerRef.current) {
-      clearInterval(typeTimerRef.current)
-      typeTimerRef.current = null
-    }
+    clearTimers()
     setIsRunning(false)
+    setStopped(steps.length > 0 && !completed)
   }
 
   const handleReset = () => {
-    handleStop()
+    clearTimers()
+    setIsRunning(false)
     setSteps([])
     setCurrentStepIndex(-1)
     setTypedText('')
     setError(null)
     setCompleted(false)
+    setStopped(false)
+    setIsSample(false)
   }
 
-  useEffect(() => {
-    return () => {
-      if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
-      if (typeTimerRef.current) clearInterval(typeTimerRef.current)
-    }
-  }, [])
+  useEffect(() => clearTimers, [clearTimers])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -888,7 +175,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0a0f1a] flex flex-col">
       <header className="border-b border-slate-800/60 bg-slate-900/60 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="w-9 h-9 bg-teal-500 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.4)]">
@@ -912,11 +199,20 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 bg-slate-800/80 rounded-full p-1 border border-slate-700/50">
-              {(['slow', 'normal', 'fast'] as SpeedMode[]).map((s) => (
+          <div
+            role="radiogroup"
+            aria-label="Animation speed"
+            className="flex items-center gap-1 bg-slate-800/80 rounded-full p-1 border border-slate-700/50"
+          >
+            {(['slow', 'normal', 'fast'] as SpeedMode[]).map((s) => {
+              const Icon = SPEED_ICONS[s]
+              return (
                 <button
                   key={s}
+                  role="radio"
+                  aria-checked={speed === s}
+                  aria-label={SPEED_HINTS[s]}
+                  title={SPEED_HINTS[s]}
                   onClick={() => setSpeed(s)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                     speed === s
@@ -924,13 +220,11 @@ export default function App() {
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {s === 'slow' && <Clock size={11} />}
-                  {s === 'normal' && <Gauge size={11} />}
-                  {s === 'fast' && <Zap size={11} />}
+                  <Icon size={11} />
                   <span className="capitalize">{s}</span>
                 </button>
-              ))}
-            </div>
+              )
+            })}
           </div>
         </div>
       </header>
@@ -940,15 +234,21 @@ export default function App() {
         </p>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 flex-1 flex flex-col gap-4">
+      <div className="max-w-7xl mx-auto w-full px-6 py-6 flex-1 flex flex-col gap-4">
         <div className="bg-slate-900/60 rounded-2xl border border-slate-700/50 p-5">
-          <div className="flex gap-3">
-            <div className="flex-1 space-y-2">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1 space-y-2 min-w-0">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-slate-300">Task Description</label>
+                <label htmlFor="task-input" className="text-sm font-semibold text-slate-300">
+                  Task Description
+                </label>
                 <div ref={presetRef} className="relative">
                   <button
                     onClick={() => setShowPresets((v) => !v)}
+                    title="Pick an example task to fill the box"
+                    aria-label="Show example tasks"
+                    aria-haspopup="menu"
+                    aria-expanded={showPresets}
                     className="flex items-center gap-1.5 text-xs text-teal-500 hover:text-teal-400 font-medium transition-colors"
                   >
                     Presets
@@ -957,15 +257,18 @@ export default function App() {
                   <AnimatePresence>
                     {showPresets && (
                       <motion.div
+                        role="menu"
                         initial={{ opacity: 0, y: -8, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -8, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-6 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden min-w-72"
+                        className="absolute right-0 top-6 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden w-[min(18rem,calc(100vw-3rem))]"
                       >
                         {PRESETS.map((preset) => (
                           <button
                             key={preset}
+                            role="menuitem"
+                            title={`Use this task: ${preset}`}
                             onClick={() => {
                               setTask(preset)
                               setShowPresets(false)
@@ -981,6 +284,7 @@ export default function App() {
                 </div>
               </div>
               <textarea
+                id="task-input"
                 value={task}
                 onChange={(e) => setTask(e.target.value)}
                 onKeyDown={(e) => {
@@ -989,18 +293,21 @@ export default function App() {
                     if (task.trim() && !isRunning && !isLoading) handleRun()
                   }
                 }}
+                title="Describe the web task in plain English. Enter runs it, Shift+Enter adds a line."
                 placeholder="Describe what you want the agent to do... e.g. 'Find the cheapest flight from NYC to LA next Friday' (Enter to run, Shift+Enter for new line)"
                 rows={2}
                 className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-teal-500/60 focus:shadow-[0_0_0_3px_rgba(20,184,166,0.1)] transition-all font-mono"
               />
             </div>
 
-            <div className="flex flex-col gap-2 justify-end">
+            <div className="flex flex-row sm:flex-col gap-2 sm:justify-end items-stretch">
               {!isRunning ? (
                 <button
                   onClick={handleRun}
                   disabled={!task.trim() || isLoading}
-                  className="flex items-center gap-2 bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_30px_rgba(20,184,166,0.5)] active:scale-95"
+                  title={task.trim() ? 'Run the agent on this task' : 'Enter a task first'}
+                  aria-label="Run agent on the task described above"
+                  className="flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_30px_rgba(20,184,166,0.5)] active:scale-95"
                 >
                   {isLoading ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -1012,15 +319,30 @@ export default function App() {
               ) : (
                 <button
                   onClick={handleStop}
-                  className="flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-semibold px-6 py-3 rounded-xl transition-all"
+                  title="Stop the run where it is"
+                  aria-label="Stop the running agent"
+                  className="flex items-center justify-center gap-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-semibold px-6 py-3 rounded-xl transition-all"
                 >
                   <Square size={16} />
                   Stop
                 </button>
               )}
+              {steps.length > 0 && !isRunning && (
+                <button
+                  onClick={handleRestart}
+                  title="Replay this scenario from step 1"
+                  aria-label="Replay the current scenario from the first step"
+                  className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-teal-400 border border-slate-700/60 hover:border-teal-500/40 rounded-lg px-3 py-2 transition-colors"
+                >
+                  <RotateCw size={12} />
+                  Replay
+                </button>
+              )}
               {steps.length > 0 && (
                 <button
                   onClick={handleReset}
+                  title="Clear the run, the page and the results"
+                  aria-label="Clear the current run and results"
                   className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2"
                 >
                   Reset
@@ -1030,26 +352,75 @@ export default function App() {
           </div>
 
           {error && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
-              {error}
+            <div
+              role="alert"
+              className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg space-y-2"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-red-400" />
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-red-400">
+                    Agent run failed — nothing was produced for your task.
+                  </div>
+                  <div className="mt-1 text-[11px] font-mono text-red-300/80 break-words">{error}</div>
+                </div>
+              </div>
+              {!isRunning && !isLoading && (
+                <div className="flex flex-wrap gap-2 pl-6">
+                  <button
+                    onClick={handleRun}
+                    disabled={!task.trim()}
+                    title="Send the same task to the agent again"
+                    aria-label="Retry the agent run"
+                    className="flex items-center gap-1.5 text-xs font-semibold text-red-300 hover:text-red-200 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 border border-red-500/30 rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    <RotateCw size={12} />
+                    Retry
+                  </button>
+                  <button
+                    onClick={handleRunSample}
+                    title="Play a built-in flight-search example — canned data, not a result for your task"
+                    aria-label="Play the built-in sample demo, which is not a result for your task"
+                    className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    <FlaskConical size={12} />
+                    Sample demo (not your task)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isSample && (
+            <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-2">
+              <FlaskConical size={14} className="mt-0.5 flex-shrink-0 text-amber-400" />
+              <div className="text-xs text-amber-300">
+                <span className="font-semibold">Sample demo (not your task).</span>{' '}
+                This is a canned flight-search scenario with fixed data, shown only to demonstrate the animation.
+              </div>
             </div>
           )}
         </div>
 
-        <div className="flex-1 grid grid-cols-5 gap-4" style={{ minHeight: '460px' }}>
-          <div className="col-span-3">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 md:min-h-[460px]">
+          <div className="md:col-span-3 min-h-[420px] md:min-h-0">
             <BrowserChrome
               steps={steps}
               currentStepIndex={currentStepIndex}
               typedText={typedText}
+              speed={speed}
             />
           </div>
-          <div className="col-span-2">
+          <div className="md:col-span-2 min-h-[360px] md:min-h-0">
             <AgentThoughts
               steps={steps}
               currentStepIndex={currentStepIndex}
               isRunning={isRunning}
               completed={completed}
+              stopped={stopped}
+              isSample={isSample}
+              speed={speed}
+              onRestart={handleRestart}
             />
           </div>
         </div>

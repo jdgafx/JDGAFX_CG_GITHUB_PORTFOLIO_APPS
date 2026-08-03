@@ -58,8 +58,15 @@ export async function startResearch(
   }
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Research failed: ${error}`)
+    const error = (await response.text().catch(() => '')).trim()
+    throw new Error(error || `Research failed (HTTP ${response.status}).`)
+  }
+
+  // A path typo lands on the SPA fallback, which returns HTML with a 200. Without
+  // this check that HTML gets parsed as SSE and the run just silently does nothing.
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('text/event-stream')) {
+    throw new Error('The research endpoint is not responding correctly. Check that the site functions are deployed.')
   }
 
   const reader = response.body?.getReader()

@@ -1,87 +1,130 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+import { corsHeaders, guardRequest, jsonError, upstreamStatus } from '../shared/http'
+
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+const CHAT_MODEL = process.env.CHAT_MODEL ?? '~anthropic/claude-haiku-latest'
+const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
+const MAX_MESSAGE_CHARS = Number(process.env.MAX_MESSAGE_CHARS ?? 5000)
+const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES ?? 20)
+
+// Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
+// upstream turns into a clean 503 instead of a dead socket.
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
+
+const SYSTEM_PROMPT =
+  'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise ' +
+  'and conversational — ideally 1-3 sentences. You are being used via voice interface.'
+
+type ChatMessage = { role: 'user' | 'assistant'; content: string }
+
+// History arrives from the browser, so entries may be anything at all. Skip
+// non-objects (null, numbers, strings) before touching their properties.
+function sanitizeHistory(history: unknown): ChatMessage[] {
+  if (!Array.isArray(history)) return []
+  const clean: ChatMessage[] = []
+  for (const item of history) {
+    if (typeof item !== 'object' || item === null) continue
+    const { role, content } = item as { role?: unknown; content?: unknown }
+    if ((role === 'user' || role === 'assistant') && typeof content === 'string') {
+      clean.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS) })
+    }
+  }
+  return clean.slice(-MAX_HISTORY_MESSAGES)
 }
 
 export default async (req: Request): Promise<Response> => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders })
-  }
+  const guard = guardRequest(req)
+  if (guard) return guard
 
-  if (req.method !== 'POST') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: corsHeaders })
-  }
+  const origin = req.headers.get('origin')
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return Response.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500, headers: corsHeaders })
+    console.error('ai: OPENROUTER_API_KEY is not configured')
+    return jsonError('The assistant is not configured on this deployment.', 500, origin)
   }
 
   try {
-    const body = (await req.json()) as { message?: unknown; history?: unknown }
+    let body: { message?: unknown; history?: unknown }
+    try {
+      body = (await req.json()) as { message?: unknown; history?: unknown }
+    } catch {
+      return jsonError('Invalid JSON body', 400, origin)
+    }
+
     const { message, history } = body
 
     if (!message || typeof message !== 'string') {
-      return Response.json({ error: 'message is required' }, { status: 400, headers: corsHeaders })
+      return jsonError('message is required', 400, origin)
     }
 
-    if (message.length > 5000) {
-      return Response.json({ error: 'Message exceeds maximum allowed length' }, { status: 400, headers: corsHeaders })
+    if (message.length > MAX_MESSAGE_CHARS) {
+      return jsonError('Message exceeds maximum allowed length', 400, origin)
     }
 
-    const historyMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
-    if (Array.isArray(history)) {
-      for (const item of history as Array<{ role: string; content: string }>) {
-        if ((item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string') {
-          historyMessages.push({ role: item.role, content: item.content.slice(0, 5000) })
-        }
-      }
-    }
-
-    // Keep only the last 20 history messages to avoid token overflow
-    const trimmedHistory = historyMessages.slice(-20)
-
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      ...trimmedHistory,
+    const messages: ChatMessage[] = [
+      ...sanitizeHistory(history),
       { role: 'user', content: message },
     ]
 
-    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: '~anthropic/claude-haiku-latest',
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise and conversational — ideally 1-3 sentences. You are being used via voice interface.',
-          },
-          ...messages,
-        ],
-      }),
-    })
+    let aiResponse: Response
+    try {
+      aiResponse = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          max_tokens: MAX_OUTPUT_TOKENS,
+          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+        }),
+      })
+    } catch (err) {
+      const timedOut = err instanceof Error && err.name === 'TimeoutError'
+      console.error('ai: upstream request failed', err)
+      return jsonError(
+        timedOut
+          ? 'The assistant took too long to respond. Try again.'
+          : 'The assistant is unreachable. Try again in a moment.',
+        503,
+        origin,
+      )
+    }
 
     if (!aiResponse.ok) {
-      throw new Error(`OpenRouter error: ${aiResponse.status} ${aiResponse.statusText}`)
+      // Vendor error text can carry account/billing detail — log it, never ship it.
+      const detail = await aiResponse.text().catch(() => '<unreadable>')
+      console.error(`ai: upstream ${aiResponse.status} ${aiResponse.statusText}: ${detail}`)
+      return jsonError(
+        aiResponse.status === 429
+          ? 'The assistant is rate limited right now. Try again in a moment.'
+          : 'The assistant failed to respond. Try again in a moment.',
+        upstreamStatus(aiResponse.status),
+        origin,
+      )
     }
 
-    const aiData = (await aiResponse.json()) as {
-      choices: Array<{ message: { content: string } }>
-    }
-    const rawText = aiData.choices[0]?.message?.content
-    if (!rawText) {
-      throw new Error('Unexpected response type from OpenRouter')
+    let aiData: { choices?: Array<{ message?: { content?: unknown } }> }
+    try {
+      aiData = (await aiResponse.json()) as typeof aiData
+    } catch (err) {
+      console.error('ai: could not parse upstream JSON', err)
+      return jsonError('The assistant returned an unreadable response.', 502, origin)
     }
 
-    return Response.json({ response: rawText }, { headers: corsHeaders })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-    return Response.json({ error: message }, { status: 500, headers: corsHeaders })
+    const rawText = aiData.choices?.[0]?.message?.content
+    if (typeof rawText !== 'string' || !rawText.trim()) {
+      console.error('ai: unexpected upstream payload shape', JSON.stringify(aiData).slice(0, 500))
+      return jsonError('The assistant returned an empty response. Try again.', 502, origin)
+    }
+
+    return Response.json({ response: rawText }, { headers: corsHeaders(origin) })
+  } catch (err) {
+    console.error('ai: unhandled failure', err)
+    return jsonError('The assistant failed. Try again in a moment.', 500, origin)
   }
 }
 

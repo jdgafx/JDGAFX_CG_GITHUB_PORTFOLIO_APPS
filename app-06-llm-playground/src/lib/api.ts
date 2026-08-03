@@ -8,6 +8,12 @@ export interface DoneChunk {
   latencyMs: number | null
   inputTokens: number | null
   outputTokens: number | null
+  /** Authoritative USD cost reported by the provider; null when unavailable. */
+  cost?: number | null
+  /** Model id that actually served the request, resolved from the alias. */
+  servedModel?: string | null
+  /** True when the server hit its time budget before the model finished. */
+  truncated?: boolean
 }
 
 export interface ErrorChunk {
@@ -26,6 +32,8 @@ export interface StreamOptions {
   temperature?: number
   max_tokens?: number
 }
+
+const CONNECTION_LOST = 'Connection lost before the model finished responding.'
 
 export async function streamModel(
   model: string,
@@ -58,6 +66,7 @@ export async function streamModel(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let sawTerminal = false
 
   const processLines = (lines: string[]) => {
     for (const line of lines) {
@@ -68,25 +77,39 @@ export async function streamModel(
 
       try {
         const parsed = JSON.parse(data) as StreamChunk
+        if (parsed.type === 'done' || parsed.type === 'error') sawTerminal = true
         onChunk(parsed)
-      } catch {
-        // skip malformed SSE lines
+      } catch (err) {
+        console.warn('Skipping malformed SSE line', (err as Error).message, trimmed)
       }
     }
   }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    processLines(lines)
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      processLines(lines)
+    }
+  } catch (err) {
+    // A user-initiated abort is not a failure -- let the caller handle it.
+    if (signal?.aborted) throw err
+    onChunk({ type: 'error', message: CONNECTION_LOST })
+    return
   }
 
   // Process any remaining data in the buffer after the stream ends
   if (buffer.trim()) {
     processLines([buffer])
+  }
+
+  // A stream that ends without done/error means the connection dropped
+  // mid-generation -- surface it rather than leaving the panel spinning.
+  if (!sawTerminal) {
+    onChunk({ type: 'error', message: CONNECTION_LOST })
   }
 }

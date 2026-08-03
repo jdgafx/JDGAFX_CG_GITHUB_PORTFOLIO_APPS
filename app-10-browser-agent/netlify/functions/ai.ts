@@ -4,6 +4,65 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
+const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
+
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const DEFAULT_MODEL = '~google/gemini-flash-latest'
+const DEFAULT_MAX_TOKENS = 4096
+/** Netlify's synchronous function cap is 10s; leave room to return a handled error. */
+const DEFAULT_TIMEOUT_MS = 8500
+const MAX_ERROR_DETAIL = 300
+
+function envInt(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function jsonError(message: string, status: number): Response {
+  return new Response(JSON.stringify({ error: message }), { status, headers: jsonHeaders })
+}
+
+/**
+ * Pull the JSON payload out of a model response: drop any markdown fence (the closing fence is
+ * missing when the output was truncated), then forward-scan from the first brace/bracket to its
+ * balanced partner so trailing prose or nested braces cannot break the slice.
+ */
+function extractJson(raw: string): string {
+  const text = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim()
+
+  const start = text.search(/[{[]/)
+  if (start === -1) return text
+
+  const open = text[start]
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === open) depth++
+    else if (ch === close && --depth === 0) return text.slice(start, i + 1)
+  }
+
+  // Unbalanced — the model output was cut off. Hand back what there is so the parse error is specific.
+  return text.slice(start)
+}
+
 export default async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
@@ -15,10 +74,7 @@ export default async (req: Request): Promise<Response> => {
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return jsonError('OPENROUTER_API_KEY not configured', 500)
   }
 
   let task: string
@@ -26,16 +82,10 @@ export default async (req: Request): Promise<Response> => {
     const body = (await req.json()) as { task?: string }
     task = body.task ?? ''
     if (!task) {
-      return new Response(JSON.stringify({ error: 'task is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return jsonError('task is required', 400)
     }
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return jsonError('Invalid JSON', 400)
   }
 
   const systemPrompt = `You are a browser automation AI. Given a user task, return a JSON array of browser automation steps.
@@ -51,6 +101,8 @@ Each step must have:
 IMPORTANT RULES:
 - The LAST step MUST be action "verify" or "extract" that summarizes the findings.
 - For "extract" steps, the "value" field MUST contain the actual data found (e.g. a list of results, prices, job titles, etc.) — be specific with real-sounding data.
+- For "extract" steps that list multiple results, put one result per line as "Name — detail, detail" so the simulated page can render the same rows.
+- For "type" steps, name the field in "target" (e.g. "origin input", "destination input", "email field") so the typed text lands in the right box.
 - For job searches: use pageContent "job-board" then "job-results" and include 3-5 realistic job listings in the final extract value.
 - For price comparisons: include real-sounding prices and product names.
 - For form filling: show confirmation of submission.
@@ -62,21 +114,25 @@ Return ONLY valid JSON. No markdown. No explanation. Example format:
 Generate 6-10 steps that realistically simulate completing the user's task in a browser.`
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
+      // The latest-alias models can resolve to reasoning models, whose reasoning tokens eat the
+      // completion budget and truncate the JSON mid-emit. Disable reasoning and keep headroom.
       body: JSON.stringify({
-            model: '~google/gemini-flash-latest',
-            max_tokens: 1024,
+        model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL,
+        max_tokens: envInt('OPENROUTER_MAX_TOKENS', DEFAULT_MAX_TOKENS),
+        reasoning: { enabled: false },
         stream: false,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Task: ${task}` },
         ],
       }),
+      signal: AbortSignal.timeout(envInt('OPENROUTER_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)),
     })
 
     if (!response.ok) {
@@ -84,38 +140,47 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
       throw new Error(`OpenRouter error: ${response.status} ${errText}`)
     }
 
-    const data = await response.json() as { choices: Array<{ message: { content: string } }> }
+    const data = await response.json() as {
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
+    }
     const content = data.choices?.[0]?.message?.content
 
     if (!content) {
-      throw new Error('No content in response')
+      throw new Error('The model returned an empty response')
     }
 
-    // Strip markdown code fences if present
-    let jsonText = content.trim()
-    const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-    if (codeBlockMatch?.[1]) {
-      jsonText = codeBlockMatch[1].trim()
-    } else {
-      const start = jsonText.indexOf('{')
-      const end = jsonText.lastIndexOf('}')
-      if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1)
+    const jsonText = extractJson(content)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch {
+      const truncated = data.choices?.[0]?.finish_reason === 'length'
+      throw new Error(
+        truncated
+          ? 'The model ran out of output tokens before finishing the scenario'
+          : 'The model did not return valid JSON',
+      )
     }
-    const parsed = JSON.parse(jsonText) as { steps: unknown }
 
-    return new Response(JSON.stringify(parsed), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    const steps = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object'
+        ? (parsed as { steps?: unknown }).steps
+        : undefined
+    if (!Array.isArray(steps)) {
+      throw new Error('The model response contained no step list')
+    }
+
+    return new Response(JSON.stringify({ steps }), { status: 200, headers: jsonHeaders })
   } catch (err) {
-    const detail = err instanceof Error ? err.message.slice(0, 300) : 'unknown error'
-    return new Response(
-      JSON.stringify({ error: `Failed to generate scenario: ${detail}` }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      },
-    )
+    // fetch may surface the abort reason directly or wrapped as the cause.
+    const thrown = err as { name?: string; message?: string; cause?: { name?: string } } | null
+    const names = [thrown?.name, thrown?.cause?.name]
+    if (names.includes('TimeoutError') || names.includes('AbortError')) {
+      return jsonError('The model took too long to respond. Try again or pick a shorter task.', 504)
+    }
+    const detail = (thrown?.message ?? String(err)).slice(0, MAX_ERROR_DETAIL)
+    return jsonError(`Failed to generate scenario: ${detail}`, 500)
   }
 }
 

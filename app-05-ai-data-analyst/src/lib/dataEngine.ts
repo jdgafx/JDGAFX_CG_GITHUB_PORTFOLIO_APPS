@@ -1,7 +1,38 @@
 import Papa from 'papaparse'
-import type { ParsedData, QueryPlan } from '../types'
+import type { ParsedData, QueryPlan, EngineResult } from '../types'
+import { isValueSort, validateQueryPlan } from './queryPlan'
 
 const MAX_ROWS = 10_000
+const BLANK_LABEL = '(blank)'
+
+/** Currency symbols, thousands separators, percent signs and stray spaces seen in real CSV exports. */
+const NUMERIC_NOISE = /[$€£¥₹,%\s]/g
+const NUMERIC_SHAPE = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/
+const DATE_SHAPE = /^\d{4}-\d{1,2}(-\d{1,2})?([T ]|$)|^\d{1,2}\/\d{1,2}\/\d{2,4}$/
+
+/**
+ * Parses a spreadsheet-style numeric cell: "$1,234.56" -> 1234.56, "(500)" -> -500,
+ * "45%" -> 45. Returns null for anything that is not a number, so callers can
+ * count and report skipped cells instead of silently treating them as zero.
+ */
+export function parseNumericCell(raw: string | undefined | null): number | null {
+  if (raw == null) return null
+  let text = raw.trim()
+  if (text === '') return null
+
+  let negative = false
+  if (text.startsWith('(') && text.endsWith(')')) {
+    negative = true
+    text = text.slice(1, -1)
+  }
+
+  text = text.replace(NUMERIC_NOISE, '')
+  if (text === '' || !NUMERIC_SHAPE.test(text)) return null
+
+  const value = Number(text)
+  if (!Number.isFinite(value)) return null
+  return negative ? -value : value
+}
 
 export function parseCSV(csvString: string): ParsedData {
   const result = Papa.parse<Record<string, string>>(csvString, {
@@ -12,7 +43,9 @@ export function parseCSV(csvString: string): ParsedData {
   })
 
   if (result.errors.length > 0 && (!result.data || result.data.length === 0)) {
-    throw new Error(`CSV parse error: ${result.errors[0]?.message ?? 'Invalid CSV format'}`)
+    throw new Error(
+      'This file could not be read as CSV. Check that it has a header row and comma-separated values.',
+    )
   }
 
   const headers = result.meta.fields ?? []
@@ -27,31 +60,59 @@ export function parseCSV(csvString: string): ParsedData {
   return { headers, rows, truncated: result.data.length > MAX_ROWS, totalRows: result.data.length }
 }
 
-export function executeQuery(
-  data: ParsedData,
-  queryPlan: QueryPlan,
-): { labels: string[]; datasets: { name: string; values: number[] }[] } {
+function labelComparator(labels: string[]): ((a: string, b: string) => number) | null {
+  if (labels.length < 2) return null
+  if (labels.every((l) => DATE_SHAPE.test(l) && !Number.isNaN(Date.parse(l)))) {
+    return (a, b) => Date.parse(a) - Date.parse(b)
+  }
+  if (labels.every((l) => parseNumericCell(l) !== null)) {
+    return (a, b) => (parseNumericCell(a) ?? 0) - (parseNumericCell(b) ?? 0)
+  }
+  return null
+}
+
+function applyOrder(
+  labels: string[],
+  values: number[],
+  compare: (a: { label: string; value: number }, b: { label: string; value: number }) => number,
+) {
+  const pairs = labels.map((label, i) => ({ label, value: values[i] ?? 0 }))
+  pairs.sort(compare)
+  labels.length = 0
+  values.length = 0
+  for (const p of pairs) {
+    labels.push(p.label)
+    values.push(p.value)
+  }
+}
+
+export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResult {
+  const validation = validateQueryPlan(queryPlan, data.headers)
+  if (!validation.ok) throw new Error(validation.error)
+  const plan = validation.plan
+
   let rows = [...data.rows]
 
-  if (queryPlan.filter) {
-    const { field, op, value } = queryPlan.filter
+  if (plan.filter) {
+    const { field, op, value } = plan.filter
+    const numValue = parseNumericCell(value)
     rows = rows.filter((row) => {
       const cellValue = row[field] ?? ''
-      const numValue = parseFloat(value)
-      const numCell = parseFloat(cellValue)
+      const numCell = parseNumericCell(cellValue)
+      const comparable = numCell !== null && numValue !== null
       switch (op) {
         case 'eq':
           return cellValue.toLowerCase() === value.toLowerCase()
         case 'neq':
           return cellValue.toLowerCase() !== value.toLowerCase()
         case 'gt':
-          return !isNaN(numCell) && numCell > numValue
+          return comparable && numCell > numValue
         case 'lt':
-          return !isNaN(numCell) && numCell < numValue
+          return comparable && numCell < numValue
         case 'gte':
-          return !isNaN(numCell) && numCell >= numValue
+          return comparable && numCell >= numValue
         case 'lte':
-          return !isNaN(numCell) && numCell <= numValue
+          return comparable && numCell <= numValue
         case 'contains':
           return cellValue.toLowerCase().includes(value.toLowerCase())
         default:
@@ -61,19 +122,27 @@ export function executeQuery(
   }
 
   const groups = new Map<string, number[]>()
+  const countsByLabel = new Map<string, number>()
+  let skippedCells = 0
 
   for (const row of rows) {
-    const key = row[queryPlan.groupBy] ?? 'Unknown'
-    const fieldValue =
-      queryPlan.aggregate.fn === 'count'
-        ? 1
-        : parseFloat(row[queryPlan.aggregate.field] ?? '0') || 0
+    const rawKey = row[plan.groupBy]
+    const key = rawKey == null || rawKey.trim() === '' ? BLANK_LABEL : rawKey
 
-    if (!groups.has(key)) {
-      groups.set(key, [])
+    if (!groups.has(key)) groups.set(key, [])
+    countsByLabel.set(key, (countsByLabel.get(key) ?? 0) + 1)
+
+    if (plan.aggregate.fn === 'count') {
+      groups.get(key)?.push(1)
+      continue
     }
-    const arr = groups.get(key)
-    if (arr) arr.push(fieldValue)
+
+    const parsed = parseNumericCell(row[plan.aggregate.field])
+    if (parsed === null) {
+      skippedCells += 1
+      continue
+    }
+    groups.get(key)?.push(parsed)
   }
 
   const labels: string[] = []
@@ -83,7 +152,7 @@ export function executeQuery(
     labels.push(label)
     const total = nums.reduce((a, b) => a + b, 0)
     let agg: number
-    switch (queryPlan.aggregate.fn) {
+    switch (plan.aggregate.fn) {
       case 'sum':
         agg = total
         break
@@ -91,13 +160,13 @@ export function executeQuery(
         agg = nums.length > 0 ? total / nums.length : 0
         break
       case 'count':
-        agg = nums.length
+        agg = countsByLabel.get(label) ?? nums.length
         break
       case 'min':
-        agg = Math.min(...nums)
+        agg = nums.length > 0 ? Math.min(...nums) : 0
         break
       case 'max':
-        agg = Math.max(...nums)
+        agg = nums.length > 0 ? Math.max(...nums) : 0
         break
       default:
         agg = total
@@ -105,35 +174,30 @@ export function executeQuery(
     values.push(agg)
   }
 
-  if (queryPlan.sortBy) {
-    const { field, dir } = queryPlan.sortBy
-    const isValueSort =
-      field === 'value' ||
-      field === queryPlan.aggregate.field ||
-      field === 'revenue' ||
-      !data.headers.includes(field)
-
-    const pairs = labels.map((label, i) => ({ label, value: values[i] ?? 0 }))
-
-    pairs.sort((a, b) => {
-      if (isValueSort) {
-        return dir === 'asc' ? a.value - b.value : b.value - a.value
-      }
-      return dir === 'asc'
-        ? a.label.localeCompare(b.label)
-        : b.label.localeCompare(a.label)
+  if (plan.sortBy) {
+    const { field, dir } = plan.sortBy
+    const byValue = isValueSort(plan, field)
+    applyOrder(labels, values, (a, b) => {
+      if (byValue) return dir === 'asc' ? a.value - b.value : b.value - a.value
+      return dir === 'asc' ? a.label.localeCompare(b.label) : b.label.localeCompare(a.label)
     })
+  } else if (plan.chartType === 'line' || plan.chartType === 'area') {
+    // Continuous charts read as a sequence — file order turns a time series into a zigzag.
+    const compare = labelComparator(labels)
+    if (compare) applyOrder(labels, values, (a, b) => compare(a.label, b.label))
+  }
 
-    labels.length = 0
-    values.length = 0
-    for (const p of pairs) {
-      labels.push(p.label)
-      values.push(p.value)
-    }
+  const warnings: string[] = []
+  if (skippedCells > 0) {
+    const noun = skippedCells === 1 ? 'cell' : 'cells'
+    warnings.push(
+      `Column "${plan.aggregate.field}": ${skippedCells.toLocaleString()} non-numeric ${noun} ignored.`,
+    )
   }
 
   return {
     labels,
-    datasets: [{ name: queryPlan.aggregate.field, values }],
+    datasets: [{ name: plan.aggregate.field, values }],
+    warnings,
   }
 }

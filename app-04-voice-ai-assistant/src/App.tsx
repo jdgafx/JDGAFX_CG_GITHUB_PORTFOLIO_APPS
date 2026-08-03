@@ -1,354 +1,419 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Mic, MicOff, Volume2, Loader2, MessageCircle, Send } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Mic, MicOff, Volume2, Loader2 } from 'lucide-react'
 import { transcribe, chat } from './lib/api'
-import type { Message } from './lib/api'
+import type { ChatMessage, Message } from './lib/api'
+import Header from './components/Header'
+import ErrorBanner from './components/ErrorBanner'
+import Conversation from './components/Conversation'
+import MessageInput from './components/MessageInput'
+import {
+  MAX_RECORDING_MS,
+  createAudioContext,
+  isRecordingSupported,
+  micErrorMessage,
+  pickRecorderMimeType,
+} from './lib/audio'
+import { cancelSpeech, speak, type SpeakHandle } from './lib/speech'
+import { isLikelySilence } from './lib/transcript'
+import { drawActiveWaveform, drawIdleWaveform } from './lib/waveform'
 
 type AppState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking'
 
 const MAX_HISTORY_MESSAGES = 20
-const MAX_TEXT_INPUT_LENGTH = 2000
+const COUNTDOWN_TICK_MS = 250
+const MAX_RECORDING_SECONDS = Math.round(MAX_RECORDING_MS / 1000)
+
+let messageCounter = 0
+function newMessage(role: Message['role'], content: string): ChatMessage {
+  messageCounter += 1
+  return { id: `${role}-${messageCounter}`, role, content }
+}
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError'
+}
+
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('idle')
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [textInput, setTextInput] = useState('')
-  const [hasMic, setHasMic] = useState(true)
+  const [hasMic, setHasMic] = useState(isRecordingSupported())
+  const [msLeft, setMsLeft] = useState(MAX_RECORDING_MS)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const animFrameRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
-  const messagesRef = useRef<Message[]>([])
-  const chatEndRef = useRef<HTMLDivElement | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
+  const abortRef = useRef<AbortController | null>(null)
+  const speakRef = useRef<SpeakHandle | null>(null)
+  const stopTimerRef = useRef<number | null>(null)
+  const countdownRef = useRef<number | null>(null)
 
   // Keep messagesRef in sync so recorder.onstop always has current messages
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
 
-  // Auto-scroll to the latest message
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  const clearRecordingTimers = useCallback(() => {
+    if (stopTimerRef.current !== null) {
+      window.clearTimeout(stopTimerRef.current)
+      stopTimerRef.current = null
     }
-  }, [messages])
-
-  // Cleanup on unmount: stop speech, recording, animation
-  useEffect(() => {
-    return () => {
-      speechSynthesis.cancel()
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
-      }
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current)
-      }
+    if (countdownRef.current !== null) {
+      window.clearInterval(countdownRef.current)
+      countdownRef.current = null
     }
   }, [])
 
-  useEffect(() => {
-    navigator.mediaDevices?.enumerateDevices().then(devices => {
-      const audioInput = devices.some(d => d.kind === 'audioinput' && d.deviceId)
-      setHasMic(audioInput)
-    }).catch(() => setHasMic(false))
-  }, [])
-
-  const handleTextSubmit = useCallback(async () => {
-    const text = textInput.trim()
-    if (!text || appState !== 'idle') return
-    setTextInput('')
-    setError(null)
-
-    const userMessage: Message = { role: 'user', content: text }
-    const updatedMessages = [...messages, userMessage]
-    setMessages(updatedMessages)
-    setAppState('thinking')
-
-    try {
-      // Send trimmed history to avoid token overflow
-      const historyToSend = updatedMessages.slice(-MAX_HISTORY_MESSAGES)
-      const response = await chat(text, historyToSend.slice(0, -1))
-      const assistantMessage: Message = { role: 'assistant', content: response }
-      setMessages(prev => [...prev, assistantMessage])
-      setAppState('speaking')
-      const utterance = new SpeechSynthesisUtterance(response)
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.onend = () => setAppState('idle')
-      utterance.onerror = () => {
-        setError('Voice playback failed. Response is shown in chat.')
-        setAppState('idle')
-      }
-      speechSynthesis.speak(utterance)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI failed')
-      setAppState('idle')
-    }
-  }, [textInput, appState, messages])
-
-  const drawWaveform = useCallback(() => {
-    const canvas = canvasRef.current
-    const analyser = analyserRef.current
-    if (!canvas || !analyser) return
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const bufferLength = analyser.frequencyBinCount
-    const dataArray = new Uint8Array(bufferLength)
-    analyser.getByteFrequencyData(dataArray)
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    const barCount = 48
-    const barWidth = (canvas.width / barCount) * 0.6
-    const gap = (canvas.width / barCount) * 0.4
-    const centerY = canvas.height / 2
-
-    for (let i = 0; i < barCount; i++) {
-      const dataIndex = Math.floor((i / barCount) * bufferLength)
-      const value = dataArray[dataIndex] / 255
-      const barHeight = Math.max(4, value * canvas.height * 0.8)
-
-      const x = i * (barWidth + gap) + gap / 2
-      const alpha = 0.4 + value * 0.6
-
-      const gradient = ctx.createLinearGradient(0, centerY - barHeight / 2, 0, centerY + barHeight / 2)
-      gradient.addColorStop(0, `rgba(167, 139, 250, ${alpha})`)
-      gradient.addColorStop(0.5, `rgba(139, 92, 246, ${alpha})`)
-      gradient.addColorStop(1, `rgba(109, 40, 217, ${alpha})`)
-
-      ctx.fillStyle = gradient
-      ctx.beginPath()
-      ctx.roundRect(x, centerY - barHeight / 2, barWidth, barHeight, 2)
-      ctx.fill()
-    }
-
-    animFrameRef.current = requestAnimationFrame(drawWaveform)
-  }, [])
-
-  const drawIdle = useCallback(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    const barCount = 48
-    const barWidth = (canvas.width / barCount) * 0.6
-    const gap = (canvas.width / barCount) * 0.4
-    const centerY = canvas.height / 2
-    const time = Date.now() / 1000
-
-    for (let i = 0; i < barCount; i++) {
-      const wave = Math.sin(i * 0.3 + time * 2) * 0.15 + 0.1
-      const barHeight = Math.max(3, wave * canvas.height)
-      const x = i * (barWidth + gap) + gap / 2
-
-      ctx.fillStyle = `rgba(139, 92, 246, 0.3)`
-      ctx.beginPath()
-      ctx.roundRect(x, centerY - barHeight / 2, barWidth, barHeight, 2)
-      ctx.fill()
-    }
-
-    animFrameRef.current = requestAnimationFrame(drawIdle)
-  }, [])
-
-  useEffect(() => {
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-    if (appState === 'recording') {
-      drawWaveform()
-    } else {
-      drawIdle()
-    }
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-    }
-  }, [appState, drawWaveform, drawIdle])
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-    }
+  // Releases the mic and the analyser graph. Called from recorder.onstop so the
+  // final `dataavailable` chunk has already landed before the stream dies.
+  const releaseAudio = useCallback(() => {
+    clearRecordingTimers()
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close()
+      void audioContextRef.current.close().catch(() => {})
       audioContextRef.current = null
-      analyserRef.current = null
     }
+    analyserRef.current = null
+  }, [clearRecordingTimers])
+
+  // Cleanup on unmount: stop speech, recording, in-flight requests
+  useEffect(() => {
+    return () => {
+      speakRef.current?.cancel()
+      cancelSpeech()
+      abortRef.current?.abort()
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      releaseAudio()
+    }
+  }, [releaseAudio])
+
+  useEffect(() => {
+    if (!isRecordingSupported()) {
+      setHasMic(false)
+      return
+    }
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then(devices => setHasMic(devices.some(d => d.kind === 'audioinput')))
+      .catch(() => setHasMic(false))
   }, [])
 
-  const startRecording = useCallback(async () => {
-    setError(null)
-    chunksRef.current = []
+  // Waveform loop. Every frame re-syncs the backing store, so a resize or a
+  // move to a different-DPR screen is picked up automatically; the loop is
+  // parked while the tab is hidden.
+  useEffect(() => {
+    let frame = 0
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    streamRef.current = stream
-
-    const audioContext = new AudioContext()
-    audioContextRef.current = audioContext
-    const source = audioContext.createMediaStreamSource(stream)
-    const analyser = audioContext.createAnalyser()
-    analyser.fftSize = 256
-    source.connect(analyser)
-    analyserRef.current = analyser
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm'
-
-    const recorder = new MediaRecorder(stream, { mimeType })
-    mediaRecorderRef.current = recorder
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data)
+    const paint = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      if (appState === 'recording' && analyserRef.current) {
+        drawActiveWaveform(canvas, analyserRef.current)
+      } else {
+        drawIdleWaveform(canvas)
+      }
     }
 
-    recorder.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: mimeType })
+    const render = () => {
+      paint()
+      frame = window.requestAnimationFrame(render)
+    }
+
+    const start = () => {
+      if (!frame) frame = window.requestAnimationFrame(render)
+    }
+    const stop = () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame)
+        frame = 0
+      }
+    }
+    const onVisibility = () => (document.hidden ? stop() : start())
+
+    // Paint once up front: a hidden tab (or a browser that withholds frames)
+    // would otherwise leave the canvas at its unsized default.
+    paint()
+    if (!document.hidden) start()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    const canvas = canvasRef.current
+    const observer = canvas ? new ResizeObserver(() => paint()) : null
+    if (canvas && observer) observer.observe(canvas)
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      observer?.disconnect()
+      stop()
+    }
+  }, [appState])
+
+  const speakResponse = useCallback((text: string) => {
+    setAppState('speaking')
+    speakRef.current = speak(text, {
+      onEnd: () => setAppState('idle'),
+      onError: message => {
+        setError(message)
+        setAppState('idle')
+      },
+    })
+  }, [])
+
+  // Single path for "user said something" — used by both the mic and the text
+  // box so history trimming, error handling and playback behave identically.
+  const sendAndSpeak = useCallback(
+    async (text: string) => {
+      const updated = [...messagesRef.current, newMessage('user', text)]
+      messagesRef.current = updated
+      setMessages(updated)
+      setAppState('thinking')
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      try {
+        // Send trimmed history to avoid token overflow
+        const historyToSend = updated
+          .slice(-MAX_HISTORY_MESSAGES)
+          .slice(0, -1)
+          .map(({ role, content }) => ({ role, content }))
+        const response = await chat(text, historyToSend, controller.signal)
+        setMessages(prev => [...prev, newMessage('assistant', response)])
+        speakResponse(response)
+      } catch (err) {
+        if (isAbort(err)) {
+          setAppState('idle')
+          return
+        }
+        setError(err instanceof Error ? err.message : 'The assistant failed. Try again.')
+        setAppState('idle')
+      } finally {
+        abortRef.current = null
+      }
+    },
+    [speakResponse],
+  )
+
+  const handleRecording = useCallback(
+    async (blob: Blob) => {
       setAppState('transcribing')
+      const controller = new AbortController()
+      abortRef.current = controller
 
       let text = ''
       try {
-        text = await transcribe(blob)
+        text = await transcribe(blob, controller.signal)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Transcription failed')
+        if (isAbort(err)) {
+          setAppState('idle')
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Transcription failed. Try again.')
         setAppState('idle')
         return
+      } finally {
+        abortRef.current = null
       }
 
-      if (!text.trim()) {
+      if (!text.trim() || isLikelySilence(text)) {
         setError('No speech detected. Try speaking louder or closer to the microphone.')
         setAppState('idle')
         return
       }
 
-      const userMessage: Message = { role: 'user', content: text }
-      // Use ref for current messages to avoid stale closure
-      const currentMessages = messagesRef.current
-      const updatedMessages = [...currentMessages, userMessage]
-      setMessages(updatedMessages)
-      setAppState('thinking')
+      await sendAndSpeak(text)
+    },
+    [sendAndSpeak],
+  )
 
-      let response = ''
-      try {
-        // Send trimmed history to avoid token overflow
-        const historyToSend = updatedMessages.slice(-MAX_HISTORY_MESSAGES)
-        response = await chat(text, historyToSend.slice(0, -1))
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'AI failed')
-        setAppState('idle')
-        return
-      }
+  const stopRecording = useCallback(() => {
+    clearRecordingTimers()
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    } else {
+      releaseAudio()
+      setAppState('idle')
+    }
+  }, [clearRecordingTimers, releaseAudio])
 
-      const assistantMessage: Message = { role: 'assistant', content: response }
-      setMessages(prev => [...prev, assistantMessage])
-      setAppState('speaking')
+  const startRecording = useCallback(async () => {
+    setError(null)
+    chunksRef.current = []
 
-      const utterance = new SpeechSynthesisUtterance(response)
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.onend = () => setAppState('idle')
-      utterance.onerror = () => {
-        setError('Voice playback failed. Response is shown in chat.')
-        setAppState('idle')
-      }
-      speechSynthesis.speak(utterance)
+    if (!isRecordingSupported()) {
+      throw Object.assign(new Error('Recording unsupported'), { name: 'NotSupportedError' })
     }
 
-    recorder.start(100)
-    setAppState('recording')
-  }, [])
+    const mimeType = pickRecorderMimeType()
+    if (mimeType === null) {
+      throw Object.assign(new Error('No supported recording format'), { name: 'NotSupportedError' })
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    streamRef.current = stream
+
+    try {
+      const audioContext = createAudioContext()
+      audioContextRef.current = audioContext
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 256
+      audioContext.createMediaStreamSource(stream).connect(analyser)
+      analyserRef.current = analyser
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      recorder.onerror = () => {
+        releaseAudio()
+        setError('Recording stopped unexpectedly. Try again.')
+        setAppState('idle')
+      }
+
+      // Teardown lives here so the final dataavailable chunk is captured before
+      // the stream and the audio graph are released.
+      recorder.onstop = () => {
+        const type = recorder.mimeType || mimeType || 'audio/webm'
+        const blob = new Blob(chunksRef.current, { type })
+        chunksRef.current = []
+        releaseAudio()
+        void handleRecording(blob)
+      }
+
+      recorder.start(100)
+      setAppState('recording')
+      setMsLeft(MAX_RECORDING_MS)
+
+      const deadline = Date.now() + MAX_RECORDING_MS
+      countdownRef.current = window.setInterval(
+        () => setMsLeft(deadline - Date.now()),
+        COUNTDOWN_TICK_MS,
+      )
+      stopTimerRef.current = window.setTimeout(() => {
+        setError(`Reached the ${MAX_RECORDING_SECONDS} second limit — transcribing what was recorded.`)
+        stopRecording()
+      }, MAX_RECORDING_MS)
+    } catch (err) {
+      releaseAudio()
+      throw err
+    }
+  }, [handleRecording, releaseAudio, stopRecording])
 
   const handleMicClick = useCallback(async () => {
     if (appState === 'recording') {
       stopRecording()
-    } else if (appState === 'idle') {
-      try {
-        await startRecording()
-      } catch {
-        setHasMic(false)
-        setError('No microphone found. Use the text input below to chat.')
-        setAppState('idle')
-      }
-    } else if (appState === 'speaking') {
-      speechSynthesis.cancel()
+      return
+    }
+    if (appState === 'speaking') {
+      speakRef.current?.cancel()
+      speakRef.current = null
+      setAppState('idle')
+      return
+    }
+    if (appState !== 'idle') return
+
+    try {
+      await startRecording()
+    } catch (err) {
+      const name = err instanceof Error ? err.name : ''
+      if (name === 'NotFoundError' || name === 'NotSupportedError') setHasMic(false)
+      setError(micErrorMessage(err))
       setAppState('idle')
     }
   }, [appState, startRecording, stopRecording])
 
-  const stateLabel: Record<AppState, string> = {
-    idle: 'Tap to speak',
-    recording: 'Recording\u2026 tap to stop',
-    transcribing: 'Transcribing\u2026',
-    thinking: 'Thinking\u2026',
-    speaking: 'Speaking\u2026 tap to stop',
-  }
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setAppState('idle')
+  }, [])
+
+  const handleTextSubmit = useCallback(() => {
+    const text = textInput.trim()
+    if (!text || appState !== 'idle') return
+    setTextInput('')
+    setError(null)
+    void sendAndSpeak(text)
+  }, [textInput, appState, sendAndSpeak])
+
+  const handleClear = useCallback(() => {
+    speakRef.current?.cancel()
+    speakRef.current = null
+    abortRef.current?.abort()
+    abortRef.current = null
+    messagesRef.current = []
+    setMessages([])
+    setError(null)
+    setAppState('idle')
+  }, [])
 
   const isProcessing = appState === 'transcribing' || appState === 'thinking'
+  const micDisabled = isProcessing || (!hasMic && appState === 'idle')
+
+  const stateLabel: Record<AppState, string> = {
+    idle: hasMic ? 'Tap to speak' : 'Type a message to start',
+    recording: `Recording… tap to stop · ${formatCountdown(msLeft)} left`,
+    transcribing: 'Transcribing…',
+    thinking: 'Thinking…',
+    speaking: 'Speaking… tap to stop',
+  }
+
+  const micTitle =
+    appState === 'recording'
+      ? 'Stop recording and transcribe'
+      : appState === 'speaking'
+        ? 'Stop the spoken response'
+        : hasMic
+          ? `Start recording your question (${MAX_RECORDING_SECONDS} second maximum)`
+          : 'No microphone available — use the text box below'
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col items-center" style={{ fontFamily: 'Lexend, sans-serif' }}>
-      <header className="w-full flex items-center justify-between px-8 py-5 border-b border-zinc-800/50">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}>
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-              <rect x="12" y="3" width="8" height="16" rx="4" fill="#8b5cf6" opacity="0.3" stroke="#8b5cf6" strokeWidth="1.5"/>
-              <path d="M8 14v2a8 8 0 0016 0v-2" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round"/>
-              <line x1="16" y1="24" x2="16" y2="29" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M4 16c0 0 3-4 6-2s4 6 6 4 4-6 6-4 6 2 6 2" stroke="#c4b5fd" strokeWidth="1.5" opacity="0.4" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <span className="text-xl font-semibold tracking-tight text-white">VoxAI</span>
-        </div>
-        <span className="text-xs text-zinc-500 font-mono">Voice AI Assistant</span>
-      </header>
-      <div className="w-full px-8 py-3 border-b border-zinc-800/30" style={{ background: 'rgba(139,92,246,0.03)' }}>
-        <p className="text-xs text-zinc-400 leading-relaxed max-w-2xl mx-auto text-center" style={{ margin: 0 }}>
-          Hit the mic button and just talk. Your voice gets transcribed on the fly, the AI thinks through a response, and reads it back to you out loud. No microphone? The text box works just as well.
-        </p>
-      </div>
+      <Header />
 
       <main className="flex-1 flex flex-col items-center justify-center gap-10 px-6 py-12 w-full max-w-2xl mx-auto">
         <div className="flex flex-col items-center gap-6 w-full">
           <div
             className="relative w-full rounded-2xl overflow-hidden"
             style={{ height: 200, background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.15)' }}
+            title="Live microphone level while recording"
           >
-            <canvas
-              ref={canvasRef}
-              width={600}
-              height={200}
-              className="w-full h-full"
-            />
+            <canvas ref={canvasRef} className="w-full h-full" aria-hidden="true" />
             {isProcessing && (
               <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(9,9,11,0.7)' }}>
-                <Loader2 size={32} color="#8b5cf6" className="animate-spin" />
+                <Loader2 size={32} color="#8b5cf6" className="animate-spin" aria-hidden="true" />
               </div>
             )}
           </div>
 
           <div className="flex flex-col items-center gap-6">
             <motion.button
+              type="button"
               onClick={handleMicClick}
-              disabled={isProcessing}
+              disabled={micDisabled}
               whileTap={{ scale: 0.94 }}
-              className="relative w-20 h-20 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
+              aria-label={micTitle}
+              title={micTitle}
+              className="relative w-20 h-20 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
               style={{
                 background: appState === 'recording'
                   ? 'linear-gradient(135deg, #ef4444, #dc2626)'
@@ -367,104 +432,51 @@ export default function App() {
                 />
               )}
               {appState === 'speaking' ? (
-                <Volume2 size={28} color="white" />
+                <Volume2 size={28} color="white" aria-hidden="true" />
               ) : appState === 'recording' ? (
-                <MicOff size={28} color="white" />
+                <MicOff size={28} color="white" aria-hidden="true" />
               ) : (
-                <Mic size={28} color="white" />
+                <Mic size={28} color="white" aria-hidden="true" />
               )}
             </motion.button>
 
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={appState}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.2 }}
+            <div className="flex flex-col items-center gap-3">
+              <p
+                aria-live="polite"
+                title="Current assistant status"
                 className="text-sm font-medium"
-                style={{ color: appState === 'recording' ? '#f87171' : '#a1a1aa' }}
+                style={{ color: appState === 'recording' ? '#f87171' : '#a1a1aa', margin: 0 }}
               >
                 {stateLabel[appState]}
-              </motion.p>
-            </AnimatePresence>
+              </p>
+
+              {isProcessing && (
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  aria-label="Cancel the request in progress"
+                  title="Cancel the request in progress"
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                  style={{ background: '#18181b', border: '1px solid #3f3f46' }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="w-full flex gap-2">
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value.slice(0, MAX_TEXT_INPUT_LENGTH))}
-            onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
-            placeholder={hasMic ? 'Or type a message...' : 'Type a message...'}
-            disabled={appState !== 'idle'}
-            maxLength={MAX_TEXT_INPUT_LENGTH}
-            className="flex-1 px-4 py-3 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 disabled:opacity-50"
-            style={{ background: '#18181b', border: '1px solid #27272a' }}
-          />
-          <button
-            onClick={handleTextSubmit}
-            disabled={!textInput.trim() || appState !== 'idle'}
-            className="px-4 py-3 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
-          >
-            <Send size={16} />
-          </button>
-        </div>
+        <MessageInput
+          value={textInput}
+          onChange={setTextInput}
+          onSubmit={handleTextSubmit}
+          disabled={appState !== 'idle'}
+          hasMic={hasMic}
+        />
 
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="w-full px-4 py-3 rounded-xl text-sm text-red-400"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-            >
-              {error}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-        {messages.length > 0 && (
-          <div className="w-full space-y-3">
-            <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium uppercase tracking-wider">
-              <MessageCircle size={12} />
-              Conversation
-            </div>
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}>
-              <AnimatePresence initial={false}>
-                {messages.map((msg, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className="max-w-xs px-4 py-2.5 rounded-2xl text-sm leading-relaxed"
-                      style={msg.role === 'user' ? {
-                        background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
-                        color: 'white',
-                        borderBottomRightRadius: 4,
-                      } : {
-                        background: '#18181b',
-                        color: '#d4d4d8',
-                        border: '1px solid #27272a',
-                        borderBottomLeftRadius: 4,
-                      }}
-                    >
-                      {msg.content}
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-              <div ref={chatEndRef} />
-            </div>
-          </div>
-        )}
+        <Conversation messages={messages} onClear={handleClear} />
       </main>
 
       <footer className="pb-6 text-center text-xs text-zinc-600">

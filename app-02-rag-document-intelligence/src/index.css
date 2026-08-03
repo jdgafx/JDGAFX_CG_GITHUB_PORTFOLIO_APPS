@@ -64,63 +64,6 @@ body {
   flex-direction: column;
 }
 
-.glass {
-  background: var(--color-bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--color-border);
-}
-
-.glass-accent {
-  background: var(--color-bg-card);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--color-border-accent);
-  box-shadow: 0 0 24px var(--color-accent-dim), inset 0 0 24px rgba(0, 255, 136, 0.02);
-}
-
-.glow-accent {
-  box-shadow: 0 0 16px var(--color-accent-dim), 0 0 40px rgba(0, 255, 136, 0.06);
-}
-
 .text-glow {
   text-shadow: 0 0 20px var(--color-accent-glow);
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px var(--color-accent-dim); }
-  50% { box-shadow: 0 0 24px var(--color-accent-glow), 0 0 48px var(--color-accent-dim); }
-}
-
-.pulse-glow {
-  animation: pulse-glow 2.5s ease-in-out infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.typing-cursor::after {
-  content: '▊';
-  color: var(--color-accent);
-  animation: blink 1s step-end infinite;
-  margin-left: 2px;
-}
-
-@keyframes chunk-highlight-in {
-  from {
-    background-color: transparent;
-    box-shadow: none;
-  }
-  to {
-    background-color: rgba(0, 255, 136, 0.08);
-    box-shadow: inset 2px 0 0 var(--color-accent);
-  }
-}
-
-.chunk-highlighted {
-  animation: chunk-highlight-in 0.2s ease forwards;
-  background-color: rgba(0, 255, 136, 0.08);
-  box-shadow: inset 2px 0 0 var(--color-accent);
 }

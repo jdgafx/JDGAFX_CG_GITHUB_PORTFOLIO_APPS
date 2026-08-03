@@ -8,6 +8,15 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        // The export libraries are already lazy-loaded; splitting the graph
+        // renderer keeps the entry chunk down to the shell plus React.
+        manualChunks: {
+          reactflow: ['@xyflow/react'],
+        },
+      },
+    },
   },
   server: {
     proxy: {

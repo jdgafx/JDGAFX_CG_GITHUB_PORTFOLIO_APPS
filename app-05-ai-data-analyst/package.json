@@ -15,8 +15,7 @@
     "recharts": "^2.15.0",
     "papaparse": "^5.5.3",
     "lucide-react": "^0.469.0",
-    "framer-motion": "^11.18.0",
-    "@anthropic-ai/sdk": "^0.39.0"
+    "framer-motion": "^11.18.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

@@ -4,6 +4,7 @@ export interface DailyUsage {
   tokens: number
   cost: number
   response_time: number
+  error_rate: number
 }
 
 export interface FeatureUsage {
@@ -11,21 +12,27 @@ export interface FeatureUsage {
   calls: number
 }
 
-export interface HourlyActivity {
-  hour: string
-  requests: number
-}
-
 export interface SummaryStats {
   totalApiCalls: number
   totalTokens: number
   avgResponseTime: number
   totalCost: number
+  avgErrorRate: number
   apiCallsTrend: number
   tokensTrend: number
   responseTimeTrend: number
   costTrend: number
+  errorRateTrend: number
 }
+
+/** Days of history the charts cover. */
+export const WINDOW_DAYS = 30
+
+/** Metric cards compare the latest half of the window against the half before it. */
+export const COMPARISON_DAYS = WINDOW_DAYS / 2
+
+/** Fixed seed keeps the demo's shape identical across reloads and browsers. */
+const SEED = 42
 
 function seedRand(seed: number): () => number {
   let s = seed
@@ -35,23 +42,41 @@ function seedRand(seed: number): () => number {
   }
 }
 
+function round(value: number, decimals: number): number {
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
+
+/** Local-calendar YYYY-MM-DD — toISOString() would shift the day in most timezones. */
+function isoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 function generateDailyUsage(): DailyUsage[] {
-  const rand = seedRand(42)
+  const rand = seedRand(SEED)
   const result: DailyUsage[] = []
-  const today = new Date(2026, 1, 20)
+  const today = new Date()
 
-  for (let i = 29; i >= 0; i--) {
+  for (let offset = WINDOW_DAYS - 1; offset >= 0; offset--) {
     const date = new Date(today)
-    date.setDate(today.getDate() - i)
-    const dateStr = date.toISOString().split('T')[0]
+    date.setDate(today.getDate() - offset)
 
-    const base = 1000 + i * 30
-    const api_calls = Math.round(base + rand() * 500 - 250)
+    // day 0 is the oldest point in the window, day 29 is today: traffic grows
+    // while latency and errors improve, the shape of a healthy product.
+    const day = WINDOW_DAYS - 1 - offset
+
+    const api_calls = Math.round(1000 + day * 30 + rand() * 500 - 250)
     const tokens = Math.round(api_calls * (1500 + rand() * 500))
-    const cost = Math.round(tokens * 0.0000015 * 100) / 100
-    const response_time = Math.round(180 + rand() * 120)
+    // Blended cost per token falls as prompt caching adoption rises, so spend
+    // grows slower than usage.
+    const unitCost = 0.0000018 - day * 0.00000002
+    const cost = round(tokens * unitCost, 2)
+    const response_time = Math.round(260 - day * 2 + rand() * 90)
+    const error_rate = round(Math.max(0.1, 2.4 - day * 0.05 + rand() * 0.6), 2)
 
-    result.push({ date: dateStr, api_calls, tokens, cost, response_time })
+    result.push({ date: isoDate(date), api_calls, tokens, cost, response_time, error_rate })
   }
   return result
 }
@@ -69,36 +94,39 @@ export const mockFeatureUsage: FeatureUsage[] = [
   { feature: 'Analyze', calls: 980 },
 ]
 
-export const mockHourlyActivity: HourlyActivity[] = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${String(i).padStart(2, '0')}:00`,
-  requests: Math.round(20 + Math.sin((i - 9) * 0.4) * 80 + Math.random() * 30),
-}))
-
 function computeSummary(): SummaryStats {
-  const recent = mockDailyUsage.slice(15)
-  const prev = mockDailyUsage.slice(0, 15)
+  const recent = mockDailyUsage.slice(COMPARISON_DAYS)
+  const prev = mockDailyUsage.slice(0, COMPARISON_DAYS)
 
-  const recentCalls = recent.reduce((s, d) => s + d.api_calls, 0)
-  const prevCalls = prev.reduce((s, d) => s + d.api_calls, 0)
-  const recentTokens = recent.reduce((s, d) => s + d.tokens, 0)
-  const prevTokens = prev.reduce((s, d) => s + d.tokens, 0)
-  const recentRT = recent.reduce((s, d) => s + d.response_time, 0) / recent.length
-  const prevRT = prev.reduce((s, d) => s + d.response_time, 0) / prev.length
-  const recentCost = recent.reduce((s, d) => s + d.cost, 0)
-  const prevCost = prev.reduce((s, d) => s + d.cost, 0)
+  const sum = (rows: DailyUsage[], pick: (d: DailyUsage) => number) =>
+    rows.reduce((total, d) => total + pick(d), 0)
+  const avg = (rows: DailyUsage[], pick: (d: DailyUsage) => number) =>
+    sum(rows, pick) / rows.length
 
-  const trend = (curr: number, prev: number) =>
-    Math.round(((curr - prev) / prev) * 100 * 10) / 10
+  const recentCalls = sum(recent, (d) => d.api_calls)
+  const prevCalls = sum(prev, (d) => d.api_calls)
+  const recentTokens = sum(recent, (d) => d.tokens)
+  const prevTokens = sum(prev, (d) => d.tokens)
+  const recentCost = sum(recent, (d) => d.cost)
+  const prevCost = sum(prev, (d) => d.cost)
+  const recentRT = avg(recent, (d) => d.response_time)
+  const prevRT = avg(prev, (d) => d.response_time)
+  const recentER = avg(recent, (d) => d.error_rate)
+  const prevER = avg(prev, (d) => d.error_rate)
+
+  const trend = (curr: number, before: number) => round(((curr - before) / before) * 100, 1)
 
   return {
     totalApiCalls: recentCalls,
     totalTokens: recentTokens,
     avgResponseTime: Math.round(recentRT),
-    totalCost: Math.round(recentCost * 100) / 100,
+    totalCost: round(recentCost, 2),
+    avgErrorRate: round(recentER, 2),
     apiCallsTrend: trend(recentCalls, prevCalls),
     tokensTrend: trend(recentTokens, prevTokens),
     responseTimeTrend: trend(recentRT, prevRT),
     costTrend: trend(recentCost, prevCost),
+    errorRateTrend: trend(recentER, prevER),
   }
 }
 

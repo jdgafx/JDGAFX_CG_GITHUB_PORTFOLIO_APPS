@@ -1,5 +1,6 @@
 {
   "name": "insighthub",
+  "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -8,8 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.33.0",
-    "@supabase/supabase-js": "^2.47.0",
+    "@supabase/supabase-js": "^2.111.0",
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",

@@ -12,7 +12,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           recharts: ['recharts'],
-          vendor: ['react', 'react-dom'],
         },
       },
     },

@@ -1,24 +1,21 @@
 import { useRef, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { FileText, Upload, Loader2 } from 'lucide-react'
-
-/** Max file size: 25 MB */
-const MAX_FILE_SIZE = 25 * 1024 * 1024
+import { MAX_FILE_SIZE } from '../lib/constants'
 
 interface UploadZoneProps {
   onFileSelect: (file: File) => void
+  /** Validation problems are raised to the app so every error shares one surface. */
+  onError: (message: string) => void
   isProcessing: boolean
 }
 
-export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
+export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
-  const [fileError, setFileError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFile = useCallback(
     (file: File) => {
-      setFileError(null)
-
       const isValidType =
         file.type === 'application/pdf' ||
         file.type === 'text/plain' ||
@@ -26,25 +23,32 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
         file.name.endsWith('.txt')
 
       if (!isValidType) {
-        setFileError(`Unsupported file type: "${file.name.split('.').pop()?.toUpperCase() || 'unknown'}". Please upload a PDF or TXT file.`)
+        onError(
+          `Unsupported file type: "${file.name.split('.').pop()?.toUpperCase() || 'unknown'}". Please upload a PDF or TXT file.`,
+        )
         return
       }
 
       if (file.size > MAX_FILE_SIZE) {
         const sizeMb = (file.size / (1024 * 1024)).toFixed(1)
-        setFileError(`File too large (${sizeMb} MB). Maximum allowed size is 25 MB.`)
+        const limitMb = Math.round(MAX_FILE_SIZE / (1024 * 1024))
+        onError(`File too large (${sizeMb} MB). Maximum allowed size is ${limitMb} MB.`)
         return
       }
 
       if (file.size === 0) {
-        setFileError('This file appears to be empty.')
+        onError('This file appears to be empty.')
         return
       }
 
       onFileSelect(file)
     },
-    [onFileSelect],
+    [onFileSelect, onError],
   )
+
+  const openPicker = useCallback(() => {
+    if (!isProcessing) inputRef.current?.click()
+  }, [isProcessing])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -66,13 +70,27 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
     setIsDragging(false)
   }, [])
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        openPicker()
+      }
+    },
+    [openPicker],
+  )
+
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
       if (file) handleFile(file)
+      // Reset so re-picking the same file after an error still fires a change.
+      e.target.value = ''
     },
     [handleFile],
   )
+
+  const limitMb = Math.round(MAX_FILE_SIZE / (1024 * 1024))
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-8">
@@ -111,11 +129,18 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.4 }}
-          onClick={() => !isProcessing && inputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-label={`Upload a PDF or TXT document, up to ${limitMb} megabytes`}
+          aria-busy={isProcessing}
+          aria-disabled={isProcessing}
+          title={isProcessing ? 'Reading your document...' : `Click, or press Enter, to choose a PDF or TXT file (max ${limitMb} MB)`}
+          onClick={openPicker}
+          onKeyDown={handleKeyDown}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          className="relative cursor-pointer rounded-2xl p-12 flex flex-col items-center gap-5 transition-all duration-200"
+          className="relative cursor-pointer rounded-2xl p-12 flex flex-col items-center gap-5 transition-all duration-200 outline-none focus-visible:ring-2"
           style={{
             border: `2px dashed ${isDragging ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
             background: isDragging ? 'var(--color-accent-muted)' : 'var(--color-bg-card)',
@@ -171,6 +196,7 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
                   <span
                     key={fmt}
                     className="px-3 py-1 rounded-full text-xs font-medium"
+                    title={`${fmt} files are supported`}
                     style={{
                       fontFamily: 'var(--font-mono)',
                       background: 'var(--color-accent-dim)',
@@ -190,24 +216,10 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
             type="file"
             accept=".pdf,.txt,text/plain,application/pdf"
             className="hidden"
+            tabIndex={-1}
             onChange={handleInputChange}
           />
         </motion.div>
-
-        {fileError && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-4 mx-auto max-w-md px-4 py-3 rounded-lg text-sm"
-            style={{
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              color: '#ef4444',
-            }}
-          >
-            {fileError}
-          </motion.div>
-        )}
 
         <motion.p
           initial={{ opacity: 0 }}
@@ -216,7 +228,8 @@ export function UploadZone({ onFileSelect, isProcessing }: UploadZoneProps) {
           className="text-center mt-6 text-sm"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          All processing happens client-side. Your document never leaves your browser (max 25 MB).
+          PDF parsing happens in your browser; only passages relevant to your question are sent to
+          the AI model (max {limitMb} MB).
         </motion.p>
       </motion.div>
     </div>

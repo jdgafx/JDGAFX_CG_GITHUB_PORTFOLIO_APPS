@@ -16,8 +16,10 @@
   --color-accent: #f43f5e;
   --color-accent-dim: #be123c;
 
-  --font-sans: 'Darker Grotesque', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  /* Fonts load from the Google Fonts CDN; the fallbacks keep the UI readable
+     when that CDN is blocked or offline. */
+  --font-sans: 'Darker Grotesque', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 *, *::before, *::after {
@@ -29,7 +31,7 @@ html {
 }
 
 body {
-  font-family: 'Darker Grotesque', sans-serif;
+  font-family: var(--font-sans);
   background-color: #080810;
   color: #e2e8f0;
   margin: 0;
@@ -60,4 +62,31 @@ body {
 ::selection {
   background: #f43f5e33;
   color: #fff;
+}
+
+/* Rendered analysis output. The caret rides the end of the last block so the
+   streaming cue survives markdown rendering. */
+.md-body {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.8;
+  color: #d1d5db;
+  word-break: break-word;
+}
+
+.md-streaming > *:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  margin-left: 3px;
+  vertical-align: middle;
+  background: #f43f5e;
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
 }

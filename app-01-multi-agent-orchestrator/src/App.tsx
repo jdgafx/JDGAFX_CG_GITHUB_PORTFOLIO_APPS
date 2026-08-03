@@ -1,69 +1,45 @@
 import '@xyflow/react/dist/style.css'
-import { useState, useCallback, useRef, useEffect } from 'react'
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  useNodesState,
-  useEdgesState,
-  type NodeTypes,
-  type Node,
-  type Edge,
-} from '@xyflow/react'
-import { ChevronRight, Square, Download, FileText, FileCode } from 'lucide-react'
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
-import { saveAs } from 'file-saver'
-import { jsPDF } from 'jspdf'
-import { AgentNode } from './components/AgentNode'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEdgesState, useNodesState, type Edge, type Node } from '@xyflow/react'
+import { ExportBar, type ExportKind } from './components/ExportBar'
+import { Header } from './components/Header'
+import { OutputPanel } from './components/OutputPanel'
+import { PipelineCanvas } from './components/PipelineCanvas'
+import { QueryBar } from './components/QueryBar'
+import { StatusPanel } from './components/StatusPanel'
+import { AGENT_ORDER, MAX_QUERY_CHARS, createAgents, hasUsefulOutput, wasTruncated } from './lib/agents'
 import { startResearch } from './lib/api'
 import type { AgentRole, AgentState, StreamEvent } from './types'
 
-const nodeTypes: NodeTypes = { agent: AgentNode as unknown as NodeTypes[string] }
+/** Matches the stacked-layout breakpoint in index.css. */
+const COMPACT_QUERY = '(max-width: 767px)'
 
-const AGENT_ORDER: AgentRole[] = ['researcher', 'analyst', 'critic', 'synthesizer']
-
-const AGENT_LABELS: Record<AgentRole, string> = {
-  researcher: 'Research Findings',
-  analyst: 'Analysis',
-  critic: 'Critical Review',
-  synthesizer: 'Final Synthesis',
+function useIsCompact(): boolean {
+  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches)
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_QUERY)
+    const onChange = (event: MediaQueryListEvent) => setCompact(event.matches)
+    setCompact(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return compact
 }
 
-const AGENT_ACTIVITY: Record<AgentRole, { working: string; complete: string; idle: string }> = {
-  researcher: {
-    working: 'Gathering data, statistics, and key findings from multiple sources...',
-    complete: 'Research complete — findings ready for analysis.',
-    idle: 'Standing by to research your topic.',
-  },
-  analyst: {
-    working: 'Analyzing research findings — identifying patterns, correlations, and insights...',
-    complete: 'Analysis complete — structured insights ready for review.',
-    idle: 'Waiting for research data to analyze.',
-  },
-  critic: {
-    working: 'Reviewing analysis for gaps, biases, and missing perspectives...',
-    complete: 'Critical review complete — feedback incorporated.',
-    idle: 'Waiting for analysis to review.',
-  },
-  synthesizer: {
-    working: 'Combining all findings into a polished, comprehensive final report...',
-    complete: 'Synthesis complete — final report ready to download.',
-    idle: 'Waiting for all agents to finish before synthesizing.',
-  },
+/**
+ * Stacked on desktop. On a phone the graph area is short and wide, where a
+ * four-node column can only fit at an unreadable zoom, so it becomes a 2x2 grid.
+ */
+function nodePosition(index: number, compact: boolean): { x: number; y: number } {
+  if (compact) return { x: (index % 2) * 250 + 30, y: Math.floor(index / 2) * 175 + 20 }
+  return { x: 60, y: index * 160 + 20 }
 }
 
-const DEFAULT_AGENTS: Record<AgentRole, AgentState> = {
-  researcher: { id: 'researcher', name: 'Research Agent', description: 'Gathers data & findings', status: 'idle', output: '', tokens: 0 },
-  analyst: { id: 'analyst', name: 'Analyst Agent', description: 'Identifies patterns', status: 'idle', output: '', tokens: 0 },
-  critic: { id: 'critic', name: 'Critic Agent', description: 'Reviews for gaps', status: 'idle', output: '', tokens: 0 },
-  synthesizer: { id: 'synthesizer', name: 'Synthesizer Agent', description: 'Produces final report', status: 'idle', output: '', tokens: 0 },
-}
-
-function buildNodes(agents: Record<AgentRole, AgentState>): Node[] {
+function buildNodes(agents: Record<AgentRole, AgentState>, compact: boolean): Node[] {
   return AGENT_ORDER.map((role, i) => ({
     id: role,
     type: 'agent',
-    position: { x: 60, y: i * 160 + 20 },
+    position: nodePosition(i, compact),
     draggable: false,
     selectable: false,
     connectable: false,
@@ -78,234 +54,214 @@ const STATIC_EDGES: Edge[] = AGENT_ORDER.slice(0, -1).map((role, i) => ({
   animated: false,
 }))
 
-function formatTime(s: number): string {
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-async function generateDocx(query: string, agents: Record<AgentRole, AgentState>): Promise<void> {
-  const children: Paragraph[] = [
-    new Paragraph({
-      children: [new TextRun({ text: `Research Report: ${query}`, bold: true, size: 48 })],
-      spacing: { after: 200 },
-    }),
-    new Paragraph({
-      children: [new TextRun({ text: 'Generated by AgentFlow Multi-Agent AI Pipeline', italics: true, size: 20, color: '888888' })],
-      spacing: { after: 600 },
-    }),
-  ]
-  for (const role of AGENT_ORDER) {
-    const output = agents[role].output || 'No output generated.'
-    children.push(
-      new Paragraph({
-        text: AGENT_LABELS[role],
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 400, after: 200 },
-      }),
-    )
-    const paras = output.split(/\n\n+/).filter(p => p.trim())
-    for (const para of paras) {
-      children.push(
-        new Paragraph({
-          children: [new TextRun({ text: para.trim(), size: 22 })],
-          spacing: { after: 160 },
-        }),
-      )
-    }
-  }
-  const doc = new Document({ sections: [{ children }] })
-  const blob = await Packer.toBlob(doc)
-  const slug = query.slice(0, 40).replace(/[^a-z0-9]/gi, '-').toLowerCase()
-  saveAs(blob, `research-report-${slug}.docx`)
-}
-
-function generatePdf(query: string, agents: Record<AgentRole, AgentState>): void {
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const pageW = pdf.internal.pageSize.getWidth()
-  const pageH = pdf.internal.pageSize.getHeight()
-  const margin = 20
-  const maxW = pageW - margin * 2
-  let y = margin
-
-  function addLine(text: string, size: number, bold: boolean, r: number, g: number, b: number): void {
-    pdf.setFontSize(size)
-    pdf.setFont('helvetica', bold ? 'bold' : 'normal')
-    pdf.setTextColor(r, g, b)
-    const lines = pdf.splitTextToSize(text, maxW) as string[]
-    for (const line of lines) {
-      if (y + size * 0.5 > pageH - margin) {
-        pdf.addPage()
-        y = margin
-      }
-      pdf.text(line, margin, y)
-      y += size * 0.45
-    }
-  }
-
-  addLine('Research Report', 22, true, 0, 180, 220)
-  y += 2
-  addLine(query, 15, false, 30, 40, 60)
-  y += 3
-  addLine('Generated by AgentFlow Multi-Agent AI Pipeline', 9, false, 120, 130, 150)
-  y += 8
-  pdf.setDrawColor(0, 180, 220)
-  pdf.setLineWidth(0.5)
-  pdf.line(margin, y, pageW - margin, y)
-  y += 8
-
-  for (const role of AGENT_ORDER) {
-    const output = agents[role].output || 'No output generated.'
-    const clean = output.replace(/#{1,6}\s*/g, '').replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
-    addLine(AGENT_LABELS[role], 13, true, 0, 140, 180)
-    y += 2
-    addLine(clean, 10, false, 30, 40, 60)
-    y += 5
-    if (y < pageH - margin - 10) {
-      pdf.setDrawColor(200, 210, 220)
-      pdf.setLineWidth(0.2)
-      pdf.line(margin, y, pageW - margin, y)
-      y += 6
-    }
-  }
-
-  const slug = query.slice(0, 40).replace(/[^a-z0-9]/gi, '-').toLowerCase()
-  pdf.save(`research-report-${slug}.pdf`)
-}
-
 export default function App() {
-  const [agents, setAgents] = useState<Record<AgentRole, AgentState>>(DEFAULT_AGENTS)
+  const [agents, setAgents] = useState<Record<AgentRole, AgentState>>(createAgents)
   const [query, setQuery] = useState('')
+  const [ranQuery, setRanQuery] = useState('')
   const [isRunning, setIsRunning] = useState(false)
-  const [isPipelineComplete, setIsPipelineComplete] = useState(false)
+  const [sessionEnded, setSessionEnded] = useState(false)
+  const [wasStopped, setWasStopped] = useState(false)
   const [activeTab, setActiveTab] = useState<AgentRole>('researcher')
   const [elapsed, setElapsed] = useState(0)
-  const [totalTokens, setTotalTokens] = useState(0)
   const [pipelineError, setPipelineError] = useState<string | null>(null)
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const [exporting, setExporting] = useState<ExportKind | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const outputEndRef = useRef<HTMLDivElement>(null)
-  const outputScrollRef = useRef<HTMLDivElement>(null)
-  const [transitioning, setTransitioning] = useState(false)
-  const prevTabRef = useRef<AgentRole>(activeTab)
+  const stoppedRef = useRef(false)
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(buildNodes(DEFAULT_AGENTS))
+  const compact = useIsCompact()
+  const [nodes, setNodes, onNodesChange] = useNodesState(buildNodes(createAgents(), compact))
   const [edges, setEdges, onEdgesChange] = useEdgesState(STATIC_EDGES)
 
-  const syncNodes = useCallback(
-    (next: Record<AgentRole, AgentState>) => setNodes(buildNodes(next)),
-    [setNodes],
-  )
+  useEffect(() => {
+    setNodes(prev => prev.map((node, i) => ({ ...node, position: nodePosition(i, compact) })))
+  }, [compact, setNodes])
+
+  // Only the agent whose state object actually changed gets a new node object, so
+  // a streamed chunk re-renders one node instead of rebuilding the whole graph.
+  useEffect(() => {
+    setNodes(prev => {
+      let changed = false
+      const next = prev.map(node => {
+        const state = agents[node.id as AgentRole]
+        if (!state || node.data === (state as unknown)) return node
+        changed = true
+        return { ...node, data: state as unknown as Record<string, unknown> }
+      })
+      return changed ? next : prev
+    })
+  }, [agents, setNodes])
 
   const handleEvent = useCallback(
     (event: StreamEvent) => {
-      const agentRole = event.agent as AgentRole
-      if (event.type === 'agent_start') {
-        if (event.agent === 'system') return
-        setActiveTab(agentRole)
+      if (event.type === 'session_complete') {
+        setSessionEnded(true)
+        return
+      }
+
+      if (event.agent === 'system') {
+        // A system-level failure ends every agent still in flight — otherwise they
+        // pulse "thinking" forever behind the error banner.
+        if (event.type !== 'agent_error') return
         setAgents(prev => {
-          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'working' as const, startTime: Date.now() } }
-          syncNodes(next)
+          const next = { ...prev }
+          for (const role of AGENT_ORDER) {
+            const status = next[role].status
+            if (status === 'working' || status === 'thinking') {
+              next[role] = { ...next[role], status: 'error', error: event.error, endTime: Date.now() }
+            }
+          }
           return next
         })
-        setEdges(prev => prev.map(e => ({ ...e, animated: e.source === agentRole || e.target === agentRole })))
-      } else if (event.type === 'agent_chunk') {
-        setAgents(prev => {
-          if (!(event.agent in prev)) return prev
-          const next = { ...prev, [agentRole]: { ...prev[agentRole], output: prev[agentRole].output + (event.content ?? '') } }
-          syncNodes(next)
-          return next
-        })
-      } else if (event.type === 'agent_complete') {
-        const tokens = event.tokens ?? 0
-        setAgents(prev => {
-          if (!(event.agent in prev)) return prev
-          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'complete' as const, tokens, endTime: Date.now() } }
-          syncNodes(next)
-          return next
-        })
-        setTotalTokens(prev => prev + tokens)
-        setEdges(prev => prev.map(e => ({ ...e, animated: false })))
-      } else if (event.type === 'agent_error') {
-        setAgents(prev => {
-          if (!(event.agent in prev)) return prev
-          const next = { ...prev, [agentRole]: { ...prev[agentRole], status: 'error' as const } }
-          syncNodes(next)
-          return next
-        })
-        // Show error to user regardless of which agent (including 'system')
+        setEdges(prev => prev.map(edge => ({ ...edge, animated: false })))
         setPipelineError(event.error ?? 'An error occurred during processing.')
-      } else if (event.type === 'session_complete') {
-        setIsPipelineComplete(true)
-        setActiveTab('synthesizer')
+        return
+      }
+
+      const role = event.agent
+      switch (event.type) {
+        case 'agent_start':
+          setActiveTab(role)
+          setAgents(prev => ({
+            ...prev,
+            [role]: {
+              ...prev[role],
+              status: 'working',
+              startTime: Date.now(),
+              maxTokens: event.maxTokens ?? prev[role].maxTokens,
+              finish: null,
+              error: undefined,
+            },
+          }))
+          setEdges(prev => prev.map(edge => ({ ...edge, animated: edge.source === role || edge.target === role })))
+          break
+        case 'agent_chunk':
+          setAgents(prev => ({
+            ...prev,
+            [role]: { ...prev[role], output: prev[role].output + (event.content ?? '') },
+          }))
+          break
+        case 'agent_complete':
+          setAgents(prev => ({
+            ...prev,
+            [role]: {
+              ...prev[role],
+              status: 'complete',
+              tokens: event.tokens ?? 0,
+              reasoningTokens: event.reasoningTokens ?? 0,
+              finish: event.finish ?? null,
+              endTime: Date.now(),
+            },
+          }))
+          setEdges(prev => prev.map(edge => ({ ...edge, animated: false })))
+          break
+        case 'agent_error':
+          setAgents(prev => ({
+            ...prev,
+            [role]: { ...prev[role], status: 'error', error: event.error, endTime: Date.now() },
+          }))
+          setEdges(prev => prev.map(edge => ({ ...edge, animated: false })))
+          setPipelineError(event.error ?? 'An error occurred during processing.')
+          break
       }
     },
-    [syncNodes, setEdges, setIsPipelineComplete],
+    [setEdges],
   )
 
-  const handleStart = useCallback(async () => {
-    if (!query.trim() || isRunning) return
+  const startRun = useCallback(
+    async (raw: string) => {
+      const text = raw.trim().slice(0, MAX_QUERY_CHARS)
+      if (!text || isRunning) return
 
-    const fresh = { ...DEFAULT_AGENTS }
-    setAgents(fresh)
-    syncNodes(fresh)
-    setEdges(STATIC_EDGES)
-    setTotalTokens(0)
-    setElapsed(0)
-    setIsRunning(true)
-    setIsPipelineComplete(false)
-    setPipelineError(null)
-    setActiveTab('researcher')
+      const fresh = createAgents()
+      setAgents(fresh)
+      setNodes(buildNodes(fresh, compact))
+      setEdges(STATIC_EDGES)
+      setRanQuery(text)
+      setElapsed(0)
+      setIsRunning(true)
+      setSessionEnded(false)
+      setWasStopped(false)
+      setPipelineError(null)
+      setNoticeDismissed(false)
+      setActiveTab('researcher')
+      stoppedRef.current = false
 
-    const start = Date.now()
-    timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 250)
+      const startedAt = Date.now()
+      timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 250)
 
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    try {
-      await startResearch(query, handleEvent, ctrl.signal)
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        console.error(err)
-        setPipelineError((err as Error).message || 'An unexpected error occurred.')
+      try {
+        await startResearch(text, handleEvent, controller.signal)
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          setPipelineError((err as Error).message || 'An unexpected error occurred.')
+        }
+      } finally {
+        setIsRunning(false)
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        setEdges(prev => prev.map(edge => ({ ...edge, animated: false })))
+        setWasStopped(stoppedRef.current)
+        // Once the stream is over nothing can still be running — leaving an agent
+        // on "working" pulses it forever and hides whatever partial text it got.
+        setAgents(prev => {
+          let changed = false
+          const next = { ...prev }
+          for (const role of AGENT_ORDER) {
+            const status = next[role].status
+            if (status === 'working' || status === 'thinking') {
+              changed = true
+              next[role] = { ...next[role], status: 'stopped', endTime: Date.now() }
+            }
+          }
+          return changed ? next : prev
+        })
       }
-    } finally {
-      setIsRunning(false)
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-      }
-      setEdges(prev => prev.map(e => ({ ...e, animated: false })))
-    }
-  }, [query, isRunning, handleEvent, syncNodes, setEdges])
+    },
+    [isRunning, handleEvent, setEdges, setNodes, compact],
+  )
 
-  const handleStop = useCallback(() => abortRef.current?.abort(), [])
+  const handleStart = useCallback(() => {
+    void startRun(query)
+  }, [startRun, query])
 
-  const handleDownloadDocx = useCallback(() => {
-    generateDocx(query, agents).catch(console.error)
-  }, [query, agents])
+  const handleExample = useCallback(
+    (text: string) => {
+      setQuery(text)
+      void startRun(text)
+    },
+    [startRun],
+  )
 
-  const handleDownloadPdf = useCallback(() => {
-    generatePdf(query, agents)
-  }, [query, agents])
+  const handleStop = useCallback(() => {
+    stoppedRef.current = true
+    abortRef.current?.abort()
+  }, [])
 
-  const handleDownloadMd = useCallback(() => {
-    const lines: string[] = [
-      `# Research Report: ${query}`,
-      '',
-      `*Generated by AgentFlow Multi-Agent AI Pipeline*`,
-      '',
-      '---',
-      '',
-    ]
-    for (const role of AGENT_ORDER) {
-      const output = agents[role].output || 'No output generated.'
-      lines.push(`## ${AGENT_LABELS[role]}`, '', output.trim(), '', '')
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
-    const slug = query.slice(0, 40).replace(/[^a-z0-9]/gi, '-').toLowerCase()
-    saveAs(blob, `research-report-${slug}.md`)
-  }, [query, agents])
+  const handleExport = useCallback(
+    (kind: ExportKind) => {
+      setExporting(kind)
+      // Loaded on demand so jspdf and docx stay out of the initial bundle.
+      import('./lib/export')
+        .then(async mod => {
+          if (kind === 'pdf') mod.downloadPdf(ranQuery, agents)
+          else if (kind === 'docx') await mod.downloadDocx(ranQuery, agents)
+          else mod.downloadMarkdown(ranQuery, agents)
+        })
+        .catch((err: unknown) =>
+          setPipelineError(`Export failed: ${err instanceof Error ? err.message : 'unknown error'}`),
+        )
+        .finally(() => setExporting(null))
+    },
+    [ranQuery, agents],
+  )
 
   useEffect(
     () => () => {
@@ -318,424 +274,104 @@ export default function App() {
     [],
   )
 
-  // Auto-scroll output panel to bottom as content streams in
+  const synthesizerOutput = agents.synthesizer.output
   useEffect(() => {
-    const el = outputScrollRef.current
-    if (!el) return
-    // Only auto-scroll if user is near the bottom (within 120px)
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-    if (nearBottom) {
-      outputEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    if (sessionEnded && synthesizerOutput.trim()) setActiveTab('synthesizer')
+  }, [sessionEnded, synthesizerOutput])
+
+  const totalTokens = AGENT_ORDER.reduce((sum, role) => sum + agents[role].tokens, 0)
+  const hasAnyOutput = AGENT_ORDER.some(role => agents[role].output.trim().length > 0)
+  const allProduced = AGENT_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]))
+  const runFinished = !isRunning && hasAnyOutput
+  const isPipelineComplete = runFinished && sessionEnded && allProduced
+  const showExamples = !isRunning && !hasAnyOutput
+
+  const notices = useMemo(() => {
+    if (isRunning) return []
+    const names = (roles: AgentRole[]) => roles.map(role => agents[role].name).join(', ')
+    const messages: string[] = []
+    if (wasStopped) {
+      messages.push('You stopped the run. Whatever the agents had produced is kept below and can still be exported.')
     }
-  }, [agents[activeTab].output, activeTab])
-
-  // Trigger transition animation when tab changes
-  useEffect(() => {
-    if (prevTabRef.current !== activeTab) {
-      setTransitioning(true)
-      prevTabRef.current = activeTab
-      const t = setTimeout(() => setTransitioning(false), 350)
-      return () => clearTimeout(t)
+    const truncated = AGENT_ORDER.filter(role => wasTruncated(agents[role]))
+    if (truncated.length > 0) {
+      messages.push(`Cut off before finishing: ${names(truncated)}. Those sections may end mid-thought.`)
     }
-  }, [activeTab])
+    const missing = AGENT_ORDER.filter(role => agents[role].status !== 'idle' && !hasUsefulOutput(agents[role]))
+    if (missing.length > 0) {
+      messages.push(`No usable output from: ${names(missing)}. The report below is incomplete.`)
+    }
+    if (AGENT_ORDER.some(role => agents[role].reasoningTokens > 0)) {
+      messages.push('The model spent part of its budget on internal reasoning, which shortens the visible answers.')
+    }
+    return messages
+  }, [agents, isRunning, wasStopped])
 
-  const activeAgent = agents[activeTab]
-  const isActiveWorking = activeAgent.status === 'working' || activeAgent.status === 'thinking'
-
-  const AGENT_COLORS: Record<AgentRole, string> = {
-    researcher: '#00d4ff',
-    analyst: '#ffa500',
-    critic: '#ff3366',
-    synthesizer: '#00ff88',
-  }
-
-  function renderMarkdown(text: string, agentColor: string) {
-    return text.split('\n').map((line, i) => {
-      const trimmed = line.trim()
-      if (trimmed.startsWith('### ')) {
-        return <div key={i} style={{ fontSize: 15, fontWeight: 700, color: agentColor, marginTop: 16, marginBottom: 6, fontFamily: 'inherit' }}>{trimmed.slice(4)}</div>
-      }
-      if (trimmed.startsWith('## ')) {
-        return <div key={i} style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', marginTop: 20, marginBottom: 8, borderBottom: `1px solid ${agentColor}33`, paddingBottom: 6 }}>{trimmed.slice(3)}</div>
-      }
-      if (trimmed.startsWith('# ')) {
-        return <div key={i} style={{ fontSize: 19, fontWeight: 800, color: '#f1f5f9', marginTop: 20, marginBottom: 10 }}>{trimmed.slice(2)}</div>
-      }
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        return <div key={i} style={{ paddingLeft: 16, position: 'relative', marginBottom: 4 }}><span style={{ position: 'absolute', left: 2, color: agentColor }}>•</span>{renderInline(trimmed.slice(2))}</div>
-      }
-      if (/^\d+\.\s/.test(trimmed)) {
-        const num = trimmed.match(/^(\d+)\./)?.[1]
-        return <div key={i} style={{ paddingLeft: 20, position: 'relative', marginBottom: 4 }}><span style={{ position: 'absolute', left: 0, color: agentColor, fontWeight: 700, fontSize: 12 }}>{num}.</span>{renderInline(trimmed.replace(/^\d+\.\s*/, ''))}</div>
-      }
-      if (trimmed === '') return <div key={i} style={{ height: 8 }} />
-      return <div key={i} style={{ marginBottom: 4 }}>{renderInline(trimmed)}</div>
-    })
-  }
-
-  function renderInline(text: string) {
-    const parts = text.split(/(\*\*[^*]+\*\*)/g)
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} style={{ color: '#f1f5f9', fontWeight: 700 }}>{part.slice(2, -2)}</strong>
-      }
-      return <span key={i}>{part}</span>
-    })
-  }
+  const showNotices = notices.length > 0 && !noticeDismissed
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0a0e1a' }}>
-      <header
-        style={{
-          padding: '10px 24px 10px',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          background: '#111827',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ padding: 7, borderRadius: 10, background: 'rgba(0,212,255,0.12)', color: '#00d4ff', display: 'flex' }}>
-              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-                <circle cx="7" cy="7" r="5" fill="#00d4ff"/>
-                <circle cx="25" cy="7" r="5" fill="#00d4ff" opacity="0.6"/>
-                <circle cx="7" cy="25" r="5" fill="#00d4ff" opacity="0.4"/>
-                <circle cx="25" cy="25" r="5" fill="#00ff88"/>
-                <path d="M12 7L20 7M7 12L7 20M25 12L25 20M12 25L20 25" stroke="#00d4ff" strokeWidth="1.5" opacity="0.25"/>
-                <path d="M12 7L25 25" stroke="url(#af1)" strokeWidth="2.5" strokeLinecap="round"/>
-                <defs><linearGradient id="af1" x1="12" y1="7" x2="25" y2="25"><stop stopColor="#00d4ff"/><stop offset="1" stopColor="#00ff88"/></linearGradient></defs>
-              </svg>
-            </div>
-            <span style={{ fontSize: 17, fontWeight: 700, color: '#f1f5f9', letterSpacing: -0.3 }}>AgentFlow</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, fontSize: 13, color: '#94a3b8' }}>
-            {isRunning && (
-              <span style={{ color: '#00d4ff', fontFamily: 'monospace', fontWeight: 600 }}>
-                {formatTime(elapsed)}
-              </span>
-            )}
-            {isPipelineComplete && (
-              <span style={{ color: '#00ff88', fontSize: 12, fontWeight: 600 }}>✓ Research Complete</span>
-            )}
-            {totalTokens > 0 && <span>{totalTokens.toLocaleString()} tokens</span>}
-          </div>
-        </div>
-        <p style={{ margin: '7px 0 0 0', fontSize: 11.5, color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
-          Type in a research topic and four AI agents get to work — one digs up the facts, another spots the patterns, a third pokes holes in the logic, and the last one ties it all together into a clean report you can export as PDF, Word, or Markdown.
-        </p>
-      </header>
+      <Header elapsed={elapsed} isRunning={isRunning} isComplete={isPipelineComplete} totalTokens={totalTokens} />
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <div style={{ flex: 1, position: 'relative' }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.4 }}
-            proOptions={{ hideAttribution: true }}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            panOnDrag={false}
-            zoomOnScroll={false}
-            zoomOnPinch={false}
-            zoomOnDoubleClick={false}
-            preventScrolling={false}
-            minZoom={0.5}
-            maxZoom={1.5}
-          >
-            <Background color="rgba(255,255,255,0.025)" gap={28} size={1} />
-            <Controls showInteractive={false} showZoom={false} showFitView={true} />
-          </ReactFlow>
-
-          {(isRunning || isPipelineComplete) && (
-            <div
-              style={{
-                position: 'absolute',
-                left: 16,
-                bottom: 16,
-                right: 16,
-                padding: '12px 18px',
-                borderRadius: 14,
-                background: 'rgba(17,24,39,0.92)',
-                backdropFilter: 'blur(20px)',
-                border: `1px solid ${isRunning ? 'rgba(0,212,255,0.2)' : 'rgba(0,255,136,0.2)'}`,
-                boxShadow: isRunning
-                  ? '0 0 30px rgba(0,212,255,0.08)'
-                  : '0 0 30px rgba(0,255,136,0.08)',
-                zIndex: 10,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div
-                  className={isRunning ? 'agent-active' : ''}
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: '50%',
-                    background: isRunning ? '#00d4ff' : '#00ff88',
-                    boxShadow: isRunning ? '0 0 8px #00d4ff' : '0 0 8px #00ff88',
-                  }}
-                />
-                <span style={{ fontSize: 13, fontWeight: 700, color: isRunning ? '#00d4ff' : '#00ff88' }}>
-                  {isPipelineComplete ? 'Pipeline Complete' : agents[activeTab].name}
-                </span>
-              </div>
-              <p style={{ margin: 0, fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
-                {isPipelineComplete
-                  ? AGENT_ACTIVITY.synthesizer.complete
-                  : AGENT_ACTIVITY[activeTab][agents[activeTab].status === 'complete' ? 'complete' : agents[activeTab].status === 'idle' ? 'idle' : 'working']}
-              </p>
-
-              {isRunning && (
-                <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-                  {AGENT_ORDER.map(role => {
-                    const c = AGENT_COLORS[role]
-                    const isWorking = agents[role].status === 'working' || agents[role].status === 'thinking'
-                    const isComplete = agents[role].status === 'complete'
-                    return (
-                      <div
-                        key={role}
-                        style={{
-                          flex: 1,
-                          height: 4,
-                          borderRadius: 2,
-                          background: 'rgba(255,255,255,0.06)',
-                          overflow: 'hidden',
-                          position: 'relative',
-                        }}
-                      >
-                        <div
-                          className={isWorking ? 'progress-fill-active' : ''}
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: 2,
-                            background: isComplete ? '#00ff88' : isWorking ? `linear-gradient(90deg, ${c}, ${c}aa)` : 'transparent',
-                            boxShadow: isComplete ? `0 0 6px #00ff8880` : isWorking ? `0 0 8px ${c}60` : 'none',
-                            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                            transform: isComplete || isWorking ? 'scaleX(1)' : 'scaleX(0)',
-                            transformOrigin: 'left',
-                          }}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            width: '50%',
-            minWidth: 400,
-            maxWidth: 700,
-            display: 'flex',
-            flexDirection: 'column',
-            borderLeft: '1px solid rgba(255,255,255,0.08)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-              background: '#111827',
-              flexShrink: 0,
-            }}
-          >
-            {AGENT_ORDER.map(role => {
-              const color = AGENT_COLORS[role]
-              const isActive = activeTab === role
-              const isWorking = agents[role].status === 'working' || agents[role].status === 'thinking'
-              const isComplete = agents[role].status === 'complete'
-              return (
-                <button
-                  key={role}
-                  onClick={() => setActiveTab(role)}
-                  className={isWorking ? 'tab-working' : ''}
-                  style={{
-                    flex: 1,
-                    padding: '10px 4px',
-                    fontSize: 11,
-                    fontWeight: isActive ? 700 : 500,
-                    textTransform: 'capitalize',
-                    background: isActive ? `${color}0a` : 'transparent',
-                    border: 'none',
-                    borderBottom: isActive ? `2px solid ${color}` : '2px solid transparent',
-                    color: isActive ? color : isComplete ? '#00ff88' : isWorking ? color : '#64748b',
-                    cursor: 'pointer',
-                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                    position: 'relative',
-                  }}
-                >
-                  {role}
-                  {isComplete && (
-                    <span className="check-pop" style={{ color: '#00ff88', marginLeft: 4, display: 'inline-block' }}>✓</span>
-                  )}
-                  {isWorking && (
-                    <span className="dot-pulse" style={{ color, marginLeft: 4, display: 'inline-block' }}>●</span>
-                  )}
-                  {isActive && (
-                    <span style={{
-                      position: 'absolute',
-                      bottom: -1,
-                      left: '20%',
-                      right: '20%',
-                      height: 2,
-                      background: color,
-                      borderRadius: 1,
-                      boxShadow: `0 0 8px ${color}, 0 0 16px ${color}40`,
-                    }} />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-
-          <div
-            ref={outputScrollRef}
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '20px 24px',
-              fontSize: 14,
-              lineHeight: 1.75,
-              color: '#cbd5e1',
-              wordBreak: 'break-word',
-              position: 'relative',
-            }}
-          >
-            {/* Colored top-edge glow when agent is active */}
-            {isActiveWorking && (
-              <div style={{
-                position: 'sticky',
-                top: -20,
-                left: 0,
-                right: 0,
-                height: 2,
-                marginBottom: 16,
-                background: `linear-gradient(90deg, transparent, ${AGENT_COLORS[activeTab]}, transparent)`,
-                boxShadow: `0 0 12px ${AGENT_COLORS[activeTab]}60, 0 2px 20px ${AGENT_COLORS[activeTab]}30`,
-                borderRadius: 1,
-                animation: 'scanline 2s ease-in-out infinite',
-              }} />
-            )}
-
-            <div
-              className={`output-content ${transitioning ? 'output-enter' : ''} ${isActiveWorking ? 'typing-cursor' : ''}`}
-              style={{ minHeight: 40 }}
-            >
-              {activeAgent.output ? (
-                renderMarkdown(activeAgent.output, AGENT_COLORS[activeTab])
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#475569', fontStyle: 'italic', fontSize: 13 }}>
-                  {isActiveWorking ? (
-                    <>
-                      <span className="spinner" style={{ display: 'inline-block', width: 14, height: 14, border: `2px solid ${AGENT_COLORS[activeTab]}30`, borderTopColor: AGENT_COLORS[activeTab], borderRadius: '50%' }} />
-                      <span>Agent is thinking...</span>
-                    </>
-                  ) : (
-                    <span>Waiting for task...</span>
-                  )}
-                </div>
-              )}
-            </div>
-            <div ref={outputEndRef} style={{ height: 1 }} />
-          </div>
-        </div>
+      <div className="workspace">
+        <PipelineCanvas
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          statusPanel={
+            isRunning || runFinished ? (
+              <StatusPanel agents={agents} activeTab={activeTab} isRunning={isRunning} isComplete={isPipelineComplete} />
+            ) : undefined
+          }
+        />
+        <OutputPanel agents={agents} activeTab={activeTab} onSelect={setActiveTab} />
       </div>
 
-      {isPipelineComplete && (
+      {runFinished && <ExportBar complete={isPipelineComplete} busy={exporting} onExport={handleExport} />}
+
+      {showNotices && (
         <div
-          className="export-bar-enter"
+          role="status"
           style={{
-            padding: '12px 20px',
-            borderTop: '1px solid rgba(0,255,136,0.25)',
-            background: 'linear-gradient(180deg, rgba(0,255,136,0.06) 0%, rgba(0,212,255,0.03) 100%)',
+            padding: '10px 20px',
+            borderTop: '1px solid rgba(255,165,0,0.25)',
+            background: 'rgba(255,165,0,0.06)',
             display: 'flex',
-            alignItems: 'center',
-            gap: 12,
+            alignItems: 'flex-start',
+            gap: 10,
             flexShrink: 0,
           }}
         >
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 8px #00ff88' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#00ff88' }}>Report Ready</span>
-            <span style={{ fontSize: 12, color: '#64748b' }}>— export your research:</span>
+          <div style={{ width: 8, height: 8, marginTop: 6, borderRadius: '50%', background: '#ffa500', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: 12.5, color: '#ffbf4d', lineHeight: 1.5 }}>
+            {notices.map(message => (
+              <div key={message}>{message}</div>
+            ))}
           </div>
           <button
-            onClick={handleDownloadPdf}
+            onClick={() => setNoticeDismissed(true)}
+            title="Dismiss these notices"
+            aria-label="Dismiss notices"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 16px',
-              borderRadius: 10,
-              fontSize: 12,
-              fontWeight: 600,
+              background: 'none',
+              border: 'none',
+              color: '#ffa500',
               cursor: 'pointer',
-              background: 'rgba(255,51,102,0.1)',
-              color: '#ff3366',
-              border: '1px solid rgba(255,51,102,0.3)',
+              fontSize: 18,
+              lineHeight: 1,
+              padding: '0 4px',
               fontFamily: 'inherit',
-              transition: 'all 0.15s',
             }}
           >
-            <Download size={13} />
-            PDF
-          </button>
-          <button
-            onClick={handleDownloadDocx}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 16px',
-              borderRadius: 10,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: 'rgba(68,136,255,0.1)',
-              color: '#4488ff',
-              border: '1px solid rgba(68,136,255,0.3)',
-              fontFamily: 'inherit',
-              transition: 'all 0.15s',
-            }}
-          >
-            <FileText size={13} />
-            DOCX
-          </button>
-          <button
-            onClick={handleDownloadMd}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 16px',
-              borderRadius: 10,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: 'rgba(0,255,136,0.08)',
-              color: '#00ff88',
-              border: '1px solid rgba(0,255,136,0.25)',
-              fontFamily: 'inherit',
-              transition: 'all 0.15s',
-            }}
-          >
-            <FileCode size={13} />
-            Markdown
+            ×
           </button>
         </div>
       )}
 
       {pipelineError && (
         <div
+          role="alert"
           style={{
             padding: '10px 20px',
             borderTop: '1px solid rgba(255,51,102,0.25)',
@@ -747,88 +383,45 @@ export default function App() {
           }}
         >
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ff3366', flexShrink: 0 }} />
-          <span style={{ flex: 1, fontSize: 13, color: '#ff3366', lineHeight: 1.4 }}>
-            {pipelineError}
-          </span>
+          <span style={{ flex: 1, fontSize: 13, color: '#ff6688', lineHeight: 1.4 }}>{pipelineError}</span>
           <button
             onClick={() => setPipelineError(null)}
+            title="Dismiss this error"
+            aria-label="Dismiss error"
             style={{
               background: 'none',
               border: 'none',
               color: '#ff3366',
               cursor: 'pointer',
-              fontSize: 16,
+              fontSize: 18,
+              lineHeight: 1,
               padding: '0 4px',
               fontFamily: 'inherit',
-              opacity: 0.7,
             }}
-            aria-label="Dismiss error"
           >
-            x
+            ×
           </button>
         </div>
       )}
 
-      <div
+      <QueryBar
+        query={query}
+        onQueryChange={setQuery}
+        isRunning={isRunning}
+        showExamples={showExamples}
+        onStart={handleStart}
+        onStop={handleStop}
+        onExample={handleExample}
+      />
+      <footer
         style={{
-          padding: '12px 20px',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          background: '#111827',
-          flexShrink: 0,
+          textAlign: 'center',
+          padding: '12px 0',
+          fontSize: 12,
+          color: '#94a3b8',
+          borderTop: '1px solid rgba(255,255,255,0.05)',
         }}
       >
-        <div style={{ display: 'flex', gap: 10 }}>
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value.slice(0, 500))}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleStart()}
-            placeholder="Enter research query..."
-            disabled={isRunning}
-            maxLength={500}
-            aria-label="Research query"
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              borderRadius: 12,
-              background: 'rgba(17,24,39,0.7)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: '#f1f5f9',
-              fontSize: 14,
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
-          />
-          <button
-            onClick={isRunning ? handleStop : handleStart}
-            disabled={!isRunning && !query.trim()}
-            aria-label={isRunning ? 'Stop research' : 'Start research'}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '10px 20px',
-              borderRadius: 12,
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: !isRunning && !query.trim() ? 'not-allowed' : 'pointer',
-              background: isRunning ? 'rgba(255,51,102,0.12)' : 'rgba(0,212,255,0.1)',
-              color: isRunning ? '#ff3366' : '#00d4ff',
-              border: isRunning ? '1px solid rgba(255,51,102,0.3)' : '1px solid rgba(0,212,255,0.3)',
-              transition: 'all 0.15s',
-              opacity: !isRunning && !query.trim() ? 0.5 : 1,
-              fontFamily: 'inherit',
-            }}
-          >
-            {isRunning ? (
-              <><Square size={13} /> Stop</>
-            ) : (
-              <><ChevronRight size={13} /> Start Research</>
-            )}
-          </button>
-        </div>
-      </div>
-      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
       </footer>
     </div>
