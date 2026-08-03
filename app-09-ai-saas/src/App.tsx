@@ -29,6 +29,13 @@ export default function App() {
 
     let cancelled = false
 
+    // Seed before the async session check below resolves: a dead/expired token
+    // in localStorage means SIGNED_OUT can fire before getSession() ever sets
+    // this from a real session, and that must still read as an expiry.
+    hadSessionRef.current = Object.keys(localStorage).some(
+      (k) => k.startsWith('sb-') && k.endsWith('-auth-token'),
+    )
+
     // Probe the auth host up front so a dead project surfaces a Demo Mode route
     // instead of a login form that can never succeed.
     isAuthReachable().then((reachable) => {

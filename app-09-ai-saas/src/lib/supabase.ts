@@ -15,9 +15,10 @@ export const supabase = supabaseUrl && supabaseAnonKey
  * only DNS/TLS/network failures and timeouts mean the project is gone, which is
  * the case that must never leave a visitor stuck on the login form.
  *
- * Uses no-cors so the probe measures reachability only: a CORS-restricted host
- * still resolves (opaque response), while a dead host rejects. A normal fetch
- * would report every host that omits CORS headers as down.
+ * Sends the anon apikey so GoTrue's health check answers instead of rejecting
+ * the request outright — its CORS policy allows any origin, so a normal
+ * (non-opaque) fetch is fine here and lets any HTTP status still count as
+ * reachable, per the check below.
  */
 export async function isAuthReachable(): Promise<boolean> {
   if (!supabase) return false
@@ -26,7 +27,7 @@ export async function isAuthReachable(): Promise<boolean> {
   const timer = setTimeout(() => controller.abort(), AUTH_HEALTH_TIMEOUT_MS)
   try {
     await fetch(`${supabaseUrl}/auth/v1/health`, {
-      mode: 'no-cors',
+      headers: { apikey: supabaseAnonKey },
       signal: controller.signal,
     })
     return true

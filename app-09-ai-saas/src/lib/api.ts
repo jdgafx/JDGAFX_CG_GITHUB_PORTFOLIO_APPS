@@ -1,4 +1,5 @@
 import type { SummaryStats } from './mockData'
+import { isAuthNetworkError } from './supabase'
 
 const INSIGHTS_ENDPOINT = '/api/ai'
 const SSE_PREFIX = 'data: '
@@ -40,6 +41,13 @@ function consumeSseLine(line: string, onChunk: (text: string) => void): boolean 
   return false
 }
 
+/** Maps an HTTP failure status to copy a user can act on. */
+function messageForStatus(status: number): string {
+  if (status === 429) return 'Too many requests — try again in a minute.'
+  if (status >= 500) return 'The insights service is temporarily unavailable. Please try again.'
+  return 'The insights request could not be completed. Please try again.'
+}
+
 export async function getInsights(
   metrics: SummaryStats,
   onChunk: (text: string) => void,
@@ -51,16 +59,27 @@ export async function getInsights(
   activeController = controller
 
   try {
-    const response = await fetch(INSIGHTS_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metrics }),
-      signal: controller.signal,
-    })
+    let response: Response
+    try {
+      response = await fetch(INSIGHTS_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metrics }),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      if (isAuthNetworkError(err)) {
+        console.error('getInsights: network error', err)
+        throw new Error("Couldn't reach the insights service. Check your connection and try again.")
+      }
+      throw err
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(`Request failed (${response.status}): ${text || 'Unknown error'}`)
+      console.error(`getInsights: upstream ${response.status}`, text)
+      throw new Error(messageForStatus(response.status))
     }
 
     if (!response.body) {

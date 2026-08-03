@@ -113,7 +113,9 @@ Metrics:
 - Error Rate: ${m.avgErrorRate}% of requests (${signed(m.errorRateTrend)} ${vs})
 - Total Cost: $${m.totalCost} (${signed(m.costTrend)} ${vs})
 
-Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights. Be direct and actionable. Format as numbered insights with brief explanations.`
+Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights. Be direct and actionable. Format as numbered insights with brief explanations.
+
+Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
 }
 
 export default async function handler(req: Request): Promise<Response> {

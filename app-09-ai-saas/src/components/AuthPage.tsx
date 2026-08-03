@@ -15,6 +15,11 @@ interface AuthPageProps {
 const AUTH_UNAVAILABLE_MESSAGE =
   'Authentication is temporarily unavailable — the sign-in service could not be reached. You can continue in Demo Mode.'
 
+const EMAIL_NOT_CONFIRMED_MESSAGE =
+  "Your email isn't confirmed yet. Check your inbox or resend the confirmation."
+
+const EMAIL_NOT_CONFIRMED_RE = /email not confirmed/i
+
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '12px 14px 12px 40px',
@@ -51,6 +56,9 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
   const [loading, setLoading] = useState(false)
   const [successMsg, setSuccessMsg] = useState('')
   const [submitUnreachable, setSubmitUnreachable] = useState(false)
+  const [emailNotConfirmed, setEmailNotConfirmed] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
 
   // The startup probe catches a dead project before the visitor types anything;
   // a failed submit catches a service that dies mid-session.
@@ -63,12 +71,16 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
     setMode(next)
     setError('')
     setSuccessMsg('')
+    setEmailNotConfirmed(false)
+    setResendMsg('')
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setSuccessMsg('')
+    setEmailNotConfirmed(false)
+    setResendMsg('')
     setLoading(true)
 
     if (!supabase) {
@@ -96,12 +108,34 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
       if (isAuthNetworkError(err)) {
         setSubmitUnreachable(true)
         setError(AUTH_UNAVAILABLE_MESSAGE)
+      } else if (err instanceof Error && EMAIL_NOT_CONFIRMED_RE.test(err.message)) {
+        setEmailNotConfirmed(true)
+        setError(EMAIL_NOT_CONFIRMED_MESSAGE)
       } else {
         // Genuine credential/validation errors stay verbatim — they are actionable.
         setError(err instanceof Error ? err.message : 'Sign in failed. Please try again.')
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    if (!supabase || !email) return
+    setResending(true)
+    setResendMsg('')
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email })
+      if (error) throw error
+      setResendMsg('Confirmation email sent. Check your inbox.')
+    } catch (err) {
+      setResendMsg(
+        isAuthNetworkError(err)
+          ? AUTH_UNAVAILABLE_MESSAGE
+          : 'Could not resend the confirmation email. Please try again.',
+      )
+    } finally {
+      setResending(false)
     }
   }
 
@@ -304,6 +338,33 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
                 }}
               >
                 {error}
+              </p>
+            )}
+
+            {emailNotConfirmed && (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                title="Send a new confirmation email to this address"
+                style={{
+                  padding: '10px 12px',
+                  background: 'rgba(99,102,241,0.08)',
+                  border: '1px solid rgba(99,102,241,0.3)',
+                  borderRadius: '8px',
+                  color: '#818cf8',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  cursor: resending ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {resending ? 'Sending…' : 'Resend confirmation email'}
+              </button>
+            )}
+
+            {resendMsg && (
+              <p role="status" style={{ fontSize: '12px', color: '#94a3b8' }}>
+                {resendMsg}
               </p>
             )}
 
