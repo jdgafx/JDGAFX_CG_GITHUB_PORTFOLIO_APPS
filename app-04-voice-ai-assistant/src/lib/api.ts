@@ -21,6 +21,19 @@ function statusFallback(status: number, subject: string): string {
   return `${subject} failed. Try again.`
 }
 
+// A transport-level failure (offline, DNS, dropped connection) rejects before
+// any Response exists, so it would bypass readError and surface the browser's
+// raw TypeError text. Abort must pass through untouched or Cancel breaks.
+async function guardedFetch(input: string, init: RequestInit, offlineMessage: string): Promise<Response> {
+  try {
+    return await fetch(input, init)
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw err
+    console.error(`${input} request failed:`, err)
+    throw new Error(offlineMessage)
+  }
+}
+
 async function readError(res: Response, subject: string): Promise<string> {
   try {
     const data = (await res.json()) as { error?: unknown }
@@ -34,12 +47,12 @@ async function readError(res: Response, subject: string): Promise<string> {
 export async function transcribe(blob: Blob, signal?: AbortSignal): Promise<string> {
   const { data, format } = await encodeForUpload(blob)
 
-  const res = await fetch('/api/transcribe', {
+  const res = await guardedFetch('/api/transcribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ audio: data, format }),
     signal,
-  })
+  }, 'Could not reach the transcription service. Check your connection and try again.')
 
   if (!res.ok) throw new Error(await readError(res, 'Transcription'))
 
@@ -52,12 +65,12 @@ export async function chat(
   history: Message[],
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch('/api/ai', {
+  const res = await guardedFetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, history }),
     signal,
-  })
+  }, 'Could not reach the assistant. Check your connection and try again.')
 
   if (!res.ok) throw new Error(await readError(res, 'The assistant'))
 
