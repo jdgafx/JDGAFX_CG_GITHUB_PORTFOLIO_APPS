@@ -34,6 +34,12 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
+function friendlyHttpError(status: number): string {
+  if (status === 429) return 'The service is busy right now. Please retry in a moment.'
+  if (status >= 500) return 'The service is temporarily unavailable. Please retry.'
+  return 'The request could not be completed. Please retry.'
+}
+
 interface StepOutcome {
   content: string
   truncated: boolean
@@ -47,12 +53,19 @@ async function runStep(
   callbacks: PipelineCallbacks,
   signal: AbortSignal,
 ): Promise<StepOutcome> {
-  const response = await fetch(API_PATH, {
-    method: 'POST',
-    signal,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic, contentType, step, context }),
-  })
+  let response: Response
+  try {
+    response = await fetch(API_PATH, {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, contentType, step, context }),
+    })
+  } catch (err) {
+    if (isAbort(err)) throw err
+    console.error(`${step} request failed:`, err)
+    throw new Error('Lost connection. Check your network and retry.')
+  }
 
   if (!response.ok) {
     let detail = `${response.status}`
@@ -60,7 +73,8 @@ async function runStep(
       const text = await response.text()
       if (text) detail += ` - ${text.slice(0, ERROR_DETAIL_CHARS)}`
     } catch { /* body already consumed or unreadable */ }
-    throw new Error(`Request failed: ${detail}`)
+    console.error(`${step} request failed: ${detail}`)
+    throw new Error(friendlyHttpError(response.status))
   }
 
   const reader = response.body?.getReader()
