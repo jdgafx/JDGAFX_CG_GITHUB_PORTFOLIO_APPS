@@ -79,11 +79,11 @@ export default async (req: Request): Promise<Response> => {
 
   let task: string
   try {
-    const body = (await req.json()) as { task?: string }
-    task = body.task ?? ''
-    if (!task) {
+    const body = (await req.json()) as { task?: unknown }
+    if (typeof body.task !== 'string' || !body.task.trim()) {
       return jsonError('task is required', 400)
     }
+    task = body.task
   } catch {
     return jsonError('Invalid JSON', 400)
   }

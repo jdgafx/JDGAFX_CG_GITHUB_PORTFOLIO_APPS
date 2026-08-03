@@ -9,9 +9,9 @@ import {
 } from './constants'
 
 const FIELD_PATTERNS: Array<[FieldKey, RegExp]> = [
+  ['date', /\bdate\b|\bwhen\b|calendar/i],
   ['destination', /destination|arriv|drop-?off|\bdest\b|\bto\b/i],
   ['origin', /origin|depart|pick-?up|\bfrom\b/i],
-  ['date', /\bdate\b|\bwhen\b|calendar/i],
   ['email', /e-?mail/i],
   ['phone', /phone|mobile|\btel\b/i],
   ['name', /name/i],
@@ -40,7 +40,7 @@ export function fieldValuesAt(steps: BotStep[], currentStepIndex: number, typedT
 }
 
 const LEADING_MARKER = /^\s*(?:[-*•]|\d+[.)])\s*/
-const DETAIL_SPLIT = /\s+[—–-]\s+|\s*\|\s*/
+const DETAIL_SPLIT = /\s+[—–]\s+|\s+-\s+(?!\$?\s?\d)|\s*\|\s*/
 const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]?`
 const VALUE_TOKEN = new RegExp(`\\$\\s?${AMOUNT}(?:\\s*[-–—]\\s*\\$?\\s?${AMOUNT})?|\\b\\d+(?:\\.\\d+)?%`)
 
@@ -61,6 +61,7 @@ export function parseResultRows(value: string): ResultRow[] {
       const detail = tail
         .replace(VALUE_TOKEN, '')
         .replace(/\s*[,·]\s*(?=[,·]|$)/g, '')
+        .replace(/,(?=\s*\/)/g, '')
         .replace(/^[\s,·]+|[\s,·]+$/g, '')
       return {
         title: head.trim() || line,

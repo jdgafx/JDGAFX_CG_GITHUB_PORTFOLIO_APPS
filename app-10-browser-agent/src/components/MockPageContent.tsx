@@ -260,6 +260,14 @@ export default function MockPageContent({ pageContent, currentAction, activeFiel
     )
   }
 
+  if (rows.length > 0) {
+    return (
+      <div className="p-4 space-y-3">
+        <ResultRows rows={rows} highlight={currentAction === 'extract' || currentAction === 'verify'} />
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 space-y-3">
       <div className="bg-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
