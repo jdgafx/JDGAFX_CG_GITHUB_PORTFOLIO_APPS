@@ -14,6 +14,8 @@ export interface DoneChunk {
   servedModel?: string | null
   /** True when the server hit its time budget before the model finished. */
   truncated?: boolean
+  /** True when the provider itself reported finish_reason "length" -- the model hit Max Tokens. */
+  capped?: boolean
 }
 
 export interface ErrorChunk {
@@ -43,22 +45,30 @@ export async function streamModel(
   onChunk: (chunk: StreamChunk) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages,
-      system,
-      max_tokens: options.max_tokens ?? 1024,
-      temperature: options.temperature ?? 0.7,
-    }),
-    signal,
-  })
+  let res: Response
+  try {
+    res = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages,
+        system,
+        max_tokens: options.max_tokens ?? 1024,
+        temperature: options.temperature ?? 0.7,
+      }),
+      signal,
+    })
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err
+    console.error('Initial fetch to /api/ai failed', err)
+    throw new Error(CONNECTION_LOST)
+  }
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    console.error(`API error ${res.status}: ${text}`)
+    throw new Error(text || `Request failed with status ${res.status}`)
   }
 
   if (!res.body) throw new Error('No response body')

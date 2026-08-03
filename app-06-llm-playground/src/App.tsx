@@ -134,6 +134,7 @@ export default function App() {
                 costEstimated: reported === null && cost !== null,
                 servedModel: chunk.servedModel ?? null,
                 truncated: chunk.truncated === true,
+                capped: chunk.capped === true,
               })
               settle(modelId, latency, chunk.truncated !== true)
             },

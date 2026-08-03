@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
 import { Clock, Hash, DollarSign, AlertTriangle, Trophy, Copy, Check } from 'lucide-react'
 import type { ModelConfig, ModelResult } from '../models'
 import { metricFallback, statusLabel } from '../models'
@@ -106,6 +107,16 @@ export function ResponsePanel({
         </div>
       )}
 
+      {result.capped && !result.truncated && !result.error && (
+        <div
+          className="p-3 text-xs text-amber-400 bg-amber-500/5 border-b border-amber-500/10 flex items-start gap-2"
+          title="The model stopped because it reached the Max Tokens setting, not because the server ran out of time"
+        >
+          <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
+          <span>Hit the max-token limit -- raise Max tokens for a full answer.</span>
+        </div>
+      )}
+
       {result.cancelled && !result.error && (
         <div className="p-3 text-xs text-slate-400 bg-white/5 border-b border-white/5">
           Stopped by you -- this response is incomplete.
@@ -119,9 +130,56 @@ export function ResponsePanel({
         aria-label={`${model.label} response`}
       >
         {result.text ? (
-          <p className={`text-sm text-slate-200 leading-relaxed whitespace-pre-wrap ${result.streaming ? 'streaming-cursor' : ''}`}>
-            {result.text}
-          </p>
+          <div className={`text-sm text-slate-200 leading-relaxed markdown-body ${result.streaming ? 'streaming-cursor' : ''}`}>
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+                h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 first:mt-0">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-sm font-bold text-white mt-4 mb-2 first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-sm font-semibold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
+                strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                em: ({ children }) => <em className="italic">{children}</em>,
+                ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
+                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                a: ({ children, href }) => (
+                  <a href={href} target="_blank" rel="noreferrer noopener" className="underline text-accent hover:text-accent-dark break-words">
+                    {children}
+                  </a>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-white/15 pl-3 my-3 text-slate-400 italic">{children}</blockquote>
+                ),
+                code: ({ className, children }) => {
+                  const isBlock = /language-/.test(className ?? '')
+                  if (isBlock) {
+                    return <code className={className}>{children}</code>
+                  }
+                  return (
+                    <code className="font-mono text-xs bg-white/5 rounded px-1 py-0.5 text-amber-200 break-words">
+                      {children}
+                    </code>
+                  )
+                },
+                pre: ({ children }) => (
+                  <pre className="font-mono text-xs bg-black/30 rounded-lg p-3 mb-3 overflow-x-auto">
+                    {children}
+                  </pre>
+                ),
+                table: ({ children }) => (
+                  <div className="overflow-x-auto mb-3">
+                    <table className="w-full text-xs border-collapse">{children}</table>
+                  </div>
+                ),
+                thead: ({ children }) => <thead className="border-b border-white/10">{children}</thead>,
+                th: ({ children }) => <th className="text-left font-semibold text-slate-300 py-1.5 pr-3">{children}</th>,
+                td: ({ children }) => <td className="py-1.5 pr-3 border-t border-white/5 align-top">{children}</td>,
+                hr: () => <hr className="border-white/10 my-3" />,
+              }}
+            >
+              {result.text}
+            </ReactMarkdown>
+          </div>
         ) : result.streaming ? (
           <div className="flex items-center gap-2 text-slate-500 text-sm">
             <span className="streaming-cursor" />

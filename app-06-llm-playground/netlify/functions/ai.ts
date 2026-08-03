@@ -215,6 +215,8 @@ export default async (req: Request): Promise<Response> => {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
+          // The latest-alias models can resolve to reasoning models, whose reasoning tokens eat the
+          // completion budget and truncate the response mid-stream. Disable reasoning and keep headroom.
           body: JSON.stringify({
             model: orModel,
             messages: openRouterMessages,
@@ -222,6 +224,7 @@ export default async (req: Request): Promise<Response> => {
             temperature: valid.temperature,
             stream: true,
             usage: { include: true },
+            reasoning: { enabled: false },
           }),
           signal: upstream.signal,
         })
@@ -251,6 +254,9 @@ export default async (req: Request): Promise<Response> => {
         let cost: number | null = null
         let servedModel: string | null = null
         let truncated = false
+        // Set when the provider itself reports finish_reason "length" -- distinct from
+        // `truncated`, which only fires on our own wall-clock budget running out.
+        let capped = false
 
         const deadline = startTime + STREAM_BUDGET_MS
 
@@ -290,6 +296,7 @@ export default async (req: Request): Promise<Response> => {
               const parsed = JSON.parse(data)
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) send({ type: 'text', text: delta })
+              if (parsed.choices?.[0]?.finish_reason === 'length') capped = true
               // The resolved model id is only knowable from the upstream chunks
               // -- the ~latest aliases hide which snapshot actually served.
               if (typeof parsed.model === 'string') servedModel = parsed.model
@@ -317,6 +324,7 @@ export default async (req: Request): Promise<Response> => {
           cost,
           servedModel,
           truncated,
+          capped,
         })
         finish()
       } catch (err) {

@@ -20,6 +20,8 @@ export interface ModelResult {
   done: boolean
   /** Server hit its time budget before the model finished. */
   truncated: boolean
+  /** Provider reported finish_reason "length" -- the model hit Max Tokens, distinct from a time-budget cutoff. */
+  capped: boolean
   /** User pressed Stop before the model finished. */
   cancelled: boolean
   error: string | null
@@ -86,6 +88,7 @@ export function createEmptyResult(): ModelResult {
     streaming: false,
     done: false,
     truncated: false,
+    capped: false,
     cancelled: false,
     error: null,
     startTime: null,
@@ -96,6 +99,7 @@ export function statusLabel(result: ModelResult): string | null {
   if (result.error) return 'Failed'
   if (result.cancelled) return 'Stopped'
   if (result.truncated) return 'Truncated'
+  if (result.capped) return 'Capped'
   if (result.streaming) return 'Streaming'
   if (result.done) return 'Complete'
   return null
