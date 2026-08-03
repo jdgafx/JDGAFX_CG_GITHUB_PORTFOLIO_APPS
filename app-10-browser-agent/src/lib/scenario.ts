@@ -42,10 +42,10 @@ export function fieldValuesAt(steps: BotStep[], currentStepIndex: number, typedT
 const LEADING_MARKER = /^\s*(?:[-*•]|\d+[.)])\s*/
 const DETAIL_SPLIT = /\s+[—–]\s+|\s+-\s+(?!\$?\s?\d)|\s*\|\s*/
 const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]?`
-const VALUE_TOKEN = new RegExp(
-  `\\$\\s?${AMOUNT}(?:\\s*[-–—]\\s*\\$?\\s?${AMOUNT})?(?:\\s*\\/\\s*(?:yr|year|hr|hour|mo|month|wk|week))?|\\b\\d+(?:\\.\\d+)?%`,
-  'i',
-)
+// Unit rides each amount ("$85/hr - $120/hr"), not just the whole range; "to" is a valid separator.
+const UNIT = String.raw`(?:\s*\/\s*(?:yr|year|hr|hour|mo|month|wk|week))?`
+const MONEY = String.raw`\$\s?${AMOUNT}${UNIT}`
+const VALUE_TOKEN = new RegExp(`${MONEY}(?:\\s*(?:[-–—]|\\bto\\b)\\s*${MONEY})?|\\b\\d+(?:\\.\\d+)?%`, 'i')
 
 /**
  * Turn an extract/verify step's value into rows the mock page can render, so the simulated
@@ -60,12 +60,17 @@ export function parseResultRows(value: string): ResultRow[] {
     .map((line) => {
       const [head, ...rest] = line.split(DETAIL_SPLIT)
       const tail = rest.join(' · ').trim()
-      const match = (tail || line).match(VALUE_TOKEN)
+      // Only lift a headline value when the line actually split — scraping prose
+      // pulls mid-sentence amounts (a cancellation fee) up as the row's "price".
+      const match = tail ? tail.match(VALUE_TOKEN) : undefined
       const detail = tail
         .replace(VALUE_TOKEN, '')
         .replace(/\s*[,·]\s*(?=[,·]|$)/g, '')
         .replace(/,(?=\s*\/)/g, '')
-        .replace(/^[\s,·]+|[\s,·]+$/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/,(?=\s*\()/g, '')
+        .replace(/,\s*$/, '')
+        .replace(/^[\s,·-]+|[\s,·]+$/g, '')
       return {
         title: head.trim() || line,
         detail: detail || undefined,
