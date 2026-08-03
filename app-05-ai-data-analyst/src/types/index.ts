@@ -31,6 +31,7 @@ export interface ParsedData {
   rows: Record<string, string>[]
   truncated?: boolean
   totalRows?: number
+  parseErrorRowCount?: number
 }
 
 export interface EngineResult {

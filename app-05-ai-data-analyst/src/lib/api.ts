@@ -39,7 +39,11 @@ export async function askData(
       throw new Error(errorBody.error ?? httpFallbackMessage(response.status))
     }
 
-    return (await response.json()) as QueryPlan
+    try {
+      return (await response.json()) as QueryPlan
+    } catch {
+      throw new Error('The analysis service returned an unreadable response. Please try again.')
+    }
   } catch (err) {
     if (options.signal?.aborted) throw new CancelledError()
     if (err instanceof Error && err.name === 'AbortError') {

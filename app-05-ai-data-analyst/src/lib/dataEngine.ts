@@ -57,7 +57,18 @@ export function parseCSV(csvString: string): ParsedData {
     ? result.data.slice(0, MAX_ROWS)
     : result.data
 
-  return { headers, rows, truncated: result.data.length > MAX_ROWS, totalRows: result.data.length }
+  // Papa reports one entry per malformed cell/field; count the distinct rows they touch.
+  const parseErrorRowCount = new Set(
+    result.errors.filter((e) => typeof e.row === 'number').map((e) => e.row),
+  ).size
+
+  return {
+    headers,
+    rows,
+    truncated: result.data.length > MAX_ROWS,
+    totalRows: result.data.length,
+    parseErrorRowCount,
+  }
 }
 
 function labelComparator(labels: string[]): ((a: string, b: string) => number) | null {

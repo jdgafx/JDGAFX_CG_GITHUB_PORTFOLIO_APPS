@@ -139,7 +139,7 @@ export default function App() {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 5 MB.`)
+      setError(`File is too large (${file.size.toLocaleString()} bytes exceeds the 5 MB limit).`)
       return
     }
 
@@ -159,13 +159,21 @@ export default function App() {
         setCurrentResult(null)
         setCustomFileName(file.name)
         setSelectedDataset('custom')
+        const noticeParts: string[] = []
         if (parsed.truncated) {
-          setNotice(
+          noticeParts.push(
             `Large file: charting the first 10,000 of ${parsed.totalRows?.toLocaleString()} rows.`,
           )
         } else if (parsed.rows.length === 0) {
-          setNotice(`"${file.name}" has a header row but no data rows, so there is nothing to chart.`)
+          noticeParts.push(`"${file.name}" has a header row but no data rows, so there is nothing to chart.`)
         }
+        if (parsed.parseErrorRowCount) {
+          const noun = parsed.parseErrorRowCount === 1 ? 'row' : 'rows'
+          noticeParts.push(
+            `${parsed.parseErrorRowCount.toLocaleString()} ${noun} in this file could not be parsed cleanly and may be incomplete.`,
+          )
+        }
+        if (noticeParts.length > 0) setNotice(noticeParts.join(' '))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'That file could not be read as CSV.')
       }
@@ -180,7 +188,7 @@ export default function App() {
 
   const handleAnalyze = async () => {
     const asked = question.trim()
-    if (!parsedData || !asked || isLoading) return
+    if (!parsedData || !asked || isLoading || abortRef.current) return
 
     const controller = new AbortController()
     abortRef.current = controller

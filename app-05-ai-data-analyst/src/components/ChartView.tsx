@@ -108,6 +108,7 @@ function limitGroups(
 
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload || payload.length === 0) return null
+  const heading = label ?? payload[0]?.name
   return (
     <div
       style={{
@@ -118,9 +119,9 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
         fontFamily: 'DM Sans, sans-serif',
       }}
     >
-      {label && (
+      {heading && (
         <p style={{ color: '#8a8aaa', fontSize: '11px', marginBottom: '4px', marginTop: 0 }}>
-          {label}
+          {heading}
         </p>
       )}
       {payload.map((entry, i) => (
