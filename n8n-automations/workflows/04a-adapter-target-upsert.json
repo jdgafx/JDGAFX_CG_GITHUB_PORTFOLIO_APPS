@@ -1,0 +1,580 @@
+{
+  "name": "04a - Adapter: Target Upsert",
+  "nodes": [
+    {
+      "id": "c5d8f7f7-a1a6-4358-bbb3-9c813fc57765",
+      "name": "When Called by Sync Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -200,
+        400
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "8a6f42a1-c9f8-4284-9452-2fd32874ffa7",
+      "name": "Simulate Failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        80,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b75d720c-8914-43ce-9ffe-f0aa6bae97db",
+              "leftValue": "={{ $json.simulateFailure }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0e1e30b0-8552-46e3-82e7-cc6bb6555b5f",
+      "name": "Throw Simulated Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const trigger = $('When Called by Sync Workflow').item.json;\nthrow new Error(`Simulated transient failure (simulateFailure=true) for externalId=${trigger.contact && trigger.contact.externalId} target=${trigger.targetSystem}`);"
+      }
+    },
+    {
+      "id": "8cd587f5-486b-420d-8760-c2a244d634e3",
+      "name": "Lookup Target Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        560
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.targetSystem === 'a' ? '0r3kZHXMOWmU6IGS' : '084KikceGDBrrOZ8' }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "externalId",
+              "condition": "eq",
+              "keyValue": "={{ $json.contact.externalId }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1,
+        "orderBy": false
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "21776ba9-795f-4910-9939-ae06918fd2f6",
+      "name": "Resolve Conflict & Decide Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        560
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const trigger = $('When Called by Sync Workflow').item.json;\nconst existingRows = $('Lookup Target Row').all().map(i => i.json).filter(r => r && r.id !== undefined);\nconst existing = existingRows.length > 0 ? existingRows[0] : null;\nconst incoming = trigger.contact;\nconst targetSystem = trigger.targetSystem;\nconst sourceSystem = trigger.sourceSystem;\nconst idempotencyKey = trigger.idempotencyKey;\n\nlet conflict = false;\nlet action;\nlet winner;\nlet loser = null;\n\nif (!existing) {\n  action = 'insert';\n  winner = incoming;\n} else {\n  conflict = true;\n  const incomingTs = incoming.sourceUpdatedAt;\n  const existingTs = existing.sourceUpdatedAt;\n  if (incomingTs >= existingTs) {\n    winner = incoming;\n    loser = existing;\n    action = 'update';\n  } else {\n    winner = existing;\n    loser = incoming;\n    action = 'rejected-stale';\n  }\n}\n\nconst writeNeeded = action !== 'rejected-stale';\n\nreturn [{\n  json: {\n    targetSystem, sourceSystem, idempotencyKey,\n    externalId: incoming.externalId,\n    conflict, action, writeNeeded,\n    existing, incoming, winner, loser,\n  },\n}];"
+      }
+    },
+    {
+      "id": "32b83beb-fd41-427f-8604-a4f6a14308a4",
+      "name": "Conflict Detected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        860,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "07687a38-6107-47fa-9ead-3dc4b1b3f35a",
+              "leftValue": "={{ $json.conflict }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "740828fa-964b-4800-86fd-ef56b359e18a",
+      "name": "Log Conflict",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        420
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yGeOX54i5jf2ZfyJ"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "externalId": "={{ $json.externalId }}",
+            "system": "={{ $json.targetSystem }}",
+            "winningVersion": "={{ JSON.stringify($json.winner) }}",
+            "losingVersion": "={{ $json.loser ? JSON.stringify($json.loser) : \"\" }}",
+            "winningUpdatedAt": "={{ $json.winner.sourceUpdatedAt }}",
+            "losingUpdatedAt": "={{ $json.loser ? $json.loser.sourceUpdatedAt : '' }}",
+            "resolvedAt": "={{ $now.toISO() }}",
+            "resolutionStrategy": "last-write-wins-by-sourceUpdatedAt"
+          },
+          "schema": [
+            {
+              "id": "externalId",
+              "displayName": "externalId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "winningVersion",
+              "displayName": "winningVersion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "losingVersion",
+              "displayName": "losingVersion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "winningUpdatedAt",
+              "displayName": "winningUpdatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "losingUpdatedAt",
+              "displayName": "losingUpdatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolvedAt",
+              "displayName": "resolvedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolutionStrategy",
+              "displayName": "resolutionStrategy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "855773e8-bf6f-474a-b0e6-4503b15c908f",
+      "name": "Write Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1380,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bb2d19fc-e64f-4744-88cc-4c57f5b81aae",
+              "leftValue": "={{ $('Resolve Conflict & Decide Write').item.json.writeNeeded }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "949f78ce-1f33-4fd5-9bdf-0ab474ac5d63",
+      "name": "Write Target Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1640,
+        480
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Resolve Conflict & Decide Write').item.json.targetSystem === 'a' ? '0r3kZHXMOWmU6IGS' : '084KikceGDBrrOZ8' }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "externalId",
+              "condition": "eq",
+              "keyValue": "={{ $('Resolve Conflict & Decide Write').item.json.externalId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "externalId": "={{ $('Resolve Conflict & Decide Write').item.json.winner.externalId }}",
+            "name": "={{ $('Resolve Conflict & Decide Write').item.json.winner.name }}",
+            "email": "={{ $('Resolve Conflict & Decide Write').item.json.winner.email }}",
+            "phone": "={{ $('Resolve Conflict & Decide Write').item.json.winner.phone }}",
+            "sourceUpdatedAt": "={{ $('Resolve Conflict & Decide Write').item.json.winner.sourceUpdatedAt }}"
+          },
+          "schema": [
+            {
+              "id": "externalId",
+              "displayName": "externalId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sourceUpdatedAt",
+              "displayName": "sourceUpdatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "28a08fd9-5a82-4f2a-a807-7a86911359b6",
+      "name": "Build Result: Written",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        480
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const decision = $('Resolve Conflict & Decide Write').item.json;\nconst written = $input.first().json;\nreturn [{ json: {\n  success: true,\n  action: decision.action,\n  conflict: decision.conflict,\n  externalId: decision.externalId,\n  targetSystem: decision.targetSystem,\n  sourceSystem: decision.sourceSystem,\n  idempotencyKey: decision.idempotencyKey,\n  before: decision.existing,\n  after: written,\n} }];"
+      }
+    },
+    {
+      "id": "c5e78a0a-4cbf-4f29-b9ab-8417da22d0c8",
+      "name": "Build Result: Rejected Stale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        680
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const decision = $('Resolve Conflict & Decide Write').item.json;\nreturn [{ json: {\n  success: true,\n  action: 'rejected-stale',\n  conflict: decision.conflict,\n  externalId: decision.externalId,\n  targetSystem: decision.targetSystem,\n  sourceSystem: decision.sourceSystem,\n  idempotencyKey: decision.idempotencyKey,\n  before: decision.existing,\n  after: decision.existing,\n} }];"
+      }
+    },
+    {
+      "id": "5c34b018-0bd9-4e6b-a6ab-34088182ea24",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        560
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "1b2d4bb4-9a39-4237-bbe9-635ea9178a4b",
+      "name": "sn1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        60
+      ],
+      "parameters": {
+        "content": "## Adapter: Target Upsert\nSingle-attempt idempotent write to the target system.\n\n**Idempotency:** check-before-write by externalId (upsert).\n**Conflict resolution:** last-write-wins by sourceUpdatedAt; both versions logged to sync_conflicts.\n**Failure simulation:** simulateFailure=true throws — caller (main workflow) handles retry/backoff/DLQ.\n\nThis sub-workflow does ONE attempt only and is stateless — called repeatedly by the main workflow's retry loop.",
+        "height": 260,
+        "width": 620,
+        "color": 6
+      }
+    },
+    {
+      "id": "07628870-4409-43b6-9deb-89f840137f7e",
+      "name": "sn2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        600,
+        780
+      ],
+      "parameters": {
+        "content": "**Conflict rule:**\nexisting row found -> conflict=true.\nincoming.sourceUpdatedAt >= existing.sourceUpdatedAt -> incoming wins (normal propagation / newer edit wins).\nincoming.sourceUpdatedAt < existing.sourceUpdatedAt -> existing wins, incoming version rejected as stale.\nBoth versions always written to sync_conflicts when a prior row existed.",
+        "height": 200,
+        "width": 460,
+        "color": 5
+      }
+    }
+  ],
+  "connections": {
+    "When Called by Sync Workflow": {
+      "main": [
+        [
+          {
+            "node": "Simulate Failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Failure?": {
+      "main": [
+        [
+          {
+            "node": "Throw Simulated Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Target Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Target Row": {
+      "main": [
+        [
+          {
+            "node": "Resolve Conflict & Decide Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Conflict & Decide Write": {
+      "main": [
+        [
+          {
+            "node": "Conflict Detected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conflict Detected?": {
+      "main": [
+        [
+          {
+            "node": "Log Conflict",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Conflict": {
+      "main": [
+        [
+          {
+            "node": "Write Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Needed?": {
+      "main": [
+        [
+          {
+            "node": "Write Target Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Result: Rejected Stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Target Row": {
+      "main": [
+        [
+          {
+            "node": "Build Result: Written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Result: Written": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Result: Rejected Stale": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID"
+  }
+}

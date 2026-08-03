@@ -1,0 +1,252 @@
+{
+  "name": "03b - Adapter: Exception Queue",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 03b - Adapter: Exception Queue\n\n**Swap point for the AP exception desk.**\n\nEvery invoice the pipeline refuses to post lands here with the\nmachine-readable reasons that caused the refusal, so a human can\nwork the queue instead of hunting through execution logs.\n\n`stage` records where it broke: `extraction`, `validation`, or\n`approval_rejected`.\n\nDemo sink: Data Table `ap_exceptions`. To go live, replace the\nsingle node `Raise ap_exceptions Row`:\n\n| Target | Node |\n| --- | --- |\n| Jira / ServiceNow | Jira -> Issue -> Create |\n| Zendesk | Zendesk -> Ticket -> Create |\n| Email to AP desk | Gmail / Send Email |\n| Slack triage channel | Slack -> Message -> Send |\n\n`reasons` is a JSON-encoded string array - it renders straight\ninto a ticket body or an alert without further parsing.",
+        "width": 520,
+        "height": 440,
+        "color": 3
+      },
+      "id": "note-exception-adapter",
+      "name": "Note: Exception Adapter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "invoiceId",
+              "type": "string"
+            },
+            {
+              "name": "stage",
+              "type": "string"
+            },
+            {
+              "name": "vendor",
+              "type": "string"
+            },
+            {
+              "name": "invoiceNumber",
+              "type": "string"
+            },
+            {
+              "name": "total",
+              "type": "number"
+            },
+            {
+              "name": "reasons",
+              "type": "string"
+            },
+            {
+              "name": "confidence",
+              "type": "number"
+            },
+            {
+              "name": "source",
+              "type": "string"
+            },
+            {
+              "name": "rawExcerpt",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "when-called-by-pipeline",
+      "name": "When Called by Pipeline",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -760,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "XTPIYBhOSQ7agwdB",
+          "cachedResultName": "ap_exceptions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "stage": "={{ $json.stage }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "total": "={{ $json.total }}",
+            "reasons": "={{ $json.reasons }}",
+            "confidence": "={{ $json.confidence }}",
+            "source": "={{ $json.source }}",
+            "rawExcerpt": "={{ $json.rawExcerpt }}",
+            "raisedAt": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceNumber",
+              "displayName": "invoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reasons",
+              "displayName": "reasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rawExcerpt",
+              "displayName": "rawExcerpt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "raisedAt",
+              "displayName": "raisedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "raise-ap_exceptions-row",
+      "name": "Raise ap_exceptions Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -460,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $json;\nlet reasons = [];\ntry { reasons = JSON.parse(row.reasons || '[]'); } catch (e) { reasons = [String(row.reasons || '')]; }\nreturn [{ json: {\n  queued: true,\n  exceptionRef: String(row.id ?? ''),\n  sink: 'n8n Data Table: ap_exceptions (demo sink for the AP exception desk)',\n  invoiceId: row.invoiceId,\n  stage: row.stage,\n  reasons,\n  reasonCount: reasons.length,\n  raisedAt: row.raisedAt,\n} }];"
+      },
+      "id": "return-exception-receipt",
+      "name": "Return Exception Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        60
+      ]
+    }
+  ],
+  "connections": {
+    "When Called by Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Raise ap_exceptions Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise ap_exceptions Row": {
+      "main": [
+        [
+          {
+            "node": "Return Exception Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

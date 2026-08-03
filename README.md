@@ -82,6 +82,18 @@ click ripples, and typing animation, driven by a real-time agent thought process
 
 ---
 
+## n8n Automations — Enterprise Workflow Portfolio
+
+**[n8n-automations/](n8n-automations/)** — five production-grade n8n workflows proven with
+real executions: lead capture with LLM scoring, AI support triage with real vector RAG,
+AP invoice extraction with a human approval gate, resilient cross-system data sync
+(backoff + dead-letter queue + replay), and a KPI watchdog with anomaly detection and
+LLM executive digests. Every workflow ships with a central error handler, idempotency,
+boundary validation, an adapter pattern for third-party systems, execution-ID evidence,
+and canvas screenshots. See [n8n-automations/README.md](n8n-automations/README.md).
+
+---
+
 ## Repository layout
 
 ```
@@ -96,6 +108,7 @@ JDGAFX_CG_GITHUB_PORTFOLIO_APPS/
 ├── app-08-vision-ai/
 ├── app-09-ai-saas/
 ├── app-10-browser-agent/
+├── n8n-automations/         — enterprise n8n workflow portfolio (JSON + docs + evidence)
 ├── docs/index.html          — landing page served via GitHub Pages
 ├── test-all-apps.sh         — end-to-end endpoint test suite
 ├── LICENSE

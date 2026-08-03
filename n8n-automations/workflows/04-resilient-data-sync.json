@@ -1,0 +1,1974 @@
+{
+  "name": "04 - Resilient Cross-System Data Sync",
+  "nodes": [
+    {
+      "id": "4e847fda-f55b-4be7-97b3-bc57e8fea0b4",
+      "name": "Webhook: Sync Upsert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -500,
+        0
+      ],
+      "webhookId": "d76fc784-52be-4263-b0c7-0a7a3e09e447",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-upsert",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c8329e24-9adc-41ad-b092-d8571d23f26a",
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -260,
+        0
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"externalId\":\"{{ $json.body.contact.externalId }}\",\"name\":\"{{ $json.body.contact.name }}\",\"email\":\"{{ $json.body.contact.email }}\",\"phone\":\"{{ $json.body.contact.phone }}\",\"sourceUpdatedAt\":\"{{ $json.body.contact.updatedAt || $now.toISO() }}\",\"sourceSystem\":\"{{ $json.body.system }}\",\"targetSystem\":\"{{ $json.body.system === 'a' ? 'b' : 'a' }}\",\"simulateFailure\":{{ !!$json.body.simulateFailure }},\"idempotencyKey\":\"{{ $json.body.system + '->' + ($json.body.system === 'a' ? 'b' : 'a') + ':' + $json.body.contact.externalId + ':' + ($json.body.contact.updatedAt || $now.toISO()) }}\",\"ts\":\"{{ $now.toISO() }}\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "72519416-45f5-4bc3-84d6-34ec13d3a29f",
+      "name": "Lookup Source Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.sourceSystem === 'a' ? '0r3kZHXMOWmU6IGS' : '084KikceGDBrrOZ8' }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "externalId",
+              "condition": "eq",
+              "keyValue": "={{ $json.externalId }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1,
+        "orderBy": false
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "0e6d2e3c-ebbc-4b43-aa1f-a576945c71ca",
+      "name": "Prepare Source Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst norm = $('Normalize Event').item.json;\nconst existingRows = $('Lookup Source Row').all().map(i => i.json).filter(r => r && r.id !== undefined);\nconst before = existingRows.length > 0 ? existingRows[0] : null;\nreturn [{ json: { ...norm, before } }];"
+      }
+    },
+    {
+      "id": "d51aa4ef-f924-45ec-b7c7-3883482d6f5f",
+      "name": "Upsert Source Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Normalize Event').item.json.sourceSystem === 'a' ? '0r3kZHXMOWmU6IGS' : '084KikceGDBrrOZ8' }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "externalId",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Event').item.json.externalId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "externalId": "={{ $('Normalize Event').item.json.externalId }}",
+            "name": "={{ $('Normalize Event').item.json.name }}",
+            "email": "={{ $('Normalize Event').item.json.email }}",
+            "phone": "={{ $('Normalize Event').item.json.phone }}",
+            "sourceUpdatedAt": "={{ $('Normalize Event').item.json.sourceUpdatedAt }}"
+          },
+          "schema": [
+            {
+              "id": "externalId",
+              "displayName": "externalId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sourceUpdatedAt",
+              "displayName": "sourceUpdatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "eb757992-bb1f-498f-9610-7125920818b5",
+      "name": "Audit: Source Write",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "webhook:sync-upsert",
+            "action": "source-write",
+            "entity": "={{ $('Normalize Event').item.json.externalId }}",
+            "idempotencyKey": "={{ $('Normalize Event').item.json.idempotencyKey }}",
+            "system": "={{ $('Normalize Event').item.json.sourceSystem }}",
+            "before": "={{ $('Prepare Source Upsert').item.json.before ? JSON.stringify($('Prepare Source Upsert').item.json.before) : '' }}",
+            "after": "={{ JSON.stringify($json) }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ca38f087-f3a5-4335-bbf8-365df9652bea",
+      "name": "Prepare Adapter Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst norm = $('Normalize Event').item.json;\nconst attempt = $json.attempt ?? 0;\nreturn [{ json: {\n  attempt,\n  maxRetries: 3,\n  baseDelaySec: 2,\n  targetSystem: norm.targetSystem,\n  sourceSystem: norm.sourceSystem,\n  contact: {\n    externalId: norm.externalId, name: norm.name, email: norm.email,\n    phone: norm.phone, sourceUpdatedAt: norm.sourceUpdatedAt,\n  },\n  simulateFailure: norm.simulateFailure,\n  idempotencyKey: norm.idempotencyKey,\n} }];"
+      }
+    },
+    {
+      "id": "87058188-4ec8-4e50-b750-eb58389bf9d0",
+      "name": "Call Adapter",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "AQQjamDLdNbjyLe9",
+          "cachedResultName": "04a - Adapter: Target Upsert"
+        },
+        "mode": "once",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "07324f69-b876-4a6d-a076-b13cff6ba8d2",
+      "name": "Audit: Target Upsert",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        -220
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "sub:adapter-target-upsert",
+            "action": "={{ $json.action }}",
+            "entity": "={{ $json.externalId }}",
+            "idempotencyKey": "={{ $json.idempotencyKey }}",
+            "system": "={{ $json.targetSystem }}",
+            "before": "={{ $json.before ? JSON.stringify($json.before) : \"\" }}",
+            "after": "={{ $json.after ? JSON.stringify($json.after) : \"\" }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ea10a5f0-d0b3-4adc-bf21-6c7f250e6115",
+      "name": "Conflict?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1820,
+        -220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "14202838-d80d-45e0-82d6-3c21023126cf",
+              "leftValue": "={{ $('Call Adapter').item.json.conflict }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "252fa29b-4d22-4b0b-adf2-6e51d70572df",
+      "name": "Audit: Conflict Resolved",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        -340
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "sub:adapter-target-upsert",
+            "action": "conflict-resolved",
+            "entity": "={{ $('Call Adapter').item.json.externalId }}",
+            "idempotencyKey": "={{ $('Call Adapter').item.json.idempotencyKey }}",
+            "system": "={{ $('Call Adapter').item.json.targetSystem }}",
+            "before": "={{ JSON.stringify($('Call Adapter').item.json.before) }}",
+            "after": "={{ JSON.stringify($('Call Adapter').item.json.after) }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "11de55eb-170f-4338-bcd6-576ed5353ab2",
+      "name": "Build Response: Synced",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2340,
+        -220
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"status\":\"synced\",\"action\":\"{{ $('Call Adapter').item.json.action }}\",\"conflict\":{{ $('Call Adapter').item.json.conflict }},\"externalId\":\"{{ $('Call Adapter').item.json.externalId }}\",\"sourceSystem\":\"{{ $('Call Adapter').item.json.sourceSystem }}\",\"targetSystem\":\"{{ $('Call Adapter').item.json.targetSystem }}\",\"attemptsUsed\":{{ $('Prepare Adapter Call').item.json.attempt + 1 }},\"idempotencyKey\":\"{{ $('Call Adapter').item.json.idempotencyKey }}\",\"message\":\"{{ 'Propagated ' + $('Call Adapter').item.json.sourceSystem + ' -> ' + $('Call Adapter').item.json.targetSystem + ' (' + $('Call Adapter').item.json.action + ')' }}\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "a468bdf2-cbc1-4d43-94c9-98373ca381c1",
+      "name": "Retries Left?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1362a91-a670-4b07-81c3-131d30b808d1",
+              "leftValue": "={{ $('Prepare Adapter Call').item.json.attempt }}",
+              "rightValue": "={{ $('Prepare Adapter Call').item.json.maxRetries }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "bcb32f73-4436-4c0b-b27e-88567b989431",
+      "name": "Compute Backoff + Jitter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        140
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst prep = $('Prepare Adapter Call').item.json;\nconst attempt = prep.attempt;\nconst base = prep.baseDelaySec;\nconst waitSec = Math.round((base * Math.pow(2, attempt) + Math.random()) * 100) / 100;\nconst errItem = $input.first() ? $input.first().json : {};\nconst lastError = (errItem && (errItem.error && errItem.error.message || errItem.error || errItem.message)) || 'unknown error';\nreturn [{ json: {\n  attempt: attempt + 1,\n  maxRetries: prep.maxRetries,\n  baseDelaySec: prep.baseDelaySec,\n  targetSystem: prep.targetSystem,\n  sourceSystem: prep.sourceSystem,\n  contact: prep.contact,\n  simulateFailure: prep.simulateFailure,\n  idempotencyKey: prep.idempotencyKey,\n  waitSec,\n  lastError,\n} }];"
+      }
+    },
+    {
+      "id": "15026515-7394-4ce1-b5f6-be9dcb6f0a86",
+      "name": "Wait (Backoff + Jitter)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        140
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.waitSec }}",
+        "unit": "seconds"
+      },
+      "webhookId": "c0829eb3-6532-4817-bc99-66f4d241afb7"
+    },
+    {
+      "id": "d698a8df-5721-45fa-802c-917304a929bd",
+      "name": "Prepare DLQ Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst prep = $('Prepare Adapter Call').item.json;\nconst errItem = $input.first() ? $input.first().json : {};\nconst lastError = (errItem && (errItem.error && errItem.error.message || errItem.error || errItem.message)) || 'unknown error';\nconst dlqId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));\nreturn [{ json: {\n  dlqId,\n  system: prep.targetSystem,\n  payload: JSON.stringify({ targetSystem: prep.targetSystem, sourceSystem: prep.sourceSystem, contact: prep.contact, simulateFailure: prep.simulateFailure, idempotencyKey: prep.idempotencyKey }),\n  attempts: prep.attempt,\n  lastError,\n  firstFailedAt: new Date().toISOString(),\n  lastAttemptAt: new Date().toISOString(),\n  status: 'pending',\n  externalId: prep.contact.externalId,\n} }];"
+      }
+    },
+    {
+      "id": "4a63a346-f03b-4a2b-a64f-4fe55e18642a",
+      "name": "DLQ: Enqueue",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        320
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ClIFkiBCnYEXmTpn"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dlqId": "={{ $json.dlqId }}",
+            "system": "={{ $json.system }}",
+            "payload": "={{ $json.payload }}",
+            "attempts": "={{ $json.attempts }}",
+            "lastError": "={{ $json.lastError }}",
+            "firstFailedAt": "={{ $json.firstFailedAt }}",
+            "lastAttemptAt": "={{ $json.lastAttemptAt }}",
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "dlqId",
+              "displayName": "dlqId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payload",
+              "displayName": "payload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastError",
+              "displayName": "lastError",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "firstFailedAt",
+              "displayName": "firstFailedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastAttemptAt",
+              "displayName": "lastAttemptAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7b03acd-3f00-4218-873b-dd7f3062316b",
+      "name": "Audit: DLQ Enqueue",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2340,
+        320
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "webhook:sync-upsert",
+            "action": "dlq-enqueue",
+            "entity": "={{ $('Prepare DLQ Payload').item.json.externalId }}",
+            "idempotencyKey": "={{ $('Prepare DLQ Payload').item.json.idempotencyKey || '' }}",
+            "system": "={{ $('Prepare DLQ Payload').item.json.system }}",
+            "before": "",
+            "after": "={{ $('Prepare DLQ Payload').item.json.payload }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d40c95e6-5c11-4e9a-b86f-418f4192f845",
+      "name": "Build Response: Queued",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2600,
+        320
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"status\":\"queued_dlq\",\"externalId\":\"{{ $('Prepare DLQ Payload').item.json.externalId }}\",\"sourceSystem\":\"{{ $('Prepare Adapter Call').item.json.sourceSystem }}\",\"targetSystem\":\"{{ $('Prepare DLQ Payload').item.json.system }}\",\"attempts\":{{ $('Prepare DLQ Payload').item.json.attempts }},\"dlqId\":\"{{ $('Prepare DLQ Payload').item.json.dlqId }}\",\"lastError\":\"{{ $('Prepare DLQ Payload').item.json.lastError }}\",\"message\":\"All retries exhausted; queued to sync_dlq for replay via POST /sync-replay.\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "429cad62-2444-4c98-8f91-c381c668c7a1",
+      "name": "Respond: Upsert Outcome",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b68ba8ef-7174-4fac-895d-62144a06e9cf",
+      "name": "Webhook: Sync Replay",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -500,
+        800
+      ],
+      "webhookId": "5f3eb091-0c34-490a-8938-6513b749ac08",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-replay",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "53217f37-cfc6-427b-9d67-941d2c04998f",
+      "name": "List DLQ Rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -260,
+        800
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ClIFkiBCnYEXmTpn"
+        },
+        "matchType": "anyCondition",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true,
+        "orderBy": false
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "44e625bc-995b-448e-82f5-98e91f1eba64",
+      "name": "Normalize Replay Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        800
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst items = $input.all().map(i => i.json);\nconst rows = items.filter(r => r && r.dlqId !== undefined);\nif (rows.length === 0) {\n  return [{ json: { empty: true, drained: 0 } }];\n}\nreturn rows.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "48255e5b-358c-4eaa-9bff-12f0a8e17f4c",
+      "name": "Has DLQ Rows?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b35400a-d524-4907-ace1-0b7f56375051",
+              "leftValue": "={{ $json.dlqId !== undefined }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "06a2386b-83d9-4d5e-be1d-d083dc11657a",
+      "name": "Replay: Call Adapter",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        700
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "AQQjamDLdNbjyLe9",
+          "cachedResultName": "04a - Adapter: Target Upsert"
+        },
+        "mode": "each",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "targetSystem": "={{ JSON.parse($json.payload).targetSystem }}",
+            "sourceSystem": "={{ JSON.parse($json.payload).sourceSystem }}",
+            "contact": "={{ JSON.parse($json.payload).contact }}",
+            "simulateFailure": "={{ JSON.parse($json.payload).simulateFailure }}",
+            "idempotencyKey": "={{ JSON.parse($json.payload).idempotencyKey }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "7dd4e876-b3cb-47d7-a3fc-b63887af42b3",
+      "name": "Prep Replay Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst row = $('Normalize Replay Batch').item.json;\nconst result = $input.first() ? $input.first().json : {};\nreturn [{ json: {\n  dlqId: row.dlqId,\n  externalId: result.externalId,\n  targetSystem: result.targetSystem,\n  sourceSystem: result.sourceSystem,\n  idempotencyKey: result.idempotencyKey,\n  before: result.before,\n  after: result.after,\n  action: result.action,\n  outcome: 'replayed_success',\n} }];"
+      }
+    },
+    {
+      "id": "c3dcd85b-fb3d-407b-ae44-442f7de2a169",
+      "name": "Remove DLQ Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        600
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ClIFkiBCnYEXmTpn"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dlqId",
+              "condition": "eq",
+              "keyValue": "={{ $json.dlqId }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c46fb7a9-06ae-4a59-a158-1fce8b6ca8cb",
+      "name": "Audit: Replay Success",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        600
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "webhook:sync-replay",
+            "action": "dlq-replay-success",
+            "entity": "={{ $('Prep Replay Success').item.json.externalId }}",
+            "idempotencyKey": "={{ $('Prep Replay Success').item.json.idempotencyKey || '' }}",
+            "system": "={{ $('Prep Replay Success').item.json.targetSystem }}",
+            "before": "={{ $('Prep Replay Success').item.json.before ? JSON.stringify($('Prep Replay Success').item.json.before) : '' }}",
+            "after": "={{ JSON.stringify($('Prep Replay Success').item.json.after) }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0f14c999-e982-47e1-8101-81b3d958f523",
+      "name": "Mark Outcome: Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1560,
+        600
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"dlqId\":\"{{ $('Prep Replay Success').item.json.dlqId }}\",\"externalId\":\"{{ $('Prep Replay Success').item.json.externalId }}\",\"outcome\":\"replayed_success\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "fe129a0a-a78a-440a-ae8c-dc5c665a9469",
+      "name": "Prep Requeue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst row = $('Normalize Replay Batch').item.json;\nconst errItem = $input.first() ? $input.first().json : {};\nconst lastError = (errItem && (errItem.error && errItem.error.message || errItem.error || errItem.message)) || 'unknown error';\nconst parsed = JSON.parse(row.payload);\nreturn [{ json: {\n  dlqId: row.dlqId,\n  externalId: parsed.contact.externalId,\n  targetSystem: row.system,\n  idempotencyKey: parsed.idempotencyKey || '',\n  attempts: (row.attempts || 0) + 1,\n  lastError,\n  lastAttemptAt: new Date().toISOString(),\n  outcome: 'replayed_failure_requeued',\n} }];"
+      }
+    },
+    {
+      "id": "23575959-40b4-40d1-a79d-2cfdc16c2d40",
+      "name": "Requeue DLQ Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        900
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ClIFkiBCnYEXmTpn"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dlqId",
+              "condition": "eq",
+              "keyValue": "={{ $json.dlqId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempts": "={{ $json.attempts }}",
+            "lastError": "={{ $json.lastError }}",
+            "lastAttemptAt": "={{ $json.lastAttemptAt }}"
+          },
+          "schema": [
+            {
+              "id": "dlqId",
+              "displayName": "dlqId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payload",
+              "displayName": "payload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastError",
+              "displayName": "lastError",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "firstFailedAt",
+              "displayName": "firstFailedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastAttemptAt",
+              "displayName": "lastAttemptAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3235b357-c1d8-4866-a5a5-62f281af15c1",
+      "name": "Audit: Replay Failure",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        900
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "LlJ8PfQK4uBDXqkP"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toISO() }}",
+            "actor": "webhook:sync-replay",
+            "action": "dlq-replay-failure",
+            "entity": "={{ $('Prep Requeue').item.json.externalId }}",
+            "idempotencyKey": "={{ $('Prep Requeue').item.json.idempotencyKey }}",
+            "system": "={{ $('Prep Requeue').item.json.targetSystem }}",
+            "before": "",
+            "after": "={{ JSON.stringify({ attempts: $('Prep Requeue').item.json.attempts, lastError: $('Prep Requeue').item.json.lastError }) }}"
+          },
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "actor",
+              "displayName": "actor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity",
+              "displayName": "entity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "system",
+              "displayName": "system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "before",
+              "displayName": "before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "after",
+              "displayName": "after",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2af5e3ce-a7cd-4509-b83b-02efd1916d33",
+      "name": "Mark Outcome: Requeued",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1560,
+        900
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"dlqId\":\"{{ $('Prep Requeue').item.json.dlqId }}\",\"externalId\":\"{{ $('Prep Requeue').item.json.externalId }}\",\"outcome\":\"replayed_failure_requeued\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "1465dbab-b33e-4327-a866-8d15fcc7e016",
+      "name": "Aggregate Replay Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if ($input.all().length === 0) { return []; }\nconst items = $input.all().map(i => i.json);\nconst succeeded = items.filter(i => i.outcome === 'replayed_success');\nconst requeued = items.filter(i => i.outcome === 'replayed_failure_requeued');\nreturn [{ json: {\n  status: 'replay_complete',\n  drained: items.length,\n  succeeded: succeeded.length,\n  requeued: requeued.length,\n  details: items,\n} }];"
+      }
+    },
+    {
+      "id": "7450522a-feff-411f-a538-239176da2ab9",
+      "name": "Build Response: Empty",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        1060
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\"status\":\"no_dlq_rows\",\"drained\":0,\"succeeded\":0,\"requeued\":0,\"message\":\"DLQ is empty; nothing to replay.\"}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "7f468b7b-a093-40db-a43c-ee8b5ebe4e50",
+      "name": "Respond: Replay Outcome",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2080,
+        800
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "c3f98e87-9820-4e62-9b7d-a2940f4b0a5a",
+      "name": "sn1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        -280
+      ],
+      "parameters": {
+        "content": "## 04 - Resilient Cross-System Data Sync\nSystem A <-> System B contact sync with idempotency, deterministic conflict resolution, exponential backoff + jitter retries, a dead-letter queue with replay, and a full audit trail.\n\nPOST /sync-upsert -> propagate one contact change.\nPOST /sync-replay -> drain the DLQ.\n\nData Tables stand in for a CRM/DB pair (see doc for the swap-in mapping to HubSpot/Postgres/Sheets).",
+        "height": 240,
+        "width": 700,
+        "color": 4
+      }
+    },
+    {
+      "id": "efafa903-f55b-4477-9ee0-3dad60e4e0f6",
+      "name": "sn2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -420
+      ],
+      "parameters": {
+        "content": "**Idempotency:** idempotencyKey = sourceSystem->targetSystem:externalId:sourceUpdatedAt.\nSource write and target write are both upserts keyed on externalId -> replays and retries converge to the same state, never duplicate.",
+        "height": 180,
+        "width": 380,
+        "color": 6
+      }
+    },
+    {
+      "id": "f76424a9-07b2-463e-b10c-cc6f61a64bf1",
+      "name": "sn3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        460
+      ],
+      "parameters": {
+        "content": "**Retry loop:** \"Prepare Adapter Call\" is the loop anchor. On adapter failure: exponential backoff (base 2s * 2^attempt) + random jitter (0-1s), up to 3 attempts, then dead-letter.",
+        "height": 160,
+        "width": 420,
+        "color": 5
+      }
+    },
+    {
+      "id": "09755984-514e-4c5f-94ea-8e2b8a93681f",
+      "name": "sn4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        1080
+      ],
+      "parameters": {
+        "content": "**Dead-letter queue:** sync_dlq holds full payload + attempts + last error.\nPOST /sync-replay re-attempts every row once: success deletes the row, failure increments attempts and keeps it queued for the next replay.",
+        "height": 180,
+        "width": 460,
+        "color": 3
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Sync Upsert": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "Lookup Source Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Source Row": {
+      "main": [
+        [
+          {
+            "node": "Prepare Source Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Source Upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Source Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Source Row": {
+      "main": [
+        [
+          {
+            "node": "Audit: Source Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: Source Write": {
+      "main": [
+        [
+          {
+            "node": "Prepare Adapter Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Adapter Call": {
+      "main": [
+        [
+          {
+            "node": "Call Adapter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Adapter": {
+      "main": [
+        [
+          {
+            "node": "Audit: Target Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retries Left?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: Target Upsert": {
+      "main": [
+        [
+          {
+            "node": "Conflict?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conflict?": {
+      "main": [
+        [
+          {
+            "node": "Audit: Conflict Resolved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Response: Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: Conflict Resolved": {
+      "main": [
+        [
+          {
+            "node": "Build Response: Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response: Synced": {
+      "main": [
+        [
+          {
+            "node": "Respond: Upsert Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retries Left?": {
+      "main": [
+        [
+          {
+            "node": "Compute Backoff + Jitter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare DLQ Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Backoff + Jitter": {
+      "main": [
+        [
+          {
+            "node": "Wait (Backoff + Jitter)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Backoff + Jitter)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Adapter Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DLQ Payload": {
+      "main": [
+        [
+          {
+            "node": "DLQ: Enqueue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ: Enqueue": {
+      "main": [
+        [
+          {
+            "node": "Audit: DLQ Enqueue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: DLQ Enqueue": {
+      "main": [
+        [
+          {
+            "node": "Build Response: Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response: Queued": {
+      "main": [
+        [
+          {
+            "node": "Respond: Upsert Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Sync Replay": {
+      "main": [
+        [
+          {
+            "node": "List DLQ Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List DLQ Rows": {
+      "main": [
+        [
+          {
+            "node": "Normalize Replay Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Replay Batch": {
+      "main": [
+        [
+          {
+            "node": "Has DLQ Rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has DLQ Rows?": {
+      "main": [
+        [
+          {
+            "node": "Replay: Call Adapter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Response: Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replay: Call Adapter": {
+      "main": [
+        [
+          {
+            "node": "Prep Replay Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Requeue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Replay Success": {
+      "main": [
+        [
+          {
+            "node": "Remove DLQ Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove DLQ Row": {
+      "main": [
+        [
+          {
+            "node": "Audit: Replay Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: Replay Success": {
+      "main": [
+        [
+          {
+            "node": "Mark Outcome: Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Outcome: Success": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Replay Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Requeue": {
+      "main": [
+        [
+          {
+            "node": "Requeue DLQ Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requeue DLQ Row": {
+      "main": [
+        [
+          {
+            "node": "Audit: Replay Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: Replay Failure": {
+      "main": [
+        [
+          {
+            "node": "Mark Outcome: Requeued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Outcome: Requeued": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Replay Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Replay Results": {
+      "main": [
+        [
+          {
+            "node": "Respond: Replay Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response: Empty": {
+      "main": [
+        [
+          {
+            "node": "Respond: Replay Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID"
+  }
+}

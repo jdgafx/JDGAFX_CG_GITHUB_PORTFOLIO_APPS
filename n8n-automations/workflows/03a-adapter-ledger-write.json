@@ -1,0 +1,364 @@
+{
+  "name": "03a - Adapter: Ledger Write",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 03a - Adapter: Ledger Write\n\n**Swap point for the real accounting system.**\n\nThis sub-workflow is the ONLY place the pipeline knows how an\ninvoice gets posted. It writes to the Data Table `ap_ledger`,\nan honestly-labelled demo sink that stands in for the GL.\n\nTo go live, replace the single node `Post to ap_ledger` with:\n\n| Target | Node |\n| --- | --- |\n| QuickBooks Online | QuickBooks Online -> Bill -> Create |\n| Xero | Xero -> Invoice (ACCPAY) -> Create |\n| NetSuite / SAP | HTTP Request -> vendor bill endpoint |\n| Generic ERP | HTTP Request -> POST /api/bills |\n\nNothing upstream changes: the input contract below and the\n`{ posted, ledgerRef, sink, postedAt }` output contract stay\nthe same, so the caller never learns which system won.",
+        "width": 520,
+        "height": 400,
+        "color": 4
+      },
+      "id": "note-ledger-adapter",
+      "name": "Note: Ledger Adapter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "invoiceId",
+              "type": "string"
+            },
+            {
+              "name": "vendor",
+              "type": "string"
+            },
+            {
+              "name": "invoiceNumber",
+              "type": "string"
+            },
+            {
+              "name": "invoiceDate",
+              "type": "string"
+            },
+            {
+              "name": "dueDate",
+              "type": "string"
+            },
+            {
+              "name": "currency",
+              "type": "string"
+            },
+            {
+              "name": "subtotal",
+              "type": "number"
+            },
+            {
+              "name": "tax",
+              "type": "number"
+            },
+            {
+              "name": "total",
+              "type": "number"
+            },
+            {
+              "name": "lineItems",
+              "type": "string"
+            },
+            {
+              "name": "lineItemCount",
+              "type": "number"
+            },
+            {
+              "name": "confidence",
+              "type": "number"
+            },
+            {
+              "name": "approvalPath",
+              "type": "string"
+            },
+            {
+              "name": "approver",
+              "type": "string"
+            },
+            {
+              "name": "source",
+              "type": "string"
+            },
+            {
+              "name": "extractionModel",
+              "type": "string"
+            },
+            {
+              "name": "intakeExecutionId",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "when-called-by-pipeline",
+      "name": "When Called by Pipeline",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -760,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "m0U1Qv8r2UL0rC3R",
+          "cachedResultName": "ap_ledger"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "invoiceDate": "={{ $json.invoiceDate }}",
+            "dueDate": "={{ $json.dueDate }}",
+            "currency": "={{ $json.currency }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "tax": "={{ $json.tax }}",
+            "total": "={{ $json.total }}",
+            "lineItems": "={{ $json.lineItems }}",
+            "lineItemCount": "={{ $json.lineItemCount }}",
+            "confidence": "={{ $json.confidence }}",
+            "approvalPath": "={{ $json.approvalPath }}",
+            "approver": "={{ $json.approver }}",
+            "source": "={{ $json.source }}",
+            "extractionModel": "={{ $json.extractionModel }}",
+            "postedAt": "={{ $now.toISO() }}",
+            "intakeExecutionId": "={{ $json.intakeExecutionId }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceNumber",
+              "displayName": "invoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceDate",
+              "displayName": "invoiceDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dueDate",
+              "displayName": "dueDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lineItems",
+              "displayName": "lineItems",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lineItemCount",
+              "displayName": "lineItemCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvalPath",
+              "displayName": "approvalPath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver",
+              "displayName": "approver",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extractionModel",
+              "displayName": "extractionModel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postedAt",
+              "displayName": "postedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intakeExecutionId",
+              "displayName": "intakeExecutionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "post-to-ap_ledger",
+      "name": "Post to ap_ledger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -460,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Stable contract back to the caller, independent of which sink was used.\nconst row = $json;\nreturn [{ json: {\n  posted: true,\n  ledgerRef: String(row.id ?? ''),\n  sink: 'n8n Data Table: ap_ledger (demo sink for the GL)',\n  invoiceId: row.invoiceId,\n  total: row.total,\n  currency: row.currency,\n  approvalPath: row.approvalPath,\n  postedAt: row.postedAt,\n} }];"
+      },
+      "id": "return-ledger-receipt",
+      "name": "Return Ledger Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        60
+      ]
+    }
+  ],
+  "connections": {
+    "When Called by Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Post to ap_ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to ap_ledger": {
+      "main": [
+        [
+          {
+            "node": "Return Ledger Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

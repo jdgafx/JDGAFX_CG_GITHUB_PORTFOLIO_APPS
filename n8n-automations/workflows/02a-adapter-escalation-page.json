@@ -1,0 +1,186 @@
+{
+  "name": "[02a] Adapter: Escalation Page",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ticket_id",
+              "type": "string"
+            },
+            {
+              "name": "customer_email",
+              "type": "string"
+            },
+            {
+              "name": "subject",
+              "type": "string"
+            },
+            {
+              "name": "severity",
+              "type": "string"
+            },
+            {
+              "name": "intent",
+              "type": "string"
+            },
+            {
+              "name": "summary",
+              "type": "string"
+            },
+            {
+              "name": "sla_minutes",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dbc0db0c-876b-49f8-8886-90441a14747c",
+      "name": "When called by 02"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The SLA clock starts the moment the page is raised, not when a human opens it.\nconst item = $json;\nconst minutes = Number(item.sla_minutes ?? 60);\nconst now = new Date();\nconst due = new Date(now.getTime() + minutes * 60 * 1000);\n\nreturn [{\n  json: {\n    ...item,\n    paged_at: now.toISOString(),\n    sla_due_at: due.toISOString(),\n    sla_minutes: minutes,\n    status: 'paged',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "bd608afc-a76a-4b32-a0e5-07424ec2ca67",
+      "name": "Stamp SLA deadline"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "8cBMR5VqrrNqShiU",
+          "mode": "id",
+          "cachedResultName": "triage_escalations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "customer_email": "={{ $json.customer_email }}",
+            "subject": "={{ $json.subject }}",
+            "severity": "={{ $json.severity }}",
+            "intent": "={{ $json.intent }}",
+            "summary": "={{ $json.summary }}",
+            "sla_due_at": "={{ $json.sla_due_at }}",
+            "paged_at": "={{ $json.paged_at }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ],
+      "id": "54ba4cb1-586e-4624-b669-6d1745296f21",
+      "name": "Raise page",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{\n  json: {\n    paged: true,\n    sink: 'n8n Data Table: triage_escalations (demo sink)',\n    ticket_id: $json.ticket_id,\n    sla_due_at: $json.sla_due_at,\n    status: $json.status,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "3126a12c-7d58-491b-b106-769fdaa305a7",
+      "name": "Return page receipt"
+    },
+    {
+      "parameters": {
+        "content": "## Adapter: Escalation Page  (demo sink)\n\nFires only for `severity = urgent`. Stamps an SLA deadline before writing, so the deadline is set by the automation rather than by whenever a human notices.\n\n| Replace this node | With |\n| --- | --- |\n| `Raise page` | PagerDuty > Create Incident |\n| `Raise page` | Slack > Send Message to #support-urgent |\n| `Raise page` | Opsgenie > Create Alert |\n\n`Stamp SLA deadline` stays in place either way - it is business logic, not transport.",
+        "height": 280,
+        "width": 700,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ],
+      "id": "7eaff5aa-06a6-408d-9978-ef8d3cbba27f",
+      "name": "Note 631fc704"
+    }
+  ],
+  "connections": {
+    "When called by 02": {
+      "main": [
+        [
+          {
+            "node": "Stamp SLA deadline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp SLA deadline": {
+      "main": [
+        [
+          {
+            "node": "Raise page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise page": {
+      "main": [
+        [
+          {
+            "node": "Return page receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/New_York",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID"
+  },
+  "meta": {
+    "instanceId": null,
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

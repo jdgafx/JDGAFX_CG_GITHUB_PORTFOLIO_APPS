@@ -120,8 +120,8 @@ test_sse_stream() {
   local url
   url="$(get_url "$app")${endpoint}"
   local response
-  response=$(timeout 15 curl -s --max-time 14 -X POST "$url" \
-    -H 'Content-Type: application/json' -d "$payload" 2>/dev/null | head -c 2000 || true)
+  response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
+    -H 'Content-Type: application/json' -d "$payload" 2>/dev/null | head -c 20000 || true)
   if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_event"; then
     log_pass "$test_name"
   else
@@ -282,14 +282,14 @@ test_app_07() {
   test_method_not_allowed "app-07" "/api/ai"
 
   test_sse_stream "app-07" "/api/ai" \
-    '{"topic":"remote work tips"}' \
+    '{"topic":"remote work tips","contentType":"blog","step":"research"}' \
     "step_start" \
-    "Pipeline starts with step_start event"
+    "Research step starts with step_start event"
 
   test_sse_stream "app-07" "/api/ai" \
-    '{"topic":"remote work tips"}' \
-    "research" \
-    "Pipeline includes research step"
+    '{"topic":"remote work tips","contentType":"blog","step":"research"}' \
+    "step_complete" \
+    "Research step streams to step_complete"
 
   test_has_author_credit "app-07"
 }

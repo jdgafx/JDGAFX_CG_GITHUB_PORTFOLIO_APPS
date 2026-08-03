@@ -101,7 +101,9 @@ export default async (req: Request): Promise<Response> => {
       return jsonError(
         aiResponse.status === 429
           ? 'The assistant is rate limited right now. Try again in a moment.'
-          : 'The assistant failed to respond. Try again in a moment.',
+          : aiResponse.status === 402
+            ? 'The assistant service is temporarily unavailable. Please try again later.'
+            : 'The assistant failed to respond. Try again in a moment.',
         upstreamStatus(aiResponse.status),
         origin,
       )

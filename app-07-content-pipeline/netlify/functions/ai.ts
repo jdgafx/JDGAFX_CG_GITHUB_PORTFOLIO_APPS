@@ -127,7 +127,12 @@ async function streamStep(
 
   if (!response.ok) {
     const errText = await response.text()
-    throw new Error(`OpenRouter error: ${response.status} ${errText.slice(0, 300)}`)
+    console.error(`OpenRouter upstream error ${response.status}: ${errText.slice(0, 500)}`)
+    const friendly =
+      response.status === 402 ? 'The AI service is temporarily unavailable. Please try again later.'
+      : response.status === 429 ? 'The AI service is busy right now. Please retry in a moment.'
+      : 'The AI service returned an error. Please retry.'
+    throw new Error(friendly)
   }
 
   const body = response.body

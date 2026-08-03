@@ -1,0 +1,816 @@
+{
+  "name": "01 - Lead Capture -> Enrich -> Score -> CRM -> Notify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Lead Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        0
+      ],
+      "webhookId": "lead-intake-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst errors = [];\nconst required = ['name', 'email', 'company', 'message'];\nfor (const field of required) {\n  const v = body[field];\n  if (typeof v !== 'string' || !v.trim()) {\n    errors.push(`Missing or invalid field: ${field}`);\n  }\n}\nconst emailRe = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (typeof body.email === 'string' && body.email.trim() && !emailRe.test(body.email.trim())) {\n  errors.push('Invalid email format');\n}\nreturn [{\n  json: {\n    valid: errors.length === 0,\n    errors,\n    name: body.name,\n    email: body.email,\n    company: body.company,\n    message: body.message,\n    source: (typeof body.source === 'string' && body.source.trim()) ? body.source.trim() : 'unknown'\n  }\n}];"
+      },
+      "id": "code-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-valid",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"Validation failed\", \"details\": $json.errors } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-400",
+      "name": "Respond 400 (Invalid Payload)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -940,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function fnv1a(str) {\n  let hash = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    hash ^= str.charCodeAt(i);\n    hash = Math.imul(hash, 0x01000193);\n  }\n  return (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nconst email = ($json.email || '').trim().toLowerCase();\nconst domain = email.includes('@') ? email.split('@')[1] : '';\n// deterministic idempotency key: same email always maps to the same leadId,\n// so duplicate submissions resolve to the existing record instead of a new one.\nconst leadId = 'lead_' + fnv1a(email);\nconst message = $json.message || '';\n\n// Deliberate fault-injection test hook (documented in docs/01-lead-capture-crm.md):\n// lets us prove the shared [CORE] Error Handler wiring with a real execution\n// failure, without weakening validation for real traffic.\nif (message.includes('__FORCE_TEST_ERROR__')) {\n  throw new Error('Forced test error (fault-injection hook) to verify [CORE] Error Handler wiring');\n}\n\nreturn [{\n  json: {\n    ...$json,\n    email,\n    domain,\n    leadId\n  }\n}];"
+      },
+      "id": "code-prepare",
+      "name": "Prepare Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -940,
+        -60
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "rowExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "BtGIzpCRQow1ddPx",
+          "cachedResultName": "lead_crm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "condition": "eq",
+              "keyValue": "={{ $json.email }}"
+            }
+          ]
+        }
+      },
+      "id": "dt-row-exists",
+      "name": "If Row Exists",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -720,
+        -180
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "BtGIzpCRQow1ddPx",
+          "cachedResultName": "lead_crm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "condition": "eq",
+              "keyValue": "={{ $json.email }}"
+            }
+          ]
+        }
+      },
+      "id": "dt-row-not-exists",
+      "name": "If Row Not Exists",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -720,
+        60
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "BtGIzpCRQow1ddPx",
+          "cachedResultName": "lead_crm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "condition": "eq",
+              "keyValue": "={{ $json.email }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "dt-get-existing",
+      "name": "Get Existing Lead",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -500,
+        -180
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const existing = $json;\nreturn [{\n  json: {\n    leadId: existing.leadId,\n    score: existing.score,\n    routed: 'duplicate'\n  }\n}];"
+      },
+      "id": "code-dup-response",
+      "name": "Build Duplicate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-haiku-4.5",
+        "options": {
+          "maxTokens": 1024
+        }
+      },
+      "id": "llm-openrouter",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        320
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"companySize\": {\n      \"type\": \"string\",\n      \"enum\": [\"startup (1-10)\", \"small (11-50)\", \"medium (51-200)\", \"large (201-1000)\", \"enterprise (1000+)\"]\n    },\n    \"industry\": { \"type\": \"string\", \"description\": \"Short industry/vertical label, e.g. 'B2B SaaS', 'Healthcare', 'E-commerce'\" },\n    \"score\": { \"type\": \"integer\", \"minimum\": 1, \"maximum\": 100, \"description\": \"Lead sales-readiness score, 1 (poor fit) to 100 (excellent, ready to buy)\" },\n    \"reasoning\": { \"type\": \"string\", \"description\": \"1-2 sentence justification for the score\" }\n  },\n  \"required\": [\"companySize\", \"industry\", \"score\", \"reasoning\"]\n}"
+      },
+      "id": "output-parser",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -400,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a B2B lead-qualification assistant. Analyze this inbound lead and respond ONLY with valid JSON matching the required schema.\n\nLead details:\n- Company: {{ $json.company }}\n- Email domain: {{ $json.domain }}\n- Message: {{ $json.message }}\n- Source: {{ $json.source }}\n\nTasks:\n1. Classify the company size band from context clues in the message and company name (startup (1-10), small (11-50), medium (51-200), large (201-1000), enterprise (1000+)). If unclear, infer conservatively and note the uncertainty in your reasoning.\n2. Classify the industry/vertical in a few words.\n3. Score this lead's sales-readiness and fit from 1 (poor fit / spam-like) to 100 (excellent, ready-to-buy), based on message intent, specificity, urgency, and company signals.\n4. Give a concise 1-2 sentence reasoning for the score.\n\nRespond with JSON only.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "chain-classify-score",
+      "name": "Classify & Score Lead",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -500,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Prepare Lead').item.json;\nconst llm = $json.output ?? $json;\nconst score = Math.max(1, Math.min(100, Math.round(Number(llm.score) || 1)));\nreturn [{\n  json: {\n    ...lead,\n    companySize: llm.companySize || 'unknown',\n    industry: llm.industry || 'unknown',\n    score,\n    reasoning: llm.reasoning || '',\n    routed: score >= 70 ? 'hot' : 'standard'\n  }\n}];"
+      },
+      "id": "code-merge-llm",
+      "name": "Merge LLM Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hot-check",
+              "leftValue": "={{ $json.routed }}",
+              "rightValue": "hot",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-hot-lead",
+      "name": "Hot Lead? (score >= 70)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -60,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "z6VXsw4P17JqWXNG",
+          "cachedResultName": "Adapter: Hot Lead Alert"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "leadId": "={{ $json.leadId }}",
+            "email": "={{ $json.email }}",
+            "name": "={{ $json.name }}",
+            "company": "={{ $json.company }}",
+            "score": "={{ $json.score }}",
+            "reasoning": "={{ $json.reasoning }}"
+          },
+          "schema": []
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "id": "exec-hot-lead-alert",
+      "name": "Execute: Hot Lead Alert",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        -40
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "FcX67fbQOwcRoWaO",
+          "cachedResultName": "Adapter: CRM Upsert"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "leadId": "={{ $('Merge LLM Result').item.json.leadId }}",
+            "email": "={{ $('Merge LLM Result').item.json.email }}",
+            "name": "={{ $('Merge LLM Result').item.json.name }}",
+            "company": "={{ $('Merge LLM Result').item.json.company }}",
+            "message": "={{ $('Merge LLM Result').item.json.message }}",
+            "source": "={{ $('Merge LLM Result').item.json.source }}",
+            "domain": "={{ $('Merge LLM Result').item.json.domain }}",
+            "companySize": "={{ $('Merge LLM Result').item.json.companySize }}",
+            "industry": "={{ $('Merge LLM Result').item.json.industry }}",
+            "score": "={{ $('Merge LLM Result').item.json.score }}",
+            "reasoning": "={{ $('Merge LLM Result').item.json.reasoning }}",
+            "routed": "={{ $('Merge LLM Result').item.json.routed }}",
+            "status": "active"
+          },
+          "schema": []
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "id": "exec-crm-upsert",
+      "name": "Execute: CRM Upsert",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        400,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    leadId: $json.leadId,\n    score: $json.score,\n    routed: $json.routed\n  }\n}];"
+      },
+      "id": "code-build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        840,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Intake + Validation\nWebhook `POST /lead-intake` receives `{name, email, company, message, source}`.\n\n`Validate Input` checks required fields + email format. Invalid payloads never reach enrichment - they get an immediate **400** with a `details` array of the specific problems (fail-fast input validation at the system boundary).",
+        "height": 320,
+        "width": 460,
+        "color": 6
+      },
+      "id": "note-intake",
+      "name": "Sticky Note - Intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1620,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Idempotency / Dedupe\n`leadId` is a deterministic hash of the lowercased email - the same lead always gets the same ID, submission after submission.\n\n`If Row Exists` / `If Row Not Exists` (n8n-nodes-base.dataTable, operation `rowExists`/`rowNotExists`) run in parallel against `lead_crm`, filtered on `email`. A duplicate short-circuits straight to a 200 response (`routed: \"duplicate\"`) with the existing score - no re-scoring, no duplicate row, no wasted LLM call.",
+        "height": 340,
+        "width": 460,
+        "color": 6
+      },
+      "id": "note-dedupe",
+      "name": "Sticky Note - Dedupe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Enrich + Score (LLM)\nDomain is derived deterministically in code. Company-size/industry classification and the 1-100 sales-readiness score (with reasoning) come from a single structured-JSON call to `OpenRouter Chat Model` (anthropic/claude-haiku-4.5) via a Basic LLM Chain + Structured Output Parser - one round trip, not two, to keep the webhook response fast.\n\n`retryOnFail` (3 tries, fixed 2s wait) covers transient LLM/network failures. Note: n8n's node-level retry is fixed-interval, not true exponential backoff - documented honestly in docs/01-lead-capture-crm.md.",
+        "height": 340,
+        "width": 460,
+        "color": 3
+      },
+      "id": "note-enrich",
+      "name": "Sticky Note - Enrich",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -580,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Route + Adapters\nScore >= 70 -> `Adapter: Hot Lead Alert` (demo sink: Data Table `lead_notifications`, 1-node swap to Slack) fires first, then both paths converge on `Adapter: CRM Upsert` (demo sink: Data Table `lead_crm`, 1-node swap to a real CRM).\n\nBoth adapters are separate sub-workflows called via Execute Workflow, each with its own `errorWorkflow` pointing at `[CORE] Error Handler` and its own `retryOnFail`.",
+        "height": 320,
+        "width": 480,
+        "color": 3
+      },
+      "id": "note-route",
+      "name": "Sticky Note - Route",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $json.error || $json.message || 'Unknown node failure';\nreturn [{ json: { nodeError: String(msg) } }];"
+      },
+      "id": "code-handle-node-failure",
+      "name": "Handle Node Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"Internal error while processing lead\", \"details\": $json.nodeError } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "respond-502-node-failure",
+      "name": "Respond 502 (Node Failure)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        160,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "throw new Error('Lead pipeline node failure (caller already received 502): ' + ($json.nodeError || 'unknown'));"
+      },
+      "id": "code-rethrow-for-error-handler",
+      "name": "Rethrow For Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Failure Contract (fixed)\nWith `responseMode: responseNode`, a node that hard-fails before any Respond node runs leaves the caller with an HTTP 200 and an EMPTY body - silent failure, easy to misread as success. (Found by the workflow-02 builder testing their own pipeline; confirmed here too via this workflow's own forced-failure test, execution 14.)\n\nFix: every node with a realistic external-failure mode (`onError: continueErrorOutput`) now routes its error output here instead of hard-failing the execution. `Handle Node Failure` extracts the message, `Respond 502` gives the caller a real non-2xx status with a details field, then `Rethrow For Error Handler` re-throws so the OVERALL execution still ends in `error` status and `[CORE] Error Handler` still logs a `core_error_log` row - callers get an honest error AND the fleet-wide error log still catches it.",
+        "height": 280,
+        "width": 620,
+        "color": 2
+      },
+      "id": "note-failure-contract",
+      "name": "Sticky Note - Failure Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        780
+      ]
+    }
+  ],
+  "connections": {
+    "Lead Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 (Invalid Payload)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Lead": {
+      "main": [
+        [
+          {
+            "node": "If Row Exists",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Row Not Exists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Row Exists": {
+      "main": [
+        [
+          {
+            "node": "Get Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Build Duplicate Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Duplicate Response": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Row Not Exists": {
+      "main": [
+        [
+          {
+            "node": "Classify & Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify & Score Lead",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify & Score Lead",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify & Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Merge LLM Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge LLM Result": {
+      "main": [
+        [
+          {
+            "node": "Hot Lead? (score >= 70)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Lead? (score >= 70)": {
+      "main": [
+        [
+          {
+            "node": "Execute: Hot Lead Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: CRM Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Hot Lead Alert": {
+      "main": [
+        [
+          {
+            "node": "Execute: CRM Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: CRM Upsert": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Node Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Node Failure": {
+      "main": [
+        [
+          {
+            "node": "Respond 502 (Node Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 502 (Node Failure)": {
+      "main": [
+        [
+          {
+            "node": "Rethrow For Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "GC3Q52TUB5QgXhAq"
+  },
+  "staticData": null
+}

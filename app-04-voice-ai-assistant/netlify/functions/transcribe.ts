@@ -166,7 +166,9 @@ export default async (req: Request): Promise<Response> => {
       return jsonError(
         response.status === 429
           ? 'Transcription is rate limited right now. Try again in a moment.'
-          : 'Transcription service failed. Try again in a moment.',
+          : response.status === 402
+            ? 'The transcription service is temporarily unavailable. Please try again later.'
+            : 'Transcription service failed. Try again in a moment.',
         upstreamStatus(response.status),
         origin,
       )

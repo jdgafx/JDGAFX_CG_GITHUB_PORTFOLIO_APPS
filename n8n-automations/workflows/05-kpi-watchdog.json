@@ -1,0 +1,968 @@
+{
+  "name": "05 - KPI Watchdog",
+  "nodes": [
+    {
+      "id": "6742e737-bc24-4dbc-b5f7-7bdf06be200d",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        -420
+      ],
+      "parameters": {
+        "content": "## 05 - KPI Watchdog\nScheduled metrics pull -> anomaly detection -> LLM executive digest.\n\n**Two ways in:** daily Schedule Trigger, or POST `/webhook/kpi-run` for on-demand demo runs.\n\n**Test hook:** POST body `{ \"testOverrides\": { \"overrides\": { \"github_stars\": 999999 }, \"forceSourceDown\": \"coingecko\", \"forceCrash\": false, \"forceCrash05a\": false } }` lets you inject an anomaly, simulate a dead metric source, force this workflow to fail, or force the 05a delivery sub-workflow to fail independently - all without waiting for real-world data to misbehave. A 05a failure is best-effort (`onError: continueRegularOutput` on the Execute Workflow node) - delivery failing does not crash a run whose analysis already succeeded.",
+        "height": 280,
+        "width": 560,
+        "color": 7
+      }
+    },
+    {
+      "id": "6982cea3-762d-49ce-9175-c21c9bf80856",
+      "name": "Sticky Note - Sources",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        560
+      ],
+      "parameters": {
+        "content": "### Metric sources (live public APIs, no auth)\n- GitHub: n8n-io/n8n stars\n- CoinGecko: BTC/USD\n- Open-Meteo: Boston temperature\n\nEach call: retryOnFail (3 tries, backoff wait), onError = continue. A dead source never kills the run - it just gets flagged `ok:false` and the digest calls it out by name.",
+        "height": 220,
+        "width": 420,
+        "color": 6
+      }
+    },
+    {
+      "id": "df03ad41-a863-4a98-af9d-5fb633948424",
+      "name": "Sticky Note - Anomaly",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -140,
+        -420
+      ],
+      "parameters": {
+        "content": "### Anomaly detection\nRolling mean over prior runs per metric (from `kpi_history`). Flags when the current value deviates more than `THRESHOLD_PCT` (default 15%) from that mean. Threshold is a single named constant in **Detect Anomalies** - change it there.",
+        "height": 200,
+        "width": 360,
+        "color": 5
+      }
+    },
+    {
+      "id": "c413e545-34cf-4b08-a92b-e9df50663a8b",
+      "name": "Sticky Note - Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -420
+      ],
+      "parameters": {
+        "content": "### Digest + delivery\nBasic LLM Chain (OpenRouter -> claude-haiku-4.5) writes the executive digest, then hands off to **05a - Adapter: Digest Delivery** (Execute Workflow) which is the single swap point for Slack/email in production.",
+        "height": 200,
+        "width": 360,
+        "color": 4
+      }
+    },
+    {
+      "id": "9aa51e4e-e5cf-42f2-886e-0480f8baa1bc",
+      "name": "Schedule Trigger (Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1400,
+        40
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "54f2c23d-9295-4f94-9d83-005390c445d3",
+      "name": "Webhook: /kpi-run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kpi-run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "d48e75d2-eee2-4b06-bb4c-e9b4eaca04e7"
+    },
+    {
+      "id": "876b196c-8634-473a-ac18-4cd9d8687f19",
+      "name": "Init Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1140,
+        140
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst isWebhook = item.headers !== undefined && item.body !== undefined;\nconst testOverrides = (isWebhook && item.body && item.body.testOverrides) || {};\nreturn [{\n  json: {\n    triggerSource: isWebhook ? 'webhook' : 'schedule',\n    runTimestamp: new Date().toISOString(),\n    testOverrides,\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "17be1448-073b-4564-a97e-32c5e13a0657",
+      "name": "Forced Failure Test?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -900,
+        140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.testOverrides.forceCrash === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "dbf558e7-cd68-435b-bdac-22f0d0e5f6b9",
+      "name": "Throw Forced Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        60
+      ],
+      "parameters": {
+        "jsCode": "throw new Error('KPI Watchdog: forced failure test (testOverrides.forceCrash) - proving [CORE] Error Handler.');"
+      }
+    },
+    {
+      "id": "91329021-26fa-4b68-a8e2-cf908cfbbe41",
+      "name": "HTTP: GitHub Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -680,
+        220
+      ],
+      "parameters": {
+        "url": "={{ $json.testOverrides.forceSourceDown === 'github' ? 'https://api.github.com/repos/n8n-io/DOES-NOT-EXIST-404' : 'https://api.github.com/repos/n8n-io/n8n' }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a201e84e-ff61-4d41-a4fe-eae9cf095b6f",
+      "name": "HTTP: CoinGecko BTC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -680,
+        340
+      ],
+      "parameters": {
+        "url": "={{ $json.testOverrides.forceSourceDown === 'coingecko' ? 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin-DOES-NOT-EXIST&vs_currencies=usd' : 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd' }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "72d814a1-d29a-4ca6-a1af-a1ee0ea9a52f",
+      "name": "HTTP: Open-Meteo Temp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -680,
+        460
+      ],
+      "parameters": {
+        "url": "={{ $json.testOverrides.forceSourceDown === 'openmeteo' ? 'https://api.open-meteo.com/v1/forecast?latitude=999&longitude=999&current=temperature_2m' : 'https://api.open-meteo.com/v1/forecast?latitude=42.36&longitude=-71.06&current=temperature_2m' }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b51056db-b2d2-45b0-8179-d9e6f80b376f",
+      "name": "Normalize GitHub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst overrides = ($('Init Context').first().json.testOverrides || {}).overrides || {};\nlet ok = true, value = null, error = null;\nif (raw && raw.error) {\n  ok = false;\n  error = typeof raw.error === 'string' ? raw.error : (raw.error.message || JSON.stringify(raw.error));\n} else {\n  try {\n    value = raw.stargazers_count;\n    if (value === undefined || value === null || Number.isNaN(Number(value))) throw new Error('missing/invalid field in response');\n    value = Number(value);\n  } catch (e) {\n    ok = false;\n    error = e.message;\n  }\n}\nif (overrides['github_stars'] !== undefined) {\n  value = Number(overrides['github_stars']);\n  ok = true; error = null;\n}\nreturn [{ json: {\n  source: 'github',\n  metric: 'github_stars',\n  value, ok, error,\n}}];\n"
+      }
+    },
+    {
+      "id": "46c25610-f22e-41e1-850b-12d2cf8c3697",
+      "name": "Normalize CoinGecko",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        340
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst overrides = ($('Init Context').first().json.testOverrides || {}).overrides || {};\nlet ok = true, value = null, error = null;\nif (raw && raw.error) {\n  ok = false;\n  error = typeof raw.error === 'string' ? raw.error : (raw.error.message || JSON.stringify(raw.error));\n} else {\n  try {\n    value = raw.bitcoin.usd;\n    if (value === undefined || value === null || Number.isNaN(Number(value))) throw new Error('missing/invalid field in response');\n    value = Number(value);\n  } catch (e) {\n    ok = false;\n    error = e.message;\n  }\n}\nif (overrides['btc_price_usd'] !== undefined) {\n  value = Number(overrides['btc_price_usd']);\n  ok = true; error = null;\n}\nreturn [{ json: {\n  source: 'coingecko',\n  metric: 'btc_price_usd',\n  value, ok, error,\n}}];\n"
+      }
+    },
+    {
+      "id": "1fb0ed97-7c9a-47ca-b735-d67088f49bd2",
+      "name": "Normalize Open-Meteo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst overrides = ($('Init Context').first().json.testOverrides || {}).overrides || {};\nlet ok = true, value = null, error = null;\nif (raw && raw.error) {\n  ok = false;\n  error = typeof raw.error === 'string' ? raw.error : (raw.error.message || JSON.stringify(raw.error));\n} else {\n  try {\n    value = raw.current.temperature_2m;\n    if (value === undefined || value === null || Number.isNaN(Number(value))) throw new Error('missing/invalid field in response');\n    value = Number(value);\n  } catch (e) {\n    ok = false;\n    error = e.message;\n  }\n}\nif (overrides['boston_temp_c'] !== undefined) {\n  value = Number(overrides['boston_temp_c']);\n  ok = true; error = null;\n}\nreturn [{ json: {\n  source: 'openmeteo',\n  metric: 'boston_temp_c',\n  value, ok, error,\n}}];\n"
+      }
+    },
+    {
+      "id": "46d74391-ed1f-49db-92a9-5c82d15575dd",
+      "name": "Merge Metric Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -320,
+        340
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3
+      }
+    },
+    {
+      "id": "50401246-409d-4b1b-b997-18d00e1cbffe",
+      "name": "Aggregate Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        340
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const metrics = $input.all().map(i => i.json);\nconst ctx = $('Init Context').first().json;\nreturn [{ json: {\n  runTimestamp: ctx.runTimestamp,\n  triggerSource: ctx.triggerSource,\n  metrics,\n  sourceDownList: metrics.filter(m => !m.ok).map(m => m.metric),\n}}];\n"
+      }
+    },
+    {
+      "id": "ca718306-d83a-498c-916c-e721b41529cf",
+      "name": "Get History (kpi_history)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        340
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "kpi_history"
+        },
+        "returnAll": false,
+        "limit": 90,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "DESC",
+        "matchType": "anyCondition",
+        "filters": {
+          "conditions": []
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "3a703352-5c78-4f3e-8acb-67f0c93ec663",
+      "name": "Detect Anomalies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        340
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const THRESHOLD_PCT = 15; // % deviation from rolling mean that counts as an anomaly\nconst MIN_HISTORY = 1;    // need at least this many prior runs to judge\nconst current = $('Aggregate Metrics').first().json;\nconst historyRows = $input.all().map(i => i.json);\n\nconst out = current.metrics.map(m => {\n  const prior = historyRows\n    .filter(r => r.metric_name === m.metric && typeof r.value === 'number')\n    .map(r => r.value);\n  const priorCount = prior.length;\n  const priorMean = priorCount ? prior.reduce((a, b) => a + b, 0) / priorCount : null;\n  let pctChange = null;\n  let anomaly = false;\n  if (m.ok && priorCount >= MIN_HISTORY && priorMean) {\n    pctChange = ((m.value - priorMean) / priorMean) * 100;\n    anomaly = Math.abs(pctChange) >= THRESHOLD_PCT;\n  }\n  return {\n    metric_name: m.metric,\n    source: m.source,\n    value: m.ok ? m.value : null,\n    ok: m.ok,\n    error_note: m.error || '',\n    run_timestamp: current.runTimestamp,\n    prior_mean: priorMean,\n    prior_count: priorCount,\n    pct_change: pctChange,\n    anomaly,\n    threshold_pct: THRESHOLD_PCT,\n  };\n});\nreturn out.map(json => ({ json }));\n"
+      }
+    },
+    {
+      "id": "55b14afd-0908-460f-950d-f6eb391cf96b",
+      "name": "Ensure History Table Exists",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -220,
+        200
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "kpi_history",
+        "columns": {
+          "column": [
+            {
+              "name": "metric_name",
+              "type": "string"
+            },
+            {
+              "name": "source",
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "type": "number"
+            },
+            {
+              "name": "ok",
+              "type": "boolean"
+            },
+            {
+              "name": "error_note",
+              "type": "string"
+            },
+            {
+              "name": "run_timestamp",
+              "type": "string"
+            },
+            {
+              "name": "prior_mean",
+              "type": "number"
+            },
+            {
+              "name": "prior_count",
+              "type": "number"
+            },
+            {
+              "name": "pct_change",
+              "type": "number"
+            },
+            {
+              "name": "anomaly",
+              "type": "boolean"
+            },
+            {
+              "name": "threshold_pct",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      }
+    },
+    {
+      "id": "09d650a0-01a1-46b0-a768-b26408b122ac",
+      "name": "Insert History Rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        340
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "kpi_history"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "metric_name": "={{ $json.metric_name }}",
+            "source": "={{ $json.source }}",
+            "value": "={{ $json.value }}",
+            "ok": "={{ $json.ok }}",
+            "error_note": "={{ $json.error_note }}",
+            "run_timestamp": "={{ $json.run_timestamp }}",
+            "prior_mean": "={{ $json.prior_mean }}",
+            "prior_count": "={{ $json.prior_count }}",
+            "pct_change": "={{ $json.pct_change }}",
+            "anomaly": "={{ $json.anomaly }}",
+            "threshold_pct": "={{ $json.threshold_pct }}"
+          },
+          "schema": [
+            {
+              "id": "metric_name",
+              "displayName": "metric_name",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "value",
+              "displayName": "value",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ok",
+              "displayName": "ok",
+              "type": "boolean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_note",
+              "displayName": "error_note",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_timestamp",
+              "displayName": "run_timestamp",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prior_mean",
+              "displayName": "prior_mean",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prior_count",
+              "displayName": "prior_count",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pct_change",
+              "displayName": "pct_change",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "anomaly",
+              "displayName": "anomaly",
+              "type": "boolean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "threshold_pct",
+              "displayName": "threshold_pct",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "0e76bb9c-9923-435e-b88a-515a923de0b3",
+      "name": "Build Digest Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        340
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const metrics = $('Detect Anomalies').all().map(i => i.json);\nconst ctx = $('Aggregate Metrics').first().json;\nconst anomalyCount = metrics.filter(m => m.anomaly).length;\nconst sourceDownCount = metrics.filter(m => !m.ok).length;\n\nconst lines = metrics.map(m => {\n  if (!m.ok) return `- ${m.metric_name}: SOURCE UNAVAILABLE (${m.error_note})`;\n  const trend = m.pct_change === null ? 'no prior history yet' : `${m.pct_change >= 0 ? '+' : ''}${m.pct_change.toFixed(1)}% vs rolling mean of ${m.prior_count} prior run(s)`;\n  return `- ${m.metric_name}: ${m.value} (${trend})${m.anomaly ? '  <-- ANOMALY (threshold ' + m.threshold_pct + '%)' : ''}`;\n}).join('\\n');\n\nconst prompt = `You are writing a crisp executive KPI digest for a portfolio automation demo.\\n\\nRun timestamp: ${ctx.runTimestamp}\\nTrigger: ${ctx.triggerSource}\\n\\nMetrics this run:\\n${lines}\\n\\nWrite a short executive digest (120-180 words, plain text, no markdown headers) that:\\n1. States what moved and by how much, in plain business language.\\n2. Explicitly calls out any ANOMALY metrics by name and explains why it matters.\\n3. If any source is unavailable, say so plainly as a data-gap note - never silently omit it.\\n4. Ends with one sentence on overall system health (normal / needs attention).\\nDo not invent numbers that were not given above.`;\n\nreturn [{ json: {\n  prompt,\n  runTimestamp: ctx.runTimestamp,\n  anomalyCount,\n  sourceDownCount,\n  metricsJson: JSON.stringify(metrics),\n}}];\n"
+      }
+    },
+    {
+      "id": "40ff2964-b1f8-4215-8a7f-2402ec8106eb",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        780,
+        560
+      ],
+      "parameters": {
+        "model": "anthropic/claude-haiku-4.5",
+        "options": {
+          "maxTokens": 600
+        }
+      },
+      "credentials": {
+        "openRouterApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "OpenRouter account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "37eaebed-71c7-4fcd-b6d3-0c8fed364628",
+      "name": "Generate Digest",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        1000,
+        340
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "8bde7576-3585-4c30-aeac-c30347d47999",
+      "name": "Prepare Digest Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        340
+      ],
+      "parameters": {
+        "jsCode": "const ctx = $('Build Digest Prompt').first().json;\nconst digestText = $json.text || '(no digest text returned)';\nreturn [{ json: {\n  run_timestamp: ctx.runTimestamp,\n  digest_text: digestText,\n  anomaly_count: ctx.anomalyCount,\n  source_down_count: ctx.sourceDownCount,\n  metrics_json: ctx.metricsJson,\n}}];\n"
+      }
+    },
+    {
+      "id": "e4167bcc-7244-48ba-8016-c273ccd2b686",
+      "name": "Deliver Digest (05a)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1480,
+        340
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "V7x8anftdJOYTgMJ",
+          "cachedResultName": "05a - Adapter: Digest Delivery"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_timestamp": "={{ $json.run_timestamp }}",
+            "digest_text": "={{ $json.digest_text }}",
+            "anomaly_count": "={{ $json.anomaly_count }}",
+            "source_down_count": "={{ $json.source_down_count }}",
+            "metrics_json": "={{ $json.metrics_json }}",
+            "force_crash": "={{ $('Init Context').first().json.testOverrides.forceCrash05a === true }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e1f22a81-f744-480c-b2c7-db4f4548450b",
+      "name": "Is Webhook Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        340
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Init Context').first().json.triggerSource }}",
+              "rightValue": "webhook",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "82f6bfd8-dff0-432f-9249-16ff5c5d0de5",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1960,
+        260
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { run_timestamp: $('Prepare Digest Record').first().json.run_timestamp, anomaly_count: $('Prepare Digest Record').first().json.anomaly_count, source_down_count: $('Prepare Digest Record').first().json.source_down_count, digest: $('Prepare Digest Record').first().json.digest_text, metrics: JSON.parse($('Prepare Digest Record').first().json.metrics_json) } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "0823cd1b-ad8b-425a-809a-109a85e946c0",
+      "name": "No Response Needed (Scheduled Run)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1960,
+        460
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Daily)": {
+      "main": [
+        [
+          {
+            "node": "Init Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: /kpi-run": {
+      "main": [
+        [
+          {
+            "node": "Init Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Context": {
+      "main": [
+        [
+          {
+            "node": "Forced Failure Test?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forced Failure Test?": {
+      "main": [
+        [
+          {
+            "node": "Throw Forced Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP: GitHub Stats",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP: CoinGecko BTC",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP: Open-Meteo Temp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: GitHub Stats": {
+      "main": [
+        [
+          {
+            "node": "Normalize GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: CoinGecko BTC": {
+      "main": [
+        [
+          {
+            "node": "Normalize CoinGecko",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Open-Meteo Temp": {
+      "main": [
+        [
+          {
+            "node": "Normalize Open-Meteo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize GitHub": {
+      "main": [
+        [
+          {
+            "node": "Merge Metric Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize CoinGecko": {
+      "main": [
+        [
+          {
+            "node": "Merge Metric Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Normalize Open-Meteo": {
+      "main": [
+        [
+          {
+            "node": "Merge Metric Branches",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Metric Branches": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Metrics": {
+      "main": [
+        [
+          {
+            "node": "Ensure History Table Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure History Table Exists": {
+      "main": [
+        [
+          {
+            "node": "Get History (kpi_history)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get History (kpi_history)": {
+      "main": [
+        [
+          {
+            "node": "Detect Anomalies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Anomalies": {
+      "main": [
+        [
+          {
+            "node": "Insert History Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert History Rows": {
+      "main": [
+        [
+          {
+            "node": "Build Digest Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Digest": {
+      "main": [
+        [
+          {
+            "node": "Prepare Digest Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Digest Record": {
+      "main": [
+        [
+          {
+            "node": "Deliver Digest (05a)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver Digest (05a)": {
+      "main": [
+        [
+          {
+            "node": "Is Webhook Run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Webhook Run?": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Response Needed (Scheduled Run)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Digest",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "GC3Q52TUB5QgXhAq"
+  }
+}

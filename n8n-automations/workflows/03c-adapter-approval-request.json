@@ -1,0 +1,262 @@
+{
+  "name": "03c - Adapter: Approval Request",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 03c - Adapter: Approval Request\n\n**Swap point for the approver notification.**\n\nRenders the human-readable approval request (subject + body with\nthe exact curl the approver needs) and delivers it. Delivery is\nthe only part that is stubbed.\n\nDemo sink: Data Table `ap_notifications`. To go live, replace the\nsingle node `Deliver Approval Request`:\n\n| Target | Node |\n| --- | --- |\n| Email approver | Gmail -> Message -> Send |\n| Slack DM / channel | Slack -> Message -> Send |\n| Microsoft Teams | Microsoft Teams -> Message -> Send |\n| Approval app | HTTP Request -> POST /approvals |\n\n`Render Approval Notice` stays untouched in every case - the body\nit builds is channel-agnostic.",
+        "width": 520,
+        "height": 420,
+        "color": 6
+      },
+      "id": "note-approval-adapter",
+      "name": "Note: Approval Adapter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "invoiceId",
+              "type": "string"
+            },
+            {
+              "name": "vendor",
+              "type": "string"
+            },
+            {
+              "name": "invoiceNumber",
+              "type": "string"
+            },
+            {
+              "name": "currency",
+              "type": "string"
+            },
+            {
+              "name": "total",
+              "type": "number"
+            },
+            {
+              "name": "confidence",
+              "type": "number"
+            },
+            {
+              "name": "holdReasons",
+              "type": "string"
+            },
+            {
+              "name": "approveUrl",
+              "type": "string"
+            },
+            {
+              "name": "recipient",
+              "type": "string"
+            },
+            {
+              "name": "dueDate",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "when-called-by-pipeline",
+      "name": "When Called by Pipeline",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -960,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nlet reasons = [];\ntry { reasons = JSON.parse(d.holdReasons || '[]'); } catch (e) { reasons = [String(d.holdReasons || '')]; }\n\nconst money = `${d.currency} ${Number(d.total).toFixed(2)}`;\nconst subject = `AP approval needed: ${d.vendor} ${d.invoiceNumber} for ${money}`;\n\nconst body = [\n  `Invoice ${d.invoiceNumber} from ${d.vendor} needs your approval.`,\n  '',\n  `Amount    : ${money}`,\n  `Due date  : ${d.dueDate || 'not stated on the invoice'}`,\n  `Confidence: ${d.confidence}`,\n  `Invoice ID: ${d.invoiceId}`,\n  '',\n  'Why it was held:',\n  ...reasons.map((r) => `  - ${r}`),\n  '',\n  'Approve:',\n  `  curl -X POST ${d.approveUrl} -H 'Content-Type: application/json' \\\\`,\n  `    -d '{\"invoiceId\":\"${d.invoiceId}\",\"decision\":\"approve\",\"approver\":\"YOUR_NAME\"}'`,\n  '',\n  'Reject:',\n  `  curl -X POST ${d.approveUrl} -H 'Content-Type: application/json' \\\\`,\n  `    -d '{\"invoiceId\":\"${d.invoiceId}\",\"decision\":\"reject\",\"approver\":\"YOUR_NAME\",\"note\":\"why\"}'`,\n].join('\\n');\n\nreturn [{ json: { ...d, subject, body, channel: 'email', reasons } }];"
+      },
+      "id": "render-approval-notice",
+      "name": "Render Approval Notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "KBQrVKwaSdfardgE",
+          "cachedResultName": "ap_notifications"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "channel": "={{ $json.channel }}",
+            "recipient": "={{ $json.recipient }}",
+            "subject": "={{ $json.subject }}",
+            "body": "={{ $json.body }}",
+            "approveUrl": "={{ $json.approveUrl }}",
+            "amount": "={{ $json.total }}",
+            "sentAt": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "recipient",
+              "displayName": "recipient",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approveUrl",
+              "displayName": "approveUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sentAt",
+              "displayName": "sentAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "deliver-approval-request",
+      "name": "Deliver Approval Request",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -360,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const row = $json;\nreturn [{ json: {\n  notified: true,\n  notificationRef: String(row.id ?? ''),\n  sink: 'n8n Data Table: ap_notifications (demo sink for email/Slack)',\n  channel: row.channel,\n  recipient: row.recipient,\n  subject: row.subject,\n  sentAt: row.sentAt,\n} }];"
+      },
+      "id": "return-notification-receipt",
+      "name": "Return Notification Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        60
+      ]
+    }
+  ],
+  "connections": {
+    "When Called by Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Render Approval Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Approval Notice": {
+      "main": [
+        [
+          {
+            "node": "Deliver Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Return Notification Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

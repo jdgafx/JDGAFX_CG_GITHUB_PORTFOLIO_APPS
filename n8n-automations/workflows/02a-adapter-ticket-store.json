@@ -1,0 +1,175 @@
+{
+  "name": "[02a] Adapter: Ticket Store",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ticket_id",
+              "type": "string"
+            },
+            {
+              "name": "customer_email",
+              "type": "string"
+            },
+            {
+              "name": "subject",
+              "type": "string"
+            },
+            {
+              "name": "body",
+              "type": "string"
+            },
+            {
+              "name": "intent",
+              "type": "string"
+            },
+            {
+              "name": "severity",
+              "type": "string"
+            },
+            {
+              "name": "sentiment",
+              "type": "string"
+            },
+            {
+              "name": "draft_reply",
+              "type": "string"
+            },
+            {
+              "name": "sources",
+              "type": "string"
+            },
+            {
+              "name": "kb_matched",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c0e80a21-e372-4dc6-bed3-8fd915ba3ebd",
+      "name": "When called by 02"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "ZkaP6EBZR5SQ7QtQ",
+          "mode": "id",
+          "cachedResultName": "triage_tickets"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "customer_email": "={{ $json.customer_email }}",
+            "subject": "={{ $json.subject }}",
+            "body": "={{ $json.body }}",
+            "intent": "={{ $json.intent }}",
+            "severity": "={{ $json.severity }}",
+            "sentiment": "={{ $json.sentiment }}",
+            "draft_reply": "={{ $json.draft_reply }}",
+            "sources": "={{ $json.sources }}",
+            "kb_matched": "={{ $json.kb_matched }}",
+            "created_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "65808856-2ff9-4df1-a750-87617b1dd972",
+      "name": "Write ticket row",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The adapter returns a receipt, never the raw sink response, so the caller is\n// decoupled from whichever ticketing system sits behind this boundary.\nconst row = $json;\nreturn [{\n  json: {\n    stored: true,\n    sink: 'n8n Data Table: triage_tickets (demo sink)',\n    ticket_id: row.ticket_id,\n    row_id: row.id ?? null,\n    stored_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "fc069873-bb25-43b6-966f-e354bbf760ec",
+      "name": "Return storage receipt"
+    },
+    {
+      "parameters": {
+        "content": "## Adapter: Ticket Store  (demo sink)\n\n**This writes to an n8n Data Table, not to a real helpdesk.** It is deliberately a one-node swap away from production.\n\n| Replace this node | With | Keep |\n| --- | --- | --- |\n| `Write ticket row` | Zendesk > Create Ticket | the trigger contract + the receipt |\n| `Write ticket row` | Freshdesk / Jira Service Management | same |\n\nThe caller only ever sees the receipt from `Return storage receipt`, so swapping the sink changes nothing upstream.",
+        "height": 260,
+        "width": 660,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -300
+      ],
+      "id": "b8892709-4f76-49fd-b4fb-7a795be52c49",
+      "name": "Note 5f09fbfd"
+    }
+  ],
+  "connections": {
+    "When called by 02": {
+      "main": [
+        [
+          {
+            "node": "Write ticket row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write ticket row": {
+      "main": [
+        [
+          {
+            "node": "Return storage receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/New_York",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID"
+  },
+  "meta": {
+    "instanceId": null,
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

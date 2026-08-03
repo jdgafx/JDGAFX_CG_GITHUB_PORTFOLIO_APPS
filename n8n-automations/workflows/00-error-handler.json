@@ -1,0 +1,118 @@
+{
+  "name": "[CORE] Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "02db7601-2d1f-4bdf-818d-930c5fe23935",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// n8n's Error Trigger delivers {execution, workflow, trigger?}. Flatten it into one\n// durable row so operators can triage failures fleet-wide without opening each execution.\nconst e = $json.execution ?? {};\nconst w = $json.workflow ?? {};\nconst err = e.error ?? $json.error ?? {};\n\nreturn [{\n  json: {\n    workflowName: String(w.name ?? w.id ?? 'unknown'),\n    executionId: String(e.id ?? ''),\n    nodeName: String(e.lastNodeExecuted ?? err.node?.name ?? ''),\n    errorMessage: String(err.message ?? 'unknown error').slice(0, 4000),\n    timestamp: new Date().toISOString(),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "28d3fcca-8174-4e53-b96f-b0865f6105f9",
+      "name": "Shape Error Record"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "CCpI8pLBFn1iyMPg",
+          "mode": "id",
+          "cachedResultName": "core_error_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflowName": "={{ $json.workflowName }}",
+            "executionId": "={{ $json.executionId }}",
+            "nodeName": "={{ $json.nodeName }}",
+            "errorMessage": "={{ $json.errorMessage }}",
+            "timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "a6d8286a-0a17-4864-a710-4e4a65099cf9",
+      "name": "Log to core_error_log",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "content": "## [CORE] Shared Error Handler\n\nEvery portfolio workflow points `settings.errorWorkflow` here, so a failure anywhere in the fleet lands as one queryable row in the `core_error_log` Data Table instead of being buried in an execution log.\n\n**Swap to production:** replace the Data Table node with PagerDuty, Sentry or Opsgenie. The record shape (workflow, execution, node, message, time) is already what those services expect.",
+        "height": 220,
+        "width": 620,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -260
+      ],
+      "id": "0f21b243-b301-40ca-a610-2a1aa0ef299e",
+      "name": "Note 0ed8377c"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Shape Error Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Error Record": {
+      "main": [
+        [
+          {
+            "node": "Log to core_error_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/New_York"
+  },
+  "staticData": null
+}

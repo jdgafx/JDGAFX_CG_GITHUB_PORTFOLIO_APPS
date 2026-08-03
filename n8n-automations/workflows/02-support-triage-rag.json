@@ -1,0 +1,1272 @@
+{
+  "name": "02 - AI Support Triage with RAG",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "id": "cb638a7a-2b00-4145-881a-e80338be0064",
+      "name": "Webhook: POST /support-intake",
+      "webhookId": "c0718ef2-91d7-4eca-ab82-57bd8c9b241d"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "247c7b5e-022e-4819-9ad6-542441a75a77",
+              "name": "topK",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "bfeb6d69-27d1-4959-9c32-2969ee918e9e",
+              "name": "minRelevanceScore",
+              "value": 0.42,
+              "type": "number"
+            },
+            {
+              "id": "513c86e0-d0d7-4514-9dbd-899059b6de80",
+              "name": "urgentSlaMinutes",
+              "value": 60,
+              "type": "number"
+            },
+            {
+              "id": "b3cabcf2-46cb-4509-92f6-627f49a232e8",
+              "name": "draftPreviewChars",
+              "value": 280,
+              "type": "number"
+            },
+            {
+              "id": "28a03c77-230a-48cc-ac30-6446956ec504",
+              "name": "maxSubjectChars",
+              "value": 200,
+              "type": "number"
+            },
+            {
+              "id": "f86235bc-7597-4842-b6f8-6c0314f64345",
+              "name": "maxBodyChars",
+              "value": 10000,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        220,
+        300
+      ],
+      "id": "1a63d0d2-c1e6-4cbb-9726-7a0a000e7d87",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Boundary validation. Everything downstream may assume a well-formed ticket, so this\n// is the only place that trusts the caller.\nconst cfg = $('Config').first().json;\nconst raw = $json.body ?? {};\nconst errors = [];\n\nconst str = (v) => (typeof v === 'string' ? v.trim() : '');\nconst EMAIL = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/;\n\nconst customerEmail = str(raw.customerEmail);\nconst subject = str(raw.subject);\nconst body = str(raw.body);\n\nif (!customerEmail) errors.push({ field: 'customerEmail', message: 'is required' });\nelse if (!EMAIL.test(customerEmail)) errors.push({ field: 'customerEmail', message: 'must be a valid email address' });\n\nif (!subject) errors.push({ field: 'subject', message: 'is required' });\nelse if (subject.length > cfg.maxSubjectChars) errors.push({ field: 'subject', message: `must be at most ${cfg.maxSubjectChars} characters` });\n\nif (!body) errors.push({ field: 'body', message: 'is required' });\nelse if (body.length > cfg.maxBodyChars) errors.push({ field: 'body', message: `must be at most ${cfg.maxBodyChars} characters` });\n\nconst ticket = {\n  ticket_id: `TKT-${$execution.id}`,\n  customer_email: customerEmail,\n  subject,\n  body,\n  question: [subject, body].filter(Boolean).join('\\n\\n'),\n  received_at: new Date().toISOString(),\n};\n\nreturn [{ json: { valid: errors.length === 0, errors, ticket } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "id": "683b6702-5e59-44f1-aae9-fd8029a535cf",
+      "name": "Validate Intake"
+    },
+    {
+      "parameters": {
+        "options": {
+          "caseSensitive": true,
+          "leftValue": "",
+          "typeValidation": "strict",
+          "version": 2
+        },
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a73dc94a-0195-448d-8cfa-d60204281bf5",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": false
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        660,
+        300
+      ],
+      "id": "3c9c2c13-a054-45e7-8176-46126bf8c026",
+      "name": "IF: Valid Payload?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'validation_failed', message: 'Request body failed validation.', details: $json.errors, expected: { customerEmail: 'string (email)', subject: 'string', body: 'string' } }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        520
+      ],
+      "id": "f58c8f20-c1a9-41b0-b478-f2e7fbe64198",
+      "name": "Respond 400: Validation Failed"
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "memoryKey": {
+          "__rl": true,
+          "value": "acme_support_kb",
+          "mode": "id"
+        },
+        "prompt": "={{ $json.ticket.question }}",
+        "topK": "={{ $('Config').first().json.topK }}",
+        "includeDocumentMetadata": true,
+        "useReranker": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        180
+      ],
+      "id": "6c7aa2d0-d3c0-45e0-b9b2-f734523e3143",
+      "name": "KB Search (vector)",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The In-Memory store returns up to topK documents regardless of score whenever it holds\n// anything at all. So zero documents back means the index itself is empty (fresh container,\n// restart, or TTL eviction) - not that the question had no answer. That distinction is what\n// drives the cold-index self-heal below.\nconst ticket = $('Validate Intake').first().json.ticket;\n\nconst hits = $input\n  .all()\n  .map((i) => i.json)\n  .filter((j) => j && j.document && typeof j.document.pageContent === 'string')\n  .map((j) => ({\n    article_id: j.document.metadata?.article_id ?? null,\n    title: j.document.metadata?.title ?? 'Untitled',\n    category: j.document.metadata?.category ?? null,\n    score: Number(j.score ?? 0),\n    text: j.document.pageContent,\n  }))\n  .sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    ...ticket,\n    hits,\n    top_score: hits.length ? hits[0].score : 0,\n    index_cold: hits.length === 0,\n    retrieval_attempt: 1,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        180
+      ],
+      "id": "2470a8c4-4f15-4eba-9b82-27a493b2e2f7",
+      "name": "Assess Retrieval"
+    },
+    {
+      "parameters": {
+        "options": {
+          "caseSensitive": true,
+          "leftValue": "",
+          "typeValidation": "strict",
+          "version": 2
+        },
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9de30c2-de41-4d76-93ab-27a9782a8554",
+              "leftValue": "={{ $json.index_cold }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": false
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        180
+      ],
+      "id": "e9afb81b-3996-4ae4-92ac-1996769b4b8e",
+      "name": "IF: KB Index Cold?"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yPf7gTUOxKTKtYWy",
+          "mode": "list",
+          "cachedResultName": "[02b] Support KB Ingest (RAG index builder)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reason": "=cold_index_detected_on_{{ $json.ticket_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1540,
+        60
+      ],
+      "id": "0aa0dd2a-96fb-4a01-85d9-eb46b9517a3d",
+      "name": "Warm KB Index",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "memoryKey": {
+          "__rl": true,
+          "value": "acme_support_kb",
+          "mode": "id"
+        },
+        "prompt": "={{ $('Validate Intake').first().json.ticket.question }}",
+        "topK": "={{ $('Config').first().json.topK }}",
+        "includeDocumentMetadata": true,
+        "useReranker": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        1760,
+        60
+      ],
+      "id": "71383838-8adb-4540-93d2-2a795466976f",
+      "name": "KB Search (after warm-up)",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The In-Memory store returns up to topK documents regardless of score whenever it holds\n// anything at all. So zero documents back means the index itself is empty (fresh container,\n// restart, or TTL eviction) - not that the question had no answer. That distinction is what\n// drives the cold-index self-heal below.\nconst ticket = $('Validate Intake').first().json.ticket;\n\nconst hits = $input\n  .all()\n  .map((i) => i.json)\n  .filter((j) => j && j.document && typeof j.document.pageContent === 'string')\n  .map((j) => ({\n    article_id: j.document.metadata?.article_id ?? null,\n    title: j.document.metadata?.title ?? 'Untitled',\n    category: j.document.metadata?.category ?? null,\n    score: Number(j.score ?? 0),\n    text: j.document.pageContent,\n  }))\n  .sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    ...ticket,\n    hits,\n    top_score: hits.length ? hits[0].score : 0,\n    index_cold: hits.length === 0,\n    retrieval_attempt: 2,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        60
+      ],
+      "id": "a654ba4b-e29b-411b-94c5-19f5e0613388",
+      "name": "Assess Retrieval (after warm-up)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Single funnel for both retrieval branches, so every node downstream has one stable\n// address for the RAG context regardless of whether the index needed rehydrating.\nconst cfg = $('Config').first().json;\nconst src = $input.first().json;\nconst minScore = Number(cfg.minRelevanceScore);\n\nconst all = Array.isArray(src.hits) ? src.hits : [];\nconst kept = all.filter((h) => h.score >= minScore);\n\nconst kb_context = kept.length\n  ? kept\n      .map((h, i) =>\n        [\n          `--- ARTICLE ${i + 1} ---`,\n          `Title: ${h.title}`,\n          `Category: ${h.category}`,\n          `Relevance: ${h.score.toFixed(3)}`,\n          '',\n          h.text,\n        ].join('\\n'),\n      )\n      .join('\\n\\n')\n  : 'NO ARTICLES MATCHED THIS QUESTION.';\n\nreturn [{\n  json: {\n    ticket_id: src.ticket_id,\n    customer_email: src.customer_email,\n    subject: src.subject,\n    body: src.body,\n    question: src.question,\n    received_at: src.received_at,\n    retrieval_attempt: src.retrieval_attempt,\n    top_score: src.top_score,\n    min_relevance_score: minScore,\n    considered: all.map((h) => ({ title: h.title, score: Number(h.score.toFixed(4)) })),\n    matched_hits: kept.map((h) => ({\n      article_id: h.article_id,\n      title: h.title,\n      category: h.category,\n      score: Number(h.score.toFixed(4)),\n    })),\n    sources: kept.map((h) => h.title),\n    has_match: kept.length > 0,\n    kb_context,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        180
+      ],
+      "id": "61345830-d6a8-4365-a19f-c6a94a64571b",
+      "name": "Consolidate Context"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the triage classifier for Acme Analytics customer support. Classify the ticket below.\n\nSeverity rules, applied in order:\n- urgent: a production outage, data loss or exposure, a security incident, a total inability to use the product, or explicit business-critical language such as \"everything is down\".\n- high: a core feature is broken or the customer is blocked, or they have been charged incorrectly.\n- normal: a how-to, configuration, account or policy question. This is the default.\n- low: a feature request, general feedback, or an enquiry with no blocked work.\n\nDo not inflate severity because the customer sounds annoyed. Sentiment and severity are independent.\n\nTicket subject: {{ $json.subject }}\nTicket body:\n{{ $json.body }}",
+        "hasOutputParser": true,
+        "needsFallback": false,
+        "messages": {},
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2420,
+        180
+      ],
+      "id": "d7ed202e-10b7-4114-a026-e5f954771560",
+      "name": "Classify Ticket",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "~anthropic/claude-haiku-latest",
+        "options": {
+          "temperature": 0,
+          "maxTokens": 2000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2360,
+        440
+      ],
+      "id": "17c52804-d8f9-478c-a6cf-370cabe31260",
+      "name": "Classifier LLM (Haiku)",
+      "credentials": {
+        "openRouterApi": {
+          "name": "OpenRouter account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"intent\",\n    \"severity\",\n    \"sentiment\",\n    \"summary\"\n  ],\n  \"properties\": {\n    \"intent\": {\n      \"type\": \"string\",\n      \"description\": \"Short snake_case label for what the customer wants, for example billing_dispute, sso_setup_help, api_rate_limit, data_export, refund_request, outage_report, plan_upgrade, onboarding_help, other\"\n    },\n    \"severity\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"urgent\",\n        \"high\",\n        \"normal\",\n        \"low\"\n      ]\n    },\n    \"sentiment\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"positive\",\n        \"neutral\",\n        \"frustrated\",\n        \"angry\"\n      ]\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence of at most 160 characters describing the request\"\n    }\n  }\n}",
+        "autoFix": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2560,
+        440
+      ],
+      "id": "51ebdbd6-6bd3-4a32-99cf-03102efca2a3",
+      "name": "Classification Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a support agent for Acme Analytics writing a reply to a customer.\n\nSTRICT GROUNDING RULES:\n- Use ONLY the knowledge base articles between the markers below. They are your entire world.\n- Never invent or recall from memory any price, limit, plan name, endpoint, timeframe, policy or URL that is not written in those articles.\n- If the articles do not answer the question, set grounded to false, leave cited_titles empty, and write a short courteous reply saying you could not find a documented answer and that a specialist will follow up. Do not guess, and do not pad the reply with unrelated article content.\n- If the articles do answer the question, set grounded to true, answer directly and specifically, and put the exact titles of the articles you actually used in cited_titles.\n- Plain text only, no markdown headings or bullets. Open with a greeting, close with \"The Acme Analytics Support Team\". Keep it under 220 words.\n\n=== KNOWLEDGE BASE ARTICLES ===\n{{ $('Consolidate Context').first().json.kb_context }}\n=== END OF KNOWLEDGE BASE ARTICLES ===\n\nCustomer subject: {{ $('Consolidate Context').first().json.subject }}\nCustomer message:\n{{ $('Consolidate Context').first().json.body }}\n\nTriage context: intent={{ $json.output.intent }}, severity={{ $json.output.severity }}, sentiment={{ $json.output.sentiment }}",
+        "hasOutputParser": true,
+        "needsFallback": false,
+        "messages": {},
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2640,
+        180
+      ],
+      "id": "9847819b-d6ac-4e3c-b396-d90e48484873",
+      "name": "Draft Grounded Reply",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "~anthropic/claude-sonnet-latest",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 4096
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2820,
+        440
+      ],
+      "id": "ed8dacb0-bb61-428e-9479-0c9dbe4d958c",
+      "name": "Drafting LLM (Sonnet)",
+      "credentials": {
+        "openRouterApi": {
+          "name": "OpenRouter account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"reply\",\n    \"grounded\",\n    \"cited_titles\"\n  ],\n  \"properties\": {\n    \"reply\": {\n      \"type\": \"string\",\n      \"description\": \"The full customer-facing reply as plain text\"\n    },\n    \"grounded\": {\n      \"type\": \"boolean\",\n      \"description\": \"true only when the factual content of the reply came from the supplied articles\"\n    },\n    \"cited_titles\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Exact titles of the articles actually used. Empty array when grounded is false.\"\n    }\n  }\n}",
+        "autoFix": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3020,
+        440
+      ],
+      "id": "775d357e-2ce8-477b-9e12-711b4c9b182a",
+      "name": "Reply Schema"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One canonical record. Both adapters and the API response read from here, so the sink\n// and the caller can never disagree about what was decided.\nconst cfg = $('Config').first().json;\nconst ctx = $('Consolidate Context').first().json;\nconst cls = $('Classify Ticket').first().json.output ?? {};\nconst drf = $('Draft Grounded Reply').first().json.output ?? {};\n\nconst SEVERITIES = ['urgent', 'high', 'normal', 'low'];\nconst severity = SEVERITIES.includes(cls.severity) ? cls.severity : 'normal';\n\n// kb_matched requires BOTH a retrieval hit above the score floor AND the drafting model\n// confirming it actually grounded the reply in those articles. Either alone is not proof.\nconst cited = Array.isArray(drf.cited_titles) ? drf.cited_titles.filter(Boolean) : [];\nconst kb_matched = Boolean(drf.grounded) && ctx.has_match && cited.length > 0;\n\nreturn [{\n  json: {\n    ticket_id: ctx.ticket_id,\n    customer_email: ctx.customer_email,\n    subject: ctx.subject,\n    body: ctx.body,\n    intent: String(cls.intent ?? 'unclassified'),\n    severity,\n    sentiment: String(cls.sentiment ?? 'neutral'),\n    summary: String(cls.summary ?? '').slice(0, 300),\n    draft_reply: String(drf.reply ?? ''),\n    cited_titles: cited,\n    sources: cited.length ? cited.join(' | ') : 'none',\n    kb_matched,\n    grounded_flag: Boolean(drf.grounded),\n    has_match: ctx.has_match,\n    top_score: ctx.top_score,\n    considered: ctx.considered,\n    retrieval_attempt: ctx.retrieval_attempt,\n    is_urgent: severity === 'urgent',\n    sla_minutes: Number(cfg.urgentSlaMinutes),\n    received_at: ctx.received_at,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3240,
+        180
+      ],
+      "id": "1cf0199f-8be9-433a-8ce4-3017df63a974",
+      "name": "Assemble Ticket Record"
+    },
+    {
+      "parameters": {
+        "options": {
+          "caseSensitive": true,
+          "leftValue": "",
+          "typeValidation": "strict",
+          "version": 2
+        },
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9cbc7714-7f59-43a3-afe8-9e6a6fdcdfdb",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "urgent",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": false
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3460,
+        180
+      ],
+      "id": "1031105b-3c9b-45fa-a903-7af14469d1bf",
+      "name": "IF: Urgent?"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "b1ZfRi5QezVt3dcU",
+          "mode": "list",
+          "cachedResultName": "[02a] Adapter: Escalation Page"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $('Assemble Ticket Record').first().json.ticket_id }}",
+            "customer_email": "={{ $('Assemble Ticket Record').first().json.customer_email }}",
+            "subject": "={{ $('Assemble Ticket Record').first().json.subject }}",
+            "severity": "={{ $('Assemble Ticket Record').first().json.severity }}",
+            "intent": "={{ $('Assemble Ticket Record').first().json.intent }}",
+            "summary": "={{ $('Assemble Ticket Record').first().json.summary }}",
+            "sla_minutes": "={{ $('Assemble Ticket Record').first().json.sla_minutes }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ticket_id",
+              "displayName": "ticket_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "customer_email",
+              "displayName": "customer_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sla_minutes",
+              "displayName": "sla_minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3680,
+        60
+      ],
+      "id": "7387a070-85b6-40c7-86f4-76b2008515ae",
+      "name": "Adapter: Escalation Page",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "M5cXpDouQKNO5y1V",
+          "mode": "list",
+          "cachedResultName": "[02a] Adapter: Ticket Store"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $('Assemble Ticket Record').first().json.ticket_id }}",
+            "customer_email": "={{ $('Assemble Ticket Record').first().json.customer_email }}",
+            "subject": "={{ $('Assemble Ticket Record').first().json.subject }}",
+            "body": "={{ $('Assemble Ticket Record').first().json.body }}",
+            "intent": "={{ $('Assemble Ticket Record').first().json.intent }}",
+            "severity": "={{ $('Assemble Ticket Record').first().json.severity }}",
+            "sentiment": "={{ $('Assemble Ticket Record').first().json.sentiment }}",
+            "draft_reply": "={{ $('Assemble Ticket Record').first().json.draft_reply }}",
+            "sources": "={{ $('Assemble Ticket Record').first().json.sources }}",
+            "kb_matched": "={{ $('Assemble Ticket Record').first().json.kb_matched }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ticket_id",
+              "displayName": "ticket_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "customer_email",
+              "displayName": "customer_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "draft_reply",
+              "displayName": "draft_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sources",
+              "displayName": "sources",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "kb_matched",
+              "displayName": "kb_matched",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3900,
+        180
+      ],
+      "id": "a21a7aff-426e-47c3-aecd-34de135e29f3",
+      "name": "Adapter: Ticket Store",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The escalation adapter only runs for urgent tickets, so reading it has to be guarded -\n// $('node') throws when that node did not execute on this run.\nconst cfg = $('Config').first().json;\nconst rec = $('Assemble Ticket Record').first().json;\nconst storeReceipt = $input.first().json;\n\nlet escalation = null;\ntry {\n  escalation = $('Adapter: Escalation Page').first().json;\n} catch (e) {\n  escalation = null;\n}\n\nconst preview = rec.draft_reply.length > cfg.draftPreviewChars\n  ? rec.draft_reply.slice(0, cfg.draftPreviewChars).trimEnd() + '...'\n  : rec.draft_reply;\n\nreturn [{\n  json: {\n    ticketId: rec.ticket_id,\n    severity: rec.severity,\n    intent: rec.intent,\n    sentiment: rec.sentiment,\n    kbMatched: rec.kb_matched,\n    sources: rec.cited_titles,\n    topRelevanceScore: Number(rec.top_score.toFixed(4)),\n    draftPreview: preview,\n    escalated: Boolean(escalation?.paged),\n    slaDueAt: escalation?.sla_due_at ?? null,\n    stored: Boolean(storeReceipt?.stored),\n    receivedAt: rec.received_at,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4120,
+        180
+      ],
+      "id": "8b51a46a-02ec-4c02-bd96-d2d29e0e728f",
+      "name": "Build API Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4340,
+        180
+      ],
+      "id": "574263d1-25b0-416a-8a4e-23bdaca4afff",
+      "name": "Respond 200: Triage Complete"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Reached only via a node's error output. Turns an internal failure into an honest\n// API error rather than a silent empty 200.\n// A node's error output emits the original input item with `error` appended, and\n// $prevNode names whichever of the four guarded nodes routed here.\nconst err = $json.error ?? $json;\nconst rec = (() => { try { return $('Assemble Ticket Record').first().json; } catch (e) { return null; } })();\nconst ticketId = rec?.ticket_id\n  ?? (() => { try { return $('Validate Intake').first().json.ticket.ticket_id; } catch (e) { return null; } })();\n\nreturn [{\n  json: {\n    error: 'upstream_dependency_failed',\n    message: 'The ticket was accepted but could not be triaged. It has not been lost - this '\n      + 'execution is recorded in core_error_log for replay.',\n    ticketId,\n    failedNode: String($prevNode?.name ?? 'unknown'),\n    detail: String(err?.message ?? err ?? 'unknown error').slice(0, 500),\n    executionId: $execution.id,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4120,
+        700
+      ],
+      "id": "7f0d254b-bf17-4211-b280-97b877955a4e",
+      "name": "Handle Upstream Failure"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4340,
+        700
+      ],
+      "id": "52dcee2b-dd0b-4c1b-8bef-efea92be8992",
+      "name": "Respond 502: Upstream Failure"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The caller already has its 502. Re-throwing here keeps the execution in the failed\n// state so settings.errorWorkflow ([CORE] Error Handler) still logs it - answering the\n// caller politely must not hide the incident from operators.\nconst d = $json;\nthrow new Error(`Triage failed at ${d.failedNode}: ${d.detail}`);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        700
+      ],
+      "id": "0c8f11e9-f153-4103-8bac-8c1d1a02e693",
+      "name": "Mark Execution Failed"
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {
+          "baseURL": "https://openrouter.ai/api/v1",
+          "dimensions": 1536
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1180,
+        440
+      ],
+      "id": "0ef76a24-70df-4cb8-ba7d-b1022c70cf39",
+      "name": "Embeddings (OpenRouter)",
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenRouter Embeddings (OpenAI-compatible)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "# 02 - AI Support Triage with RAG\n\n`POST /webhook/support-intake` with `{ customerEmail, subject, body }`.\n\nClassifies the ticket, retrieves the right knowledge base articles by vector search, drafts a reply grounded **only** in what it retrieved, escalates urgent tickets against an SLA clock, and persists everything - then answers the caller with the ticket id, the severity and a preview of the draft.\n\nBusiness case: first-response time drops from hours to seconds, and every routine question that the knowledge base already answers is deflected with a citable draft instead of a queue position.",
+        "height": 340,
+        "width": 860,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -180
+      ],
+      "id": "cdef33a8-811f-4643-89bc-40741f135fc7",
+      "name": "Note cc917a4a"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Validate at the boundary\n\nThe only node that trusts the caller. A malformed payload gets a **400** with the exact failing fields, and never reaches the LLM - bad input must not cost a model call.",
+        "height": 200,
+        "width": 480,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        620
+      ],
+      "id": "b2a1f55f-75a3-4c97-8089-44b50d9d0edf",
+      "name": "Note c6b8c807"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Retrieve, with a cold-index self-heal\n\nThe In-Memory vector store returns up to topK chunks whenever it holds anything, so **zero results means the index is empty**, not that the question was unanswerable. That signal triggers a rebuild via 02b and a second lookup, so the first request after an n8n restart still answers correctly instead of failing.\n\nEmbeddings: `text-embedding-3-small` via OpenRouter's OpenAI-compatible endpoint.\nIndex key: `acme_support_kb`.",
+        "height": 300,
+        "width": 620,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        620
+      ],
+      "id": "a01688f2-1b45-4ebc-a35d-a8e4c4cf9839",
+      "name": "Note d1a39807"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Two models, two jobs\n\n**Haiku** classifies at temperature 0 - a cheap, deterministic label.\n**Sonnet** drafts the reply, because tone and grounding discipline are worth the better model.\n\nBoth use a structured output schema, so the workflow gets typed fields rather than prose it would have to parse. Both retry 3x with backoff.\n\n`kb_matched` is only true when retrieval cleared the relevance floor **and** the drafting model confirmed it grounded the reply **and** it named its sources. Any one of those alone is not evidence.",
+        "height": 320,
+        "width": 700,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        620
+      ],
+      "id": "f8b29d7c-57f5-4ab7-abff-6e99e389aefd",
+      "name": "Note f6ffadfd"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Adapters, not integrations\n\nUrgent tickets are paged with an SLA deadline; every ticket is stored. Both sinks are **sub-workflows writing to Data Tables** - honest demo sinks.\n\nSwapping in Zendesk, PagerDuty or Slack is a one-node change inside the adapter. Nothing in this workflow moves.",
+        "height": 240,
+        "width": 560,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3620,
+        620
+      ],
+      "id": "6247033d-3ae4-4fd3-adb0-b5337df65a7a",
+      "name": "Note 306220e4"
+    }
+  ],
+  "connections": {
+    "Webhook: POST /support-intake": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Validate Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Intake": {
+      "main": [
+        [
+          {
+            "node": "IF: Valid Payload?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Valid Payload?": {
+      "main": [
+        [
+          {
+            "node": "KB Search (vector)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400: Validation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KB Search (vector)": {
+      "main": [
+        [
+          {
+            "node": "Assess Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Retrieval": {
+      "main": [
+        [
+          {
+            "node": "IF: KB Index Cold?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: KB Index Cold?": {
+      "main": [
+        [
+          {
+            "node": "Warm KB Index",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consolidate Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warm KB Index": {
+      "main": [
+        [
+          {
+            "node": "KB Search (after warm-up)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KB Search (after warm-up)": {
+      "main": [
+        [
+          {
+            "node": "Assess Retrieval (after warm-up)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Retrieval (after warm-up)": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidate Context": {
+      "main": [
+        [
+          {
+            "node": "Classify Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Ticket": {
+      "main": [
+        [
+          {
+            "node": "Draft Grounded Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Upstream Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Grounded Reply": {
+      "main": [
+        [
+          {
+            "node": "Assemble Ticket Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Upstream Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Ticket Record": {
+      "main": [
+        [
+          {
+            "node": "IF: Urgent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Urgent?": {
+      "main": [
+        [
+          {
+            "node": "Adapter: Escalation Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Adapter: Ticket Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapter: Escalation Page": {
+      "main": [
+        [
+          {
+            "node": "Adapter: Ticket Store",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Upstream Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapter: Ticket Store": {
+      "main": [
+        [
+          {
+            "node": "Build API Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Upstream Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build API Response": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Triage Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Upstream Failure": {
+      "main": [
+        [
+          {
+            "node": "Respond 502: Upstream Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 502: Upstream Failure": {
+      "main": [
+        [
+          {
+            "node": "Mark Execution Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (OpenRouter)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "KB Search (vector)",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "KB Search (after warm-up)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classifier LLM (Haiku)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Ticket",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify Ticket",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drafting LLM (Sonnet)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Draft Grounded Reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Draft Grounded Reply",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/New_York",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "instanceId": null,
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

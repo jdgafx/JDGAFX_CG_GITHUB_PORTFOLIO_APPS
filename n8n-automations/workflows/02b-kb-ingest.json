@@ -1,0 +1,455 @@
+{
+  "name": "[02b] Support KB Ingest (RAG index builder)",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -160
+      ],
+      "id": "4e4145d6-612b-4924-9983-37dd22b10cf2",
+      "name": "Run manually (operator reseed)"
+    },
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        60
+      ],
+      "id": "08c2fa13-0605-4b9a-af0b-6bf55a55015e",
+      "name": "When called by 02 (cold index)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Canonical seed knowledge base. This Code node is the source of truth for the\n// article text; `triage_kb` is the durable, operator-inspectable copy that the\n// vector index is always rebuilt from.\nconst ARTICLES = [\n  {\n    \"article_id\": \"kb-billing-invoice\",\n    \"title\": \"Understanding Your Acme Analytics Invoice\",\n    \"category\": \"Billing\",\n    \"keywords\": \"invoice, charge, billed twice, receipt, payment, card declined, seat count, proration\",\n    \"content\": \"Acme Analytics bills monthly in arrears on the anniversary of your signup date.\\nYour invoice has three line items: the base plan fee, per-seat charges for any seats added during\\nthe period, and metered event overage above your plan's included volume.\\n\\nWhy an invoice can look higher than expected:\\n1. Seats added mid-cycle are prorated for the remaining days and appear as a separate line.\\n2. Metered overage is billed at 0.10 USD per 1,000 events above the plan allowance.\\n3. Annual plans are charged in a single upfront line item, not monthly.\\n\\nA \\\"charged twice\\\" report is almost always the base fee plus a separate proration line landing on\\nthe same day. Compare the two line-item descriptions on the invoice PDF before disputing.\\n\\nInvoices are available under Settings > Billing > Invoices. Each invoice PDF lists the exact\\nbilling period and the seat count used for that period. Billing contacts receive every invoice by\\nemail; add additional recipients under Settings > Billing > Billing Contacts.\"\n  },\n  {\n    \"article_id\": \"kb-sso-setup\",\n    \"title\": \"Setting Up SAML Single Sign-On\",\n    \"category\": \"Security and Access\",\n    \"keywords\": \"sso, saml, okta, azure ad, entra, identity provider, login, metadata, acs url, scim\",\n    \"content\": \"SAML 2.0 single sign-on is available on the Business and Enterprise plans.\\n\\nSetup steps:\\n1. In Acme Analytics, go to Settings > Security > Single Sign-On and copy the ACS (Assertion\\n   Consumer Service) URL and the Service Provider Entity ID.\\n2. In your identity provider (Okta, Entra ID, OneLogin, Google Workspace), create a new SAML\\n   application using those two values.\\n3. Map the NameID to the user's primary email address in lowercase. Acme Analytics matches users\\n   on email; a mismatch produces an \\\"unrecognised assertion subject\\\" error.\\n4. Paste your IdP metadata XML back into Acme Analytics and click Validate.\\n5. Test with one account before enabling Enforce SSO, which blocks password login for everyone.\\n\\nCommon failures: a clock skew above 3 minutes between the IdP and our servers rejects the\\nassertion; certificates must be RSA-SHA256; and the ACS URL is environment-specific, so a sandbox\\nURL will not work in production.\\n\\nSCIM user provisioning is a separate feature and is configured after SSO validates successfully.\"\n  },\n  {\n    \"article_id\": \"kb-api-rate-limits\",\n    \"title\": \"API Rate Limits and Quotas\",\n    \"category\": \"Developer and API\",\n    \"keywords\": \"api, rate limit, 429, throttle, quota, requests per minute, token, retry, backoff\",\n    \"content\": \"The Acme Analytics REST API enforces per-token rate limits:\\n\\n- Free: 60 requests per minute, 10,000 requests per day\\n- Team: 600 requests per minute, 250,000 requests per day\\n- Business: 3,000 requests per minute, 2,000,000 requests per day\\n- Enterprise: negotiated, defaults to 10,000 requests per minute\\n\\nEvery response carries X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset headers.\\nWhen you exceed the limit the API returns HTTP 429 with a Retry-After header in seconds.\\n\\nClients should implement exponential backoff with jitter and honour Retry-After rather than\\nretrying immediately. The bulk ingest endpoint (/v2/events/batch) accepts up to 500 events per\\nrequest and counts as a single request against your limit, so batching is the fastest way to\\nraise effective throughput without upgrading.\\n\\nRate limits are applied per API token, not per account, so splitting heavy workloads across\\nseparate tokens for separate services is supported and recommended.\"\n  },\n  {\n    \"article_id\": \"kb-data-export\",\n    \"title\": \"Exporting Your Data: CSV, S3 and Warehouse Sync\",\n    \"category\": \"Data\",\n    \"keywords\": \"export, csv, download, s3, snowflake, bigquery, warehouse, backup, data dump\",\n    \"content\": \"Acme Analytics offers three export paths.\\n\\n1. Ad hoc CSV: any report view has an Export CSV action. Exports above 50,000 rows are generated\\n   asynchronously and emailed as a download link that expires after 24 hours.\\n2. Scheduled S3 delivery (Business and above): configure a destination bucket, region and an IAM\\n   role ARN under Settings > Data > Exports. We write newline-delimited JSON, partitioned by day,\\n   using an assume-role trust relationship. We never require long-lived AWS keys.\\n3. Warehouse sync (Business and above): native connectors for Snowflake, BigQuery and Redshift\\n   run every 6 hours by default and can be set to hourly.\\n\\nFull historical backfills are supported on request and are delivered through the same destination\\nyou have configured. Backfills of more than 90 days are queued and typically complete overnight.\\n\\nExported event records retain the raw payload plus our enrichment fields. Deleted user data is\\nexcluded from exports produced after the deletion request is processed.\"\n  },\n  {\n    \"article_id\": \"kb-refunds-policy\",\n    \"title\": \"Refunds and Proration Policy\",\n    \"category\": \"Billing\",\n    \"keywords\": \"refund, money back, cancel, downgrade, proration, credit, dispute, chargeback\",\n    \"content\": \"Monthly plans: you may cancel at any time. Cancellation stops the next renewal and your\\nworkspace stays on the paid plan until the end of the current period. Partial months are not\\nrefunded, they are served out.\\n\\nAnnual plans: refunds are available within 30 days of the initial purchase or of a renewal. After\\n30 days we issue a prorated account credit rather than a cash refund. The credit applies to future\\ninvoices and does not expire.\\n\\nDowngrades take effect at the next renewal, not immediately, so you keep paid features for the\\nperiod you already paid for. Seat reductions are credited on the following invoice.\\n\\nDuplicate charges caused by a billing error are always refunded in full to the original payment\\nmethod within 5 to 10 business days.\\n\\nTo request a refund, contact support with your invoice number. Do not file a chargeback first: a\\nchargeback automatically suspends the workspace until the dispute is resolved, which is slower for\\neveryone than a direct refund request.\"\n  },\n  {\n    \"article_id\": \"kb-incident-status\",\n    \"title\": \"Service Incidents and the Status Page\",\n    \"category\": \"Reliability\",\n    \"keywords\": \"outage, down, incident, status page, degraded, 500 errors, dashboard not loading, sla, uptime\",\n    \"content\": \"Live service health is published at status.acmeanalytics.example. Subscribe there for email or\\nwebhook notifications; the status page is hosted independently of our platform so it stays\\navailable during an outage.\\n\\nIncident severities:\\n- SEV1: full outage or data loss risk. Updates every 30 minutes. Public post-incident review\\n  within 5 business days.\\n- SEV2: a major feature is unavailable or seriously degraded. Updates every 60 minutes.\\n- SEV3: partial or regional degradation with a workaround available.\\n\\nIf the dashboard is not loading but the status page shows all systems operational, the cause is\\nusually local: a stale service worker, an ad blocker blocking our event endpoint, or a corporate\\nproxy. A hard reload and an incognito window rule those out in under a minute.\\n\\nEnterprise plans carry a 99.9 percent monthly uptime SLA with service credits: 10 percent of the\\nmonthly fee below 99.9 percent, 25 percent below 99.0 percent. Credits are requested within 30\\ndays of the incident.\"\n  },\n  {\n    \"article_id\": \"kb-plan-tiers\",\n    \"title\": \"Plan Tiers and Feature Comparison\",\n    \"category\": \"Plans\",\n    \"keywords\": \"plan, tier, pricing, upgrade, free, team, business, enterprise, seats, features, comparison\",\n    \"content\": \"Acme Analytics has four plans.\\n\\nFree: 1 seat, 100,000 events per month, 30 day data retention, community support.\\nTeam (USD 49 per seat per month): up to 10 seats, 2 million events, 12 month retention, email\\nsupport with a next business day response target, scheduled reports.\\nBusiness (USD 99 per seat per month): unlimited seats, 20 million events included, 24 month\\nretention, SAML SSO, S3 and warehouse export, audit log, 4 hour response target.\\nEnterprise (custom): everything in Business plus SCIM provisioning, a 99.9 percent uptime SLA,\\na named customer success manager, custom data residency (EU or US), and 1 hour response for SEV1.\\n\\nRetention, SSO and export destinations are the three features customers most often upgrade for.\\nUpgrades take effect immediately and are prorated. Downgrades take effect at the next renewal.\\n\\nEvent volume above the plan allowance is billed as overage rather than blocked, so data is never\\nsilently dropped because of a plan limit.\"\n  },\n  {\n    \"article_id\": \"kb-onboarding\",\n    \"title\": \"Onboarding: Your First 14 Days Checklist\",\n    \"category\": \"Onboarding\",\n    \"keywords\": \"onboarding, getting started, setup, first steps, install, sdk, tracking, invite team, checklist\",\n    \"content\": \"A workspace that completes these steps in the first two weeks retains roughly twice as well as one\\nthat does not.\\n\\nDays 1 to 2: install a tracking SDK (JavaScript, iOS, Android, Python, Go or the HTTP API) and\\nconfirm events arrive in the Live Event Stream. Send one test event before writing any real\\ninstrumentation.\\n\\nDays 3 to 5: define your core events and properties using a naming convention, for example\\nobject_action in snake case (order_completed, not \\\"Completed Order\\\"). Renaming events later\\nrewrites history and is disruptive, so agree the convention before volume ramps.\\n\\nDays 6 to 9: build your first three dashboards. Start with acquisition, activation and retention\\nrather than vanity totals.\\n\\nDays 10 to 14: invite your team and set roles (Admin, Editor, Viewer), then schedule a weekly\\nreport to the channel where decisions actually get made.\\n\\nFree onboarding sessions of 45 minutes are available to Team plans and above; book one from the\\nin-app Help menu.\"\n  }\n];\n\nreturn ARTICLES.map((a) => ({ json: { ...a, updated_at: new Date().toISOString() } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        -50
+      ],
+      "id": "85781b33-6ed9-48fa-9c1a-433ea0954404",
+      "name": "Canonical KB Articles"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "3DkbHeSd8TLINeHc",
+          "mode": "id",
+          "cachedResultName": "triage_kb"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "article_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.article_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "article_id": "={{ $json.article_id }}",
+            "title": "={{ $json.title }}",
+            "category": "={{ $json.category }}",
+            "content": "={{ $json.content }}",
+            "keywords": "={{ $json.keywords }}",
+            "updated_at": "={{ $json.updated_at }}"
+          },
+          "matchingColumns": [
+            "article_id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        -50
+      ],
+      "id": "9180c008-cb3f-47f8-9cf0-63dd98fcce36",
+      "name": "Upsert into triage_kb",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The Data Table `get` runs once per input item. Collapse the 8 upserted rows to a\n// single item first so the read-back returns the table once, not eight times.\nreturn [{ json: { seeded: $input.all().length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        -50
+      ],
+      "id": "02b6d201-4304-4b94-9243-749e872c68c6",
+      "name": "Collapse to one read"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "3DkbHeSd8TLINeHc",
+          "mode": "id",
+          "cachedResultName": "triage_kb"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true,
+        "orderBy": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        -50
+      ],
+      "id": "e3fcb498-59f0-465f-92ec-bef7a9ff9513",
+      "name": "Read KB from triage_kb"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One document per article. Title + category + keywords are prepended to the body so\n// that short, keyword-shaped questions (\"SSO\", \"429\") still land on the right article -\n// pure body text alone under-retrieves for terse support tickets.\nreturn $input.all().map((item) => {\n  const a = item.json;\n  const text = [\n    `# ${a.title}`,\n    `Category: ${a.category}`,\n    `Keywords: ${a.keywords}`,\n    '',\n    a.content,\n  ].join('\\n');\n\n  return {\n    json: {\n      article_id: a.article_id,\n      title: a.title,\n      category: a.category,\n      keywords: a.keywords,\n      text,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -50
+      ],
+      "id": "e04fa1b6-40df-467c-a131-2607fb7a3e3b",
+      "name": "Prepare KB documents"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "value": "acme_support_kb",
+          "mode": "id"
+        },
+        "clearStore": true,
+        "embeddingBatchSize": 200,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        1440,
+        -50
+      ],
+      "id": "1786e030-4a58-491c-b80c-15420979a915",
+      "name": "Rebuild vector index",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {
+          "baseURL": "https://openrouter.ai/api/v1",
+          "dimensions": 1536
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        200
+      ],
+      "id": "7299e27d-d467-461e-88bc-0cef26e73b8e",
+      "name": "Embeddings (OpenRouter)",
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenRouter Embeddings (OpenAI-compatible)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "dataType": "json",
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.text }}",
+        "textSplittingMode": "custom",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "article_id",
+                "value": "={{ $json.article_id }}"
+              },
+              {
+                "name": "title",
+                "value": "={{ $json.title }}"
+              },
+              {
+                "name": "category",
+                "value": "={{ $json.category }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        200
+      ],
+      "id": "8bddf068-8ef5-4ae1-8240-f515a18b50fa",
+      "name": "KB Document Loader"
+    },
+    {
+      "parameters": {
+        "chunkSize": 1500,
+        "chunkOverlap": 120,
+        "options": {
+          "splitCode": "markdown"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        400
+      ],
+      "id": "8813e15e-9811-49fe-9c57-e8382c8a2ce5",
+      "name": "Markdown Splitter"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Reported back to the caller so a cold-start rehydration is visible in the\n// parent execution rather than silently succeeding.\nconst docs = $input.all().length;\nconst articles = $('Prepare KB documents').all().length;\nreturn [{\n  json: {\n    indexed_chunks: docs,\n    indexed_articles: articles,\n    memory_key: 'acme_support_kb',\n    indexed_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        -50
+      ],
+      "id": "e1e43bda-d4a6-4059-a1fc-6c4c1ba07d07",
+      "name": "Ingest summary"
+    },
+    {
+      "parameters": {
+        "content": "## 02b - Knowledge Base Ingest\n\nBuilds the retrieval index for workflow 02. Two entry points:\n\n1. **Operator reseed** - run manually after editing articles.\n2. **Cold index** - called automatically by workflow 02 when a lookup finds an empty index (after an n8n restart or a TTL eviction).\n\nThe index is always rebuilt **from the `triage_kb` Data Table**, never straight from the Code node, so what gets embedded is exactly what an operator can read and audit.",
+        "height": 300,
+        "width": 760,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -420
+      ],
+      "id": "0d5a6495-d009-42c8-836b-f4a1c37fc744",
+      "name": "Note bce63adf"
+    },
+    {
+      "parameters": {
+        "content": "### Real embeddings, no vendor lock-in\n\n`text-embedding-3-small` (1536-dim) is reached through OpenRouter's OpenAI-compatible `/v1/embeddings` endpoint - the stock n8n Embeddings OpenAI node with its Base URL repointed. One provider account covers both chat and embeddings.\n\nCost to index all 8 articles: well under one cent.",
+        "height": 240,
+        "width": 560,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        560
+      ],
+      "id": "82fa087d-eae7-442f-87fb-e754fc090208",
+      "name": "Note d9d5ab80"
+    },
+    {
+      "parameters": {
+        "content": "### Why In-Memory Vector Store\n\nIt needs no external service, which keeps this portfolio repo runnable by anyone with `docker compose up`. The trade-off is that the index lives in the n8n process and is lost on restart - handled by the cold-index self-heal in workflow 02.\n\nFor production, swap this node for pgvector, Qdrant or Pinecone. The surrounding graph does not change.",
+        "height": 300,
+        "width": 560,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        -420
+      ],
+      "id": "3eeb9e71-c587-45de-a474-01a90b6134da",
+      "name": "Note 4a91861b"
+    }
+  ],
+  "connections": {
+    "Run manually (operator reseed)": {
+      "main": [
+        [
+          {
+            "node": "Canonical KB Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When called by 02 (cold index)": {
+      "main": [
+        [
+          {
+            "node": "Canonical KB Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Canonical KB Articles": {
+      "main": [
+        [
+          {
+            "node": "Upsert into triage_kb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert into triage_kb": {
+      "main": [
+        [
+          {
+            "node": "Collapse to one read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collapse to one read": {
+      "main": [
+        [
+          {
+            "node": "Read KB from triage_kb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read KB from triage_kb": {
+      "main": [
+        [
+          {
+            "node": "Prepare KB documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare KB documents": {
+      "main": [
+        [
+          {
+            "node": "Rebuild vector index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rebuild vector index": {
+      "main": [
+        [
+          {
+            "node": "Ingest summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (OpenRouter)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Rebuild vector index",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KB Document Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Rebuild vector index",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "KB Document Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/New_York",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID"
+  },
+  "meta": {
+    "instanceId": null,
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

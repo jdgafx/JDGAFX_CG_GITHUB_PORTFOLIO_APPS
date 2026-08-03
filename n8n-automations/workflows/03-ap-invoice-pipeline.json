@@ -1,0 +1,2524 @@
+{
+  "name": "03 - AP Invoice Intake -> LLM Extraction -> Validation -> Approval Gate -> Ledger",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 03 - AP Invoice Intake -> LLM Extraction -> Validation -> Approval Gate -> Ledger\n\nA supplier invoice arrives as raw text. The pipeline extracts it into structured fields\nwith an LLM, proves the arithmetic before trusting it, refuses duplicates, auto-approves\nwhat policy allows and routes the rest to a human - then posts the result to the ledger.\nEvery outcome answers the caller synchronously with a real HTTP status.\n\n**Two entry points**\n- `POST /webhook/invoice-intake`   `{ source, invoiceText }`\n- `POST /webhook/invoice-approve`  `{ invoiceId, decision, approver, note? }`\n\n**Outcomes** - 200 posted | 200 held_for_approval | 200 approved_and_posted |\n200 rejected_by_approver | 400 invalid_request | 404 not_found | 409 duplicate | 422 exception\n\n**Every external system is a sub-workflow adapter**, never an inline node - see the note on\neach `Call:` node for the one-node swap. Uncaught failures route to `[CORE] Error Handler`,\nwhich appends to the `core_error_log` Data Table.",
+        "width": 940,
+        "height": 400,
+        "color": 7
+      },
+      "id": "note-overview",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        -940
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Intake and request validation\n\nThe webhook answers through a Respond node, so the\ncaller blocks until the invoice has actually been\ndealt with and gets the real outcome, not a 200 ack.\n\n`Policy Config` is the single source of truth for\nevery tunable here - threshold, confidence floor,\narithmetic tolerance, intake window, approver inbox.\nNothing downstream hardcodes a number; they all read\nit from this one node.",
+        "width": 460,
+        "height": 340,
+        "color": 5
+      },
+      "id": "note-intake",
+      "name": "Note: Intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. LLM extraction\n\n`invoiceText` is raw text. **This is the swap point for\nOCR** - put an Extract from File / Mistral OCR / Textract\nnode in front of the extractor and feed its text into\n`invoiceText` to accept PDFs and scans instead.\n\nRetry and timeout live on the model node\n(`maxRetries: 3`, `timeout: 60s`), so a flaky provider is\nretried with backoff inside the LLM client.\n\nIf extraction still fails, the chain returns `{ error }`\non its normal output rather than throwing, and\n`If: Extraction OK?` routes it to the exception queue.\nA garbled invoice never takes the pipeline down.",
+        "width": 460,
+        "height": 400,
+        "color": 5
+      },
+      "id": "note-extraction",
+      "name": "Note: Extraction",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Validation - trust nothing the model said\n\nRecomputed here, not re-asked of the model:\n- every line: qty x unitPrice == line total\n- line totals sum to subtotal\n- subtotal + tax == total\n- required fields present, total > 0, tax >= 0\n- dates parse, invoice not future-dated, not older\n  than the intake window, due date >= invoice date\n\nAll comparisons use `amountTolerance` from\n`Policy Config`. Any failure collects a plain-English\nreason and the invoice goes to the exception queue.\nIt is never posted on a maybe.",
+        "width": 440,
+        "height": 360,
+        "color": 5
+      },
+      "id": "note-validation",
+      "name": "Note: Validation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Idempotency\n\nThe dedupe key is `vendor::invoiceNumber`,\nnormalised - uppercased with punctuation collapsed -\nso \"Northwind Supply, LLC\" and \"NORTHWIND SUPPLY LLC\"\ncollide the way they should.\n\nBoth sinks are checked: an invoice already posted to\n`ap_ledger` and one already sitting in `ap_pending`\nboth count. Re-sending an invoice is safe - it returns\n409 and changes nothing.",
+        "width": 420,
+        "height": 360,
+        "color": 5
+      },
+      "id": "note-dedupe",
+      "name": "Note: Dedupe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Approval gate\n\nAuto-approve requires BOTH:\n- `total` <= `approvalThresholdAmount`\n- `confidence` >= `minConfidence`\n\nAnything else is parked in `ap_pending` with the\nreasons it was held, and the approver is notified\nwith the exact call needed to release it.",
+        "width": 420,
+        "height": 300,
+        "color": 5
+      },
+      "id": "note-approval-gate",
+      "name": "Note: Approval gate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Exception lane\n\nExtraction failures and validation failures converge on ONE adapter call, so the\nexception desk always sees the same record shape whatever went wrong. `stage` says\nwhere it broke: `extraction` or `validation` (or `approval_rejected` from the lane below).",
+        "width": 1000,
+        "height": 160,
+        "color": 3
+      },
+      "id": "note-exceptions",
+      "name": "Note: Exceptions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Approval decision - `POST /webhook/invoice-approve`\n\n`{ invoiceId, decision: \"approve\" | \"reject\", approver, note? }`\n\n**Idempotent by construction.** The pending row is never deleted; its `status` moves\npending -> approved | rejected. Replaying the same decision finds a row that is no longer\n`pending` and returns 200 with the decision already on file, without touching the ledger\na second time. A wrong or unknown id gets 404, never a silent success.\n\nApprove -> ledger adapter (approvalPath `manual`, approver recorded on the row).\nReject  -> exception adapter (stage `approval_rejected`, hold reasons preserved).",
+        "width": 1000,
+        "height": 300,
+        "color": 6
+      },
+      "id": "note-approval-lane",
+      "name": "Note: Approval lane",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-invoice-intake",
+      "name": "Webhook: Invoice Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "approvalThresholdAmount",
+              "value": 5000,
+              "type": "number"
+            },
+            {
+              "id": "p2",
+              "name": "minConfidence",
+              "value": 0.8,
+              "type": "number"
+            },
+            {
+              "id": "p3",
+              "name": "amountTolerance",
+              "value": 0.02,
+              "type": "number"
+            },
+            {
+              "id": "p4",
+              "name": "maxInvoiceAgeDays",
+              "value": 365,
+              "type": "number"
+            },
+            {
+              "id": "p5",
+              "name": "minInvoiceTextLength",
+              "value": 40,
+              "type": "number"
+            },
+            {
+              "id": "p6",
+              "name": "approverInbox",
+              "value": "ap-approvals@example.com",
+              "type": "string"
+            },
+            {
+              "id": "p7",
+              "name": "approvalWebhookPath",
+              "value": "invoice-approve",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "policy-config",
+      "name": "Policy Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -1340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Guard the request boundary before spending anything on the LLM.\nconst wh = $('Webhook: Invoice Intake').first().json;\nconst cfg = $('Policy Config').first().json;\nconst body = wh.body ?? {};\n\nconst errors = [];\nconst source = typeof body.source === 'string' ? body.source.trim() : '';\nconst rawText = typeof body.invoiceText === 'string' ? body.invoiceText : '';\nconst invoiceText = rawText.trim();\n\nif (!source) {\n  errors.push('Field \"source\" is required and must be a non-empty string.');\n}\nif (!invoiceText) {\n  errors.push('Field \"invoiceText\" is required and must be a non-empty string.');\n} else if (invoiceText.length < cfg.minInvoiceTextLength) {\n  errors.push(`Field \"invoiceText\" must be at least ${cfg.minInvoiceTextLength} characters to be worth extracting (got ${invoiceText.length}).`);\n}\n\nconst headers = wh.headers ?? {};\nconst proto = headers['x-forwarded-proto'] || 'http';\nconst host = headers.host || 'localhost:5678';\n\nreturn [{ json: {\n  requestValid: errors.length === 0,\n  requestErrors: errors,\n  source,\n  invoiceText,\n  receivedAt: new Date().toISOString(),\n  approvalBaseUrl: `${proto}://${host}/webhook/${cfg.approvalWebhookPath}`,\n  policy: {\n    approvalThresholdAmount: cfg.approvalThresholdAmount,\n    minConfidence: cfg.minConfidence,\n    amountTolerance: cfg.amountTolerance,\n    maxInvoiceAgeDays: cfg.maxInvoiceAgeDays,\n    minInvoiceTextLength: cfg.minInvoiceTextLength,\n    approverInbox: cfg.approverInbox,\n  },\n} }];"
+      },
+      "id": "normalize-intake",
+      "name": "Normalize Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-48485",
+              "leftValue": "={{ $json.requestValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-request-valid?",
+      "name": "If: Request Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'rejected', reason: 'invalid_request', errors: $json.requestErrors, receivedAt: $json.receivedAt }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-400-invalid-request",
+      "name": "Respond 400: Invalid Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4.6",
+        "options": {
+          "temperature": 0,
+          "maxTokens": 4096,
+          "maxRetries": 3,
+          "timeout": 60000
+        }
+      },
+      "id": "openrouter-chat-model",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        220
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.invoiceText }}",
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\n  \"vendor\": \"Northwind Industrial Supply, LLC\",\n  \"invoiceNumber\": \"NW-2026-0451\",\n  \"date\": \"2026-05-14\",\n  \"dueDate\": \"2026-06-13\",\n  \"currency\": \"USD\",\n  \"lineItems\": [\n    {\n      \"desc\": \"Galvanized steel bracket, 1/4 in\",\n      \"qty\": 120,\n      \"unitPrice\": 18.5,\n      \"total\": 2220.0\n    }\n  ],\n  \"subtotal\": 2220.0,\n  \"tax\": 138.75,\n  \"total\": 2358.75,\n  \"confidence\": 0.94\n}",
+        "options": {
+          "systemPromptTemplate": "You are an accounts-payable extraction engine. You are given the raw text of a single supplier invoice - an email body, an OCR dump, or a pasted PDF.\n\nRules:\n- Copy figures exactly as printed. Never compute, correct or balance the numbers yourself. The downstream validator has to be able to detect an arithmetic error on the invoice, and it cannot do that if you silently fix it.\n- Amounts are plain numbers: strip currency symbols and thousands separators, use a dot as the decimal separator.\n- currency is the ISO 4217 code (USD, EUR, GBP and so on). If only a symbol is shown, map it. If nothing indicates a currency, use USD.\n- date is the invoice issue date and dueDate is the payment due date, both as YYYY-MM-DD. If the due date is given only as terms such as \"Net 30\", compute it from the issue date.\n- lineItems: one entry per billed line. desc is the line description, qty the quantity, unitPrice the price per unit, total the extended amount for that line. Do not turn subtotal, tax, shipping or total rows into line items.\n- confidence is YOUR OWN assessment between 0 and 1 of how reliably this text supported the extraction. Lower it when the text is truncated, garbled, ambiguous, or does not read like an invoice at all. Do not inflate it."
+        }
+      },
+      "id": "extract-invoice-fields",
+      "name": "Extract Invoice Fields",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        -680,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Coerce whatever the model produced into the pipeline's own types and derive the\n// deterministic dedupe key. Nothing is judged here - that is the validator's job.\nconst src = $('Normalize Intake').first().json;\nconst raw = $json;\n\nconst carry = {\n  source: src.source,\n  invoiceText: src.invoiceText,\n  policy: src.policy,\n  approvalBaseUrl: src.approvalBaseUrl,\n  receivedAt: src.receivedAt,\n};\n\nif (raw.error) {\n  return [{ json: { ...carry, extractionOk: false, extractionError: String(raw.error) } }];\n}\n\nconst x = raw.output ?? {};\n\nconst num = (v) => {\n  if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;\n  const n = parseFloat(String(v ?? '').replace(/[^0-9.eE+-]/g, ''));\n  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;\n};\nconst str = (v) => (v == null ? '' : String(v).trim());\n\nconst lineItems = Array.isArray(x.lineItems)\n  ? x.lineItems.map((li) => ({\n      desc: str(li && li.desc),\n      qty: num(li && li.qty),\n      unitPrice: num(li && li.unitPrice),\n      total: num(li && li.total),\n    }))\n  : [];\n\nconst vendor = str(x.vendor);\nconst invoiceNumber = str(x.invoiceNumber);\nconst keyOf = (s) => s.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');\nconst invoiceId = vendor && invoiceNumber ? `${keyOf(vendor)}::${keyOf(invoiceNumber)}` : '';\n\nlet confidence = num(x.confidence);\nif (confidence === null) confidence = 0;\nif (confidence > 1) confidence = Math.min(confidence / 100, 1);\nif (confidence < 0) confidence = 0;\n\n// The model id lives only on the OpenRouter node; read it back for the audit trail\n// instead of repeating the literal here.\nlet extractionModel = 'unknown';\ntry {\n  extractionModel = $('OpenRouter Chat Model').params.model || 'unknown';\n} catch (e) {\n  extractionModel = 'unknown';\n}\n\nreturn [{ json: {\n  ...carry,\n  extractionOk: true,\n  extractionError: null,\n  invoiceId,\n  vendor,\n  invoiceNumber,\n  invoiceDate: str(x.date),\n  dueDate: str(x.dueDate),\n  currency: str(x.currency).toUpperCase() || 'USD',\n  lineItems,\n  lineItemCount: lineItems.length,\n  subtotal: num(x.subtotal),\n  tax: num(x.tax),\n  total: num(x.total),\n  confidence,\n  extractionModel,\n} }];"
+      },
+      "id": "normalize-extraction",
+      "name": "Normalize Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-97963",
+              "leftValue": "={{ $json.extractionOk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-extraction-ok?",
+      "name": "If: Extraction OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Re-derive every number the model reported. The invoice is trusted only if its\n// own arithmetic holds.\nconst d = $json;\nconst p = d.policy;\nconst tol = p.amountTolerance;\nconst errors = [];\nconst r2 = (n) => Math.round(n * 100) / 100;\n\nfor (const [name, v] of [['vendor', d.vendor], ['invoiceNumber', d.invoiceNumber],\n                         ['invoiceDate', d.invoiceDate], ['currency', d.currency]]) {\n  if (!v) errors.push(`Required field \"${name}\" is missing from the extracted invoice.`);\n}\nfor (const name of ['subtotal', 'tax', 'total']) {\n  if (d[name] === null || d[name] === undefined) {\n    errors.push(`Required amount \"${name}\" could not be read from the invoice.`);\n  }\n}\nif (!d.lineItems.length) errors.push('No line items could be read from the invoice.');\n\nd.lineItems.forEach((li, i) => {\n  const n = i + 1;\n  if (!li.desc) errors.push(`Line item ${n} has no description.`);\n  if (li.qty === null || li.unitPrice === null || li.total === null) {\n    errors.push(`Line item ${n} has amounts that could not be read as numbers.`);\n    return;\n  }\n  const expected = r2(li.qty * li.unitPrice);\n  if (Math.abs(expected - li.total) > tol) {\n    errors.push(`Line item ${n} (\"${li.desc}\") is billed at ${li.total} but ${li.qty} x ${li.unitPrice} = ${expected}.`);\n  }\n});\n\nif (d.subtotal !== null && d.lineItems.length) {\n  const sum = r2(d.lineItems.reduce((a, li) => a + (li.total || 0), 0));\n  if (Math.abs(sum - d.subtotal) > tol) {\n    errors.push(`Line items sum to ${sum} but the invoice states a subtotal of ${d.subtotal} (tolerance ${tol}).`);\n  }\n}\nif (d.subtotal !== null && d.tax !== null && d.total !== null) {\n  const expected = r2(d.subtotal + d.tax);\n  if (Math.abs(expected - d.total) > tol) {\n    errors.push(`Invoice total ${d.total} does not equal subtotal ${d.subtotal} + tax ${d.tax} = ${expected}.`);\n  }\n}\nif (d.total !== null && d.total <= 0) errors.push(`Invoice total ${d.total} must be greater than zero.`);\nif (d.tax !== null && d.tax < 0) errors.push(`Tax ${d.tax} cannot be negative.`);\n\nconst parse = (s) => { const t = Date.parse(s); return Number.isNaN(t) ? null : new Date(t); };\nconst now = new Date();\nconst inv = parse(d.invoiceDate);\nif (d.invoiceDate && !inv) errors.push(`Invoice date \"${d.invoiceDate}\" is not a valid date.`);\nif (inv) {\n  const ageDays = Math.floor((now - inv) / 86400000);\n  if (ageDays < -1) errors.push(`Invoice date ${d.invoiceDate} is in the future.`);\n  if (ageDays > p.maxInvoiceAgeDays) {\n    errors.push(`Invoice date ${d.invoiceDate} is ${ageDays} days old, outside the ${p.maxInvoiceAgeDays}-day intake window.`);\n  }\n}\nconst due = parse(d.dueDate);\nif (d.dueDate && !due) errors.push(`Due date \"${d.dueDate}\" is not a valid date.`);\nif (inv && due && due < inv) errors.push(`Due date ${d.dueDate} is before the invoice date ${d.invoiceDate}.`);\n\nif (!d.invoiceId) {\n  errors.push('Could not derive a dedupe key: vendor or invoiceNumber is missing.');\n}\n\nreturn [{ json: { ...d, invoiceValid: errors.length === 0, validationErrors: errors } }];"
+      },
+      "id": "validate-invoice",
+      "name": "Validate Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-63814",
+              "leftValue": "={{ $json.invoiceValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-invoice-valid?",
+      "name": "If: Invoice Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "m0U1Qv8r2UL0rC3R",
+          "cachedResultName": "ap_ledger"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vendor",
+              "condition": "eq",
+              "keyValue": "={{ $('Validate Invoice').first().json.vendor }}"
+            },
+            {
+              "keyName": "invoiceNumber",
+              "condition": "eq",
+              "keyValue": "={{ $('Validate Invoice').first().json.invoiceNumber }}"
+            }
+          ]
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "lookup-ledger-duplicate",
+      "name": "Lookup: Ledger Duplicate",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yvtX6pEzUMfYtKcD",
+          "cachedResultName": "ap_pending"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoiceId",
+              "condition": "eq",
+              "keyValue": "={{ $('Validate Invoice').first().json.invoiceId }}"
+            }
+          ]
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "lookup-pending-duplicate",
+      "name": "Lookup: Pending Duplicate",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// A Data Table \"get\" with no match emits a single empty item (alwaysOutputData is on),\n// so presence is decided by the system column `id`, never by item count.\nconst d = $('Validate Invoice').first().json;\nconst hits = (name) => $(name).all()\n  .filter((i) => i.json && i.json.id !== undefined && i.json.id !== null);\n\nconst ledgerHits = hits('Lookup: Ledger Duplicate');\nconst pendingHits = hits('Lookup: Pending Duplicate');\n\nconst isDuplicate = ledgerHits.length > 0 || pendingHits.length > 0;\nconst duplicateOf = ledgerHits.length ? 'ap_ledger' : (pendingHits.length ? 'ap_pending' : null);\nconst match = ledgerHits.length ? ledgerHits[0].json : (pendingHits.length ? pendingHits[0].json : null);\n\nreturn [{ json: {\n  ...d,\n  isDuplicate,\n  duplicateOf,\n  existingRowId: match ? String(match.id) : null,\n  existingStatus: ledgerHits.length ? 'posted' : (match ? (match.status ?? null) : null),\n} }];"
+      },
+      "id": "dedupe-decision",
+      "name": "Dedupe Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-58897",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-duplicate?",
+      "name": "If: Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'duplicate', reason: 'already_seen', invoiceId: $json.invoiceId, vendor: $json.vendor, invoiceNumber: $json.invoiceNumber, duplicateOf: $json.duplicateOf, existingRowId: $json.existingRowId, existingStatus: $json.existingStatus, message: 'This vendor and invoice number were already received. Nothing was posted.' }) }}",
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "id": "respond-409-duplicate-invoice",
+      "name": "Respond 409: Duplicate Invoice",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-37120",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": "={{ $json.policy.approvalThresholdAmount }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            },
+            {
+              "id": "c-18770",
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": "={{ $json.policy.minConfidence }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-auto-approve?",
+      "name": "If: Auto-Approve?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nreturn [{ json: {\n  invoiceId: d.invoiceId,\n  vendor: d.vendor,\n  invoiceNumber: d.invoiceNumber,\n  invoiceDate: d.invoiceDate,\n  dueDate: d.dueDate,\n  currency: d.currency,\n  subtotal: d.subtotal,\n  tax: d.tax,\n  total: d.total,\n  lineItems: JSON.stringify(d.lineItems),\n  lineItemCount: d.lineItemCount,\n  confidence: d.confidence,\n  approvalPath: 'auto',\n  approver: 'policy:auto-approve',\n  source: d.source,\n  extractionModel: d.extractionModel,\n  intakeExecutionId: String($execution.id),\n} }];"
+      },
+      "id": "build-ledger-payload-(auto)",
+      "name": "Build Ledger Payload (Auto)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "kEWPZxhwBOLrRRXF",
+          "cachedResultName": "03a - Adapter: Ledger Write"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "invoiceDate": "={{ $json.invoiceDate }}",
+            "dueDate": "={{ $json.dueDate }}",
+            "currency": "={{ $json.currency }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "tax": "={{ $json.tax }}",
+            "total": "={{ $json.total }}",
+            "lineItems": "={{ $json.lineItems }}",
+            "lineItemCount": "={{ $json.lineItemCount }}",
+            "confidence": "={{ $json.confidence }}",
+            "approvalPath": "={{ $json.approvalPath }}",
+            "approver": "={{ $json.approver }}",
+            "source": "={{ $json.source }}",
+            "extractionModel": "={{ $json.extractionModel }}",
+            "intakeExecutionId": "={{ $json.intakeExecutionId }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-ledger-write-(auto)",
+      "name": "Call: Ledger Write (Auto)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1760,
+        -200
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'posted', approvalPath: 'auto', invoiceId: $json.invoiceId, vendor: $('Build Ledger Payload (Auto)').first().json.vendor, invoiceNumber: $('Build Ledger Payload (Auto)').first().json.invoiceNumber, currency: $json.currency, total: $json.total, confidence: $('Build Ledger Payload (Auto)').first().json.confidence, lineItemCount: $('Build Ledger Payload (Auto)').first().json.lineItemCount, extractionModel: $('Build Ledger Payload (Auto)').first().json.extractionModel, ledgerRef: $json.ledgerRef, sink: $json.sink, postedAt: $json.postedAt }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-posted-to-ledger",
+      "name": "Respond 200: Posted to Ledger",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1980,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nconst p = d.policy;\nconst reasons = [];\nif (d.total > p.approvalThresholdAmount) {\n  reasons.push(`Invoice total ${d.currency} ${d.total} exceeds the ${d.currency} ${p.approvalThresholdAmount} auto-approval threshold.`);\n}\nif (d.confidence < p.minConfidence) {\n  reasons.push(`Extraction confidence ${d.confidence} is below the ${p.minConfidence} auto-approval floor.`);\n}\nif (!reasons.length) reasons.push('Held by approval policy.');\n\nreturn [{ json: {\n  ...d,\n  status: 'pending',\n  holdReasons: reasons,\n  holdReasonsJson: JSON.stringify(reasons),\n  lineItemsJson: JSON.stringify(d.lineItems),\n  queuedAt: new Date().toISOString(),\n  approveUrl: d.approvalBaseUrl,\n  approverInbox: p.approverInbox,\n} }];"
+      },
+      "id": "build-hold-record",
+      "name": "Build Hold Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yvtX6pEzUMfYtKcD",
+          "cachedResultName": "ap_pending"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "invoiceDate": "={{ $json.invoiceDate }}",
+            "dueDate": "={{ $json.dueDate }}",
+            "currency": "={{ $json.currency }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "tax": "={{ $json.tax }}",
+            "total": "={{ $json.total }}",
+            "lineItems": "={{ $json.lineItemsJson }}",
+            "confidence": "={{ $json.confidence }}",
+            "holdReasons": "={{ $json.holdReasonsJson }}",
+            "status": "pending",
+            "source": "={{ $json.source }}",
+            "queuedAt": "={{ $json.queuedAt }}",
+            "decidedAt": "",
+            "approver": "",
+            "decisionNote": "",
+            "extractionModel": "={{ $json.extractionModel }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceNumber",
+              "displayName": "invoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceDate",
+              "displayName": "invoiceDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dueDate",
+              "displayName": "dueDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lineItems",
+              "displayName": "lineItems",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "holdReasons",
+              "displayName": "holdReasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "queuedAt",
+              "displayName": "queuedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedAt",
+              "displayName": "decidedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver",
+              "displayName": "approver",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decisionNote",
+              "displayName": "decisionNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extractionModel",
+              "displayName": "extractionModel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "queue-ap_pending",
+      "name": "Queue: ap_pending",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "JyPhypU9vMSswbwM",
+          "cachedResultName": "03c - Adapter: Approval Request"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $('Build Hold Record').first().json.invoiceId }}",
+            "vendor": "={{ $('Build Hold Record').first().json.vendor }}",
+            "invoiceNumber": "={{ $('Build Hold Record').first().json.invoiceNumber }}",
+            "currency": "={{ $('Build Hold Record').first().json.currency }}",
+            "total": "={{ $('Build Hold Record').first().json.total }}",
+            "confidence": "={{ $('Build Hold Record').first().json.confidence }}",
+            "holdReasons": "={{ $('Build Hold Record').first().json.holdReasonsJson }}",
+            "approveUrl": "={{ $('Build Hold Record').first().json.approveUrl }}",
+            "recipient": "={{ $('Build Hold Record').first().json.approverInbox }}",
+            "dueDate": "={{ $('Build Hold Record').first().json.dueDate }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-approval-request",
+      "name": "Call: Approval Request",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1980,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'held_for_approval', invoiceId: $('Build Hold Record').first().json.invoiceId, vendor: $('Build Hold Record').first().json.vendor, invoiceNumber: $('Build Hold Record').first().json.invoiceNumber, currency: $('Build Hold Record').first().json.currency, total: $('Build Hold Record').first().json.total, confidence: $('Build Hold Record').first().json.confidence, holdReasons: $('Build Hold Record').first().json.holdReasons, pendingRowId: String($('Queue: ap_pending').first().json.id), approveUrl: $('Build Hold Record').first().json.approveUrl, notificationRef: $json.notificationRef, notifiedVia: $json.sink }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-held-for-approval",
+      "name": "Respond 200: Held for Approval",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Ledger sink outage\n\nBoth ledger calls retry 3x with backoff. If the sink is still down\nthe invoice is NOT silently lost and the caller is NOT told \"posted\":\nit is raised on the exception desk as `ledger_unavailable` and the\ncaller gets a 502 telling it to retry once the ledger is back.\n\nThe adapter's own failure still reaches `[CORE] Error Handler`, so\nthe platform records the outage independently of this recovery.",
+        "width": 660,
+        "height": 260,
+        "color": 3
+      },
+      "id": "note-sink-outage",
+      "name": "Note: Sink outage",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// The ledger sink refused the write even after retries. The invoice must not be\n// lost and the caller must not be told it was posted.\nlet p = null;\ntry { p = $('Build Ledger Payload (Auto)').first().json; } catch (e) { p = null; }\nif (!p) { try { p = $('Build Ledger Payload (Approved)').first().json; } catch (e) { p = null; } }\nif (!p) p = {};\n\nconst rawErr = $json && ($json.error || $json.message);\nconst errText = !rawErr ? 'The ledger adapter failed and returned no detail.'\n  : (typeof rawErr === 'string' ? rawErr : (rawErr.message || JSON.stringify(rawErr)));\n\nconst reasons = [\n  'The ledger sink rejected the write after all retries, so this invoice was NOT posted.',\n  `Adapter error: ${errText}`,\n  `Approval path at the time of failure: ${p.approvalPath || 'unknown'}.`,\n];\n\nreturn [{ json: {\n  invoiceId: p.invoiceId || `UNPOSTED::${$execution.id}`,\n  stage: 'ledger_unavailable',\n  vendor: p.vendor || '',\n  invoiceNumber: p.invoiceNumber || '',\n  total: p.total === null || p.total === undefined ? 0 : p.total,\n  reasons: JSON.stringify(reasons),\n  confidence: p.confidence === null || p.confidence === undefined ? 0 : p.confidence,\n  source: p.source || '',\n  rawExcerpt: `Ledger write failed for invoice ${p.invoiceNumber || 'unknown'} from ${p.vendor || 'unknown vendor'}.`,\n} }];"
+      },
+      "id": "build-sink-failure",
+      "name": "Build Sink Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "oceM00jn96aW00HL",
+          "cachedResultName": "03b - Adapter: Exception Queue"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "stage": "={{ $json.stage }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "total": "={{ $json.total }}",
+            "reasons": "={{ $json.reasons }}",
+            "confidence": "={{ $json.confidence }}",
+            "source": "={{ $json.source }}",
+            "rawExcerpt": "={{ $json.rawExcerpt }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-exception-queue-(sink-down)",
+      "name": "Call: Exception Queue (Sink Down)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1980,
+        860
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ledger_unavailable', reason: 'sink_write_failed', invoiceId: $json.invoiceId, errors: $json.reasons, exceptionRef: $json.exceptionRef, sink: $json.sink, postedToLedger: false, message: 'The invoice was accepted and validated but the ledger could not be written. It is queued on the exception desk - retry once the ledger is back.' }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "respond-502-ledger-unavailable",
+      "name": "Respond 502: Ledger Unavailable",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2200,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nconst reasons = [\n  'The language model could not turn this text into a structured invoice.',\n  `Extractor error: ${d.extractionError}`,\n];\nreturn [{ json: {\n  invoiceId: `UNPARSED::${$execution.id}`,\n  stage: 'extraction',\n  vendor: '',\n  invoiceNumber: '',\n  total: 0,\n  reasons: JSON.stringify(reasons),\n  confidence: 0,\n  source: d.source,\n  rawExcerpt: String(d.invoiceText || '').slice(0, 500),\n} }];"
+      },
+      "id": "build-extraction-failure",
+      "name": "Build Extraction Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nreturn [{ json: {\n  invoiceId: d.invoiceId || `UNPARSED::${$execution.id}`,\n  stage: 'validation',\n  vendor: d.vendor,\n  invoiceNumber: d.invoiceNumber,\n  total: d.total === null || d.total === undefined ? 0 : d.total,\n  reasons: JSON.stringify(d.validationErrors),\n  confidence: d.confidence,\n  source: d.source,\n  rawExcerpt: String(d.invoiceText || '').slice(0, 500),\n} }];"
+      },
+      "id": "build-validation-failure",
+      "name": "Build Validation Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "oceM00jn96aW00HL",
+          "cachedResultName": "03b - Adapter: Exception Queue"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "stage": "={{ $json.stage }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "total": "={{ $json.total }}",
+            "reasons": "={{ $json.reasons }}",
+            "confidence": "={{ $json.confidence }}",
+            "source": "={{ $json.source }}",
+            "rawExcerpt": "={{ $json.rawExcerpt }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-exception-queue",
+      "name": "Call: Exception Queue",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        400,
+        780
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'exception', reason: $json.stage, invoiceId: $json.invoiceId, errors: $json.reasons, exceptionRef: $json.exceptionRef, sink: $json.sink, raisedAt: $json.raisedAt, message: 'The invoice was not posted. It is queued for a human on the AP exception desk.' }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "respond-422-exception-queued",
+      "name": "Respond 422: Exception Queued",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        620,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-approve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-invoice-approve",
+      "name": "Webhook: Invoice Approve",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1560,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const wh = $('Webhook: Invoice Approve').first().json;\nconst body = wh.body ?? {};\nconst errors = [];\n\nconst invoiceId = typeof body.invoiceId === 'string' ? body.invoiceId.trim() : '';\nconst rawDecision = typeof body.decision === 'string' ? body.decision.trim().toLowerCase() : '';\nconst approver = typeof body.approver === 'string' ? body.approver.trim() : '';\nconst note = typeof body.note === 'string' ? body.note.trim() : '';\n\nif (!invoiceId) errors.push('Field \"invoiceId\" is required.');\nif (!approver) errors.push('Field \"approver\" is required so the decision is attributable.');\nif (!rawDecision) {\n  errors.push('Field \"decision\" is required.');\n} else if (!['approve', 'approved', 'reject', 'rejected'].includes(rawDecision)) {\n  errors.push(`Field \"decision\" must be \"approve\" or \"reject\" (got \"${body.decision}\").`);\n}\n\nconst decision = rawDecision.startsWith('approve') ? 'approve'\n  : (rawDecision.startsWith('reject') ? 'reject' : '');\n\nreturn [{ json: {\n  decisionValid: errors.length === 0,\n  decisionErrors: errors,\n  invoiceId, decision, approver, note,\n  decidedAt: new Date().toISOString(),\n} }];"
+      },
+      "id": "normalize-decision",
+      "name": "Normalize Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1340,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-25226",
+              "leftValue": "={{ $json.decisionValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-decision-valid?",
+      "name": "If: Decision Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'rejected', reason: 'invalid_decision', errors: $json.decisionErrors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-400-invalid-decision",
+      "name": "Respond 400: Invalid Decision",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -900,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yvtX6pEzUMfYtKcD",
+          "cachedResultName": "ap_pending"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoiceId",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Decision').first().json.invoiceId }}"
+            }
+          ]
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "lookup-pending-invoice",
+      "name": "Lookup: Pending Invoice",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -900,
+        1280
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $('Normalize Decision').first().json;\nconst hits = $('Lookup: Pending Invoice').all()\n  .filter((i) => i.json && i.json.id !== undefined && i.json.id !== null);\nconst row = hits.length ? hits[0].json : null;\n\nreturn [{ json: {\n  ...d,\n  found: row !== null,\n  pendingRowId: row ? String(row.id) : null,\n  currentStatus: row ? row.status : null,\n  alreadyDecided: row ? row.status !== 'pending' : false,\n  priorApprover: row ? (row.approver || null) : null,\n  priorDecidedAt: row ? (row.decidedAt || null) : null,\n  invoice: row,\n} }];"
+      },
+      "id": "resolve-pending-state",
+      "name": "Resolve Pending State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-38196",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-pending-found?",
+      "name": "If: Pending Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -460,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'not_found', reason: 'no_pending_invoice', invoiceId: $json.invoiceId, message: 'No invoice with that id is in the approval queue. It was never queued, or the id is wrong.' }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "respond-404-not-in-approval-queue",
+      "name": "Respond 404: Not in Approval Queue",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -240,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-37860",
+              "leftValue": "={{ $json.alreadyDecided }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-already-decided?",
+      "name": "If: Already Decided?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -240,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'already_decided', idempotent: true, invoiceId: $json.invoiceId, decisionOnFile: $json.currentStatus, decidedBy: $json.priorApprover, decidedAt: $json.priorDecidedAt, message: 'This invoice was already decided. Nothing was changed and nothing was posted a second time.' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-already-decided-(idempot",
+      "name": "Respond 200: Already Decided (Idempotent)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -20,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-5652",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "if-approved?",
+      "name": "If: Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -20,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nconst r = d.invoice;\nlet count = 0;\ntry { count = JSON.parse(r.lineItems || '[]').length; } catch (e) { count = 0; }\n\nreturn [{ json: {\n  invoiceId: r.invoiceId,\n  vendor: r.vendor,\n  invoiceNumber: r.invoiceNumber,\n  invoiceDate: r.invoiceDate,\n  dueDate: r.dueDate,\n  currency: r.currency,\n  subtotal: r.subtotal,\n  tax: r.tax,\n  total: r.total,\n  lineItems: r.lineItems,\n  lineItemCount: count,\n  confidence: r.confidence,\n  approvalPath: 'manual',\n  approver: d.approver,\n  source: r.source,\n  extractionModel: r.extractionModel || 'unknown',\n  intakeExecutionId: String($execution.id),\n} }];"
+      },
+      "id": "build-ledger-payload-(approved)",
+      "name": "Build Ledger Payload (Approved)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "kEWPZxhwBOLrRRXF",
+          "cachedResultName": "03a - Adapter: Ledger Write"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "invoiceDate": "={{ $json.invoiceDate }}",
+            "dueDate": "={{ $json.dueDate }}",
+            "currency": "={{ $json.currency }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "tax": "={{ $json.tax }}",
+            "total": "={{ $json.total }}",
+            "lineItems": "={{ $json.lineItems }}",
+            "lineItemCount": "={{ $json.lineItemCount }}",
+            "confidence": "={{ $json.confidence }}",
+            "approvalPath": "={{ $json.approvalPath }}",
+            "approver": "={{ $json.approver }}",
+            "source": "={{ $json.source }}",
+            "extractionModel": "={{ $json.extractionModel }}",
+            "intakeExecutionId": "={{ $json.intakeExecutionId }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-ledger-write-(approved)",
+      "name": "Call: Ledger Write (Approved)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        420,
+        1100
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yvtX6pEzUMfYtKcD",
+          "cachedResultName": "ap_pending"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoiceId",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Decision').first().json.invoiceId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "approved",
+            "decidedAt": "={{ $('Normalize Decision').first().json.decidedAt }}",
+            "approver": "={{ $('Normalize Decision').first().json.approver }}",
+            "decisionNote": "={{ $('Normalize Decision').first().json.note }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceNumber",
+              "displayName": "invoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceDate",
+              "displayName": "invoiceDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dueDate",
+              "displayName": "dueDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lineItems",
+              "displayName": "lineItems",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "holdReasons",
+              "displayName": "holdReasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "queuedAt",
+              "displayName": "queuedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedAt",
+              "displayName": "decidedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver",
+              "displayName": "approver",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decisionNote",
+              "displayName": "decisionNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extractionModel",
+              "displayName": "extractionModel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-pending-approved",
+      "name": "Mark Pending Approved",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        1100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'approved_and_posted', approvalPath: 'manual', invoiceId: $('Build Ledger Payload (Approved)').first().json.invoiceId, vendor: $('Build Ledger Payload (Approved)').first().json.vendor, invoiceNumber: $('Build Ledger Payload (Approved)').first().json.invoiceNumber, currency: $('Build Ledger Payload (Approved)').first().json.currency, total: $('Build Ledger Payload (Approved)').first().json.total, approver: $('Normalize Decision').first().json.approver, decidedAt: $('Normalize Decision').first().json.decidedAt, ledgerRef: $('Call: Ledger Write (Approved)').first().json.ledgerRef, sink: $('Call: Ledger Write (Approved)').first().json.sink }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-approved-and-posted",
+      "name": "Respond 200: Approved and Posted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        860,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const d = $json;\nconst r = d.invoice;\nconst reasons = [`Rejected by ${d.approver} at ${d.decidedAt}.`];\nif (d.note) reasons.push(`Approver note: ${d.note}`);\ntry {\n  for (const h of JSON.parse(r.holdReasons || '[]')) reasons.push(`Originally held because: ${h}`);\n} catch (e) {\n  // holdReasons was not valid JSON; the rejection reason above still stands.\n}\n\nreturn [{ json: {\n  invoiceId: r.invoiceId,\n  stage: 'approval_rejected',\n  vendor: r.vendor,\n  invoiceNumber: r.invoiceNumber,\n  total: r.total,\n  reasons: JSON.stringify(reasons),\n  confidence: r.confidence,\n  source: r.source,\n  rawExcerpt: `Invoice ${r.invoiceNumber} from ${r.vendor} was rejected at the approval gate and was never posted to the ledger.`,\n} }];"
+      },
+      "id": "build-rejection-payload",
+      "name": "Build Rejection Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        1460
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "oceM00jn96aW00HL",
+          "cachedResultName": "03b - Adapter: Exception Queue"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "invoiceId": "={{ $json.invoiceId }}",
+            "stage": "={{ $json.stage }}",
+            "vendor": "={{ $json.vendor }}",
+            "invoiceNumber": "={{ $json.invoiceNumber }}",
+            "total": "={{ $json.total }}",
+            "reasons": "={{ $json.reasons }}",
+            "confidence": "={{ $json.confidence }}",
+            "source": "={{ $json.source }}",
+            "rawExcerpt": "={{ $json.rawExcerpt }}"
+          }
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-exception-queue-(rejected)",
+      "name": "Call: Exception Queue (Rejected)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        420,
+        1460
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yvtX6pEzUMfYtKcD",
+          "cachedResultName": "ap_pending"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "invoiceId",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Decision').first().json.invoiceId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "rejected",
+            "decidedAt": "={{ $('Normalize Decision').first().json.decidedAt }}",
+            "approver": "={{ $('Normalize Decision').first().json.approver }}",
+            "decisionNote": "={{ $('Normalize Decision').first().json.note }}"
+          },
+          "schema": [
+            {
+              "id": "invoiceId",
+              "displayName": "invoiceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceNumber",
+              "displayName": "invoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoiceDate",
+              "displayName": "invoiceDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dueDate",
+              "displayName": "dueDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lineItems",
+              "displayName": "lineItems",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "holdReasons",
+              "displayName": "holdReasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "queuedAt",
+              "displayName": "queuedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedAt",
+              "displayName": "decidedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver",
+              "displayName": "approver",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decisionNote",
+              "displayName": "decisionNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extractionModel",
+              "displayName": "extractionModel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-pending-rejected",
+      "name": "Mark Pending Rejected",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        1460
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'rejected_by_approver', invoiceId: $('Build Rejection Payload').first().json.invoiceId, vendor: $('Build Rejection Payload').first().json.vendor, invoiceNumber: $('Build Rejection Payload').first().json.invoiceNumber, total: $('Build Rejection Payload').first().json.total, approver: $('Normalize Decision').first().json.approver, decidedAt: $('Normalize Decision').first().json.decidedAt, note: $('Normalize Decision').first().json.note, exceptionRef: $('Call: Exception Queue (Rejected)').first().json.exceptionRef, postedToLedger: false }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-rejected",
+      "name": "Respond 200: Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        860,
+        1460
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: Invoice Intake": {
+      "main": [
+        [
+          {
+            "node": "Policy Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Policy Config": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Intake": {
+      "main": [
+        [
+          {
+            "node": "If: Request Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Request Valid?": {
+      "main": [
+        [
+          {
+            "node": "Extract Invoice Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400: Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Invoice Fields",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Invoice Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Extraction": {
+      "main": [
+        [
+          {
+            "node": "If: Extraction OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Extraction OK?": {
+      "main": [
+        [
+          {
+            "node": "Validate Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Extraction Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Extraction Failure": {
+      "main": [
+        [
+          {
+            "node": "Call: Exception Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Invoice": {
+      "main": [
+        [
+          {
+            "node": "If: Invoice Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Invoice Valid?": {
+      "main": [
+        [
+          {
+            "node": "Lookup: Ledger Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Validation Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Validation Failure": {
+      "main": [
+        [
+          {
+            "node": "Call: Exception Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Exception Queue": {
+      "main": [
+        [
+          {
+            "node": "Respond 422: Exception Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup: Ledger Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Lookup: Pending Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup: Pending Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe Decision": {
+      "main": [
+        [
+          {
+            "node": "If: Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Respond 409: Duplicate Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: Auto-Approve?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Auto-Approve?": {
+      "main": [
+        [
+          {
+            "node": "Build Ledger Payload (Auto)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Hold Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ledger Payload (Auto)": {
+      "main": [
+        [
+          {
+            "node": "Call: Ledger Write (Auto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Ledger Write (Auto)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Posted to Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Sink Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sink Failure": {
+      "main": [
+        [
+          {
+            "node": "Call: Exception Queue (Sink Down)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Exception Queue (Sink Down)": {
+      "main": [
+        [
+          {
+            "node": "Respond 502: Ledger Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Hold Record": {
+      "main": [
+        [
+          {
+            "node": "Queue: ap_pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue: ap_pending": {
+      "main": [
+        [
+          {
+            "node": "Call: Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Held for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Invoice Approve": {
+      "main": [
+        [
+          {
+            "node": "Normalize Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Decision": {
+      "main": [
+        [
+          {
+            "node": "If: Decision Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Decision Valid?": {
+      "main": [
+        [
+          {
+            "node": "Lookup: Pending Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400: Invalid Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup: Pending Invoice": {
+      "main": [
+        [
+          {
+            "node": "Resolve Pending State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Pending State": {
+      "main": [
+        [
+          {
+            "node": "If: Pending Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Pending Found?": {
+      "main": [
+        [
+          {
+            "node": "If: Already Decided?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 404: Not in Approval Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Already Decided?": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Already Decided (Idempotent)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Approved?": {
+      "main": [
+        [
+          {
+            "node": "Build Ledger Payload (Approved)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Rejection Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ledger Payload (Approved)": {
+      "main": [
+        [
+          {
+            "node": "Call: Ledger Write (Approved)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Ledger Write (Approved)": {
+      "main": [
+        [
+          {
+            "node": "Mark Pending Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Sink Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Pending Approved": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Approved and Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Rejection Payload": {
+      "main": [
+        [
+          {
+            "node": "Call: Exception Queue (Rejected)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Exception Queue (Rejected)": {
+      "main": [
+        [
+          {
+            "node": "Mark Pending Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Pending Rejected": {
+      "main": [
+        [
+          {
+            "node": "Respond 200: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_YOUR_ERROR_HANDLER_ID",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

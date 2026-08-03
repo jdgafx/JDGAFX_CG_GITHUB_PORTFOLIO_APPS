@@ -1,0 +1,267 @@
+{
+  "name": "05a - Adapter: Digest Delivery",
+  "nodes": [
+    {
+      "id": "ca228a60-c630-40c9-aab7-666e4f300f72",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        -140
+      ],
+      "parameters": {
+        "content": "## 05a - Adapter: Digest Delivery\nCalled by **05 - KPI Watchdog** via Execute Workflow once a digest is generated.\n\n**Adapter pattern:** this sub-workflow is the single place a digest gets *delivered*. Today it writes to the `kpi_digests` Data Table (so the portfolio demo has zero external dependencies). To ship to a real channel, swap the **Deliver: Data Table** node below for a Slack node (`postMessage` to #kpi-alerts) or a Send Email node - the input shape (`run_timestamp`, `digest_text`, `anomaly_count`, `source_down_count`, `metrics_json`) does not change.\n\n**Test hook:** pass `force_crash: true` in the trigger input to prove this sub-workflow reaches `[CORE] Error Handler` independently of its parent - errors here should never depend on the parent also failing.",
+        "height": 340,
+        "width": 480,
+        "color": 4
+      }
+    },
+    {
+      "id": "1f96b4e2-320f-4f3f-9ff8-28a73a8fcbe8",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -420,
+        240
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "run_timestamp"
+            },
+            {
+              "name": "digest_text"
+            },
+            {
+              "name": "anomaly_count"
+            },
+            {
+              "name": "source_down_count"
+            },
+            {
+              "name": "metrics_json"
+            },
+            {
+              "name": "force_crash"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4bff9035-4e4c-428f-b691-4bed6c3b7777",
+      "name": "Force Crash Test?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -280,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.force_crash === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "de02b16f-056c-46c5-9577-56cf949056f3",
+      "name": "Throw Forced Failure (05a)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        120
+      ],
+      "parameters": {
+        "jsCode": "throw new Error('05a Adapter: forced failure test (force_crash input) - proving this sub-workflow errors independently of its parent and reaches [CORE] Error Handler on its own.');"
+      }
+    },
+    {
+      "id": "e6f502c6-f862-4663-9ca6-1e680b18bb7c",
+      "name": "Ensure Digest Table Exists",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -140,
+        240
+      ],
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "kpi_digests",
+        "columns": {
+          "column": [
+            {
+              "name": "run_timestamp",
+              "type": "string"
+            },
+            {
+              "name": "digest_text",
+              "type": "string"
+            },
+            {
+              "name": "anomaly_count",
+              "type": "number"
+            },
+            {
+              "name": "source_down_count",
+              "type": "number"
+            },
+            {
+              "name": "metrics_json",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      }
+    },
+    {
+      "id": "bf07b80a-076a-4c12-a0ca-819fc4ab9537",
+      "name": "Deliver: Data Table (swap for Slack/Email)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        120,
+        240
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "kpi_digests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_timestamp": "={{ $('Execute Workflow Trigger').first().json.run_timestamp }}",
+            "digest_text": "={{ $('Execute Workflow Trigger').first().json.digest_text }}",
+            "anomaly_count": "={{ $('Execute Workflow Trigger').first().json.anomaly_count }}",
+            "source_down_count": "={{ $('Execute Workflow Trigger').first().json.source_down_count }}",
+            "metrics_json": "={{ $('Execute Workflow Trigger').first().json.metrics_json }}"
+          },
+          "schema": [
+            {
+              "id": "run_timestamp",
+              "displayName": "run_timestamp",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "digest_text",
+              "displayName": "digest_text",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "anomaly_count",
+              "displayName": "anomaly_count",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_down_count",
+              "displayName": "source_down_count",
+              "type": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "metrics_json",
+              "displayName": "metrics_json",
+              "type": "string",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Force Crash Test?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Force Crash Test?": {
+      "main": [
+        [
+          {
+            "node": "Throw Forced Failure (05a)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ensure Digest Table Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Digest Table Exists": {
+      "main": [
+        [
+          {
+            "node": "Deliver: Data Table (swap for Slack/Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "GC3Q52TUB5QgXhAq"
+  }
+}
