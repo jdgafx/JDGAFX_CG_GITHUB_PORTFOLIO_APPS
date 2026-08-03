@@ -22,6 +22,9 @@ function jsonError(message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), { status, headers: jsonHeaders })
 }
 
+/** An error whose message is curated user-facing copy, safe to send to the client verbatim. */
+class ScenarioError extends Error {}
+
 /**
  * Pull the JSON payload out of a model response: drop any markdown fence (the closing fence is
  * missing when the output was truncated), then forward-scan from the first brace/bracket to its
@@ -74,7 +77,8 @@ export default async (req: Request): Promise<Response> => {
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    return jsonError('OPENROUTER_API_KEY not configured', 500)
+    console.error('OPENROUTER_API_KEY not configured')
+    return jsonError('The agent service is not configured yet. Please try again later.', 500)
   }
 
   let task: string
@@ -136,8 +140,15 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
     })
 
     if (!response.ok) {
-      const errText = await response.text()
-      throw new Error(`OpenRouter error: ${response.status} ${errText}`)
+      const errText = await response.text().catch(() => '')
+      console.error(`OpenRouter error ${response.status}: ${errText.slice(0, MAX_ERROR_DETAIL)}`)
+      throw new ScenarioError(
+        response.status === 402
+          ? 'The AI service is out of credits right now. Please try again later.'
+          : response.status === 429
+            ? 'The AI service is handling too many requests. Wait a moment and try again.'
+            : 'The AI service returned an error. Try again in a moment.',
+      )
     }
 
     const data = await response.json() as {
@@ -146,7 +157,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
     const content = data.choices?.[0]?.message?.content
 
     if (!content) {
-      throw new Error('The model returned an empty response')
+      throw new ScenarioError('The model returned an empty response. Try again.')
     }
 
     const jsonText = extractJson(content)
@@ -155,10 +166,10 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
       parsed = JSON.parse(jsonText)
     } catch {
       const truncated = data.choices?.[0]?.finish_reason === 'length'
-      throw new Error(
+      throw new ScenarioError(
         truncated
-          ? 'The model ran out of output tokens before finishing the scenario'
-          : 'The model did not return valid JSON',
+          ? 'The model ran out of room before finishing this scenario. Try a shorter task.'
+          : 'The model returned a response the agent could not read. Try again.',
       )
     }
 
@@ -168,7 +179,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
         ? (parsed as { steps?: unknown }).steps
         : undefined
     if (!Array.isArray(steps)) {
-      throw new Error('The model response contained no step list')
+      throw new ScenarioError('The model returned a scenario with no steps. Try again.')
     }
 
     return new Response(JSON.stringify({ steps }), { status: 200, headers: jsonHeaders })
@@ -179,8 +190,12 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
     if (names.includes('TimeoutError') || names.includes('AbortError')) {
       return jsonError('The model took too long to respond. Try again or pick a shorter task.', 504)
     }
-    const detail = (thrown?.message ?? String(err)).slice(0, MAX_ERROR_DETAIL)
-    return jsonError(`Failed to generate scenario: ${detail}`, 500)
+    if (err instanceof ScenarioError) {
+      return jsonError(err.message, 500)
+    }
+    // Anything else is internal — log it, never send it to the client.
+    console.error('scenario generation failed:', err)
+    return jsonError('Something went wrong while generating this scenario. Please try again.', 500)
   }
 }
 

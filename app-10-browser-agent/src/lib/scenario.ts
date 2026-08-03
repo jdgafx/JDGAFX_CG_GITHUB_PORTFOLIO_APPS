@@ -43,7 +43,8 @@ const LEADING_MARKER = /^\s*(?:[-*•]|\d+[.)])\s*/
 const DETAIL_SPLIT = /\s+[—–]\s+|\s+-\s+(?!\$?\s?\d)|\s*\|\s*/
 const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]?`
 // Unit rides each amount ("$85/hr - $120/hr"), not just the whole range; "to" is a valid separator.
-const UNIT = String.raw`(?:\s*\/\s*(?:yr|year|hr|hour|mo|month|wk|week))?`
+// Any short word can be a unit (night, person, seat, ...) — a whitelist just fails on the next one.
+const UNIT = String.raw`(?:\s*\/\s*[A-Za-z][A-Za-z.]{0,8})?`
 const MONEY = String.raw`\$\s?${AMOUNT}${UNIT}`
 const VALUE_TOKEN = new RegExp(`${MONEY}(?:\\s*(?:[-–—]|\\bto\\b)\\s*${MONEY})?|\\b\\d+(?:\\.\\d+)?%`, 'i')
 
@@ -79,10 +80,20 @@ export function parseResultRows(value: string): ResultRow[] {
     })
 }
 
+function lastStepValue(steps: BotStep[], action: StepAction): string | undefined {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]
+    if (step.action === action && step.value) return step.value
+  }
+  return undefined
+}
+
 /** The scenario's own extracted data — what the simulated page is meant to be showing. */
 export function scenarioResultRows(steps: BotStep[]): ResultRow[] {
-  const extracted = steps.find((s) => s.action === 'extract' && s.value)?.value
-  const verified = steps.find((s) => s.action === 'verify' && s.value)?.value
+  // The mock page renders the run's final state, so the LAST extract is the one it must
+  // agree with — early extracts belong to pages the agent already navigated away from.
+  const extracted = lastStepValue(steps, 'extract')
+  const verified = lastStepValue(steps, 'verify')
   const rows = parseResultRows(extracted ?? verified ?? '')
   // A single row is a legitimate outcome (e.g. a booking confirmation) — never
   // discard it, or the mock page ends a successful run on a loading skeleton.

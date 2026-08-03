@@ -11,24 +11,29 @@ const VALID_PAGE_CONTENT: PageContentType[] = [
 
 const MAX_ERROR_DETAIL = 300
 
-/** Pull the server's own explanation out of a failed response so the UI can show it. */
+const STATUS_COPY: Record<number, string> = {
+  429: 'The agent service is handling too many requests right now. Wait a moment and try again.',
+  502: 'The agent service is temporarily unavailable. Try again in a moment.',
+  503: 'The agent service is temporarily unavailable. Try again in a moment.',
+  504: 'The agent took too long to respond. Try again or pick a shorter task.',
+}
+
+/**
+ * User-facing message for a failed response. Only a JSON {error} body — our own function's
+ * curated copy — is ever shown; anything else (gateway HTML, raw upstream bodies) gets
+ * status-mapped friendly copy instead.
+ */
 async function errorMessage(response: Response): Promise<string> {
-  let detail = ''
   try {
-    const body = await response.text()
-    if (body) {
-      try {
-        const parsed = JSON.parse(body) as { error?: unknown }
-        detail = typeof parsed.error === 'string' ? parsed.error : body
-      } catch {
-        detail = body
-      }
+    const parsed = JSON.parse(await response.text()) as { error?: unknown }
+    if (typeof parsed.error === 'string' && parsed.error.trim()) {
+      return parsed.error.trim().slice(0, MAX_ERROR_DETAIL)
     }
   } catch {
-    // Body unreadable — the status code below is all we can report.
+    // Non-JSON or unreadable body — never surface it raw.
   }
-  detail = detail.trim().slice(0, MAX_ERROR_DETAIL)
-  return detail ? `${detail} (HTTP ${response.status})` : `Request failed with HTTP ${response.status}`
+  return STATUS_COPY[response.status]
+    ?? `The agent service returned an error (HTTP ${response.status}). Try again in a moment.`
 }
 
 function toStep(raw: unknown): BotStep | null {
@@ -52,11 +57,17 @@ function toStep(raw: unknown): BotStep | null {
 }
 
 export async function generateScenario(task: string): Promise<BotStep[]> {
-  const response = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task }),
-  })
+  let response: Response
+  try {
+    response = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task }),
+    })
+  } catch {
+    // Transport failure ("Failed to fetch") — offline, DNS, CORS. Never show it raw.
+    throw new Error('Could not reach the agent service. Check your connection and try again.')
+  }
 
   if (!response.ok) {
     throw new Error(await errorMessage(response))

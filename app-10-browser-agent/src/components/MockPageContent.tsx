@@ -237,6 +237,24 @@ export default function MockPageContent({ pageContent, currentAction, activeFiel
               typing={typingIn(field.key)}
             />
           ))}
+          {(fields.search !== undefined || activeField === 'search') && (
+            <InputBox
+              label="Details"
+              value={fields.search}
+              placeholder="Enter details"
+              active={activeField === 'search'}
+              typing={typingIn('search')}
+            />
+          )}
+          {(fields.date !== undefined || activeField === 'date') && (
+            <InputBox
+              label="Date & Time"
+              value={fields.date}
+              placeholder="Select date"
+              active={activeField === 'date'}
+              typing={typingIn('date')}
+            />
+          )}
           <div
             className={`rounded-lg px-4 py-2 text-center text-white text-sm font-semibold mt-2 ${
               currentAction === 'click' ? 'bg-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)]' : 'bg-teal-500'
@@ -245,6 +263,9 @@ export default function MockPageContent({ pageContent, currentAction, activeFiel
             Submit
           </div>
         </div>
+        {rows.length > 0 && (
+          <ResultRows rows={rows} highlight={currentAction === 'extract' || currentAction === 'verify'} />
+        )}
       </div>
     )
   }
