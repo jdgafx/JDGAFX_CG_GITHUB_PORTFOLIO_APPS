@@ -12,6 +12,8 @@ export interface StepEvent {
   step?: StepId
   content?: string
   truncated?: boolean
+  /** Server marks error content that is curated end-user copy. Unmarked error text is never rendered. */
+  friendly?: boolean
 }
 
 export interface PipelineCallbacks {
@@ -88,6 +90,7 @@ async function runStep(
   let truncated = false
   let completed = false
   let serverError = ''
+  let serverErrorFriendly = false
 
   const processLine = (line: string) => {
     if (!line.startsWith('data: ')) return
@@ -121,6 +124,7 @@ async function runStep(
         break
       case 'error':
         serverError = event.content ?? 'Unknown error'
+        serverErrorFriendly = event.friendly === true
         break
     }
   }
@@ -142,10 +146,16 @@ async function runStep(
     if (buffer.trim()) processLine(buffer)
   } catch (err) {
     void reader.cancel().catch(() => { })
-    throw err
+    if (isAbort(err)) throw err
+    console.error(`${step} stream failed:`, err)
+    throw new Error('Lost connection. Check your network and retry.')
   }
 
   if (serverError) {
+    if (!serverErrorFriendly) {
+      console.error(`${step} server error:`, serverError)
+      throw new Error('Something went wrong generating this step. Please retry.')
+    }
     throw new Error(serverError)
   }
 

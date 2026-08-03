@@ -13,6 +13,10 @@ const SITE_URL = process.env.URL || DEFAULT_SITE_URL
 
 const STEPS: StepId[] = ['research', 'outline', 'draft', 'edit', 'polish']
 
+// Marks an error whose message is already curated end-user copy; anything else
+// stays in the function log and reaches the client as a generic message.
+class UserFacingError extends Error {}
+
 const STEP_MAX_TOKENS: Record<StepId, number> = {
   research: 2048,
   outline: 2048,
@@ -132,7 +136,7 @@ async function streamStep(
       response.status === 402 ? 'The AI service is temporarily unavailable. Please try again later.'
       : response.status === 429 ? 'The AI service is busy right now. Please retry in a moment.'
       : 'The AI service returned an error. Please retry.'
-    throw new Error(friendly)
+    throw new UserFacingError(friendly)
   }
 
   const body = response.body
@@ -289,7 +293,17 @@ export default async (req: Request): Promise<Response> => {
         })
       } catch (err) {
         if (!upstream.signal.aborted) {
-          send({ type: 'error', step, content: `Step '${step}' failed: ${(err as Error).message}` })
+          if (err instanceof UserFacingError) {
+            send({ type: 'error', step, content: err.message, friendly: true })
+          } else {
+            console.error(`Step '${step}' failed:`, err)
+            send({
+              type: 'error',
+              step,
+              content: 'Something went wrong generating this step. Please retry.',
+              friendly: true,
+            })
+          }
         }
       } finally {
         req.signal.removeEventListener('abort', abortUpstream)
