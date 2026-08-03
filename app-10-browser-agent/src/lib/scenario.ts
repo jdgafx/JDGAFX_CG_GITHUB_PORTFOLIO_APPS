@@ -42,7 +42,10 @@ export function fieldValuesAt(steps: BotStep[], currentStepIndex: number, typedT
 const LEADING_MARKER = /^\s*(?:[-*•]|\d+[.)])\s*/
 const DETAIL_SPLIT = /\s+[—–]\s+|\s+-\s+(?!\$?\s?\d)|\s*\|\s*/
 const AMOUNT = String.raw`\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]?`
-const VALUE_TOKEN = new RegExp(`\\$\\s?${AMOUNT}(?:\\s*[-–—]\\s*\\$?\\s?${AMOUNT})?|\\b\\d+(?:\\.\\d+)?%`)
+const VALUE_TOKEN = new RegExp(
+  `\\$\\s?${AMOUNT}(?:\\s*[-–—]\\s*\\$?\\s?${AMOUNT})?(?:\\s*\\/\\s*(?:yr|year|hr|hour|mo|month|wk|week))?|\\b\\d+(?:\\.\\d+)?%`,
+  'i',
+)
 
 /**
  * Turn an extract/verify step's value into rows the mock page can render, so the simulated
@@ -76,7 +79,9 @@ export function scenarioResultRows(steps: BotStep[]): ResultRow[] {
   const extracted = steps.find((s) => s.action === 'extract' && s.value)?.value
   const verified = steps.find((s) => s.action === 'verify' && s.value)?.value
   const rows = parseResultRows(extracted ?? verified ?? '')
-  return rows.length >= 2 ? rows : []
+  // A single row is a legitimate outcome (e.g. a booking confirmation) — never
+  // discard it, or the mock page ends a successful run on a loading skeleton.
+  return rows
 }
 
 /** Per-character delay that keeps a typing animation inside the current step's time budget. */

@@ -62,8 +62,14 @@ function ResultRows({ rows, highlight }: { rows: ResultRow[]; highlight: boolean
           }`}
         >
           <div className="min-w-0">
-            <div className="text-sm font-medium text-white truncate">{row.title}</div>
-            {row.detail && <div className="text-xs text-slate-400 truncate">{row.detail}</div>}
+            <div className={`text-sm font-medium text-white ${rows.length === 1 ? 'break-words' : 'truncate'}`}>
+              {row.title}
+            </div>
+            {row.detail && (
+              <div className={`text-xs text-slate-400 ${rows.length === 1 ? 'break-words' : 'truncate'}`}>
+                {row.detail}
+              </div>
+            )}
           </div>
           {row.value && <div className="text-base font-bold text-white flex-shrink-0">{row.value}</div>}
         </motion.div>
