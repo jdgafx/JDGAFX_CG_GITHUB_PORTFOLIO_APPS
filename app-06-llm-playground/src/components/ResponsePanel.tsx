@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Clock, Hash, DollarSign, AlertTriangle, Trophy, Copy, Check } from 'lucide-react'
 import type { ModelConfig, ModelResult } from '../models'
 import { metricFallback, statusLabel } from '../models'
@@ -26,7 +27,7 @@ export function ResponsePanel({
       ? '#ef4444'
       : result.cancelled
         ? '#94a3b8'
-        : result.truncated
+        : result.truncated || result.capped
           ? '#f59e0b'
           : result.done
             ? '#22c55e'
@@ -132,6 +133,7 @@ export function ResponsePanel({
         {result.text ? (
           <div className={`text-sm text-slate-200 leading-relaxed markdown-body ${result.streaming ? 'streaming-cursor' : ''}`}>
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
                 h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 first:mt-0">{children}</h1>,
