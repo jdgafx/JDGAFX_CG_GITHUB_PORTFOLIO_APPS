@@ -1,17 +1,17 @@
-# AI Portfolio — 10 Production Apps
+# AI Portfolio — 10 AI Applications
 
 **[View the live portfolio →](https://jdgafx.github.io/JDGAFX_CG_GITHUB_PORTFOLIO_APPS/)**
 
 Ten independently deployed AI applications, each a standalone Vite project with its own
-Netlify site, serverless API layer, and CI/CD pipeline.
+Netlify site and serverless API layer. The frontends are live; provider-backed task flows
+require the configured production provider account to have available credit.
 
-**Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · Tailwind CSS v4 · Netlify Functions v2 · OpenRouter
+**Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · Tailwind CSS v4 · Netlify Functions v2 · OpenRouter Free Models Router (optional direct xAI fallback)
 
-All model traffic is routed through [OpenRouter](https://openrouter.ai), which serves both
-Anthropic Claude and Google Gemini models behind a single API. Apps 02–09 use Claude
-(Haiku, Sonnet, and Opus); apps 01 and 10 use Gemini Flash. Models are referenced through
-OpenRouter's auto-updating `latest` aliases so the apps do not break when a specific model
-version is retired.
+Model traffic uses OpenRouter's `openrouter/free` router by default, with bounded transport
+timeouts and structured/vision capability routing. If OpenRouter is unavailable, the server-only
+`XAI_API_KEY` path can use direct Grok models. The browser never receives either key, and the
+actual served model is surfaced where the provider reports it.
 
 ---
 
@@ -22,7 +22,7 @@ version is retired.
 
 Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer)
 with real-time SSE streaming. Visual pipeline showing agent status, token counts, and elapsed time.
-Runs on Gemini Flash.
+Runs on the configured OpenRouter free-model router, with direct xAI as an optional server-only fallback.
 
 ### 2. DocMind — RAG Document Intelligence
 **[Live Demo](https://jdgafx-app-02-rag-document-intelligence.netlify.app)** · `app-02-rag-document-intelligence/`
@@ -52,7 +52,7 @@ generates a query plan that is executed client-side and rendered as interactive 
 ### 6. ModelArena — Multi-Model LLM Playground
 **[Live Demo](https://jdgafx-app-06-llm-playground.netlify.app)** · `app-06-llm-playground/`
 
-Side-by-side model comparison across Claude Haiku, Sonnet, and Opus. Enter a prompt, select models,
+Side-by-side comparison across independent OpenRouter Free Router runs. Enter a prompt, select runs,
 and watch responses stream simultaneously with latency, token count, and cost metrics.
 
 ### 7. ContentForge — Agentic Content Pipeline
@@ -64,21 +64,23 @@ streaming with per-step progress tracking and expandable output for each stage.
 ### 8. VisionLab — Multimodal Vision AI
 **[Live Demo](https://jdgafx-app-08-vision-ai.netlify.app)** · `app-08-vision-ai/`
 
-Upload images for multimodal analysis on Claude Sonnet. Supports scene description, object and
+Upload images for multimodal analysis on a provider-backed vision-capable model. Supports scene description, object and
 composition breakdown, text extraction, and visual Q&A.
 
-### 9. InsightHub — SaaS Analytics Dashboard Demo
+### 9. InsightHub — SaaS Analytics Dashboard
 **[Live Demo](https://jdgafx-app-09-ai-saas.netlify.app)** · `app-09-ai-saas/`
 
-SaaS analytics dashboard demo with Supabase authentication and simulated usage data — API calls,
+SaaS analytics dashboard with Supabase authentication and seeded usage data — API calls,
 feature usage, error rates, and latency across a 30-day window rendered in interactive Recharts.
-The metrics are generated sample data; the AI insights are real and streamed live from the model.
+The dashboard dataset is explicitly seeded for the visitor experience; AI insights stream from the
+configured model provider when that backend is available.
 
-### 10. BrowseBot — Browser Agent Demo
+### 10. BrowseBot — Browser Task Planner
 **[Live Demo](https://jdgafx-app-10-browser-agent.netlify.app)** · `app-10-browser-agent/`
 
-Visual demonstration of AI browser automation. Animated browser chrome with cursor movement,
-click ripples, and typing animation, driven by a real-time agent thought process panel on Gemini Flash.
+AI-generated browser-task plans executed in a bounded Browserbase session against an explicit public-domain
+allowlist. The UI streams observed URLs, page titles, page text, step events, planner model provenance,
+session evidence, and recoverable time, step, budget, and cancellation boundaries.
 
 ---
 
@@ -146,6 +148,8 @@ per site for production.
 | Variable | Required by | Purpose |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | all 10 apps | Server-side key for OpenRouter model calls. Never exposed to the browser. |
+| `XAI_API_KEY` | all 10 apps | Optional server-only direct xAI fallback when OpenRouter is unavailable. Never exposed to the browser. |
+| `DEEPGRAM_API_KEY` | app-04 | Server-side Deepgram `nova-3` speech-to-text key. Never exposed to the browser. |
 | `VITE_SUPABASE_URL` | app-09 | Supabase project URL for dashboard authentication. |
 | `VITE_SUPABASE_ANON_KEY` | app-09 | Supabase anonymous key, safe for client-side use. |
 

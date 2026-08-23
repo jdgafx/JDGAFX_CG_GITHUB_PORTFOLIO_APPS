@@ -589,8 +589,21 @@
     /* ---- RESPONSIVE ---- */
     @media (max-width: 600px) {
       .hero-meta { flex-wrap: wrap; gap: 24px; }
-      .nav-links { gap: 16px; }
+      nav .container { gap: 16px; }
+      .nav-brand { font-size: 20px; letter-spacing: 2px; }
+      .nav-brand span { display: none; }
+      .nav-links { gap: 12px; }
       .tech-bar { gap: 16px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .app-card { opacity: 1; transform: none; }
     }
   </style>
 </head>
@@ -616,10 +629,9 @@
         <p class="hero-role">Generative AI <span class="dot">&bull;</span> Hyperagentic Engineer</p>
         <h1>I build <em>AI agents</em> that actually ship</h1>
         <p class="hero-sub">
-          10 production apps built with Claude Code, running on Claude and Gemini
-          models via OpenRouter &mdash; multi-agent orchestration, RAG pipelines,
-          voice AI, computer vision, and real-time streaming. Hyperagentic
-          development where AI agents don't just assist, they execute.
+          10 independently deployed AI products built with Claude Code and OpenRouter Free
+          routing &mdash; multi-agent orchestration, RAG pipelines, voice AI, computer vision,
+          and real-time streaming. Each product names its actual provider and its real boundary.
         </p>
         <div class="hero-meta">
           <div class="hero-meta-item">
@@ -627,8 +639,8 @@
             <span class="hero-meta-label">Live Apps</span>
           </div>
           <div class="hero-meta-item">
-            <span class="hero-meta-value">Claude</span>
-            <span class="hero-meta-label">&amp; Gemini via OpenRouter</span>
+            <span class="hero-meta-value">Free Router</span>
+            <span class="hero-meta-label">OpenRouter primary</span>
           </div>
           <div class="hero-meta-item">
             <span class="hero-meta-value">Agentic</span>
@@ -668,9 +680,8 @@
         <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.2rem; line-height: 1.8; margin-bottom: 20px">
           I'm Chris Gentile &mdash; a generative AI and hyperagentic engineer who ships production systems,
           not prototypes. I build with <strong style="color: var(--text)">Claude Code</strong> and
-          <strong style="color: var(--text)">OpenRouter</strong>, running the latest Claude models
-          (Haiku, Sonnet, Opus) alongside Google Gemini Flash to create multi-agent systems
-          that reason, collaborate, and deliver results autonomously.
+          <strong style="color: var(--text)">OpenRouter Free</strong>, with actual served model
+          provenance exposed in each product instead of implying a brand that did not serve the request.
         </p>
         <p style="font-family: var(--sans); color: var(--text-dim); font-size: 1.2rem; line-height: 1.8; margin-bottom: 20px">
           My stack: React 19, TypeScript 5, Vite 6, Tailwind v4, Netlify Functions,
@@ -816,15 +827,15 @@
               <h3 class="app-name">VoxAI</h3>
               <p class="app-subtitle">Voice AI Assistant</p>
               <p class="app-desc">
-                Hit the mic button and just talk. Your voice gets transcribed on the fly,
-                the AI thinks through a response, and reads it back out loud. No microphone?
-                The text box works just as well.
+                Type a message or request microphone access. A permitted recording uses Deepgram
+                transcription, then OpenRouter chat and browser speech synthesis; typed chat is the
+                guaranteed fallback, and blocked permissions are shown honestly.
               </p>
             </div>
             <div class="app-card-footer">
               <div class="app-tech">
                 <span>Web Audio</span>
-                <span>Whisper</span>
+                <span>Deepgram</span>
                 <span>TTS</span>
               </div>
               <div class="app-arrow">
@@ -878,9 +889,9 @@
               <h3 class="app-name">ModelArena</h3>
               <p class="app-subtitle">Multi-Model LLM Playground</p>
               <p class="app-desc">
-                Pick two or three Claude models, type a prompt, and watch them race. Responses
-                stream in side-by-side so you can compare quality, speed, and cost in real time.
-                The app picks a winner when they finish.
+                Pick two or three OpenRouter Free runs, type a prompt, and watch them race. Responses
+                stream in side-by-side with actual served-model, latency, token, cost, and user-selected
+                token-limit state visible for an honest comparison.
               </p>
             </div>
             <div class="app-card-footer">
@@ -940,9 +951,9 @@
               <h3 class="app-name">VisionLab</h3>
               <p class="app-subtitle">Multimodal Vision AI</p>
               <p class="app-desc">
-                Upload a photo and pick what you want to know. It can describe the whole scene,
-                break down objects and composition, pull out visible text, or answer specific
-                questions about what's in the image.
+                Upload a photo and pick what you want to know. A vision-capable OpenRouter route can
+                describe the scene, break down objects and composition, extract visible text, or answer
+                a visual question while the returned model and validation state remain visible.
               </p>
             </div>
             <div class="app-card-footer">
@@ -971,9 +982,9 @@
               <h3 class="app-name">InsightHub</h3>
               <p class="app-subtitle">AI-Powered SaaS Dashboard</p>
               <p class="app-desc">
-                A SaaS analytics dashboard demo with real Supabase sign-in. It charts 30 days of
-                simulated usage &mdash; API calls, feature adoption, error rates, latency &mdash;
-                and the AI reads those numbers live and tells you what's happening.
+                A SaaS analytics dashboard with Supabase sign-in when that service is reachable. Its
+                explicitly seeded visitor dataset charts API calls, feature adoption, errors, and latency;
+                OpenRouter streams a validated insight over those visible metrics.
               </p>
             </div>
             <div class="app-card-footer">
@@ -1000,11 +1011,11 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="M3 9h18"/><circle cx="7" cy="6" r="0.5" fill="currentColor"/><circle cx="10" cy="6" r="0.5" fill="currentColor"/></svg>
               </div>
               <h3 class="app-name">BrowseBot</h3>
-              <p class="app-subtitle">Browser Agent Demo</p>
+              <p class="app-subtitle">Browser Task Planner</p>
               <p class="app-desc">
-                Describe a web task and watch an autonomous browser agent work through it step
-                by step. You'll see the cursor move, buttons get clicked, text get typed, and
-                a running log of what the agent is thinking at each point.
+                Describe a web task and watch a bounded Browserbase session execute the approved plan
+                against an explicit public-domain allowlist. The UI streams observed URLs, page titles,
+                page text, step events, model provenance, and recoverable execution limits.
               </p>
             </div>
             <div class="app-card-footer">
