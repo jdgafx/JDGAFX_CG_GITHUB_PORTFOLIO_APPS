@@ -89,7 +89,7 @@ export default function MetricCard({
           {trendLabel}
         </span>
       </div>
-      <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>{label}</p>
+      <p style={{ fontSize: '13px', color: '#a5b4fc', marginBottom: '6px' }}>{label}</p>
       <p style={{ fontSize: '28px', fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.5px' }}>
         {value}
       </p>

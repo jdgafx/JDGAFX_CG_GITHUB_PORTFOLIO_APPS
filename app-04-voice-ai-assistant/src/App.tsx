@@ -17,6 +17,7 @@ import {
 import { cancelSpeech, speak, type SpeakHandle } from './lib/speech'
 import { isLikelySilence } from './lib/transcript'
 import { drawActiveWaveform, drawIdleWaveform } from './lib/waveform'
+import { startBrowserTranscript, type BrowserTranscriptHandle } from './lib/browser-transcript'
 
 type AppState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking'
 
@@ -58,6 +59,7 @@ export default function App() {
   const speakRef = useRef<SpeakHandle | null>(null)
   const stopTimerRef = useRef<number | null>(null)
   const countdownRef = useRef<number | null>(null)
+  const browserTranscriptRef = useRef<BrowserTranscriptHandle | null>(null)
 
   // Keep messagesRef in sync so recorder.onstop always has current messages
   useEffect(() => {
@@ -193,8 +195,11 @@ export default function App() {
           .slice(0, -1)
           .map(({ role, content }) => ({ role, content }))
         const response = await chat(text, historyToSend, controller.signal)
-        setMessages(prev => [...prev, newMessage('assistant', response)])
-        speakResponse(response)
+        const assistant = newMessage('assistant', response.text)
+        assistant.servedProvider = response.provider
+        assistant.servedModel = response.model
+        setMessages(prev => [...prev, assistant])
+        speakResponse(response.text)
       } catch (err) {
         if (isAbort(err)) {
           setAppState('idle')
@@ -216,6 +221,7 @@ export default function App() {
       abortRef.current = controller
 
       let text = ''
+      let usedBrowserFallback = false
       try {
         text = await transcribe(blob, controller.signal)
       } catch (err) {
@@ -223,11 +229,20 @@ export default function App() {
           setAppState('idle')
           return
         }
-        setError(err instanceof Error ? err.message : 'Transcription failed. Try again.')
-        setAppState('idle')
-        return
+        text = browserTranscriptRef.current?.getText() ?? ''
+        usedBrowserFallback = Boolean(text.trim())
+        if (!usedBrowserFallback) {
+          setError(err instanceof Error ? err.message : 'Transcription failed. Try again.')
+          setAppState('idle')
+          return
+        }
       } finally {
         abortRef.current = null
+      }
+
+      browserTranscriptRef.current = null
+      if (usedBrowserFallback) {
+        setError('Deepgram was unavailable; browser speech recognition supplied this transcript.')
       }
 
       if (!text.trim() || isLikelySilence(text)) {
@@ -267,6 +282,7 @@ export default function App() {
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     streamRef.current = stream
+    browserTranscriptRef.current = startBrowserTranscript()
 
     try {
       const audioContext = createAudioContext()
@@ -292,6 +308,7 @@ export default function App() {
       // Teardown lives here so the final dataavailable chunk is captured before
       // the stream and the audio graph are released.
       recorder.onstop = () => {
+        browserTranscriptRef.current?.stop()
         const type = recorder.mimeType || mimeType || 'audio/webm'
         const blob = new Blob(chunksRef.current, { type })
         chunksRef.current = []

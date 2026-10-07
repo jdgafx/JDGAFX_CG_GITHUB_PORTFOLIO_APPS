@@ -19,6 +19,7 @@ export interface AgentState {
   error?: string
   startTime?: number
   endTime?: number
+  servedModel?: string
 }
 
 export interface ResearchSession {
@@ -33,7 +34,7 @@ export interface ResearchSession {
 }
 
 export interface StreamEvent {
-  type: 'agent_start' | 'agent_chunk' | 'agent_complete' | 'agent_error' | 'session_complete'
+  type: 'agent_start' | 'agent_chunk' | 'agent_complete' | 'agent_error' | 'session_complete' | 'provider_started'
   agent: AgentRole | 'system'
   content?: string
   tokens?: number
@@ -41,4 +42,7 @@ export interface StreamEvent {
   finish?: string | null
   maxTokens?: number
   error?: string
+  provider?: string
+  model?: string
+  servedModel?: string
 }

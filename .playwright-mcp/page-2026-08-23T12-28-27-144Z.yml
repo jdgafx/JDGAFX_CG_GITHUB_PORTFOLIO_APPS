@@ -1,0 +1,28 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - img "ContentForge logo" [ref=e8]
+      - heading "ContentForge" [level=1] [ref=e14]
+      - paragraph [ref=e15]: Agentic Content Pipeline
+  - paragraph [ref=e17]: Give it a topic and a format — blog post, newsletter, whatever — and watch five stages of AI writing happen live. It researches, outlines, drafts, edits, and polishes, streaming every word so you can see exactly how the piece comes together.
+  - main [ref=e18]:
+    - generic [ref=e19]:
+      - textbox "Topic" [ref=e20]:
+        - /placeholder: Enter a topic... e.g. 'The Future of AI in Healthcare'
+      - combobox "Content type" [ref=e21]:
+        - option "Blog Post" [selected]
+        - option "Technical Article"
+        - option "Marketing Copy"
+        - option "Newsletter"
+        - option "Social Thread"
+      - button "Generate" [disabled] [ref=e22]
+    - generic [ref=e25]:
+      - 'generic "Research: not started yet" [ref=e27]': Research
+      - 'generic "Outline: not started yet" [ref=e35]': Outline
+      - 'generic "Draft: not started yet" [ref=e43]': Draft
+      - 'generic "Edit: not started yet" [ref=e53]': Edit
+      - 'generic "Polish: not started yet" [ref=e61]': Polish
+    - generic [ref=e66]:
+      - heading "Ready to create" [level=2] [ref=e70]
+      - paragraph [ref=e71]: Enter a topic above and ContentForge will research, outline, draft, edit, and polish your content through a 5-step AI pipeline.
+  - contentinfo [ref=e72]: Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI

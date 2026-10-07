@@ -1,17 +1,27 @@
 export const config = { path: '/api/ai' }
+import { generationOptions, getProvider } from '../shared/provider'
 
-// Map frontend Anthropic model IDs to OpenRouter model IDs
+// Map the truthful xAI model IDs to the legacy OpenRouter fallback IDs.
 const MODEL_MAP: Record<string, string> = {
+  'free-router-a': 'openrouter/free',
+  'free-router-b': 'openrouter/free',
+  'free-router-c': 'openrouter/free',
+  'grok-4.6': '~anthropic/claude-haiku-latest',
+  'grok-4.5': '~anthropic/claude-sonnet-latest',
+  'grok-4.3': '~anthropic/claude-opus-latest',
   'claude-haiku-4.5': '~anthropic/claude-haiku-latest',
   'claude-sonnet-4.6': '~anthropic/claude-sonnet-latest',
   'claude-opus': '~anthropic/claude-opus-latest',
-  'claude-sonnet-4': '~anthropic/claude-sonnet-latest',
   'claude-3-5-haiku-20241022': '~anthropic/claude-haiku-latest',
   'claude-sonnet-4-20250514': '~anthropic/claude-sonnet-latest',
   'claude-3-5-sonnet-20241022': '~anthropic/claude-sonnet-latest',
 }
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const OPENROUTER_FREE_MODELS: Record<string, string> = {
+  'free-router-a': 'openrouter/free',
+  'free-router-b': 'nvidia/nemotron-3-nano-30b-a3b:free',
+  'free-router-c': 'nvidia/nemotron-3-super-120b-a12b:free',
+}
 
 // Netlify caps a synchronous function invocation at ~30s; stop a beat early so
 // we can still emit a terminal `done` chunk instead of the socket dying silently.
@@ -167,11 +177,6 @@ export default async (req: Request): Promise<Response> => {
     return new Response('Too many requests -- please slow down', { status: 429, headers })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    return new Response('OPENROUTER_API_KEY not configured', { status: 500, headers })
-  }
-
   let parsedBody: unknown
   try {
     parsedBody = await req.json()
@@ -185,6 +190,12 @@ export default async (req: Request): Promise<Response> => {
   }
 
   const orModel = MODEL_MAP[valid.model]
+  const xaiModel = valid.model === 'free-router-a' ? 'grok-4.6' : valid.model === 'free-router-b' ? 'grok-4.5' : valid.model === 'free-router-c' ? 'grok-4.3' : valid.model
+  const baseProvider = getProvider(orModel, xaiModel)
+  const provider = baseProvider?.name === 'OpenRouter'
+    ? { ...baseProvider, model: OPENROUTER_FREE_MODELS[valid.model] ?? baseProvider.model }
+    : baseProvider
+  if (!provider) return new Response('No server-side AI provider configured', { status: 500, headers })
   const startTime = Date.now()
   const openRouterMessages = valid.system
     ? [{ role: 'system', content: valid.system }, ...valid.messages]
@@ -209,21 +220,22 @@ export default async (req: Request): Promise<Response> => {
       }
 
       try {
-        const response = await fetch(OPENROUTER_URL, {
+        const response = await fetch(provider.url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${provider.apiKey}`,
             'Content-Type': 'application/json',
           },
           // The latest-alias models can resolve to reasoning models, whose reasoning tokens eat the
           // completion budget and truncate the response mid-stream. Disable reasoning and keep headroom.
           body: JSON.stringify({
-            model: orModel,
+            model: provider.model,
             messages: openRouterMessages,
-            max_tokens: valid.maxTokens,
+            ...generationOptions(provider, valid.maxTokens, true, true),
             temperature: valid.temperature,
             stream: true,
-            usage: { include: true },
+            stream_options: { include_usage: true },
+            provider: { require_parameters: true },
             reasoning: { enabled: false },
           }),
           signal: upstream.signal,

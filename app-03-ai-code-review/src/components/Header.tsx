@@ -66,7 +66,7 @@ export function Header({ counts, filters, hasResults, onToggleFilter }: HeaderPr
             >
               CodeLens<span style={{ color: '#ffa500' }}> AI</span>
             </h1>
-            <p style={{ margin: 0, fontSize: '12px', color: '#4b5563', lineHeight: 1.3 }}>
+            <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', lineHeight: 1.3 }}>
               AI-Powered Code Review Agent
             </p>
           </div>

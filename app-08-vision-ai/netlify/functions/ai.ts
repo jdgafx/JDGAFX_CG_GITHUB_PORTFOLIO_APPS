@@ -1,3 +1,5 @@
+import { generationOptions, getProvider } from '../shared/provider'
+
 export const config = { path: '/api/ai' }
 
 const ANALYSIS_MODES = ['describe', 'analyze', 'qa', 'extract'] as const
@@ -23,6 +25,7 @@ const MAX_BODY_BYTES = 6 * 1024 * 1024
 
 const MAX_TOKENS_DEFAULT = 4096
 const MAX_TOKENS_EXTRACT = 8192
+const EMPTY_VISION_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash-vision-exp'
 
 // Netlify's function wall is ~30s. Stop streaming early and report truncation
 // rather than letting the platform kill the response mid-flight.
@@ -128,9 +131,9 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonError('Image is too large. Please use an image under 4MB.', 413, origin)
   }
 
-  const apiKey = process.env['OPENROUTER_API_KEY']
-  if (!apiKey) {
-    console.error('OPENROUTER_API_KEY is not configured')
+  const provider = getProvider('~anthropic/claude-sonnet-latest')
+  if (!provider) {
+    console.error('No server-side AI provider is configured')
     return jsonError('Vision service is not configured.', 500, origin)
   }
 
@@ -185,16 +188,16 @@ export default async function handler(req: Request): Promise<Response> {
 
   let upstream: Response
   try {
-    upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    upstream = await fetch(provider.url, {
       method: 'POST',
       signal: upstreamAbort.signal,
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: '~anthropic/claude-sonnet-latest',
-        max_tokens: maxTokens,
+        model: provider.model,
+        ...generationOptions(provider, maxTokens, true),
         stream: true,
         messages: [
           { role: 'system', content: systemPrompts[mode] },
@@ -231,15 +234,23 @@ export default async function handler(req: Request): Promise<Response> {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder()
-      const reader = upstreamBody.getReader()
+      let reader = upstreamBody.getReader()
       const decoder = new TextDecoder()
       const deadline = Date.now() + STREAM_BUDGET_MS
       let truncated = false
       let buffer = ''
+      let hasContent = false
+      let usedEmptyFallback = false
+      let modelKnown = false
+      let unsuitableModel = false
+      let pendingText: string[] = []
 
       const send = (payload: Record<string, string | boolean>) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
+      let servedModel = provider.model
+      send({ stage: 'accepted' })
+      send({ stage: 'provider', served_provider: provider.name, served_model: provider.model })
 
       try {
         for (;;) {
@@ -265,7 +276,54 @@ export default async function handler(req: Request): Promise<Response> {
             truncated = true
             break
           }
-          if (chunk.done) break
+          if (chunk.done) {
+            if (!unsuitableModel && pendingText.length > 0) {
+              for (const text of pendingText) {
+                send({ stage: 'streaming' })
+                send({ text })
+              }
+              pendingText = []
+            }
+            if ((!hasContent || unsuitableModel) && !usedEmptyFallback && provider.name === 'OpenRouter' && provider.model === 'openrouter/free') {
+              const fallbackProvider = { ...provider, model: EMPTY_VISION_FALLBACK_MODEL }
+              const fallback = await fetch(fallbackProvider.url, {
+                method: 'POST',
+                signal: upstreamAbort.signal,
+                headers: {
+                  Authorization: `Bearer ${fallbackProvider.apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: fallbackProvider.model,
+                  ...generationOptions(fallbackProvider, maxTokens, true),
+                  stream: true,
+                  messages: [
+                    { role: 'system', content: systemPrompts[mode] },
+                    {
+                      role: 'user',
+                      content: [
+                        { type: 'image_url', image_url: { url: imageUrl } },
+                        { type: 'text', text: userText },
+                      ],
+                    },
+                  ],
+                }),
+              })
+              if (fallback.ok && fallback.body) {
+                usedEmptyFallback = true
+                reader = fallback.body.getReader()
+                buffer = ''
+                servedModel = fallbackProvider.model
+                hasContent = false
+                modelKnown = false
+                unsuitableModel = false
+                pendingText = []
+                send({ stage: 'provider', served_provider: fallbackProvider.name, served_model: fallbackProvider.model })
+                continue
+              }
+            }
+            break
+          }
 
           buffer += decoder.decode(chunk.value, { stream: true })
           const lines = buffer.split('\n')
@@ -279,9 +337,29 @@ export default async function handler(req: Request): Promise<Response> {
 
             try {
               const parsed = JSON.parse(data)
+              if (typeof parsed.model === 'string') {
+                servedModel = parsed.model
+                modelKnown = true
+                unsuitableModel = parsed.model.includes('content-safety')
+                if (!unsuitableModel) {
+                  for (const text of pendingText) {
+                    send({ stage: 'streaming' })
+                    send({ text })
+                  }
+                  pendingText = []
+                }
+              }
               const choice = parsed.choices?.[0]
               const delta = choice?.delta?.content
-              if (delta) send({ text: delta })
+              if (delta) {
+                hasContent = true
+                if (modelKnown && !unsuitableModel) {
+                  send({ stage: 'streaming' })
+                  send({ text: delta })
+                } else {
+                  pendingText.push(delta)
+                }
+              }
               if (choice?.finish_reason === 'length') truncated = true
             } catch (err) {
               console.error('Failed to parse upstream SSE payload:', data.slice(0, 200), err)
@@ -289,7 +367,21 @@ export default async function handler(req: Request): Promise<Response> {
           }
         }
 
-        if (truncated) send({ truncated: true })
+        // A watchdog, provider length stop, unsuitable model, or empty stream
+        // is a recoverable failure. Never turn partial/empty output into a
+        // validated result that the client can store in its gallery.
+        if (truncated || !hasContent || unsuitableModel) {
+          send({
+            error: truncated
+              ? 'The vision service stopped before the analysis finished. Please retry with the same image.'
+              : 'The vision service returned no usable analysis. Please retry with the same image.',
+            friendly: true,
+            recoverable: true,
+            truncated,
+          })
+        } else {
+          send({ stage: 'complete', served_provider: provider.name, served_model: servedModel })
+        }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } catch (err) {
         console.error('Streaming failed:', err)

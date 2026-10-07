@@ -88,7 +88,7 @@ export default function DropZone({
         )}
 
         <p className="text-center text-gray-700 text-xs mt-4">
-          Powered by Claude Vision · Describe, analyze, extract, and query images with AI · Paste
+          Powered by a real provider-backed vision model · Describe, analyze, extract, and query images with AI · Paste
           from clipboard supported
         </p>
       </motion.div>

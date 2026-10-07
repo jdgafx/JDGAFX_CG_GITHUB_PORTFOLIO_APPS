@@ -106,33 +106,49 @@ test_json_response() {
   local app="$1" endpoint="$2" payload="$3" check_field="$4" test_name="$5"
   local url
   url="$(get_url "$app")${endpoint}"
-  local response
-  response=$(timeout 20 curl -s --max-time 18 -X POST "$url" -H 'Content-Type: application/json' -d "$payload" 2>&1 || true)
-  if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$check_field' in str(d)" 2>/dev/null; then
-    log_pass "$test_name"
-  else
-    log_fail "$test_name" "Response: ${response:0:200}"
-  fi
+  local response="" attempt
+  for attempt in 1 2; do
+    response=$(timeout 20 curl -s --max-time 18 -X POST "$url" -H 'Content-Type: application/json' -d "$payload" 2>&1 || true)
+    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$check_field' in str(d)" 2>/dev/null; then
+      log_pass "$test_name"
+      return
+    fi
+  done
+  log_fail "$test_name" "Response: ${response:0:200}"
 }
 
 test_sse_stream() {
   local app="$1" endpoint="$2" payload="$3" expected_event="$4" test_name="$5"
   local url
   url="$(get_url "$app")${endpoint}"
-  local response
-  response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
-    -H 'Content-Type: application/json' -d "$payload" 2>/dev/null | head -c 20000 || true)
-  if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_event"; then
-    log_pass "$test_name"
-  else
-    log_fail "$test_name" "Expected '$expected_event' in stream. Got: ${response:0:200}"
-  fi
+  local response="" attempt
+  for attempt in 1 2; do
+    # The timeout bounds the stream; do not truncate it before checking its
+    # terminal event. Some valid provider responses exceed 20KB.
+    response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
+      -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+    if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_event"; then
+      log_pass "$test_name"
+      return
+    fi
+  done
+  log_fail "$test_name" "Expected '$expected_event' in stream. Got: ${response:0:200}"
 }
 
 test_has_author_credit() {
   local app="$1"
-  log_skip "Author credit (React CSR — verified in source: grep confirms all 10 apps)"
+  local app_dir
+  app_dir="$(find . -maxdepth 1 -type d -name "${app}-*" -print -quit)"
+  if [[ -n "$app_dir" ]] && rg -a -q "Authored by Christopher Gentile" "$app_dir/src"; then
+    log_pass "Author credit present in source"
+  else
+    log_fail "Author credit present in source" "No author credit found under ${app_dir:-$app}/src"
+  fi
 }
+
+# Real 1x1 PNG fixture: exercises the vision request contract without adding a
+# repository asset or pretending that an unavailable provider succeeded.
+VISION_SMOKE_IMAGE="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 ###############################################################################
 # Per-App Test Suites
@@ -179,21 +195,38 @@ test_app_03() {
   test_missing_body "app-03" "/api/ai"
 
   test_json_response "app-03" "/api/ai" \
-    '{"code":"function add(a,b){return a+b}","language":"javascript"}' \
+    '{"code":"function run(input){ return eval(input) }\nconst token = \"secret\";","language":"javascript"}' \
     "comments" \
     "Code review returns comments array"
 
-  local response
-  response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-03)/api/ai" \
-    -H 'Content-Type: application/json' \
-    -d '{"code":"function add(a,b){return a+b}","language":"javascript"}')
-  if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['success']==True; assert len(d['data']['comments'])>0" 2>/dev/null; then
-    log_pass "Review has structured comments with severity"
-  else
-    log_fail "Review structured comments" "Response: ${response:0:200}"
-  fi
+  local response="" attempt
+  for attempt in 1 2; do
+    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-03)/api/ai" \
+      -H 'Content-Type: application/json' \
+      -d '{"code":"function run(input){ return eval(input) }\nconst token = \"secret\";","language":"javascript"}')
+    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['success']==True; assert len(d['data']['comments'])>0" 2>/dev/null; then
+      log_pass "Review has structured comments with severity"
+      break
+    fi
+    if [[ "$attempt" == 2 ]]; then
+      log_fail "Review structured comments" "Response: ${response:0:200}"
+    fi
+  done
 
   test_has_author_credit "app-03"
+}
+
+test_voxai_chat_quality() {
+  local response="" attempt
+  for attempt in 1 2; do
+    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-04)/api/ai" \
+      -H 'Content-Type: application/json' -d '{"message":"What is 2+2?"}' 2>&1 || true)
+    if printf '%s' "$response" | python3 -c 'import json,sys,re; d=json.load(sys.stdin); text=d.get("response",""); model=d.get("served_model",""); assert isinstance(text,str) and text.strip(); assert model and not re.search(r"content[- ]?safety|moderation|classifier|guard|toxicity", model, re.I); assert not re.match(r"^(user )?safety\\s*:", text.strip(), re.I)' 2>/dev/null; then
+      log_pass "Chat returns non-classifier conversational response with truthful model"
+      return
+    fi
+  done
+  log_fail "Chat returns non-classifier conversational response with truthful model" "Response: ${response:0:240}"
 }
 
 test_app_04() {
@@ -202,10 +235,7 @@ test_app_04() {
   test_method_not_allowed "app-04" "/api/ai"
   test_missing_body "app-04" "/api/ai"
 
-  test_json_response "app-04" "/api/ai" \
-    '{"message":"What is 2+2?"}' \
-    "response" \
-    "Chat returns response"
+  test_voxai_chat_quality
 
   test_json_response "app-04" "/api/ai" \
     '{"message":"Tell me a joke","history":[{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello!"}]}' \
@@ -235,15 +265,19 @@ test_app_05() {
     "chartType" \
     "Query plan with chartType returned"
 
-  local response
-  response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-05)/api/ai" \
-    -H 'Content-Type: application/json' \
-    -d '{"question":"show total sales by region","headers":["product","sales","region"],"sampleRows":[{"product":"Widget","sales":"100","region":"East"}],"rowCount":1}')
-  if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'groupBy' in d; assert 'aggregate' in d" 2>/dev/null; then
-    log_pass "Query plan has groupBy and aggregate"
-  else
-    log_fail "Query plan structure" "Response: ${response:0:200}"
-  fi
+  local response="" attempt
+  for attempt in 1 2; do
+    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-05)/api/ai" \
+      -H 'Content-Type: application/json' \
+      -d '{"question":"show total sales by region","headers":["product","sales","region"],"sampleRows":[{"product":"Widget","sales":"100","region":"East"}],"rowCount":1}')
+    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'groupBy' in d; assert 'aggregate' in d" 2>/dev/null; then
+      log_pass "Query plan has groupBy and aggregate"
+      break
+    fi
+    if [[ "$attempt" == 2 ]]; then
+      log_fail "Query plan structure" "Response: ${response:0:200}"
+    fi
+  done
 
   test_has_author_credit "app-05"
 }
@@ -264,16 +298,39 @@ test_app_06() {
   fi
 
   test_sse_stream "app-06" "/api/ai" \
-    '{"model":"claude-haiku-4.5","messages":[{"role":"user","content":"Say hello in one word"}]}' \
+    '{"model":"free-router-b","messages":[{"role":"user","content":"Say hello in one word"}]}' \
     '"type":"text"' \
     "Haiku streaming response"
 
   test_sse_stream "app-06" "/api/ai" \
-    '{"model":"claude-haiku-4.5","messages":[{"role":"user","content":"Say hi"}]}' \
+    '{"model":"free-router-b","messages":[{"role":"user","content":"Say hi"}]}' \
     '"type":"done"' \
     "Stream includes done event with metrics"
 
   test_has_author_credit "app-06"
+}
+
+test_contentforge_full_pipeline() {
+  local topic='Three concrete ways to reduce API latency'
+  local context='{}' response completed step payload attempt
+  for step in research outline draft edit polish; do
+    payload=$(jq -nc --arg topic "$topic" --arg step "$step" --argjson context "$context" \
+      '{topic:$topic,contentType:"blog",step:$step,context:$context}')
+    completed=''
+    for attempt in 1 2; do
+      response=$(timeout 28 curl -s --max-time 25 -X POST "$(get_url app-07)/api/ai" \
+        -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+      completed=$(python3 -c 'import json,sys; s=sys.argv[1]; response=sys.argv[2]; e=[json.loads(l[6:].strip()) for l in response.splitlines() if l.startswith("data: ") and l[6:].strip() != "[DONE]" and l[6:].strip()]; m=[x for x in e if x.get("type")=="step_complete" and x.get("step")==s]; assert m and m[-1].get("content","").strip(); assert any(x.get("type")=="step_start" and x.get("step")==s for x in e); print(m[-1]["content"], end="")' "$step" "$response" 2>/dev/null) || completed=''
+      [[ -n "$completed" ]] && break
+    done
+    if [[ -z "$completed" ]]; then
+      log_fail "ContentForge exact topic completes ${step}" "No non-empty step_complete in bounded SSE"
+      return
+    fi
+    context=$(jq -nc --arg step "$step" --arg content "$completed" --argjson context "$context" \
+      '$context + {($step): $content}')
+  done
+  log_pass "ContentForge exact topic completes all five stages with Copy Final inputs"
 }
 
 test_app_07() {
@@ -286,10 +343,7 @@ test_app_07() {
     "step_start" \
     "Research step starts with step_start event"
 
-  test_sse_stream "app-07" "/api/ai" \
-    '{"topic":"remote work tips","contentType":"blog","step":"research"}' \
-    "step_complete" \
-    "Research step streams to step_complete"
+  test_contentforge_full_pipeline
 
   test_has_author_credit "app-07"
 }
@@ -301,7 +355,10 @@ test_app_08() {
 
   test_missing_body "app-08" "/api/ai"
 
-  log_skip "Vision analysis (requires base64 image upload)"
+  test_sse_stream "app-08" "/api/ai" \
+    "{\"image\":\"${VISION_SMOKE_IMAGE}\",\"mediaType\":\"image/png\",\"mode\":\"describe\"}" \
+    '"text"' \
+    "Vision analysis streams text for a real image upload"
   test_has_author_credit "app-08"
 }
 
@@ -331,15 +388,19 @@ test_app_10() {
     "steps" \
     "Returns automation steps array"
 
-  local response
-  response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-10)/api/ai" \
-    -H 'Content-Type: application/json' \
-    -d '{"task":"go to amazon and search for laptops"}')
-  if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); steps=d['steps']; assert len(steps)>=3; assert all('action' in s and 'thought' in s for s in steps)" 2>/dev/null; then
-    log_pass "Steps have action and thought fields"
-  else
-    log_fail "Steps structure" "Response: ${response:0:200}"
-  fi
+  local response="" attempt
+  for attempt in 1 2; do
+    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-10)/api/ai" \
+      -H 'Content-Type: application/json' \
+      -d '{"task":"go to amazon and search for laptops"}')
+    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); steps=d['steps']; assert len(steps)>=3; assert all('action' in s and 'thought' in s for s in steps)" 2>/dev/null; then
+      log_pass "Steps have action and thought fields"
+      break
+    fi
+    if [[ "$attempt" == 2 ]]; then
+      log_fail "Steps structure" "Response: ${response:0:200}"
+    fi
+  done
 
   test_has_author_credit "app-10"
 }

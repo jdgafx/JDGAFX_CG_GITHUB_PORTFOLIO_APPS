@@ -83,7 +83,7 @@ export function QueryBar({ query, onQueryChange, isRunning, showExamples, onStar
             color: isRunning ? '#ff3366' : '#00d4ff',
             border: isRunning ? '1px solid rgba(255,51,102,0.3)' : '1px solid rgba(0,212,255,0.3)',
             transition: 'all 0.15s',
-            opacity: canStart ? 1 : 0.5,
+            opacity: canStart ? 1 : 0.85,
             fontFamily: 'inherit',
           }}
         >

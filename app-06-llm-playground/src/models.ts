@@ -30,24 +30,24 @@ export interface ModelResult {
 
 export const MODELS: ModelConfig[] = [
   {
-    id: 'claude-haiku-4.5',
-    name: 'claude-haiku-4.5',
-    label: 'Claude Haiku (Latest)',
-    shortName: 'Haiku',
+    id: 'free-router-a',
+    name: 'openrouter/free',
+    label: 'OpenRouter Free',
+    shortName: 'Auto',
     color: '#f59e0b',
   },
   {
-    id: 'claude-sonnet-4.6',
-    name: 'claude-sonnet-4.6',
-    label: 'Claude Sonnet (Latest)',
-    shortName: 'Sonnet',
+    id: 'free-router-b',
+    name: 'nvidia/nemotron-3-nano-30b-a3b:free',
+    label: 'Nemotron 30B Free',
+    shortName: 'Nemotron 30B',
     color: '#3b82f6',
   },
   {
-    id: 'claude-opus',
-    name: 'claude-opus',
-    label: 'Claude Opus (Latest)',
-    shortName: 'Opus',
+    id: 'free-router-c',
+    name: 'nvidia/nemotron-3-super-120b-a12b:free',
+    label: 'Nemotron Super 120B Free',
+    shortName: 'Nemotron Super',
     color: '#8b5cf6',
   },
 ]
@@ -59,9 +59,9 @@ export const MODELS: ModelConfig[] = [
  * UI with a leading tilde.
  */
 export const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-haiku-4.5': { input: 0.001, output: 0.005 },
-  'claude-sonnet-4.6': { input: 0.003, output: 0.015 },
-  'claude-opus': { input: 0.015, output: 0.075 },
+  'free-router-a': { input: 0, output: 0 },
+  'free-router-b': { input: 0, output: 0 },
+  'free-router-c': { input: 0, output: 0 },
 }
 
 export function estimateCost(

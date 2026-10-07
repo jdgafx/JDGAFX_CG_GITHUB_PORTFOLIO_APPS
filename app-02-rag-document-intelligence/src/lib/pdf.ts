@@ -12,9 +12,32 @@ export interface ExtractResult {
   pages: number
 }
 
+function readTextFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    const timeout = window.setTimeout(() => {
+      reader.abort()
+      reject(new Error('The browser could not finish reading this text file. Please try the upload again.'))
+    }, 15_000)
+    reader.onload = () => {
+      window.clearTimeout(timeout)
+      resolve(typeof reader.result === 'string' ? reader.result : '')
+    }
+    reader.onerror = () => {
+      window.clearTimeout(timeout)
+      reject(new Error('Failed to read the text file. It may be corrupted or unavailable to the browser.'))
+    }
+    reader.onabort = () => {
+      window.clearTimeout(timeout)
+      reject(new Error('The text-file read was cancelled. Please try the upload again.'))
+    }
+    reader.readAsText(file)
+  })
+}
+
 export async function extractText(file: File): Promise<ExtractResult> {
   if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-    const text = await file.text()
+    const text = await readTextFile(file)
     if (!text.trim()) {
       throw new Error('The text file appears to be empty.')
     }

@@ -118,7 +118,7 @@ export default function QueryBar({
               border: 'none',
               borderRadius: '9px',
               padding: '9px 16px',
-              color: canAnalyze ? '#fff' : 'rgba(255,255,255,0.4)',
+              color: canAnalyze ? '#fff' : '#ff9fb5',
               fontSize: '13px',
               fontWeight: 600,
               fontFamily: 'DM Sans, sans-serif',

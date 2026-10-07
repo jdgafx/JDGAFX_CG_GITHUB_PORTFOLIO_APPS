@@ -4,7 +4,7 @@ import { FileText, Upload, Loader2 } from 'lucide-react'
 import { MAX_FILE_SIZE } from '../lib/constants'
 
 interface UploadZoneProps {
-  onFileSelect: (file: File) => void
+  onFileSelect: (file: File) => void | Promise<void>
   /** Validation problems are raised to the app so every error shares one surface. */
   onError: (message: string) => void
   isProcessing: boolean
@@ -41,7 +41,7 @@ export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZonePr
         return
       }
 
-      onFileSelect(file)
+      return onFileSelect(file)
     },
     [onFileSelect, onError],
   )
@@ -81,10 +81,15 @@ export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZonePr
   )
 
   const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
-      if (file) handleFile(file)
-      // Reset so re-picking the same file after an error still fires a change.
+      if (file) {
+        // Keep the browser-owned File readable until extraction finishes. Resetting
+        // the input before an async File.text()/arrayBuffer() can detach the file
+        // in real Chromium uploads and leave the UI stuck in extraction.
+        await handleFile(file)
+      }
+      // Reset after extraction so re-picking the same file still fires a change.
       e.target.value = ''
     },
     [handleFile],
@@ -182,7 +187,7 @@ export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZonePr
                 >
                   {isDragging ? 'Drop it here' : 'Drop your document here'}
                 </p>
-                <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
                   or{' '}
                   <span style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>
                     browse files
@@ -215,6 +220,7 @@ export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZonePr
             ref={inputRef}
             type="file"
             accept=".pdf,.txt,text/plain,application/pdf"
+            aria-label="Upload a PDF or text document"
             className="hidden"
             tabIndex={-1}
             onChange={handleInputChange}
@@ -226,7 +232,7 @@ export function UploadZone({ onFileSelect, onError, isProcessing }: UploadZonePr
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
           className="text-center mt-6 text-sm"
-          style={{ color: 'var(--color-text-muted)' }}
+          style={{ color: 'var(--color-text-secondary)' }}
         >
           PDF parsing happens in your browser; only passages relevant to your question are sent to
           the AI model (max {limitMb} MB).

@@ -12,6 +12,8 @@ export interface StepEvent {
   step?: StepId
   content?: string
   truncated?: boolean
+  served_model?: string
+  served_provider?: string
   /** Server marks error content that is curated end-user copy. Unmarked error text is never rendered. */
   friendly?: boolean
 }
@@ -19,7 +21,7 @@ export interface StepEvent {
 export interface PipelineCallbacks {
   onStepStart: (step: StepId) => void
   onStepChunk: (step: StepId, chunk: string) => void
-  onStepComplete: (step: StepId, fullContent: string, truncated: boolean) => void
+  onStepComplete: (step: StepId, fullContent: string, truncated: boolean, servedModel?: string, servedProvider?: string) => void
   onPipelineComplete: () => void
   onError: (step: StepId, error: string) => void
   onAbort: (step: StepId) => void
@@ -45,6 +47,8 @@ function friendlyHttpError(status: number): string {
 interface StepOutcome {
   content: string
   truncated: boolean
+  servedModel?: string
+  servedProvider?: string
 }
 
 async function runStep(
@@ -54,6 +58,7 @@ async function runStep(
   context: PipelineContext,
   callbacks: PipelineCallbacks,
   signal: AbortSignal,
+  attempt = 0,
 ): Promise<StepOutcome> {
   let response: Response
   try {
@@ -89,6 +94,8 @@ async function runStep(
   let content = ''
   let truncated = false
   let completed = false
+  let servedModel: string | undefined
+  let servedProvider: string | undefined
   let serverError = ''
   let serverErrorFriendly = false
 
@@ -120,6 +127,8 @@ async function runStep(
           // Server content is authoritative — it reconciles any dropped chunk.
           content = event.content ?? content
           truncated = event.truncated === true
+          servedModel = event.served_model
+          servedProvider = event.served_provider
         }
         break
       case 'error':
@@ -156,16 +165,32 @@ async function runStep(
       console.error(`${step} server error:`, serverError)
       throw new Error('Something went wrong generating this step. Please retry.')
     }
+    // A bounded server timeout is recoverable. Retry exactly once before the
+    // pipeline reports failure, while the caller's AbortSignal still wins.
+    if (attempt === 0 && !signal.aborted && /timed out/i.test(serverError)) {
+      return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
+    }
     throw new Error(serverError)
   }
 
   // A stream that stops without step_complete was cut off (function timeout,
   // dropped connection). That is a failure, never a silent success.
   if (!completed) {
+    if (attempt === 0 && !signal.aborted) {
+      return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
+    }
     throw new Error(`The ${step} step was cut off before it finished. Nothing was returned for it.`)
   }
 
-  return { content, truncated }
+  if (truncated && attempt === 0 && !signal.aborted) {
+    return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
+  }
+
+  if (truncated) {
+    throw new Error(`The ${step} step was cut off before it finished. Nothing was returned for it.`)
+  }
+
+  return { content, truncated, servedModel, servedProvider }
 }
 
 export async function runPipeline(
@@ -186,9 +211,9 @@ export async function runPipeline(
     }
 
     try {
-      const { content, truncated } = await runStep(topic, contentType, step, context, callbacks, signal)
+      const { content, truncated, servedModel, servedProvider } = await runStep(topic, contentType, step, context, callbacks, signal)
       context[step] = content
-      callbacks.onStepComplete(step, content, truncated)
+      callbacks.onStepComplete(step, content, truncated, servedModel, servedProvider)
     } catch (err) {
       if (isAbort(err) || signal.aborted) {
         callbacks.onAbort(step)

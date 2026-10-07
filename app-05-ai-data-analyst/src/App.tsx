@@ -211,8 +211,13 @@ export default function App() {
       const validation = validateQueryPlan(rawPlan, parsedData.headers)
       if (!validation.ok) throw new Error(validation.error)
 
-      const engineResult = executeQuery(parsedData, validation.plan)
-      const result: AnalysisResult = { ...engineResult, queryPlan: validation.plan }
+      const servedProvider = rawPlan.served_provider === 'xAI' || rawPlan.served_provider === 'Anthropic' || rawPlan.served_provider === 'OpenRouter'
+        ? rawPlan.served_provider
+        : undefined
+      const servedModel = typeof rawPlan.served_model === 'string' ? rawPlan.served_model : undefined
+      const plan = { ...validation.plan, served_provider: servedProvider, served_model: servedModel, execution: rawPlan.execution }
+      const engineResult = executeQuery(parsedData, plan)
+      const result: AnalysisResult = { ...engineResult, queryPlan: plan }
       setCurrentResult(result)
       setHistory((prev) =>
         [
@@ -263,7 +268,7 @@ export default function App() {
           flexShrink: 0,
         }}
       >
-        <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
+        <p style={{ margin: 0, fontSize: '11.5px', color: '#a6a6c2', lineHeight: 1.55, maxWidth: 860 }}>
           Load a CSV or pick one of the sample datasets, then ask questions like you're talking to a
           colleague. The AI figures out what you're looking for, crunches the numbers right in your
           browser, and draws the chart that tells the story.
@@ -316,7 +321,7 @@ export default function App() {
                   >
                     <Zap size={14} color="#ff3366" aria-hidden="true" />
                   </motion.div>
-                  <span role="status" style={{ fontSize: '12px', color: '#4a4a6a' }}>
+                  <span role="status" style={{ fontSize: '12px', color: '#a6a6c2' }}>
                     Analyzing data...
                   </span>
                 </div>
@@ -399,7 +404,7 @@ export default function App() {
                   justifyContent: 'center',
                   minHeight: '240px',
                   gap: '12px',
-                  color: '#4a4a6a',
+                  color: '#a6a6c2',
                   padding: '24px',
                   textAlign: 'center',
                 }}
@@ -435,7 +440,7 @@ export default function App() {
           textAlign: 'center',
           padding: '8px 0',
           fontSize: 11,
-          color: '#4a4a6a',
+          color: '#a6a6c2',
           borderTop: '1px solid rgba(255,255,255,0.04)',
           flexShrink: 0,
         }}

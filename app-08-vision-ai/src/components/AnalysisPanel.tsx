@@ -41,6 +41,10 @@ interface AnalysisPanelProps {
   isTruncated: boolean
   errorText: string
   noticeText: string
+  stage: string
+  durationMs: number | null
+  servedProvider: string
+  servedModel: string
   scrollRef: RefObject<HTMLDivElement | null>
   onAnalyze: () => void
   onCancel: () => void
@@ -60,6 +64,10 @@ export default function AnalysisPanel({
   isTruncated,
   errorText,
   noticeText,
+  stage,
+  durationMs,
+  servedProvider,
+  servedModel,
   scrollRef,
   onAnalyze,
   onCancel,
@@ -169,6 +177,13 @@ export default function AnalysisPanel({
 
       {/* Results */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 min-h-0">
+        <div className="mb-3 rounded-xl border border-rose-500/15 bg-rose-500/[0.04] px-3 py-2 text-xs text-gray-400" role="status">
+          <div className="flex items-center justify-between gap-3">
+            <span>{stage}</span>
+            {durationMs !== null && <span className="font-mono text-rose-300">{(durationMs / 1000).toFixed(1)}s</span>}
+          </div>
+          {servedProvider && servedModel && <p className="mt-1 text-[11px] text-gray-600">{servedProvider} · {servedModel}</p>}
+        </div>
         {isLoading && !analysisText ? (
           <div className="space-y-2.5 pt-1" aria-label="Loading analysis" role="status">
             {Array.from({ length: 6 }, (_, i) => (

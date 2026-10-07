@@ -1,12 +1,7 @@
 import { corsHeaders, guardRequest, jsonError, upstreamStatus } from '../shared/http'
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-
-// Gemini multimodal via OpenRouter handles the speech-to-text pass. The audio
-// travels as an `input_audio` content part (base64 + container format) exactly
-// as documented at https://openrouter.ai/docs/features/multimodal/audio.
-const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL ?? '~google/gemini-flash-latest'
-const MAX_OUTPUT_TOKENS = Number(process.env.TRANSCRIBE_MAX_TOKENS ?? 2048)
+const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen'
+const TRANSCRIBE_MODEL = process.env.DEEPGRAM_MODEL ?? 'nova-3'
 
 // Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
 // upstream turns into a clean 503 instead of a dead socket.
@@ -17,15 +12,9 @@ const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
 // under this (90s of 16kHz mono PCM is ~2.9MB).
 const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES ?? 4.5 * 1024 * 1024)
 
-// Container formats OpenRouter accepts for `input_audio`. webm is deliberately
-// absent — it is not on the accepted list, so the client transcodes to wav.
+// The client transcodes to wav when possible; these are the accepted upload
+// labels for the fallback containers it can preserve.
 const ALLOWED_FORMATS = ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'aiff']
-
-const TRANSCRIBE_PROMPT =
-  'Transcribe the speech in this audio verbatim. Output only the spoken words as ' +
-  'plain text, with normal punctuation and capitalization. Do not translate, ' +
-  'summarize, comment, or add speaker labels, timestamps, quotation marks or ' +
-  'formatting. If the audio contains no intelligible speech, output nothing at all.'
 
 // The model occasionally wraps its answer or narrates an empty clip; strip the
 // well-known shapes so the client sees either real words or an empty string.
@@ -90,12 +79,6 @@ export default async (req: Request): Promise<Response> => {
 
   const origin = req.headers.get('origin')
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    console.error('transcribe: OPENROUTER_API_KEY is not configured')
-    return jsonError('Transcription is not configured on this deployment.', 500, origin)
-  }
-
   try {
     let body: { audio?: unknown; format?: unknown }
     try {
@@ -123,29 +106,32 @@ export default async (req: Request): Promise<Response> => {
       return Response.json({ text: '' }, { headers: corsHeaders(origin) })
     }
 
+    const apiKey = process.env.DEEPGRAM_API_KEY
+    if (!apiKey) {
+      console.error('transcribe: DEEPGRAM_API_KEY is not configured')
+      return jsonError('Transcription is not configured on this deployment.', 500, origin)
+    }
+
+    const contentType: Record<string, string> = {
+      wav: 'audio/wav',
+      mp3: 'audio/mpeg',
+      ogg: 'audio/ogg',
+      flac: 'audio/flac',
+      m4a: 'audio/mp4',
+      aac: 'audio/aac',
+      aiff: 'audio/aiff',
+    }
+
     let response: Response
     try {
-      response = await fetch(OPENROUTER_URL, {
+      response = await fetch(`${DEEPGRAM_URL}?model=${encodeURIComponent(TRANSCRIBE_MODEL)}&smart_format=true`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+          Authorization: `Token ${apiKey}`,
+          'Content-Type': contentType[format],
         },
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        body: JSON.stringify({
-          model: TRANSCRIBE_MODEL,
-          max_tokens: MAX_OUTPUT_TOKENS,
-          temperature: 0,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: TRANSCRIBE_PROMPT },
-                { type: 'input_audio', input_audio: { data: audio, format } },
-              ],
-            },
-          ],
-        }),
+        body: Buffer.from(audio, 'base64'),
       })
     } catch (err) {
       const timedOut = err instanceof Error && err.name === 'TimeoutError'
@@ -174,7 +160,10 @@ export default async (req: Request): Promise<Response> => {
       )
     }
 
-    let data: { choices?: Array<{ message?: { content?: unknown } }> }
+    let data: {
+      metadata?: { model_info?: { name?: string } }
+      results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> }
+    }
     try {
       data = (await response.json()) as typeof data
     } catch (err) {
@@ -182,7 +171,7 @@ export default async (req: Request): Promise<Response> => {
       return jsonError('Transcription service returned an unreadable response.', 502, origin)
     }
 
-    const content = data.choices?.[0]?.message?.content
+    const content = data.results?.channels?.[0]?.alternatives?.[0]?.transcript
     if (typeof content !== 'string') {
       console.error(
         'transcribe: unexpected upstream payload shape',
@@ -191,7 +180,11 @@ export default async (req: Request): Promise<Response> => {
       return jsonError('Transcription service returned an unexpected response.', 502, origin)
     }
 
-    return Response.json({ text: cleanTranscript(content) }, { headers: corsHeaders(origin) })
+    return Response.json({
+      text: cleanTranscript(content),
+      provider: 'Deepgram',
+      model: data.metadata?.model_info?.name ?? TRANSCRIBE_MODEL,
+    }, { headers: corsHeaders(origin) })
   } catch (err) {
     console.error('transcribe: unhandled failure', err)
     return jsonError('Transcription failed. Try again in a moment.', 500, origin)

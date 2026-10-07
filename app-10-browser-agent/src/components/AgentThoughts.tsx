@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Bot, CheckCircle2, Download, FlaskConical, RotateCw, Square } from 'lucide-react'
-import type { BotStep, SpeedMode } from '../types'
+import { Bot, CheckCircle2, Download, RotateCw, Square } from 'lucide-react'
+import type { BotStep, ExecutionResult, SpeedMode } from '../types'
 import { ACTION_META } from '../lib/constants'
 import { typingIntervalMs } from '../lib/scenario'
 
@@ -11,18 +11,20 @@ export default function AgentThoughts({
   isRunning,
   completed,
   stopped,
-  isSample,
   speed,
   onRestart,
+  execution,
+  servedModel,
 }: {
   steps: BotStep[]
   currentStepIndex: number
   isRunning: boolean
   completed: boolean
   stopped: boolean
-  isSample: boolean
   speed: SpeedMode
   onRestart: () => void
+  execution?: ExecutionResult
+  servedModel: string
 }) {
   const currentStep = steps[currentStepIndex]
   const [displayedThought, setDisplayedThought] = useState('')
@@ -49,8 +51,6 @@ export default function AgentThoughts({
     return () => clearInterval(timer)
   }, [thought, currentStepIndex, speed])
 
-  const resultSteps = steps.filter((s) => (s.action === 'extract' || s.action === 'verify') && s.value)
-
   return (
     <div className="h-full flex flex-col bg-slate-900/80 rounded-2xl border border-slate-700/50 overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-700/50 flex items-center gap-2">
@@ -64,16 +64,7 @@ export default function AgentThoughts({
             />
           )}
         </div>
-        <span className="text-sm font-semibold text-slate-200">Agent Thoughts</span>
-        {isSample && (
-          <span
-            className="flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-full px-2 py-0.5"
-            title="This run is a canned sample scenario, not a result for the task you typed"
-          >
-            <FlaskConical size={10} />
-            Sample
-          </span>
-        )}
+        <span className="text-sm font-semibold text-slate-200">Plan rationale</span>
         {isRunning && (
           <div className="ml-auto flex gap-0.5" aria-hidden="true">
             {[0, 1, 2].map((i) => (
@@ -132,7 +123,7 @@ export default function AgentThoughts({
               Run stopped at step {currentStepIndex + 1} of {steps.length}
             </div>
             <p className="text-xs text-amber-200/70">
-              The agent was stopped before finishing, so no result was produced.
+              The plan was stopped before finishing, so no task result was produced.
             </p>
             <button
               onClick={onRestart}
@@ -152,52 +143,33 @@ export default function AgentThoughts({
             animate={{ opacity: 1, y: 0 }}
             className="mt-4 space-y-3"
           >
-            {isSample ? (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-                <div className="flex items-center gap-2 text-amber-400 text-sm font-semibold">
-                  <FlaskConical size={16} />
-                  Sample demo finished — not your task
-                </div>
-                <p className="text-xs text-amber-200/70 mt-1">
-                  These are canned values from a built-in flight-search example.
-                </p>
+            <div className="p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl">
+              <div className="flex items-center gap-2 text-teal-400 text-sm font-semibold">
+                <CheckCircle2 size={16} />
+                External browser execution complete
               </div>
-            ) : (
-              <div className="p-3 bg-teal-500/10 border border-teal-500/30 rounded-xl">
-                <div className="flex items-center gap-2 text-teal-400 text-sm font-semibold">
-                  <CheckCircle2 size={16} />
-                  Task completed successfully
-                </div>
-              </div>
-            )}
-            {resultSteps.length > 0 && (
+            </div>
+            {execution?.excerpt && (
               <div
-                className={`p-4 bg-slate-800/80 border rounded-xl ${
-                  isSample ? 'border-amber-500/20' : 'border-teal-500/20'
-                }`}
+                className="p-4 bg-slate-800/80 border border-teal-500/20 rounded-xl"
               >
                 <div
-                  className={`text-xs font-mono font-semibold uppercase tracking-wider mb-3 flex items-center gap-2 ${
-                    isSample ? 'text-amber-500' : 'text-teal-500'
-                  }`}
+                  className="text-xs font-mono font-semibold uppercase tracking-wider mb-3 flex items-center gap-2 text-teal-500"
                 >
                   <Download size={12} />
-                  {isSample ? 'Sample results (not your task)' : 'Results'}
+                  Observed result
                 </div>
-                <div className="space-y-2">
-                  {resultSteps.map((step, i) => (
-                    <div key={i} className="p-3 bg-slate-700/50 rounded-lg border border-slate-600/30">
-                      <div className="text-xs text-slate-400 mb-1 uppercase tracking-wide">
-                        {step.action === 'extract' ? 'Extracted' : 'Verified'}: {step.target}
-                      </div>
-                      <div className="text-sm text-white whitespace-pre-wrap leading-relaxed font-mono">
-                        {step.value}
-                      </div>
-                    </div>
-                  ))}
+                <div className="p-3 bg-slate-700/50 rounded-lg border border-slate-600/30 space-y-2">
+                  <div className="text-xs text-slate-400 uppercase tracking-wide">{execution.title || 'Observed page'}</div>
+                  <div className="text-sm text-white whitespace-pre-wrap leading-relaxed font-mono">{execution.excerpt}</div>
+                  <div className="text-[11px] text-slate-500 break-all">{execution.url}</div>
                 </div>
               </div>
             )}
+            <div className="text-[11px] text-slate-500 space-y-1">
+              <div>OpenRouter planner: <span className="font-mono text-slate-400">{servedModel}</span></div>
+              {execution?.sessionId && <div>Browserbase session: <span className="font-mono text-slate-400">{execution.sessionId}</span></div>}
+            </div>
           </motion.div>
         )}
 

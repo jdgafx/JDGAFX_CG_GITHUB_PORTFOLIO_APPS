@@ -13,6 +13,9 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
   const [streaming, setStreaming] = useState(false)
   const [insightError, setInsightError] = useState('')
   const [stopped, setStopped] = useState(false)
+  const [stage, setStage] = useState('Ready to inspect the supplied metrics')
+  const [provenance, setProvenance] = useState('')
+  const [durationMs, setDurationMs] = useState<number | null>(null)
 
   // Leaving the dashboard (Exit Demo, sign out, navigation) must not leave a
   // stream running against the function.
@@ -23,19 +26,30 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
     setInsightError('')
     setStopped(false)
     setStreaming(true)
+    setStage('Metrics accepted; validating dashboard snapshot')
+    setProvenance('')
+    setDurationMs(null)
+    const startedAt = Date.now()
 
     try {
       await getInsights(stats, (chunk) => {
         setInsights((prev) => prev + chunk)
+      }, (data) => {
+        if (data.stage === 'provider') setStage('Provider connected; requesting grounded insight')
+        if (data.stage === 'streaming') setStage('Streaming metric interpretation')
+        if (data.stage === 'complete') setStage('Validated complete insight')
+        if (typeof data.served_provider === 'string' && typeof data.served_model === 'string') setProvenance(`${data.served_provider} · ${data.served_model}`)
       })
     } catch (err) {
       if (isAbortError(err)) {
         setStopped(true)
       } else {
         setInsightError(err instanceof Error ? err.message : 'Failed to generate insights')
+        setStage('Failed; retry the insight request')
       }
     } finally {
       setStreaming(false)
+      setDurationMs(Date.now() - startedAt)
     }
   }
 
@@ -64,7 +78,7 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
           </h3>
           {streaming && (
             <span
-              title="Claude is streaming its analysis of the metrics above"
+              title="The configured model provider is streaming its analysis of the metrics above"
               style={{
                 fontSize: '11px',
                 color: '#818cf8',
@@ -106,7 +120,7 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
             title={
               streaming
                 ? 'Generation already in progress'
-                : 'Send the summary metrics to Claude and stream back an analysis'
+                : 'Send the summary metrics to the configured model provider and stream back an analysis'
             }
             className="flex items-center gap-2"
             style={{
@@ -129,6 +143,11 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
         </div>
       </div>
 
+      <div role="status" style={{ marginBottom: '16px', fontSize: '12px', color: '#94a3b8' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}><span>{stage}</span>{durationMs !== null && <span>{(durationMs / 1000).toFixed(1)}s</span>}</div>
+        {provenance && <div style={{ marginTop: '4px', color: '#a5b4fc' }}>{provenance}</div>}
+      </div>
+
       {insightError && (
         <div
           role="alert"
@@ -146,10 +165,10 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
       )}
 
       {!insights && !streaming && !insightError && (
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#475569' }}>
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#a5b4fc' }}>
           <Sparkles size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} aria-hidden="true" />
           <p style={{ fontSize: '14px' }}>
-            Click "Generate Insights" to get Claude's analysis of your metrics
+            Click "Generate Insights" to get a streamed analysis from the configured model provider
           </p>
         </div>
       )}
@@ -188,7 +207,7 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
       )}
 
       {stopped && !streaming && (
-        <p role="status" style={{ marginTop: '12px', fontSize: '12px', color: '#64748b' }}>
+        <p role="status" style={{ marginTop: '12px', fontSize: '12px', color: '#a5b4fc' }}>
           Generation stopped. Click Generate Insights to start again.
         </p>
       )}

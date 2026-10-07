@@ -22,7 +22,7 @@ export function isAbortError(err: unknown): boolean {
  * Handle one SSE line. Returns true once the terminator is seen.
  * Malformed JSON is a truncated frame, not a failure — skip it and keep reading.
  */
-function consumeSseLine(line: string, onChunk: (text: string) => void): boolean {
+function consumeSseLine(line: string, onChunk: (text: string) => void, onMeta?: (data: Record<string, unknown>) => void): boolean {
   if (!line.startsWith(SSE_PREFIX)) return false
 
   const data = line.slice(SSE_PREFIX.length).trim()
@@ -37,6 +37,7 @@ function consumeSseLine(line: string, onChunk: (text: string) => void): boolean 
   }
 
   if (parsed.error) throw new Error(parsed.error)
+  onMeta?.(parsed as Record<string, unknown>)
   if (parsed.text) onChunk(parsed.text)
   return false
 }
@@ -51,6 +52,7 @@ function messageForStatus(status: number): string {
 export async function getInsights(
   metrics: SummaryStats,
   onChunk: (text: string) => void,
+  onMeta?: (data: Record<string, unknown>) => void,
 ): Promise<void> {
   // Cancel any in-flight request before starting a new one
   abortInsights()
@@ -100,12 +102,12 @@ export async function getInsights(
         buffer = lines.pop() ?? ''
 
         for (const line of lines) {
-          if (consumeSseLine(line.trim(), onChunk)) return
+          if (consumeSseLine(line.trim(), onChunk, onMeta)) return
         }
       }
 
       // Process any trailing frame left in the buffer
-      if (buffer.trim()) consumeSseLine(buffer.trim(), onChunk)
+      if (buffer.trim()) consumeSseLine(buffer.trim(), onChunk, onMeta)
     } finally {
       await reader.cancel().catch(() => {})
     }

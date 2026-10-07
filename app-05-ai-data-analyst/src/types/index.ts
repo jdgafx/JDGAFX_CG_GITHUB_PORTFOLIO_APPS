@@ -24,6 +24,12 @@ export interface QueryPlan {
   }
   title: string
   explanation: string
+  served_model?: string
+  served_provider?: 'xAI' | 'Anthropic' | 'OpenRouter'
+  execution?: {
+    stages: Array<{ stage: 'accepted' | 'provider' | 'validation' | 'completed'; status: 'complete' }>
+    durationMs: number
+  }
 }
 
 export interface ParsedData {

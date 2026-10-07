@@ -7,7 +7,7 @@ import { ChatInterface } from './components/ChatInterface'
 import { ErrorBanner } from './components/ErrorBanner'
 import { extractText } from './lib/pdf'
 import { chunkText } from './lib/chunk'
-import { askQuestion } from './lib/api'
+import { askQuestion, type ExecutionUpdate } from './lib/api'
 import type { DocumentState, Message } from './types'
 
 function generateId() {
@@ -25,6 +25,8 @@ export default function App() {
   const [question, setQuestion] = useState('')
   const [highlightedChunks, setHighlightedChunks] = useState<number[]>([])
   const [panel, setPanel] = useState<Panel>('chat')
+  const [execution, setExecution] = useState<ExecutionUpdate[]>([])
+  const [executionStartedAt, setExecutionStartedAt] = useState<number | null>(null)
   const requestIdRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -76,6 +78,8 @@ export default function App() {
     setMessages(prev => [...prev, userMsg])
     setQuestion('')
     setIsLoading(true)
+    setExecution([])
+    setExecutionStartedAt(performance.now())
 
     // Track request ID to ignore stale responses from rapid submissions
     const currentRequestId = ++requestIdRef.current
@@ -88,6 +92,7 @@ export default function App() {
         document.chunks,
         document.title,
         controller.signal,
+        update => setExecution(prev => [...prev, update]),
       )
 
       // Ignore response if a newer request was made while this one was in flight
@@ -108,6 +113,8 @@ export default function App() {
               content: result.answer,
               sourceChunks: result.sourceChunks,
               confidence: result.confidence,
+              servedProvider: result.servedProvider,
+              servedModel: result.servedModel,
               timestamp: new Date(),
             }
       setMessages(prev => [...prev, aiMsg])
@@ -128,6 +135,7 @@ export default function App() {
     } finally {
       if (currentRequestId === requestIdRef.current) {
         setIsLoading(false)
+        setExecutionStartedAt(null)
         abortRef.current = null
       }
     }
@@ -136,6 +144,7 @@ export default function App() {
   const handleCancel = useCallback(() => {
     if (!isLoading) return
     cancelInFlight()
+    setExecutionStartedAt(null)
     setMessages(prev => [
       ...prev,
       {
@@ -231,7 +240,7 @@ export default function App() {
             title="Clear this document and conversation, then upload a different file"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs shrink-0 transition-all duration-150"
             style={{
-              color: 'var(--color-text-muted)',
+              color: 'var(--color-text-secondary)',
               background: 'var(--color-bg-card)',
               border: '1px solid var(--color-border)',
             }}
@@ -304,6 +313,8 @@ export default function App() {
                   <ChatInterface
                     messages={messages}
                     isLoading={isLoading}
+                    execution={execution}
+                    executionStartedAt={executionStartedAt}
                     question={question}
                     chunkPages={document.chunkPages}
                     onQuestionChange={setQuestion}
@@ -318,7 +329,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      <footer className="text-center py-3 text-xs shrink-0" style={{ color: '#475569', borderTop: '1px solid var(--color-border)' }}>
+      <footer className="text-center py-3 text-xs shrink-0" style={{ color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border)' }}>
         Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
       </footer>
     </div>
@@ -343,7 +354,7 @@ function PanelTab({ active, onClick, label, hint, icon }: PanelTabProps) {
       title={hint}
       className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-all duration-150"
       style={{
-        color: active ? 'var(--color-accent)' : 'var(--color-text-muted)',
+        color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
         background: active ? 'var(--color-accent-muted)' : 'transparent',
         borderBottom: `2px solid ${active ? 'var(--color-accent)' : 'transparent'}`,
         fontFamily: 'var(--font-mono)',

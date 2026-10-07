@@ -61,6 +61,11 @@ export default function Conversation({ messages, onClear }: ConversationProps) {
                 }}
               >
                 {msg.content}
+                {msg.role === 'assistant' && msg.servedProvider && (
+                  <div className="mt-1 text-[10px] text-zinc-500" title="Provider and model reported by the answer service">
+                    {msg.servedProvider}{msg.servedModel ? ` · ${msg.servedModel}` : ''}
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}

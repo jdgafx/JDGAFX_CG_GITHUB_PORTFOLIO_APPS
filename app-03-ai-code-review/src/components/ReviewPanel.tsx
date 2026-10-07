@@ -130,6 +130,16 @@ export function ReviewPanel({
         <span style={{ fontSize: '11px', color: '#4b5563', fontWeight: 600, letterSpacing: '0.06em' }}>
           REVIEW RESULTS
         </span>
+        {reviewResult?.served_provider && reviewResult.served_model && !isLoading && (
+          <span style={{ fontSize: '10px', color: '#64748b' }} title="The provider and model returned by the review service">
+            {reviewResult.served_provider} · {reviewResult.served_model}
+          </span>
+        )}
+        {reviewResult?.execution && !isLoading && (
+          <span style={{ fontSize: '10px', color: '#64748b' }} title="Backend-reported execution stages and duration">
+            {reviewResult.execution.stages.map(({ stage }) => stage).join(' → ')} · {(reviewResult.execution.durationMs / 1000).toFixed(1)}s
+          </span>
+        )}
         <div style={{ flex: 1 }} />
         {canCopy && (
           <button

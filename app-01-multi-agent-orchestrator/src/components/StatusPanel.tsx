@@ -50,6 +50,11 @@ export function StatusPanel({ agents, activeTab, isRunning, isComplete }: Status
       <p style={{ margin: 0, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.55 }}>
         {isComplete ? AGENT_ACTIVITY.synthesizer.complete : activityText(active, activeTab)}
       </p>
+      {(active.servedModel || isRunning) && (
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748b', fontFamily: 'var(--font-mono)' }}>
+          OpenRouter · {active.servedModel ?? 'waiting for the provider response'}
+        </p>
+      )}
 
       {isRunning && (
         <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>

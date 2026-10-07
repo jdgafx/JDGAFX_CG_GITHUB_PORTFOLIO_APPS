@@ -1,0 +1,5 @@
+8. [POST] https://jdgafx-app-08-vision-ai.netlify.app/api/ai => [200] 
+9. [POST] https://jdgafx-app-08-vision-ai.netlify.app/api/ai => [429] 
+10. [POST] https://jdgafx-app-08-vision-ai.netlify.app/api/ai => [200] 
+
+Note: 9 static requests not shown, run with "static" option to see them.

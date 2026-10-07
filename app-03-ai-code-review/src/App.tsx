@@ -197,7 +197,7 @@ export default function App() {
           flexShrink: 0,
         }}
       >
-        <p style={{ margin: 0, fontSize: '11.5px', color: '#64748b', lineHeight: 1.55, maxWidth: 860 }}>
+        <p style={{ margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: 1.55, maxWidth: 860 }}>
           Paste your code — any language — and get a line-by-line review in seconds. It flags bugs and security issues as critical, highlights things worth fixing as warnings, and offers suggestions where the code could be cleaner. Each comment links directly to the line it's talking about.
         </p>
       </div>
@@ -259,7 +259,7 @@ export default function App() {
           </div>
 
           <span
-            style={{ fontSize: '12px', color: isOverLimit ? '#ef4444' : '#374151' }}
+            style={{ fontSize: '12px', color: isOverLimit ? '#ef4444' : '#94a3b8' }}
             title={`${codeLength.toLocaleString('en-US')} of ${MAX_CODE_LENGTH.toLocaleString('en-US')} characters used`}
           >
             {code.split('\n').length} lines
@@ -288,7 +288,7 @@ export default function App() {
             onClick={handleClear}
             disabled={!code}
             title={code ? 'Empty the editor and discard the current review' : 'The editor is already empty'}
-            style={{ ...TOOL_BUTTON, opacity: code ? 1 : 0.4, cursor: code ? 'pointer' : 'not-allowed' }}
+            style={{ ...TOOL_BUTTON, opacity: code ? 1 : 0.7, cursor: code ? 'pointer' : 'not-allowed' }}
           >
             <Trash2 size={13} />
             Clear
@@ -353,7 +353,7 @@ export default function App() {
               background: btnDisabled
                 ? 'rgba(255,165,0,0.15)'
                 : 'linear-gradient(135deg, #ffa500, #ff7000)',
-              color: btnDisabled ? 'rgba(255,165,0,0.4)' : '#fff',
+              color: btnDisabled ? '#ffd166' : '#fff',
               fontSize: '14px',
               fontWeight: 600,
               cursor: btnDisabled ? 'not-allowed' : 'pointer',
@@ -397,7 +397,7 @@ export default function App() {
           textAlign: 'center',
           padding: '12px 0',
           fontSize: 11,
-          color: '#475569',
+          color: '#94a3b8',
           borderTop: '1px solid rgba(255,255,255,0.05)',
           flexShrink: 0,
         }}

@@ -1,8 +1,7 @@
 import { corsHeaders, guardRequest, jsonError, upstreamStatus } from '../shared/http'
+import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-
-const CHAT_MODEL = process.env.CHAT_MODEL ?? '~anthropic/claude-haiku-latest'
+const CHAT_MODEL = process.env.CHAT_MODEL ?? 'nvidia/nemotron-3-nano-30b-a3b:free'
 const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
 const MAX_MESSAGE_CHARS = Number(process.env.MAX_MESSAGE_CHARS ?? 5000)
 const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES ?? 20)
@@ -32,15 +31,25 @@ function sanitizeHistory(history: unknown): ChatMessage[] {
   return clean.slice(-MAX_HISTORY_MESSAGES)
 }
 
+function unsuitableModel(model: string): boolean {
+  return /(content[- ]?safety|moderation|classifier|guard|toxicity|safety[- ]?model)/i.test(model)
+}
+
+function classificationShaped(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, ' ')
+  return /^(user\s+)?safety\s*:\s*(safe|unsafe)\b/i.test(compact)
+    || /^(classification|label|category|moderation)\s*:/i.test(compact)
+}
+
 export default async (req: Request): Promise<Response> => {
   const guard = guardRequest(req)
   if (guard) return guard
 
   const origin = req.headers.get('origin')
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    console.error('ai: OPENROUTER_API_KEY is not configured')
+  const provider = getProvider(CHAT_MODEL)
+  if (!provider) {
+    console.error('ai: no server-side AI provider is configured')
     return jsonError('The assistant is not configured on this deployment.', 500, origin)
   }
 
@@ -67,21 +76,23 @@ export default async (req: Request): Promise<Response> => {
       { role: 'user', content: message },
     ]
 
-    let aiResponse: Response
+    let aiResponse: Response | null = null
+    let aiData: { model?: string; choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }> }
+    let selectedProvider = provider
     try {
-      aiResponse = await fetch(OPENROUTER_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        body: JSON.stringify({
-          model: CHAT_MODEL,
-          max_tokens: MAX_OUTPUT_TOKENS,
-          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
-        }),
-      })
+      aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          body: JSON.stringify({
+            model: provider.model,
+            ...generationOptions(provider, MAX_OUTPUT_TOKENS),
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+          }),
+        }))
     } catch (err) {
       const timedOut = err instanceof Error && err.name === 'TimeoutError'
       console.error('ai: upstream request failed', err)
@@ -109,7 +120,6 @@ export default async (req: Request): Promise<Response> => {
       )
     }
 
-    let aiData: { choices?: Array<{ message?: { content?: unknown } }> }
     try {
       aiData = (await aiResponse.json()) as typeof aiData
     } catch (err) {
@@ -117,13 +127,18 @@ export default async (req: Request): Promise<Response> => {
       return jsonError('The assistant returned an unreadable response.', 502, origin)
     }
 
-    const rawText = aiData.choices?.[0]?.message?.content
+    const rawText = aiData?.choices?.[0]?.message?.content
+    const servedModel = aiData?.model ?? selectedProvider.model
+    if (unsuitableModel(servedModel) || (typeof rawText === 'string' && classificationShaped(rawText))) {
+      console.error(`ai: rejected unsuitable conversational output from ${servedModel}`)
+      return jsonError('The assistant route returned a non-conversational result. Please retry.', 502, origin)
+    }
     if (typeof rawText !== 'string' || !rawText.trim()) {
       console.error('ai: unexpected upstream payload shape', JSON.stringify(aiData).slice(0, 500))
       return jsonError('The assistant returned an empty response. Try again.', 502, origin)
     }
 
-    return Response.json({ response: rawText }, { headers: corsHeaders(origin) })
+    return Response.json({ response: rawText, served_model: servedModel, served_provider: selectedProvider.name }, { headers: corsHeaders(origin) })
   } catch (err) {
     console.error('ai: unhandled failure', err)
     return jsonError('The assistant failed. Try again in a moment.', 500, origin)

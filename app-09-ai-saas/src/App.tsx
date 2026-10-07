@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase, isAuthReachable } from './lib/supabase'
+import { supabase } from './lib/supabase'
 import AuthPage from './components/AuthPage'
 import Dashboard from './components/Dashboard'
 
@@ -35,12 +35,6 @@ export default function App() {
     hadSessionRef.current = Object.keys(localStorage).some(
       (k) => k.startsWith('sb-') && k.endsWith('-auth-token'),
     )
-
-    // Probe the auth host up front so a dead project surfaces a Demo Mode route
-    // instead of a login form that can never succeed.
-    isAuthReachable().then((reachable) => {
-      if (!cancelled) setAuthReachable(reachable)
-    })
 
     supabase.auth
       .getSession()

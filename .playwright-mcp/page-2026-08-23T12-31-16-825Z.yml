@@ -1,0 +1,66 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img "ContentForge logo" [ref=e8]
+        - heading "ContentForge" [level=1] [ref=e14]
+      - button "Copy Final" [ref=e176]
+  - paragraph [ref=e17]: Give it a topic and a format — blog post, newsletter, whatever — and watch five stages of AI writing happen live. It researches, outlines, drafts, edits, and polishes, streaming every word so you can see exactly how the piece comes together.
+  - main [ref=e18]:
+    - generic [ref=e19]:
+      - textbox "Topic" [ref=e20]:
+        - /placeholder: Enter a topic... e.g. 'The Future of AI in Healthcare'
+        - text: Three concrete ways to reduce API latency
+      - combobox "Content type" [ref=e21]:
+        - option "Blog Post" [selected]
+        - option "Technical Article"
+        - option "Marketing Copy"
+        - option "Newsletter"
+        - option "Social Thread"
+      - button "Generate" [ref=e22]
+    - generic [ref=e25]:
+      - 'generic "Research: finished" [ref=e75]'
+      - 'generic "Outline: finished" [ref=e78]'
+      - 'generic "Draft: finished" [ref=e81]'
+      - 'generic "Edit: finished" [ref=e84]'
+      - 'generic "Polish: finished" [ref=e182]'
+    - generic [ref=e101]:
+      - generic [ref=e103]:
+        - button "Research 10.0s OpenRouter · nvidia/nemotron-3-nano-30b-a3b:free" [ref=e104]:
+          - generic [ref=e105]:
+            - generic [ref=e109]: Research
+            - generic [ref=e110]: 10.0s
+            - generic [ref=e111]: OpenRouter · nvidia/nemotron-3-nano-30b-a3b:free
+        - button "Copy Research output" [ref=e116]
+      - generic [ref=e121]:
+        - button "Outline 1.5s OpenRouter · liquid/lfm-2.5-2.6b:free" [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e127]: Outline
+            - generic [ref=e128]: 1.5s
+            - generic [ref=e129]: OpenRouter · liquid/lfm-2.5-2.6b:free
+        - button "Copy Outline output" [ref=e134]
+      - generic [ref=e139]:
+        - button "Draft 1.7s OpenRouter · liquid/lfm-2.5-2.6b:free" [ref=e140]:
+          - generic [ref=e141]:
+            - generic [ref=e147]: Draft
+            - generic [ref=e148]: 1.7s
+            - generic [ref=e149]: OpenRouter · liquid/lfm-2.5-2.6b:free
+        - button "Copy Draft output" [ref=e154]
+      - generic [ref=e159]:
+        - button "Edit 2.9s OpenRouter · liquid/lfm-2.5-2.6b:free" [ref=e160]:
+          - generic [ref=e161]:
+            - generic [ref=e165]: Edit
+            - generic [ref=e166]: 2.9s
+            - generic [ref=e167]: OpenRouter · liquid/lfm-2.5-2.6b:free
+        - button "Copy Edit output" [ref=e172]
+      - generic [ref=e186]:
+        - button "Polish 1.8s OpenRouter · liquid/lfm-2.5-2.6b:free" [ref=e187]:
+          - generic [ref=e188]:
+            - generic [ref=e191]: Polish
+            - generic [ref=e192]: 1.8s
+            - generic [ref=e193]: OpenRouter · liquid/lfm-2.5-2.6b:free
+        - button "Copy Polish output" [ref=e198]
+    - generic [ref=e202]:
+      - heading "Final Output" [level=3] [ref=e206]
+      - generic [ref=e207]: "# Three Concrete Ways to Reduce API Latency Larger payloads directly inflate round-trip time. Migrating from verbose JSON to compact binary formats—Protocol Buffers, MessagePack, or Avro—delivers immediate gains. Establish a schema registry, auto-generate client/server bindings, and validate schemas at build time. Early adopters report 30–70% latency reductions after switching. Repeated identical requests waste compute and network bandwidth. Deploy in-memory caches (Redis, Memcached) for hot keys with TTLs aligned to freshness requirements, plus edge caches (CloudFront, Fastly) for public endpoints via HTTP headers. A cache-aside pattern with consistent keys cuts response times by up to 80% for repeat queries. Blocking I/O consumes worker threads and throttles throughput. Leverage async frameworks (Node.js, Go goroutines, Python asyncio, Java CompletableFuture) and offload CPU-intensive tasks to background queues (Kafka, RabbitMQ). Use Promise/Future patterns, enforce idempotent retries, and integrate circuit breakers. These changes dramatically improve responsiveness and scalability."
+  - contentinfo [ref=e72]: Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI

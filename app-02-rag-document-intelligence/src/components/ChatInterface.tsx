@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { SendHorizontal, Bot, User, ChevronDown, AlertCircle, Loader2, MessageSquare, Square } from 'lucide-react'
 import { CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from '../lib/constants'
 import type { Message } from '../types'
+import type { ExecutionUpdate } from '../lib/api'
 
 /** Lightweight inline markdown: bold, inline code */
 function renderInline(text: string): ReactNode[] {
@@ -71,6 +72,8 @@ function renderMarkdown(text: string): ReactNode[] {
 interface ChatInterfaceProps {
   messages: Message[]
   isLoading: boolean
+  execution: ExecutionUpdate[]
+  executionStartedAt: number | null
   question: string
   /** Page number per chunk index, used to label cited sources. */
   chunkPages: number[]
@@ -83,6 +86,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   messages,
   isLoading,
+  execution,
+  executionStartedAt,
   question,
   chunkPages,
   onQuestionChange,
@@ -181,13 +186,24 @@ export function ChatInterface({
               <Bot size={14} style={{ color: 'var(--color-accent)' }} />
             </div>
             <div
-              className="px-4 py-3 rounded-xl flex items-center gap-3"
+              className="px-4 py-3 rounded-xl w-full max-w-md"
               style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)' }}
             >
-              <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
-              <span className="text-sm" style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Analyzing document...
-              </span>
+              <div className="flex items-center gap-2 mb-2">
+                <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
+                <span className="text-sm" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-display)' }}>DocMind is working</span>
+                <span className="text-[10px] ml-auto" style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {executionStartedAt === null ? '' : `${((performance.now() - executionStartedAt) / 1000).toFixed(1)}s`}
+                </span>
+              </div>
+              <div className="space-y-1.5 mb-3">
+                {execution.map((update, index) => (
+                  <div key={`${update.stage}-${index}`} className="flex items-start gap-2 text-xs">
+                    <span className="mt-1 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--color-accent)' }} />
+                    <span style={{ color: 'var(--color-text-secondary)' }}>{update.detail}</span>
+                  </div>
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={onCancel}
@@ -361,6 +377,11 @@ function MessageBubble({ message, chunkPages, onHoverSources }: MessageBubblePro
           >
             {isUser ? message.content : renderMarkdown(message.content)}
           </div>
+          {!isUser && message.servedProvider && message.servedModel && (
+            <div className="mt-1 text-[10px] text-slate-500" title="Provider and model reported by the answer service">
+              {message.servedProvider} · {message.servedModel}
+            </div>
+          )}
         </div>
 
         {!isUser && message.sourceChunks && sourceCount > 0 && (

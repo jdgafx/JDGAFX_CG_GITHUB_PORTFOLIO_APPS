@@ -1,8 +1,11 @@
+import { generationOptions, getProvider } from '../shared/provider'
+
 export const config = { path: '/api/ai' }
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = process.env.INSIGHTS_MODEL ?? '~anthropic/claude-haiku-latest'
+const OPENROUTER_MODEL = process.env.INSIGHTS_MODEL ?? '~anthropic/claude-haiku-latest'
 const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES ?? 32_000)
+const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
 
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 20)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000)
@@ -139,10 +142,15 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Too many requests -- please slow down', { status: 429, headers })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
+  const contentLength = Number(req.headers.get('content-length') ?? 0)
+  if (contentLength > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: 'Request body is too large' }), { status: 413, headers: jsonHeaders })
+  }
+
+  const provider = getProvider(OPENROUTER_MODEL)
+  if (!provider) {
     // The missing variable's name is a deployment detail -- log it, don't ship it.
-    console.error('ai function: OPENROUTER_API_KEY is not set')
+    console.error('ai function: no server-side AI provider is configured')
     return new Response(JSON.stringify({ error: 'Service not configured' }), {
       status: 500,
       headers: jsonHeaders,
@@ -187,20 +195,26 @@ export default async function handler(req: Request): Promise<Response> {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       }
+      const upstream = new AbortController()
+      const timeout = setTimeout(() => upstream.abort(), UPSTREAM_TIMEOUT_MS)
 
       try {
-        const response = await fetch(OPENROUTER_URL, {
+        send({ stage: 'accepted' })
+        send({ stage: 'provider', served_provider: provider.name, served_model: provider.model })
+        let servedModel = provider.model
+        const response = await fetch(provider.url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${provider.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: MODEL,
-            max_tokens: MAX_OUTPUT_TOKENS,
+            model: provider.model,
+            ...generationOptions(provider, MAX_OUTPUT_TOKENS),
             stream: true,
             messages: [{ role: 'user', content: buildPrompt(metrics) }],
           }),
+          signal: upstream.signal,
         })
 
         if (!response.ok) {
@@ -237,10 +251,12 @@ export default async function handler(req: Request): Promise<Response> {
 
             try {
               const parsed = JSON.parse(data) as {
+                model?: string
                 choices?: { delta?: { content?: string } }[]
               }
+              if (parsed.model) servedModel = parsed.model
               const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) send({ text: delta })
+              if (delta) { send({ stage: 'streaming' }); send({ text: delta }) }
             } catch (e) {
               // Partial frames are expected mid-stream; anything else is a bug.
               if (!(e instanceof SyntaxError)) throw e
@@ -248,11 +264,14 @@ export default async function handler(req: Request): Promise<Response> {
           }
         }
 
+        send({ stage: 'complete', served_provider: provider.name, served_model: servedModel })
         finish()
       } catch (err) {
         console.error('ai function: stream failed', err)
         send({ error: 'Insight generation failed. Please try again.' })
         finish()
+      } finally {
+        clearTimeout(timeout)
       }
     },
   })

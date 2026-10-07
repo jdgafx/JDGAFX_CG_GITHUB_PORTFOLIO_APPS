@@ -1,14 +1,13 @@
 type StepId = 'research' | 'outline' | 'draft' | 'edit' | 'polish'
+import { generationOptions, getProviders, type ProviderConfig } from '../shared/provider'
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const DEFAULT_MODEL = '~anthropic/claude-haiku-latest'
+const DEFAULT_MODEL = 'nvidia/nemotron-3-nano-30b-a3b:free'
 const APP_TITLE = 'ContentForge'
 const DEFAULT_SITE_URL = 'https://jdgafx-app-07-content-pipeline.netlify.app'
 const DEFAULT_CONTENT_TYPE = 'Blog Post'
 const MAX_TOPIC_CHARS = 400
-const MAX_CONTEXT_CHARS = 8000
+const MAX_CONTEXT_CHARS = 1800
 
-const MODEL = process.env.OPENROUTER_MODEL || DEFAULT_MODEL
 const SITE_URL = process.env.URL || DEFAULT_SITE_URL
 
 const STEPS: StepId[] = ['research', 'outline', 'draft', 'edit', 'polish']
@@ -20,9 +19,9 @@ class UserFacingError extends Error {}
 const STEP_MAX_TOKENS: Record<StepId, number> = {
   research: 2048,
   outline: 2048,
-  draft: 4096,
-  edit: 4096,
-  polish: 4096,
+  draft: 2048,
+  edit: 2048,
+  polish: 2048,
 }
 
 // Each request gets one step, and a Netlify function is killed at 30s. The
@@ -30,12 +29,18 @@ const STEP_MAX_TOKENS: Record<StepId, number> = {
 // budgets are what actually keep a step's streaming time inside the wall.
 // Without them each step inflates on the last and edit/polish overrun.
 const STEP_WORD_BUDGETS: Record<StepId, number> = {
-  research: 400,
-  outline: 300,
-  draft: 700,
-  edit: 700,
-  polish: 700,
+  research: 80,
+  outline: 100,
+  draft: 160,
+  edit: 160,
+  polish: 160,
 }
+
+// Leave enough room for a curated terminal event before Netlify's function
+// wall. The client can retry this step once, while Stop/Resume still uses the
+// request signal and remains authoritative.
+const STEP_TIMEOUT_MS = 26_000
+const MODEL_TIMEOUT_MS = 6_500
 
 // Which earlier steps each step is allowed to see. Keeps prompts bounded while
 // making sure the draft still has the research behind it.
@@ -99,29 +104,34 @@ function buildUserMessage(
 interface StepResult {
   content: string
   finishReason: string | null
+  servedModel: string | null
 }
 
 async function streamStep(
-  apiKey: string,
+  provider: ProviderConfig,
   systemPrompt: string,
   userMessage: string,
   maxTokens: number,
   onChunk: (text: string) => void,
   signal: AbortSignal,
 ): Promise<StepResult> {
-  const response = await fetch(OPENROUTER_URL, {
+  const response = await fetch(provider.url, {
     method: 'POST',
     signal,
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${provider.apiKey}`,
       'Content-Type': 'application/json',
       'HTTP-Referer': SITE_URL,
       'X-Title': APP_TITLE,
     },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      stream: true,
+      model: provider.model,
+      ...generationOptions(provider, maxTokens),
+      // The browser still receives bounded SSE stage events below. The
+      // upstream call is deliberately non-streaming because some reasoning
+      // providers spend the stream budget on hidden frames before emitting
+      // usable content, while the same bounded request returns a clean stop.
+      stream: false,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
@@ -143,49 +153,18 @@ async function streamStep(
   if (!body) {
     throw new Error('Empty response body from upstream')
   }
-
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let content = ''
-  let finishReason: string | null = null
-
-  try {
-    while (true) {
-      if (signal.aborted) break
-
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data: ')) continue
-        const data = trimmed.slice(6)
-        if (data === '[DONE]') continue
-
-        try {
-          const parsed = JSON.parse(data)
-          const choice = parsed.choices?.[0]
-          const delta = choice?.delta?.content
-          if (delta) {
-            content += delta
-            onChunk(delta)
-          }
-          if (choice?.finish_reason) {
-            finishReason = choice.finish_reason
-          }
-        } catch { /* ignore keep-alive comments and partial frames */ }
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => { })
+  const parsed = await response.json() as {
+    model?: string
+    choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>
   }
-
-  return { content, finishReason }
+  const choice = parsed.choices?.[0]
+  const content = typeof choice?.message?.content === 'string' ? choice.message.content : ''
+  if (content) onChunk(content)
+  return {
+    content,
+    finishReason: choice?.finish_reason ?? null,
+    servedModel: typeof parsed.model === 'string' ? parsed.model : null,
+  }
 }
 
 interface RequestBody {
@@ -204,9 +183,9 @@ export default async (req: Request): Promise<Response> => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500, headers: jsonHeaders })
+  const providers = getProviders(process.env.OPENROUTER_MODEL || DEFAULT_MODEL)
+  if (providers.length === 0) {
+    return new Response(JSON.stringify({ error: 'No server-side AI provider configured' }), { status: 500, headers: jsonHeaders })
   }
 
   let body: RequestBody
@@ -265,34 +244,77 @@ export default async (req: Request): Promise<Response> => {
         `You are an expert content creator. The user wants a ${contentType} about: "${topic}".`,
         `Current step: ${step.toUpperCase()}. ${STEP_PROMPTS[step]}`,
         `Keep this response to roughly ${STEP_WORD_BUDGETS[step]} words, and finish inside that budget.`,
-        'Output only the content for this step — no preamble, no commentary on what you are doing.',
+        'Output only the content for this step — no preamble, no commentary on what you are doing. Stop as soon as the requested content is complete; never exceed the word budget.',
       ].join(' ')
       const userMessage = buildUserMessage(step, topic, contentType, context)
+      let timedOut = false
+      const stepTimer = setTimeout(() => {
+        timedOut = true
+        upstream.abort()
+      }, STEP_TIMEOUT_MS)
 
       try {
-        const result = await streamStep(
-          apiKey,
-          systemPrompt,
-          userMessage,
-          STEP_MAX_TOKENS[step],
-          text => send({ type: 'step_chunk', step, content: text }),
-          upstream.signal,
-        )
+        let result: StepResult | null = null
+        let selectedProvider: ProviderConfig = providers[0]
+        let lastError: unknown = null
 
-        if (upstream.signal.aborted) {
+        for (const candidate of providers) {
+          if (upstream.signal.aborted) break
+          const candidateController = new AbortController()
+          const abortCandidate = () => candidateController.abort()
+          upstream.signal.addEventListener('abort', abortCandidate)
+          const candidateTimer = setTimeout(() => candidateController.abort(), MODEL_TIMEOUT_MS)
+          try {
+            const candidateResult = await streamStep(
+              candidate,
+              systemPrompt,
+              userMessage,
+              STEP_MAX_TOKENS[step],
+              () => { /* emitted after a complete provider response */ },
+              candidateController.signal,
+            )
+            if (candidateResult.content.trim() && candidateResult.finishReason !== 'length') {
+              result = candidateResult
+              selectedProvider = candidate
+              break
+            }
+          } catch (err) {
+            lastError = err
+          } finally {
+            clearTimeout(candidateTimer)
+            upstream.signal.removeEventListener('abort', abortCandidate)
+          }
+        }
+
+        if (timedOut) {
+          send({ type: 'error', step, content: `The ${step} step timed out before it finished. Please retry.`, friendly: true })
+        } else if (upstream.signal.aborted) {
           closed = true
           try { controller.close() } catch { /* client already gone */ }
           return
         }
 
-        send({
-          type: 'step_complete',
-          step,
-          content: result.content,
-          truncated: result.finishReason === 'length',
-        })
+        if (!result || !result.content.trim()) {
+          if (lastError instanceof UserFacingError) {
+            send({ type: 'error', step, content: lastError.message, friendly: true })
+          } else {
+            send({ type: 'error', step, content: 'The AI service returned no usable content for this step. Please retry.', friendly: true })
+          }
+        } else {
+          send({ type: 'step_chunk', step, content: result.content })
+          send({
+            type: 'step_complete',
+            step,
+            content: result.content,
+            truncated: false,
+            served_model: result.servedModel ?? selectedProvider.model,
+            served_provider: selectedProvider.name,
+          })
+        }
       } catch (err) {
-        if (!upstream.signal.aborted) {
+        if (timedOut) {
+          send({ type: 'error', step, content: `The ${step} step timed out before it finished. Please retry.`, friendly: true })
+        } else if (!upstream.signal.aborted) {
           if (err instanceof UserFacingError) {
             send({ type: 'error', step, content: err.message, friendly: true })
           } else {
@@ -306,6 +328,7 @@ export default async (req: Request): Promise<Response> => {
           }
         }
       } finally {
+        clearTimeout(stepTimer)
         req.signal.removeEventListener('abort', abortUpstream)
         finish()
       }

@@ -1,4 +1,11 @@
 import { validateQueryPlan } from '../../src/lib/queryPlan'
+import {
+  getFallbackProvider,
+  getProvider,
+  providerRequest,
+  providerText,
+  requestWithContentRetry,
+} from '../shared/provider'
 
 interface RequestBody {
   question: string
@@ -29,6 +36,7 @@ const MAX_SAMPLE_ROWS = 5
 const MAX_HEADERS = 200
 const MAX_CELL_CHARS = 200
 const UPSTREAM_TIMEOUT_MS = 25_000
+type ExecutionStage = 'accepted' | 'provider' | 'validation' | 'completed'
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -132,6 +140,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 
 Rules:
 - "filter" and "sortBy" are optional — only include them if relevant
+- If the question does not explicitly name a filter condition, omit "filter" entirely. Never invent a filter field or use a placeholder such as "missing".
 - groupBy, aggregate.field and filter.field MUST be exact column names copied from the dataset. Never invent a column.
 - sortBy.field must be either the groupBy column or the aggregate field — nothing else is plotted
 - For count queries, aggregate.field must still be a real column name (count ignores its value)
@@ -162,8 +171,8 @@ export default async (req: Request): Promise<Response> => {
     })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
+  const provider = getProvider('~anthropic/claude-haiku-latest')
+  if (!provider) {
     return json({ error: 'The analysis service is not configured.' }, 500, headersOut)
   }
 
@@ -224,25 +233,35 @@ ${JSON.stringify(safeRows, null, 2)}`
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
+  const executionStartedAt = Date.now()
+  const executionStages: Array<{ stage: ExecutionStage; status: 'complete' }> = [{ stage: 'accepted', status: 'complete' }]
 
   try {
-    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: '~anthropic/claude-haiku-latest',
-        max_tokens: 1024,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Dataset:\n${schemaDescription}\n\nQuestion: ${question}` },
-        ],
-      }),
-    })
+    const callProvider = (candidate: typeof provider) => {
+      const request = providerRequest(candidate, {
+        system: SYSTEM_PROMPT,
+        user: `Dataset:\n${schemaDescription}\n\nQuestion: ${question}`,
+        maxTokens: 2048,
+        requireParameters: true,
+      })
+      return requestWithContentRetry(() => fetch(candidate.url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: request.headers,
+        body: request.body,
+      }))
+    }
+
+    let activeProvider = provider
+    executionStages.push({ stage: 'provider', status: 'complete' })
+    let aiResponse = await callProvider(activeProvider)
+    if (!aiResponse.ok) {
+      const fallback = getFallbackProvider(activeProvider)
+      if (fallback) {
+        activeProvider = fallback
+        aiResponse = await callProvider(activeProvider)
+      }
+    }
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
@@ -259,9 +278,10 @@ ${JSON.stringify(safeRows, null, 2)}`
     }
 
     const aiData = (await aiResponse.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
+      model?: string
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
     }
-    const rawText = aiData.choices?.[0]?.message?.content
+    const rawText = providerText(aiData)
     if (!rawText) {
       return json({ error: 'The AI returned an empty response. Try rephrasing your question.' }, 502, headersOut)
     }
@@ -295,7 +315,13 @@ ${JSON.stringify(safeRows, null, 2)}`
       return json({ error: validation.error }, 422, headersOut)
     }
 
-    return json(validation.plan, 200, headersOut)
+    executionStages.push({ stage: 'validation', status: 'complete' }, { stage: 'completed', status: 'complete' })
+    return json({
+      ...validation.plan,
+      served_model: aiData.model ?? activeProvider.model,
+      served_provider: activeProvider.name,
+      execution: { stages: executionStages, durationMs: Date.now() - executionStartedAt },
+    }, 200, headersOut)
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return json({ error: 'The analysis timed out. Please try again.' }, 504, headersOut)

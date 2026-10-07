@@ -1,4 +1,13 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
+import {
+  getProvider,
+  getFallbackProvider,
+  providerFinishReason,
+  providerModel,
+  providerRequest,
+  providerText,
+  requestWithContentRetry,
+} from '../shared/provider'
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-03-ai-code-review.netlify.app',
@@ -19,6 +28,8 @@ const UPSTREAM_TIMEOUT_MS = 25_000
 const MIN_COMMENTS = 5
 const MAX_COMMENTS = 15
 const LINES_PER_COMMENT = 15
+
+type ExecutionStage = 'accepted' | 'provider' | 'validation' | 'completed'
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -165,8 +176,8 @@ export default async (req: Request): Promise<Response> => {
     })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
+  const provider = getProvider('~anthropic/claude-haiku-latest')
+  if (!provider) {
     return fail('The review service is not configured.', 500, headersOut)
   }
 
@@ -208,28 +219,38 @@ export default async (req: Request): Promise<Response> => {
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
+  const executionStartedAt = Date.now()
+  const executionStages: Array<{ stage: ExecutionStage; status: 'complete' }> = [
+    { stage: 'accepted', status: 'complete' },
+  ]
 
   try {
-    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: '~anthropic/claude-haiku-latest',
-        max_tokens: Math.min(4096, 512 + maxComments * 220),
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: buildSystemPrompt(lang, lineCount, maxComments) },
-          {
-            role: 'user',
-            content: `Review this ${lang} file (${lineCount} lines):\n\n${numberedCode}`,
-          },
-        ],
-      }),
-    })
+    const maxTokens = Math.min(4096, 512 + maxComments * 220)
+    const callProvider = (candidate: typeof provider) => {
+      const request = providerRequest(candidate, {
+        system: buildSystemPrompt(lang, lineCount, maxComments),
+        user: `Review this ${lang} file (${lineCount} lines):\n\n${numberedCode}`,
+        maxTokens,
+        requireParameters: true,
+      })
+      return requestWithContentRetry(() => fetch(candidate.url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: request.headers,
+        body: request.body,
+      }))
+    }
+
+    let activeProvider = provider
+    executionStages.push({ stage: 'provider', status: 'complete' })
+    let aiResponse = await callProvider(activeProvider)
+    if (!aiResponse.ok) {
+      const fallback = getFallbackProvider(activeProvider)
+      if (fallback) {
+        activeProvider = fallback
+        aiResponse = await callProvider(activeProvider)
+      }
+    }
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
@@ -245,11 +266,13 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const aiData = (await aiResponse.json()) as {
+      model?: string
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
+      content?: Array<{ text?: string }>
+      stop_reason?: string
     }
-    const choice = aiData.choices?.[0]
-    const rawText = choice?.message?.content
-    const truncated = choice?.finish_reason === 'length'
+    const rawText = providerText(aiData)
+    const truncated = providerFinishReason(aiData) === 'length' || providerFinishReason(aiData) === 'max_tokens'
 
     if (!rawText) {
       return fail('The AI returned an empty review. Please try again.', 502, headersOut)
@@ -304,7 +327,19 @@ export default async (req: Request): Promise<Response> => {
         suggestion: (c.suggestion as string).trim().slice(0, MAX_TEXT_CHARS),
       }))
 
-    return json({ success: true, data: { comments, lineCount, truncated } }, 200, headersOut)
+    executionStages.push({ stage: 'validation', status: 'complete' }, { stage: 'completed', status: 'complete' })
+
+    return json({
+      success: true,
+      data: {
+        comments,
+        lineCount,
+        truncated,
+        served_model: providerModel(aiData, activeProvider.model),
+        served_provider: activeProvider.name,
+        execution: { stages: executionStages, durationMs: Date.now() - executionStartedAt },
+      },
+    }, 200, headersOut)
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return fail('The review timed out. Try a shorter snippet.', 504, headersOut)

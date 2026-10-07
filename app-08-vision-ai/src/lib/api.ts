@@ -27,6 +27,8 @@ export interface AnalyzeOptions {
   onComplete: () => void
   onError: (error: Error) => void
   onTruncated?: () => void
+  onStage?: (stage: 'accepted' | 'provider' | 'streaming' | 'complete') => void
+  onProvenance?: (provider: string, model: string) => void
 }
 
 interface Base64Result {
@@ -116,6 +118,9 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
     const decoder = new TextDecoder()
     let buffer = ''
     let sawDone = false
+    let sawComplete = false
+    let receivedText = ''
+    let streamTruncated = false
 
     for (;;) {
       let chunk: ReadableStreamReadResult<Uint8Array>
@@ -148,8 +153,21 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
         }
         if (typeof parsed === 'object' && parsed !== null) {
           const obj = parsed as Record<string, unknown>
-          if (typeof obj['text'] === 'string') onChunk(obj['text'])
-          if (obj['truncated'] === true) onTruncated?.()
+          if (obj['stage'] === 'accepted' || obj['stage'] === 'provider' || obj['stage'] === 'streaming' || obj['stage'] === 'complete') {
+            opts.onStage?.(obj['stage'])
+            if (obj['stage'] === 'complete') sawComplete = true
+          }
+          if (typeof obj['served_provider'] === 'string' && typeof obj['served_model'] === 'string') {
+            opts.onProvenance?.(obj['served_provider'], obj['served_model'])
+          }
+          if (typeof obj['text'] === 'string') {
+            receivedText += obj['text']
+            onChunk(obj['text'])
+          }
+          if (obj['truncated'] === true) {
+            streamTruncated = true
+            onTruncated?.()
+          }
           if (typeof obj['error'] === 'string') throw new Error(obj['error'])
         }
       }
@@ -158,6 +176,13 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
     // No terminator means the connection dropped mid-analysis. Treat the result
     // as incomplete rather than silently accepting a partial answer.
     if (!sawDone) throw new Error(STREAM_DROPPED_MESSAGE)
+    if (streamTruncated || !sawComplete || !receivedText.trim()) {
+      throw new Error(
+        streamTruncated
+          ? 'The vision service stopped before the analysis finished. Please retry with the same image.'
+          : 'The vision service returned no usable analysis. Please retry with the same image.',
+      )
+    }
 
     onComplete()
   } catch (err) {

@@ -1,26 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { Globe } from 'lucide-react'
-import type { BotStep, SpeedMode } from '../types'
-import { cursorPositionFor, fieldKeyForTarget, fieldValuesAt, scenarioResultRows, typingIntervalMs } from '../lib/scenario'
-import MockPageContent from './MockPageContent'
+import type { BotStep, ExecutionResult, SpeedMode } from '../types'
+import { typingIntervalMs } from '../lib/scenario'
 
-const RIPPLE_LIFETIME_MS = 600
-
-export default function BrowserChrome({ steps, currentStepIndex, typedText, speed }: {
+export default function BrowserChrome({ steps, currentStepIndex, speed, execution }: {
   steps: BotStep[]
   currentStepIndex: number
-  typedText: string
   speed: SpeedMode
+  execution?: ExecutionResult
 }) {
   const currentStep = steps[currentStepIndex]
   const [urlText, setUrlText] = useState('')
-  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([])
-  const rippleCounterRef = useRef(0)
-
-  const cursorPos = currentStep
-    ? cursorPositionFor(currentStep.action, currentStepIndex)
-    : { x: 50, y: 50 }
 
   const url = currentStep?.url
   useEffect(() => {
@@ -34,27 +24,6 @@ export default function BrowserChrome({ steps, currentStepIndex, typedText, spee
     }, typingIntervalMs(speed, url.length))
     return () => clearInterval(timer)
   }, [url, speed])
-
-  useEffect(() => {
-    if (currentStep?.action !== 'click') return
-    const id = rippleCounterRef.current++
-    setRipples((prev) => [...prev, { id, x: cursorPos.x, y: cursorPos.y }])
-    const timer = setTimeout(() => {
-      setRipples((prev) => prev.filter((r) => r.id !== id))
-    }, RIPPLE_LIFETIME_MS)
-    return () => clearTimeout(timer)
-  }, [currentStep?.action, currentStepIndex, cursorPos.x, cursorPos.y])
-
-  const fields = useMemo(
-    () => fieldValuesAt(steps, currentStepIndex, typedText),
-    [steps, currentStepIndex, typedText],
-  )
-  const rows = useMemo(() => scenarioResultRows(steps), [steps])
-
-  const activeField =
-    currentStep && (currentStep.action === 'type' || currentStep.action === 'find' || currentStep.action === 'click')
-      ? fieldKeyForTarget(currentStep.target)
-      : null
 
   return (
     <div className="relative h-full bg-slate-900 rounded-2xl overflow-hidden border border-slate-700/50 shadow-2xl">
@@ -89,68 +58,33 @@ export default function BrowserChrome({ steps, currentStepIndex, typedText, spee
       </div>
 
       <div className="relative overflow-hidden" style={{ height: 'calc(100% - 52px)' }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentStep?.pageContent ?? 'empty'}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="h-full overflow-y-auto"
-          >
-            {currentStep ? (
-              <MockPageContent
-                pageContent={currentStep.pageContent}
-                currentAction={currentStep.action}
-                activeField={activeField}
-                fields={fields}
-                rows={rows}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center text-slate-500">
-                  <Globe size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Waiting for task...</p>
-                </div>
+        <div className="h-full overflow-y-auto p-5 bg-slate-950/70">
+          {execution?.url ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-xs text-teal-400 font-mono">
+                <Globe size={14} />
+                <span>Observed external page</span>
               </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-        {currentStep && (
-          <motion.div
-            className="absolute w-4 h-4 pointer-events-none z-50"
-            animate={{
-              left: `${cursorPos.x}%`,
-              top: `${cursorPos.y}%`,
-            }}
-            transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-          >
-            <div className="relative">
-              <div className="w-3 h-3 bg-teal-500 rounded-full shadow-[0_0_8px_rgba(20,184,166,0.8)]" />
-              {currentStep.action === 'click' && (
-                <motion.div
-                  className="absolute inset-0 w-3 h-3 bg-teal-400 rounded-full"
-                  animate={{ scale: [1, 2.5], opacity: [0.6, 0] }}
-                  transition={{ duration: 0.4, repeat: Infinity, repeatDelay: 0.6 }}
-                />
-              )}
+              <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-2">
+                <div className="text-xs text-slate-500 uppercase tracking-wide">URL</div>
+                <div className="text-sm text-slate-200 font-mono break-all">{execution.url}</div>
+                <div className="text-xs text-slate-500 uppercase tracking-wide pt-2">Title</div>
+                <div className="text-sm text-white">{execution.title || 'Untitled page'}</div>
+              </div>
+              <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-4">
+                <div className="text-xs text-teal-400 uppercase tracking-wide mb-2">Observed page content</div>
+                <pre className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-mono">{execution.excerpt || 'The page returned no readable text.'}</pre>
+              </div>
             </div>
-          </motion.div>
-        )}
-
-        {ripples.map((r) => (
-          <motion.div
-            key={r.id}
-            className="absolute pointer-events-none z-40"
-            style={{ left: `${r.x}%`, top: `${r.y}%`, transform: 'translate(-50%, -50%)' }}
-            initial={{ scale: 0, opacity: 0.8 }}
-            animate={{ scale: 3, opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="w-8 h-8 rounded-full border-2 border-teal-400" />
-          </motion.div>
-        ))}
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center text-slate-500">
+                <Globe size={48} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Waiting for an external browser session...</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -18,8 +18,8 @@ export default function App() {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(1024)
   const [selectedModels, setSelectedModels] = useState<string[]>([
-    'claude-haiku-4.5',
-    'claude-sonnet-4.6',
+    'free-router-b',
+    'free-router-c',
   ])
   // Model list frozen at submit time, so changing the selection mid-run or
   // after a run never re-maps the results grid onto the wrong models.
@@ -200,10 +200,9 @@ export default function App() {
         <Header />
         <div className="mt-3 rounded-xl px-4 py-2" style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.1)' }}>
           <p className="text-xs text-slate-500 leading-relaxed" style={{ margin: 0, maxWidth: 860 }}>
-            Pick two or three Claude models, type a prompt, and watch them race. Responses stream in
-            side-by-side so you can compare quality, tokens, and cost in real time. When the run
-            finishes, the model that returned a complete response in the least time is flagged as the
-            fastest response.
+            Pick two or three OpenRouter-hosted free models, type one prompt, and compare the real streams side by side.
+            Each card reports its actual served model, response timing, token usage, cost, truncation, cancellation,
+            and failure state. Max Tokens is intentionally user-controlled here because this product is a token-limit comparison.
           </p>
         </div>
 
@@ -267,7 +266,7 @@ export default function App() {
                     ? 'Send the prompt to every selected model and stream the responses side by side'
                     : 'Enter a prompt and select at least two models first'
                 }
-                className="flex items-center gap-2 px-8 py-3 bg-accent hover:bg-accent-dark text-white rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all glow-blue"
+                className="flex items-center gap-2 px-8 py-3 bg-accent hover:bg-accent-dark text-white rounded-xl font-semibold text-sm disabled:opacity-80 disabled:cursor-not-allowed transition-all glow-blue"
               >
                 <Play size={16} fill="currentColor" />
                 Compare Models
@@ -300,7 +299,7 @@ export default function App() {
               </motion.button>
             )}
             {!running && (
-              <span className="text-xs text-slate-600 hidden sm:inline" title="Keyboard shortcut for Compare Models">
+              <span className="text-xs text-slate-400 hidden sm:inline" title="Keyboard shortcut for Compare Models">
                 Ctrl+Enter to run
               </span>
             )}
@@ -340,7 +339,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-        <footer className="text-center py-4 text-xs text-slate-600">
+        <footer className="text-center py-4 text-xs text-slate-400">
           Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
         </footer>
       </div>

@@ -77,13 +77,23 @@ export function retrieve(question: string, chunks: string[], limit: number = TOP
 }
 
 export type AskResult =
-  | { status: 'answered'; answer: string; sourceChunks: number[]; confidence: number }
+  | { status: 'answered'; answer: string; sourceChunks: number[]; confidence: number; servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'; servedModel?: string }
   | { status: 'no-matches' }
+
+export type ExecutionStage = 'accepted' | 'retrieval' | 'provider' | 'validation' | 'completed'
+export interface ExecutionUpdate {
+  stage: ExecutionStage
+  detail: string
+  servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'
+  servedModel?: string
+}
 
 interface ApiPayload {
   answer: string
   source_chunk_indices: number[]
   confidence: number
+  served_provider?: 'xAI' | 'Anthropic' | 'OpenRouter'
+  served_model?: string
 }
 
 function isApiPayload(data: unknown): data is ApiPayload {
@@ -131,6 +141,7 @@ export async function askQuestion(
   chunks: string[],
   documentTitle: string,
   signal?: AbortSignal,
+  onUpdate?: (update: ExecutionUpdate) => void,
 ): Promise<AskResult> {
   const top = retrieve(question, chunks)
   if (top.length === 0) return { status: 'no-matches' }
@@ -141,7 +152,7 @@ export async function askQuestion(
   try {
     response = await fetch('/api/ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({ question, chunks: labeledChunks, documentTitle }),
       ...(signal ? { signal } : {}),
     })
@@ -157,7 +168,36 @@ export async function askQuestion(
 
   let data: unknown
   try {
-    data = await response.json()
+    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let answerPayload: unknown
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const frames = buffer.split('\n\n')
+        buffer = frames.pop() ?? ''
+        for (const frame of frames) {
+          const line = frame.split('\n').find(item => item.startsWith('data: '))
+          if (!line) continue
+          const raw = line.slice(6)
+          if (raw === '[DONE]') continue
+          const event = JSON.parse(raw) as { type?: string; stage?: ExecutionStage; detail?: string; served_provider?: string; served_model?: string; payload?: unknown; error?: string }
+          if (event.type === 'stage' && event.stage && event.detail) {
+            onUpdate?.({ stage: event.stage, detail: event.detail, servedProvider: event.served_provider as ExecutionUpdate['servedProvider'], servedModel: event.served_model })
+          } else if (event.type === 'answer') {
+            answerPayload = event.payload
+          } else if (event.type === 'error') {
+            throw new Error(event.error ?? 'The document assistant failed.')
+          }
+        }
+      }
+      data = answerPayload
+    } else {
+      data = await response.json()
+    }
   } catch (err) {
     console.error('DocMind response was not JSON:', err)
     throw new Error('The document assistant returned an unreadable response. Please try again.')
@@ -182,5 +222,7 @@ export async function askQuestion(
     answer: data.answer,
     sourceChunks,
     confidence: Math.min(1, Math.max(0, data.confidence)),
+    servedProvider: data.served_provider,
+    servedModel: data.served_model,
   }
 }

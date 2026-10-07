@@ -6,7 +6,8 @@ const corsHeaders = {
 
 const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
+
 const DEFAULT_MODEL = '~google/gemini-flash-latest'
 const DEFAULT_MAX_TOKENS = 4096
 /** Netlify's synchronous function cap is 10s; leave room to return a handled error. */
@@ -75,9 +76,9 @@ export default async (req: Request): Promise<Response> => {
     return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
-    console.error('OPENROUTER_API_KEY not configured')
+  const provider = getProvider(DEFAULT_MODEL)
+  if (!provider) {
+    console.error('No server-side AI provider configured')
     return jsonError('The agent service is not configured yet. Please try again later.', 500)
   }
 
@@ -97,20 +98,18 @@ export default async (req: Request): Promise<Response> => {
 Each step must have:
 - action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
 - target: what element or URL is targeted (string)
-- thought: what the AI is thinking in this step (string, 1-2 sentences, first person)
+- thought: concise user-visible rationale for this planned action (string, 1-2 sentences; never hidden chain-of-thought)
 - value?: optional string (text to type, or value to verify/extract)
 - url?: current URL after this step
 - pageContent?: one of "flights-search" | "flights-results" | "job-board" | "job-results" | "ecommerce" | "ecommerce-results" | "form" | "search-results" | "generic"
 
 IMPORTANT RULES:
 - The LAST step MUST be action "verify" or "extract" that summarizes the findings.
-- For "extract" steps, the "value" field MUST contain the actual data found (e.g. a list of results, prices, job titles, etc.) — be specific with real-sounding data.
-- For "extract" steps that list multiple results, put one result per line as "Name — detail, detail" so the simulated page can render the same rows.
+- For "extract" and "verify" steps, use "value" only as a concise description of what the executor should observe; never invent results, prices, titles, or other page data.
 - For "type" steps, name the field in "target" (e.g. "origin input", "destination input", "email field") so the typed text lands in the right box.
-- For job searches: use pageContent "job-board" then "job-results" and include 3-5 realistic job listings in the final extract value.
-- For price comparisons: include real-sounding prices and product names.
-- For form filling: show confirmation of submission.
-- Always include concrete, specific data in extract/verify values — never leave them vague.
+- For job searches and price comparisons, describe the requested observation in the final extract/verify target; the external browser result is the source of truth.
+- For form filling, only report confirmation when the live page visibly confirms it.
+- Never claim that a page was visited or a result was found in the plan itself.
 
 Return ONLY valid JSON. No markdown. No explanation. Example format:
 {"steps": [{"action": "navigate", "target": "google.com", "thought": "Opening Google...", "url": "https://google.com", "pageContent": "generic"}]}
@@ -118,17 +117,17 @@ Return ONLY valid JSON. No markdown. No explanation. Example format:
 Generate 6-10 steps that realistically simulate completing the user's task in a browser.`
 
   try {
-    const response = await fetch(OPENROUTER_URL, {
+    const response = await requestWithContentRetry(() => fetch(provider.url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
       },
       // The latest-alias models can resolve to reasoning models, whose reasoning tokens eat the
       // completion budget and truncate the JSON mid-emit. Disable reasoning and keep headroom.
       body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL,
-        max_tokens: envInt('OPENROUTER_MAX_TOKENS', DEFAULT_MAX_TOKENS),
+        model: provider.model,
+        ...generationOptions(provider, envInt('OPENROUTER_MAX_TOKENS', DEFAULT_MAX_TOKENS)),
         reasoning: { enabled: false },
         stream: false,
         messages: [
@@ -137,7 +136,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
         ],
       }),
       signal: AbortSignal.timeout(envInt('OPENROUTER_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)),
-    })
+    }))
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '')
@@ -152,6 +151,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
     }
 
     const data = await response.json() as {
+      model?: string
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
     }
     const content = data.choices?.[0]?.message?.content
@@ -182,7 +182,7 @@ Generate 6-10 steps that realistically simulate completing the user's task in a 
       throw new ScenarioError('The model returned a scenario with no steps. Try again.')
     }
 
-    return new Response(JSON.stringify({ steps }), { status: 200, headers: jsonHeaders })
+    return new Response(JSON.stringify({ steps, served_model: data.model ?? provider.model }), { status: 200, headers: jsonHeaders })
   } catch (err) {
     // fetch may surface the abort reason directly or wrapped as the cause.
     const thrown = err as { name?: string; message?: string; cause?: { name?: string } } | null

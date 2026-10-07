@@ -1,4 +1,5 @@
 import type { AgentRole } from '../../src/types'
+import { generationOptions, getProvider, type ProviderConfig } from '../shared/provider'
 
 type AgentContext = Partial<Record<AgentRole, string>>
 
@@ -13,12 +14,10 @@ interface AgentConfig {
   timeoutMs: number
 }
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const DEFAULT_MODEL = '~google/gemini-flash-latest'
 const DEFAULT_SITE_URL = 'https://jdgafx-app-01-multi-agent-orchestrator.netlify.app'
 const APP_TITLE = 'AgentFlow'
 
-const MODEL = process.env.OPENROUTER_MODEL || DEFAULT_MODEL
 const SITE_URL = process.env.URL || DEFAULT_SITE_URL
 
 const DEFAULT_ALLOWED_ORIGINS = [DEFAULT_SITE_URL, 'http://localhost:8888', 'http://localhost:5173']
@@ -32,6 +31,7 @@ const MAX_BODY_BYTES = 8 * 1024
 const MAX_QUERY_CHARS = 500
 const MAX_CONTEXT_CHARS = 800
 const RETRY_DELAY_MS = 800
+const OPENROUTER_FREE_FALLBACK_MODEL = 'nvidia/nemotron-3-nano-30b-a3b:free'
 
 // One request fans out to four upstream LLM calls, so the ceiling is lower than
 // a plain proxy would need. Best effort only: each warm function instance keeps
@@ -90,7 +90,7 @@ const agents: AgentConfig[] = [
     buildUserMessage: (query, ctx) =>
       `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx.researcher)}\n\nAnalysis:\n${trimCtx(ctx.analyst)}\n\nGaps:\n${trimCtx(ctx.critic)}`,
     maxTokens: 1200,
-    timeoutMs: 8000,
+    timeoutMs: 10000,
   },
 ]
 
@@ -114,6 +114,7 @@ interface AgentResult {
   reasoningChars: number
   /** 'stop' | 'length' | 'timeout' | null */
   finish: string | null
+  servedModel?: string
 }
 
 /** Rough chars-per-token, only used to estimate reasoning when usage is missing. */
@@ -146,6 +147,11 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function retryProvider(provider: ProviderConfig): ProviderConfig {
+  if (provider.name !== 'OpenRouter') return provider
+  return { ...provider, model: OPENROUTER_FREE_FALLBACK_MODEL }
+}
+
 /** A live upstream stream plus the timer that bounds it. */
 interface OpenStream {
   body: ReadableStream<Uint8Array>
@@ -157,24 +163,24 @@ interface OpenStream {
  * Opens one upstream stream under its own AbortController and timer. Each call
  * gets a fresh signal, so a retry is never poisoned by the first attempt's abort.
  */
-async function openStream(agent: AgentConfig, userMessage: string, apiKey: string): Promise<OpenStream> {
+async function openStream(agent: AgentConfig, userMessage: string, provider: ProviderConfig): Promise<OpenStream> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), agent.timeoutMs)
   const clearTimer = () => clearTimeout(timer)
 
   try {
-    const response = await fetch(OPENROUTER_URL, {
+    const response = await fetch(provider.url, {
       method: 'POST',
       signal: abort.signal,
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': SITE_URL,
         'X-Title': APP_TITLE,
       },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: agent.maxTokens,
+        model: provider.model,
+      ...generationOptions(provider, agent.maxTokens, true),
         stream: true,
         stream_options: { include_usage: true },
         // Gemini's ~latest alias now resolves to a reasoning model, and reasoning
@@ -216,6 +222,9 @@ function parseFrame(line: string, result: AgentResult, onChunk: (text: string) =
   } catch {
     return // keep-alive comments and partial frames
   }
+
+  const servedModel = (parsed as OpenRouterChunk & { model?: unknown }).model
+  if (typeof servedModel === 'string') result.servedModel = servedModel
 
   const choice = parsed.choices?.[0]
   const content = choice?.delta?.content
@@ -264,46 +273,49 @@ async function readStream(
   }
 }
 
-/** Runs one agent to completion, retrying once on a 429 with a fresh signal. */
+/** Runs one agent to completion, retrying once on 429, timeout, empty, or length-truncated output. */
 async function streamAgent(
   agent: AgentConfig,
   userMessage: string,
-  apiKey: string,
+  provider: ProviderConfig,
   onChunk: (text: string) => void,
 ): Promise<AgentResult> {
-  const result: AgentResult = { content: '', tokens: 0, reasoningTokens: 0, reasoningChars: 0, finish: null }
-
-  let stream: OpenStream
-  try {
-    stream = await openStream(agent, userMessage, apiKey)
-  } catch (err) {
-    if (err instanceof AgentTimeoutError) {
-      result.finish = 'timeout'
-      return result
-    }
-    if (err instanceof UpstreamError && err.status === 429) {
-      await delay(RETRY_DELAY_MS)
-      stream = await openStream(agent, userMessage, apiKey)
-    } else {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result: AgentResult = { content: '', tokens: 0, reasoningTokens: 0, reasoningChars: 0, finish: null }
+    const chunks: string[] = []
+    let stream: OpenStream
+    const attemptProvider = attempt === 0 ? provider : retryProvider(provider)
+    try {
+      stream = await openStream(agent, userMessage, attemptProvider)
+    } catch (err) {
+      if (err instanceof UpstreamError && (err.status === 408 || err.status === 429 || err.status >= 500) && attempt === 0) {
+        await delay(RETRY_DELAY_MS)
+        continue
+      }
+      if (err instanceof AgentTimeoutError && attempt === 0) continue
+      if (err instanceof AgentTimeoutError) { result.finish = 'timeout'; return result }
       throw err
     }
-  }
 
-  try {
-    await readStream(stream.body, result, onChunk)
-  } catch (err) {
-    if (!stream.abort.signal.aborted) throw err
-  } finally {
-    if (stream.abort.signal.aborted) result.finish = 'timeout'
-    stream.clearTimer()
-  }
+    try {
+      await readStream(stream.body, result, chunk => chunks.push(chunk))
+    } catch (err) {
+      if (!stream.abort.signal.aborted) throw err
+    } finally {
+      if (stream.abort.signal.aborted) result.finish = 'timeout'
+      stream.clearTimer()
+    }
 
-  // Not every provider returns a usage block, so fall back to what was streamed.
-  if (result.reasoningTokens === 0 && result.reasoningChars > 0) {
-    result.reasoningTokens = Math.ceil(result.reasoningChars / CHARS_PER_TOKEN)
+    if (result.reasoningTokens === 0 && result.reasoningChars > 0) {
+      result.reasoningTokens = Math.ceil(result.reasoningChars / CHARS_PER_TOKEN)
+    }
+    const unsuitableModel = result.servedModel?.includes('content-safety') === true
+    const needsRetry = attempt === 0 && (!result.content.trim() || result.finish === 'length' || result.finish === 'timeout' || unsuitableModel)
+    if (needsRetry) continue
+    chunks.forEach(onChunk)
+    return result
   }
-
-  return result
+  return { content: '', tokens: 0, reasoningTokens: 0, reasoningChars: 0, finish: 'timeout' }
 }
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
@@ -427,8 +439,8 @@ export default async (req: Request): Promise<Response> => {
     return fail(err instanceof Error ? err.message : 'Invalid request.', status, headersOut)
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) return fail('OPENROUTER_API_KEY not configured', 500, headersOut)
+  const provider = getProvider(process.env.OPENROUTER_MODEL || DEFAULT_MODEL)
+  if (!provider) return fail('No server-side AI provider configured', 500, headersOut)
 
   const encoder = new TextEncoder()
   const context: AgentContext = {}
@@ -445,7 +457,7 @@ export default async (req: Request): Promise<Response> => {
             const result = await streamAgent(
               agent,
               agent.buildUserMessage(query, context),
-              apiKey,
+              provider,
               content => send({ type: 'agent_chunk', agent: agent.role, content }),
             )
             context[agent.role] = result.content
@@ -455,6 +467,7 @@ export default async (req: Request): Promise<Response> => {
               tokens: result.tokens,
               reasoningTokens: result.reasoningTokens,
               finish: result.finish,
+              servedModel: result.servedModel,
             })
           } catch (err) {
             // One agent failing should not kill the run — the remaining agents

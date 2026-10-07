@@ -1,4 +1,4 @@
-import type { BotStep, PageContentType, StepAction } from '../types'
+import type { BotStep, ExecutionEvent, PageContentType, StepAction } from '../types'
 
 const VALID_ACTIONS: StepAction[] = ['navigate', 'find', 'click', 'type', 'extract', 'verify']
 
@@ -12,9 +12,9 @@ const VALID_PAGE_CONTENT: PageContentType[] = [
 const MAX_ERROR_DETAIL = 300
 
 const STATUS_COPY: Record<number, string> = {
-  429: 'The agent service is handling too many requests right now. Wait a moment and try again.',
-  502: 'The agent service is temporarily unavailable. Try again in a moment.',
-  503: 'The agent service is temporarily unavailable. Try again in a moment.',
+  429: 'The planning service is handling too many requests right now. Wait a moment and try again.',
+  502: 'The planning service is temporarily unavailable. Try again in a moment.',
+  503: 'The planning service is temporarily unavailable. Try again in a moment.',
   504: 'The agent took too long to respond. Try again or pick a shorter task.',
 }
 
@@ -33,7 +33,7 @@ async function errorMessage(response: Response): Promise<string> {
     // Non-JSON or unreadable body — never surface it raw.
   }
   return STATUS_COPY[response.status]
-    ?? `The agent service returned an error (HTTP ${response.status}). Try again in a moment.`
+    ?? `The planning service returned an error (HTTP ${response.status}). Try again in a moment.`
 }
 
 function toStep(raw: unknown): BotStep | null {
@@ -56,7 +56,7 @@ function toStep(raw: unknown): BotStep | null {
   }
 }
 
-export async function generateScenario(task: string): Promise<BotStep[]> {
+export async function generateScenario(task: string): Promise<{ steps: BotStep[]; servedModel: string }> {
   let response: Response
   try {
     response = await fetch('/api/ai', {
@@ -66,14 +66,14 @@ export async function generateScenario(task: string): Promise<BotStep[]> {
     })
   } catch {
     // Transport failure ("Failed to fetch") — offline, DNS, CORS. Never show it raw.
-    throw new Error('Could not reach the agent service. Check your connection and try again.')
+    throw new Error('Could not reach the planning service. Check your connection and try again.')
   }
 
   if (!response.ok) {
     throw new Error(await errorMessage(response))
   }
 
-  let data: { steps?: unknown }
+  let data: { steps?: unknown; served_model?: unknown }
   try {
     data = await response.json() as { steps?: unknown }
   } catch {
@@ -86,5 +86,42 @@ export async function generateScenario(task: string): Promise<BotStep[]> {
 
   if (steps.length === 0) throw new Error('The agent returned no usable steps for this task.')
 
-  return steps
+  return {
+    steps,
+    servedModel: typeof data.served_model === 'string' ? data.served_model : 'provider-reported model unavailable',
+  }
+}
+
+export async function executeScenario(
+  steps: BotStep[],
+  servedModel: string,
+  onEvent: (event: ExecutionEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch('/api/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps, served_model: servedModel }),
+    signal,
+  })
+
+  if (!response.ok || !response.body) {
+    throw new Error(await errorMessage(response))
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const records = buffer.split('\n\n')
+    buffer = records.pop() ?? ''
+    for (const record of records) {
+      const dataLine = record.split('\n').find((line) => line.startsWith('data: '))
+      if (!dataLine) continue
+      onEvent(JSON.parse(dataLine.slice(6)) as ExecutionEvent)
+    }
+    if (done) break
+  }
 }

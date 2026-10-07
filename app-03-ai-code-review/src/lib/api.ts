@@ -10,6 +10,9 @@ function normalise(raw: unknown): ReviewResult {
     comments?: unknown
     lineCount?: unknown
     truncated?: unknown
+    served_model?: unknown
+    served_provider?: unknown
+    execution?: unknown
   }
   const lineCount = typeof payload.lineCount === 'number' ? payload.lineCount : 0
   const comments = (Array.isArray(payload.comments) ? payload.comments : [])
@@ -29,7 +32,17 @@ function normalise(raw: unknown): ReviewResult {
       suggestion: c.suggestion as string,
     }))
 
-  return { comments, lineCount, truncated: payload.truncated === true }
+  const servedProvider = payload.served_provider === 'xAI' || payload.served_provider === 'Anthropic' || payload.served_provider === 'OpenRouter'
+    ? payload.served_provider
+    : undefined
+  const servedModel = typeof payload.served_model === 'string' ? payload.served_model : undefined
+  const rawExecution = payload.execution as { stages?: unknown; durationMs?: unknown } | undefined
+  const stages = Array.isArray(rawExecution?.stages)
+    ? rawExecution.stages.filter((stage): stage is { stage: 'accepted' | 'provider' | 'validation' | 'completed'; status: 'complete' } =>
+        !!stage && typeof stage === 'object' && ['accepted', 'provider', 'validation', 'completed'].includes((stage as { stage?: unknown }).stage as string) && (stage as { status?: unknown }).status === 'complete')
+    : []
+  const durationMs = typeof rawExecution?.durationMs === 'number' && Number.isFinite(rawExecution.durationMs) ? rawExecution.durationMs : 0
+  return { comments, lineCount, truncated: payload.truncated === true, served_model: servedModel, served_provider: servedProvider, execution: stages.length > 0 ? { stages, durationMs } : undefined }
 }
 
 /**

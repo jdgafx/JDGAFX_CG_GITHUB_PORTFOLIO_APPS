@@ -50,6 +50,10 @@ export default function App() {
   const [gallery, setGallery] = useState<GalleryItem[]>([])
   const [activeGalleryId, setActiveGalleryId] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState('')
+  const [stage, setStage] = useState('Ready for an image')
+  const [durationMs, setDurationMs] = useState<number | null>(null)
+  const [servedProvider, setServedProvider] = useState('')
+  const [servedModel, setServedModel] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const analysisRef = useRef<HTMLDivElement>(null)
@@ -86,6 +90,10 @@ export default function App() {
     setIsTruncated(false)
     setErrorText('')
     setNoticeText('')
+    setStage('Ready for an image')
+    setDurationMs(null)
+    setServedProvider('')
+    setServedModel('')
   }, [])
 
   const loadFile = useCallback(
@@ -202,6 +210,11 @@ export default function App() {
     setQuestionError('')
     setUploadError('')
     resetResults()
+    const startedAt = Date.now()
+    setStage('Accepted image; validating request')
+    setDurationMs(null)
+    setServedProvider('')
+    setServedModel('')
     setIsLoading(true)
 
     const controller = new AbortController()
@@ -224,9 +237,27 @@ export default function App() {
         truncated = true
         setIsTruncated(true)
       },
+      onStage: next => {
+        setStage(next === 'accepted' ? 'Accepted image; validating request' : next === 'provider' ? 'Provider connected; sending vision request' : next === 'streaming' ? 'Streaming grounded image observations' : 'Validated complete response')
+      },
+      onProvenance: (provider, model) => {
+        setServedProvider(provider)
+        setServedModel(model)
+      },
       onComplete: () => {
+        // Keep the UI safe even if a future transport adapter violates the
+        // stream contract: empty output is never a validated gallery result.
+        if (truncated || !accTextRef.current.trim()) {
+          setIsLoading(false)
+          abortRef.current = null
+          setErrorText('The vision service returned no usable analysis. Please retry with the same image.')
+          setStage('Failed; retry the same analysis or choose another mode')
+          return
+        }
         setIsLoading(false)
         abortRef.current = null
+        setStage('Validated complete response')
+        setDurationMs(Date.now() - startedAt)
         void addToGallery(file, {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           file,
@@ -242,8 +273,10 @@ export default function App() {
         // Keep whatever streamed before the failure; the notice explains the gap.
         if (isCancellation(err)) {
           setNoticeText('Analysis cancelled. Anything above is only a partial result.')
+          setStage('Cancelled; partial output retained')
         } else {
           setErrorText(err.message)
+          setStage('Failed; retry the same analysis or choose another mode')
         }
       },
     })
@@ -330,7 +363,7 @@ export default function App() {
       {/* Description */}
       <div className="relative z-10 px-5 py-2 border-b border-white/[0.04] flex-shrink-0" style={{ background: 'rgba(244,63,94,0.02)' }}>
         <p className="text-xs text-gray-500 leading-relaxed max-w-3xl" style={{ margin: 0 }}>
-          Upload a photo and pick what you want to know. It can describe the whole scene, break down objects and composition, pull out any visible text, or answer specific questions about what's in the image. Uses Claude's vision model, not a toy.
+          Upload a photo and pick what you want to know. It can describe the whole scene, break down objects and composition, pull out any visible text, or answer specific questions about what's in the image. Uses a real provider-backed vision model, not a toy.
         </p>
       </div>
 
@@ -386,6 +419,10 @@ export default function App() {
                 isTruncated={isTruncated}
                 errorText={errorText}
                 noticeText={noticeText}
+                stage={stage}
+                durationMs={durationMs}
+                servedProvider={servedProvider}
+                servedModel={servedModel}
                 scrollRef={analysisRef}
                 onAnalyze={handleAnalyze}
                 onCancel={handleCancel}
@@ -418,6 +455,7 @@ export default function App() {
         ref={fileInputRef}
         type="file"
         accept={ACCEPTED_TYPES.join(',')}
+        aria-label="Upload an image for analysis"
         className="hidden"
         onChange={handleInputChange}
       />

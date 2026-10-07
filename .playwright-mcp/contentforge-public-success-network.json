@@ -1,0 +1,7 @@
+6. [POST] https://jdgafx-app-07-content-pipeline.netlify.app/api/ai => [200] 
+8. [POST] https://jdgafx-app-07-content-pipeline.netlify.app/api/ai => [200] 
+9. [POST] https://jdgafx-app-07-content-pipeline.netlify.app/api/ai => [200] 
+10. [POST] https://jdgafx-app-07-content-pipeline.netlify.app/api/ai => [200] 
+11. [POST] https://jdgafx-app-07-content-pipeline.netlify.app/api/ai => [200] 
+
+Note: 6 static requests not shown, run with "static" option to see them.

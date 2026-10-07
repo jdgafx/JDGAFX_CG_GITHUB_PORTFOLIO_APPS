@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   ChevronDown,
   Clock,
-  FlaskConical,
   Gauge,
   Loader2,
   Play,
@@ -13,10 +12,9 @@ import {
   Zap,
 } from 'lucide-react'
 import type { BotStep, SpeedMode } from './types'
-import { generateScenario } from './lib/api'
-import { PRESETS, SPEED_DELAYS, SPEED_HINTS, SPEED_POLL_MS } from './lib/constants'
-import { typingIntervalMs } from './lib/scenario'
-import { SAMPLE_STEPS } from './lib/sample'
+import { executeScenario, generateScenario } from './lib/api'
+import { PRESETS, SPEED_HINTS } from './lib/constants'
+import type { ExecutionEvent, ExecutionResult } from './types'
 import BrowserChrome from './components/BrowserChrome'
 import AgentThoughts from './components/AgentThoughts'
 import StepTimeline from './components/StepTimeline'
@@ -34,133 +32,87 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [speed, setSpeed] = useState<SpeedMode>('normal')
-  const [typedText, setTypedText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [stopped, setStopped] = useState(false)
-  const [isSample, setIsSample] = useState(false)
-  const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [servedModel, setServedModel] = useState('')
+  const [execution, setExecution] = useState<ExecutionResult | undefined>()
+  const abortRef = useRef<AbortController | null>(null)
   const presetRef = useRef<HTMLDivElement>(null)
-  const speedRef = useRef(speed)
-
-  useEffect(() => { speedRef.current = speed }, [speed])
-
-  const clearTimers = useCallback(() => {
-    if (stepTimerRef.current) {
-      clearTimeout(stepTimerRef.current)
-      stepTimerRef.current = null
-    }
-    if (typeTimerRef.current) {
-      clearInterval(typeTimerRef.current)
-      typeTimerRef.current = null
-    }
-  }, [])
-
-  const runSteps = useCallback((stepsToRun: BotStep[], startIndex: number) => {
-    if (startIndex >= stepsToRun.length) {
-      setIsRunning(false)
-      setCompleted(true)
-      return
-    }
-
-    const step = stepsToRun[startIndex]
-    setCurrentStepIndex(startIndex)
-    setTypedText('')
-
-    if (typeTimerRef.current) {
-      clearInterval(typeTimerRef.current)
-      typeTimerRef.current = null
-    }
-    if (step.action === 'type' && step.value) {
-      const val = step.value
-      let i = 0
-      typeTimerRef.current = setInterval(() => {
-        i++
-        setTypedText(val.slice(0, i))
-        if (i >= val.length && typeTimerRef.current) {
-          clearInterval(typeTimerRef.current)
-          typeTimerRef.current = null
-        }
-      }, typingIntervalMs(speedRef.current, val.length))
-    }
-
-    // Poll rather than schedule the full delay up front, so a speed change mid-step applies now.
-    const startedAt = Date.now()
-    const tick = () => {
-      const delay = SPEED_DELAYS[speedRef.current]
-      const remaining = delay - (Date.now() - startedAt)
-      if (remaining <= 0) {
-        runSteps(stepsToRun, startIndex + 1)
-        return
-      }
-      stepTimerRef.current = setTimeout(tick, Math.min(SPEED_POLL_MS, remaining))
-    }
-    stepTimerRef.current = setTimeout(tick, SPEED_POLL_MS)
-  }, [])
-
-  const startRun = useCallback((stepsToRun: BotStep[], sample: boolean) => {
-    clearTimers()
+  const startRun = useCallback(async (stepsToRun: BotStep[], model: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setCompleted(false)
     setStopped(false)
-    setIsSample(sample)
+    setError(null)
     setSteps(stepsToRun)
     setCurrentStepIndex(-1)
-    setTypedText('')
+    setExecution(undefined)
     setIsRunning(true)
-    runSteps(stepsToRun, 0)
-  }, [clearTimers, runSteps])
+    try {
+      await executeScenario(stepsToRun, model, (event: ExecutionEvent) => {
+        if (event.type === 'session') setExecution({ sessionId: event.sessionId })
+        if (event.type === 'step_start') setCurrentStepIndex(event.index)
+        if (event.type === 'step_complete') setExecution((previous) => ({ ...previous, url: event.url, title: event.title, excerpt: event.excerpt }))
+        if (event.type === 'result') setExecution((previous) => ({ ...previous, url: event.url, title: event.title, excerpt: event.excerpt }))
+        if (event.type === 'error') setError(event.message)
+        if (event.type === 'done') setCompleted(true)
+      }, controller.signal)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'The external browser could not be reached.')
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null
+      setIsRunning(false)
+    }
+  }, [])
 
   const handleRun = async () => {
     const trimmed = task.trim()
     if (!trimmed) return
-    clearTimers()
+    abortRef.current?.abort()
     setError(null)
     setCompleted(false)
     setStopped(false)
-    setIsSample(false)
     setIsRunning(false)
     setIsLoading(true)
     setSteps([])
     setCurrentStepIndex(-1)
-    setTypedText('')
+    setExecution(undefined)
 
     try {
       const result = await generateScenario(trimmed)
       setIsLoading(false)
-      startRun(result, false)
+      setServedModel(result.servedModel)
+      await startRun(result.steps, result.servedModel)
     } catch (err) {
       setIsLoading(false)
-      setError(err instanceof Error ? err.message : 'The agent service could not be reached.')
+      setError(err instanceof Error ? err.message : 'The planning service could not be reached.')
     }
   }
 
-  const handleRunSample = () => startRun(SAMPLE_STEPS, true)
-
   const handleRestart = () => {
-    if (steps.length > 0) startRun(steps, isSample)
+    if (steps.length > 0) void startRun(steps, servedModel)
   }
 
   const handleStop = () => {
-    clearTimers()
+    abortRef.current?.abort()
     setIsRunning(false)
     setStopped(steps.length > 0 && !completed)
   }
 
   const handleReset = () => {
-    clearTimers()
+    abortRef.current?.abort()
     setIsRunning(false)
     setSteps([])
     setCurrentStepIndex(-1)
-    setTypedText('')
+    setExecution(undefined)
     setError(null)
     setCompleted(false)
     setStopped(false)
-    setIsSample(false)
   }
-
-  useEffect(() => clearTimers, [clearTimers])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -195,7 +147,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">BrowseBot</h1>
-              <p className="text-xs text-slate-500">AI Browser Agent Demo</p>
+              <p className="text-xs text-slate-500">Browser Task Planner</p>
             </div>
           </div>
 
@@ -216,8 +168,8 @@ export default function App() {
                   onClick={() => setSpeed(s)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                     speed === s
-                      ? 'bg-teal-500 text-white shadow-lg'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-teal-700 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
                   }`}
                 >
                   <Icon size={11} />
@@ -230,7 +182,7 @@ export default function App() {
       </header>
       <div className="border-b border-slate-800/40 px-6 py-2" style={{ background: 'rgba(20,184,166,0.02)' }}>
         <p className="max-w-7xl mx-auto text-xs text-slate-500 leading-relaxed" style={{ margin: 0 }}>
-          Describe a web task — 'find the cheapest flight' or 'fill out this form' — and watch an autonomous browser agent work through it step by step. You'll see the cursor move, buttons get clicked, text get typed, and a running log of what the agent is thinking at each point.
+          Describe a web task — 'find the cheapest flight' or 'search Google for Browserbase' — and watch a bounded Browserbase session execute the approved plan on a real external website. The UI shows observed URLs, titles, page text, step rationale, and recoverable limits.
         </p>
       </div>
 
@@ -294,7 +246,7 @@ export default function App() {
                   }
                 }}
                 title="Describe the web task in plain English. Enter runs it, Shift+Enter adds a line."
-                placeholder="Describe what you want the agent to do... e.g. 'Find the cheapest flight from NYC to LA next Friday' (Enter to run, Shift+Enter for new line)"
+                placeholder="Describe the browser workflow to plan... e.g. 'Find the cheapest flight from NYC to LA next Friday' (Enter to run, Shift+Enter for new line)"
                 rows={2}
                 className="w-full bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-teal-500/60 focus:shadow-[0_0_0_3px_rgba(20,184,166,0.1)] transition-all font-mono"
               />
@@ -305,22 +257,22 @@ export default function App() {
                 <button
                   onClick={handleRun}
                   disabled={!task.trim() || isLoading}
-                  title={task.trim() ? 'Run the agent on this task' : 'Enter a task first'}
-                  aria-label="Run agent on the task described above"
-                  className="flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_30px_rgba(20,184,166,0.5)] active:scale-95"
+                  title={task.trim() ? 'Generate a plan for this task' : 'Enter a task first'}
+                  aria-label="Generate a browser workflow plan"
+                  className="flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_30px_rgba(20,184,166,0.5)] active:scale-95"
                 >
                   {isLoading ? (
                     <Loader2 size={16} className="animate-spin" />
                   ) : (
                     <Play size={16} />
                   )}
-                  {isLoading ? 'Loading...' : 'Run Agent'}
+                  {isLoading ? 'Planning...' : 'Generate Plan'}
                 </button>
               ) : (
                 <button
                   onClick={handleStop}
                   title="Stop the run where it is"
-                  aria-label="Stop the running agent"
+                  aria-label="Stop planning"
                   className="flex items-center justify-center gap-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-semibold px-6 py-3 rounded-xl transition-all"
                 >
                   <Square size={16} />
@@ -371,35 +323,17 @@ export default function App() {
                     onClick={handleRun}
                     disabled={!task.trim()}
                     title="Send the same task to the agent again"
-                    aria-label="Retry the agent run"
+                    aria-label="Retry the plan"
                     className="flex items-center gap-1.5 text-xs font-semibold text-red-300 hover:text-red-200 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 border border-red-500/30 rounded-lg px-3 py-1.5 transition-colors"
                   >
                     <RotateCw size={12} />
                     Retry
-                  </button>
-                  <button
-                    onClick={handleRunSample}
-                    title="Play a built-in flight-search example — canned data, not a result for your task"
-                    aria-label="Play the built-in sample demo, which is not a result for your task"
-                    className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg px-3 py-1.5 transition-colors"
-                  >
-                    <FlaskConical size={12} />
-                    Sample demo (not your task)
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          {isSample && (
-            <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-2">
-              <FlaskConical size={14} className="mt-0.5 flex-shrink-0 text-amber-400" />
-              <div className="text-xs text-amber-300">
-                <span className="font-semibold">Sample demo (not your task).</span>{' '}
-                This is a canned flight-search scenario with fixed data, shown only to demonstrate the animation.
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 md:min-h-[460px]">
@@ -407,8 +341,8 @@ export default function App() {
             <BrowserChrome
               steps={steps}
               currentStepIndex={currentStepIndex}
-              typedText={typedText}
               speed={speed}
+              execution={execution}
             />
           </div>
           <div className="md:col-span-2 min-h-[360px] md:min-h-0">
@@ -418,9 +352,10 @@ export default function App() {
               isRunning={isRunning}
               completed={completed}
               stopped={stopped}
-              isSample={isSample}
               speed={speed}
               onRestart={handleRestart}
+              execution={execution}
+              servedModel={servedModel}
             />
           </div>
         </div>

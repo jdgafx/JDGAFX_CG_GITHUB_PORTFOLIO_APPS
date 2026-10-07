@@ -55,9 +55,9 @@ export function Header({ elapsed, isRunning, isComplete, totalTokens }: HeaderPr
         </div>
       </div>
       <p style={{ margin: '7px 0 0 0', fontSize: 13, color: '#94a3b8', lineHeight: 1.55, maxWidth: 860 }}>
-        Type in a research topic and four AI agents get to work — one digs up the facts, another spots the patterns, a
-        third pokes holes in the logic, and the last one ties it all together into a clean report you can export as PDF,
-        Word, or Markdown.
+        Type a research topic and AgentFlow runs four transparent stages in order: Researcher gathers concise facts,
+        Analyst finds patterns, Critic tests gaps, and Synthesizer writes the report. Each stage streams its real output;
+        you can stop the run and export only completed work.
       </p>
     </header>
   )

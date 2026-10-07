@@ -53,7 +53,7 @@ const chartTooltipStyle: React.CSSProperties = {
   color: '#e2e8f0',
 }
 
-const axisTick = { fontSize: 11, fill: '#475569' }
+const axisTick = { fontSize: 11, fill: '#94a3b8' }
 
 export default function Dashboard({ onLogout, isDemoMode, userEmail }: DashboardProps) {
   const stats = mockSummaryStats
@@ -132,9 +132,9 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
             )}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {userEmail && (
-              <span title="Signed in account" style={{ fontSize: '13px', color: '#64748b' }}>
+              <span className="hidden sm:inline" title="Signed in account" style={{ fontSize: '13px', color: '#a5b4fc' }}>
                 {userEmail}
               </span>
             )}
@@ -166,7 +166,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
       </header>
 
       <div style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.02)' }}>
-        <p style={{ maxWidth: '1400px', margin: '0 auto', padding: '8px 24px', fontSize: '11px', color: '#475569', lineHeight: '1.5' }}>
+        <p style={{ maxWidth: '1400px', margin: '0 auto', padding: '8px 24px', fontSize: '11px', color: '#a5b4fc', lineHeight: '1.5' }}>
           A SaaS analytics dashboard with real auth (via Supabase) and AI-generated business
           insights. Charts render a simulated dataset — API calls, feature usage, error rates and
           latency across {WINDOW_DAYS} days. The AI reads those numbers and tells you what's
@@ -184,14 +184,14 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
           <h2 style={{ fontSize: '26px', fontWeight: 700, color: '#f1f5f9', marginBottom: '6px' }}>
             API Analytics
           </h2>
-          <p style={{ fontSize: '14px', color: '#64748b' }}>
+          <p style={{ fontSize: '14px', color: '#a5b4fc' }}>
             Simulated dataset (seeded demo data) · {WINDOW_DAYS}-day window
           </p>
         </motion.div>
 
         <p
           title="Each card totals or averages the most recent half of the window and compares it against the half before it"
-          style={{ fontSize: '12px', color: '#475569', marginBottom: '12px', letterSpacing: '0.3px' }}
+          style={{ fontSize: '12px', color: '#a5b4fc', marginBottom: '12px', letterSpacing: '0.3px' }}
         >
           {COMPARISON_LABEL}
         </p>
@@ -272,7 +272,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
               </h3>
               <span
                 title={`Requests served per day across the full ${WINDOW_DAYS}-day window`}
-                style={{ marginLeft: 'auto', fontSize: '12px', color: '#475569' }}
+                style={{ marginLeft: 'auto', fontSize: '12px', color: '#a5b4fc' }}
               >
                 {WINDOW_DAYS} days
               </span>
@@ -308,7 +308,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
               </h3>
               <span
                 title="Calls broken down by product feature over the same window"
-                style={{ marginLeft: 'auto', fontSize: '12px', color: '#475569' }}
+                style={{ marginLeft: 'auto', fontSize: '12px', color: '#a5b4fc' }}
               >
                 {mockFeatureUsage.length} features
               </span>
@@ -344,7 +344,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
               </h3>
               <span
                 title="Percentage of requests that failed each day — trending down is healthy"
-                style={{ marginLeft: 'auto', fontSize: '12px', color: '#475569' }}
+                style={{ marginLeft: 'auto', fontSize: '12px', color: '#a5b4fc' }}
               >
                 % of requests
               </span>
@@ -378,7 +378,7 @@ export default function Dashboard({ onLogout, isDemoMode, userEmail }: Dashboard
         <InsightsPanel stats={stats} />
       </main>
 
-      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#475569', borderTop: '1px solid rgba(99,102,241,0.1)' }}>
+      <footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#a5b4fc', borderTop: '1px solid rgba(99,102,241,0.1)' }}>
         Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
       </footer>
     </div>

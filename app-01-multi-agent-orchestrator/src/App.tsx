@@ -101,6 +101,8 @@ export default function App() {
         return
       }
 
+      if (event.type === 'provider_started') return
+
       if (event.agent === 'system') {
         // A system-level failure ends every agent still in flight — otherwise they
         // pulse "thinking" forever behind the error banner.
@@ -132,6 +134,7 @@ export default function App() {
               startTime: Date.now(),
               maxTokens: event.maxTokens ?? prev[role].maxTokens,
               finish: null,
+              servedModel: undefined,
               error: undefined,
             },
           }))
@@ -152,6 +155,7 @@ export default function App() {
               tokens: event.tokens ?? 0,
               reasoningTokens: event.reasoningTokens ?? 0,
               finish: event.finish ?? null,
+              servedModel: event.servedModel,
               endTime: Date.now(),
             },
           }))

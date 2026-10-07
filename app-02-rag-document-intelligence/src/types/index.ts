@@ -14,6 +14,8 @@ export interface Message {
   content: string
   sourceChunks?: number[]
   confidence?: number
+  servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'
+  servedModel?: string
   timestamp: Date
   error?: boolean
 }

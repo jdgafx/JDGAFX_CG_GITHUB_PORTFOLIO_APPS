@@ -5,9 +5,17 @@ export interface Message {
   content: string
 }
 
+export interface ChatResponse {
+  text: string
+  provider: string
+  model?: string
+}
+
 // What the UI stores: the wire shape plus a stable key for list rendering.
 export interface ChatMessage extends Message {
   id: string
+  servedProvider?: string
+  servedModel?: string
 }
 
 // Fallbacks for the cases where the function did not return JSON at all (edge
@@ -64,7 +72,7 @@ export async function chat(
   message: string,
   history: Message[],
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<ChatResponse> {
   const res = await guardedFetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -74,9 +82,13 @@ export async function chat(
 
   if (!res.ok) throw new Error(await readError(res, 'The assistant'))
 
-  const data = (await res.json()) as { response?: unknown }
+  const data = (await res.json()) as { response?: unknown; served_provider?: unknown; served_model?: unknown }
   if (typeof data.response !== 'string' || !data.response.trim()) {
     throw new Error('The assistant returned an empty response. Try again.')
   }
-  return data.response
+  return {
+    text: data.response,
+    provider: typeof data.served_provider === 'string' ? data.served_provider : 'OpenRouter',
+    model: typeof data.served_model === 'string' ? data.served_model : undefined,
+  }
 }

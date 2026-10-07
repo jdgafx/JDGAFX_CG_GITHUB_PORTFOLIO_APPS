@@ -1,7 +1,8 @@
+import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
+
 export const config = { path: '/api/ai' }
 
-const OPENROUTER_URL = process.env.OPENROUTER_URL ?? 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = process.env.OPENROUTER_MODEL ?? '~anthropic/claude-haiku-latest'
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? '~anthropic/claude-haiku-latest'
 
 const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
 // Must stay >= the client's TOP_K in src/lib/constants.ts, or well-formed
@@ -22,6 +23,16 @@ interface AiResponse {
   answer: string
   source_chunk_indices: number[]
   confidence: number
+}
+
+interface ExecutionEvent {
+  type: 'stage' | 'answer' | 'error'
+  stage?: 'accepted' | 'retrieval' | 'provider' | 'validation' | 'completed'
+  detail?: string
+  served_model?: string
+  served_provider?: string
+  payload?: AiResponse & { served_model: string; served_provider: string }
+  error?: string
 }
 
 // Browser origins allowed to call this endpoint. Netlify injects URL /
@@ -121,6 +132,100 @@ ${chunks.join('\n\n')}
 Question: ${question}
 
 Respond with ONLY the JSON object.`
+}
+
+function streamExecution(
+  provider: NonNullable<ReturnType<typeof getProvider>>,
+  question: string,
+  chunks: string[],
+  documentTitle: string,
+  headers: Record<string, string>,
+): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: ExecutionEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      const finish = () => {
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      }
+      send({ type: 'stage', stage: 'accepted', detail: 'Question accepted for this document.' })
+      send({ type: 'stage', stage: 'retrieval', detail: `Using ${chunks.length} ranked document passage${chunks.length === 1 ? '' : 's'}.` })
+      send({ type: 'stage', stage: 'provider', detail: 'Request sent to the configured answer provider.', served_provider: provider.name, served_model: provider.model })
+
+      let aiResponse: Response
+      try {
+        aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: provider.model,
+            ...generationOptions(provider, MAX_OUTPUT_TOKENS, true),
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
+            ],
+          }),
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        }))
+      } catch (err) {
+        const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
+        console.error('OpenRouter request failed:', err)
+        send({ type: 'error', error: timedOut ? 'The model took too long to answer. Try a shorter question.' : 'Could not reach the model provider. Try again shortly.' })
+        finish()
+        return
+      }
+      if (!aiResponse.ok) {
+        console.error('OpenRouter error:', aiResponse.status, await aiResponse.text().catch(() => ''))
+        send({ type: 'error', error: upstreamMessage(aiResponse.status) })
+        finish()
+        return
+      }
+
+      let rawText: string | undefined
+      let servedModel = provider.model
+      try {
+        const aiData = (await aiResponse.json()) as { model?: string; choices?: Array<{ message?: { content?: string } }> }
+        rawText = aiData.choices?.[0]?.message?.content
+        servedModel = aiData.model ?? provider.model
+      } catch (err) {
+        console.error('Could not parse OpenRouter response:', err)
+      }
+      if (!rawText) {
+        send({ type: 'error', error: 'The model returned an empty response. Please try again.' })
+        finish()
+        return
+      }
+
+      let result: AiResponse
+      try {
+        result = JSON.parse(extractJson(rawText)) as AiResponse
+      } catch {
+        send({ type: 'error', error: 'The model returned a malformed response. Please try again.' })
+        finish()
+        return
+      }
+      if (typeof result.answer !== 'string' || !Array.isArray(result.source_chunk_indices) || typeof result.confidence !== 'number' || !Number.isFinite(result.confidence)) {
+        send({ type: 'error', error: 'The model returned an invalid response structure. Please try again.' })
+        finish()
+        return
+      }
+
+      send({ type: 'stage', stage: 'validation', detail: 'Answer structure and cited passages validated.' })
+      const payload = {
+        answer: result.answer,
+        source_chunk_indices: result.source_chunk_indices.filter((i): i is number => typeof i === 'number' && Number.isInteger(i)),
+        confidence: Math.min(1, Math.max(0, result.confidence)),
+        served_model: servedModel,
+        served_provider: provider.name,
+      }
+      send({ type: 'stage', stage: 'completed', detail: 'Answer ready with provider and source provenance.', served_model: servedModel, served_provider: provider.name })
+      send({ type: 'answer', payload })
+      finish()
+    },
+  })
+  return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } })
 }
 
 function extractJson(text: string): string {
@@ -234,29 +339,34 @@ export default async (req: Request): Promise<Response> => {
   }
   const { question, chunks, documentTitle } = validated.value
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) {
+  const provider = getProvider(OPENROUTER_MODEL)
+  if (!provider) {
     return json(500, { error: 'The document assistant is not configured on this deployment.' })
+  }
+
+  if (req.headers.get('accept')?.includes('text/event-stream')) {
+    return streamExecution(provider, question, chunks, documentTitle, headers)
   }
 
   let aiResponse: Response
   try {
-    aiResponse = await fetch(OPENROUTER_URL, {
+    aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        model: provider.model,
+        ...generationOptions(provider, MAX_OUTPUT_TOKENS, true),
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
         ],
       }),
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    })
+    }))
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
     console.error('OpenRouter request failed:', err)
@@ -273,11 +383,14 @@ export default async (req: Request): Promise<Response> => {
   }
 
   let rawText: string | undefined
+  let servedModel = provider.model
   try {
     const aiData = (await aiResponse.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
+      model?: string
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
     }
     rawText = aiData.choices?.[0]?.message?.content
+    servedModel = aiData.model ?? provider.model
   } catch (err) {
     console.error('Could not parse OpenRouter response:', err)
   }
@@ -307,6 +420,8 @@ export default async (req: Request): Promise<Response> => {
     source_chunk_indices: result.source_chunk_indices.filter(
       (i): i is number => typeof i === 'number' && Number.isInteger(i),
     ),
-    confidence: Math.min(1, Math.max(0, result.confidence)),
+      confidence: Math.min(1, Math.max(0, result.confidence)),
+    served_model: servedModel,
+    served_provider: provider.name,
   })
 }

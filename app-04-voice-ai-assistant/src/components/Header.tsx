@@ -17,7 +17,7 @@ export default function Header() {
       </header>
       <div className="w-full px-8 py-3 border-b border-zinc-800/30" style={{ background: 'rgba(139,92,246,0.03)' }}>
         <p className="text-xs text-zinc-400 leading-relaxed max-w-2xl mx-auto text-center" style={{ margin: 0 }}>
-          Hit the mic button and just talk. Your voice gets transcribed on the fly, the AI thinks through a response, and reads it back to you out loud. No microphone? The text box works just as well.
+          VoxAI follows one visible path: microphone recording → real Deepgram transcription → OpenRouter answer → browser speech synthesis. Each state names what is happening, can be cancelled, and falls back honestly to typed input when microphone capture is unavailable.
         </p>
       </div>
     </>

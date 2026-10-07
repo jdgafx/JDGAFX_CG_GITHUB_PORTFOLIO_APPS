@@ -53,6 +53,16 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
           >
             Analysis
           </span>
+          {queryPlan.served_provider && queryPlan.served_model && (
+            <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#6a6a8a' }} title="Provider and model reported by the analysis service">
+              {queryPlan.served_provider} · {queryPlan.served_model}
+            </span>
+          )}
+          {queryPlan.execution && (
+            <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#6a6a8a' }} title="Backend-reported execution stages and duration">
+              {queryPlan.execution.stages.map(({ stage }) => stage).join(' → ')} · {(queryPlan.execution.durationMs / 1000).toFixed(1)}s
+            </span>
+          )}
         </div>
       </div>
       <div style={{ padding: '14px 20px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

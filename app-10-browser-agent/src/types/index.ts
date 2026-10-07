@@ -32,3 +32,18 @@ export interface ResultRow {
   detail?: string
   value?: string
 }
+
+export type ExecutionEvent =
+  | { type: 'session'; sessionId: string }
+  | { type: 'step_start'; index: number; step: BotStep; url: string }
+  | { type: 'step_complete'; index: number; url: string; title: string; excerpt: string }
+  | { type: 'result'; url: string; title: string; excerpt: string }
+  | { type: 'error'; message: string }
+  | { type: 'done' }
+
+export interface ExecutionResult {
+  sessionId?: string
+  url?: string
+  title?: string
+  excerpt?: string
+}

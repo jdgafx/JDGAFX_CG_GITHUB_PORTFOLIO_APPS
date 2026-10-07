@@ -1,0 +1,5 @@
+[     348ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/token?grant_type=refresh_token:0
+[   26451ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/token?grant_type=password:0
+[  130734ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/token?grant_type=password:0
+[  160796ms] [ERROR] Failed to load resource: the server responded with a status of 429 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/recover?redirect_to=https%3A%2F%2Fjdgafx-app-09-ai-saas.netlify.app:0
+[  164815ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ https://jdgafx-app-09-ai-saas.netlify.app/:0
