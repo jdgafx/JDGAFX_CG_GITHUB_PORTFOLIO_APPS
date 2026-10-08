@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import {
   Area,
   AreaChart,
@@ -41,6 +42,11 @@ const MAX_BAR_GROUPS = 30
 /** Eight categorical slots: seven groups and "Other". */
 const MAX_PIE_SLICES = 8
 const OTHER_LABEL = 'Other'
+/** Category labels longer than this are cut with an ellipsis. The full name is the hover title. */
+const TICK_MAX_CHARS = 12
+/** On a phone, a chart with more groups than this scrolls sideways instead of crowding its labels. */
+const WIDE_GROUPS = 8
+const GROUP_MIN_PX = 40
 
 function formatValue(value: number): string {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
@@ -115,6 +121,26 @@ function ValueTooltip({ active, payload, label }: ValueTooltipProps) {
   )
 }
 
+interface CategoryTickProps {
+  x?: number
+  y?: number
+  payload?: { value?: unknown }
+  fill: string
+}
+
+/** A category label at -30 degrees, cut to the tick limit. The full name is the hover title. */
+function CategoryTick({ x = 0, y = 0, payload, fill }: CategoryTickProps) {
+  const full = String(payload?.value ?? '')
+  const shown = full.length > TICK_MAX_CHARS ? `${full.slice(0, TICK_MAX_CHARS - 1)}…` : full
+  const anchorY = y + 8
+  return (
+    <text x={x} y={anchorY} fill={fill} fontSize={13} textAnchor="end" transform={`rotate(-30 ${x} ${anchorY})`}>
+      <title>{full}</title>
+      {shown}
+    </text>
+  )
+}
+
 export default function ChartView({ result }: ChartViewProps) {
   const palette = useChartPalette()
   const { labels, datasets, queryPlan } = result
@@ -168,14 +194,18 @@ export default function ChartView({ result }: ChartViewProps) {
   )
   const summary = `${chartType} chart. ${queryPlan.aggregate.fn} of ${queryPlan.aggregate.field} by ${queryPlan.groupBy}, across ${labels.length} groups. Largest: ${plotLabels[largestIndex]} at ${formatValue(plotValues[largestIndex] ?? 0)}.${combinable ? ` Combined total ${formatValue(total)}.` : ''}`
 
-  const tick = { fill: palette.muted, fontSize: 12 }
+  const wide =
+    (chartType === 'bar' || chartType === 'line' || chartType === 'area') && plotLabels.length > WIDE_GROUPS
+  const frameStyle = wide
+    ? ({ '--viz-min': `${plotLabels.length * GROUP_MIN_PX}px` } as CSSProperties)
+    : undefined
+
+  const tick = { fill: palette.muted, fontSize: 13 }
   const grid = { stroke: palette.grid, strokeDasharray: '3 3' }
   const margin = { top: 10, right: 20, left: 10, bottom: 40 }
   const axisProps = {
     dataKey: 'name',
-    tick,
-    angle: -30,
-    textAnchor: 'end' as const,
+    tick: <CategoryTick fill={palette.muted} />,
     interval: tickInterval,
     height: 60,
   }
@@ -216,12 +246,6 @@ export default function ChartView({ result }: ChartViewProps) {
     if (chartType === 'area') {
       return (
         <AreaChart data={standardData} margin={margin}>
-          <defs>
-            <linearGradient id="viz-area-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={palette.accent} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={palette.accent} stopOpacity={0} />
-            </linearGradient>
-          </defs>
           <CartesianGrid {...grid} />
           <XAxis {...axisProps} />
           <YAxis tick={tick} tickFormatter={formatValue} width={60} />
@@ -231,7 +255,8 @@ export default function ChartView({ result }: ChartViewProps) {
             dataKey={datasetName}
             stroke={palette.accent}
             strokeWidth={2.5}
-            fill="url(#viz-area-fill)"
+            fill={palette.accent}
+            fillOpacity={0.18}
             dot={dotFor(palette.accent, 3)}
             isAnimationActive={false}
           />
@@ -262,7 +287,7 @@ export default function ChartView({ result }: ChartViewProps) {
             ))}
           </Pie>
           <Tooltip content={<ValueTooltip />} />
-          <Legend wrapperStyle={{ color: palette.muted, fontSize: 12, maxHeight: 72, overflowY: 'auto' }} />
+          <Legend wrapperStyle={{ color: palette.muted, fontSize: 13, maxHeight: 72, overflowY: 'auto' }} />
         </PieChart>
       )
     }
@@ -280,15 +305,17 @@ export default function ChartView({ result }: ChartViewProps) {
 
   return (
     <div className="app-chart">
-      <div className="viz-frame" role="img" aria-label={summary}>
-        <ResponsiveContainer width="100%" height="100%">
-          {renderChart()}
-        </ResponsiveContainer>
+      <div className={wide ? 'ds-panel viz-panel viz-panel--wide' : 'ds-panel viz-panel'}>
+        <div className="viz-frame" role="img" aria-label={summary} style={frameStyle}>
+          <ResponsiveContainer width="100%" height="100%">
+            {renderChart()}
+          </ResponsiveContainer>
+        </div>
       </div>
-      {limited.note && <p className="ds-hint">{limited.note}</p>}
+      {limited.note && <p className="ds-help">{limited.note}</p>}
       <details className="app-details">
         <summary>Show the values as a table</summary>
-        <div className="app-table-wrap">
+        <div className="ds-panel app-table-wrap">
           <table className="app-table">
             <caption>
               {queryPlan.aggregate.fn} of {queryPlan.aggregate.field} by {queryPlan.groupBy}

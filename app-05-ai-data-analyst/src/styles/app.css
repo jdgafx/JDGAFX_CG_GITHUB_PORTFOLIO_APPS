@@ -43,27 +43,17 @@
   --viz-other: #898781;
 }
 
-.app-stack {
+/* Controls */
+.app-action {
   display: grid;
-  gap: 12px;
-  min-width: 0;
+  gap: 8px;
 }
 
-.app-ask {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-}
-
-.app-ask > * {
-  min-width: 0;
-}
-
-@media (max-width: 560px) {
-  .app-ask {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.app-status {
+  min-height: 1.55em;
+  font-size: 15px;
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
 }
 
 .app-chip {
@@ -74,28 +64,156 @@
   text-align: left;
 }
 
+/* Banners */
+.app-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-banner > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-banner__dismiss {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+/* Result: the hero. The answer leads, the plan in plain words follows, then the chart. */
+.app-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .app-answer {
   margin: 0;
-  font-weight: 600;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ds-text);
 }
 
-.app-details {
-  border-top: 1px solid var(--ds-border);
+.app-plan-words {
+  display: grid;
+  gap: 12px 20px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0;
   padding-top: 12px;
+  border-top: 1px solid var(--ds-border);
 }
 
-.app-details > summary,
-.app-preview__summary {
-  cursor: pointer;
+.app-plan-words > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-plan-words dt {
   font-size: 13px;
-  font-weight: 600;
   color: var(--ds-text-muted);
 }
 
-.app-preview__summary {
+.app-plan-words dd {
+  margin: 0;
   font-size: 15px;
-  font-weight: 650;
-  color: var(--ds-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.app-notice {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 15px;
+  color: var(--ds-warning);
+  background: var(--ds-warning-soft);
+  border-radius: var(--ds-radius-sm);
+}
+
+/* Chart: the bench panel holds the frame. A crowded phone chart scrolls sideways. */
+.app-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.viz-panel {
+  min-width: 0;
+}
+
+.viz-frame {
+  width: 100%;
+  height: 300px;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .viz-frame {
+    height: 240px;
+  }
+
+  .viz-panel--wide {
+    overflow-x: auto;
+  }
+
+  .viz-panel--wide .viz-frame {
+    min-width: var(--viz-min, 0);
+  }
+}
+
+/* Recharts paints legend labels in their series colour inline. Text wears a text token; the swatch carries identity. */
+.recharts-legend-item-text {
+  color: var(--ds-text-muted) !important;
+}
+
+.viz-tooltip {
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.viz-tooltip__label {
+  margin: 0 0 2px;
+  color: var(--ds-text-muted);
+}
+
+.viz-tooltip__value {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-skeleton {
+  min-height: 300px;
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes app-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Disclosures: the chart table, the JSON plan and the data preview */
+.app-details {
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border);
+}
+
+.app-details > summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .app-details[open] > summary {
@@ -106,7 +224,7 @@
   margin: 0;
   padding: 12px;
   font-family: var(--ds-mono);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -115,12 +233,26 @@
   border-radius: var(--ds-radius-sm);
 }
 
+.app-preview {
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+
+.app-preview__summary {
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.app-preview .ds-section__sub {
+  margin-top: 4px;
+}
+
 .app-table-wrap {
+  padding: 0;
   overflow: auto;
-  max-height: 280px;
-  margin-top: 8px;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
+  max-height: 300px;
+  margin-top: 12px;
 }
 
 .app-table {
@@ -131,14 +263,14 @@
 
 .app-table caption {
   caption-side: top;
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
   color: var(--ds-text-muted);
 }
 
 .app-table th,
 .app-table td {
-  padding: 8px 10px;
+  padding: 8px 12px;
   text-align: left;
   white-space: nowrap;
   border-bottom: 1px solid var(--ds-border);
@@ -159,115 +291,64 @@
   font-variant-numeric: tabular-nums;
 }
 
-.app-preview {
-  display: block;
-}
-
-.app-banner {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.app-banner > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.app-banner__dismiss {
-  flex-shrink: 0;
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
-}
-
+/* Question history: rows divided by rules, not bordered buttons */
 .app-list {
   display: grid;
-  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1px solid var(--ds-border);
+}
+
+.app-list > li {
+  border-bottom: 1px solid var(--ds-border);
 }
 
 .app-history-item {
-  width: 100%;
-  min-height: 56px;
-  padding: 10px 12px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  display: grid;
+  justify-content: start;
+  justify-items: start;
+  align-items: start;
   gap: 2px;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 0;
+  font-size: 15px;
+  font-weight: 600;
   text-align: left;
-  font-weight: 500;
+  color: var(--ds-text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .app-history-item > span {
   overflow-wrap: anywhere;
 }
 
-.app-chart {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
+.app-history-item:hover:not(:disabled) {
+  filter: none;
+  text-decoration: underline;
 }
 
-/* The answer and chart card never shrink below their content, and long words wrap inside it. */
-.app-result {
-  flex-shrink: 0;
-  overflow-wrap: anywhere;
+/* Trace step heading: the step name, then its status as a dot and a word */
+.app-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
 }
 
-.viz-frame {
-  width: 100%;
-  height: 300px;
-  min-width: 0;
-}
-
-/* Recharts paints legend labels in their series colour inline. Text wears a text token; the swatch carries identity. */
-.recharts-legend-item-text {
-  color: var(--ds-text-muted) !important;
-}
-
-@media (max-width: 720px) {
-  .viz-frame {
-    height: 240px;
-  }
-}
-
-.viz-tooltip {
-  padding: 8px 10px;
+.app-step-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-  box-shadow: var(--ds-shadow);
-}
-
-.viz-tooltip__label {
-  margin: 0 0 2px;
   color: var(--ds-text-muted);
+  white-space: nowrap;
 }
 
-.viz-tooltip__value {
-  margin: 0;
-  font-family: var(--ds-mono);
-  font-weight: 600;
-}
-
-.app-skeleton {
-  min-height: 300px;
-  border-radius: var(--ds-radius-sm);
-  background: var(--ds-surface-2);
-  animation: app-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes app-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
+.app-step-status--failed {
+  color: var(--ds-danger);
 }

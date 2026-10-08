@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
+import { answerSentence } from './lib/answer'
 import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
 import { validateQueryPlan } from './lib/queryPlan'
 import { askData, AnalysisRunError, CancelledError, clientRun, sampleFor } from './lib/api'
@@ -7,18 +8,13 @@ import { SAMPLE_DATASETS, SAMPLE_QUERIES } from './lib/sampleData'
 import AppHeader, { type HeaderStatus } from './components/AppHeader'
 import QueryBar from './components/QueryBar'
 import Banners from './components/Banners'
-import DataPreview from './components/DataPreview'
-import AnalysisPanel from './components/AnalysisPanel'
-import RunTrace from './components/RunTrace'
-import RunMetrics from './components/RunMetrics'
-import HistoryList from './components/HistoryList'
+import RunColumn from './components/RunColumn'
 import type {
   AnalysisResult,
   DatasetOption,
   EngineResult,
   HistoryEntry,
   ParsedData,
-  RunOutcome,
   RunStep,
   RunView,
 } from './types'
@@ -28,16 +24,10 @@ const MAX_HISTORY = 20
 const CUSTOM = 'custom'
 
 const SAMPLE_OPTIONS: DatasetOption[] = [
-  { value: 'sales', label: 'Sales Performance' },
-  { value: 'analytics', label: 'User Analytics' },
-  { value: 'weather', label: 'Weather Data' },
+  { value: 'sales', label: 'Sales performance' },
+  { value: 'analytics', label: 'User analytics' },
+  { value: 'weather', label: 'Weather data' },
 ]
-
-const OUTCOME: Record<RunOutcome, { label: string; tone: string }> = {
-  done: { label: 'Completed', tone: 'ds-badge--success' },
-  failed: { label: 'Failed', tone: 'ds-badge--danger' },
-  stopped: { label: 'Stopped', tone: '' },
-}
 
 /** The bundled samples are fixed text, so this only returns null if the bundle itself is broken. */
 function loadSample(key: string): ParsedData | null {
@@ -48,6 +38,23 @@ function loadSample(key: string): ParsedData | null {
   } catch {
     return null
   }
+}
+
+/** The live status line. It uses the same verb as the primary button: Plan and run. */
+function statusMessage(
+  isLoading: boolean,
+  run: RunView | null,
+  current: AnalysisResult | null,
+  hasData: boolean,
+): string {
+  if (isLoading) return 'Planning and running your question.'
+  if (run?.outcome === 'done' && current) {
+    const answer = answerSentence(current.queryPlan, topGroup(current))
+    return `Plan and run complete. ${answer ?? current.queryPlan.title}`
+  }
+  if (run?.outcome === 'failed') return 'Plan and run failed. The message at the top says why.'
+  if (run?.outcome === 'stopped') return 'Plan and run stopped before a reply.'
+  return hasData ? 'Type a question, then choose Plan and run.' : ''
 }
 
 export default function App() {
@@ -68,7 +75,9 @@ export default function App() {
   const sampleData = useMemo(() => loadSample(selectedDataset), [selectedDataset])
   const parsedData = selectedDataset === CUSTOM ? customData : sampleData
   const sampleError =
-    selectedDataset !== CUSTOM && parsedData === null ? 'This sample dataset could not be loaded.' : null
+    selectedDataset !== CUSTOM && parsedData === null
+      ? 'This sample dataset could not be loaded. Reload the page, or upload your own CSV.'
+      : null
 
   const options = useMemo<DatasetOption[]>(
     () => (customFileName ? [...SAMPLE_OPTIONS, { value: CUSTOM, label: customFileName }] : SAMPLE_OPTIONS),
@@ -157,6 +166,9 @@ export default function App() {
     const startedAt = Date.now()
     setIsLoading(true)
     setError(null)
+    // The previous chart and figures belong to the last run, so they clear when a new run starts.
+    setCurrent(null)
+    setRun(null)
 
     try {
       const response = await askData(
@@ -245,39 +257,13 @@ export default function App() {
 
   const headerStatus: HeaderStatus = isLoading ? 'running' : run ? run.outcome : 'idle'
   const suggestions = SAMPLE_QUERIES[selectedDataset] ?? []
-  const liveText = isLoading
-    ? 'Analyzing your question.'
-    : run?.outcome === 'done' && current
-      ? `Chart updated: ${current.queryPlan.title}.`
-      : run?.outcome === 'failed'
-        ? 'The analysis failed.'
-        : run?.outcome === 'stopped'
-          ? 'Analysis stopped.'
-          : ''
+  const statusText = statusMessage(isLoading, run, current, parsedData !== null)
 
   return (
     <div className="ds-app">
       <AppHeader status={headerStatus} />
 
       <main className="ds-main">
-        <QueryBar
-          options={options}
-          selected={selectedDataset}
-          parsedData={parsedData}
-          question={question}
-          suggestions={suggestions}
-          isLoading={isLoading}
-          fileInputRef={fileInputRef}
-          onSelect={handleSelect}
-          onUploadClick={() => fileInputRef.current?.click()}
-          onFileChange={handleFileUpload}
-          onQuestionChange={setQuestion}
-          onAnalyze={() => void handleAnalyze()}
-          onStop={handleStop}
-        />
-
-        {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
-
         <Banners
           error={error ?? sampleError}
           notice={notice}
@@ -285,47 +271,33 @@ export default function App() {
           onDismissNotice={() => setNotice(null)}
         />
 
-        <p className="ds-hint" role="status" aria-live="polite">
-          {liveText}
-        </p>
+        <div className="ds-bench">
+          <QueryBar
+            options={options}
+            selected={selectedDataset}
+            parsedData={parsedData}
+            question={question}
+            suggestions={suggestions}
+            isLoading={isLoading}
+            statusText={statusText}
+            fileInputRef={fileInputRef}
+            onSelect={handleSelect}
+            onUploadClick={() => fileInputRef.current?.click()}
+            onFileChange={handleFileUpload}
+            onQuestionChange={setQuestion}
+            onAnalyze={() => void handleAnalyze()}
+            onStop={handleStop}
+          />
 
-        <div className="ds-grid-2">
-          {isLoading ? (
-            <section className="ds-card" aria-busy="true" aria-label="Analysis in progress">
-              <div className="app-skeleton" />
-            </section>
-          ) : current ? (
-            <AnalysisPanel result={current} />
-          ) : (
-            <section className="ds-card">
-              <p className="ds-empty">
-                {parsedData
-                  ? 'Ask a question to draw a chart from your data.'
-                  : 'Choose a sample dataset or upload a CSV to start.'}
-              </p>
-            </section>
-          )}
-
-          <section className="ds-card" aria-labelledby="run-title">
-            <div className="ds-card__head">
-              <h2 id="run-title" className="ds-card__title">Agent run</h2>
-              {run && <span className={`ds-badge ${OUTCOME[run.outcome].tone}`}>{OUTCOME[run.outcome].label}</span>}
-            </div>
-            {run ? (
-              <div className="app-stack">
-                <p className="ds-hint">
-                  Each step shows what it did and how long it took. Steps that did not run are marked skipped.
-                </p>
-                <RunTrace steps={run.trace} />
-                <RunMetrics run={run} />
-              </div>
-            ) : (
-              <p className="ds-empty">Ask a question to see each step, its timing and the token use.</p>
-            )}
-          </section>
+          <RunColumn
+            parsedData={parsedData}
+            current={current}
+            run={run}
+            isLoading={isLoading}
+            history={history}
+            onReopen={handleReopen}
+          />
         </div>
-
-        <HistoryList entries={history} disabled={isLoading} onReopen={handleReopen} />
       </main>
 
       <footer className="ds-footer">

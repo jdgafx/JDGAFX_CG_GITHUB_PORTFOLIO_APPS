@@ -2,11 +2,17 @@
 
 DataPilot answers a plain-English question about a CSV file and draws the chart that answers it. You pick one of three sample datasets or upload your own CSV (up to 5 MB, with a header row). The model never sees the whole file. It reads the column names and up to five sample rows, then returns a query plan: the column to group by, the column to measure and how to total it. Your browser runs that plan on every row, so the numbers come from your data. The page states the answer in one sentence, draws the chart, and shows each run step with its timing, tokens, cost and the model that served the reply.
 
+**What this showcases:** the model plans, the browser computes. A query plan is validated against the columns and executed deterministically over every row.
+
 Live: https://jdgafx-app-05-ai-data-analyst.netlify.app
+
+## Page layout
+
+The page is a bench. The controls sit on the left: your data (a sample or an uploaded CSV), then the question. The run sits on the right. It shows the result first, with the answer above its chart and the query plan in plain words under the answer. Below the result come the data preview, the model and cost figures, the agent run steps and the question history. Below 1000 px the controls stack above the run.
 
 ## Agent steps
 
-The run card lists these steps in order. A step that did not run is marked skipped.
+The agent run section lists these steps in order. A step that did not run is marked skipped.
 
 | Step | Where | What it does |
 |---|---|---|
@@ -19,7 +25,7 @@ The run card lists these steps in order. A step that did not run is marked skipp
 | Run plan on the rows | browser | Filters, groups, sorts and totals every row in the browser. |
 | Check plan in the browser | browser | Repeats the column check before drawing. It normally passes. |
 
-The run card shows each step's status and duration, the tokens used by each model call, and the metrics for the run: total latency, prompt, completion and total tokens, cost in USD, and the served model. The token counts and cost appear only when the provider reports them. Otherwise the card says "not reported".
+The agent run section shows each step's status and duration, and the tokens and cost of each model call. The model and cost section shows the metrics for the run: total latency, prompt, completion and total tokens, cost in USD, and the served model. The token counts and cost appear only when the provider reports them. Otherwise the page says "not reported".
 
 ## Architecture
 
@@ -69,7 +75,8 @@ Every key is blanked in `vitest.config.ts`, and the function tests stub `fetch`,
 - `src/lib/dataEngine.ts`: CSV parsing, filtering, grouping, totals, sorting and the top group.
 - `src/lib/queryPlan.ts`: the plan check.
 - `src/lib/api.ts`: the browser client and its error copy.
-- `src/lib/answer.ts`: the one-sentence answer, built from the engine's top group.
+- `src/lib/answer.ts`: the one-sentence answer, built from the engine's top group, and the query plan in plain words.
+- `src/components/RunColumn.tsx`: the run column (result, data preview, model and cost, agent run, history).
 - `tests/unit/` and `tests/server/`: the tests.
 
 ## Known limits

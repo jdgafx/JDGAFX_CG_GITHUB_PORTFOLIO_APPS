@@ -6,12 +6,12 @@ export default function DataPreview({ data }: { data: ParsedData }) {
   const rows = data.rows.slice(0, PREVIEW_ROWS)
 
   return (
-    <details className="ds-card app-preview">
+    <details className="app-preview">
       <summary className="app-preview__summary">Data preview</summary>
-      <p className="ds-hint">
-        First {rows.length} of {data.rows.length.toLocaleString()} rows.
+      <p className="ds-section__sub">
+        First {rows.length} of {data.rows.length.toLocaleString()} rows. The plan runs over every row, not only these.
       </p>
-      <div className="app-table-wrap">
+      <div className="ds-panel app-table-wrap">
         <table className="app-table">
           <thead>
             <tr>
