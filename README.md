@@ -117,7 +117,8 @@ JDGAFX_CG_GITHUB_PORTFOLIO_APPS/
 ├── app-10-browser-agent/
 ├── n8n-automations/         — enterprise n8n workflow portfolio (JSON + docs + evidence)
 ├── docs/index.html          — landing page served via GitHub Pages
-├── test-all-apps.sh         — end-to-end endpoint test suite
+├── .github/workflows/ci.yml — typecheck, lint, test and build for every app on push and PR
+├── test-all-apps.sh         — live smoke suite: one real task per deployed app
 ├── LICENSE
 └── README.md
 ```
@@ -159,10 +160,25 @@ per site for production.
 | `VITE_SUPABASE_URL` | app-09 | Supabase project URL for dashboard authentication. |
 | `VITE_SUPABASE_ANON_KEY` | app-09 | Supabase anonymous key, safe for client-side use. |
 
-## Testing
+## Quality checks
 
-`test-all-apps.sh` exercises every function endpoint and frontend across all ten apps,
-checking HTTP status, response format, error handling, streaming, and JSON parsing.
+Every app has its own README (what it does, the agentic steps it shows, how to run and test it,
+its live URL and known limits) and the same four checks:
+
+```bash
+cd app-03-ai-code-review        # or any other app
+npm run typecheck               # TypeScript strict, project build
+npm run lint                    # ESLint flat config, zero warnings allowed
+npm test                        # Vitest: unit tests for the core logic plus a smoke test of each
+                                # Netlify Function with the provider mocked (no key, no network)
+npm run build
+```
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` runs all four for each of the ten apps on
+every push to `main` and on every pull request.
+
+`test-all-apps.sh` is the live smoke suite. It drives every deployed app's frontend and function
+endpoints with one real task each and asserts real values in the responses.
 
 ```bash
 ./test-all-apps.sh              # all apps against production
