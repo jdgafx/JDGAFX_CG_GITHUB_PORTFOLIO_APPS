@@ -1,0 +1,14 @@
+{
+  "batchcomplete": "",
+  "query": {
+    "redirects": [{ "from": "Expo 98", "to": "Expo '98" }],
+    "pages": {
+      "1234": {
+        "pageid": 1234,
+        "ns": 0,
+        "title": "Expo '98",
+        "extract": "Expo '98 was a world's fair held in Lisbon, Portugal, from 22 May to 30 September 1998. Its theme was The Oceans: A Heritage for the Future."
+      }
+    }
+  }
+}

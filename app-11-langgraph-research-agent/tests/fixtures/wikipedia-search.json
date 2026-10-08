@@ -1,0 +1,27 @@
+{
+  "batchcomplete": "",
+  "continue": { "sroffset": 2, "continue": "-||" },
+  "query": {
+    "searchinfo": { "totalhits": 42 },
+    "search": [
+      {
+        "ns": 0,
+        "title": "Expo '98",
+        "pageid": 1234,
+        "size": 9876,
+        "wordcount": 1200,
+        "snippet": "<span class=\"searchmatch\">Expo</span> &#039;98 was a world&#039;s fair held in <span class=\"searchmatch\">Lisbon</span>, Portugal, from 22 May to 30 September 1998. Its theme was &quot;The Oceans: A Heritage for the Future&quot;.",
+        "timestamp": "2026-01-01T00:00:00Z"
+      },
+      {
+        "ns": 0,
+        "title": "Lisbon",
+        "pageid": 5678,
+        "size": 99999,
+        "wordcount": 8000,
+        "snippet": "<span class=\"searchmatch\">Lisbon</span> is the capital and largest city of <span class=\"searchmatch\">Portugal</span>.",
+        "timestamp": "2026-01-01T00:00:00Z"
+      }
+    ]
+  }
+}

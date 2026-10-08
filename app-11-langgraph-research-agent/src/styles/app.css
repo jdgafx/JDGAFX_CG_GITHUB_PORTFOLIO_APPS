@@ -1,0 +1,131 @@
+/* App-specific layer. Structure, colour and type come from tokens.css and the shared ds-* classes. */
+
+.research-layout {
+  align-items: start;
+}
+
+/* The graph scales with its card. Its text is in SVG units, so it reads at 390px too. */
+.graph-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.graph-node {
+  fill: var(--ds-surface);
+  stroke: var(--ds-border);
+  stroke-width: 1.5;
+}
+
+.graph-node--active {
+  fill: var(--ds-accent-soft);
+  stroke: var(--ds-accent);
+  stroke-width: 3;
+}
+
+.graph-node--ok {
+  stroke: var(--ds-success);
+}
+
+.graph-node--failed {
+  fill: var(--ds-danger-soft);
+  stroke: var(--ds-danger);
+}
+
+.graph-node--skipped {
+  stroke-dasharray: 5 4;
+}
+
+.graph-text {
+  fill: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.graph-sub {
+  fill: var(--ds-text-muted);
+  font-family: var(--ds-font);
+  font-size: 11.5px;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: var(--ds-border);
+  stroke-width: 1.5;
+}
+
+.graph-edge--loop {
+  stroke-dasharray: 6 4;
+}
+
+.graph-edge--taken {
+  stroke: var(--ds-accent);
+  stroke-width: 2.25;
+}
+
+.graph-arrow {
+  fill: var(--ds-text-muted);
+}
+
+.graph-arrow--taken {
+  fill: var(--ds-accent);
+}
+
+.graph-label {
+  fill: var(--ds-text-muted);
+  font-family: var(--ds-font);
+  font-size: 12px;
+}
+
+.graph-label--taken {
+  fill: var(--ds-accent);
+  font-weight: 650;
+}
+
+.edge-log {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Answer and sources */
+.answer-text {
+  overflow-wrap: anywhere;
+}
+
+.answer-text p + p {
+  margin-top: 10px;
+}
+
+.answer-subhead {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.source-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+}
+
+.source-title {
+  font-weight: 600;
+}
+
+.source-list a {
+  color: var(--ds-accent);
+  overflow-wrap: anywhere;
+}
+
+.metric-value--small {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
