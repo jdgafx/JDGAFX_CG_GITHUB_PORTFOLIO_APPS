@@ -27,3 +27,15 @@ export function isLikelySilence(text: string): boolean {
     .trim()
   return SILENCE_ARTIFACTS.has(normalized)
 }
+
+// Rebuilds the whole transcript from every result the recognizer holds. Under
+// continuous recognition each event carries all results so far, so appending
+// per event would repeat words.
+export function transcriptFromResults(results: ArrayLike<ArrayLike<{ transcript: string }>>): string {
+  const parts: string[] = []
+  for (let i = 0; i < results.length; i += 1) {
+    const heard = results[i]?.[0]?.transcript?.trim()
+    if (heard) parts.push(heard)
+  }
+  return parts.join(' ')
+}

@@ -5,7 +5,7 @@ import { startBrowserTranscript, type BrowserTranscriptHandle } from '../lib/bro
 const COUNTDOWN_TICK_MS = 250
 const MAX_RECORDING_SECONDS = Math.round(MAX_RECORDING_MS / 1000)
 
-export interface RecorderEvents {
+interface RecorderEvents {
   onRecorded: (clip: Blob, readBrowserText: () => string) => void
   onNotice: (message: string) => void
   onFailure: (message: string) => void
@@ -31,11 +31,9 @@ export function useRecorder(events: RecorderEvents) {
     eventsRef.current = events
   })
 
+  // The first render already reads isRecordingSupported(), so only the device check is left.
   useEffect(() => {
-    if (!isRecordingSupported()) {
-      setHasMic(false)
-      return
-    }
+    if (!isRecordingSupported()) return
     navigator.mediaDevices
       .enumerateDevices()
       .then(devices => setHasMic(devices.some(d => d.kind === 'audioinput')))

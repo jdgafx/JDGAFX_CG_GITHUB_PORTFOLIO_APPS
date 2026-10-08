@@ -1,7 +1,18 @@
-import { corsHeaders, guardRequest, jsonError, providerFailure, upstreamStatus } from '../shared/http'
+import { boundedInt } from '../shared/config'
+import {
+  corsHeaders,
+  guardRequest,
+  isDeadlineError,
+  jsonError,
+  providerFailure,
+  readLimitedText,
+  upstreamStatus,
+} from '../shared/http'
 import { createRecorder } from '../shared/trace'
 
 const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen'
+const SERVICE = 'The transcription service'
+const TOO_LONG = 'Recording is too long to process. Try a shorter one.'
 
 // A fixed server constant. The browser never chooses the speech-to-text model,
 // and no picker exposes it.
@@ -9,18 +20,22 @@ const TRANSCRIBE_MODEL = 'nova-3'
 
 // Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
 // upstream turns into a clean error instead of a dead socket.
-const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
+const UPSTREAM_TIMEOUT_MS = boundedInt(process.env.UPSTREAM_TIMEOUT_MS, 25_000, 1000, 25_000)
 
-// Netlify's request body ceiling is ~6MB once base64-encoded. 4.5MB of decoded
-// audio leaves room for the JSON envelope; the client caps recordings well
-// under this (90s of 16kHz mono PCM is ~2.9MB).
-const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES ?? 4.5 * 1024 * 1024)
+// The cap applies to the decoded audio. Its base64 form is already about 6 MiB before
+// the JSON envelope is added, at the edge of Netlify's request body ceiling (about
+// 6 MB), so the platform ceiling is the real bound. The client caps recordings far
+// lower: 90s of 16kHz mono PCM is about 2.9 MB.
+const MAX_AUDIO_BYTES = boundedInt(process.env.MAX_AUDIO_BYTES, 4.5 * 1024 * 1024, 1024, 4.5 * 1024 * 1024)
+
+// The body limit is the base64 size of the audio plus 64 KiB for the JSON envelope.
+const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024
+
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 // The client transcodes to wav when possible; these are the accepted upload
 // labels for the fallback containers it can preserve.
-const ALLOWED_FORMATS = ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'aiff']
-
-const CONTENT_TYPES: Record<string, string> = {
+const CONTENT_TYPES = {
   wav: 'audio/wav',
   mp3: 'audio/mpeg',
   ogg: 'audio/ogg',
@@ -28,6 +43,20 @@ const CONTENT_TYPES: Record<string, string> = {
   m4a: 'audio/mp4',
   aac: 'audio/aac',
   aiff: 'audio/aiff',
+} as const
+
+type AudioFormat = keyof typeof CONTENT_TYPES
+
+function isAudioFormat(value: string): value is AudioFormat {
+  return Object.hasOwn(CONTENT_TYPES, value)
+}
+
+// The format is optional and defaults to wav. Any other value must be a listed label.
+function parseFormat(raw: unknown): AudioFormat | null {
+  if (raw === undefined) return 'wav'
+  if (typeof raw !== 'string') return null
+  const lower = raw.toLowerCase()
+  return isAudioFormat(lower) ? lower : null
 }
 
 // The model occasionally wraps its answer or narrates an empty clip; strip the
@@ -91,32 +120,46 @@ function previewOf(text: string): string {
   return text.length > 120 ? `"${text.slice(0, 117)}..."` : `"${text}"`
 }
 
-export default async (req: Request): Promise<Response> => {
-  const guard = guardRequest(req)
-  if (guard) return guard
+// The fields this endpoint reads from the upstream reply. Each one may be absent.
+interface DeepgramReply {
+  metadata?: { model_info?: { name?: unknown }; duration?: unknown }
+  results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> }
+}
 
+export default async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin')
   const run = createRecorder()
   const reply = (message: string, status: number) =>
     jsonError(message, status, origin, { trace: run.steps, totalMs: run.elapsed() })
 
   try {
-    let body: { audio?: unknown; format?: unknown }
+    const guard = guardRequest(req)
+    if (guard) return guard
+
+    const raw = await readLimitedText(req, MAX_BODY_BYTES)
+    if (raw === null) {
+      run.add('audio received', 'failed', 'The request body is larger than the upload limit')
+      return reply(TOO_LONG, 400)
+    }
+
+    let body: unknown
     try {
-      body = (await req.json()) as { audio?: unknown; format?: unknown }
+      body = JSON.parse(raw)
     } catch {
       run.add('audio received', 'failed', 'The request body was not JSON')
       return reply('The request was not valid JSON.', 400)
     }
+    const fields: { audio?: unknown; format?: unknown } =
+      typeof body === 'object' && body !== null ? (body as { audio?: unknown; format?: unknown }) : {}
 
-    const audio = body.audio
+    const audio = fields.audio
     if (typeof audio !== 'string' || audio.length === 0) {
       run.add('audio received', 'failed', 'No audio was sent')
       return reply('No audio was received. Try recording again.', 400)
     }
 
-    const format = typeof body.format === 'string' ? body.format.toLowerCase() : 'wav'
-    if (!ALLOWED_FORMATS.includes(format)) {
+    const format = parseFormat(fields.format)
+    if (format === null) {
       run.add('audio received', 'failed', 'The audio format is not supported')
       return reply('Unsupported audio format', 400)
     }
@@ -124,7 +167,11 @@ export default async (req: Request): Promise<Response> => {
     // base64 carries 3 bytes per 4 characters.
     if (audio.length * 0.75 > MAX_AUDIO_BYTES) {
       run.add('audio received', 'failed', 'The recording is larger than the upload limit')
-      return reply('Recording is too long to process. Try a shorter one.', 413)
+      return reply(TOO_LONG, 400)
+    }
+    if (audio.length % 4 !== 0 || !BASE64.test(audio)) {
+      run.add('audio received', 'failed', 'The audio is not valid base64')
+      return reply('The recording could not be read. Try recording again.', 400)
     }
 
     const clip = Buffer.from(audio, 'base64')
@@ -157,50 +204,43 @@ export default async (req: Request): Promise<Response> => {
         body: clip,
       })
     } catch (err) {
-      const timedOut = err instanceof Error && err.name === 'TimeoutError'
       console.error('transcribe: upstream request failed', err)
-      run.add(
-        'speech to text',
-        'failed',
-        timedOut ? 'No reply before the time limit' : 'The request did not reach Deepgram',
-      )
-      return reply(
-        timedOut
-          ? 'Transcription timed out. Try a shorter recording.'
-          : 'Transcription service is unreachable. Try again in a moment.',
-        503,
-      )
+      if (isDeadlineError(err)) {
+        run.add('speech to text', 'failed', 'No reply before the time limit')
+        return reply(`${SERVICE} did not answer in time.`, 503)
+      }
+      run.add('speech to text', 'failed', 'The request did not reach Deepgram')
+      return reply(`${SERVICE} could not be reached. Try again in a moment.`, 503)
     }
 
     if (!response.ok) {
       // Vendor error text can carry account or billing detail. Log it, never ship it.
       const detail = await response.text().catch(() => '<unreadable>')
-      console.error(`transcribe: upstream ${response.status} ${response.statusText}: ${detail}`)
+      console.error(`transcribe: upstream ${response.status}: ${detail}`)
       run.add('speech to text', 'failed', `HTTP ${response.status} from Deepgram`)
-      return reply(providerFailure('The transcription service', response.status), upstreamStatus(response.status))
+      return reply(providerFailure(SERVICE, response.status), upstreamStatus(response.status))
     }
 
-    let data: {
-      metadata?: { model_info?: { name?: string }; duration?: number }
-      results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> }
-    }
+    let data: DeepgramReply | null
     try {
-      data = (await response.json()) as typeof data
+      data = (await response.json()) as DeepgramReply | null
     } catch (err) {
       console.error('transcribe: could not parse upstream JSON', err)
       run.add('speech to text', 'failed', 'The reply was not JSON')
-      return reply('Transcription service returned an unreadable response.', 502)
+      return reply(`${SERVICE} returned an unreadable response.`, 502)
     }
 
-    const model = data.metadata?.model_info?.name ?? TRANSCRIBE_MODEL
-    const seconds = typeof data.metadata?.duration === 'number' ? `, ${data.metadata.duration.toFixed(1)} s of audio` : ''
+    const name = data?.metadata?.model_info?.name
+    const model = typeof name === 'string' ? name : TRANSCRIBE_MODEL
+    const duration = data?.metadata?.duration
+    const seconds = typeof duration === 'number' ? `, ${duration.toFixed(1)} s of audio` : ''
     run.add('speech to text', 'ok', `${model}${seconds}`)
 
-    const content = data.results?.channels?.[0]?.alternatives?.[0]?.transcript
+    const content = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript
     if (typeof content !== 'string') {
-      console.error('transcribe: unexpected upstream payload shape', JSON.stringify(data).slice(0, 500))
+      console.error('transcribe: unexpected upstream payload shape')
       run.add('parse and validate', 'failed', 'The reply had no transcript field')
-      return reply('Transcription service returned an unexpected response.', 502)
+      return reply(`${SERVICE} returned an unexpected response.`, 502)
     }
 
     const text = cleanTranscript(content)

@@ -1,11 +1,12 @@
-import { providerFailure, upstreamStatus } from './http'
+import { isDeadlineError, providerFailure, upstreamStatus } from './http'
 import type { Recorder } from './trace'
 
 // The one chat model for every chat call in this app. It is fixed here: it is
 // never read from the environment and never taken from the browser.
 export const MODEL = '~anthropic/claude-haiku-latest'
 
-export const OPENROUTER_URL = process.env.OPENROUTER_URL ?? 'https://openrouter.ai/api/v1/chat/completions'
+const PROVIDER = 'The AI provider'
+const OPENROUTER_URL = process.env.OPENROUTER_URL || 'https://openrouter.ai/api/v1/chat/completions'
 
 // A retry needs at least this much of the run's budget left to be worth sending.
 const MIN_RETRY_MS = 8_000
@@ -15,20 +16,20 @@ export interface Turn {
   content: string
 }
 
-export interface Usage {
+interface Usage {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
   cost?: number
 }
 
-export interface Completion {
+interface Completion {
   model?: string
   choices?: Array<{ message?: { content?: unknown }; finish_reason?: string | null }>
   usage?: Usage
 }
 
-export type ModelOutcome =
+type ModelOutcome =
   | { ok: true; completion: Completion; usage?: Usage }
   | { ok: false; httpStatus: number; message: string }
 
@@ -78,29 +79,41 @@ async function sendAttempt(apiKey: string, turns: Turn[], maxTokens: number, tim
     })
   } catch (err) {
     console.error('ai: upstream request failed', err)
-    const timedOut = err instanceof Error && err.name === 'TimeoutError'
-    return timedOut
-      ? { ok: false, httpStatus: 503, message: 'The assistant took too long to respond. Try again.', detail: 'No reply before the time limit' }
-      : { ok: false, httpStatus: 503, message: 'The assistant is unreachable. Try again in a moment.', detail: 'The request did not reach the AI provider' }
+    if (isDeadlineError(err)) {
+      return { ok: false, httpStatus: 503, message: `${PROVIDER} did not answer in time.`, detail: 'No reply before the time limit' }
+    }
+    return {
+      ok: false,
+      httpStatus: 503,
+      message: `${PROVIDER} could not be reached. Try again in a moment.`,
+      detail: 'The request did not reach the AI provider',
+    }
   }
 
   if (!response.ok) {
     // Vendor error text can carry account or billing detail. Log it, never ship it.
     const body = await response.text().catch(() => '<unreadable>')
-    console.error(`ai: upstream ${response.status} ${response.statusText}: ${body}`)
+    console.error(`ai: upstream ${response.status}: ${body}`)
     return {
       ok: false,
       httpStatus: upstreamStatus(response.status),
-      message: providerFailure('The AI provider', response.status),
+      message: providerFailure(PROVIDER, response.status),
       detail: `HTTP ${response.status} from the AI provider`,
     }
   }
 
   try {
-    return { ok: true, completion: (await response.json()) as Completion }
+    const data: unknown = await response.json()
+    if (typeof data !== 'object' || data === null) throw new TypeError('reply is not an object')
+    return { ok: true, completion: data as Completion }
   } catch (err) {
     console.error('ai: could not parse upstream JSON', err)
-    return { ok: false, httpStatus: 502, message: 'The assistant returned an unreadable response.', detail: 'The provider reply was not JSON' }
+    return {
+      ok: false,
+      httpStatus: 502,
+      message: `${PROVIDER} returned an unreadable response.`,
+      detail: 'The provider reply was not JSON',
+    }
   }
 }
 
@@ -133,7 +146,7 @@ export async function runModelCall(
 
   if (!completion) {
     run.add('model call', 'failed', 'No time left in the run budget')
-    return { ok: false, httpStatus: 503, message: 'The assistant took too long to respond. Try again.' }
+    return { ok: false, httpStatus: 503, message: `${PROVIDER} did not answer in time.` }
   }
 
   const usage = sumUsage(usages)

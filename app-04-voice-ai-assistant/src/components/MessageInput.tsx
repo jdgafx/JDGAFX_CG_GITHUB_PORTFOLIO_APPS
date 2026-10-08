@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 
-export const MAX_TEXT_INPUT_LENGTH = 2000
+const MAX_TEXT_INPUT_LENGTH = 2000
 
 interface MessageInputProps {
   value: string

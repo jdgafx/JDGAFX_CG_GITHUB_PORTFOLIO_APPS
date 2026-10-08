@@ -18,7 +18,7 @@ const BOUNDARY_GRACE_MS = 12_000
 // keeps playback alive.
 const KEEPALIVE_MS = 8_000
 
-export interface SpeakOptions {
+interface SpeakOptions {
   onEnd: () => void
   onError: (message: string) => void
 }

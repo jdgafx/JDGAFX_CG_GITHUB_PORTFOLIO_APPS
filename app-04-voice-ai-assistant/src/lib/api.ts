@@ -1,6 +1,6 @@
 // Browser side of the two Netlify functions. Both answer with the steps that ran,
 // and a failure carries the same steps, so the run card can mark the step that failed.
-import type { EncodedAudio } from './audio'
+import { UserFacingError } from './errors'
 
 export type StepStatus = 'ok' | 'failed' | 'skipped'
 
@@ -31,7 +31,13 @@ export interface ChatMessage extends Message {
   model?: string
 }
 
-export interface ChatResult {
+// Recorded audio, ready for the transcribe endpoint.
+export interface EncodedAudio {
+  data: string
+  format: string
+}
+
+interface ChatResult {
   text: string
   model?: string
   usage?: Usage
@@ -39,7 +45,7 @@ export interface ChatResult {
   totalMs?: number
 }
 
-export interface TranscribeResult {
+interface TranscribeResult {
   text: string
   model?: string
   trace: TraceStep[]
@@ -47,16 +53,29 @@ export interface TranscribeResult {
 }
 
 // A failed call, with the steps that ran before it failed.
-export class RunError extends Error {
+export class RunError extends UserFacingError {
   readonly trace: TraceStep[]
   readonly totalMs?: number
 
   constructor(message: string, trace: TraceStep[] = [], totalMs?: number) {
-    super(message)
-    this.name = 'RunError'
+    super(message, 'RunError')
     this.trace = trace
     this.totalMs = totalMs
   }
+}
+
+// How long the browser waits for one function call. The server's own budget is 25
+// seconds, so a normal answer arrives first. The browser stops waiting at about the
+// platform's own limit rather than sitting on a hung connection.
+const CLIENT_TIMEOUT_MS = 30_000
+const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
+const TIMED_OUT = 'The server did not answer in time. Try again.'
+
+// The trace stage a call reports under, when it started, and the caller's cancel signal.
+interface CallContext {
+  stage: string
+  started: number
+  signal?: AbortSignal
 }
 
 const STATUSES: readonly string[] = ['ok', 'failed', 'skipped']
@@ -65,12 +84,23 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function isAbortError(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError'
+function errorName(err: unknown): string {
+  return typeof err === 'object' && err !== null && 'name' in err && typeof err.name === 'string' ? err.name : ''
+}
+
+// The browser's own deadline ends a call with one of these names. A cancel from the
+// caller is checked separately, before this.
+function isDeadlineError(err: unknown): boolean {
+  const name = errorName(err)
+  return name === 'TimeoutError' || name === 'AbortError'
 }
 
 function failedStep(name: string, started: number, detail: string): TraceStep {
   return { name, status: 'failed', ms: Date.now() - started, detail }
+}
+
+function timedOut(call: CallContext): RunError {
+  return new RunError(TIMED_OUT, [failedStep(call.stage, call.started, 'No reply before the time limit')])
 }
 
 // Only well-formed steps reach the UI, whatever the server sent.
@@ -106,75 +136,77 @@ function parseUsage(raw: unknown): Usage | undefined {
   return Object.values(usage).some(value => value !== undefined) ? usage : undefined
 }
 
-async function readBody(res: Response): Promise<Record<string, unknown> | null> {
+// Reads the JSON body. A cancel from the caller is rethrown. A deadline during the read
+// is the timeout failure. Any other unreadable body returns null, so the caller can
+// fall back to its own copy.
+async function readBody(res: Response, call: CallContext): Promise<Record<string, unknown> | null> {
   try {
     const data: unknown = await res.json()
     return typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : null
   } catch (err) {
-    if (isAbortError(err)) throw err
+    if (call.signal?.aborted) throw err
+    if (isDeadlineError(err)) throw timedOut(call)
     return null
   }
 }
 
-// Used only when the function did not answer with JSON (an edge timeout or a proxy page).
-function statusFallback(status: number, subject: string): string {
+// Used only when the function did not answer with JSON: a platform timeout (504), a
+// platform size limit (413), or a proxy page. The provider name is the subject.
+function statusFallback(status: number, provider: string): string {
   if (status === 413) return 'That recording is too long to send. Try a shorter one.'
-  if (status === 429) return `${subject} is rate limited. Wait a moment and try again.`
-  if (status === 403) return `${subject} rejected this request.`
-  if (status >= 500) return `${subject} is unavailable right now. Try again in a moment.`
-  return `${subject} did not accept the request.`
+  if (status === 504) return `${provider} did not answer in time.`
+  if (status === 429) return `${provider} is rate limited. Wait a moment and try again.`
+  if (status === 403) return `${provider} rejected this request.`
+  if (status >= 500) return `${provider} is unavailable right now. Try again in a moment.`
+  return `${provider} did not accept the request.`
 }
 
-// A transport failure (offline, DNS, dropped connection) rejects before any
-// Response exists. Abort must pass through untouched so Cancel keeps working.
-async function send(
-  stage: string,
-  url: string,
-  init: RequestInit,
-  offlineMessage: string,
-  started: number,
-): Promise<Response> {
+// The caller's cancel and the client deadline, as one signal. Browsers without
+// AbortSignal.any keep the caller's cancel, and the call then has no deadline.
+function combinedSignal(caller: AbortSignal | undefined, deadline: AbortSignal): AbortSignal {
+  if (!caller) return deadline
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([caller, deadline]) : caller
+}
+
+// One call to a function. A cancel from the caller passes through untouched, so
+// Cancel keeps working. A deadline or a dropped connection becomes a failed step.
+async function send(call: CallContext, url: string, init: RequestInit): Promise<Response> {
+  const signal = combinedSignal(call.signal, AbortSignal.timeout(CLIENT_TIMEOUT_MS))
   try {
-    return await fetch(url, init)
+    return await fetch(url, { ...init, signal })
   } catch (err) {
-    if (isAbortError(err)) throw err
+    if (call.signal?.aborted) throw err
+    if (isDeadlineError(err)) throw timedOut(call)
     console.error(`${url} request failed:`, err)
-    throw new RunError(offlineMessage, [failedStep(stage, started, 'The request did not reach the server')])
+    throw new RunError(UNREACHABLE, [failedStep(call.stage, call.started, 'The request did not reach the server')])
   }
 }
 
-async function readFailure(res: Response, subject: string, stage: string, started: number): Promise<RunError> {
-  const data = await readBody(res)
+async function readFailure(res: Response, provider: string, call: CallContext): Promise<RunError> {
+  const data = await readBody(res, call)
   const error = data?.error
-  const message = typeof error === 'string' && error.trim() ? error : statusFallback(res.status, subject)
+  const message = typeof error === 'string' && error.trim() ? error : statusFallback(res.status, provider)
   const trace = parseTrace(data?.trace)
   return new RunError(
     message,
-    trace.length > 0 ? trace : [failedStep(stage, started, message)],
+    trace.length > 0 ? trace : [failedStep(call.stage, call.started, message)],
     numberOrUndefined(data?.totalMs),
   )
 }
 
 export async function transcribe(clip: EncodedAudio, signal?: AbortSignal): Promise<TranscribeResult> {
-  const started = Date.now()
-  const res = await send(
-    'speech to text',
-    '/api/transcribe',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio: clip.data, format: clip.format }),
-      signal,
-    },
-    'Could not reach the transcription service. Check your connection and try again.',
-    started,
-  )
-  if (!res.ok) throw await readFailure(res, 'Transcription', 'speech to text', started)
+  const call: CallContext = { stage: 'speech to text', started: Date.now(), signal }
+  const res = await send(call, '/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: clip.data, format: clip.format }),
+  })
+  if (!res.ok) throw await readFailure(res, 'The transcription service', call)
 
-  const data = await readBody(res)
+  const data = await readBody(res, call)
   if (!data) {
-    throw new RunError('Transcription service returned an unreadable response.', [
-      failedStep('speech to text', started, 'The reply was not JSON'),
+    throw new RunError('The transcription service returned an unreadable response.', [
+      failedStep(call.stage, call.started, 'The reply was not JSON'),
     ])
   }
   return {
@@ -186,25 +218,18 @@ export async function transcribe(clip: EncodedAudio, signal?: AbortSignal): Prom
 }
 
 export async function chat(message: string, history: Message[], signal?: AbortSignal): Promise<ChatResult> {
-  const started = Date.now()
-  const res = await send(
-    'model call',
-    '/api/ai',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
-      signal,
-    },
-    'Could not reach the assistant. Check your connection and try again.',
-    started,
-  )
-  if (!res.ok) throw await readFailure(res, 'The assistant', 'model call', started)
+  const call: CallContext = { stage: 'model call', started: Date.now(), signal }
+  const res = await send(call, '/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
+  })
+  if (!res.ok) throw await readFailure(res, 'The AI provider', call)
 
-  const data = await readBody(res)
+  const data = await readBody(res, call)
   if (!data) {
     throw new RunError('The assistant returned an unreadable response.', [
-      failedStep('model call', started, 'The reply was not JSON'),
+      failedStep(call.stage, call.started, 'The reply was not JSON'),
     ])
   }
   const trace = parseTrace(data.trace)

@@ -4,12 +4,14 @@ import {
   chat,
   transcribe,
   type ChatMessage,
+  type EncodedAudio,
   type Message,
   type StepStatus,
   type TraceStep,
   type Usage,
 } from '../lib/api'
-import { NoSpeechError, encodeForUpload, micErrorMessage, type EncodedAudio } from '../lib/audio'
+import { NoSpeechError, encodeForUpload, micErrorMessage } from '../lib/audio'
+import { UserFacingError } from '../lib/errors'
 import { cancelSpeech, isSpeechAvailable, speak, type SpeakHandle } from '../lib/speech'
 import { isLikelySilence } from '../lib/transcript'
 import { useRecorder } from './useRecorder'
@@ -31,6 +33,8 @@ type SpeakFinisher = (status: StepStatus, detail: string, message?: string) => v
 
 const MAX_HISTORY_MESSAGES = 20
 const SILENCE_MESSAGE = 'No speech detected. Try speaking louder or closer to the microphone.'
+const ASSISTANT_FAILED = 'The assistant failed. Try again in a moment.'
+const UNEXPECTED = 'Something went wrong. Try again.'
 
 let messageCounter = 0
 function newMessage(role: Message['role'], content: string): ChatMessage {
@@ -48,8 +52,9 @@ function isAbort(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError'
 }
 
+// Only copy written for the user reaches the screen. Any other error gets the fallback.
 function messageOf(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback
+  return err instanceof UserFacingError && err.message ? err.message : fallback
 }
 
 // Owns the conversation and one run at a time: voice (record, transcribe, ask,
@@ -73,6 +78,15 @@ export function useAssistant() {
 
   const failRun = useCallback((run: RunRecord, message: string) => {
     setLastRun({ ...run, error: message })
+    setError(message)
+    setAppState('idle')
+  }, [])
+
+  // A failure before any run exists (microphone, recorder) still gets a run card,
+  // so the failed step is marked the same way as every other failure.
+  const failWithStep = useCallback((name: string, message: string) => {
+    runCounter += 1
+    setLastRun({ id: runCounter, steps: [step(name, 'failed', 0, message)] })
     setError(message)
     setAppState('idle')
   }, [])
@@ -148,13 +162,14 @@ export function useAssistant() {
           setAppState('idle')
           return
         }
+        const message = messageOf(err, ASSISTANT_FAILED)
         if (err instanceof RunError) {
           steps.push(...err.trace)
         } else {
-          steps.push(step('model call', 'failed', Date.now() - started, messageOf(err, 'The assistant failed.')))
+          steps.push(step('model call', 'failed', Date.now() - started, message))
         }
         const totalMs = err instanceof RunError && err.totalMs !== undefined ? serverMs + err.totalMs : undefined
-        failRun({ id: runId, steps: [...steps], totalMs }, messageOf(err, 'The assistant failed. Try again in a moment.'))
+        failRun({ id: runId, steps: [...steps], totalMs }, message)
       }
     },
     [commitMessages, failRun, speakReply],
@@ -207,15 +222,16 @@ export function useAssistant() {
             setAppState('idle')
             return
           }
+          const message = messageOf(err, 'Transcription failed. Try again.')
           if (err instanceof RunError) {
             steps.push(...err.trace)
             serverMs = err.totalMs ?? 0
           } else {
-            steps.push(step('speech to text', 'failed', Date.now() - sttStarted, messageOf(err, 'Transcription failed.')))
+            steps.push(step('speech to text', 'failed', Date.now() - sttStarted, message))
           }
           const fallback = readBrowserText().trim()
           if (!fallback) {
-            failRun({ id: runId, steps: [...steps], totalMs: serverMs }, messageOf(err, 'Transcription failed. Try again.'))
+            failRun({ id: runId, steps: [...steps], totalMs: serverMs }, message)
             return
           }
           steps.push(step('browser speech recognition', 'ok', 0, 'Used the browser transcript instead'))
@@ -229,6 +245,8 @@ export function useAssistant() {
           return
         }
         await askAndSpeak(text.trim(), runId, steps, serverMs, controller)
+      } catch {
+        failRun({ id: runId, steps: [...steps] }, UNEXPECTED)
       } finally {
         if (abortRef.current === controller) abortRef.current = null
       }
@@ -239,10 +257,7 @@ export function useAssistant() {
   const recorder = useRecorder({
     onRecorded: handleRecorded,
     onNotice: setNotice,
-    onFailure: message => {
-      setError(message)
-      setAppState('idle')
-    },
+    onFailure: message => failWithStep('record audio', message),
   })
   const { hasMic, msLeft, analyserRef, start, stop, markNoMic } = recorder
 
@@ -266,12 +281,11 @@ export function useAssistant() {
     } catch (err) {
       const name = err instanceof Error ? err.name : ''
       if (name === 'NotFoundError' || name === 'NotSupportedError') markNoMic()
-      setError(micErrorMessage(err))
-      setAppState('idle')
+      failWithStep('start recording', micErrorMessage(err))
     } finally {
       startingRef.current = false
     }
-  }, [appState, markNoMic, start, stop, stopSpeaking])
+  }, [appState, failWithStep, markNoMic, start, stop, stopSpeaking])
 
   // Typed path: the same ask-and-speak steps, without the speech to text step.
   const sendText = useCallback(
@@ -282,11 +296,13 @@ export function useAssistant() {
       const runId = runCounter
       const controller = new AbortController()
       abortRef.current = controller
-      void askAndSpeak(text, runId, [], 0, controller).finally(() => {
-        if (abortRef.current === controller) abortRef.current = null
-      })
+      void askAndSpeak(text, runId, [], 0, controller)
+        .catch(() => failRun({ id: runId, steps: [] }, UNEXPECTED))
+        .finally(() => {
+          if (abortRef.current === controller) abortRef.current = null
+        })
     },
-    [askAndSpeak],
+    [askAndSpeak, failRun],
   )
 
   const cancel = useCallback(() => {

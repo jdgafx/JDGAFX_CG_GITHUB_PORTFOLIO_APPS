@@ -5,11 +5,19 @@
 // produce after decoding, and small enough to stay under Netlify's request
 // ceiling.
 
-export const MAX_RECORDING_MS = Number(import.meta.env.VITE_MAX_RECORDING_MS ?? 90_000)
+import type { EncodedAudio } from './api'
+import { UserFacingError } from './errors'
+
+// Recording length in milliseconds. An optional build-time override is accepted
+// only when it is a sane number of seconds that still fits the upload limit below;
+// anything else gives the 90 second default.
+const requestedMs = Number(import.meta.env.VITE_MAX_RECORDING_MS)
+export const MAX_RECORDING_MS =
+  Number.isFinite(requestedMs) && requestedMs >= 5_000 && requestedMs <= 120_000 ? Math.trunc(requestedMs) : 90_000
 
 // Netlify's ~6MB base64 request ceiling, minus room for the JSON envelope.
 // Kept in step with MAX_AUDIO_BYTES in netlify/functions/transcribe.ts.
-export const MAX_AUDIO_BYTES = 4.5 * 1024 * 1024
+const MAX_AUDIO_BYTES = 4.5 * 1024 * 1024
 
 // 16kHz mono is the standard speech-recognition rate: ~32KB/s, so a full 90s
 // recording lands near 2.9MB.
@@ -21,11 +29,6 @@ const RECORDER_MIME_TYPES = [
   'audio/ogg;codecs=opus',
   'audio/mp4',
 ]
-
-export interface EncodedAudio {
-  data: string
-  format: string
-}
 
 export function isRecordingSupported(): boolean {
   return (
@@ -82,7 +85,7 @@ async function toMono16k(blob: Blob): Promise<AudioBuffer> {
   try {
     decoded = await context.decodeAudioData(arrayBuffer)
   } finally {
-    void context.close()
+    context.close().catch(() => undefined)
   }
 
   const frames = Math.ceil(decoded.duration * TARGET_SAMPLE_RATE)
@@ -180,26 +183,24 @@ export function micErrorMessage(err: unknown): string {
   }
 }
 
-export class AudioTooLargeError extends Error {
+class AudioTooLargeError extends UserFacingError {
   constructor() {
     super(
       `Recording is too long to send. Keep it under ${Math.round(MAX_RECORDING_MS / 1000)} seconds.`,
+      'AudioTooLargeError',
     )
-    this.name = 'AudioTooLargeError'
   }
 }
 
-export class AudioEncodingError extends Error {
+class AudioEncodingError extends UserFacingError {
   constructor() {
-    super('This browser could not prepare the recording for transcription.')
-    this.name = 'AudioEncodingError'
+    super('This browser could not prepare the recording for transcription.', 'AudioEncodingError')
   }
 }
 
-export class NoSpeechError extends Error {
+export class NoSpeechError extends UserFacingError {
   constructor() {
-    super('No speech detected. Try speaking louder or closer to the microphone.')
-    this.name = 'NoSpeechError'
+    super('No speech detected. Try speaking louder or closer to the microphone.', 'NoSpeechError')
   }
 }
 

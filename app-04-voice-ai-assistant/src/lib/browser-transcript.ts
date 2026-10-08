@@ -1,9 +1,10 @@
+import { transcriptFromResults } from './transcript'
+
 interface BrowserRecognition {
   continuous: boolean
   interimResults: boolean
   lang: string
   onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
-  onerror: (() => void) | null
   start: () => void
   stop: () => void
 }
@@ -18,15 +19,13 @@ function constructorForBrowser(): RecognitionConstructor | null {
   return browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition ?? null
 }
 
-export function browserSpeechAvailable(): boolean {
-  return typeof window !== 'undefined' && constructorForBrowser() !== null
-}
-
 export interface BrowserTranscriptHandle {
   getText: () => string
   stop: () => void
 }
 
+// A second, local transcript kept alongside the recording. It is used only when
+// the server cannot transcribe the clip.
 export function startBrowserTranscript(): BrowserTranscriptHandle | null {
   const Recognition = constructorForBrowser()
   if (!Recognition) return null
@@ -37,12 +36,8 @@ export function startBrowserTranscript(): BrowserTranscriptHandle | null {
   recognition.interimResults = false
   recognition.lang = 'en-US'
   recognition.onresult = event => {
-    for (let i = 0; i < event.results.length; i += 1) {
-      const result = event.results[i]
-      if (result?.[0]?.transcript) text = `${text} ${result[0].transcript}`.trim()
-    }
+    text = transcriptFromResults(event.results)
   }
-  recognition.onerror = () => undefined
   try {
     recognition.start()
   } catch {
@@ -50,9 +45,13 @@ export function startBrowserTranscript(): BrowserTranscriptHandle | null {
   }
 
   return {
-    getText: () => text.trim(),
+    getText: () => text,
     stop: () => {
-      try { recognition.stop() } catch { /* already stopped */ }
+      try {
+        recognition.stop()
+      } catch {
+        // Already stopped; there is nothing left to end.
+      }
     },
   }
 }

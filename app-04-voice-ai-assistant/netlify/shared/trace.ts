@@ -2,9 +2,9 @@
 // A step's time runs from the end of the previous step, so the steps add up
 // to the run's total.
 
-export type StepStatus = 'ok' | 'failed' | 'skipped'
+type StepStatus = 'ok' | 'failed' | 'skipped'
 
-export interface TraceStep {
+interface TraceStep {
   name: string
   status: StepStatus
   ms: number

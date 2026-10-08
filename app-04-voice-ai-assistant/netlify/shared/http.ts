@@ -1,9 +1,11 @@
 // Shared request guards for the VoxAI Netlify functions: origin allow-list,
-// best-effort per-IP throttling and a single place to shape error responses so
-// upstream vendor text never reaches the browser.
+// best-effort per-IP throttling, body size limits and a single place to shape
+// error responses so upstream vendor text never reaches the browser.
 
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 20)
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000)
+import { boundedInt } from './config'
+
+const RATE_LIMIT_MAX = boundedInt(process.env.RATE_LIMIT_MAX, 20, 1, 1000)
+const RATE_LIMIT_WINDOW_MS = boundedInt(process.env.RATE_LIMIT_WINDOW_MS, 60_000, 1_000, 3_600_000)
 
 // Browser origins allowed to call these endpoints. Netlify injects URL /
 // DEPLOY_PRIME_URL for the live site and deploy previews, so the deployed host
@@ -34,7 +36,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 
 // Requests without an Origin header are not browser cross-site traffic (curl,
 // server-to-server), so they are allowed through without an echo header.
-export function originAllowed(origin: string | null): boolean {
+function originAllowed(origin: string | null): boolean {
   if (!origin) return true
   return allowedOrigins().includes(origin.replace(/\/$/, ''))
 }
@@ -43,7 +45,7 @@ export function originAllowed(origin: string | null): boolean {
 // this is a cost guard rather than a hard quota.
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
 
-export function rateLimited(req: Request): boolean {
+function rateLimited(req: Request): boolean {
   const key =
     req.headers.get('x-nf-client-connection-ip') ??
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
@@ -92,6 +94,19 @@ export function guardRequest(req: Request): Response | null {
   return null
 }
 
+// Reads the body as text only when it fits the limit. The declared length is checked
+// first, so an oversize declaration is refused without reading anything. The measured
+// length is checked after the read, because a client can declare one size and send
+// another. The whole body is read before it is measured, so memory use is bounded by
+// Netlify's request ceiling (about 6 MB), not by this limit. Returns null when the
+// body is too large.
+export async function readLimitedText(req: Request, limitBytes: number): Promise<string | null> {
+  const declared = Number(req.headers.get('content-length') ?? 0)
+  if (declared > limitBytes) return null
+  const text = await req.text()
+  return new TextEncoder().encode(text).byteLength > limitBytes ? null : text
+}
+
 // Maps an upstream failure onto a status the browser can act on, without
 // leaking the vendor's error text. Detail is logged server-side by the caller.
 export function upstreamStatus(status: number): number {
@@ -100,11 +115,18 @@ export function upstreamStatus(status: number): number {
   return 502
 }
 
-// Plain-language copy for an upstream failure. The status code alone picks the
-// wording; the provider's own text is never shown.
+// Plain-language copy for an upstream HTTP failure. The status code alone picks
+// the wording; the provider's own text is never shown.
 export function providerFailure(service: string, status: number): string {
-  if (status === 402) return `${service} is out of credit, so it cannot respond right now.`
-  if (status === 429) return `${service} is rate limited. Wait a moment and try again.`
-  if (status >= 500) return `${service} failed. Try again in a moment.`
+  if (status === 401 || status === 402) return `${service} rejected the key or is out of credit.`
+  if (status === 429) return 'Rate limited, try again in a minute.'
+  if (status >= 500) return `${service} did not answer in time.`
   return `${service} did not accept the request (HTTP ${status}).`
+}
+
+// A fetch that the deadline aborted. The runtime may name the abort either way,
+// and the only abort this server makes is its own deadline.
+export function isDeadlineError(err: unknown): boolean {
+  const name = typeof err === 'object' && err !== null && 'name' in err ? err.name : undefined
+  return name === 'TimeoutError' || name === 'AbortError'
 }
