@@ -146,7 +146,8 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
         : 'The browser session could not be released. It may run until Browserbase ends it on its own timeout.',
     })
   }
-  send(outcome)
+  // The total covers the whole run, including the release step above.
+  send(outcome.type === 'done' ? { ...outcome, totalMs: Date.now() - startedAt } : outcome)
 }
 
 /** Streams RunEvent records as server-sent events and stops work when the client disconnects. */

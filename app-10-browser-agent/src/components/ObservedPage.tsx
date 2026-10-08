@@ -39,8 +39,9 @@ export default function ObservedPage({ observed, sessionId, expectation }: Obser
             <div className="bb-check">
               <p className="ds-help">Plan expected: {expectation}</p>
               <p>
-                {overlap.found.length} of {expectedCount} expected terms appear on the page
-                {overlap.missing.length > 0 ? `. Not found: ${overlap.missing.join(', ')}.` : '.'}
+                {overlap.missing.length === 0
+                  ? `Every expected term appears on the page (${overlap.found.join(', ')}).`
+                  : `${overlap.found.length} of ${expectedCount} expected terms appear on the page. Not found: ${overlap.missing.join(', ')}.`}
               </p>
               <p className="ds-help">Keyword match only. BrowseBot does not judge whether the result is right.</p>
             </div>

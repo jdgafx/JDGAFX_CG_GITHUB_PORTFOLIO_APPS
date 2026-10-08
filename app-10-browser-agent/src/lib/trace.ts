@@ -175,6 +175,9 @@ const STOPWORDS = new Set([
   'about', 'after', 'again', 'their', 'there', 'these', 'this', 'that', 'those', 'which', 'what', 'when',
   'with', 'from', 'into', 'will', 'should', 'have', 'been', 'page', 'pages', 'text', 'value', 'shows',
   'show', 'report', 'observe', 'observed', 'read', 'first', 'lines', 'result', 'results',
+  // Process words from a plan's own description: they describe the browser's work, never page content.
+  'reported', 'browser', 'shown', 'display', 'displayed', 'current', 'content', 'return', 'returns',
+  'extract', 'extracted', 'loaded', 'visible', 'heading', 'string', 'exact', 'exactly',
 ])
 
 /**
