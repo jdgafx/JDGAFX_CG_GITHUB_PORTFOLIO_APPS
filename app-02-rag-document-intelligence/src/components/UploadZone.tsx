@@ -4,11 +4,13 @@ import { MAX_FILE_SIZE } from '../lib/constants'
 const LIMIT_MB = Math.round(MAX_FILE_SIZE / (1024 * 1024))
 
 interface UploadZoneProps {
-  /** True while a file is being read or an answer is running. Disables the chooser. */
+  /** True while a file is being read or a run is in progress. Disables the file and sample controls. */
   busy: boolean
   onFileSelect: (file: File) => Promise<void>
   /** Validation problems are raised to the app so every error shares one surface. */
   onError: (message: string) => void
+  /** Loads the built-in sample guide, with a question ready to ask. */
+  onSample: () => void
 }
 
 function isSupported(file: File): boolean {
@@ -20,7 +22,7 @@ function isSupported(file: File): boolean {
   )
 }
 
-export function UploadZone({ busy, onFileSelect, onError }: UploadZoneProps) {
+export function UploadZone({ busy, onFileSelect, onError, onSample }: UploadZoneProps) {
   const [dragging, setDragging] = useState(false)
 
   const accept = async (file: File) => {
@@ -74,7 +76,7 @@ export function UploadZone({ busy, onFileSelect, onError }: UploadZoneProps) {
         onDrop={handleDrop}
       >
         <p className="ds-label">Drop a PDF or TXT file here</p>
-        <p className="ds-hint">or choose one below. The limit is {LIMIT_MB} MB.</p>
+        <p className="ds-help">Or choose one below. The limit is {LIMIT_MB} MB.</p>
       </div>
       <input
         id="docmind-file"
@@ -83,15 +85,20 @@ export function UploadZone({ busy, onFileSelect, onError }: UploadZoneProps) {
         accept=".pdf,.txt,application/pdf,text/plain"
         disabled={busy}
         onChange={handleChange}
+        aria-describedby="docmind-file-help"
       />
       <label htmlFor="docmind-file" className="ds-button ds-button--primary">
         {busy ? 'Reading the file' : 'Choose a PDF or TXT file'}
       </label>
+      <p id="docmind-file-help" className="ds-help">
+        Read in your browser and never uploaded whole. Only passages that match a question go to the model.
+      </p>
+      <button type="button" className="ds-button" onClick={onSample} disabled={busy}>
+        Try the sample guide
+      </button>
+      <p className="ds-help">A built-in care guide with page numbers, so you can see an answer without a file.</p>
       <p className="ds-hint" role="status">
         {busy ? 'Reading your document. Long PDFs can take a few seconds.' : ''}
-      </p>
-      <p className="ds-hint">
-        PDF text is read in this browser. Only passages that match a question are sent to the model.
       </p>
     </div>
   )

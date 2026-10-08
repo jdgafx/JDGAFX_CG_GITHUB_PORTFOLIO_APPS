@@ -1,6 +1,6 @@
-/* DocMind-only styles. Cards, buttons, badges, trace and metrics come from tokens.css. */
+/* DocMind styles. The bench, sections, buttons, badges, trace and readout strip come from tokens.css. */
 
-/* Upload. The file input stays focusable and labelled; the label is the visible button. */
+/* Upload. The file input stays focusable and labelled; its label is the visible button. */
 .docmind-upload { position: relative; }
 .docmind-file {
   position: absolute;
@@ -14,63 +14,113 @@
 .docmind-file:disabled + .ds-button { opacity: 0.55; cursor: not-allowed; }
 .docmind-drop[data-dragging="true"] { border-color: var(--ds-accent); background: var(--ds-accent-soft); }
 
-/* Two cards side by side; each sizes to its own content. */
-.docmind-pair { align-items: start; }
-
-/* Long names and model ids wrap instead of pushing the page wider than 390px. */
+/* Long file names, model IDs and error text wrap instead of widening the page. */
 .docmind-wrap { overflow-wrap: anywhere; min-width: 0; }
 
-/* Answers */
+/* Document figures sit in three readouts across the controls column. */
+.docmind-doc-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Section heads with a title and a status badge on one line. */
+.docmind-head-row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
+
+/* The hero: one bordered panel. Answers sit beside the passages once the panel is wide enough. */
+.docmind-hero {
+  container: docmind-hero / inline-size;
+  padding: 16px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+.docmind-hero__body { display: grid; gap: 20px; align-items: start; min-width: 0; }
+@container docmind-hero (min-width: 720px) {
+  .docmind-hero__body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+}
+
+/* Accent text on the accent tint measures 4.3:1 in light mode, under the 4.5:1 that
+   13px text needs, so accent badges in this app read in ink on the same tint. */
+.ds-badge--accent { color: var(--ds-text); }
+
+/* Answers: the conversation scrolls inside its column, newest at the bottom. */
 .docmind-conversation {
   display: grid;
-  gap: 16px;
-  max-height: 55vh;
+  gap: 24px;
+  max-height: 60vh;
   overflow-y: auto;
   min-width: 0;
   padding-right: 4px;
 }
-.docmind-turn { display: grid; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--ds-border); min-width: 0; }
-.docmind-turn:last-child { border-bottom: 0; padding-bottom: 0; }
-.docmind-question { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.docmind-turn { display: grid; gap: 10px; min-width: 0; }
+.docmind-question { font-size: 18px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
 .docmind-answer { display: grid; gap: 8px; max-width: 70ch; overflow-wrap: anywhere; }
 .docmind-answer ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
-.docmind-sources summary { cursor: pointer; color: var(--ds-text-muted); font-size: 13px; border-radius: var(--ds-radius-sm); }
+.docmind-sources summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  border-radius: var(--ds-radius-sm);
+}
 .docmind-sources summary:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
 .docmind-sources ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 
-/* Passages */
+/* Passage column: the map, the window controls, and the passages themselves. */
+.docmind-passage-col { display: grid; gap: 14px; align-content: start; min-width: 0; }
+
+/* Document map: one cell per slice of the document. A bar under it marks the window in view. */
+.docmind-map { display: grid; gap: 10px; min-width: 0; }
+.docmind-map__track { position: relative; display: flex; gap: 1px; height: 28px; }
+.docmind-map__cell { flex: 1 1 0; min-width: 2px; background: var(--ds-border); border-radius: 1px; }
+.docmind-map__cell--sent { background: var(--ds-accent); opacity: 0.35; }
+.docmind-map__cell--cited { background: var(--ds-accent); }
+.docmind-map__view {
+  position: absolute;
+  top: calc(100% + 4px);
+  height: 3px;
+  background: var(--ds-text);
+  border-radius: 2px;
+}
+.docmind-map__ruler { display: flex; justify-content: space-between; gap: 8px; }
+
+/* Window and jump controls */
+.docmind-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.docmind-jump { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.docmind-jump .ds-input { width: 8rem; }
+.docmind-jump__help { flex-basis: 100%; }
+
+/* Passages read as the document's own text. Shading marks what the model read, solid marks what it cited. */
 .docmind-passages {
+  position: relative;
   list-style: none;
   margin: 0;
-  padding: 0 4px 0 0;
+  padding: 0 6px 0 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   max-height: 60vh;
   overflow-y: auto;
-  position: relative;
-}
-.docmind-passage {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
   min-width: 0;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-left: 3px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
 }
-.docmind-passage--cited { border-left-color: var(--ds-accent); background: var(--ds-accent-soft); }
+.docmind-passage { display: grid; gap: 6px; padding: 10px 12px; min-width: 0; border-radius: var(--ds-radius-sm); }
+.docmind-passage--sent { background: var(--ds-accent-soft); }
+.docmind-passage--cited { background: var(--ds-accent); color: var(--ds-accent-text); }
+.docmind-passage--cited .docmind-passage__meta,
+.docmind-passage--cited .docmind-passage__text { color: var(--ds-accent-text); }
+.docmind-passage--cited .ds-badge { background: var(--ds-accent-text); color: var(--ds-accent); border-color: transparent; }
+.docmind-passage__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .docmind-passage__text {
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.docmind-jump { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.docmind-jump .ds-input { width: 8rem; }
 
-/* Latest run: trace first, metrics beside it on wide screens. */
-.docmind-run { display: grid; gap: 20px; min-width: 0; }
-@media (min-width: 900px) {
-  .docmind-run { grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); align-items: start; }
+@media (max-width: 720px) {
+  .docmind-hero { padding: 14px; }
 }

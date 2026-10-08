@@ -100,6 +100,8 @@ export class AskError extends Error {
 interface AskEvents {
   onStart: (name: string) => void
   onStep: (step: TraceStep) => void
+  /** Indices of the passages ranked for this question, before the server is called. */
+  onRetrieved: (indices: number[]) => void
 }
 
 interface ServerRun {
@@ -208,6 +210,7 @@ export async function askQuestion(
 ): Promise<AskOutcome> {
   const began = performance.now()
   const top = retrieve(question, chunks)
+  events.onRetrieved(top.map(t => t.index))
   const retrieval: TraceStep = {
     name: RETRIEVE_STEP,
     status: 'ok',

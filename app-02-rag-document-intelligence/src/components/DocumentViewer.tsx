@@ -1,41 +1,48 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { VIEWER_WINDOW } from '../lib/constants'
-import type { DocumentState } from '../types'
+import { PassageMap } from './PassageMap'
+import type { DocumentState, RunState } from '../types'
 
 interface DocumentViewerProps {
   document: DocumentState
-  /** Passage indices to mark as cited. The first one is scrolled into view. */
-  highlightedChunks: number[]
+  /** Passages the browser sent to the model for the latest question. */
+  sent: number[]
+  /** Passages the latest answer cites. */
+  citedLatest: number[]
+  /** Passages to mark as cited now: a hovered source, or else the latest answer's sources. */
+  highlight: number[]
+  latestState: RunState | null
+  /** A new object asks the list to scroll to that passage. */
+  reveal: { index: number } | null
 }
 
 /** Passages kept in the DOM at once. A long PDF can produce tens of thousands of
  * passages, and rendering them all locks up the tab. */
 const WINDOW_SIZE = VIEWER_WINDOW * 2 + 1
 
-export function DocumentViewer({ document, highlightedChunks }: DocumentViewerProps) {
+/** The passage column of the hero: the map, a window of passages, and the controls that move it. */
+export function DocumentViewer({ document, sent, citedLatest, highlight, latestState, reveal }: DocumentViewerProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const passageRefs = useRef(new Map<number, HTMLLIElement>())
   const [focusIndex, setFocusIndex] = useState(0)
   // A new object per request, so the scroll effect runs once for each request.
   const [scrollRequest, setScrollRequest] = useState<{ index: number } | null>(null)
   const [jumpValue, setJumpValue] = useState('')
+  const [seenReveal, setSeenReveal] = useState(reveal)
 
   const total = document.chunks.length
   const isWindowed = total > WINDOW_SIZE
   const start = isWindowed ? Math.max(0, Math.min(focusIndex - VIEWER_WINDOW, total - WINDOW_SIZE)) : 0
   const end = isWindowed ? start + WINDOW_SIZE : total
 
-  const target = highlightedChunks[0]
-  const [seenTarget, setSeenTarget] = useState(target)
-
-  // A cited passage may sit outside the rendered window. When the cited passage
-  // changes, move the window to it and ask for a scroll. Adjusting state during
-  // render, not in an effect, lets the window and the request land in one commit.
-  if (target !== seenTarget) {
-    setSeenTarget(target)
-    if (target !== undefined) {
-      setFocusIndex(target)
-      setScrollRequest({ index: target })
+  // A passage to reveal may sit outside the rendered window. A new reveal moves the
+  // window to it and asks for a scroll. Adjusting state during render, not in an
+  // effect, lets the window and the request land in one commit.
+  if (reveal !== seenReveal) {
+    setSeenReveal(reveal)
+    if (reveal) {
+      setFocusIndex(reveal.index)
+      setScrollRequest({ index: reveal.index })
     }
   }
 
@@ -45,7 +52,7 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
     const item = passageRefs.current.get(scrollRequest.index)
     if (!list || !item) return
     // Scroll the list itself. scrollIntoView would also move the page, which
-    // jumps the layout every time someone hovers a source in the chat.
+    // jumps the layout every time someone hovers a source.
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     list.scrollTo({
       top: item.offsetTop - list.clientHeight / 2 + item.offsetHeight / 2,
@@ -71,13 +78,20 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
   }
 
   return (
-    <div className="ds-stack">
-      <p className="ds-hint">Cited passages are marked. Hovering a source scrolls to its first passage.</p>
+    <div className="docmind-passage-col">
+      <PassageMap
+        total={total}
+        sent={sent}
+        citedLatest={citedLatest}
+        latestState={latestState}
+        start={start}
+        end={end}
+      />
 
       {isWindowed && (
-        <div className="ds-row">
-          <p className="ds-hint">
-            Showing passages {start + 1} to {end} of {total.toLocaleString('en-US')}.
+        <div className="docmind-nav">
+          <p className="ds-help">
+            Showing passages {start + 1} to {end} of {total.toLocaleString('en-US')}. Move the list one window at a time.
           </p>
           <button type="button" className="ds-button" onClick={() => goTo(focusIndex - WINDOW_SIZE)} disabled={start === 0}>
             Earlier passages
@@ -102,18 +116,28 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
           min={1}
           max={total}
           value={jumpValue}
+          aria-describedby="docmind-jump-help"
           onChange={e => setJumpValue(e.target.value)}
         />
         <button type="submit" className="ds-button">
-          Go
+          Show passage
         </button>
+        <p id="docmind-jump-help" className="ds-help docmind-jump__help">
+          Type a passage number to read it in the list.
+        </p>
       </form>
 
       <ul ref={listRef} className="docmind-passages" aria-label="Document passages">
         {document.chunks.slice(start, end).map((chunk, offset) => {
           const i = start + offset
-          const cited = highlightedChunks.includes(i)
           const page = document.chunkPages[i]
+          const cited = highlight.includes(i)
+          const sentToModel = sent.includes(i)
+          const tone = cited
+            ? 'docmind-passage docmind-passage--cited'
+            : sentToModel
+              ? 'docmind-passage docmind-passage--sent'
+              : 'docmind-passage'
           return (
             <li
               key={i}
@@ -121,17 +145,18 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
                 if (el) passageRefs.current.set(i, el)
                 else passageRefs.current.delete(i)
               }}
-              className={cited ? 'docmind-passage docmind-passage--cited' : 'docmind-passage'}
+              className={tone}
             >
-              <p className="ds-hint">
-                Passage {i + 1}
-                {page !== undefined && `, page ${page}`}
-                {cited && (
-                  <>
-                    {' '}
-                    <span className="ds-badge ds-badge--accent">Cited</span>
-                  </>
-                )}
+              <p className="docmind-passage__meta">
+                <span>
+                  Passage {i + 1}
+                  {page !== undefined && `, page ${page}`}
+                </span>
+                {cited ? (
+                  <span className="ds-badge ds-badge--accent">Cited</span>
+                ) : sentToModel ? (
+                  <span className="ds-badge">Sent to the model</span>
+                ) : null}
               </p>
               <p className="docmind-passage__text">{chunk}</p>
             </li>

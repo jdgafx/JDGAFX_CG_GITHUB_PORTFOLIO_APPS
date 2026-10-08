@@ -4,7 +4,8 @@ import type { Turn } from '../types'
 interface AnswerTurnProps {
   turn: Turn
   chunkPages: number[]
-  onHighlight: (indices: number[]) => void
+  /** Marks a source's passages in the list while it is under the pointer or focus. Null clears the mark. */
+  onHighlight: (sources: number[] | null) => void
 }
 
 /** One question and its answer. Hovering or focusing the sources marks them in the passage list. */
@@ -21,27 +22,26 @@ export function AnswerTurn({ turn, chunkPages, onHighlight }: AnswerTurnProps) {
         <>
           <AnswerText text={turn.answer} />
           <div className="ds-row">
-            {turn.selfRated !== null && (
-              <span className="ds-badge">Self-rated {Math.round(turn.selfRated * 100)}%</span>
+            {turn.selfRated !== null && <span className="ds-badge">Self-rated {Math.round(turn.selfRated * 100)}%</span>}
+            {turn.model && (
+              <span className="ds-help docmind-wrap">
+                Served by <span className="ds-mono">{turn.model}</span>
+              </span>
             )}
-            {turn.model && <span className="ds-hint docmind-wrap">Served by {turn.model}</span>}
           </div>
           {turn.selfRated !== null && (
-            <p className="ds-hint">
-              The model rated its own answer. The rating is not checked against the passages.
-            </p>
+            <p className="ds-help">The model rated its own answer. The rating is not checked against the passages.</p>
           )}
           {sources.length > 0 && (
             <details
               className="docmind-sources"
+              open
               onMouseEnter={() => onHighlight(sources)}
-              onMouseLeave={() => onHighlight([])}
+              onMouseLeave={() => onHighlight(null)}
               onFocus={() => onHighlight(sources)}
-              onBlur={() => onHighlight([])}
+              onBlur={() => onHighlight(null)}
             >
-              <summary>
-                {sources.length === 1 ? 'Source: 1 passage' : `Sources: ${sources.length} passages`}
-              </summary>
+              <summary>{sources.length === 1 ? 'Source: 1 passage' : `Sources: ${sources.length} passages`}</summary>
               <ul>
                 {sources.map(idx => {
                   const page = chunkPages[idx]

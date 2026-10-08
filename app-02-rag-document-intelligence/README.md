@@ -2,6 +2,10 @@
 
 DocMind answers questions about one PDF or TXT file. You upload the file, ask a question, and get an answer with the passages it used and their page numbers. The PDF is read in your browser. The browser picks the passages that share words with your question and sends only those to the model. Each answer shows the steps it ran, with timings, token counts, cost, and the model that served it.
 
+What this showcases: retrieval-augmented answering. The browser retrieves the passages, and the model cites only the passages it was given.
+
+To try it without a file, choose **Try the sample guide**. It loads a short care guide with page numbers and fills in a question, so **Ask** is one click away.
+
 Live URL: https://jdgafx-app-02-rag-document-intelligence.netlify.app
 
 ## The pipeline
@@ -15,9 +19,11 @@ The steps below are the trace names the UI shows, in the order they run.
 5. **Retry model call** (server). Runs only when the first reply was empty or cut off at the output cap, and at least 5 seconds of the request budget remain. At most one retry.
 6. **Parse and validate** (server). Reads the JSON reply, keeps only citations that name a passage that was sent, and reports the cited count and the self-rated percentage.
 
-The Latest run card lists every step with its status, duration, and the tokens and cost of each model call. It also shows total latency, prompt, completion and total tokens, cost in USD, and the served model. A missing value reads "not reported". Cost is marked "estimated" when it comes from published catalogue prices rather than the provider's usage report.
+The Latest run section lists every step with its status, duration, and the tokens and cost of each model call. It also shows total latency, prompt, completion and total tokens, cost in USD, and the served model. A missing value reads "not reported". Cost is marked "estimated" when it comes from published catalogue prices rather than the provider's usage report.
 
-Each answer shows its self-rated confidence as "Self-rated N%", with a note that the model rated its own answer and the rating is not checked against the passages. It also shows "Served by" and the source passages. Hovering a source marks its passages in the Passages card.
+Each answer shows its self-rated confidence as "Self-rated N%", with a note that the model rated its own answer and the rating is not checked against the passages. It also shows "Served by" and the source passages. Hovering a source marks its passages in the Passages panel.
+
+The Passages panel is the retrieval view. Its map shows the whole document as a row of cells. Shaded cells hold passages the browser sent to the model, and solid cells hold passages the answer cites. The list beside the answer shows the same passages with their passage numbers and page numbers.
 
 ## Architecture
 

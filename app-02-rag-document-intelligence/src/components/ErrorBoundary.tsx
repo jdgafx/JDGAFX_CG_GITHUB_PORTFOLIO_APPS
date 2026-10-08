@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { SiteFooter } from './SiteFooter'
 
 interface Props {
   children: ReactNode
@@ -40,13 +41,15 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
         </header>
         <main className="ds-main">
-          <section className="ds-card ds-stack" aria-labelledby="crash-title">
-            <h2 id="crash-title" className="ds-card__title">Something went wrong</h2>
-            <p className="ds-hint">
-              DocMind stopped on an unexpected error. Your document stays in this browser. Only passages sent
-              with a question leave it. Start over to try again.
+          <section className="ds-panel ds-stack" aria-labelledby="crash-title">
+            <h2 id="crash-title" className="ds-section__title">
+              Something went wrong
+            </h2>
+            <p>
+              DocMind stopped on an unexpected error. Your document stays in this browser. Only passages sent with a
+              question leave it. Start over to try again.
             </p>
-            <div className="ds-notice ds-notice--error ds-mono docmind-wrap" role="alert">
+            <div className="ds-notice ds-notice--error docmind-wrap" role="alert">
               {error.message || 'Unknown error'}
             </div>
             <div className="ds-row">
@@ -59,9 +62,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
           </section>
         </main>
-        <footer className="ds-footer">
-          <div className="ds-footer__inner">Christopher Gentile</div>
-        </footer>
+        <SiteFooter />
       </div>
     )
   }

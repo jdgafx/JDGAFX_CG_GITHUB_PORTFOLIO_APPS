@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChatInterface } from './components/ChatInterface'
-import { DocumentViewer } from './components/DocumentViewer'
-import { ErrorBanner } from './components/ErrorBanner'
-import { RunBadge, RunReport } from './components/RunReport'
-import { UploadZone } from './components/UploadZone'
+import { DocumentSection } from './components/DocumentSection'
+import { QuestionSection } from './components/QuestionSection'
+import { RetrievalPanel } from './components/RetrievalPanel'
+import { RunSection } from './components/RunReport'
+import { SiteFooter } from './components/SiteFooter'
 import { askQuestion, AskError } from './lib/api'
 import { chunkText, stripPageMarkers } from './lib/chunk'
 import { extractText } from './lib/pdf'
+import { SAMPLE_PAGES, SAMPLE_QUESTION, SAMPLE_TEXT, SAMPLE_TITLE } from './lib/sample'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
 const NO_MATCH_ANSWER =
@@ -18,6 +19,7 @@ function newId(): string {
 
 export default function App() {
   const [doc, setDoc] = useState<DocumentState | null>(null)
+  const [docVersion, setDocVersion] = useState(0)
   const [reading, setReading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
@@ -27,7 +29,12 @@ export default function App() {
   const [liveTrace, setLiveTrace] = useState<TraceStep[]>([])
   const [latest, setLatest] = useState<LatestRun | null>(null)
   const [askError, setAskError] = useState<string | null>(null)
-  const [highlighted, setHighlighted] = useState<number[]>([])
+  // Passages the browser sent for the latest question, and the passages its answer cites.
+  const [sent, setSent] = useState<number[]>([])
+  const [citedLatest, setCitedLatest] = useState<number[]>([])
+  // A source under the pointer or focus. It replaces the cited passages in the list until it lets go.
+  const [hovered, setHovered] = useState<number[] | null>(null)
+  const [reveal, setReveal] = useState<{ index: number } | null>(null)
   const requestIdRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -42,21 +49,38 @@ export default function App() {
     setPending(null)
   }, [])
 
+  /** Clears the answers and the passage marks. The document itself is left alone. */
+  const clearConversation = useCallback(() => {
+    setTurns([])
+    setLatest(null)
+    setLiveTrace([])
+    setSent([])
+    setCitedLatest([])
+    setHovered(null)
+    setReveal(null)
+    setAskError(null)
+  }, [])
+
+  /** Makes a document the current one and starts its conversation again. */
+  const loadDocument = useCallback(
+    (next: DocumentState) => {
+      setDoc(next)
+      setDocVersion(v => v + 1)
+      clearConversation()
+      setQuestion('')
+    },
+    [clearConversation],
+  )
+
   const handleFileSelect = useCallback(
     async (file: File) => {
       cancelRun()
       setUploadError(null)
-      setAskError(null)
       setReading(true)
       try {
         const { text, pages } = await extractText(file)
         const { chunks, chunkPages } = chunkText(text)
-        setDoc({ title: file.name, chunks, chunkPages, pages, charCount: stripPageMarkers(text).length })
-        setTurns([])
-        setLatest(null)
-        setLiveTrace([])
-        setHighlighted([])
-        setQuestion('')
+        loadDocument({ title: file.name, chunks, chunkPages, pages, charCount: stripPageMarkers(text).length })
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : 'Failed to extract text from this file.')
         console.error('Extract error:', err)
@@ -64,8 +88,23 @@ export default function App() {
         setReading(false)
       }
     },
-    [cancelRun],
+    [cancelRun, loadDocument],
   )
+
+  /** Loads the built-in sample with its question filled in, so Ask is one click away. */
+  const handleSample = useCallback(() => {
+    cancelRun()
+    setUploadError(null)
+    const { chunks, chunkPages } = chunkText(SAMPLE_TEXT)
+    loadDocument({
+      title: SAMPLE_TITLE,
+      chunks,
+      chunkPages,
+      pages: SAMPLE_PAGES,
+      charCount: stripPageMarkers(SAMPLE_TEXT).length,
+    })
+    setQuestion(SAMPLE_QUESTION)
+  }, [cancelRun, loadDocument])
 
   const runQuestion = useCallback(async () => {
     const text = question.trim()
@@ -80,7 +119,9 @@ export default function App() {
 
     setQuestion('')
     setAskError(null)
-    setHighlighted([])
+    setHovered(null)
+    setSent([])
+    setCitedLatest([])
     setRunning(true)
     setPending(null)
     setLiveTrace([])
@@ -97,9 +138,17 @@ export default function App() {
             setPending(null)
           }
         },
+        onRetrieved: indices => {
+          if (!isCurrent()) return
+          setSent(indices)
+          // The list opens on the first passage the model will read.
+          const first = indices[0]
+          if (first !== undefined) setReveal({ index: first })
+        },
       })
       if (!isCurrent()) return
       setLatest({ report: outcome.run, state: outcome.status })
+      if (outcome.status === 'answered') setCitedLatest(outcome.sourceChunks)
       const turn: Turn =
         outcome.status === 'answered'
           ? {
@@ -138,28 +187,31 @@ export default function App() {
     abortRef.current?.abort()
   }, [])
 
+  /** Marks a source's passages while the pointer or focus is on it, and opens the list on its first passage. */
+  const handleHighlight = useCallback((sources: number[] | null) => {
+    setHovered(sources)
+    const first = sources?.[0]
+    if (first !== undefined) setReveal({ index: first })
+  }, [])
+
   const handleReset = useCallback(() => {
     if (turns.length > 0 && !window.confirm('Start over with a new document? This conversation will be cleared.')) {
       return
     }
     cancelRun()
     setDoc(null)
-    setTurns([])
-    setLatest(null)
-    setLiveTrace([])
-    setHighlighted([])
+    clearConversation()
     setQuestion('')
-    setAskError(null)
     setUploadError(null)
-  }, [turns.length, cancelRun])
+  }, [turns.length, cancelRun, clearConversation])
 
-  const badge = reading
-    ? { label: 'Reading document', tone: 'ds-badge--accent' }
+  const badge: { label: string; tone: string; mark: 'ok' | 'running' | 'skipped' } = reading
+    ? { label: 'Reading document', tone: 'ds-badge--accent', mark: 'running' }
     : running
-      ? { label: 'Working', tone: 'ds-badge--accent' }
+      ? { label: 'Asking', tone: 'ds-badge--accent', mark: 'running' }
       : doc
-        ? { label: 'Document ready', tone: 'ds-badge--success' }
-        : { label: 'No document', tone: '' }
+        ? { label: 'Document ready', tone: 'ds-badge--success', mark: 'ok' }
+        : { label: 'No document yet', tone: '', mark: 'skipped' }
 
   const settledStatus = !latest
     ? doc
@@ -173,7 +225,8 @@ export default function App() {
           ? 'Stopped. No answer came back.'
           : 'The question did not get an answer.'
 
-  const pagesText = doc ? (doc.pages === 1 ? '1 page' : `${doc.pages} pages`) : ''
+  // The list marks a hovered source's passages while one is under the pointer or focus.
+  const highlight = hovered ?? citedLatest
 
   return (
     <div className="ds-app">
@@ -183,50 +236,31 @@ export default function App() {
             <h1 className="ds-title">DocMind</h1>
             <p className="ds-subtitle">Ask questions about a PDF or TXT. Each answer lists the passages it used.</p>
           </div>
-          <span className={`ds-badge ${badge.tone}`}>{badge.label}</span>
+          <span className={`ds-badge ${badge.tone}`}>
+            <span className={`ds-dot ds-dot--${badge.mark}`} aria-hidden="true" />
+            {badge.label}
+          </span>
+          <p className="ds-showcase">
+            <strong>What this showcases:</strong> retrieval-augmented answering. The browser retrieves the passages, and
+            the model cites only the passages it was given.
+          </p>
         </div>
       </header>
 
       <main className="ds-main">
-        <div className="ds-grid-2 docmind-pair">
-          <section className="ds-card" aria-labelledby="card-document">
-            <div className="ds-card__head">
-              <h2 id="card-document" className="ds-card__title">
-                Document
-              </h2>
-              {doc && <span className="ds-hint docmind-wrap">{doc.title}</span>}
-            </div>
-            {doc ? (
-              <div className="ds-stack">
-                <p className="ds-hint">
-                  {doc.chunks.length.toLocaleString('en-US')} passages, {pagesText},{' '}
-                  {doc.charCount.toLocaleString('en-US')} characters.
-                </p>
-                <p className="ds-hint">Read in this browser. Only passages that match a question are sent to the model.</p>
-                <div className="ds-row">
-                  <button type="button" className="ds-button" onClick={handleReset} disabled={running || reading}>
-                    Start over
-                  </button>
-                  <span className="ds-hint">Clears this document and the conversation.</span>
-                </div>
-              </div>
-            ) : (
-              <UploadZone busy={reading || running} onFileSelect={handleFileSelect} onError={setUploadError} />
-            )}
-            <ErrorBanner message={uploadError} />
-          </section>
-
-          <section className="ds-card" aria-labelledby="card-ask">
-            <div className="ds-card__head">
-              <h2 id="card-ask" className="ds-card__title">
-                Ask
-              </h2>
-              <span className="ds-hint">The model is told to use only these passages.</span>
-            </div>
-            <ChatInterface
+        <div className="ds-bench">
+          <div className="ds-controls">
+            <DocumentSection
+              doc={doc}
+              busy={reading || running}
+              error={uploadError}
+              onFileSelect={handleFileSelect}
+              onSample={handleSample}
+              onError={setUploadError}
+              onReset={handleReset}
+            />
+            <QuestionSection
               documentReady={doc !== null}
-              turns={turns}
-              chunkPages={doc?.chunkPages ?? []}
               question={question}
               running={running}
               pendingStep={pending}
@@ -235,37 +269,27 @@ export default function App() {
               onQuestionChange={setQuestion}
               onAsk={runQuestion}
               onStop={stopRun}
-              onHighlight={setHighlighted}
             />
-          </section>
-        </div>
-
-        <section className="ds-card" aria-labelledby="card-run">
-          <div className="ds-card__head">
-            <h2 id="card-run" className="ds-card__title">
-              Latest run
-            </h2>
-            <RunBadge running={running} state={latest?.state ?? null} />
           </div>
-          <p className="ds-hint">Each step for the latest question, with its timing, tokens and cost.</p>
-          <RunReport running={running} pending={pending} liveTrace={liveTrace} latest={latest} />
-        </section>
 
-        {doc && (
-          <section className="ds-card" aria-labelledby="card-passages">
-            <div className="ds-card__head">
-              <h2 id="card-passages" className="ds-card__title">
-                Passages
-              </h2>
-            </div>
-            <DocumentViewer document={doc} highlightedChunks={highlighted} />
-          </section>
-        )}
+          <div className="ds-run">
+            <RetrievalPanel
+              doc={doc}
+              docVersion={docVersion}
+              turns={turns}
+              sent={sent}
+              citedLatest={citedLatest}
+              highlight={highlight}
+              latestState={latest?.state ?? null}
+              reveal={reveal}
+              onHighlight={handleHighlight}
+            />
+            <RunSection running={running} pending={pending} liveTrace={liveTrace} latest={latest} />
+          </div>
+        </div>
       </main>
 
-      <footer className="ds-footer">
-        <div className="ds-footer__inner">Christopher Gentile</div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }
