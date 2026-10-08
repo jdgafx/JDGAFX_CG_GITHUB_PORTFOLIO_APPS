@@ -1,0 +1,260 @@
+/* App-specific layer. Colour, type and the card and button shapes come from tokens.css. */
+
+.gg-layout {
+  align-items: start;
+}
+
+.gg-live {
+  min-height: 1.5em;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Sample tickets */
+.gg-samples {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.gg-samples strong {
+  color: var(--ds-text);
+  font-weight: 600;
+}
+
+.gg-run-row {
+  margin-top: 4px;
+}
+
+/* Graph: a row of node chips joined by edges. Taken edges are drawn in the accent colour. */
+.gg-flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.gg-flow--bypass {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--ds-border);
+}
+
+.gg-terminal {
+  padding: 4px 8px;
+  font-family: var(--ds-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ds-text-muted);
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+}
+
+.gg-node {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 10px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-node__name {
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gg-node__state {
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
+.gg-node--running {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+
+.gg-node--waiting {
+  border-color: var(--ds-warning);
+  background: var(--ds-warning-soft);
+}
+
+.gg-node--done {
+  border-color: var(--ds-success);
+}
+
+.gg-node--failed {
+  border-color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+}
+
+.gg-node--skipped {
+  border-style: dashed;
+  color: var(--ds-text-muted);
+}
+
+.gg-edge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 36px;
+}
+
+.gg-edge__line {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 2px;
+  background: var(--ds-border);
+}
+
+.gg-edge__line::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -4px;
+  border-left: 6px solid var(--ds-border);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.gg-edge--taken .gg-edge__line {
+  background: var(--ds-accent);
+}
+
+.gg-edge--taken .gg-edge__line::after {
+  border-left-color: var(--ds-accent);
+}
+
+.gg-edge__label {
+  font-family: var(--ds-mono);
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+/* Approval facts and the decision buttons */
+.gg-facts {
+  margin: 0 0 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.gg-facts > div {
+  display: grid;
+  gap: 2px;
+}
+
+.gg-facts dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ds-text-muted);
+}
+
+.gg-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.gg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gg-edit {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-edit .ds-button {
+  justify-self: start;
+}
+
+.gg-note {
+  margin-top: 16px;
+}
+
+/* Reply */
+.gg-subject {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
+}
+
+.gg-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 10px;
+}
+
+/* Threads */
+.gg-threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.gg-thread {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-thread__text {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.gg-thread__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Trace totals */
+.gg-metrics {
+  margin-top: 16px;
+}
+
+.metric-value--small {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ds-trace__step > div {
+  min-width: 0;
+}
