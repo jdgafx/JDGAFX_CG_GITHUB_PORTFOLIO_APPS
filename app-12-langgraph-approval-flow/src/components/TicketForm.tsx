@@ -9,31 +9,41 @@ interface TicketFormProps {
   onRun: () => void
 }
 
+/** The controls for one run: the sample tickets, the ticket text, and the Start button. */
 export function TicketForm({ ticket, busy, onChange, onSample, onRun }: TicketFormProps) {
   const problem = ticketProblem(ticket)
   const length = [...ticket.trim()].length
 
   return (
-    <section className="ds-card" aria-labelledby="ticket-heading">
-      <div className="ds-card__head">
-        <h2 id="ticket-heading" className="ds-card__title">Support ticket</h2>
-        <span className="ds-hint">Two sample tickets are ready to run</span>
+    <section className="ds-section" aria-labelledby="ticket-heading">
+      <div className="ds-section__head">
+        <h2 id="ticket-heading" className="ds-section__title">
+          Support ticket
+        </h2>
+        <p className="ds-section__sub">The graph reads this message, applies the refund policy, and writes the reply.</p>
       </div>
 
-      <div className="ds-row" role="group" aria-label="Sample tickets">
+      <div className="gg-samples" role="group" aria-labelledby="samples-label" aria-describedby="samples-help">
+        <span id="samples-label" className="ds-label">
+          Sample tickets
+        </span>
         {SAMPLE_TICKETS.map((sample) => (
-          <button key={sample.id} type="button" className="ds-button" disabled={busy} onClick={() => onSample(sample.id)}>
-            {sample.label}
+          <button
+            key={sample.id}
+            type="button"
+            className="ds-button gg-sample"
+            disabled={busy}
+            aria-pressed={ticket === sample.text}
+            onClick={() => onSample(sample.id)}
+          >
+            <span className="gg-sample__label">{sample.label}</span>
+            <span className="gg-sample__outcome">{sample.outcome}</span>
           </button>
         ))}
+        <p id="samples-help" className="ds-help">
+          One needs approval. The other is approved automatically.
+        </p>
       </div>
-      <ul className="gg-samples">
-        {SAMPLE_TICKETS.map((sample) => (
-          <li key={sample.id}>
-            <strong>{sample.label}:</strong> {sample.outcome}
-          </li>
-        ))}
-      </ul>
 
       <div className="ds-field">
         <label htmlFor="ticket-text" className="ds-label">
@@ -45,8 +55,11 @@ export function TicketForm({ ticket, busy, onChange, onSample, onRun }: TicketFo
           value={ticket}
           disabled={busy}
           onChange={(event) => onChange(event.target.value)}
-          aria-describedby="ticket-count ticket-rule"
+          aria-describedby="ticket-help ticket-count ticket-rule"
         />
+        <p id="ticket-help" className="ds-help">
+          The customer's message. The agent extracts the order and the issue.
+        </p>
       </div>
       <p id="ticket-count" className="ds-hint">
         {length} characters. Use {TICKET_MIN_LENGTH} to {TICKET_MAX_LENGTH.toLocaleString('en-US')}.
@@ -57,10 +70,17 @@ export function TicketForm({ ticket, busy, onChange, onSample, onRun }: TicketFo
         </p>
       ) : null}
 
-      <div className="ds-row gg-run-row">
-        <button type="button" className="ds-button ds-button--primary" disabled={busy || problem !== null} onClick={onRun}>
-          {busy ? 'Running...' : 'Run the graph'}
+      <div className="gg-start-block">
+        <button
+          type="button"
+          className="ds-button ds-button--primary gg-start"
+          disabled={busy || problem !== null}
+          aria-busy={busy}
+          onClick={onRun}
+        >
+          {busy ? 'Running…' : 'Start the refund run'}
         </button>
+        <p className="ds-help">The graph runs each step and pauses at review when a person must decide.</p>
       </div>
     </section>
   )

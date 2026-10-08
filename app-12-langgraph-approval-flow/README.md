@@ -4,6 +4,8 @@ GraphGate is a refund agent for support tickets, built with LangGraph.js. A tick
 
 The graph needs LangGraph because the pause has to survive a reload. The run stops at an `interrupt()` call and writes its state to a checkpoint in Netlify Blobs. A visitor can close the page, come back, see the thread listed as waiting, and resume it from that checkpoint. A plain chain cannot stop mid-run and continue later from stored state.
 
+What this showcases: a graph that pauses for a human with `interrupt()`, saves its checkpoint, and resumes from it after a reload.
+
 ## The graph
 
 ```text
@@ -34,11 +36,11 @@ Output caps are 300, 500 and 600 tokens. Usage accounting is on for every call. 
 
 ## What the UI shows
 
-- **Ticket**: two sample tickets, one that needs approval and one that is approved automatically.
-- **Graph**: each node as it runs, with the two decide edges labelled `requiresHuman` and `otherwise`.
-- **Approval card**: the proposed outcome, the policy reason, the order total, what the customer asked for, and Approve, Edit amount and Reject. An edited amount may not exceed the order total. This is the intended rule.
-- **Run trace**: each node's time in milliseconds, served model, tokens and cost.
-- **Metrics**: total node time, tokens, cost and served model. A value the provider did not report reads "not reported".
+- **Support ticket**: two sample tickets, one that needs approval and one that is approved automatically. Each one loads into the ticket text.
+- **Graph**: the five steps as the run walks them. The two decide edges are labelled "needs a human" (`requiresHuman` in the code) and "auto-approve" (`otherwise`). The path the run took is highlighted, and review shows as paused while the run waits.
+- **Approval card**: the proposed outcome, the policy reason, the order total, what the customer asked for, and Approve refund, Edit amount and Reject. An edited amount may not exceed the order total. This is the intended rule.
+- **Run trace**: each step in the order it ran, with its time in milliseconds, served model, tokens and cost.
+- **Readout**: under the graph, the run time (the sum of the steps that ran), tokens, cost and served models. A value the provider did not report reads "not reported".
 - **Customer reply**: the subject and body, and whether a person or the policy decided.
 - **Threads**: the saved threads, newest first. Open a waiting thread to approve it after a reload.
 

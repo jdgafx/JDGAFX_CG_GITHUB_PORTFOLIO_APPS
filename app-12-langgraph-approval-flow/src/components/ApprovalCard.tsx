@@ -36,12 +36,23 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
   }
 
   const customerAsked = proposal.requestedAmount !== null ? formatUsd(proposal.requestedAmount) : 'not stated'
+  const orderId = proposal.orderId ?? 'not stated'
+  const orderLine =
+    proposal.orderTotal !== null ? `${orderId}, total ${formatUsd(proposal.orderTotal)}` : `${orderId}, no matching order`
 
   return (
-    <section className="ds-card" aria-labelledby="approval-heading">
-      <div className="ds-card__head">
-        <h2 id="approval-heading" className="ds-card__title">Approval needed</h2>
-        <span className="ds-badge ds-badge--warning">Paused at review</span>
+    <section className="ds-panel gg-approval" aria-labelledby="approval-heading">
+      <div className="ds-section__head ds-section__head--row">
+        <div>
+          <h2 id="approval-heading" className="ds-section__title">
+            Approval needed
+          </h2>
+          <p className="ds-section__sub">The graph paused on this proposal. Choose one answer to resume the run.</p>
+        </div>
+        <span className="ds-badge ds-badge--warning">
+          <span className="ds-dot gg-dot--waiting" aria-hidden="true" />
+          Paused at review
+        </span>
       </div>
 
       <dl className="gg-facts">
@@ -51,10 +62,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         </div>
         <div>
           <dt>Order</dt>
-          <dd>
-            {proposal.orderId ?? 'not stated'}
-            {proposal.orderTotal !== null ? `, total ${formatUsd(proposal.orderTotal)}` : ', no matching order'}
-          </dd>
+          <dd>{orderLine}</dd>
         </div>
         <div>
           <dt>Customer asked for</dt>
@@ -70,26 +78,41 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         </div>
       </dl>
 
-      <div className="gg-actions" role="group" aria-label="Your decision">
-        <button type="button" className="ds-button ds-button--primary" disabled={busy} onClick={() => onDecide({ action: 'approve' })}>
-          Approve
-        </button>
-        <button
-          type="button"
-          className="ds-button"
-          disabled={busy}
-          aria-expanded={editing}
-          aria-controls="edit-amount-form"
-          onClick={() => {
-            setProblem(null)
-            setEditing((open) => !open)
-          }}
-        >
-          Edit amount
-        </button>
-        <button type="button" className="ds-button" disabled={busy} onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}>
-          Reject
-        </button>
+      <div className="gg-decision">
+        <div className="gg-actions" role="group" aria-label="Your decision" aria-describedby="decision-help">
+          <button
+            type="button"
+            className="ds-button ds-button--primary"
+            disabled={busy}
+            onClick={() => onDecide({ action: 'approve' })}
+          >
+            Approve refund
+          </button>
+          <button
+            type="button"
+            className="ds-button"
+            disabled={busy}
+            aria-expanded={editing}
+            aria-controls="edit-amount-form"
+            onClick={() => {
+              setProblem(null)
+              setEditing((open) => !open)
+            }}
+          >
+            Edit amount
+          </button>
+          <button
+            type="button"
+            className="ds-button"
+            disabled={busy}
+            onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}
+          >
+            Reject
+          </button>
+        </div>
+        <p id="decision-help" className="ds-help">
+          Approve refunds the proposed amount. Edit amount sets another one. Reject refunds nothing.
+        </p>
       </div>
 
       {editing ? (
@@ -106,19 +129,21 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
               value={amountText}
               disabled={busy}
               onChange={(event) => setAmountText(event.target.value)}
-              aria-describedby="edit-amount-hint"
+              aria-describedby="edit-amount-help"
             />
-            <span id="edit-amount-hint" className="ds-hint">
-              {proposal.orderTotal !== null ? `Up to ${formatUsd(proposal.orderTotal)}.` : 'Not available for this ticket.'}
-            </span>
+            <p id="edit-amount-help" className="ds-help">
+              {proposal.orderTotal !== null
+                ? `Up to ${formatUsd(proposal.orderTotal)}, the order total.`
+                : 'Not available for this ticket.'}
+            </p>
           </div>
           <button type="submit" className="ds-button ds-button--primary" disabled={busy}>
-            Send edited amount
+            Refund edited amount
           </button>
         </form>
       ) : null}
 
-      <div className="ds-field gg-note">
+      <div className="ds-field">
         <label htmlFor="review-note" className="ds-label">
           Note for the record (optional)
         </label>
@@ -129,7 +154,11 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
           value={note}
           disabled={busy}
           onChange={(event) => setNote(event.target.value)}
+          aria-describedby="review-note-help"
         />
+        <p id="review-note-help" className="ds-help">
+          Kept on the run and shown under the customer reply.
+        </p>
       </div>
 
       {problem ? (

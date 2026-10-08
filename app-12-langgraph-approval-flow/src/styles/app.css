@@ -1,11 +1,39 @@
-/* App-specific layer. Colour, type and the card and button shapes come from tokens.css. */
+/* App layer. Colour, type, the cards and buttons and the bench come from tokens.css. This file adds the
+   graph stage, the gate states and a few local rules. Type stays on the scale 13, 15, 18, 22, 27 and 32.
+   Borders mark panels and the trace only. */
 
-.gg-layout {
-  align-items: start;
+/* Every grid keeps one track that cannot grow past the screen, so the scrolling graph stays in its panel. */
+.ds-main,
+.ds-controls,
+.ds-run,
+.ds-section,
+.gg-hero,
+.gg-approval,
+.gg-decision,
+.gg-email,
+.gg-edit,
+.gg-samples,
+.gg-sample,
+.gg-start-block,
+.gg-facts,
+.gg-threads,
+.gg-node {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Controls scroll with the page. A sticky column taller than the screen would hide its bottom. */
+.ds-controls {
+  position: static;
+}
+
+.gg-code {
+  font-family: var(--ds-mono);
 }
 
 .gg-live {
   min-height: 1.5em;
+  font-size: 15px;
+  color: var(--ds-text);
 }
 
 .visually-hidden {
@@ -20,144 +48,267 @@
   border: 0;
 }
 
-/* Sample tickets */
+/* Sample tickets: each button names its ticket and states the outcome under the name */
 .gg-samples {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  color: var(--ds-text-muted);
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gg-sample {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.gg-sample__label {
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
 
-.gg-samples strong {
-  color: var(--ds-text);
-  font-weight: 600;
+.gg-sample__outcome {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
 }
 
-.gg-run-row {
-  margin-top: 4px;
+.gg-sample[aria-pressed="true"] {
+  background: var(--ds-surface-2);
+  border-color: var(--ds-text-muted);
 }
 
-/* Graph: a row of node chips joined by edges. Taken edges are drawn in the accent colour. */
-.gg-flow {
-  list-style: none;
+.gg-start-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gg-start {
+  width: 100%;
+}
+
+/* Threads: rules between rows, no boxes */
+.gg-threads {
+  display: grid;
+  gap: 0;
   margin: 0;
   padding: 0;
+  list-style: none;
+}
+
+.gg-thread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--ds-border);
+}
+
+.gg-thread:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.gg-thread__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gg-thread__title {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.gg-thread__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.gg-flow--bypass {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--ds-border);
+/* The tokens have no dot for a paused step or a waiting run, so the app adds two. A paused review gate
+   takes the signal colour to match its box. A waiting run in a list takes the warning colour. */
+.gg-dot--active {
+  background: var(--ds-accent);
 }
 
-.gg-terminal {
-  padding: 4px 8px;
-  font-family: var(--ds-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
+.gg-dot--waiting {
+  background: var(--ds-warning);
+}
+
+/* The graph: a fixed-size stage. Boxes and arrows keep their places, and a narrow screen scrolls it. */
+.gg-hero {
+  display: grid;
+  gap: 16px;
+}
+
+.gg-stage {
+  position: relative;
+}
+
+.gg-stage__svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.gg-stage__nodes {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Untaken edges are dashed graphite. Taken edges are solid signal colour. */
+.gg-stage__line {
+  fill: none;
+  stroke: var(--ds-text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.gg-stage__line--taken {
+  stroke: var(--ds-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+.gg-stage__head {
+  fill: var(--ds-text-muted);
+}
+
+.gg-stage__head--taken {
+  fill: var(--ds-accent);
+}
+
+.gg-stage__label {
+  position: absolute;
+  font-size: 13px;
+  line-height: 16px;
   color: var(--ds-text-muted);
-  border: 1px solid var(--ds-border);
-  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.gg-stage__label--taken {
+  color: var(--ds-accent);
+  font-weight: 650;
+}
+
+.gg-stage__terminal {
+  position: absolute;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--ds-text-muted);
 }
 
 .gg-node {
+  position: absolute;
   display: grid;
-  gap: 2px;
-  min-width: 96px;
+  align-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  margin: 0;
   padding: 8px 10px;
-  background: var(--ds-surface-2);
+  list-style: none;
+  background: var(--ds-surface);
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
 }
 
+.gg-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .gg-node__name {
   font-family: var(--ds-mono);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .gg-node__state {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ds-text-muted);
 }
 
-.gg-node--running {
-  border-color: var(--ds-accent);
+.gg-node--done {
+  border-color: var(--ds-text-muted);
+}
+
+.gg-node--done .gg-node__state {
+  color: var(--ds-text);
+}
+
+/* The active step takes the signal colour. The review gate adds an outer rule while it waits. */
+.gg-node--running,
+.gg-node--waiting {
+  padding: 7px 9px;
+  border: 2px solid var(--ds-accent);
   background: var(--ds-accent-soft);
 }
 
 .gg-node--waiting {
-  border-color: var(--ds-warning);
-  background: var(--ds-warning-soft);
-}
-
-.gg-node--done {
-  border-color: var(--ds-success);
+  outline: 1px solid var(--ds-accent);
+  outline-offset: 3px;
 }
 
 .gg-node--failed {
-  border-color: var(--ds-danger);
+  padding: 7px 9px;
+  border: 2px solid var(--ds-danger);
   background: var(--ds-danger-soft);
 }
 
 .gg-node--skipped {
   border-style: dashed;
+}
+
+.gg-node--skipped .gg-node__name {
+  font-weight: 400;
   color: var(--ds-text-muted);
 }
 
-.gg-edge {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-width: 36px;
+/* The readout keeps the tokens' strip. These rules only set three columns, with the models row across all three. */
+.gg-readout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.gg-edge__line {
-  position: relative;
-  display: block;
-  width: 28px;
-  height: 2px;
-  background: var(--ds-border);
+.gg-readout__wide {
+  grid-column: 1 / -1;
 }
 
-.gg-edge__line::after {
-  content: "";
-  position: absolute;
-  right: -1px;
-  top: -4px;
-  border-left: 6px solid var(--ds-border);
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
+@media (max-width: 720px) {
+  .gg-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.gg-edge--taken .gg-edge__line {
-  background: var(--ds-accent);
-}
-
-.gg-edge--taken .gg-edge__line::after {
-  border-left-color: var(--ds-accent);
-}
-
-.gg-edge__label {
-  font-family: var(--ds-mono);
-  font-size: 11px;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-/* Approval facts and the decision buttons */
-.gg-facts {
-  margin: 0 0 16px;
+/* The approval card: the one loud panel, and only while the run waits */
+.gg-approval {
   display: grid;
-  gap: 10px;
+  gap: 16px;
+  background: var(--ds-surface);
+  border: 2px solid var(--ds-warning);
+}
+
+.gg-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
 }
 
 .gg-facts > div {
@@ -166,9 +317,7 @@
 }
 
 .gg-facts dt {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 13px;
   color: var(--ds-text-muted);
 }
 
@@ -177,19 +326,30 @@
   overflow-wrap: anywhere;
 }
 
+@media (min-width: 560px) {
+  .gg-facts > div {
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+.gg-decision {
+  display: grid;
+  gap: 8px;
+}
+
 .gg-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+/* The edit form is a tint, not a box */
 .gg-edit {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
   background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
 }
 
@@ -197,64 +357,18 @@
   justify-self: start;
 }
 
-.gg-note {
-  margin-top: 16px;
+/* The customer reply */
+.gg-email {
+  display: grid;
+  gap: 10px;
 }
 
-/* Reply */
 .gg-subject {
-  font-weight: 600;
+  font-weight: 650;
   overflow-wrap: anywhere;
-  margin-bottom: 8px;
 }
 
 .gg-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  margin-bottom: 10px;
-}
-
-/* Threads */
-.gg-threads {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.gg-thread {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  padding: 10px 12px;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.gg-thread__text {
-  min-width: 0;
-  flex: 1 1 200px;
-}
-
-.gg-thread__title {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-/* Trace totals */
-.gg-metrics {
-  margin-top: 16px;
-}
-
-.metric-value--small {
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.ds-trace__step > div {
-  min-width: 0;
 }

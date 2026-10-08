@@ -3,6 +3,7 @@ import type { StreamEvent } from '../netlify/shared/events'
 import { ApprovalCard } from './components/ApprovalCard'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
+import { Readout } from './components/Readout'
 import { ReplyCard, outcomeOf } from './components/ReplyCard'
 import { ThreadsCard, type ThreadsState } from './components/ThreadsCard'
 import { TicketForm } from './components/TicketForm'
@@ -11,22 +12,21 @@ import { SAMPLE_TICKETS, type SampleTicket } from './constants'
 import { failureText, fetchThread, fetchThreads, isAbortError, resumeThread, startTicket } from './lib/api'
 import { ticketProblem } from './lib/limits'
 import { applyEvent, emptyRun, NODES, runFromView, type Phase, type RunView } from './lib/run-state'
-import type { HumanDecision } from './types'
+import type { HumanDecision, NodeName } from './types'
 
-function statusLine(phase: Phase, run: RunView): string {
+/** The one status line under the header. It uses the same verb as the Start button. */
+function statusLine(phase: Phase, run: RunView, current: NodeName | null): string {
   switch (phase) {
     case 'idle':
-      return 'Ready. Run a sample ticket to watch the graph work.'
-    case 'running': {
-      const current = NODES.find((node) => run.nodes[node] === 'running')
-      return current ? `Running the ${current} step.` : 'Starting the run.'
-    }
+      return 'Ready. Start the refund run to watch the graph work.'
+    case 'running':
+      return current ? `Running the ${current} step.` : 'Starting the refund run.'
     case 'paused':
       return 'Paused for a person. Approve the refund, edit the amount, or reject it.'
     case 'done':
       return run.result ? `Finished. ${outcomeOf(run.result)}.` : 'Finished.'
     case 'failed':
-      return 'The run stopped. The message above and the trace show where.'
+      return 'The run stopped. The message on the page says why, and the trace marks the step.'
   }
 }
 
@@ -143,6 +143,7 @@ export default function App() {
   }
 
   const busy = phase === 'running'
+  const current = phase === 'running' ? (NODES.find((node) => run.nodes[node] === 'running') ?? null) : null
 
   return (
     <div className="ds-app">
@@ -150,7 +151,7 @@ export default function App() {
 
       <main className="ds-main">
         <p className="ds-hint gg-live" role="status" aria-live="polite">
-          {statusLine(phase, run)}
+          {statusLine(phase, run, current)}
         </p>
         {requestError ? (
           <p className="ds-notice ds-notice--error" role="alert">
@@ -158,8 +159,8 @@ export default function App() {
           </p>
         ) : null}
 
-        <div className="ds-grid-2 gg-layout">
-          <div className="ds-stack">
+        <div className="ds-bench">
+          <div className="ds-controls">
             <TicketForm
               ticket={ticket}
               busy={busy}
@@ -170,13 +171,19 @@ export default function App() {
             <ThreadsCard state={threads} busy={busy} onRefresh={handleRefresh} onOpen={(id) => void handleOpen(id)} />
           </div>
 
-          <div className="ds-stack">
+          <div className="ds-run">
+            {run.error ? (
+              <p className="ds-notice ds-notice--error" role="alert">
+                {run.error}
+              </p>
+            ) : null}
             <GraphView run={run} />
+            <Readout run={run} />
             {phase === 'paused' && run.proposal ? (
               <ApprovalCard proposal={run.proposal} busy={busy} onDecide={handleDecide} />
             ) : null}
             {run.result ? <ReplyCard result={run.result} /> : null}
-            <TraceCard run={run} />
+            <TraceCard run={run} current={current} />
           </div>
         </div>
       </main>
