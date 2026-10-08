@@ -1,5 +1,6 @@
 import { validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan, RunStep, RunSummary } from '../../src/types'
+import { checkAnalysisBody, readJsonBody, type AnalysisInput } from '../shared/requestBody'
 import {
   callModel,
   describeFailure,
@@ -9,13 +10,6 @@ import {
   type ModelReply,
   type ModelUsage,
 } from '../shared/provider'
-
-interface RequestBody {
-  question: string
-  headers: string[]
-  sampleRows: Record<string, string>[]
-  rowCount: number
-}
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-05-ai-data-analyst.netlify.app',
@@ -33,18 +27,14 @@ const ALLOWED_ORIGINS = [
   .map((o) => o.trim().replace(/\/$/, ''))
   .filter(Boolean)
 
-const MAX_BODY_BYTES = 128 * 1024
-const MAX_QUESTION_CHARS = 2000
-const MAX_SAMPLE_ROWS = 5
-const MAX_HEADERS = 200
-const MAX_CELL_CHARS = 200
-/** Covers the first call, its empty-reply retry and the repair turn. Netlify's synchronous limit is 60 s. */
+/** One budget for the whole request: the first call, its empty-reply retry and the repair turn. */
 const UPSTREAM_TIMEOUT_MS = 25_000
-/** A repair turn needs at least this much time left in the run budget, or it is skipped. */
+/** A repair turn needs at least this much time left in the budget, or it is skipped. */
 const REPAIR_MIN_MS = 8_000
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMITED = 'Rate limited, try again in a minute.'
 
 // Best effort only: each warm function instance keeps its own counter, so the
 // effective limit scales with instance count. Enough to blunt casual abuse of an
@@ -291,13 +281,6 @@ function failed(log: RunLog, status: number, error: string, cors: Record<string,
   return json({ error, ...log.summary() }, status, headers)
 }
 
-interface AnalysisInput {
-  question: string
-  headers: string[]
-  sampleRows: Record<string, string>[]
-  rowCount: number
-}
-
 async function analyse(
   input: AnalysisInput,
   log: RunLog,
@@ -357,99 +340,43 @@ ${JSON.stringify(input.sampleRows, null, 2)}`
   return json({ result: outcome.plan, ...log.summary() }, 200, cors)
 }
 
-export default async (req: Request): Promise<Response> => {
-  const origin = req.headers.get('origin')
-  const headersOut = corsHeaders(origin)
+async function handle(req: Request, origin: string | null, cors: Record<string, string>): Promise<Response> {
   const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin)
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: originAllowed ? 204 : 403, headers: headersOut })
+    return new Response(null, { status: originAllowed ? 204 : 403, headers: cors })
   }
-
-  if (!originAllowed) {
-    return json({ error: 'Origin not allowed.' }, 403, headersOut)
-  }
-
-  if (req.method !== 'POST') {
-    return json({ error: 'Method not allowed.' }, 405, headersOut)
-  }
+  if (!originAllowed) return json({ error: 'Origin not allowed.' }, 403, cors)
+  if (req.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, cors)
 
   const limit = rateLimit(clientKey(req))
   if (!limit.allowed) {
-    return json({ error: 'Too many requests. Please wait a moment and try again.' }, 429, {
-      ...headersOut,
-      'Retry-After': String(limit.retryAfter),
-    })
+    return json({ error: RATE_LIMITED }, 429, { ...cors, 'Retry-After': String(limit.retryAfter) })
   }
+  if (!getApiKey()) return json({ error: 'The analysis service is not configured.' }, 500, cors)
 
-  if (!getApiKey()) {
-    return json({ error: 'The analysis service is not configured.' }, 500, headersOut)
-  }
-
-  const declaredLength = Number(req.headers.get('content-length') ?? '0')
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return json({ error: 'Request is too large.' }, 413, headersOut)
-  }
-
-  let body: RequestBody
-  try {
-    const rawBody = await req.text()
-    if (rawBody.length > MAX_BODY_BYTES) {
-      return json({ error: 'Request is too large.' }, 413, headersOut)
-    }
-    body = JSON.parse(rawBody) as RequestBody
-  } catch {
-    return json({ error: 'Request body was not valid JSON.' }, 400, headersOut)
-  }
-
-  const { question, headers, sampleRows, rowCount } = body ?? ({} as RequestBody)
-
-  if (!question || typeof question !== 'string') {
-    return json({ error: 'A question is required.' }, 400, headersOut)
-  }
-  if (question.length > MAX_QUESTION_CHARS) {
-    return json(
-      { error: `Question is too long (max ${MAX_QUESTION_CHARS} characters).` },
-      400,
-      headersOut,
-    )
-  }
-  if (!Array.isArray(headers) || headers.length === 0) {
-    return json({ error: 'Dataset columns are required.' }, 400, headersOut)
-  }
-  if (headers.length > MAX_HEADERS || headers.some((h) => typeof h !== 'string')) {
-    return json({ error: 'Dataset has too many or invalid columns.' }, 400, headersOut)
-  }
-
-  const safeHeaders = headers.map((h) => h.slice(0, MAX_CELL_CHARS))
-  const safeRows = (Array.isArray(sampleRows) ? sampleRows : [])
-    .slice(0, MAX_SAMPLE_ROWS)
-    .map((row) => {
-      const out: Record<string, string> = {}
-      if (row && typeof row === 'object') {
-        for (const key of safeHeaders) {
-          const cell = (row as Record<string, unknown>)[key]
-          if (cell !== undefined) out[key] = String(cell).slice(0, MAX_CELL_CHARS)
-        }
-      }
-      return out
-    })
-  const safeRowCount = Number.isFinite(rowCount) ? Math.max(0, Math.trunc(Number(rowCount))) : 0
+  const raw = await readJsonBody(req)
+  if (!raw.ok) return json({ error: raw.error }, raw.status, cors)
+  const checked = checkAnalysisBody(raw.value)
+  if (!checked.ok) return json({ error: checked.error }, checked.status, cors)
 
   const log = new RunLog()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
   try {
-    return await analyse(
-      { question, headers: safeHeaders, sampleRows: safeRows, rowCount: safeRowCount },
-      log,
-      controller.signal,
-      headersOut,
-    )
-  } catch {
-    return failed(log, 502, 'The analysis failed unexpectedly. Please try again.', headersOut)
+    return await analyse(checked.value, log, controller.signal, cors)
   } finally {
     clearTimeout(timer)
+  }
+}
+
+export default async (req: Request): Promise<Response> => {
+  const origin = req.headers.get('origin')
+  const cors = corsHeaders(origin)
+  try {
+    return await handle(req, origin, cors)
+  } catch {
+    return json({ error: 'The analysis failed unexpectedly. Please try again.' }, 500, cors)
   }
 }
 

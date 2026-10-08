@@ -1,11 +1,11 @@
 /**
  * The one module that calls the model. Every chat or text call goes through
  * callModel(), which always sends MODEL. Request bodies cannot change the model,
- * and no environment variable other than the key and endpoint is read here.
+ * and the only environment variable read here is the key.
  */
 export const MODEL = '~anthropic/claude-haiku-latest'
 
-const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
+const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 /** Explicit cap on every call. With reasoning off, the whole budget goes to the visible JSON. */
 const MAX_TOKENS = 4096
@@ -31,7 +31,7 @@ export interface ModelReply {
   attempts: number
 }
 
-export interface Failure {
+interface Failure {
   status: number
   message: string
 }
@@ -84,7 +84,7 @@ interface RawReply {
 }
 
 async function requestOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
-  const response = await fetch(process.env.OPENROUTER_URL ?? DEFAULT_ENDPOINT, {
+  const response = await fetch(ENDPOINT, {
     method: 'POST',
     signal,
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -93,6 +93,7 @@ async function requestOnce(messages: ChatMessage[], apiKey: string, signal: Abor
       max_tokens: MAX_TOKENS,
       reasoning: { enabled: false },
       response_format: { type: 'json_object' },
+      usage: { include: true },
       messages,
     }),
   })
@@ -142,22 +143,15 @@ export async function callModel(messages: ChatMessage[], signal: AbortSignal): P
 /** Maps a failed model call to our HTTP status and a plain-language message. Never the raw body. */
 export function describeFailure(err: unknown): Failure {
   if (err instanceof ProviderError) {
-    if (err.status === 402) {
-      return { status: 502, message: 'The AI provider is out of credit, so this analysis cannot run right now.' }
+    if (err.status === 401 || err.status === 402 || err.status === 403) {
+      return { status: 502, message: 'The AI provider rejected the key or is out of credit.' }
     }
-    if (err.status === 429) {
-      return { status: 429, message: 'The AI provider is rate limited right now. Try again in a moment.' }
-    }
-    if (err.status === 401 || err.status === 403) {
-      return { status: 502, message: 'The AI provider rejected the server credentials.' }
-    }
-    if (err.status >= 500) {
-      return { status: 502, message: 'The AI provider failed. Try again in a moment.' }
-    }
+    if (err.status === 429) return { status: 429, message: 'Rate limited, try again in a minute.' }
+    if (err.status >= 500) return { status: 502, message: 'The AI provider did not answer in time.' }
     return { status: 502, message: 'The AI provider rejected the request.' }
   }
   if (err instanceof Error && err.name === 'AbortError') {
-    return { status: 504, message: 'The analysis took too long and was stopped. Try a simpler question.' }
+    return { status: 504, message: 'The AI provider did not answer in time.' }
   }
   return { status: 502, message: 'Could not reach the AI provider. Try again.' }
 }

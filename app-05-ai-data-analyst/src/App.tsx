@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
 import { validateQueryPlan } from './lib/queryPlan'
-import { askData, AnalysisRunError, CancelledError, clientRun } from './lib/api'
+import { askData, AnalysisRunError, CancelledError, clientRun, sampleFor } from './lib/api'
 import { SAMPLE_DATASETS, SAMPLE_QUERIES } from './lib/sampleData'
 import AppHeader, { type HeaderStatus } from './components/AppHeader'
 import QueryBar from './components/QueryBar'
@@ -25,7 +25,6 @@ import type {
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
 const MAX_HISTORY = 20
-const SAMPLE_ROWS = 5
 const CUSTOM = 'custom'
 
 const SAMPLE_OPTIONS: DatasetOption[] = [
@@ -40,11 +39,21 @@ const OUTCOME: Record<RunOutcome, { label: string; tone: string }> = {
   stopped: { label: 'Stopped', tone: '' },
 }
 
+/** The bundled samples are fixed text, so this only returns null if the bundle itself is broken. */
+function loadSample(key: string): ParsedData | null {
+  const csv = SAMPLE_DATASETS[key]
+  if (!csv) return null
+  try {
+    return parseCSV(csv)
+  } catch {
+    return null
+  }
+}
+
 export default function App() {
   const [selectedDataset, setSelectedDataset] = useState<string>('sales')
   const [customData, setCustomData] = useState<ParsedData | null>(null)
   const [customFileName, setCustomFileName] = useState<string | null>(null)
-  const [parsedData, setParsedData] = useState<ParsedData | null>(null)
   const [question, setQuestion] = useState<string>('')
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [current, setCurrent] = useState<AnalysisResult | null>(null)
@@ -56,28 +65,16 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  const sampleData = useMemo(() => loadSample(selectedDataset), [selectedDataset])
+  const parsedData = selectedDataset === CUSTOM ? customData : sampleData
+  const sampleError =
+    selectedDataset !== CUSTOM && parsedData === null ? 'This sample dataset could not be loaded.' : null
+
   const options = useMemo<DatasetOption[]>(
     () => (customFileName ? [...SAMPLE_OPTIONS, { value: CUSTOM, label: customFileName }] : SAMPLE_OPTIONS),
     [customFileName],
   )
   const datasetLabel = options.find((option) => option.value === selectedDataset)?.label ?? selectedDataset
-
-  // Loads the chosen dataset. The previous result is cleared in handleSelect instead,
-  // so a finished upload keeps the notice it just set.
-  useEffect(() => {
-    if (selectedDataset === CUSTOM) {
-      setParsedData(customData)
-      return
-    }
-    const csv = SAMPLE_DATASETS[selectedDataset]
-    if (!csv) return
-    try {
-      setParsedData(parseCSV(csv))
-    } catch (err) {
-      setParsedData(null)
-      setError(err instanceof Error ? err.message : 'This sample dataset could not be loaded.')
-    }
-  }, [selectedDataset, customData])
 
   // Never leave a request in flight after the view goes away.
   useEffect(() => () => abortRef.current?.abort(), [])
@@ -166,7 +163,7 @@ export default function App() {
         {
           question: asked,
           headers: parsedData.headers,
-          sampleRows: parsedData.rows.slice(0, SAMPLE_ROWS),
+          sampleRows: sampleFor(parsedData),
           rowCount: parsedData.rows.length,
         },
         { signal: controller.signal },
@@ -230,7 +227,7 @@ export default function App() {
         setRun({ ...err.run, outcome: 'failed' })
         setError(err.message)
       } else {
-        const message = err instanceof Error ? err.message : 'Analysis failed. Try rephrasing your question.'
+        const message = 'The analysis could not be completed. Please try again.'
         setRun({ ...clientRun(message, startedAt), outcome: 'failed' })
         setError(message)
       }
@@ -282,7 +279,7 @@ export default function App() {
         {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
 
         <Banners
-          error={error}
+          error={error ?? sampleError}
           notice={notice}
           onDismissError={() => setError(null)}
           onDismissNotice={() => setNotice(null)}

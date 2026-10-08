@@ -212,6 +212,12 @@
   min-width: 0;
 }
 
+/* The answer and chart card never shrink below their content, and long words wrap inside it. */
+.app-result {
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+
 .viz-frame {
   width: 100%;
   height: 300px;

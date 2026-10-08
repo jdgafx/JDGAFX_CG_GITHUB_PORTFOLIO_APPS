@@ -1,12 +1,12 @@
 import type { QueryPlan, ChartType, AggregateFn, FilterOp, SortDir } from '../types'
 
-export const CHART_TYPES: ChartType[] = ['bar', 'line', 'pie', 'area', 'scatter']
-export const AGGREGATE_FNS: AggregateFn[] = ['sum', 'avg', 'count', 'min', 'max']
-export const FILTER_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'contains']
-export const SORT_DIRS: SortDir[] = ['asc', 'desc']
+const CHART_TYPES: ChartType[] = ['bar', 'line', 'pie', 'area', 'scatter']
+const AGGREGATE_FNS: AggregateFn[] = ['sum', 'avg', 'count', 'min', 'max']
+const FILTER_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'contains']
+const SORT_DIRS: SortDir[] = ['asc', 'desc']
 
 /** Sort targets that always refer to the aggregated output rather than a source column. */
-export const VALUE_SORT_FIELDS = ['value', 'count', 'total']
+const VALUE_SORT_FIELDS = ['value', 'count', 'total']
 
 export type PlanValidation =
   | { ok: true; plan: QueryPlan }

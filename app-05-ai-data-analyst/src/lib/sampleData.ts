@@ -50,7 +50,7 @@ export const SALES_CSV = `date,product,revenue,units,region
 2024-10-20,Gadget X,24000,300,West
 2024-10-26,Gadget Y,36000,300,North`
 
-export const ANALYTICS_CSV = `date,signups,active_users,churn_rate
+const ANALYTICS_CSV = `date,signups,active_users,churn_rate
 2024-01-01,142,4523,0.021
 2024-01-02,168,4681,0.019
 2024-01-03,95,4603,0.024
@@ -82,7 +82,7 @@ export const ANALYTICS_CSV = `date,signups,active_users,churn_rate
 2024-01-29,98,6782,0.021
 2024-01-30,345,7042,0.011`
 
-export const WEATHER_CSV = `date,city,temp_f,humidity,condition
+const WEATHER_CSV = `date,city,temp_f,humidity,condition
 2024-01-05,New York,28,72,Snowy
 2024-01-05,Los Angeles,68,45,Sunny
 2024-01-05,Chicago,15,65,Snowy

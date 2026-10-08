@@ -1,13 +1,29 @@
-import type { AnalysisResponse, RunStep, RunSummary } from '../types'
+import type { AnalysisResponse, ParsedData, RunStep, RunSummary } from '../types'
+import { MAX_CELL_CHARS, MAX_SAMPLE_ROWS } from './limits'
 
 const REQUEST_TIMEOUT_MS = 30_000
 const UNREADABLE = 'The analysis service returned an unreadable response. Please try again.'
+const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
+const TIMED_OUT = 'The analysis service did not answer in time. Try again.'
+const UNEXPECTED = 'The analysis could not be completed. Please try again.'
 
 interface AskDataRequest {
   question: string
   headers: string[]
   sampleRows: Record<string, string>[]
   rowCount: number
+}
+
+/** The sample sent to the model: the first rows, each cell cut to the server's limit. */
+export function sampleFor(data: ParsedData): Record<string, string>[] {
+  return data.rows.slice(0, MAX_SAMPLE_ROWS).map((row) => {
+    const out: Record<string, string> = {}
+    for (const header of data.headers) {
+      const cell = row[header]
+      if (cell !== undefined) out[header] = cell.slice(0, MAX_CELL_CHARS)
+    }
+    return out
+  })
 }
 
 /** Thrown when the user stops an analysis. The UI records it without an error banner. */
@@ -86,14 +102,12 @@ export async function askData(
     if (err instanceof AnalysisRunError) throw err
     if (options.signal?.aborted) throw new CancelledError()
     if (err instanceof Error && err.name === 'AbortError') {
-      const message = 'The analysis took too long and was stopped. Try a simpler question.'
-      throw new AnalysisRunError(message, clientRun('No complete reply came back in time.', startedAt))
+      throw new AnalysisRunError(TIMED_OUT, clientRun('No complete reply came back in time.', startedAt))
     }
     if (err instanceof TypeError) {
-      const message = 'Could not reach the analysis service. Check your connection and try again.'
-      throw new AnalysisRunError(message, clientRun('The request did not reach the server.', startedAt))
+      throw new AnalysisRunError(UNREACHABLE, clientRun('The request did not reach the server.', startedAt))
     }
-    throw err
+    throw new AnalysisRunError(UNEXPECTED, clientRun('The request failed in the browser.', startedAt))
   } finally {
     clearTimeout(timer)
     options.signal?.removeEventListener('abort', onExternalAbort)
@@ -101,8 +115,9 @@ export async function askData(
 }
 
 function httpFallbackMessage(status: number): string {
-  if (status === 429) return 'Too many requests right now. Please wait a moment and try again.'
+  if (status === 429) return 'Rate limited, try again in a minute.'
   if (status === 413) return 'That dataset is too large to analyze.'
+  if (status === 504) return 'The AI provider did not answer in time.'
   if (status >= 500) return 'The analysis service is unavailable right now. Please try again.'
   return 'The analysis request was rejected. Try rephrasing your question.'
 }

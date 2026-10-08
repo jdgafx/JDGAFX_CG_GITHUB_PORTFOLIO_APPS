@@ -1,24 +1,14 @@
+import { answerSentence } from '../lib/answer'
 import { topGroup } from '../lib/dataEngine'
-import type { AggregateFn, AnalysisResult } from '../types'
+import type { AnalysisResult } from '../types'
 import ChartView from './ChartView'
-
-const MEASURE_PHRASE: Record<AggregateFn, (field: string) => string> = {
-  sum: (field) => `total ${field}`,
-  avg: (field) => `average ${field}`,
-  count: () => 'rows',
-  min: (field) => `minimum ${field}`,
-  max: (field) => `maximum ${field}`,
-}
 
 export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
   const { queryPlan: plan } = result
-  const top = topGroup(result)
-  const answer = top
-    ? `Highest ${plan.groupBy}: ${top.label}, ${top.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${MEASURE_PHRASE[plan.aggregate.fn](plan.aggregate.field)}.`
-    : null
+  const answer = answerSentence(plan, topGroup(result))
 
   return (
-    <section className="ds-card" aria-labelledby="result-title">
+    <section className="ds-card app-result" aria-labelledby="result-title">
       <div className="ds-card__head">
         <h2 id="result-title" className="ds-card__title">{plan.title}</h2>
         <span className="ds-badge ds-badge--accent">{plan.chartType} chart</span>

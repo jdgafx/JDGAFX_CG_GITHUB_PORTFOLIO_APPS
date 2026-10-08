@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export interface ChartPalette {
+interface ChartPalette {
   /** Single-series marks: the design-system accent token. */
   accent: string
   /** Categorical slots for pie slices, in fixed order. */
@@ -24,7 +24,7 @@ function readVar(name: string, fallback: string): string {
   return value || fallback
 }
 
-export function readChartPalette(): ChartPalette {
+function readChartPalette(): ChartPalette {
   return {
     accent: readVar('--ds-accent', '#3557d6'),
     series: SERIES_VARS.map((name) => readVar(name, '#2a78d6')),

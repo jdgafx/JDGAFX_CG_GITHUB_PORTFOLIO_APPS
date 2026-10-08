@@ -1,8 +1,8 @@
 import Papa from 'papaparse'
 import type { ParsedData, QueryPlan, EngineResult } from '../types'
 import { isValueSort, validateQueryPlan } from './queryPlan'
+import { MAX_ROWS } from './limits'
 
-const MAX_ROWS = 10_000
 const BLANK_LABEL = '(blank)'
 
 /** Currency symbols, thousands separators, percent signs and stray spaces seen in real CSV exports. */
