@@ -1,0 +1,193 @@
+/* App-specific layer. Structure, colour and type come from tokens.css and the shared ds-* classes. */
+
+.review-layout {
+  align-items: start;
+}
+
+.field-narrow {
+  max-width: 240px;
+}
+
+/* Editor: gutter and textarea share one frame, and their line rows share one height. */
+.editor {
+  display: flex;
+  min-width: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.editor:focus-within {
+  box-shadow: 0 0 0 2px var(--ds-focus);
+}
+
+.editor__gutter {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 8px 8px 8px 0;
+  overflow: hidden;
+  text-align: right;
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  background: var(--ds-surface-2);
+  border-right: 1px solid var(--ds-border);
+  border-radius: calc(var(--ds-radius-sm) - 1px) 0 0 calc(var(--ds-radius-sm) - 1px);
+  user-select: none;
+}
+
+.editor__num {
+  display: block;
+  height: 24px;
+  line-height: 24px;
+  padding-right: 8px;
+}
+
+.editor__num.is-active {
+  color: var(--ds-accent);
+  background: var(--ds-accent-soft);
+  font-weight: 600;
+}
+
+/* Overrides the shared textarea so it sits inside the frame. Height and line-height match the gutter. */
+.editor__input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  height: clamp(260px, 56vh, 460px);
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0 calc(var(--ds-radius-sm) - 1px) calc(var(--ds-radius-sm) - 1px) 0;
+  background: transparent;
+  resize: none;
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  line-height: 24px;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.editor__input:focus {
+  outline: none;
+}
+
+/* Review comments */
+.review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.review-item {
+  --item-tone: var(--ds-accent);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-left: 4px solid var(--item-tone);
+  border-radius: var(--ds-radius-sm);
+}
+
+.review-item--critical {
+  --item-tone: var(--ds-danger);
+}
+
+.review-item--warning {
+  --item-tone: var(--ds-warning);
+}
+
+.review-item--info {
+  --item-tone: var(--ds-accent);
+}
+
+.review-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-item__message {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.review-item__suggestion {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.review-line {
+  min-height: 32px;
+  padding: 0 10px;
+  font-family: var(--ds-mono);
+  font-size: 12px;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.review-line[aria-pressed="true"] {
+  background: var(--ds-accent-soft);
+  border-color: var(--ds-accent);
+}
+
+/* Severity filters. A hidden severity gets a dashed outline, so the state does not rest on colour. */
+.filter-chip {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 999px;
+}
+
+.filter-chip[aria-pressed="false"] {
+  color: var(--ds-text-muted);
+  border-style: dashed;
+}
+
+.filter-chip[aria-pressed="true"] {
+  background: var(--ds-accent-soft);
+  border-color: var(--ds-accent);
+}
+
+/* Loading placeholder shown while the request is in flight */
+.review-skeleton {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--ds-surface-2);
+  animation: review-pulse 1.4s ease-in-out infinite;
+}
+
+.review-skeleton--medium {
+  width: 85%;
+}
+
+.review-skeleton--short {
+  width: 60%;
+}
+
+@keyframes review-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Run trace and metrics */
+.ds-trace__step > div {
+  min-width: 0;
+}
+
+.metric-value--small {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

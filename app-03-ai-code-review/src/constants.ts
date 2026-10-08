@@ -1,22 +1,6 @@
-import { AlertCircle, AlertTriangle, Info } from 'lucide-react'
 import type { Severity } from './types'
 
-export interface IconProps {
-  size?: number
-  color?: string
-  strokeWidth?: number
-  style?: React.CSSProperties
-}
-
-export interface SeverityInfo {
-  label: string
-  color: string
-  bg: string
-  borderColor: string
-  icon: React.ComponentType<IconProps>
-}
-
-/** Gutter rows, textarea rows and jump-to-line maths all key off this. */
+/** Gutter rows, textarea rows and jump-to-line maths all key off this. Matches the line height in app.css. */
 export const LINE_HEIGHT = 24
 
 export const LANGUAGES = [
@@ -32,28 +16,11 @@ export const LANGUAGES = [
   { value: 'sql', label: 'SQL' },
 ]
 
-export const SEVERITY_CONFIG: Record<Severity, SeverityInfo> = {
-  critical: {
-    label: 'Critical',
-    color: '#ef4444',
-    bg: 'rgba(239, 68, 68, 0.08)',
-    borderColor: '#ef4444',
-    icon: AlertCircle,
-  },
-  warning: {
-    label: 'Warning',
-    color: '#ffa500',
-    bg: 'rgba(255, 165, 0, 0.08)',
-    borderColor: '#ffa500',
-    icon: AlertTriangle,
-  },
-  info: {
-    label: 'Info',
-    color: '#60a5fa',
-    bg: 'rgba(96, 165, 250, 0.08)',
-    borderColor: '#60a5fa',
-    icon: Info,
-  },
+/** The label carries the meaning; the badge tone only reinforces it. */
+export const SEVERITY_CONFIG: Record<Severity, { label: string; badge: string }> = {
+  critical: { label: 'Critical', badge: 'ds-badge--danger' },
+  warning: { label: 'Warning', badge: 'ds-badge--warning' },
+  info: { label: 'Info', badge: 'ds-badge--accent' },
 }
 
 export const SEVERITIES: Severity[] = ['critical', 'warning', 'info']

@@ -1,13 +1,16 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
+import type { StepStatus, TraceStep, Usage } from '../../src/types'
 import {
-  getProvider,
-  getFallbackProvider,
-  providerFinishReason,
-  providerModel,
-  providerRequest,
-  providerText,
-  requestWithContentRetry,
+  MAX_OUTPUT_TOKENS,
+  chatBody,
+  providerCall,
+  replyCutShort,
+  replyText,
+  type ProviderCall,
+  type ProviderReply,
+  type ProviderUsage,
 } from '../shared/provider'
+import { buildSystemPrompt, commentBudget, parseReview, validateComments } from '../shared/review'
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-03-ai-code-review.netlify.app',
@@ -22,14 +25,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.
 
 // JSON escaping can roughly double a payload, so allow headroom over MAX_CODE_LENGTH.
 const MAX_BODY_BYTES = 256 * 1024
-const MAX_TEXT_CHARS = 600
 const UPSTREAM_TIMEOUT_MS = 25_000
-
-const MIN_COMMENTS = 5
-const MAX_COMMENTS = 15
-const LINES_PER_COMMENT = 15
-
-type ExecutionStage = 'accepted' | 'provider' | 'validation' | 'completed'
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -38,6 +34,27 @@ const RATE_LIMIT_WINDOW_MS = 60_000
 // effective limit scales with instance count. Enough to blunt casual abuse of an
 // unauthenticated demo endpoint; a shared store would be needed for a real quota.
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
+
+// Every run passes these stages in order. A run that stops early lists the rest as skipped.
+const PIPELINE = ['Check request', 'Build prompt', 'Model call', 'Retry', 'Parse reply', 'Validate comments']
+
+const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
+
+interface Run {
+  headers: Record<string, string>
+  started: number
+  trace: TraceStep[]
+  usages: ProviderUsage[]
+  model: string | null
+}
+
+type Checked =
+  | { ok: true; code: string; lang: string; call: ProviderCall }
+  | { ok: false; status: number; error: string; headers?: Record<string, string> }
+
+type Attempt =
+  | { ok: true; reply: ProviderReply }
+  | { ok: false; status: number; detail: string; message: string; headers?: Record<string, string> }
 
 function rateLimit(key: string): { allowed: boolean; retryAfter: number } {
   const now = Date.now()
@@ -87,68 +104,294 @@ function fail(error: string, status: number, headers: Record<string, string>): R
   return json({ success: false, error }, status, headers)
 }
 
-/** Extracts the first complete JSON object, ignoring braces inside string literals. */
-function extractJsonObject(text: string): string | null {
-  const start = text.indexOf('{')
-  if (start === -1) return null
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') inString = true
-    else if (ch === '{') depth += 1
-    else if (ch === '}') {
-      depth -= 1
-      if (depth === 0) return text.slice(start, i + 1)
+function noun(count: number, word: string): string {
+  return `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`
+}
+
+/** Appends one finished stage to the trace, timed from `startedAt`. */
+function record(
+  trace: TraceStep[],
+  name: string,
+  status: StepStatus,
+  startedAt: number,
+  detail: string,
+  usage?: ProviderUsage,
+): void {
+  trace.push({
+    name,
+    status,
+    ms: Date.now() - startedAt,
+    detail,
+    ...(usage?.total_tokens !== undefined ? { tokens: usage.total_tokens } : {}),
+    ...(usage?.cost !== undefined ? { cost: usage.cost } : {}),
+  })
+}
+
+/** Lists the stages a run never reached, so the trace always shows the whole pipeline. */
+function padSkipped(trace: TraceStep[]): void {
+  for (const name of PIPELINE.slice(trace.length)) {
+    trace.push({ name, status: 'skipped', ms: 0, detail: 'Not run: an earlier stage failed' })
+  }
+}
+
+/** Adds up provider-reported usage. A field stays absent unless at least one call reported it. */
+function sumUsage(reports: ProviderUsage[]): Usage | null {
+  const total: Usage = {}
+  for (const field of USAGE_FIELDS) {
+    const values = reports.map((r) => r[field]).filter((v): v is number => typeof v === 'number')
+    if (values.length > 0) total[field] = values.reduce((sum, v) => sum + v, 0)
+  }
+  return Object.keys(total).length > 0 ? total : null
+}
+
+function endWithError(run: Run, error: string, status: number, headers: Record<string, string> = {}): Response {
+  if (run.trace.length > 0) padSkipped(run.trace)
+  return json(
+    {
+      success: false,
+      error,
+      trace: run.trace,
+      usage: sumUsage(run.usages),
+      model: run.model,
+      totalMs: Date.now() - run.started,
+    },
+    status,
+    { ...run.headers, ...headers },
+  )
+}
+
+async function checkRequest(req: Request): Promise<Checked> {
+  const limit = rateLimit(clientKey(req))
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      status: 429,
+      error: 'Too many reviews from this address. Please wait a moment and try again.',
+      headers: { 'Retry-After': String(limit.retryAfter) },
     }
   }
-  return null
+
+  const call = providerCall()
+  if (!call) return { ok: false, status: 500, error: 'The review service is not configured.' }
+
+  const declaredLength = Number(req.headers.get('content-length') ?? '0')
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return { ok: false, status: 413, error: 'Request is too large.' }
+  }
+
+  let body: { code?: unknown; language?: unknown }
+  try {
+    const rawBody = await req.text()
+    if (rawBody.length > MAX_BODY_BYTES) return { ok: false, status: 413, error: 'Request is too large.' }
+    body = JSON.parse(rawBody) as { code?: unknown; language?: unknown }
+  } catch {
+    return { ok: false, status: 400, error: 'Request body was not valid JSON.' }
+  }
+
+  // The client may send a model field; it is ignored. The chat model is fixed in provider.ts.
+  const { code, language } = body ?? {}
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    return { ok: false, status: 400, error: 'Paste some code to review.' }
+  }
+  if (code.length > MAX_CODE_LENGTH) {
+    return { ok: false, status: 400, error: `${OVER_LIMIT_MESSAGE}.` }
+  }
+
+  const lang = typeof language === 'string' && /^[a-z0-9+#. -]{1,24}$/i.test(language) ? language : 'code'
+  return { ok: true, code, lang, call }
 }
 
-function buildSystemPrompt(lang: string, lineCount: number, maxComments: number): string {
-  return `You are an expert ${lang} reviewer. You return JSON and nothing else.
-
-The file below is presented with a line number, a tab and a pipe in front of every line:
-
-  12\t| const total = items.length
-
-That prefix is display scaffolding, not source code. Never quote it back in a message or
-suggestion, and never count lines yourself — the "line" field of each comment MUST be the
-number printed in front of the line you are commenting on.
-
-Respond with valid JSON in exactly this shape, with no markdown fence and no prose:
-{
-  "comments": [
-    {
-      "line": <integer between 1 and ${lineCount}>,
-      "severity": "critical" | "warning" | "info",
-      "message": "<what is wrong, one or two sentences>",
-      "suggestion": "<the specific change to make>"
+function providerFailure(status: number): Attempt {
+  if (status === 402) {
+    return {
+      ok: false,
+      status: 502,
+      detail: 'Out of credit (HTTP 402)',
+      message: 'The AI provider is out of credit, so reviews are paused. Try again later.',
     }
-  ]
+  }
+  if (status === 429) {
+    return {
+      ok: false,
+      status: 429,
+      detail: 'Rate limited (HTTP 429)',
+      message: 'The AI provider is busy right now. Wait a moment, then review again.',
+      headers: { 'Retry-After': '10' },
+    }
+  }
+  if (status === 401 || status === 403) {
+    return {
+      ok: false,
+      status: 502,
+      detail: `Key rejected (HTTP ${status})`,
+      message: 'The review service could not authenticate with the AI provider.',
+    }
+  }
+  if (status >= 500) {
+    return {
+      ok: false,
+      status: 502,
+      detail: `Provider failed (HTTP ${status})`,
+      message: 'The AI provider failed. Try again in a moment.',
+    }
+  }
+  return {
+    ok: false,
+    status: 502,
+    detail: `Request rejected (HTTP ${status})`,
+    message: 'The AI provider rejected the request.',
+  }
 }
 
-Severity guidelines:
-- critical: security vulnerabilities, bugs that throw or corrupt data, data loss risks
-- warning: performance problems, deprecated patterns, likely bugs, code smells
-- info: style, best practice and refactoring opportunities
+async function callModel(call: ProviderCall, body: string, signal: AbortSignal): Promise<Attempt> {
+  try {
+    const response = await fetch(call.url, {
+      method: 'POST',
+      signal,
+      headers: { Authorization: `Bearer ${call.apiKey}`, 'Content-Type': 'application/json' },
+      body,
+    })
+    if (!response.ok) return providerFailure(response.status)
+    return { ok: true, reply: (await response.json()) as ProviderReply }
+  } catch (err) {
+    if ((err as { name?: unknown } | null)?.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 504,
+        detail: `Timed out after ${UPSTREAM_TIMEOUT_MS / 1000} s`,
+        message: 'The review timed out. Try a shorter snippet.',
+      }
+    }
+    if (err instanceof SyntaxError) {
+      return {
+        ok: false,
+        status: 502,
+        detail: 'Reply was not JSON',
+        message: 'The AI service is unavailable right now. Try again in a moment.',
+      }
+    }
+    console.error('CodeLens: provider call failed', err)
+    return {
+      ok: false,
+      status: 502,
+      detail: 'Could not reach the provider',
+      message: 'Could not reach the review service. Please try again.',
+    }
+  }
+}
 
-Coverage rules:
-- This file has ${lineCount} lines. Read all of it, then divide it into ${maxComments} regions of
-  roughly ${Math.ceil(lineCount / maxComments)} lines each and report the most important issue in
-  each region. Aim for ${maxComments} comments in total; return fewer only where a region genuinely
-  has nothing worth flagging. Never cluster your findings in the opening lines.
-- Sort the comments by line number, ascending. Never file two comments on the same line.
-- Only cite lines that exist, from 1 to ${lineCount}. A comment carrying any other line number is
-  discarded before the user sees it.
-- If the code has no real issues anywhere, return {"comments": []}.`
+function replyProblem(reply: ProviderReply): 'empty' | 'cut short' | null {
+  if (!replyText(reply)) return 'empty'
+  return replyCutShort(reply) ? 'cut short' : null
+}
+
+function noteReply(run: Run, reply: ProviderReply): void {
+  run.usages.push(reply.usage ?? {})
+  run.model = reply.model ?? run.model
+}
+
+function numberedLines(lines: string[]): string {
+  return lines.map((line, i) => `${i + 1}\t| ${line}`).join('\n')
+}
+
+async function runReview(
+  run: Run,
+  checked: Extract<Checked, { ok: true }>,
+  lines: string[],
+  signal: AbortSignal,
+): Promise<Response> {
+  const { lang, call } = checked
+  const lineCount = lines.length
+  const maxComments = commentBudget(lineCount)
+
+  const buildAt = Date.now()
+  const body = chatBody(
+    buildSystemPrompt(lang, lineCount, maxComments),
+    `Review this ${lang} file (${lineCount} lines):\n\n${numberedLines(lines)}`,
+  )
+  record(
+    run.trace,
+    'Build prompt',
+    'ok',
+    buildAt,
+    `Numbered ${noun(lineCount, 'line')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, reasoning off`,
+  )
+
+  const callAt = Date.now()
+  const first = await callModel(call, body, signal)
+  if (!first.ok) {
+    record(run.trace, 'Model call', 'failed', callAt, first.detail)
+    return endWithError(run, first.message, first.status, first.headers)
+  }
+  record(run.trace, 'Model call', 'ok', callAt, 'Reply received', first.reply.usage)
+  noteReply(run, first.reply)
+
+  let reply = first.reply
+  const problem = replyProblem(reply)
+  const retryAt = Date.now()
+  if (problem) {
+    const retried = await callModel(call, body, signal)
+    if (!retried.ok) {
+      record(run.trace, 'Retry', 'failed', retryAt, `First reply was ${problem}. Retry failed: ${retried.detail}`)
+      return endWithError(run, retried.message, retried.status, retried.headers)
+    }
+    record(run.trace, 'Retry', 'ok', retryAt, `First reply was ${problem}. Retry reply received`, retried.reply.usage)
+    noteReply(run, retried.reply)
+    reply = retried.reply
+  } else {
+    record(run.trace, 'Retry', 'skipped', Date.now(), 'Not needed: the first reply was complete')
+  }
+
+  const parseAt = Date.now()
+  const text = replyText(reply)
+  const truncated = replyCutShort(reply)
+  if (!text) {
+    record(run.trace, 'Parse reply', 'failed', parseAt, 'The reply had no content')
+    return endWithError(run, 'The AI returned an empty review. Please try again.', 502)
+  }
+  const parsed = parseReview(text)
+  if (!parsed) {
+    record(
+      run.trace,
+      'Parse reply',
+      'failed',
+      parseAt,
+      truncated ? 'The reply was cut short before the JSON closed' : 'The reply was not a readable JSON object',
+    )
+    return endWithError(
+      run,
+      truncated
+        ? 'The review was cut short before it could be read. Try a shorter snippet.'
+        : 'The AI response could not be read. Please try again.',
+      502,
+    )
+  }
+  record(run.trace, 'Parse reply', 'ok', parseAt, 'Read the JSON review')
+
+  const validateAt = Date.now()
+  const { comments, dropped } = validateComments(parsed.comments, lineCount)
+  record(
+    run.trace,
+    'Validate comments',
+    'ok',
+    validateAt,
+    dropped > 0
+      ? `Kept ${noun(comments.length, 'comment')}, dropped ${dropped} (bad line, severity or text, or over the limit)`
+      : `Kept ${noun(comments.length, 'comment')}`,
+  )
+
+  return json(
+    {
+      success: true,
+      result: { comments, lineCount, truncated },
+      trace: run.trace,
+      usage: sumUsage(run.usages),
+      model: reply.model ?? null,
+      totalMs: Date.now() - run.started,
+    },
+    200,
+    run.headers,
+  )
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -168,183 +411,32 @@ export default async (req: Request): Promise<Response> => {
     return fail('Method not allowed.', 405, headersOut)
   }
 
-  const limit = rateLimit(clientKey(req))
-  if (!limit.allowed) {
-    return fail('Too many reviews from this address. Please wait a moment and try again.', 429, {
-      ...headersOut,
-      'Retry-After': String(limit.retryAfter),
-    })
+  const run: Run = { headers: headersOut, started: Date.now(), trace: [], usages: [], model: null }
+  const checkAt = Date.now()
+  const checked = await checkRequest(req)
+  if (!checked.ok) {
+    record(run.trace, 'Check request', 'failed', checkAt, checked.error)
+    return endWithError(run, checked.error, checked.status, checked.headers)
   }
 
-  const provider = getProvider('~anthropic/claude-haiku-latest')
-  if (!provider) {
-    return fail('The review service is not configured.', 500, headersOut)
-  }
-
-  const declaredLength = Number(req.headers.get('content-length') ?? '0')
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return fail('Request is too large.', 413, headersOut)
-  }
-
-  let body: { code?: unknown; language?: unknown }
-  try {
-    const rawBody = await req.text()
-    if (rawBody.length > MAX_BODY_BYTES) {
-      return fail('Request is too large.', 413, headersOut)
-    }
-    body = JSON.parse(rawBody) as { code?: unknown; language?: unknown }
-  } catch {
-    return fail('Request body was not valid JSON.', 400, headersOut)
-  }
-
-  const { code, language } = body ?? {}
-
-  if (!code || typeof code !== 'string' || !code.trim()) {
-    return fail('Paste some code to review.', 400, headersOut)
-  }
-
-  if (code.length > MAX_CODE_LENGTH) {
-    return fail(`${OVER_LIMIT_MESSAGE}.`, 400, headersOut)
-  }
-
-  const lang = typeof language === 'string' && /^[a-z0-9+#. -]{1,24}$/i.test(language) ? language : 'code'
-
-  const lines = code.split('\n')
-  const lineCount = lines.length
-  const numberedCode = lines.map((line, i) => `${i + 1}\t| ${line}`).join('\n')
-  const maxComments = Math.max(
-    MIN_COMMENTS,
-    Math.min(MAX_COMMENTS, Math.ceil(lineCount / LINES_PER_COMMENT)),
+  const lines = checked.code.split('\n')
+  record(
+    run.trace,
+    'Check request',
+    'ok',
+    checkAt,
+    `${checked.lang}, ${noun(lines.length, 'line')}, ${checked.code.length.toLocaleString('en-US')} characters`,
   )
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
-  const executionStartedAt = Date.now()
-  const executionStages: Array<{ stage: ExecutionStage; status: 'complete' }> = [
-    { stage: 'accepted', status: 'complete' },
-  ]
-
   try {
-    const maxTokens = Math.min(4096, 512 + maxComments * 220)
-    const callProvider = (candidate: typeof provider) => {
-      const request = providerRequest(candidate, {
-        system: buildSystemPrompt(lang, lineCount, maxComments),
-        user: `Review this ${lang} file (${lineCount} lines):\n\n${numberedCode}`,
-        maxTokens,
-        requireParameters: true,
-      })
-      return requestWithContentRetry(() => fetch(candidate.url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: request.headers,
-        body: request.body,
-      }))
-    }
-
-    let activeProvider = provider
-    executionStages.push({ stage: 'provider', status: 'complete' })
-    let aiResponse = await callProvider(activeProvider)
-    if (!aiResponse.ok) {
-      const fallback = getFallbackProvider(activeProvider)
-      if (fallback) {
-        activeProvider = fallback
-        aiResponse = await callProvider(activeProvider)
-      }
-    }
-
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return fail('The AI service is busy right now. Please try again in a moment.', 429, {
-          ...headersOut,
-          'Retry-After': '10',
-        })
-      }
-      if (aiResponse.status === 401 || aiResponse.status === 403) {
-        return fail('The review service rejected our credentials.', 502, headersOut)
-      }
-      return fail('The AI service is unavailable right now.', 502, headersOut)
-    }
-
-    const aiData = (await aiResponse.json()) as {
-      model?: string
-      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
-      content?: Array<{ text?: string }>
-      stop_reason?: string
-    }
-    const rawText = providerText(aiData)
-    const truncated = providerFinishReason(aiData) === 'length' || providerFinishReason(aiData) === 'max_tokens'
-
-    if (!rawText) {
-      return fail('The AI returned an empty review. Please try again.', 502, headersOut)
-    }
-
-    const cleaned = rawText.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(cleaned)
-    } catch {
-      const candidate = extractJsonObject(cleaned)
-      if (!candidate) {
-        return fail(
-          truncated
-            ? 'The review was cut short before it could be read. Try a shorter snippet.'
-            : 'The AI response could not be read. Please try again.',
-          502,
-          headersOut,
-        )
-      }
-      try {
-        parsed = JSON.parse(candidate)
-      } catch {
-        return fail('The AI response could not be read. Please try again.', 502, headersOut)
-      }
-    }
-
-    const rawComments = (parsed as { comments?: unknown })?.comments
-    const validSeverities = ['critical', 'warning', 'info']
-    const comments = (Array.isArray(rawComments) ? rawComments : [])
-      .filter((c: unknown): c is Record<string, unknown> => !!c && typeof c === 'object')
-      // A line outside the file is a hallucinated citation, not a roundable value: drop it.
-      .filter((c) => {
-        return (
-          typeof c.line === 'number' &&
-          Number.isInteger(c.line) &&
-          c.line >= 1 &&
-          c.line <= lineCount &&
-          typeof c.severity === 'string' &&
-          validSeverities.includes(c.severity) &&
-          typeof c.message === 'string' &&
-          c.message.trim().length > 0 &&
-          typeof c.suggestion === 'string' &&
-          c.suggestion.trim().length > 0
-        )
-      })
-      .slice(0, MAX_COMMENTS)
-      .map((c) => ({
-        line: c.line as number,
-        severity: c.severity as string,
-        message: (c.message as string).trim().slice(0, MAX_TEXT_CHARS),
-        suggestion: (c.suggestion as string).trim().slice(0, MAX_TEXT_CHARS),
-      }))
-
-    executionStages.push({ stage: 'validation', status: 'complete' }, { stage: 'completed', status: 'complete' })
-
-    return json({
-      success: true,
-      data: {
-        comments,
-        lineCount,
-        truncated,
-        served_model: providerModel(aiData, activeProvider.model),
-        served_provider: activeProvider.name,
-        execution: { stages: executionStages, durationMs: Date.now() - executionStartedAt },
-      },
-    }, 200, headersOut)
+    return await runReview(run, checked, lines, controller.signal)
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return fail('The review timed out. Try a shorter snippet.', 504, headersOut)
-    }
-    return fail('Could not reach the review service. Please try again.', 502, headersOut)
+    console.error('CodeLens: review failed unexpectedly', err)
+    const next = PIPELINE[run.trace.length]
+    if (next) run.trace.push({ name: next, status: 'failed', ms: 0, detail: 'Unexpected server error' })
+    return endWithError(run, 'Could not reach the review service. Please try again.', 502)
   } finally {
     clearTimeout(timer)
   }
