@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MAX_TASK_CHARS, PRESETS } from '../../src/lib/constants'
+import { ALLOWED_SITES, MAX_TASK_CHARS, PRESETS } from '../../src/lib/constants'
 import { allowedDomains, isAllowedHost } from '../../netlify/shared/domains'
 
 afterEach(() => {
@@ -25,5 +25,12 @@ describe('example tasks', () => {
       expect(preset.length).toBeLessThanOrEqual(MAX_TASK_CHARS)
     }
     expect(new Set(PRESETS).size).toBe(PRESETS.length)
+  })
+})
+
+describe('allowed sites shown on the page', () => {
+  it('match the default allowlist the server enforces when no override is set', () => {
+    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
+    expect(ALLOWED_SITES).toEqual(allowedDomains())
   })
 })

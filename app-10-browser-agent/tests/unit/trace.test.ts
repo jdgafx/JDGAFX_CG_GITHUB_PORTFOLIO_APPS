@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, metricsFor, overlapWith, statusSummary, stepLabel } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, metricsFor, overlapWith, planItems, statusSummary, stepLabel } from '../../src/lib/trace'
 import type { BotStep } from '../../src/types'
 
 const navigate: BotStep = { action: 'navigate', target: 'Google home page', thought: 'Open the home page.', url: 'https://www.google.com/' }
@@ -172,6 +172,39 @@ describe('statusSummary', () => {
     }))).toBe('The browser provider is out of credit, so no session was started.')
 
     expect(statusSummary(stateWith({ phase: 'failed', steps }))).toBe('The run failed.')
+  })
+})
+
+describe('planItems', () => {
+  it('shows finished steps as done, the running one as running, and the rest as waiting', () => {
+    const items = planItems(stateWith({
+      phase: 'running',
+      steps: [navigate, click, extract],
+      rows: [
+        { index: 0, name: 'Navigate: Google home page', status: 'ok', ms: 900, detail: 'Opened www.google.com.' },
+        { index: 1, name: 'Click: Search button', status: 'running', ms: 0, detail: 'Running.' },
+      ],
+    }))
+    expect(items.map((item) => [item.label, item.status])).toEqual([
+      ['Navigate: Google home page', 'ok'],
+      ['Click: Search button', 'running'],
+      ['Extract: page title', 'waiting'],
+    ])
+    expect(items[1].thought).toBe('Submit the search.')
+  })
+
+  it('marks the steps a stopped run never reached as skipped', () => {
+    const items = planItems(stateWith({
+      phase: 'stopped',
+      steps: [navigate, click],
+      rows: [{ index: 0, name: 'Navigate: Google home page', status: 'ok', ms: 900, detail: 'Opened www.google.com.' }],
+    }))
+    expect(items.map((item) => item.status)).toEqual(['ok', 'skipped'])
+  })
+
+  it('lists nothing before a plan exists', () => {
+    expect(planItems(stateWith({ phase: 'planning' }))).toEqual([])
+    expect(planItems(stateWith({ phase: 'idle' }))).toEqual([])
   })
 })
 

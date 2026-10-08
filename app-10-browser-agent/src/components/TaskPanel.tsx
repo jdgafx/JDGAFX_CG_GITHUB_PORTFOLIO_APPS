@@ -1,52 +1,30 @@
-import { Play, RotateCw, Square } from 'lucide-react'
 import { MAX_TASK_CHARS, PRESETS } from '../lib/constants'
-import type { Phase } from '../lib/runState'
-
-export interface TaskErrorView {
-  title: string
-  message: string
-  planAgain: boolean
-}
 
 interface TaskPanelProps {
   task: string
-  phase: Phase
-  canRunAgain: boolean
-  hasRun: boolean
-  error: TaskErrorView | null
+  busy: boolean
   onTaskChange: (task: string) => void
-  onPlan: () => void
-  onStop: () => void
-  onRunAgain: () => void
-  onReset: () => void
+  onSubmit: () => void
 }
 
-export default function TaskPanel({
-  task,
-  phase,
-  canRunAgain,
-  hasRun,
-  error,
-  onTaskChange,
-  onPlan,
-  onStop,
-  onRunAgain,
-  onReset,
-}: TaskPanelProps) {
-  const busy = phase === 'planning' || phase === 'running'
+/** The task to plan and run, and the example picker that fills the field. */
+export default function TaskPanel({ task, busy, onTaskChange, onSubmit }: TaskPanelProps) {
   const submit = () => {
-    if (task.trim() && !busy) onPlan()
+    if (task.trim() && !busy) onSubmit()
   }
 
   return (
-    <section className="ds-card" aria-labelledby="task-heading" aria-busy={busy}>
-      <div className="ds-card__head">
-        <h2 className="ds-card__title" id="task-heading">Task</h2>
-        <span className="ds-hint">{task.length} of {MAX_TASK_CHARS} characters</span>
+    <section className="ds-section" aria-labelledby="task-heading">
+      <div className="ds-section__head">
+        <h2 className="ds-section__title" id="task-heading">Task</h2>
+        <p className="ds-section__sub">Describe what the agent should do, or start from an example.</p>
       </div>
       <div className="ds-stack">
         <div className="ds-field">
-          <label className="ds-label" htmlFor="task-input">Describe a web task</label>
+          <div className="ds-row bb-field-head">
+            <label className="ds-label" htmlFor="task-input">Describe a web task</label>
+            <span className="ds-hint">{task.length} of {MAX_TASK_CHARS} characters</span>
+          </div>
           <textarea
             id="task-input"
             className="ds-textarea"
@@ -55,7 +33,7 @@ export default function TaskPanel({
             value={task}
             disabled={busy}
             placeholder="For example: Open google.com and report the page title"
-            aria-describedby="task-help"
+            aria-describedby="task-help task-keys"
             onChange={(event) => onTaskChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -64,9 +42,8 @@ export default function TaskPanel({
               }
             }}
           />
-          <p className="ds-hint" id="task-help">
-            Enter plans and runs the task. Shift+Enter adds a line. The browser visits only allowed sites.
-          </p>
+          <p className="ds-help" id="task-help">What the agent should do on an allowed site, in plain words.</p>
+          <p className="ds-hint" id="task-keys">Enter plans and runs the task. Shift+Enter adds a line.</p>
         </div>
 
         <div className="ds-field">
@@ -76,6 +53,7 @@ export default function TaskPanel({
             className="ds-select"
             value=""
             disabled={busy}
+            aria-describedby="example-help"
             onChange={(event) => {
               if (event.target.value) onTaskChange(event.target.value)
             }}
@@ -85,47 +63,8 @@ export default function TaskPanel({
               <option key={preset} value={preset}>{preset}</option>
             ))}
           </select>
+          <p className="ds-help" id="example-help">Every example names only allowed sites, so each one runs as written.</p>
         </div>
-
-        <div className="bb-actions">
-          {phase === 'running' ? (
-            <button type="button" className="ds-button" onClick={onStop}>
-              <Square size={14} aria-hidden="true" />
-              Stop run
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="ds-button ds-button--primary"
-              disabled={busy || !task.trim()}
-              onClick={onPlan}
-            >
-              <Play size={14} aria-hidden="true" />
-              {phase === 'planning' ? 'Planning…' : 'Plan and run'}
-            </button>
-          )}
-          <button type="button" className="ds-button" disabled={busy || !canRunAgain} onClick={onRunAgain}>
-            <RotateCw size={14} aria-hidden="true" />
-            Run plan again
-          </button>
-          <button type="button" className="ds-button" disabled={busy || !hasRun} onClick={onReset}>
-            Reset
-          </button>
-        </div>
-
-        {error && (
-          <div className="ds-notice ds-notice--error" role="alert">
-            <strong>{error.title}</strong>
-            <p>{error.message}</p>
-            {error.planAgain && (
-              <div className="bb-actions">
-                <button type="button" className="ds-button" disabled={!task.trim()} onClick={onPlan}>
-                  Plan again
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </section>
   )

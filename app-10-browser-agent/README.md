@@ -2,6 +2,8 @@
 
 BrowseBot plans a web task and then carries it out in a real browser. You describe a task in plain language, such as "Open google.com and report the page title." One model call turns it into a short list of browser steps. The planner is asked for three to six, and the server accepts up to ten. A Browserbase cloud browser then runs those steps on allowed sites and reports what it saw: the URL, the page title and the visible text. The page shows the plan, each step as it runs, the planner's served model, tokens and cost, and the session ID. BrowseBot does not decide whether the result answers your task.
 
+What this showcases: a planner that acts on the live web inside a bounded, allowlisted browser session, with every observation shown as it happens.
+
 ## The agent steps
 
 The planner makes one request, `POST /api/ai`. Its trace rows are:
@@ -17,7 +19,7 @@ The browser run follows. It streams server-sent events from `POST /api/execute`:
 - **Read final page** records the URL, title and text at the end of the run.
 - **Release browser session** ends the Browserbase session and shows whether the release worked. It comes before the run's final event.
 
-The page also shows a run summary with total latency, prompt, completion and total tokens, cost in USD, and the served model. A figure the provider does not report shows as "not reported". Nothing is estimated. The observed page panel shows the session ID, URL, title and up to 4,000 characters of page text. A keyword overlap with the plan's expected wording is a lookup aid, not a verdict.
+The page has two columns. The controls hold the task, the allowed sites and the run buttons. The run column shows the plan beside the observed page, a run figures strip with the served model, prompt, completion and total tokens, cost in USD and total latency, and the numbered run trace. A figure the provider does not report shows as "not reported". Nothing is estimated. The observed page appears as a browser window with the URL, title and up to 4,000 characters of page text, and the session ID beneath. A keyword overlap with the plan's expected wording is a lookup aid, not a verdict.
 
 ## Architecture
 
@@ -53,3 +55,4 @@ Live site: https://jdgafx-app-10-browser-agent.netlify.app
 - A failed step ends the run. There is no replanning, and the planner never sees what the page looked like.
 - The provider reports the planner's cost only. The browser session cost is not shown.
 - The served model comes from the response and can differ from the one requested. The page shows the served model.
+- The page shows the default allowlist, `google.com, www.google.com, flights.google.com`. When `BROWSERBASE_ALLOWED_DOMAINS` is set, the server enforces that list instead, but the page does not show it.

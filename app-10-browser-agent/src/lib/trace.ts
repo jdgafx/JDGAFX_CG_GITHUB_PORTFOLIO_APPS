@@ -88,6 +88,30 @@ export function buildTraceRows(state: RunState): TraceRow[] {
   return [...planRows, ...runRows, ...pending]
 }
 
+export type PlanStatus = 'waiting' | 'running' | 'ok' | 'failed' | 'skipped'
+
+/** One planned step and its state in this run. */
+export interface PlanItem {
+  key: string
+  label: string
+  thought: string
+  status: PlanStatus
+}
+
+/**
+ * Every planned step with its state. A step with no row yet waits while the run is live, and is
+ * skipped once the run has ended without reaching it.
+ */
+export function planItems(state: RunState): PlanItem[] {
+  const ended = state.phase === 'complete' || state.phase === 'failed' || state.phase === 'stopped'
+  return state.steps.map((step, index): PlanItem => {
+    const row = state.rows.find((candidate) => candidate.index === index)
+    let status: PlanStatus = ended ? 'skipped' : 'waiting'
+    if (row) status = row.status
+    return { key: `step-${index}`, label: stepLabel(step), thought: step.thought, status }
+  })
+}
+
 export function statusSummary(state: RunState): string {
   const total = state.steps.length
   switch (state.phase) {
