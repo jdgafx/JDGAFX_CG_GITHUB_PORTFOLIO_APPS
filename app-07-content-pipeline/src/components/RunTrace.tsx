@@ -23,9 +23,14 @@ export default function RunTrace({ lines }: RunTraceProps) {
           </div>
           <div className="ds-trace__meta">
             <div>{line.status}</div>
-            {line.status !== 'skipped' && <div>{formatMs(line.ms)}</div>}
-            {line.tokens !== undefined && <div>{formatCount(line.tokens)} tokens</div>}
-            {line.cost !== undefined && <div>{formatUsd(line.cost)}</div>}
+            {line.status !== 'skipped' && (
+              <>
+                <div>{formatMs(line.ms)}</div>
+                <div>{line.tokens === undefined ? 'tokens not reported' : `${formatCount(line.tokens)} tokens`}</div>
+                <div>{line.cost === undefined ? 'cost not reported' : formatUsd(line.cost)}</div>
+                <div className="trace-model">{line.model ?? 'model not reported'}</div>
+              </>
+            )}
           </div>
         </li>
       ))}

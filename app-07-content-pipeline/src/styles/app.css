@@ -79,6 +79,11 @@
   min-width: 0;
 }
 
+.trace-model {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .ds-trace__meta > div + div {
   margin-top: 2px;
 }

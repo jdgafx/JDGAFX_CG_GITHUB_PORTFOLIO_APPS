@@ -30,7 +30,7 @@ export interface TraceRow {
   cost?: number
 }
 
-// One call to the server, with the usage and model it reported.
+// One call to the server, with the usage and model the provider reported for it.
 export interface CallRecord {
   stage: StageId
   row: TraceRow
@@ -43,22 +43,29 @@ export type PipelineOutcome =
   | { kind: 'stopped'; stage: StageId }
   | { kind: 'failed'; stage: StageId; message: string }
 
-export interface RunRequest {
+interface RunRequest {
   topic: string
   contentType: ContentType
   context: StageOutputs
   signal: AbortSignal
 }
 
-export interface PipelineCallbacks {
+interface PipelineCallbacks {
   onStageStart: (stage: StageId) => void
   onCall: (record: CallRecord) => void
   onStageDone: (stage: StageId, content: string) => void
 }
 
 const API_PATH = '/api/ai'
-// A timed-out or cut-off stage gets one more call. Rate and credit errors do not.
+// The browser retries a stage once, and only when the server says its output was empty or cut short.
 const RETRY_LIMIT = 1
+
+const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
+const BUSY_MESSAGE = 'Rate limited, try again in a minute.'
+const SLOW_MESSAGE = 'The AI provider did not answer in time.'
+const GENERIC_MESSAGE = 'The request could not be completed. Please retry.'
+const NO_TEXT_MESSAGE = 'The stage returned no usable text. Please retry.'
+const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
 
 // A failed call. The record is its trace line, and `retryable` says whether a second call may succeed.
 class StageFailure extends Error {
@@ -67,14 +74,19 @@ class StageFailure extends Error {
   }
 }
 
+interface Attempt {
+  usage: Usage | null
+  model: string | null
+}
+
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
 function friendlyHttpError(status: number): string {
-  if (status === 429) return 'The service is busy right now. Please retry in a moment.'
-  if (status >= 500) return 'The service is temporarily unavailable. Please retry.'
-  return 'The request could not be completed. Please retry.'
+  if (status === 429) return BUSY_MESSAGE
+  if (status >= 500) return SLOW_MESSAGE
+  return GENERIC_MESSAGE
 }
 
 function readUsage(value: unknown): Usage | null {
@@ -121,6 +133,7 @@ async function postStage(
   name: string,
 ): Promise<{ content: string; record: CallRecord }> {
   const sentAt = Date.now()
+  const elapsed = () => Date.now() - sentAt
   let response: Response
   try {
     response = await fetch(API_PATH, {
@@ -131,47 +144,44 @@ async function postStage(
     })
   } catch (err) {
     if (isAbort(err)) throw err
-    console.error(`${stage} request failed:`, err)
-    throw new StageFailure('Lost connection. Check your network and retry.', true, {
+    throw new StageFailure(NETWORK_MESSAGE, false, {
       stage,
       usage: null,
       model: null,
-      row: { name, status: 'failed', ms: Date.now() - sentAt, detail: 'Connection lost before the stage finished.' },
+      row: { name, status: 'failed', ms: elapsed(), detail: 'Connection lost before the stage finished.' },
     })
   }
 
   const body = await readBody(response)
   const serverRow = readRow(body?.trace)
+  const attempt: Attempt = { usage: readUsage(body?.usage), model: typeof body?.model === 'string' ? body.model : null }
 
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : friendlyHttpError(response.status)
-    const retryable = typeof body?.retryable === 'boolean' ? body.retryable : response.status === 502 || response.status === 504
-    console.error(`${stage} request failed with HTTP ${response.status}`)
-    throw new StageFailure(message, retryable, {
-      stage,
-      usage: null,
-      model: null,
-      row: serverRow ? { ...serverRow, name, status: 'failed' } : { name, status: 'failed', ms: Date.now() - sentAt, detail: message },
-    })
+    const row: TraceRow = serverRow
+      ? { ...serverRow, name, status: 'failed' }
+      : { name, status: 'failed', ms: elapsed(), detail: message }
+    throw new StageFailure(message, body?.retryable === true, { stage, ...attempt, row })
   }
 
-  const content = typeof body?.result === 'string' ? body.result : ''
-  if (!content.trim() || !serverRow) {
-    throw new StageFailure('The stage returned no usable text. Please retry.', true, {
+  if (!serverRow) {
+    throw new StageFailure(UNEXPECTED_MESSAGE, false, {
       stage,
-      usage: null,
-      model: null,
-      row: { name, status: 'failed', ms: Date.now() - sentAt, detail: 'The response had no usable text.' },
+      ...attempt,
+      row: { name, status: 'failed', ms: elapsed(), detail: 'The response had no trace.' },
+    })
+  }
+  const content = typeof body?.result === 'string' ? body.result : ''
+  if (!content.trim()) {
+    throw new StageFailure(NO_TEXT_MESSAGE, true, {
+      stage,
+      ...attempt,
+      row: { name, status: 'failed', ms: elapsed(), detail: 'The response had no usable text.' },
     })
   }
   return {
     content,
-    record: {
-      stage,
-      row: { ...serverRow, name },
-      usage: readUsage(body?.usage),
-      model: typeof body?.model === 'string' ? body.model : null,
-    },
+    record: { stage, row: { ...serverRow, name }, usage: attempt.usage, model: attempt.model },
   }
 }
 
@@ -206,7 +216,7 @@ export async function runPipeline(req: RunRequest, callbacks: PipelineCallbacks)
       callbacks.onStageDone(stage, content)
     } catch (err) {
       if (isAbort(err) || req.signal.aborted) return { kind: 'stopped', stage }
-      const message = err instanceof StageFailure ? err.message : 'Something went wrong. Please retry.'
+      const message = err instanceof StageFailure ? err.message : UNEXPECTED_MESSAGE
       return { kind: 'failed', stage, message }
     }
   }

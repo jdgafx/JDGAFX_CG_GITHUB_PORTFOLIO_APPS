@@ -23,6 +23,10 @@ export const STAGE_INPUTS: Record<StageId, readonly StageId[]> = {
   polish: ['edit'],
 }
 
+// The longest stage output the server accepts as input. Longer output is refused
+// where it is produced, so the next stage never fails on it.
+export const MAX_STAGE_TEXT_CHARS = 8_000
+
 // Word budgets keep each model call short. They, the token ceiling and the call
 // timeout together keep one stage well inside the function time limit.
 const STAGE_WORD_BUDGETS: Record<StageId, number> = {
@@ -43,12 +47,21 @@ const STAGE_PROMPTS: Record<StageId, string> = {
 
 const MAX_CONTEXT_CHARS = 1800
 
+// Anything shorter than this is not usable text for any stage.
+const MIN_STAGE_WORDS = 5
+
 // Edit and polish must keep roughly the length of the text they were given.
 const LENGTH_SOURCE: Partial<Record<StageId, StageId>> = { edit: 'draft', polish: 'edit' }
 const MIN_SHARE_OF_SOURCE = 0.5
 
-export interface StageRejection {
+// Safety models answer with a label such as "User Safety: safe", never with article
+// text. Only short replies are checked, so an article that mentions a safety rating is not caught.
+const SAFETY_LABEL = /\bsafety\s*:\s*(?:un)?safe\b|^\s*(?:un)?safe\.?\s*$/i
+const MAX_LABEL_WORDS = 20
+
+interface StageRejection {
   message: string
+  // True only for empty, cut-off or too-short replies, the only ones the browser retries once.
   retryable: boolean
 }
 
@@ -58,6 +71,10 @@ export function wordCount(text: string): number {
 
 function clip(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}\n...[truncated]` : text
+}
+
+function isSafetyLabel(text: string): boolean {
+  return wordCount(text) <= MAX_LABEL_WORDS && SAFETY_LABEL.test(text.trim())
 }
 
 export function buildSystemPrompt(stage: StageId, topic: string, contentType: string): string {
@@ -96,8 +113,8 @@ export function rejectOutput(
   reply: Pick<ChatReply, 'content' | 'finishReason' | 'servedModel'>,
   context: Partial<Record<StageId, string>>,
 ): StageRejection | null {
-  if (reply.servedModel?.includes('content-safety')) {
-    return { message: 'The AI provider answered with a safety label instead of text, so this stage was discarded.', retryable: true }
+  if (reply.servedModel?.includes('content-safety') || isSafetyLabel(reply.content)) {
+    return { message: 'The AI provider answered with a safety label instead of text, so this stage was discarded.', retryable: false }
   }
   if (!reply.content.trim()) {
     return { message: 'The AI provider returned no text for this stage.', retryable: true }
@@ -105,12 +122,15 @@ export function rejectOutput(
   if (reply.finishReason === 'length') {
     return { message: 'This stage ran out of room before it finished.', retryable: true }
   }
+  if (wordCount(reply.content) < MIN_STAGE_WORDS) {
+    return { message: 'This stage returned too little text to use.', retryable: true }
+  }
+  if (reply.content.trim().length > MAX_STAGE_TEXT_CHARS) {
+    return { message: 'This stage wrote more text than the next stage can take, so it was discarded.', retryable: false }
+  }
   const source = LENGTH_SOURCE[stage]
-  if (source) {
-    const sourceWords = wordCount(context[source] ?? '')
-    if (sourceWords > 0 && wordCount(reply.content) < sourceWords * MIN_SHARE_OF_SOURCE) {
-      return { message: `This stage returned far less text than the ${STAGE_LABELS[source]} stage it was given, so it was discarded.`, retryable: true }
-    }
+  if (source && wordCount(reply.content) < wordCount(context[source] ?? '') * MIN_SHARE_OF_SOURCE) {
+    return { message: `This stage returned far less text than the ${STAGE_LABELS[source]} stage it was given, so it was discarded.`, retryable: true }
   }
   return null
 }

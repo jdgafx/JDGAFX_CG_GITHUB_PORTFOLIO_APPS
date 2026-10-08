@@ -26,7 +26,7 @@ export default function Brief({
     <section className="ds-card" aria-labelledby="brief-title">
       <div className="ds-card__head">
         <h2 className="ds-card__title" id="brief-title">Brief</h2>
-        <p className="ds-hint">Each stage is its own short request. A stage that fails is retried once.</p>
+        <p className="ds-hint">Each stage is its own short request. A stage that comes back empty or cut short is retried once.</p>
       </div>
 
       <form

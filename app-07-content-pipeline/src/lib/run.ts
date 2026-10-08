@@ -1,6 +1,6 @@
 import { STAGE_IDS, STAGE_LABELS, type CallRecord, type StageId, type StageOutputs, type TraceRow, type Usage } from './api'
 
-export type TraceStatus = TraceRow['status'] | 'skipped'
+type TraceStatus = TraceRow['status'] | 'skipped'
 
 export interface TraceLine {
   key: string
@@ -11,6 +11,7 @@ export interface TraceLine {
   detail: string
   tokens?: number
   cost?: number
+  model?: string
   // Bar length, as a percentage of the slowest call in the run.
   share: number
 }
@@ -18,11 +19,23 @@ export interface TraceLine {
 // Where a run ended, when it did not finish.
 export type RunEnd = { kind: 'stopped' | 'failed'; stage: StageId } | null
 
+interface Row {
+  key: string
+  name: string
+  status: TraceStatus
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+  model?: string
+}
+
 // One line per call, then one "skipped" line per stage that never produced a call or output.
 export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunEnd): TraceLine[] {
-  const rows: { key: string; row: Omit<TraceRow, 'status'> & { status: TraceStatus } }[] = calls.map((call, i) => ({
+  const rows: Row[] = calls.map((call, i) => ({
     key: `call-${i}`,
-    row: call.row,
+    ...call.row,
+    model: call.model ?? undefined,
   }))
 
   if (end) {
@@ -31,26 +44,18 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
       const stopped = end.kind === 'stopped' && end.stage === stage
       rows.push({
         key: `skip-${stage}`,
-        row: {
-          name: STAGE_LABELS[stage],
-          status: 'skipped',
-          ms: 0,
-          detail: stopped ? 'Stopped before this stage finished.' : 'Not run yet.',
-        },
+        name: STAGE_LABELS[stage],
+        status: 'skipped',
+        ms: 0,
+        detail: stopped ? 'Stopped before this stage finished.' : 'Not run yet.',
       })
     }
   }
 
-  const slowest = Math.max(0, ...rows.map(({ row }) => row.ms))
-  return rows.map(({ key, row }, i) => ({
-    key,
+  const slowest = Math.max(0, ...rows.map(row => row.ms))
+  return rows.map((row, i) => ({
+    ...row,
     index: i + 1,
-    name: row.name,
-    status: row.status,
-    ms: row.ms,
-    detail: row.detail,
-    tokens: row.tokens,
-    cost: row.cost,
     share: slowest > 0 ? Math.round((row.ms / slowest) * 100) : 0,
   }))
 }
@@ -67,7 +72,8 @@ export interface RunTotals {
   models: string[]
 }
 
-// Totals across every call. A figure is null when no call reported it, never zero.
+// Totals across every call, including failed calls the provider billed. A figure is
+// null when no call reported it, never zero.
 export function summarize(calls: CallRecord[]): RunTotals {
   const reported = calls.flatMap(call => (call.usage ? [call.usage] : []))
   const costed = reported.filter(usage => usage.cost !== undefined)
@@ -85,6 +91,15 @@ export function summarize(calls: CallRecord[]): RunTotals {
     cost: costed.length > 0 ? costed.reduce((total, usage) => total + (usage.cost ?? 0), 0) : null,
     models: [...new Set(calls.flatMap(call => (call.model ? [call.model] : [])))],
   }
+}
+
+// The key a run is saved under. A resumed run reuses finished stages only under the same key.
+export function runKeyFor(topic: string, contentType: string): string {
+  return `${topic}\n${contentType}`
+}
+
+export function keepsFinishedStages(previousKey: string, runKey: string, resume: boolean): boolean {
+  return resume && previousKey === runKey
 }
 
 export function wordCount(text: string): number {

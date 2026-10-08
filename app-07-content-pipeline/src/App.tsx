@@ -3,13 +3,14 @@ import {
   CONTENT_TYPES, STAGE_IDS, STAGE_LABELS, runPipeline,
   type CallRecord, type ContentType, type PipelineOutcome, type StageId, type StageOutputs,
 } from './lib/api'
-import { buildTrace, summarize, type RunEnd } from './lib/run'
+import { buildTrace, keepsFinishedStages, runKeyFor, summarize, type RunEnd } from './lib/run'
 import Brief, { type Notice } from './components/Brief'
 import Stages from './components/Stages'
 import RunTrace from './components/RunTrace'
 import RunSummary from './components/RunSummary'
 
 const COPY_NOTE_MS = 2000
+const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
 
 function statusText(topic: string, running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null): string {
   if (running) {
@@ -60,9 +61,9 @@ export default function App() {
     const trimmed = topic.trim()
     if (!trimmed || running) return
 
-    // Finished stages are reused only when the topic and format are unchanged.
-    const runKey = `${trimmed}\n${contentType}`
-    if (!resume || runKeyRef.current !== runKey) {
+    // Finished stages are reused only when a resume continues the same topic and format.
+    const runKey = runKeyFor(trimmed, contentType)
+    if (!keepsFinishedStages(runKeyRef.current, runKey, resume)) {
       runKeyRef.current = runKey
       outputsRef.current = {}
       setOutputs({})
@@ -74,19 +75,29 @@ export default function App() {
     setRunning(true)
     setOutcome(null)
 
+    // runPipeline reports every expected failure as an outcome. This catch only covers a
+    // bug, and it names the stage that was running when the bug surfaced.
+    let stage: StageId = STAGE_IDS[0]
     let result: PipelineOutcome
     try {
       result = await runPipeline(
         { topic: trimmed, contentType, context: outputsRef.current, signal: controller.signal },
         {
-          onStageStart: stage => setRunningStage(stage),
+          onStageStart: next => {
+            stage = next
+            setRunningStage(next)
+          },
           onCall: record => setCalls(previous => [...previous, record]),
-          onStageDone: (stage, content) => {
-            outputsRef.current = { ...outputsRef.current, [stage]: content }
+          onStageDone: (done, content) => {
+            outputsRef.current = { ...outputsRef.current, [done]: content }
             setOutputs(outputsRef.current)
           },
         },
       )
+    } catch {
+      result = controller.signal.aborted
+        ? { kind: 'stopped', stage }
+        : { kind: 'failed', stage, message: UNEXPECTED_MESSAGE }
     } finally {
       abortRef.current = null
       setRunningStage(null)
