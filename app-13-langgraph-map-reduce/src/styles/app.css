@@ -1,25 +1,12 @@
-/* App-specific layer. Structure, colour and type come from tokens.css and the shared ds-* classes. */
+/* App layer. Colour, type and spacing come from tokens.css and the shared ds-* classes.
+   The graph is drawn in fixed pixels: the node widths below add up to 710px, and the loop
+   geometry in GraphView.tsx depends on them. Change one and change the other. */
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* Input */
+/* Controls */
 .doc-input {
-  height: clamp(180px, 34vh, 320px);
-  font-family: var(--ds-mono);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  height: clamp(200px, 36vh, 340px);
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .doc-count {
@@ -30,183 +17,403 @@
   color: var(--ds-danger);
 }
 
-.doc-actions {
-  justify-content: flex-end;
+/* The tokens make the controls sticky from 1000px. A column taller than a short window would hide Stop, so it stays in flow. */
+.ds-controls {
+  position: static;
 }
 
-/* Graph: one row of stages, with the extract fan in the middle */
+.control-stack {
+  display: grid;
+  gap: 20px;
+}
+
+.control-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.control-group .ds-button {
+  width: 100%;
+}
+
+/* Status line above the graph */
+.run-status {
+  min-height: 24px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* Graph canvas: fixed 710px wide, the fan height is set per run in --h */
+.graph {
+  position: relative;
+  width: 710px;
+  margin: 0 auto;
+  padding: 26px 0 70px;
+  height: calc(var(--h) + 96px);
+}
+
 .graph-row {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 8px;
+  align-items: center;
+  width: 710px;
+  height: var(--h);
 }
 
+.graph-row > li {
+  flex: 0 0 auto;
+}
+
+/* Stage nodes: split, reduce, synthesize, check, final */
 .graph-node {
   display: grid;
+  align-content: center;
   gap: 2px;
-  min-width: 104px;
-  padding: 10px 12px;
-  background: var(--ds-surface-2);
+  height: 56px;
+  padding: 6px 10px;
+  background: var(--ds-surface);
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
+  min-width: 0;
+}
+
+.graph-node--split,
+.graph-node--reduce {
+  width: 88px;
+}
+
+.graph-node--synthesize {
+  width: 124px;
+}
+
+.graph-node--check,
+.graph-node--final {
+  width: 80px;
 }
 
 .graph-node__name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
-.graph-node__state,
-.graph-branch__state {
-  font-size: 12px;
+.graph-node__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--ds-text-muted);
+  white-space: nowrap;
 }
 
-.graph-node.is-running,
-.graph-branch.is-running {
+.graph-node.is-running {
   border-color: var(--ds-accent);
   background: var(--ds-accent-soft);
 }
 
-.graph-node.is-ok,
-.graph-branch.is-ok {
-  border-color: var(--ds-success);
+.graph-node.is-running .graph-node__state {
+  color: var(--ds-text);
 }
 
-.graph-node.is-failed,
-.graph-branch.is-failed {
+.graph-node.is-failed {
   border-color: var(--ds-danger);
   background: var(--ds-danger-soft);
 }
 
-.graph-arrow {
-  list-style: none;
-  align-self: center;
-  color: var(--ds-text-muted);
+.graph-node.is-failed .graph-node__state {
+  color: var(--ds-danger);
 }
 
+.graph-node.is-stopped,
+.graph-node.is-idle {
+  border-style: dashed;
+}
+
+/* Fan: one slot per chunk, the chunk node centred in its slot */
 .graph-fan {
-  flex: 1 1 240px;
-  min-width: 0;
-  list-style: none;
-  padding: 10px 12px;
-  border: 1px dashed var(--ds-border);
-  border-radius: var(--ds-radius-sm);
+  width: 152px;
+  align-self: stretch;
 }
 
-.graph-fan__title {
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: var(--ds-text-muted);
-}
-
-.graph-branches {
+.graph-fan__list {
   list-style: none;
   margin: 0;
   padding: 0;
+  height: 100%;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-  gap: 6px;
+  grid-template-rows: repeat(var(--n), minmax(0, 1fr));
 }
 
-.graph-branch {
+.graph-chunk {
+  align-self: center;
+  height: 30px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 0 8px;
   font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
 }
 
-.graph-loop {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-  margin-top: 14px;
-  padding: 10px 12px;
-  font-size: 14px;
-  background: var(--ds-accent-soft);
-  border: 1px dashed var(--ds-accent);
-  border-radius: var(--ds-radius-sm);
-}
-
-.graph-loop__label {
+.graph-chunk__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
-.graph-loop__note,
-.graph-finish {
+.graph-chunk__state {
   color: var(--ds-text-muted);
-  font-size: 13px;
 }
 
-.graph-finish {
-  margin-top: 10px;
+.graph-chunk.is-running {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+
+.graph-chunk.is-running .graph-chunk__state {
+  color: var(--ds-text);
+}
+
+.graph-chunk.is-failed {
+  border-color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+}
+
+.graph-chunk.is-failed .graph-chunk__state {
+  color: var(--ds-danger);
+}
+
+.graph-chunk.is-stopped,
+.graph-chunk.is-idle {
+  border-style: dashed;
+}
+
+/* Wires: the fan out and converge are SVG in percentages, so they meet the nodes at any count */
+.graph-wire {
+  display: block;
+  align-self: stretch;
+  height: 100%;
+}
+
+.graph-wire--fan {
+  width: 28px;
+}
+
+.graph-wire--converge {
+  width: 28px;
+}
+
+.graph-wire svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.graph-wire path {
+  fill: none;
+  stroke: var(--ds-text-muted);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-wire path.is-taken {
+  stroke: var(--ds-accent);
+  stroke-width: 2.5px;
+}
+
+.graph-link {
+  display: block;
+  width: 14px;
+  height: 2px;
+  background: var(--ds-text-muted);
+}
+
+.graph-link.is-taken {
+  background: var(--ds-accent);
+}
+
+.graph-fan-label {
+  position: absolute;
+  top: 2px;
+  left: 88px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.graph-fan-label.is-taken {
+  color: var(--ds-accent);
+  font-weight: 600;
+}
+
+/* The loop: check back to the fan, drawn under the row and labelled with the decision */
+.graph-loop {
+  position: absolute;
+  left: 0;
+  top: 26px;
+  overflow: visible;
+}
+
+.graph-loop path {
+  fill: none;
+  stroke: var(--ds-text-muted);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 5;
+}
+
+.graph-loop.is-taken path {
+  stroke: var(--ds-accent);
+  stroke-width: 2.5px;
+}
+
+.graph-loop-label {
+  position: absolute;
+  left: 192px;
+  top: calc(26px + var(--h) + 24px);
+  width: 384px;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ds-text-muted);
+}
+
+.graph-loop-label.is-taken {
+  color: var(--ds-accent);
+  font-weight: 650;
+}
+
+/* Below 720px the graph scrolls inside its panel, and the panel says so */
+.graph-scroll-hint {
+  display: none;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+/* Readout: three figures a row, models in a list below */
+.readout {
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .readout {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.readout-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.model-id {
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+}
+
+/* Empty states: a sentence that says what happens next, no border */
+.empty-note {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ds-text-muted);
 }
 
 /* Summary and coverage */
 .summary-overview {
   font-size: 15px;
+  line-height: 1.6;
 }
 
 .summary-section {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .summary-section__title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 650;
+  line-height: 1.35;
 }
 
 .summary-points {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
-  padding-left: 18px;
+  padding-left: 20px;
 }
 
 .summary-points li {
+  max-width: var(--ds-measure);
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
+.summary-entities {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
 .cite {
-  margin-left: 4px;
-  vertical-align: 1px;
+  margin-left: 6px;
+}
+
+/* The stopped dot takes the warning colour, like the stopped badge beside it */
+.ds-dot--stopped {
+  background: var(--ds-warning);
 }
 
 .coverage-count {
   font-size: 22px;
   font-weight: 650;
+  line-height: 1.25;
 }
 
-.coverage-gap {
-  margin-top: 14px;
+/* Trace: the state dot and word, and the meta column wraps when a model name is long */
+.trace-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.ds-trace__meta {
+  white-space: normal;
+  max-width: 44%;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {
-  .graph-row {
-    flex-direction: column;
-    align-items: stretch;
+  .control-group .ds-button {
+    min-height: 44px;
   }
 
-  .graph-arrow {
-    display: none;
+  .graph-scroll-hint {
+    display: block;
   }
 
-  .graph-fan {
-    flex-basis: auto;
-  }
-
-  .doc-actions .ds-button {
-    width: 100%;
+  .ds-trace__meta {
+    max-width: none;
   }
 }

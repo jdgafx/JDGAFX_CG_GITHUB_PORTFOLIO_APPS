@@ -1,55 +1,102 @@
-import type { RunMetrics } from '../types/frames'
-import { formatCost, formatMs, formatTokens } from '../lib/format'
+import { formatCost, formatCount, formatMs, formatTokens } from '../lib/format'
+import type { Phase } from '../lib/view'
+import type { NodeName, RunMetrics, TraceRow } from '../types/frames'
 
-interface MetricProps {
-  label: string
-  value: string
-  hint: string
+const CALL_WORD: Partial<Record<NodeName, string>> = { extract: 'Extract', check: 'Check', synthesize: 'Synthesize' }
+
+/** Each distinct model that served a call, with how many calls each role made to it. Derived here, from the rows. */
+export function modelUse(rows: TraceRow[]): Array<{ model: string; uses: string }> {
+  const counts = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    const word = CALL_WORD[row.node]
+    if (!row.model || !word) continue
+    const roles = counts.get(row.model) ?? new Map<string, number>()
+    roles.set(word, (roles.get(word) ?? 0) + 1)
+    counts.set(row.model, roles)
+  }
+  return [...counts].map(([model, roles]) => ({
+    model,
+    uses: [...roles].map(([word, n]) => `${word}, ${formatCount(n, 'call')}`).join(' and '),
+  }))
 }
 
-function Metric({ label, value, hint }: MetricProps) {
+/** A cost that no call reported reads "Not reported", never zero. */
+function costValue(cost: number | null): string {
+  return cost === null ? 'Not reported' : formatCost(cost)
+}
+
+function costHint(metrics: RunMetrics | null): string {
+  if (!metrics || metrics.totalCost === null) return 'Cost not reported'
+  return metrics.costSource === 'estimated' ? 'Estimated from list prices' : 'As reported by OpenRouter'
+}
+
+/** A figure the run has not produced: still to come, or never shown because the run did not finish. */
+function pendingWord(phase: Phase): string {
+  return phase === 'stopped' || phase === 'error' ? 'Not shown' : 'Not yet'
+}
+
+function timeHint(phase: Phase): string {
+  if (phase === 'done') return 'Wall clock for the whole run'
+  if (phase === 'stopped') return 'Not shown, because the run stopped'
+  if (phase === 'error') return 'Not shown, because the run failed'
+  return 'Shown when the run finishes'
+}
+
+function Readout({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="ds-metric" role="listitem">
-      <div className="ds-metric__label">{label}</div>
-      <div className="ds-metric__value">{value}</div>
-      <div className="ds-metric__hint">{hint}</div>
+    <div className="ds-strip__item">
+      <dt className="ds-strip__label">{label}</dt>
+      <dd className="ds-strip__value ds-num">{value}</dd>
+      <dd className="readout-hint">{hint}</dd>
     </div>
   )
 }
 
-function costHint(metrics: RunMetrics | null): string {
-  if (!metrics || metrics.totalCost === null) return 'no cost reported yet'
-  return metrics.costSource === 'estimated' ? 'estimated from list prices' : 'as reported by OpenRouter'
-}
-
-export function MetricsRow({ metrics, complete }: { metrics: RunMetrics | null; complete: boolean }) {
+export function MetricsRow({ metrics, phase, rows }: { metrics: RunMetrics | null; phase: Phase; rows: TraceRow[] }) {
+  const complete = phase === 'done'
+  const models = modelUse(rows)
+  const pending = pendingWord(phase)
+  const modelsValue = models.length > 0 ? formatCount(models.length, 'model') : metrics ? 'Not reported' : pending
   return (
-    <div className="ds-metrics" role="list" aria-label="Run totals">
-      <Metric
-        label="Total time"
-        value={metrics && complete ? formatMs(metrics.totalMs) : 'n/a'}
-        hint={complete ? 'wall clock, whole run' : 'shown when the run finishes'}
-      />
-      <Metric
-        label="Total tokens"
-        value={metrics ? formatTokens(metrics.totalTokens) : 'n/a'}
-        hint="prompt plus completion, all calls"
-      />
-      <Metric
-        label="Total cost"
-        value={metrics ? formatCost(metrics.totalCost) : 'n/a'}
-        hint={costHint(metrics)}
-      />
-      <Metric
-        label="Cheap calls"
-        value={metrics ? formatCost(metrics.cheapCost) : 'n/a'}
-        hint={metrics ? `${metrics.cheapCalls} calls: extract and check` : 'extract and check'}
-      />
-      <Metric
-        label="Synthesis call"
-        value={metrics ? formatCost(metrics.synthesisCost) : 'n/a'}
-        hint="one stronger call per pass"
-      />
-    </div>
+    <section className="ds-section" aria-labelledby="totals-title">
+      <div className="ds-section__head">
+        <h2 id="totals-title" className="ds-section__title">
+          Run totals
+        </h2>
+        <p className="ds-section__sub">Figures for the whole run. Tokens and cost add up as each call finishes.</p>
+      </div>
+      <dl className="ds-strip readout">
+        <Readout
+          label="Total time"
+          value={metrics && complete ? formatMs(metrics.totalMs) : pending}
+          hint={timeHint(phase)}
+        />
+        <Readout
+          label="Total tokens"
+          value={metrics ? formatTokens(metrics.totalTokens) : pending}
+          hint="Prompt plus completion, all calls"
+        />
+        <Readout label="Total cost" value={metrics ? costValue(metrics.totalCost) : pending} hint={costHint(metrics)} />
+        <Readout
+          label="Cheap calls"
+          value={metrics ? costValue(metrics.cheapCost) : pending}
+          hint={metrics ? `${formatCount(metrics.cheapCalls, 'call')}, extract and check` : 'Extract and check'}
+        />
+        <Readout
+          label="Synthesis call"
+          value={metrics ? costValue(metrics.synthesisCost) : pending}
+          hint="One stronger call per pass"
+        />
+        <div className="ds-strip__item">
+          <dt className="ds-strip__label">Models used</dt>
+          <dd className="ds-strip__value ds-num">{modelsValue}</dd>
+          {models.map((m) => (
+            <dd key={m.model} className="readout-hint">
+              <span className="model-id">{m.model}</span> {m.uses}
+            </dd>
+          ))}
+        </div>
+      </dl>
+    </section>
   )
 }

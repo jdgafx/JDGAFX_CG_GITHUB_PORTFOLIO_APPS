@@ -2,6 +2,8 @@
 
 GraphSwarm is a document analyst built on LangGraph.js. Paste a document of 200 to 20,000 characters, or load the built-in sample (the United States Declaration of Independence). The graph splits the text into chunks, extracts key points from every chunk in parallel, merges them, writes a structured summary whose points cite chunk numbers, and checks coverage. If a chunk was missed, that chunk is re-run once. The run finishes with a coverage count, the summary, and a trace of every model call with its served model, tokens and cost.
 
+**What this showcases:** a LangGraph map-reduce: many cheap parallel extractions, one stronger synthesis, and a coverage check that re-runs only what was missed.
+
 The graph is the point of the app. A plain chain runs one call after another. This app needs a fan-out to a variable number of parallel branches (one per chunk), a reducer that merges branch results, and a conditional loop that sends only the missed chunks back for one more pass. LangGraph's `Send` and conditional edges express that directly, and the state reducers keep the parallel writes from colliding.
 
 ## The graph
@@ -55,12 +57,13 @@ Extract and check send no JSON-mode, reasoning or provider option. Their replies
 
 ## What the UI shows
 
-- A text area with a character counter, a "Run the sample" button that loads the Declaration and starts the run, and an Analyze button for your own text. Both buttons stay disabled while a run is in progress.
-- The graph: split, one box per extract branch with its state, reduce, synthesize, check, and final. A retry shows as a labelled loop.
-- The run trace: one row per finished node, with its milliseconds, the served model, tokens and cost. Each extract chunk has its own row.
-- The summary. Each point shows a `[chunk n]` badge for every chunk it came from. A point without a valid citation shows no badge. The entities found across the document follow.
-- The coverage card, for example "9 of 9 chunks covered", and any chunk still missing after the retry. If the retry pass does not finish, the first-pass summary is shown with a notice that says why.
-- Totals: total time, total tokens, total cost, the cheap calls' cost, and the synthesis call's cost.
+- **Controls.** A document text area with a character counter, a "Load the sample" button that fills the text area with the Declaration, an "Analyze document" button that runs the analysis on the text in the box, and a "Stop the run" button. Analyze and Load the sample stay disabled while a run is in progress. Stop is enabled only during a run, and it stops the run in this tab.
+- **Status.** A badge in the header and a status line above the graph use the same words as the buttons: Ready, Analyzing, Finished, Failed, or Stopped.
+- **Graph.** The split node fans out to one node per chunk. Each chunk node shows its state as a dot and a word, and a retried chunk shows as Retried. The fan converges into reduce, then synthesize, check and final. Taken paths stay in the accent colour after the run. The check node has a labelled loop back to the fan: "Retry N missing chunks" when a retry ran, or "Coverage complete" when none did.
+- **Readout.** Total time, total tokens, total cost, the cheap calls' cost against the synthesis call's cost, and the models used with the number of calls each role made.
+- **Summary.** Each point shows a "Chunk n" badge for every chunk it came from. A point without a valid citation shows no badge. The entities found across the document follow.
+- **Coverage.** A line such as "9 of 9 chunks covered", and any chunk still missing after the retry. If the retry pass does not finish, the first-pass summary is shown with a notice that says why.
+- **Trace.** One numbered row for each finished step, with its milliseconds, the served model, tokens and cost. Each extract chunk has its own row. Steps still running appear at the end of the list.
 
 ## Architecture
 
@@ -109,3 +112,4 @@ https://jdgafx-app-13-langgraph-map-reduce.netlify.app
 - Costs are OpenRouter's reported figures when present. Otherwise they are estimates from the list prices above.
 - The sample text was entered by hand from the 1776 text and has not been diffed against an archival copy. The tests check its key passages and its nine-chunk split.
 - Streaming depends on the function host returning a streamed response. If the stream ends without a result or an error frame, the browser writes the message itself: "The run ended before a result was ready. Please try again." The server does not send that message.
+- Stop ends the stream in this tab only. The function may still finish calls it had already started.

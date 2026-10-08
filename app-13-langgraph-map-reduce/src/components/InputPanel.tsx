@@ -1,5 +1,5 @@
-import { MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../lib/limits'
 import { formatChars } from '../lib/format'
+import { MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../lib/limits'
 
 interface InputPanelProps {
   text: string
@@ -8,25 +8,25 @@ interface InputPanelProps {
   onChange: (text: string) => void
   onSample: () => void
   onRun: () => void
+  onStop: () => void
 }
 
-export function InputPanel({ text, running, valid, onChange, onSample, onRun }: InputPanelProps) {
+export function InputPanel({ text, running, valid, onChange, onSample, onRun, onStop }: InputPanelProps) {
   const count = text.length
   const outOfRange = count > 0 && (count < MIN_CHARS || count > MAX_CHARS)
 
   return (
-    <section className="ds-card" aria-labelledby="input-title">
-      <div className="ds-card__head">
-        <h2 id="input-title" className="ds-card__title">
+    <section className="ds-section" aria-labelledby="doc-title">
+      <div className="ds-section__head">
+        <h2 id="doc-title" className="ds-section__title">
           Document
         </h2>
-        <button type="button" className="ds-button" onClick={onSample} disabled={running}>
-          Run the sample
-        </button>
+        <p className="ds-section__sub">The graph splits this text into chunks, then reads every chunk in parallel.</p>
       </div>
+
       <div className="ds-field">
         <label className="ds-label" htmlFor="doc-text">
-          Paste a document of 200 to 20,000 characters
+          Your document
         </label>
         <textarea
           id="doc-text"
@@ -34,17 +34,58 @@ export function InputPanel({ text, running, valid, onChange, onSample, onRun }: 
           value={text}
           disabled={running}
           spellCheck={false}
-          aria-describedby="doc-count"
+          placeholder="Paste an article, a report or any other long text."
+          aria-describedby="doc-help doc-count"
           onChange={(event) => onChange(event.target.value)}
         />
-        <p id="doc-count" className={outOfRange ? 'ds-hint doc-count is-over' : 'ds-hint doc-count'}>
+        <p id="doc-help" className="ds-help">
+          Paste 200 to 20,000 characters; long texts get larger chunks, at most 12.
+        </p>
+        <p id="doc-count" className={outOfRange ? 'ds-hint ds-num doc-count is-over' : 'ds-hint ds-num doc-count'}>
           {formatChars(count)} / {formatChars(MAX_CHARS)} characters{outOfRange ? `. ${RANGE_MESSAGE}` : ''}
         </p>
       </div>
-      <div className="ds-row doc-actions">
-        <button type="button" className="ds-button ds-button--primary" onClick={onRun} disabled={!valid || running}>
-          {running ? 'Running' : 'Analyze'}
-        </button>
+
+      <div className="control-stack">
+        <div className="control-group">
+          <button
+            type="button"
+            className="ds-button"
+            onClick={onSample}
+            disabled={running}
+            aria-describedby="sample-help"
+          >
+            Load the sample
+          </button>
+          <p id="sample-help" className="ds-help">
+            Loads the Declaration of Independence.
+          </p>
+        </div>
+
+        <div className="control-group">
+          <button
+            type="button"
+            className="ds-button ds-button--primary"
+            onClick={onRun}
+            disabled={!valid || running}
+            aria-busy={running}
+            aria-describedby="run-help"
+          >
+            {running ? 'Analyzing' : 'Analyze document'}
+          </button>
+          <p id="run-help" className="ds-help">
+            Splits the text, extracts every chunk, and writes a summary whose points cite their chunks.
+          </p>
+        </div>
+
+        <div className="control-group">
+          <button type="button" className="ds-button" onClick={onStop} disabled={!running} aria-describedby="stop-help">
+            Stop the run
+          </button>
+          <p id="stop-help" className="ds-help">
+            Stops the run in this tab. Finished steps stay in the trace, and no summary is written.
+          </p>
+        </div>
       </div>
     </section>
   )

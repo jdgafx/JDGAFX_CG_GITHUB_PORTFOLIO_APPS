@@ -1,7 +1,7 @@
 import type { Frame, RunResult, TraceRow } from '../types/frames'
 
-export type Status = 'idle' | 'running' | 'ok' | 'failed'
-export type Phase = 'idle' | 'running' | 'done' | 'error'
+export type Status = 'idle' | 'running' | 'ok' | 'failed' | 'stopped'
+export type Phase = 'idle' | 'running' | 'done' | 'error' | 'stopped'
 export type StageName = 'split' | 'reduce' | 'synthesize' | 'check' | 'final'
 
 export interface Branch {
@@ -121,4 +121,15 @@ export function failView(view: RunView, message: string): RunView {
 export function endView(view: RunView): RunView {
   if (view.phase !== 'running') return view
   return failView(view, 'The run ended before a result was ready. Please try again.')
+}
+
+/** The reader stopped the run. Work in progress is stopped, not failed, and no result is written. */
+export function stopView(view: RunView): RunView {
+  if (view.phase !== 'running') return view
+  const stages = { ...view.stages }
+  for (const name of Object.keys(stages) as StageName[]) {
+    if (stages[name] === 'running') stages[name] = 'stopped'
+  }
+  const branches = view.branches.map((b) => (b.status === 'running' ? { ...b, status: 'stopped' as Status } : b))
+  return { ...view, phase: 'stopped', stages, branches, live: 'Run stopped' }
 }
