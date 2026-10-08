@@ -270,3 +270,24 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* Phone width: the three stages stack, and each edge becomes a short centred label between them. */
+@media (max-width: 560px) {
+  .vox-chain {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    gap: 4px;
+  }
+  .vox-edge {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 28px;
+    padding: 2px 0;
+    background: none;
+    border: 0;
+  }
+  .vox-edge svg {
+    display: none;
+  }
+}
