@@ -1,17 +1,18 @@
 import { formatCount, formatMs, formatUsd, type RunTotals } from '../lib/run'
 
-interface MetricProps {
+interface ReadoutProps {
   label: string
   value: string
   hint: string
+  mono?: boolean
 }
 
-function Metric({ label, value, hint }: MetricProps) {
+function Readout({ label, value, hint, mono = false }: ReadoutProps) {
   return (
-    <div className="ds-metric">
-      <div className="ds-metric__label">{label}</div>
-      <div className="ds-metric__value">{value}</div>
-      <div className="ds-metric__hint">{hint}</div>
+    <div className="ds-strip__item">
+      <dt className="ds-strip__label">{label}</dt>
+      <dd className={mono ? 'ds-strip__value ds-mono' : 'ds-strip__value ds-num'}>{value}</dd>
+      <dd className="ds-strip__hint">{hint}</dd>
     </div>
   )
 }
@@ -31,10 +32,23 @@ interface RunSummaryProps {
 }
 
 export default function RunSummary({ totals }: RunSummaryProps) {
-  if (!totals) {
-    return <div className="ds-empty">Totals appear after the first stage call.</div>
-  }
+  return (
+    <section className="ds-section" aria-labelledby="totals-title">
+      <div className="ds-section__head">
+        <h2 className="ds-section__title" id="totals-title">Run totals</h2>
+        <p className="ds-section__sub">Figures add up every model call in this run. A figure that no call reported says so.</p>
+      </div>
 
+      {!totals ? (
+        <div className="ds-empty">Totals appear after the first model call. Press Generate to start.</div>
+      ) : (
+        <DetailTotals totals={totals} />
+      )}
+    </section>
+  )
+}
+
+function DetailTotals({ totals }: { totals: RunTotals }) {
   const { calls } = totals
   const costHint = totals.costCalls === calls
     ? 'Reported by the provider'
@@ -43,33 +57,34 @@ export default function RunSummary({ totals }: RunSummaryProps) {
       : `${totals.costCalls} of ${calls} calls reported a cost`
 
   return (
-    <div className="ds-metrics">
-      <Metric label="Total latency" value={formatMs(totals.ms)} hint={`Sum of ${calls} ${callsWord(calls)}`} />
-      <Metric
+    <dl className="ds-strip">
+      <Readout label="Total latency" value={formatMs(totals.ms)} hint={`Sum of ${calls} ${callsWord(calls)}`} />
+      <Readout
         label="Prompt tokens"
         value={totals.promptTokens === null ? 'not reported' : formatCount(totals.promptTokens)}
         hint={usageHint(totals.usageCalls, calls)}
       />
-      <Metric
+      <Readout
         label="Completion tokens"
         value={totals.completionTokens === null ? 'not reported' : formatCount(totals.completionTokens)}
         hint={usageHint(totals.usageCalls, calls)}
       />
-      <Metric
+      <Readout
         label="Total tokens"
         value={totals.totalTokens === null ? 'not reported' : formatCount(totals.totalTokens)}
         hint={usageHint(totals.usageCalls, calls)}
       />
-      <Metric
+      <Readout
         label="Cost (USD)"
         value={totals.cost === null ? 'not reported' : formatUsd(totals.cost)}
         hint={costHint}
       />
-      <Metric
+      <Readout
         label="Served model"
         value={totals.models.length > 0 ? totals.models.join(', ') : 'not reported'}
         hint="As reported by the provider"
+        mono
       />
-    </div>
+    </dl>
   )
 }

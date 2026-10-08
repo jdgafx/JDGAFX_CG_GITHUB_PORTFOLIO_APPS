@@ -1,6 +1,6 @@
 import { STAGE_IDS, STAGE_LABELS, type CallRecord, type StageId, type StageOutputs, type TraceRow, type Usage } from './api'
 
-type TraceStatus = TraceRow['status'] | 'skipped'
+export type TraceStatus = TraceRow['status'] | 'skipped' | 'running'
 
 export interface TraceLine {
   key: string
@@ -100,6 +100,26 @@ export function runKeyFor(topic: string, contentType: string): string {
 
 export function keepsFinishedStages(previousKey: string, runKey: string, resume: boolean): boolean {
   return resume && previousKey === runKey
+}
+
+export type StageState = 'waiting' | 'running' | 'done' | 'failed' | 'skipped'
+
+export interface StageView {
+  stage: StageId
+  state: StageState
+  words: number
+}
+
+// The state of each stage on the pipeline. Once a run has ended, every stage it did not reach is
+// skipped, the same way the trace marks it, so the pipeline and the trace always agree.
+export function stageViews(outputs: StageOutputs, runningStage: StageId | null, end: RunEnd): StageView[] {
+  return STAGE_IDS.map((stage): StageView => {
+    const text = outputs[stage]
+    if (text !== undefined) return { stage, state: 'done', words: wordCount(text) }
+    if (stage === runningStage) return { stage, state: 'running', words: 0 }
+    if (end && end.stage === stage) return { stage, state: end.kind === 'failed' ? 'failed' : 'skipped', words: 0 }
+    return { stage, state: end ? 'skipped' : 'waiting', words: 0 }
+  })
 }
 
 export function wordCount(text: string): number {

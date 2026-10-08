@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { STAGE_LABELS, type CallRecord, type StageId, type Usage } from '../../src/lib/api'
 import {
-  buildTrace, formatCount, formatMs, formatUsd, keepsFinishedStages, runKeyFor, summarize, wordCount,
+  buildTrace, formatCount, formatMs, formatUsd, keepsFinishedStages, runKeyFor, stageViews, summarize, wordCount,
 } from '../../src/lib/run'
 
 const MODEL = 'anthropic/claude-haiku-4.5'
@@ -94,6 +94,30 @@ describe('resume', () => {
     expect(keepsFinishedStages(key, runKeyFor('Why unit tests matter for small teams', 'Newsletter'), true)).toBe(false)
     expect(keepsFinishedStages(key, runKeyFor('A different topic', 'Blog Post'), true)).toBe(false)
     expect(keepsFinishedStages('', key, true)).toBe(false)
+  })
+})
+
+describe('stageViews', () => {
+  const states = (views: ReturnType<typeof stageViews>) => views.map(view => view.state)
+
+  it('shows finished stages as done with their word count, and the rest as waiting before a run', () => {
+    const views = stageViews({ research: 'one two three' }, null, null)
+    expect(states(views)).toEqual(['done', 'waiting', 'waiting', 'waiting', 'waiting'])
+    expect(views[0]).toMatchObject({ stage: 'research', words: 3 })
+  })
+
+  it('marks the running stage and leaves the stages after it waiting', () => {
+    expect(states(stageViews({ research: 'r' }, 'outline', null))).toEqual(['done', 'running', 'waiting', 'waiting', 'waiting'])
+  })
+
+  it('marks a failed stage failed and skips the stages after it', () => {
+    const views = stageViews({ research: 'r', outline: 'o' }, null, { kind: 'failed', stage: 'draft' })
+    expect(states(views)).toEqual(['done', 'done', 'failed', 'skipped', 'skipped'])
+  })
+
+  it('skips the stopped stage and the stages after it, as the trace does', () => {
+    const views = stageViews({ research: 'r' }, null, { kind: 'stopped', stage: 'outline' })
+    expect(states(views)).toEqual(['done', 'skipped', 'skipped', 'skipped', 'skipped'])
   })
 })
 

@@ -4,9 +4,11 @@ Live: https://jdgafx-app-07-content-pipeline.netlify.app
 
 ContentForge turns a topic and a content type (blog post, technical article, marketing copy, newsletter or social thread) into a finished piece of writing. It runs five steps in order. Each step is one call to one fixed model, and the page shows what each call produced, how long it took, what it cost and which model served it.
 
+**What this showcases:** a resumable five-stage pipeline where each stage is one bounded model call with its own trace, tokens and cost.
+
 ## Pipeline steps
 
-The trace names below are the names the Run trace card shows.
+The trace names below are the names the Run trace shows.
 
 | Step (trace name) | What it does | Word budget |
 | --- | --- | --- |
@@ -16,12 +18,13 @@ The trace names below are the names the Run trace card shows.
 | Edit | Grammar, flow and argument, at roughly the draft's length | about 160 |
 | Polish | A final pass on the edited piece, not longer than it | about 160 |
 
-The page has four cards:
+The page has five sections. The Brief sits beside the others on wide screens and above them on narrow ones.
 
-- **Brief**: topic, content type, Generate, Stop, Retry and Resume. A stopped run resumes where it stopped.
-- **Stages**: each step's output with its word count and a copy button, plus Copy final piece.
-- **Run trace**: one line per call. Each line shows status, latency, tokens, cost and the served model. A retry is labelled "(retry)". A step that did not run is marked skipped.
-- **Run summary**: totals for the run. A figure no call reported shows as "not reported", never as zero.
+- **Brief**: topic (it starts with a sample), content type, Generate, Stop, Retry and Resume. A stopped run resumes where it stopped.
+- **Pipeline**: the five steps as a chain. Each step shows its state (waiting, running, done, failed or skipped), its word count and what it starts from. A highlighted edge means the step finished and passed its output on.
+- **Stage outputs**: each step's output with its word count and a copy button, plus Copy final piece.
+- **Run totals**: totals for the run. A figure no call reported shows as "not reported", never as zero.
+- **Run trace**: one numbered line per call. Each line shows status, latency, tokens, cost and the served model. A retry is labelled "(retry)". A step that did not run is marked skipped, and the call in progress shows as running.
 
 Retry and Resume reuse finished steps when the topic and content type are unchanged.
 
@@ -63,7 +66,9 @@ The tests never reach OpenRouter. `vitest.config.ts` blanks every provider key. 
 
 ## Layout
 
-- `src/` is the page: `App.tsx`, the components, and `lib/api.ts` (browser client and stage sequencing) and `lib/run.ts` (trace, totals and resume rules).
+- `src/` is the page: `App.tsx`, the components, and `lib/api.ts` (browser client and stage sequencing) and `lib/run.ts` (trace, totals, stage states and resume rules).
+- `src/components/` holds the Pipeline, Brief, Stages (stage outputs), RunSummary (run totals) and RunTrace components. `StateMark.tsx` draws each state as a dot and a word.
+- The page loads Atkinson Hyperlegible Next and JetBrains Mono from Google Fonts. Without them it falls back to system fonts.
 - `netlify/functions/ai.ts` is the only function. It validates the request, runs one stage and maps failures.
 - `netlify/shared/` holds the access checks, the provider call and the stage prompts and output rules.
 - `tests/unit/` covers the stage rules, the provider mapping, the run logic and the client pipeline. `tests/server/` covers the function.
@@ -77,4 +82,4 @@ The tests never reach OpenRouter. `vitest.config.ts` blanks every provider key. 
 - A step that is retried makes two model calls, each with its own 8-second limit.
 - Cost appears only when OpenRouter reports it. Otherwise the page shows "not reported".
 - Runs are not saved. Closing the page loses the outputs.
-- The mobile layout was checked by reading the CSS, not on a device.
+- The layout was checked by reading the CSS and by the build. It was not viewed in a browser or on a device.

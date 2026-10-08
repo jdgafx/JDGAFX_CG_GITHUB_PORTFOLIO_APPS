@@ -5,20 +5,18 @@
   gap: 16px;
 }
 
-.brief-fields {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .brief-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+/* The status line is the live answer to the last action, so it reads at body size. */
 .status-line {
+  margin: 0;
   min-height: 1.5em;
+  font-size: 15px;
+  color: var(--ds-text);
 }
 
 .notice-row {
@@ -27,39 +25,195 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin-top: 16px;
 }
 
+.notice-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.notice-row p {
+  margin: 0;
+}
+
+.section-title-block {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.state-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Pipeline: the hero. Stages are tones, not borders. An edge is a rule, signal once its stage finished. */
+.ds-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.ds-chain__stage {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--ds-radius-sm);
+}
+
+.ds-chain__stage--done {
+  background: var(--ds-surface);
+}
+
+.ds-chain__stage--running {
+  background: var(--ds-accent-soft);
+}
+
+.ds-chain__stage--failed {
+  background: var(--ds-danger-soft);
+}
+
+.ds-chain__name {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ds-chain__stage--running .ds-chain__name {
+  color: var(--ds-accent);
+}
+
+.ds-chain__state {
+  font-size: 15px;
+}
+
+.ds-chain__count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.ds-chain__figure {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--ds-text);
+}
+
+.ds-chain__from {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.ds-chain__stage:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  background: var(--ds-border);
+}
+
+.ds-chain__stage--done:not(:last-child)::after {
+  background: var(--ds-accent);
+}
+
+@media (min-width: 640px) {
+  .ds-chain {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0 14px;
+  }
+
+  .ds-chain__stage:not(:last-child)::after {
+    left: 100%;
+    top: 23px;
+    width: 14px;
+    height: 3px;
+  }
+}
+
+@media (min-width: 900px) {
+  .ds-chain__name {
+    font-size: 22px;
+  }
+}
+
+/* Below 640px the chain runs top to bottom, each stage a row with its figures on the right. */
+@media (max-width: 639px) {
+  .ds-chain__stage {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name count"
+      "state count"
+      "from from";
+    column-gap: 12px;
+  }
+
+  .ds-chain__name {
+    grid-area: name;
+  }
+
+  .ds-chain__state {
+    grid-area: state;
+  }
+
+  .ds-chain__count {
+    grid-area: count;
+  }
+
+  .ds-chain__from {
+    grid-area: from;
+  }
+
+  .ds-chain__stage:not(:last-child)::after {
+    left: 15px;
+    top: 100%;
+    width: 3px;
+    height: 14px;
+  }
+}
+
+/* Stage outputs: text on a light tone, no borders. Each copy button sits under the text it copies. */
 .stage-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 12px;
+  gap: 24px;
 }
 
 .stage-item {
   display: grid;
   gap: 10px;
   min-width: 0;
-  padding: 14px 16px;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
 }
 
 .stage-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 4px 12px;
 }
 
 .stage-title {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+
+.stage-name {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
 }
 
 .stage-item summary {
@@ -70,11 +224,15 @@
 
 .stage-output {
   margin: 8px 0 0;
+  padding: 14px 16px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  background: var(--ds-surface);
+  border-radius: var(--ds-radius-sm);
 }
 
+/* Trace: the figures are right-aligned; the served model is a model ID, so it is set in mono. */
 .trace-body {
   min-width: 0;
 }
@@ -86,10 +244,4 @@
 
 .ds-trace__meta > div + div {
   margin-top: 2px;
-}
-
-@media (min-width: 720px) {
-  .brief-fields {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 14rem);
-  }
 }

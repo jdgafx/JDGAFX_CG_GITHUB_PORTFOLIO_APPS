@@ -1,5 +1,6 @@
-import { STAGE_IDS, STAGE_LABELS, type StageId, type StageOutputs } from '../lib/api'
-import { wordCount } from '../lib/run'
+import { STAGE_LABELS, type StageId, type StageOutputs } from '../lib/api'
+import type { StageView } from '../lib/run'
+import StateMark from './StateMark'
 
 const STAGE_HINTS: Record<StageId, string> = {
   research: 'Facts, figures and background on the topic',
@@ -9,37 +10,25 @@ const STAGE_HINTS: Record<StageId, string> = {
   polish: 'A final pass on the prose, opening and conclusion',
 }
 
-type StageState = 'done' | 'running' | 'failed' | 'waiting'
-
-const BADGE_TONE: Record<StageState, string> = {
-  done: 'ds-badge--success',
-  running: 'ds-badge--accent',
-  failed: 'ds-badge--danger',
-  waiting: '',
-}
-
-const BADGE_TEXT: Record<StageState, string> = {
-  done: 'Done',
-  running: 'Running',
-  failed: 'Failed',
-  waiting: 'Waiting',
-}
-
 interface StagesProps {
   outputs: StageOutputs
-  runningStage: StageId | null
-  failedStage: StageId | null
+  views: StageView[]
+  // True before any run has started, so the page can invite the first action.
+  idle: boolean
   copyNote: string
   onCopy: (label: string, text: string) => void
 }
 
-export default function Stages({ outputs, runningStage, failedStage, copyNote, onCopy }: StagesProps) {
+export default function Stages({ outputs, views, idle, copyNote, onCopy }: StagesProps) {
   const finalPiece = outputs.polish
 
   return (
-    <section className="ds-card" aria-labelledby="stages-title">
-      <div className="ds-card__head">
-        <h2 className="ds-card__title" id="stages-title">Stages</h2>
+    <section className="ds-section" aria-labelledby="stages-title">
+      <div className="ds-section__head ds-section__head--row">
+        <div className="section-title-block">
+          <h2 className="ds-section__title" id="stages-title">Stage outputs</h2>
+          <p className="ds-section__sub">What each stage wrote, as it finishes. Copy one stage, or the final piece.</p>
+        </div>
         <button
           type="button"
           className="ds-button"
@@ -52,52 +41,49 @@ export default function Stages({ outputs, runningStage, failedStage, copyNote, o
         </button>
       </div>
 
-      <ol className="stage-list" aria-label="Stage outputs">
-        {STAGE_IDS.map(stage => {
-          const label = STAGE_LABELS[stage]
-          const text = outputs[stage]
-          const state: StageState = text !== undefined
-            ? 'done'
-            : runningStage === stage
-              ? 'running'
-              : failedStage === stage
-                ? 'failed'
-                : 'waiting'
+      {idle ? (
+        <div className="ds-empty">Press Generate to write the piece. Each stage&apos;s output appears here as it finishes.</div>
+      ) : (
+        <ol className="stage-list" aria-label="Stage outputs">
+          {views.map(view => {
+            const label = STAGE_LABELS[view.stage]
+            const text = outputs[view.stage]
 
-          return (
-            <li key={stage} className="stage-item">
-              <div className="stage-head">
-                <div className="stage-title">
-                  <h3 className="ds-card__title">{label}</h3>
-                  <span className="ds-hint">{STAGE_HINTS[stage]}</span>
-                </div>
-                <span className={`ds-badge ${BADGE_TONE[state]}`}>{BADGE_TEXT[state]}</span>
-              </div>
-
-              {text !== undefined && (
-                <>
-                  <details open>
-                    <summary>Output, {wordCount(text)} words</summary>
-                    <p className="stage-output">{text}</p>
-                  </details>
-                  <div className="ds-row">
-                    <button
-                      type="button"
-                      className="ds-button"
-                      aria-label={`Copy ${label} output`}
-                      onClick={() => onCopy(`${label} output`, text)}
-                    >
-                      Copy
-                    </button>
+            return (
+              <li key={view.stage} className="stage-item">
+                <div className="stage-head">
+                  <div className="stage-title">
+                    <h3 className="stage-name">{label}</h3>
+                    <p className="ds-help">{STAGE_HINTS[view.stage]}</p>
                   </div>
-                </>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+                  <StateMark state={view.state} />
+                </div>
 
-      <p className="ds-hint" aria-live="polite">{copyNote}</p>
+                {text !== undefined && (
+                  <>
+                    <details open>
+                      <summary>Output, {view.words} words</summary>
+                      <p className="stage-output">{text}</p>
+                    </details>
+                    <div className="ds-row">
+                      <button
+                        type="button"
+                        className="ds-button"
+                        aria-label={`Copy ${label} output`}
+                        onClick={() => onCopy(`${label} output`, text)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+
+      <p className="ds-help" aria-live="polite">{copyNote}</p>
     </section>
   )
 }
