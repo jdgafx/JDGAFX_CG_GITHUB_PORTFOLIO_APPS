@@ -87,14 +87,22 @@ function readObject(text: string): Record<string, unknown> | null {
   }
 }
 
-/** Reads the model's reply as a JSON object, tolerating a code fence or prose around it. */
+/**
+ * Reads the model's reply as a review: a JSON object with a comments array, tolerating a
+ * code fence or prose around it. Anything else is null, so it can never read as "no issues".
+ */
 export function parseReview(text: string): Record<string, unknown> | null {
   const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-  return readObject(cleaned) ?? readObject(extractJsonObject(cleaned) ?? '')
+  const review = readObject(cleaned) ?? readObject(extractJsonObject(cleaned) ?? '')
+  return review && Array.isArray(review.comments) ? review : null
 }
 
-/** Keeps only comments that cite a real line and carry valid fields. */
-export function validateComments(raw: unknown, lineCount: number): { comments: ReviewComment[]; dropped: number } {
+/** Keeps only comments that cite a real line and carry valid fields, at most `budget` of them. */
+export function validateComments(
+  raw: unknown,
+  lineCount: number,
+  budget = MAX_COMMENTS,
+): { comments: ReviewComment[]; dropped: number } {
   const list: unknown[] = Array.isArray(raw) ? raw : []
   const comments = list
     .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
@@ -112,7 +120,7 @@ export function validateComments(raw: unknown, lineCount: number): { comments: R
         typeof c.suggestion === 'string' &&
         c.suggestion.trim().length > 0,
     )
-    .slice(0, MAX_COMMENTS)
+    .slice(0, budget)
     .map((c) => ({
       line: c.line as number,
       severity: c.severity as Severity,

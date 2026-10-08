@@ -3,7 +3,7 @@ import { Header, statusBadge } from './components/Header'
 import { ReviewForm } from './components/ReviewForm'
 import { ReviewPanel } from './components/ReviewPanel'
 import { RunTrace } from './components/RunTrace'
-import { GENERIC_ERROR, ReviewError, reviewCode } from './lib/api'
+import { ReviewError, reviewCode, reviewErrorMessage } from './lib/api'
 import { MAX_CODE_LENGTH } from './lib/limits'
 import { LINE_HEIGHT, SAMPLE_CODE, SAMPLE_LANGUAGE, SEVERITY_CONFIG, SEVERITY_ORDER } from './constants'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
@@ -82,13 +82,9 @@ export default function App() {
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) return
-      if (err instanceof ReviewError) {
-        setError(err.message)
-        setSummary(err.summary)
-      } else {
-        console.error('CodeLens: unexpected review error', err)
-        setError(GENERIC_ERROR)
-      }
+      setError(reviewErrorMessage(err))
+      if (err instanceof ReviewError) setSummary(err.summary)
+      else console.error('CodeLens: unexpected review error', err)
       setPhase('failed')
     } finally {
       if (abortRef.current === controller) abortRef.current = null

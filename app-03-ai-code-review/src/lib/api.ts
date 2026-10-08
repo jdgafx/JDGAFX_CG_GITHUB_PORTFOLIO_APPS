@@ -5,9 +5,10 @@ const SEVERITIES: Severity[] = ['critical', 'warning', 'info']
 const STEP_STATUSES: StepStatus[] = ['ok', 'failed', 'skipped']
 const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
-export const GENERIC_ERROR = 'The review service is unavailable right now. Please try again.'
-export const NETWORK_ERROR = 'Could not reach the review service. Check your connection and try again.'
-export const TIMEOUT_ERROR = 'The review took too long to come back. Try a shorter snippet.'
+const GENERIC_ERROR = 'The review service is unavailable right now. Please try again.'
+const NETWORK_ERROR = 'Could not reach the server. Check your connection and try again.'
+const TIMEOUT_ERROR = 'The AI provider did not answer in time.'
+const RATE_LIMITED = 'Rate limited, try again in a minute.'
 
 /** A failed review. `message` is safe to show; `summary` holds whatever trace the run produced. */
 export class ReviewError extends Error {
@@ -18,6 +19,11 @@ export class ReviewError extends Error {
     this.name = 'ReviewError'
     this.summary = summary
   }
+}
+
+/** The text to show for a failed review. Only a ReviewError carries a message written for people; anything else gets the generic copy. */
+export function reviewErrorMessage(err: unknown): string {
+  return err instanceof ReviewError ? err.message : GENERIC_ERROR
 }
 
 function finite(value: unknown): number {
@@ -96,7 +102,7 @@ function clientStep(detail: string, startedAt: number): TraceStep {
 /** The server's plain-language error when it sent one, otherwise a message chosen by status. */
 function serverMessage(status: number, error: unknown): string {
   if (typeof error === 'string' && error.trim()) return error
-  if (status === 429) return 'The AI service is busy right now. Please try again in a moment.'
+  if (status === 429) return RATE_LIMITED
   if (status === 504) return TIMEOUT_ERROR
   return GENERIC_ERROR
 }

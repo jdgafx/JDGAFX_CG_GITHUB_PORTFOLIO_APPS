@@ -1,5 +1,5 @@
 /** The one chat model this app uses. It is fixed here: the client cannot choose it and no env var changes it. */
-export const MODEL = '~anthropic/claude-haiku-latest'
+const MODEL = '~anthropic/claude-haiku-latest'
 
 /** Output ceiling for every review call, so a complete JSON reply has room to finish. */
 export const MAX_OUTPUT_TOKENS = 4096
@@ -28,18 +28,20 @@ export interface ProviderReply {
 export function providerCall(): ProviderCall | null {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return null
-  return { url: process.env.OPENROUTER_URL ?? OPENROUTER_CHAT_URL, apiKey }
+  return { url: OPENROUTER_CHAT_URL, apiKey }
 }
 
 /**
  * Request body for one JSON review. Reasoning is off, so a reasoning model
- * cannot spend the output budget before the JSON is written.
+ * cannot spend the output budget before the JSON is written. usage.include asks
+ * OpenRouter to report token counts and cost in the reply.
  */
 export function chatBody(system: string, user: string): string {
   return JSON.stringify({
     model: MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
     reasoning: { enabled: false },
+    usage: { include: true },
     provider: { require_parameters: true },
     response_format: { type: 'json_object' },
     messages: [

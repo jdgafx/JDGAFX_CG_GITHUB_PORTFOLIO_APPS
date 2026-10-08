@@ -25,6 +25,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.
 
 // JSON escaping can roughly double a payload, so allow headroom over MAX_CODE_LENGTH.
 const MAX_BODY_BYTES = 256 * 1024
+// One deadline per request: the first model call and its optional retry share it.
 const UPSTREAM_TIMEOUT_MS = 25_000
 
 const RATE_LIMIT_MAX = 20
@@ -39,6 +40,12 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>()
 const PIPELINE = ['Check request', 'Build prompt', 'Model call', 'Retry', 'Parse reply', 'Validate comments']
 
 const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
+
+// User-facing copy. Provider bodies, keys and raw errors never leave the server.
+const SERVER_ERROR = 'Something went wrong on the server. Please try again.'
+const PROVIDER_REJECTED = 'The AI provider rejected the key or is out of credit.'
+const PROVIDER_BUSY = 'Rate limited, try again in a minute.'
+const PROVIDER_SLOW = 'The AI provider did not answer in time.'
 
 interface Run {
   headers: Record<string, string>
@@ -179,11 +186,12 @@ async function checkRequest(req: Request): Promise<Checked> {
     return { ok: false, status: 413, error: 'Request is too large.' }
   }
 
-  let body: { code?: unknown; language?: unknown }
+  // Measure the bytes actually received, because Content-Length can be missing or wrong.
+  let body: { code?: unknown; language?: unknown } | null
   try {
-    const rawBody = await req.text()
-    if (rawBody.length > MAX_BODY_BYTES) return { ok: false, status: 413, error: 'Request is too large.' }
-    body = JSON.parse(rawBody) as { code?: unknown; language?: unknown }
+    const bytes = await req.arrayBuffer()
+    if (bytes.byteLength > MAX_BODY_BYTES) return { ok: false, status: 413, error: 'Request is too large.' }
+    body = JSON.parse(new TextDecoder().decode(bytes)) as { code?: unknown; language?: unknown } | null
   } catch {
     return { ok: false, status: 400, error: 'Request body was not valid JSON.' }
   }
@@ -202,12 +210,12 @@ async function checkRequest(req: Request): Promise<Checked> {
 }
 
 function providerFailure(status: number): Attempt {
-  if (status === 402) {
+  if (status === 401 || status === 402 || status === 403) {
     return {
       ok: false,
       status: 502,
-      detail: 'Out of credit (HTTP 402)',
-      message: 'The AI provider is out of credit, so reviews are paused. Try again later.',
+      detail: `Key rejected or out of credit (HTTP ${status})`,
+      message: PROVIDER_REJECTED,
     }
   }
   if (status === 429) {
@@ -215,25 +223,12 @@ function providerFailure(status: number): Attempt {
       ok: false,
       status: 429,
       detail: 'Rate limited (HTTP 429)',
-      message: 'The AI provider is busy right now. Wait a moment, then review again.',
-      headers: { 'Retry-After': '10' },
-    }
-  }
-  if (status === 401 || status === 403) {
-    return {
-      ok: false,
-      status: 502,
-      detail: `Key rejected (HTTP ${status})`,
-      message: 'The review service could not authenticate with the AI provider.',
+      message: PROVIDER_BUSY,
+      headers: { 'Retry-After': '60' },
     }
   }
   if (status >= 500) {
-    return {
-      ok: false,
-      status: 502,
-      detail: `Provider failed (HTTP ${status})`,
-      message: 'The AI provider failed. Try again in a moment.',
-    }
+    return { ok: false, status: 502, detail: `Provider failed (HTTP ${status})`, message: PROVIDER_SLOW }
   }
   return {
     ok: false,
@@ -259,7 +254,7 @@ async function callModel(call: ProviderCall, body: string, signal: AbortSignal):
         ok: false,
         status: 504,
         detail: `Timed out after ${UPSTREAM_TIMEOUT_MS / 1000} s`,
-        message: 'The review timed out. Try a shorter snippet.',
+        message: PROVIDER_SLOW,
       }
     }
     if (err instanceof SyntaxError) {
@@ -275,7 +270,7 @@ async function callModel(call: ProviderCall, body: string, signal: AbortSignal):
       ok: false,
       status: 502,
       detail: 'Could not reach the provider',
-      message: 'Could not reach the review service. Please try again.',
+      message: 'Could not reach the AI provider. Try again in a moment.',
     }
   }
 }
@@ -369,7 +364,7 @@ async function runReview(
   record(run.trace, 'Parse reply', 'ok', parseAt, 'Read the JSON review')
 
   const validateAt = Date.now()
-  const { comments, dropped } = validateComments(parsed.comments, lineCount)
+  const { comments, dropped } = validateComments(parsed.comments, lineCount, maxComments)
   record(
     run.trace,
     'Validate comments',
@@ -394,24 +389,8 @@ async function runReview(
   )
 }
 
-export default async (req: Request): Promise<Response> => {
-  const origin = req.headers.get('origin')
-  const headersOut = corsHeaders(origin)
-  const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin)
-
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: originAllowed ? 204 : 403, headers: headersOut })
-  }
-
-  if (!originAllowed) {
-    return fail('Origin not allowed.', 403, headersOut)
-  }
-
-  if (req.method !== 'POST') {
-    return fail('Method not allowed.', 405, headersOut)
-  }
-
-  const run: Run = { headers: headersOut, started: Date.now(), trace: [], usages: [], model: null }
+/** One review run after its record exists: check the request, then call the model and answer. */
+async function handle(req: Request, run: Run): Promise<Response> {
   const checkAt = Date.now()
   const checked = await checkRequest(req)
   if (!checked.ok) {
@@ -428,17 +407,42 @@ export default async (req: Request): Promise<Response> => {
     `${checked.lang}, ${noun(lines.length, 'line')}, ${checked.code.length.toLocaleString('en-US')} characters`,
   )
 
+  // One deadline for the whole run, shared by the first model call and any retry.
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
   try {
     return await runReview(run, checked, lines, controller.signal)
-  } catch (err) {
-    console.error('CodeLens: review failed unexpectedly', err)
-    const next = PIPELINE[run.trace.length]
-    if (next) run.trace.push({ name: next, status: 'failed', ms: 0, detail: 'Unexpected server error' })
-    return endWithError(run, 'Could not reach the review service. Please try again.', 502)
   } finally {
     clearTimeout(timer)
+  }
+}
+
+export default async (req: Request): Promise<Response> => {
+  let headers: Record<string, string> = {}
+  let run: Run | null = null
+  try {
+    const origin = req.headers.get('origin')
+    headers = corsHeaders(origin)
+    const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin)
+
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { status: originAllowed ? 204 : 403, headers })
+    }
+    if (!originAllowed) {
+      return fail('Origin not allowed.', 403, headers)
+    }
+    if (req.method !== 'POST') {
+      return fail('Method not allowed.', 405, headers)
+    }
+
+    run = { headers, started: Date.now(), trace: [], usages: [], model: null }
+    return await handle(req, run)
+  } catch (err) {
+    console.error('CodeLens: unexpected server error', err)
+    if (!run) return json({ success: false, error: SERVER_ERROR }, 500, headers)
+    const next = PIPELINE[run.trace.length]
+    if (next) run.trace.push({ name: next, status: 'failed', ms: 0, detail: 'Unexpected server error' })
+    return endWithError(run, SERVER_ERROR, 500)
   }
 }
 
