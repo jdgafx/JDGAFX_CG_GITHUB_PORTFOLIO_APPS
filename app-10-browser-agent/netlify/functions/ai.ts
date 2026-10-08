@@ -1,36 +1,174 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+import { getProvider, MAX_TOKENS, type ProviderConfig } from '../shared/provider'
+import { allowedDomains } from '../shared/domains'
+import { BodyError, clientKey, corsHeaders, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
+import { StepError, validateSteps } from '../shared/steps'
+import type { BotStep, TraceEntry, UsageReport } from '../../src/types'
+
+export const config = { path: '/api/ai' }
+
+const PLAN_RATE_LIMIT = 20
+const MAX_TASK_CHARS = 500
+const MAX_ATTEMPTS = 2
+/** Netlify's synchronous function cap is 10 s. The first call and any retry share this budget. */
+const PLAN_BUDGET_MS = 8_500
+/** A retry needs this much budget left, or it would only time out. */
+const MIN_RETRY_MS = 2_000
+
+/** A failure with curated copy the browser may show verbatim. */
+class PlanError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
 }
 
-const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
-
-import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
-
-const DEFAULT_MODEL = '~google/gemini-flash-latest'
-const DEFAULT_MAX_TOKENS = 4096
-/** Netlify's synchronous function cap is 10s; leave room to return a handled error. */
-const DEFAULT_TIMEOUT_MS = 8500
-const MAX_ERROR_DETAIL = 300
-
-function envInt(name: string, fallback: number): number {
-  const parsed = Number.parseInt(process.env[name] ?? '', 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+interface Attempt {
+  content: string
+  finish: string | null
+  model: string | null
+  usage: UsageReport
+  ms: number
 }
 
-function jsonError(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: jsonHeaders })
+interface ChatResponse {
+  model?: unknown
+  choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>
+  usage?: Record<string, unknown>
 }
 
-/** An error whose message is curated user-facing copy, safe to send to the client verbatim. */
-class ScenarioError extends Error {}
+function systemPrompt(domains: string[]): string {
+  return `You plan browser steps for a bounded agent. Given a user task, return a JSON object with a "steps" array of 3 to 6 steps.
 
-/**
- * Pull the JSON payload out of a model response: drop any markdown fence (the closing fence is
- * missing when the output was truncated), then forward-scan from the first brace/bracket to its
- * balanced partner so trailing prose or nested braces cannot break the slice.
- */
+Each step has:
+- action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
+- target: what the step acts on (string). For "type", name the field, for example "search input".
+- thought: one or two sentences saying what the step does and why. Never hidden reasoning.
+- value?: text to type, or a short description of what to observe (only for "type", "extract" and "verify")
+- url?: an absolute https URL, required for "navigate" and omitted for every other action
+
+Rules:
+- Use only these hosts in url: ${domains.join(', ')}. If the task needs another site, plan the closest step on these hosts and say so in the first thought.
+- The last step must be "extract" or "verify". Its value describes what the browser should observe. Never write results, prices or page titles yourself.
+- Never claim that a page was visited or that a result was found. The browser run is the source of truth.
+- Return ONLY valid JSON. No markdown and no commentary.
+
+Example: {"steps":[{"action":"navigate","target":"Google home page","thought":"Open the Google home page.","url":"https://www.google.com/"},{"action":"extract","target":"page title","thought":"Read the title the browser sees.","value":"The page title"}]}`
+}
+
+/** Maps a provider status to a plain sentence. The provider body is never shown. */
+function providerMessage(status: number): string {
+  if (status === 401 || status === 403) {
+    return 'The AI provider rejected the service credentials. The site owner needs to check the API key.'
+  }
+  if (status === 402) return 'The AI provider is out of credit, so no plan was made. Try again later.'
+  if (status === 429) return 'The AI provider is rate limiting requests. Wait a moment and try again.'
+  if (status >= 500) return 'The AI provider failed to answer. Try again in a moment.'
+  return 'The AI provider rejected the request. Try a shorter task, or try again later.'
+}
+
+function isTimeout(error: unknown): boolean {
+  const thrown = error as { name?: string; cause?: { name?: string } } | null
+  const names = [thrown?.name, thrown?.cause?.name]
+  return names.includes('TimeoutError') || names.includes('AbortError')
+}
+
+function numberOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function usageOf(raw: Record<string, unknown> | undefined): UsageReport {
+  return {
+    prompt_tokens: numberOf(raw?.prompt_tokens),
+    completion_tokens: numberOf(raw?.completion_tokens),
+    total_tokens: numberOf(raw?.total_tokens),
+    cost: numberOf(raw?.cost),
+  }
+}
+
+/** A total is reported only when every attempt reported its share. Otherwise it is not reported. */
+function sumOf(values: Array<number | null>): number | null {
+  if (values.some((value) => value === null)) return null
+  return values.reduce<number>((total, value) => total + (value ?? 0), 0)
+}
+
+function aggregateUsage(attempts: Attempt[]): UsageReport {
+  const pick = (field: keyof UsageReport) => sumOf(attempts.map((attempt) => attempt.usage[field]))
+  return {
+    prompt_tokens: pick('prompt_tokens'),
+    completion_tokens: pick('completion_tokens'),
+    total_tokens: pick('total_tokens'),
+    cost: pick('cost'),
+  }
+}
+
+async function callOnce(provider: ProviderConfig, task: string, domains: string[], timeoutMs: number): Promise<Attempt> {
+  const started = Date.now()
+  let response: Response
+  try {
+    response = await fetch(provider.url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: provider.model,
+        max_tokens: MAX_TOKENS,
+        // A reasoning model spends the completion budget on hidden reasoning and cuts the JSON short.
+        reasoning: { enabled: false },
+        // Asks the provider to report tokens and cost, so the run summary can show them.
+        usage: { include: true },
+        stream: false,
+        messages: [
+          { role: 'system', content: systemPrompt(domains) },
+          { role: 'user', content: `Task: ${task}` },
+        ],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (error) {
+    throw isTimeout(error)
+      ? new PlanError('The model took too long to respond. Try again or pick a shorter task.', 504)
+      : new PlanError('The AI provider could not be reached. Try again in a moment.', 502)
+  }
+
+  if (!response.ok) {
+    console.error(`OpenRouter returned HTTP ${response.status}`)
+    throw new PlanError(providerMessage(response.status), 502)
+  }
+
+  let data: ChatResponse
+  try {
+    data = await response.json() as ChatResponse
+  } catch {
+    throw new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
+  }
+
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content
+  const finish = choice?.finish_reason
+  return {
+    content: typeof content === 'string' ? content : '',
+    finish: typeof finish === 'string' ? finish : null,
+    model: typeof data.model === 'string' ? data.model : null,
+    usage: usageOf(data.usage),
+    ms: Date.now() - started,
+  }
+}
+
+/** Asks the model once, and once more only when the answer is empty or cut off. */
+async function askModel(provider: ProviderConfig, task: string, domains: string[], deadline: number): Promise<Attempt[]> {
+  const attempts: Attempt[] = []
+  for (let n = 0; n < MAX_ATTEMPTS; n++) {
+    const remaining = deadline - Date.now()
+    if (n > 0 && remaining < MIN_RETRY_MS) break
+    const attempt = await callOnce(provider, task, domains, Math.max(remaining, 1))
+    attempts.push(attempt)
+    if (attempt.content.trim() && attempt.finish !== 'length') break
+  }
+  return attempts
+}
+
+/** Pulls the JSON out of a model answer: drops any markdown fence and any prose around it. */
 function extractJson(raw: string): string {
   const text = raw
     .trim()
@@ -63,140 +201,121 @@ function extractJson(raw: string): string {
     else if (ch === close && --depth === 0) return text.slice(start, i + 1)
   }
 
-  // Unbalanced — the model output was cut off. Hand back what there is so the parse error is specific.
+  // Unbalanced: the answer was cut off. Hand back what there is so the parse error stays specific.
   return text.slice(start)
 }
 
+function parseSteps(content: string): unknown {
+  const parsed: unknown = JSON.parse(extractJson(content))
+  return Array.isArray(parsed) ? parsed : (parsed as { steps?: unknown } | null)?.steps
+}
+
 export default async (req: Request): Promise<Response> => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders })
-  }
+  const origin = req.headers.get('origin')
+  const headers = corsHeaders(origin)
+  if (!originAllowed(origin)) return new Response('Origin not allowed', { status: 403, headers: corsHeaders(null) })
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
+  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers })
 
-  if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders })
-  }
-
-  const provider = getProvider(DEFAULT_MODEL)
+  const provider = getProvider()
   if (!provider) {
-    console.error('No server-side AI provider configured')
-    return jsonError('The agent service is not configured yet. Please try again later.', 500)
+    console.error('OPENROUTER_API_KEY is not set')
+    return jsonResponse({ error: 'The agent service is not configured yet. Please try again later.' }, 503, headers)
+  }
+  if (rateLimited(`plan:${clientKey(req)}`, PLAN_RATE_LIMIT)) {
+    return jsonResponse({ error: 'Too many planning requests from this connection. Wait a minute and try again.' }, 429, headers)
   }
 
   let task: string
   try {
-    const body = (await req.json()) as { task?: unknown }
-    if (typeof body.task !== 'string' || !body.task.trim()) {
-      return jsonError('task is required', 400)
-    }
-    task = body.task
-  } catch {
-    return jsonError('Invalid JSON', 400)
+    const body = await readJson(req) as { task?: unknown }
+    task = typeof body.task === 'string' ? body.task.trim() : ''
+  } catch (error) {
+    return jsonResponse({ error: error instanceof BodyError ? error.message : 'The request could not be read.' }, 400, headers)
+  }
+  if (!task) return jsonResponse({ error: 'Enter a task first.' }, 400, headers)
+  if (task.length > MAX_TASK_CHARS) {
+    return jsonResponse({ error: `Keep the task under ${MAX_TASK_CHARS} characters.` }, 400, headers)
   }
 
-  const systemPrompt = `You are a browser automation AI. Given a user task, return a JSON array of browser automation steps.
+  const startedAt = Date.now()
+  const domains = allowedDomains()
+  const trace: TraceEntry[] = [{
+    name: 'Request built',
+    status: 'ok',
+    ms: Date.now() - startedAt,
+    detail: `Task of ${task.length} characters. Allowed sites: ${domains.join(', ')}.`,
+  }]
+  const fail = (message: string, status: number): Response =>
+    jsonResponse({ error: message, trace, totalMs: Date.now() - startedAt }, status, headers)
 
-Each step must have:
-- action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
-- target: what element or URL is targeted (string)
-- thought: concise user-visible rationale for this planned action (string, 1-2 sentences; never hidden chain-of-thought)
-- value?: optional string (text to type, or value to verify/extract)
-- url?: current URL after this step
-- pageContent?: one of "flights-search" | "flights-results" | "job-board" | "job-results" | "ecommerce" | "ecommerce-results" | "form" | "search-results" | "generic"
-
-IMPORTANT RULES:
-- The LAST step MUST be action "verify" or "extract" that summarizes the findings.
-- For "extract" and "verify" steps, use "value" only as a concise description of what the executor should observe; never invent results, prices, titles, or other page data.
-- For "type" steps, name the field in "target" (e.g. "origin input", "destination input", "email field") so the typed text lands in the right box.
-- For job searches and price comparisons, describe the requested observation in the final extract/verify target; the external browser result is the source of truth.
-- For form filling, only report confirmation when the live page visibly confirms it.
-- Never claim that a page was visited or a result was found in the plan itself.
-
-Return ONLY valid JSON. No markdown. No explanation. Example format:
-{"steps": [{"action": "navigate", "target": "google.com", "thought": "Opening Google...", "url": "https://google.com", "pageContent": "generic"}]}
-
-Generate 6-10 steps that realistically simulate completing the user's task in a browser.`
-
+  const modelStarted = Date.now()
+  let attempts: Attempt[]
   try {
-    const response = await requestWithContentRetry(() => fetch(provider.url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      // The latest-alias models can resolve to reasoning models, whose reasoning tokens eat the
-      // completion budget and truncate the JSON mid-emit. Disable reasoning and keep headroom.
-      body: JSON.stringify({
-        model: provider.model,
-        ...generationOptions(provider, envInt('OPENROUTER_MAX_TOKENS', DEFAULT_MAX_TOKENS)),
-        reasoning: { enabled: false },
-        stream: false,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Task: ${task}` },
-        ],
-      }),
-      signal: AbortSignal.timeout(envInt('OPENROUTER_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)),
-    }))
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      console.error(`OpenRouter error ${response.status}: ${errText.slice(0, MAX_ERROR_DETAIL)}`)
-      throw new ScenarioError(
-        response.status === 402
-          ? 'The AI service is out of credits right now. Please try again later.'
-          : response.status === 429
-            ? 'The AI service is handling too many requests. Wait a moment and try again.'
-            : 'The AI service returned an error. Try again in a moment.',
-      )
-    }
-
-    const data = await response.json() as {
-      model?: string
-      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
-    }
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      throw new ScenarioError('The model returned an empty response. Try again.')
-    }
-
-    const jsonText = extractJson(content)
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(jsonText)
-    } catch {
-      const truncated = data.choices?.[0]?.finish_reason === 'length'
-      throw new ScenarioError(
-        truncated
-          ? 'The model ran out of room before finishing this scenario. Try a shorter task.'
-          : 'The model returned a response the agent could not read. Try again.',
-      )
-    }
-
-    const steps = Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === 'object'
-        ? (parsed as { steps?: unknown }).steps
-        : undefined
-    if (!Array.isArray(steps)) {
-      throw new ScenarioError('The model returned a scenario with no steps. Try again.')
-    }
-
-    return new Response(JSON.stringify({ steps, served_model: data.model ?? provider.model }), { status: 200, headers: jsonHeaders })
-  } catch (err) {
-    // fetch may surface the abort reason directly or wrapped as the cause.
-    const thrown = err as { name?: string; message?: string; cause?: { name?: string } } | null
-    const names = [thrown?.name, thrown?.cause?.name]
-    if (names.includes('TimeoutError') || names.includes('AbortError')) {
-      return jsonError('The model took too long to respond. Try again or pick a shorter task.', 504)
-    }
-    if (err instanceof ScenarioError) {
-      return jsonError(err.message, 500)
-    }
-    // Anything else is internal — log it, never send it to the client.
-    console.error('scenario generation failed:', err)
-    return jsonError('Something went wrong while generating this scenario. Please try again.', 500)
+    attempts = await askModel(provider, task, domains, startedAt + PLAN_BUDGET_MS)
+  } catch (error) {
+    const failure = error instanceof PlanError
+      ? error
+      : new PlanError('Something went wrong while planning this task. Please try again.', 500)
+    if (!(error instanceof PlanError)) console.error('Planning failed:', error instanceof Error ? error.name : 'unknown error')
+    trace.push({ name: 'Model call', status: 'failed', ms: Date.now() - modelStarted, detail: failure.message })
+    return fail(failure.message, failure.status)
   }
-}
 
-export const config = { path: '/api/ai' }
+  const last = attempts[attempts.length - 1]
+  const retried = attempts.length > 1
+  const usage = aggregateUsage(attempts)
+  const modelMs = attempts.reduce((total, attempt) => total + attempt.ms, 0)
+  const measured = { tokens: usage.total_tokens ?? undefined, cost: usage.cost ?? undefined }
+
+  if (!last.content.trim() || last.finish === 'length') {
+    const cut = last.finish === 'length'
+    trace.push({
+      name: 'Model call',
+      status: 'failed',
+      ms: modelMs,
+      detail: `${retried ? 'Asked twice. ' : ''}${cut ? 'The answer was cut off.' : 'The answer was empty.'}`,
+      ...measured,
+    })
+    return fail(
+      cut
+        ? 'The model ran out of room before finishing the plan. Try a shorter task.'
+        : 'The model returned an empty answer. Try again.',
+      502,
+    )
+  }
+
+  trace.push({
+    name: 'Model call',
+    status: 'ok',
+    ms: modelMs,
+    detail: `${retried ? 'The first answer was empty or cut off, so the model was asked again. ' : ''}Served by ${last.model ?? 'a model the provider did not name'}. Finish reason: ${last.finish ?? 'not reported'}.`,
+    ...measured,
+  })
+
+  const parseStarted = Date.now()
+  let steps: BotStep[]
+  try {
+    steps = validateSteps(parseSteps(last.content), domains)
+  } catch (error) {
+    const message = error instanceof StepError
+      ? error.message
+      : 'The model returned a plan the agent could not read. Try again.'
+    trace.push({ name: 'Parse and validate', status: 'failed', ms: Date.now() - parseStarted, detail: message })
+    return fail(message, 502)
+  }
+  trace.push({
+    name: 'Parse and validate',
+    status: 'ok',
+    ms: Date.now() - parseStarted,
+    detail: `${steps.length} steps. Every address is on an allowed site.`,
+  })
+
+  return jsonResponse({
+    result: { steps },
+    trace,
+    usage,
+    model: last.model,
+    totalMs: Date.now() - startedAt,
+  }, 200, headers)
+}

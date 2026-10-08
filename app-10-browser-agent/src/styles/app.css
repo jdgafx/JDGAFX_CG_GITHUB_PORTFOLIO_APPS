@@ -1,0 +1,48 @@
+/* BrowseBot only. Tokens and the ds-* components come from tokens.css. */
+
+.bb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bb-step__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bb-step--failed {
+  border-color: var(--ds-danger);
+}
+
+.bb-step--running {
+  border-color: var(--ds-accent);
+}
+
+.bb-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.bb-facts dt {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.bb-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.bb-pre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

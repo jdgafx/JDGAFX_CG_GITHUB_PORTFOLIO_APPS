@@ -1,0 +1,167 @@
+import type { BotStep, ObservedPage, TraceStatus } from '../types'
+import type { RunState } from './runState'
+
+/** One line of the run trace. `running`, `waiting` and `skipped` are display states, not server statuses. */
+export interface TraceRow {
+  key: string
+  name: string
+  status: TraceStatus | 'running' | 'waiting'
+  ms: number | null
+  detail: string
+  planned?: string
+  observed?: ObservedPage
+}
+
+export interface Metric {
+  label: string
+  value: string
+  hint: string
+}
+
+const ACTION_LABEL: Record<BotStep['action'], string> = {
+  navigate: 'Navigate',
+  find: 'Find',
+  click: 'Click',
+  type: 'Type',
+  extract: 'Extract',
+  verify: 'Verify',
+}
+
+/** Same format the server uses for run rows, so planned-but-unrun steps read the same way. */
+export function stepLabel(step: BotStep): string {
+  return `${ACTION_LABEL[step.action]}: ${step.target}`
+}
+
+export function formatMs(ms: number): string {
+  return `${ms.toLocaleString('en-US')} ms`
+}
+
+const usdFormat = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 6,
+})
+
+function countOf(value: number | null, planned: boolean): string {
+  if (value !== null) return value.toLocaleString('en-US')
+  return planned ? 'not reported' : '—'
+}
+
+/** Planner stages first, then the browser run, then planned steps the run has not reached yet. */
+export function buildTraceRows(state: RunState): TraceRow[] {
+  const planRows = state.planTrace.map((entry, i): TraceRow => ({
+    key: `plan-${i}`,
+    name: entry.name,
+    status: entry.status,
+    ms: entry.ms,
+    detail: entry.detail,
+  }))
+  if (state.phase === 'planning') {
+    return [...planRows, { key: 'planning', name: 'Planning the steps', status: 'running', ms: null, detail: 'Waiting for the model to answer.' }]
+  }
+
+  const runRows = state.rows.map((row, i): TraceRow => ({
+    key: `run-${i}`,
+    name: row.name,
+    status: row.status,
+    ms: row.status === 'running' ? null : row.ms,
+    detail: row.detail,
+    planned: row.index === null ? undefined : state.steps[row.index]?.thought,
+    observed: row.observed,
+  }))
+
+  const reached = new Set(state.rows.map((row) => row.index))
+  const ended = state.phase !== 'running'
+  const reason = state.phase === 'stopped' ? 'Not run: the run was stopped.' : 'Not run: an earlier stage failed.'
+  const pending = state.steps.flatMap((step, index): TraceRow[] => (reached.has(index)
+    ? []
+    : [{
+        key: `pending-${index}`,
+        name: stepLabel(step),
+        status: ended ? 'skipped' : 'waiting',
+        ms: null,
+        detail: ended ? reason : 'Waits for the steps before it.',
+        planned: step.thought,
+      }]))
+
+  return [...planRows, ...runRows, ...pending]
+}
+
+export function statusSummary(state: RunState): string {
+  const total = state.steps.length
+  switch (state.phase) {
+    case 'idle':
+      return 'No run yet.'
+    case 'planning':
+      return 'Planning the steps.'
+    case 'running': {
+      const live = state.rows.find((row) => row.status === 'running')
+      return live && live.index !== null
+        ? `Running step ${live.index + 1} of ${total}: ${live.name}.`
+        : 'Starting the browser session.'
+    }
+    case 'complete':
+      return `All ${total} steps finished. Check the observed page against your task.`
+    case 'stopped': {
+      const finished = state.rows.filter((row) => row.status === 'ok' && row.index !== null).length
+      return `Stopped after ${finished} of ${total} steps. No task result was produced.`
+    }
+    case 'failed': {
+      const error = state.error
+      if (!error) return 'The run failed.'
+      if (error.index === null || total === 0) return error.message
+      return `Step ${error.index + 1} of ${total} failed: ${error.message}`
+    }
+  }
+}
+
+function latencyHint(state: RunState): string {
+  if (state.runMs === null) return 'Shown once the browser run finishes.'
+  if (state.planMs === null) return 'Browser run only. A replay makes no model call.'
+  return `Planner ${formatMs(state.planMs)}, browser ${formatMs(state.runMs)}.`
+}
+
+/** Figures the provider did not report read "not reported". Nothing is estimated or invented. */
+export function metricsFor(state: RunState): Metric[] {
+  const usage = state.usage
+  const planned = usage !== null
+  const latency = state.runMs === null ? null : (state.planMs ?? 0) + state.runMs
+  return [
+    { label: 'Total latency', value: latency === null ? '—' : formatMs(latency), hint: latencyHint(state) },
+    { label: 'Prompt tokens', value: countOf(usage?.prompt_tokens ?? null, planned), hint: 'Planner call' },
+    { label: 'Completion tokens', value: countOf(usage?.completion_tokens ?? null, planned), hint: 'Planner call' },
+    { label: 'Total tokens', value: countOf(usage?.total_tokens ?? null, planned), hint: 'Planner call' },
+    {
+      label: 'Cost (USD)',
+      value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—',
+      hint: 'From usage.cost in the provider response',
+    },
+    { label: 'Served model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
+  ]
+}
+
+/** The planner's stated expectation: the last extract or verify step, in its own words. */
+export function expectationOf(steps: BotStep[]): string | null {
+  const last = [...steps].reverse().find((step) => step.action === 'extract' || step.action === 'verify')
+  return last ? [last.target, last.value].filter(Boolean).join(' ') : null
+}
+
+const STOPWORDS = new Set([
+  'about', 'after', 'again', 'their', 'there', 'these', 'this', 'that', 'those', 'which', 'what', 'when',
+  'with', 'from', 'into', 'will', 'should', 'have', 'been', 'page', 'pages', 'text', 'value', 'shows',
+  'show', 'report', 'observe', 'observed', 'read', 'first', 'lines', 'result', 'results',
+])
+
+/**
+ * Keyword overlap between the plan's expectation and what the browser observed. It is a
+ * lookup aid, not a verdict: the run never fails or passes on this.
+ */
+export function overlapWith(expectation: string, observed: ObservedPage): { found: string[]; missing: string[] } {
+  const terms = [...new Set(expectation.toLowerCase().match(/[a-z]{4,}/g) ?? [])].filter((term) => !STOPWORDS.has(term))
+  const haystack = `${observed.title}\n${observed.excerpt}`.toLowerCase()
+  return {
+    found: terms.filter((term) => haystack.includes(term)),
+    missing: terms.filter((term) => !haystack.includes(term)),
+  }
+}

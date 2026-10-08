@@ -1,49 +1,55 @@
 export type StepAction = 'navigate' | 'find' | 'click' | 'type' | 'extract' | 'verify'
 
-export type PageContentType =
-  | 'flights-search' | 'flights-results'
-  | 'job-board' | 'job-results'
-  | 'ecommerce' | 'ecommerce-results'
-  | 'form' | 'search-results' | 'generic'
-
+/** One planned browser step. `url` is set only for navigate steps. */
 export interface BotStep {
   action: StepAction
   target: string
-  value?: string
   thought: string
-  url?: string
-  pageContent?: PageContentType
-}
-
-export type SpeedMode = 'slow' | 'normal' | 'fast'
-
-/** Named input on the mock page that a "type" step is aimed at. */
-export type FieldKey =
-  | 'origin' | 'destination' | 'date'
-  | 'name' | 'email' | 'phone' | 'experience'
-  | 'search'
-
-/** Text committed to each mock input so far in the run. */
-export type FieldValues = Partial<Record<FieldKey, string>>
-
-/** One row of extracted data, shared by the mock page and the results panel. */
-export interface ResultRow {
-  title: string
-  detail?: string
   value?: string
-}
-
-export type ExecutionEvent =
-  | { type: 'session'; sessionId: string }
-  | { type: 'step_start'; index: number; step: BotStep; url: string }
-  | { type: 'step_complete'; index: number; url: string; title: string; excerpt: string }
-  | { type: 'result'; url: string; title: string; excerpt: string }
-  | { type: 'error'; message: string }
-  | { type: 'done' }
-
-export interface ExecutionResult {
-  sessionId?: string
   url?: string
-  title?: string
-  excerpt?: string
 }
+
+/** What the browser saw. The server captures it after each step. */
+export interface ObservedPage {
+  url: string
+  title: string
+  excerpt: string
+}
+
+export type TraceStatus = 'ok' | 'failed' | 'skipped'
+
+/** One measured stage. `ms` is measured on the server with Date.now(). */
+export interface TraceEntry {
+  name: string
+  status: TraceStatus
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+/** Provider figures for the planner call. Null means the provider did not report the figure. */
+export interface UsageReport {
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  cost: number | null
+}
+
+export interface PlanResponse {
+  result: { steps: BotStep[] }
+  trace: TraceEntry[]
+  usage: UsageReport
+  model: string | null
+  totalMs: number
+}
+
+/** Events streamed from /api/execute, in the order the run produces them. */
+export type RunEvent =
+  | { type: 'session'; sessionId: string }
+  | { type: 'stage'; name: string; status: 'ok' | 'failed'; ms: number; detail: string }
+  | { type: 'step_start'; index: number; name: string }
+  | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage }
+  | { type: 'result'; ms: number; observed: ObservedPage }
+  | { type: 'error'; message: string; index: number | null }
+  | { type: 'done'; totalMs: number }
