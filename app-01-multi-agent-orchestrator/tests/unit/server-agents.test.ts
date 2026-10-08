@@ -59,8 +59,24 @@ describe('keyLine', () => {
     expect(keyLine('- **Gap**: none')).toBe('Gap: none')
   })
 
-  it('caps the trace detail at 140 characters and returns nothing for blank text', () => {
-    expect(keyLine('x'.repeat(200))).toHaveLength(140)
+  it('cuts a long line at a word boundary and ends it with an ellipsis', () => {
+    const words = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
+    const cut = keyLine(words)
+    expect(cut.length).toBeLessThanOrEqual(141)
+    expect(cut.endsWith('…')).toBe(true)
+    expect(cut.slice(0, -1).endsWith(' ')).toBe(false)
+    expect(words.startsWith(cut.slice(0, -1))).toBe(true)
+    expect(cut.slice(0, -1).split(' ').every(word => /^word\d+$/.test(word))).toBe(true)
+  })
+
+  it('leaves a short line untouched', () => {
+    expect(keyLine('short line')).toBe('short line')
+  })
+
+  it('caps an unbroken line at 140 characters plus an ellipsis and returns nothing for blank text', () => {
+    const cut = keyLine('x'.repeat(200))
+    expect(cut).toHaveLength(141)
+    expect(cut.endsWith('…')).toBe(true)
     expect(keyLine('   ')).toBe('')
   })
 })

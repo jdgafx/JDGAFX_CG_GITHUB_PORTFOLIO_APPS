@@ -31,13 +31,22 @@ export function trimCtx(text: string | undefined): string {
   return value.length > MAX_CONTEXT_CHARS ? `${value.slice(0, MAX_CONTEXT_CHARS)}\n[trimmed]` : value
 }
 
-/** The first real line of a stage's output with markdown markers removed. It is the trace detail. */
+const KEY_LINE_MAX = 140
+
+/**
+ * The first real line of a stage's output with markdown markers removed. It is the trace detail.
+ * A long line is cut at the last word boundary before the limit and ends with an ellipsis.
+ */
 export function keyLine(text: string): string {
   const line = text
     .split('\n')
     .map(part => part.trim())
     .find(part => part.length > 0)
-  return (line ?? '').replace(/[*_`#>]/g, '').trim().replace(/^(?:[-•]|\d+\.)\s*/, '').slice(0, 140)
+  const clean = (line ?? '').replace(/[*_`#>]/g, '').trim().replace(/^(?:[-•]|\d+\.)\s*/, '')
+  if (clean.length <= KEY_LINE_MAX) return clean
+  const head = clean.slice(0, KEY_LINE_MAX)
+  const lastSpace = head.lastIndexOf(' ')
+  return `${(lastSpace > KEY_LINE_MAX / 2 ? head.slice(0, lastSpace) : head).trimEnd()}…`
 }
 
 export const AGENTS: AgentConfig[] = [
