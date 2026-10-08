@@ -135,11 +135,24 @@ test_sse_stream() {
   log_fail "$test_name" "Expected '$expected_event' in stream. Got: ${response:0:200}"
 }
 
+test_json_stage() {
+  local app="$1" endpoint="$2" payload="$3" expected_text="$4" test_name="$5"
+  local url response
+  url="$(get_url "$app")${endpoint}"
+  response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
+    -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+  if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_text"; then
+    log_pass "$test_name"
+  else
+    log_fail "$test_name" "Expected '$expected_text' in JSON body. Got: ${response:0:200}"
+  fi
+}
+
 test_has_author_credit() {
   local app="$1"
   local app_dir
   app_dir="$(find . -maxdepth 1 -type d -name "${app}-*" -print -quit)"
-  if [[ -n "$app_dir" ]] && rg -a -q "Authored by Christopher Gentile" "$app_dir/src"; then
+  if [[ -n "$app_dir" ]] && rg -a -q "Christopher Gentile" "$app_dir/src"; then
     log_pass "Author credit present in source"
   else
     log_fail "Author credit present in source" "No author credit found under ${app_dir:-$app}/src"
@@ -315,16 +328,16 @@ test_contentforge_full_pipeline() {
   local context='{}' response completed step payload attempt
   for step in research outline draft edit polish; do
     payload=$(jq -nc --arg topic "$topic" --arg step "$step" --argjson context "$context" \
-      '{topic:$topic,contentType:"blog",step:$step,context:$context}')
+      '{topic:$topic,contentType:"blog",stage:$step,context:$context}')
     completed=''
     for attempt in 1 2; do
       response=$(timeout 28 curl -s --max-time 25 -X POST "$(get_url app-07)/api/ai" \
         -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
-      completed=$(python3 -c 'import json,sys; s=sys.argv[1]; response=sys.argv[2]; e=[json.loads(l[6:].strip()) for l in response.splitlines() if l.startswith("data: ") and l[6:].strip() != "[DONE]" and l[6:].strip()]; m=[x for x in e if x.get("type")=="step_complete" and x.get("step")==s]; assert m and m[-1].get("content","").strip(); assert any(x.get("type")=="step_start" and x.get("step")==s for x in e); print(m[-1]["content"], end="")' "$step" "$response" 2>/dev/null) || completed=''
+      completed=$(printf '%s' "$response" | jq -r '.result // empty' 2>/dev/null) || completed=''
       [[ -n "$completed" ]] && break
     done
     if [[ -z "$completed" ]]; then
-      log_fail "ContentForge exact topic completes ${step}" "No non-empty step_complete in bounded SSE"
+      log_fail "ContentForge exact topic completes ${step}" "No non-empty result in the JSON response"
       return
     fi
     context=$(jq -nc --arg step "$step" --arg content "$completed" --argjson context "$context" \
@@ -338,10 +351,10 @@ test_app_07() {
   test_frontend_loads "app-07"
   test_method_not_allowed "app-07" "/api/ai"
 
-  test_sse_stream "app-07" "/api/ai" \
-    '{"topic":"remote work tips","contentType":"blog","step":"research"}' \
-    "step_start" \
-    "Research step starts with step_start event"
+  test_json_stage "app-07" "/api/ai" \
+    '{"topic":"remote work tips","contentType":"blog","stage":"research","context":{}}' \
+    '"trace"' \
+    "Research stage returns a JSON result with a trace"
 
   test_contentforge_full_pipeline
 

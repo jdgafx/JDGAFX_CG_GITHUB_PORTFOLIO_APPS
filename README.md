@@ -6,12 +6,13 @@ Ten independently deployed AI applications, each a standalone Vite project with 
 Netlify site and serverless API layer. The frontends are live; provider-backed task flows
 require the configured production provider account to have available credit.
 
-**Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · Tailwind CSS v4 · Netlify Functions v2 · OpenRouter Free Models Router (optional direct xAI fallback)
+**Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · shared CSS design tokens · Netlify Functions v2 · OpenRouter (one fixed model per app; app-06 compares models)
 
-Model traffic uses OpenRouter's `openrouter/free` router by default, with bounded transport
-timeouts and structured/vision capability routing. If OpenRouter is unavailable, the server-only
-`XAI_API_KEY` path can use direct Grok models. The browser never receives either key, and the
-actual served model is surfaced where the provider reports it.
+Chat and vision calls go from the server to OpenRouter. Each app pins one model,
+`~anthropic/claude-haiku-latest`, except app-06 ModelArena, which compares models from the live
+OpenRouter catalogue. Speech-to-text (app-04, Deepgram) and browser sessions (app-10, Browserbase)
+use their own server-side keys. The browser never receives any key, and the served model is shown
+wherever the provider reports it.
 
 ---
 
@@ -20,9 +21,10 @@ actual served model is surfaced where the provider reports it.
 ### 1. AgentFlow — Multi-Agent Research Orchestrator
 **[Live Demo](https://jdgafx-app-01-multi-agent-orchestrator.netlify.app)** · `app-01-multi-agent-orchestrator/`
 
-Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer)
-with real-time SSE streaming. Visual pipeline showing agent status, token counts, and elapsed time.
-Runs on the configured OpenRouter free-model router, with direct xAI as an optional server-only fallback.
+Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer).
+Each agent's output appears when it finishes, delivered over server-sent events. Visual pipeline
+showing agent status, token counts, and elapsed time. Runs on one fixed OpenRouter model
+(`~anthropic/claude-haiku-latest`) on the server.
 
 ### 2. DocMind — RAG Document Intelligence
 **[Live Demo](https://jdgafx-app-02-rag-document-intelligence.netlify.app)** · `app-02-rag-document-intelligence/`
@@ -33,14 +35,15 @@ source highlighting, and relevance scoring.
 ### 3. CodeLens AI — AI Code Review Agent
 **[Live Demo](https://jdgafx-app-03-ai-code-review.netlify.app)** · `app-03-ai-code-review/`
 
-Paste code and receive inline AI reviews with severity ratings (critical/warning/suggestion/praise),
+Paste code and receive inline AI reviews with severity ratings (critical/warning/info),
 line-by-line annotations, and improvement recommendations.
 
 ### 4. VoxAI — Voice AI Assistant
 **[Live Demo](https://jdgafx-app-04-voice-ai-assistant.netlify.app)** · `app-04-voice-ai-assistant/`
 
 Voice-powered assistant with real-time waveform visualization. Mic capture via the Web Audio API,
-speech-to-text transcription, streaming chat, and browser `speechSynthesis` for TTS playback.
+Deepgram `nova-3` speech-to-text, chat answers from one fixed OpenRouter model, and browser
+`speechSynthesis` for TTS playback.
 A text input covers the no-microphone case.
 
 ### 5. DataPilot — AI Data Analyst
@@ -52,19 +55,21 @@ generates a query plan that is executed client-side and rendered as interactive 
 ### 6. ModelArena — Multi-Model LLM Playground
 **[Live Demo](https://jdgafx-app-06-llm-playground.netlify.app)** · `app-06-llm-playground/`
 
-Side-by-side comparison across independent OpenRouter Free Router runs. Enter a prompt, select runs,
-and watch responses stream simultaneously with latency, token count, and cost metrics.
+Side-by-side comparison of one prompt. Panel A always runs the fixed Claude Haiku alias. Panels B and C
+take any model from the live OpenRouter catalogue, grouped by speed, reasoning, agentic work, value and
+frontier quality. Each run shows measured latency, tokens and cost, an evidence summary, and an AI judge note.
 
 ### 7. ContentForge — Agentic Content Pipeline
 **[Live Demo](https://jdgafx-app-07-content-pipeline.netlify.app)** · `app-07-content-pipeline/`
 
-Five-step content generation pipeline: Research → Outline → Draft → Edit → Polish. Full SSE
-streaming with per-step progress tracking and expandable output for each stage.
+Five-step content generation pipeline: Research → Outline → Draft → Edit → Polish. Each stage is
+one short model call with its own trace row, expandable output and copy button. Resume and Retry
+reuse finished stages.
 
 ### 8. VisionLab — Multimodal Vision AI
 **[Live Demo](https://jdgafx-app-08-vision-ai.netlify.app)** · `app-08-vision-ai/`
 
-Upload images for multimodal analysis on a provider-backed vision-capable model. Supports scene description, object and
+Upload images for multimodal analysis on one fixed vision-capable model (`~anthropic/claude-haiku-latest`). Supports scene description, object and
 composition breakdown, text extraction, and visual Q&A.
 
 ### 9. InsightHub — SaaS Analytics Dashboard
@@ -148,8 +153,9 @@ per site for production.
 | Variable | Required by | Purpose |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | all 10 apps | Server-side key for OpenRouter model calls. Never exposed to the browser. |
-| `XAI_API_KEY` | all 10 apps | Optional server-only direct xAI fallback when OpenRouter is unavailable. Never exposed to the browser. |
 | `DEEPGRAM_API_KEY` | app-04 | Server-side Deepgram `nova-3` speech-to-text key. Never exposed to the browser. |
+| `BROWSERBASE_API_KEY` | app-10 | Server-side Browserbase key for bounded browser sessions. Never exposed to the browser. |
+| `BROWSERBASE_PROJECT_ID` | app-10 | Browserbase project that owns those sessions. |
 | `VITE_SUPABASE_URL` | app-09 | Supabase project URL for dashboard authentication. |
 | `VITE_SUPABASE_ANON_KEY` | app-09 | Supabase anonymous key, safe for client-side use. |
 
@@ -172,4 +178,4 @@ is served by GitHub Pages at
 
 ---
 
-Built by Chris Gentile ([@jdgafx](https://github.com/jdgafx)) · [MIT License](LICENSE)
+Built by Christopher Gentile ([@jdgafx](https://github.com/jdgafx)) · [MIT License](LICENSE)
