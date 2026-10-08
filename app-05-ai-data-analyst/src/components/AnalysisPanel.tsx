@@ -1,117 +1,55 @@
-import { motion } from 'framer-motion'
-import { Zap } from 'lucide-react'
-import type { AnalysisResult } from '../types'
+import { topGroup } from '../lib/dataEngine'
+import type { AggregateFn, AnalysisResult } from '../types'
+import ChartView from './ChartView'
 
-function format(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  if (!Number.isInteger(value)) return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-  return value.toLocaleString()
-}
-
-/** A sum across groups only means something for additive aggregations. */
-function summarize(result: AnalysisResult): string {
-  const values = result.datasets[0]?.values ?? []
-  const groups = `${result.labels.length} ${result.labels.length === 1 ? 'group' : 'groups'}`
-  if (values.length === 0) return groups
-
-  const fn = result.queryPlan.aggregate.fn
-  const total = values.reduce((a, b) => a + b, 0)
-  if (fn === 'sum') return `${groups} · ${format(total)} total`
-  if (fn === 'count') return `${groups} · ${format(total)} rows counted`
-
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  return `${groups} · ${fn} per group ranges ${format(min)} to ${format(max)}`
+const MEASURE_PHRASE: Record<AggregateFn, (field: string) => string> = {
+  sum: (field) => `total ${field}`,
+  avg: (field) => `average ${field}`,
+  count: () => 'rows',
+  min: (field) => `minimum ${field}`,
+  max: (field) => `maximum ${field}`,
 }
 
 export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
-  const { queryPlan } = result
+  const { queryPlan: plan } = result
+  const top = topGroup(result)
+  const answer = top
+    ? `Highest ${plan.groupBy}: ${top.label}, ${top.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${MEASURE_PHRASE[plan.aggregate.fn](plan.aggregate.field)}.`
+    : null
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      style={{
-        background: 'rgba(14,14,28,0.6)',
-        border: '1px solid rgba(255,255,255,0.05)',
-        borderRadius: '12px',
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Zap size={13} color="#ff3366" aria-hidden="true" />
-          <span
-            style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#8a8aaa',
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Analysis
-          </span>
-          {queryPlan.served_provider && queryPlan.served_model && (
-            <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#6a6a8a' }} title="Provider and model reported by the analysis service">
-              {queryPlan.served_provider} · {queryPlan.served_model}
-            </span>
-          )}
-          {queryPlan.execution && (
-            <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#6a6a8a' }} title="Backend-reported execution stages and duration">
-              {queryPlan.execution.stages.map(({ stage }) => stage).join(' → ')} · {(queryPlan.execution.durationMs / 1000).toFixed(1)}s
-            </span>
-          )}
-        </div>
+    <section className="ds-card" aria-labelledby="result-title">
+      <div className="ds-card__head">
+        <h2 id="result-title" className="ds-card__title">{plan.title}</h2>
+        <span className="ds-badge ds-badge--accent">{plan.chartType} chart</span>
       </div>
-      <div style={{ padding: '14px 20px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.6', color: '#8a8aaa' }}>
-          {queryPlan.explanation}
-        </p>
-        <div
-          title="The structured plan the AI produced, executed locally in your browser"
-          style={{
-            background: 'rgba(8,8,15,0.8)',
-            border: '1px solid rgba(255,51,102,0.12)',
-            borderRadius: '8px',
-            padding: '14px 16px',
-            fontFamily: 'JetBrains Mono, monospace',
-            fontSize: '11px',
-            color: '#4a4a6a',
-            overflowX: 'auto',
-            lineHeight: '1.7',
-          }}
-        >
-          <div
-            style={{
-              color: '#ff3366',
-              marginBottom: '6px',
-              fontSize: '10px',
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Query Plan
-          </div>
-          <pre style={{ margin: 0, color: '#6a6a8a', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <p className="ds-hint">Question: {result.question}</p>
+
+      <div className="app-stack">
+        <ChartView result={result} />
+        {answer && <p className="app-answer">{answer}</p>}
+        {plan.notice && <p className="ds-notice">{plan.notice}</p>}
+        {result.warnings.map((warning) => (
+          <p key={warning} className="ds-hint">{warning}</p>
+        ))}
+        {plan.explanation && <p className="ds-hint">{plan.explanation}</p>}
+        <details className="app-details">
+          <summary>Query plan</summary>
+          <pre className="app-plan">
             {JSON.stringify(
               {
-                chartType: queryPlan.chartType,
-                groupBy: queryPlan.groupBy,
-                aggregate: queryPlan.aggregate,
-                ...(queryPlan.filter ? { filter: queryPlan.filter } : {}),
-                ...(queryPlan.sortBy ? { sortBy: queryPlan.sortBy } : {}),
+                chartType: plan.chartType,
+                groupBy: plan.groupBy,
+                aggregate: plan.aggregate,
+                ...(plan.filter ? { filter: plan.filter } : {}),
+                ...(plan.sortBy ? { sortBy: plan.sortBy } : {}),
               },
               null,
               2,
             )}
           </pre>
-          <div style={{ color: '#4a4a6a', marginTop: '8px', fontSize: '10px' }}>
-            {summarize(result)}
-          </div>
-        </div>
+        </details>
       </div>
-    </motion.div>
+    </section>
   )
 }

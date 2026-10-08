@@ -1,0 +1,267 @@
+/* App-specific styles only. Shared layout, type and component classes live in tokens.css. */
+
+/*
+ * Categorical chart slots for pie charts: eight hues, validated against the
+ * chart surfaces in both modes. Single-series marks use --ds-accent instead.
+ * Slot 8 is spare; a pie chart shows seven groups and "Other" in grey.
+ */
+:root {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #008300;
+  --viz-7: #4a3aa7;
+  --viz-8: #e34948;
+  --viz-other: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --viz-1: #3987e5;
+    --viz-2: #d95926;
+    --viz-3: #199e70;
+    --viz-4: #c98500;
+    --viz-5: #d55181;
+    --viz-6: #008300;
+    --viz-7: #9085e9;
+    --viz-8: #e66767;
+    --viz-other: #898781;
+  }
+}
+
+:root[data-theme="dark"] {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #008300;
+  --viz-7: #9085e9;
+  --viz-8: #e66767;
+  --viz-other: #898781;
+}
+
+.app-stack {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-ask {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.app-ask > * {
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .app-ask {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.app-chip {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.app-answer {
+  margin: 0;
+  font-weight: 600;
+}
+
+.app-details {
+  border-top: 1px solid var(--ds-border);
+  padding-top: 12px;
+}
+
+.app-details > summary,
+.app-preview__summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.app-preview__summary {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ds-text);
+}
+
+.app-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.app-plan {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--ds-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.app-table-wrap {
+  overflow: auto;
+  max-height: 280px;
+  margin-top: 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.app-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.app-table caption {
+  caption-side: top;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--ds-text-muted);
+}
+
+.app-table th,
+.app-table td {
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.app-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ds-surface-2);
+  font-weight: 600;
+}
+
+.app-table tbody th {
+  font-weight: 500;
+}
+
+.app-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.app-preview {
+  display: block;
+}
+
+.app-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-banner > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-banner__dismiss {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.app-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-history-item {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.app-history-item > span {
+  overflow-wrap: anywhere;
+}
+
+.app-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.viz-frame {
+  width: 100%;
+  height: 300px;
+  min-width: 0;
+}
+
+/* Recharts paints legend labels in their series colour inline. Text wears a text token; the swatch carries identity. */
+.recharts-legend-item-text {
+  color: var(--ds-text-muted) !important;
+}
+
+@media (max-width: 720px) {
+  .viz-frame {
+    height: 240px;
+  }
+}
+
+.viz-tooltip {
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow);
+}
+
+.viz-tooltip__label {
+  margin: 0 0 2px;
+  color: var(--ds-text-muted);
+}
+
+.viz-tooltip__value {
+  margin: 0;
+  font-family: var(--ds-mono);
+  font-weight: 600;
+}
+
+.app-skeleton {
+  min-height: 300px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-2);
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes app-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}

@@ -1,56 +1,45 @@
-import { motion } from 'framer-motion'
 import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  AreaChart,
   Area,
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
+  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
   Cell,
   Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
   ZAxis,
 } from 'recharts'
+import { useChartPalette } from '../lib/chartPalette'
 import type { AnalysisResult } from '../types'
 
 interface ChartViewProps {
   result: AnalysisResult
-  datasetRowCount?: number
 }
 
 interface TooltipEntry {
-  value: number
-  name: string
+  value?: unknown
+  payload?: { name?: string; y?: unknown }
 }
 
-interface CustomTooltipProps {
+interface ValueTooltipProps {
   active?: boolean
   payload?: TooltipEntry[]
-  label?: string
+  label?: string | number
 }
-
-const PIE_COLORS = [
-  '#ff3366',
-  '#e82e5c',
-  '#ff6b9d',
-  '#cc2952',
-  '#ff1a4d',
-  '#ff99b8',
-  '#ff4d7d',
-  '#b3234a',
-]
 
 /** Above these counts the axis and legend stop being readable, so groups are collapsed. */
 const MAX_BAR_GROUPS = 30
-const MAX_PIE_SLICES = 12
+/** Eight categorical slots: seven groups and "Other". */
+const MAX_PIE_SLICES = 8
 const OTHER_LABEL = 'Other'
 
 function formatValue(value: number): string {
@@ -58,6 +47,10 @@ function formatValue(value: number): string {
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}k`
   if (!Number.isInteger(value)) return value.toFixed(2)
   return value.toLocaleString()
+}
+
+function formatExact(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 interface LimitedGroups {
@@ -95,74 +88,46 @@ function limitGroups(
     return {
       labels: outLabels,
       values: outValues,
-      note: `Showing the ${keep.length} largest of ${labels.length} groups — the remaining ${tail.length} are combined as "Other".`,
+      note: `Showing the ${keep.length} largest of ${labels.length} groups. The remaining ${tail.length} are combined as "${OTHER_LABEL}".`,
     }
   }
 
   return {
     labels: outLabels,
     values: outValues,
-    note: `Showing the ${keep.length} largest of ${labels.length} groups — ${tail.length} smaller groups are not plotted.`,
+    note: `Showing the ${keep.length} largest of ${labels.length} groups. ${tail.length} smaller groups are not plotted.`,
   }
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+function ValueTooltip({ active, payload, label }: ValueTooltipProps) {
   if (!active || !payload || payload.length === 0) return null
-  const heading = label ?? payload[0]?.name
+  const entry = payload[0]
+  const point = entry?.payload
+  const heading = point?.name ?? label
+  const y = point?.y
+  const raw = entry?.value
+  const value = typeof y === 'number' ? y : typeof raw === 'number' ? raw : undefined
   return (
-    <div
-      style={{
-        background: '#0e0e1c',
-        border: '1px solid rgba(255,51,102,0.3)',
-        borderRadius: '8px',
-        padding: '10px 14px',
-        fontFamily: 'DM Sans, sans-serif',
-      }}
-    >
-      {heading && (
-        <p style={{ color: '#8a8aaa', fontSize: '11px', marginBottom: '4px', marginTop: 0 }}>
-          {heading}
-        </p>
-      )}
-      {payload.map((entry, i) => (
-        <p key={i} style={{ color: '#ff3366', fontSize: '14px', fontWeight: 600, margin: 0 }}>
-          {formatValue(entry.value)}
-        </p>
-      ))}
+    <div className="viz-tooltip">
+      {heading !== undefined && heading !== '' && <p className="viz-tooltip__label">{String(heading)}</p>}
+      {value !== undefined && <p className="viz-tooltip__value">{formatValue(value)}</p>}
     </div>
   )
 }
 
-const TICK_STYLE = { fill: '#8a8aaa', fontSize: 11, fontFamily: 'DM Sans, sans-serif' }
-const GRID_PROPS = { stroke: 'rgba(255,255,255,0.06)', strokeDasharray: '3 3' }
-
-export default function ChartView({ result, datasetRowCount }: ChartViewProps) {
+export default function ChartView({ result }: ChartViewProps) {
+  const palette = useChartPalette()
   const { labels, datasets, queryPlan } = result
-  const firstDataset = datasets[0]
-  const values = firstDataset?.values ?? []
-  const datasetName = firstDataset?.name ?? 'value'
+  const values = datasets[0]?.values ?? []
+  const datasetName = datasets[0]?.name ?? 'value'
   const chartType = queryPlan.chartType
   const combinable = queryPlan.aggregate.fn === 'sum' || queryPlan.aggregate.fn === 'count'
 
   if (labels.length === 0) {
     return (
-      <div
-        role="status"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '240px',
-          color: '#4a4a6a',
-          fontSize: '14px',
-          textAlign: 'center',
-          padding: '0 20px',
-        }}
-      >
-        {datasetRowCount === 0
-          ? 'This dataset has a header row but no data rows, so there is nothing to chart.'
-          : 'No rows matched this query. Try loosening the filter in your question.'}
-      </div>
+      <p className="ds-empty" role="status">
+        No rows matched this query. Try loosening the filter in your question.
+      </p>
     )
   }
 
@@ -197,183 +162,154 @@ export default function ChartView({ result, datasetRowCount }: ChartViewProps) {
     plotLabels.length > MAX_BAR_GROUPS ? 'preserveStartEnd' : 0
 
   const total = plotValues.reduce((a, b) => a + b, 0)
-  const topIndex = plotValues.reduce(
+  const largestIndex = plotValues.reduce(
     (best, v, i) => (Math.abs(v) > Math.abs(plotValues[best] ?? 0) ? i : best),
     0,
   )
-  const summary = `${chartType} chart. ${queryPlan.aggregate.fn} of ${queryPlan.aggregate.field} by ${queryPlan.groupBy}, across ${labels.length} groups. Highest: ${plotLabels[topIndex]} at ${formatValue(plotValues[topIndex] ?? 0)}.${combinable ? ` Combined total ${formatValue(total)}.` : ''}`
+  const summary = `${chartType} chart. ${queryPlan.aggregate.fn} of ${queryPlan.aggregate.field} by ${queryPlan.groupBy}, across ${labels.length} groups. Largest: ${plotLabels[largestIndex]} at ${formatValue(plotValues[largestIndex] ?? 0)}.${combinable ? ` Combined total ${formatValue(total)}.` : ''}`
 
+  const tick = { fill: palette.muted, fontSize: 12 }
+  const grid = { stroke: palette.grid, strokeDasharray: '3 3' }
+  const margin = { top: 10, right: 20, left: 10, bottom: 40 }
   const axisProps = {
     dataKey: 'name',
-    tick: TICK_STYLE,
+    tick,
     angle: -30,
     textAnchor: 'end' as const,
     interval: tickInterval,
     height: 60,
   }
+  const dotFor = (color: string, radius: number) =>
+    plotLabels.length > MAX_BAR_GROUPS ? false : { fill: color, r: radius, strokeWidth: 0 }
+
+  const renderChart = () => {
+    if (chartType === 'bar') {
+      return (
+        <BarChart data={standardData} margin={margin}>
+          <CartesianGrid {...grid} vertical={false} />
+          <XAxis {...axisProps} />
+          <YAxis tick={tick} tickFormatter={formatValue} width={60} />
+          <Tooltip content={<ValueTooltip />} />
+          <Bar dataKey={datasetName} fill={palette.accent} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+        </BarChart>
+      )
+    }
+    if (chartType === 'line') {
+      return (
+        <LineChart data={standardData} margin={margin}>
+          <CartesianGrid {...grid} />
+          <XAxis {...axisProps} />
+          <YAxis tick={tick} tickFormatter={formatValue} width={60} />
+          <Tooltip content={<ValueTooltip />} />
+          <Line
+            type="monotone"
+            dataKey={datasetName}
+            stroke={palette.accent}
+            strokeWidth={2.5}
+            dot={dotFor(palette.accent, 4)}
+            activeDot={{ r: 6, fill: palette.accent }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      )
+    }
+    if (chartType === 'area') {
+      return (
+        <AreaChart data={standardData} margin={margin}>
+          <defs>
+            <linearGradient id="viz-area-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={palette.accent} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={palette.accent} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid {...grid} />
+          <XAxis {...axisProps} />
+          <YAxis tick={tick} tickFormatter={formatValue} width={60} />
+          <Tooltip content={<ValueTooltip />} />
+          <Area
+            type="monotone"
+            dataKey={datasetName}
+            stroke={palette.accent}
+            strokeWidth={2.5}
+            fill="url(#viz-area-fill)"
+            dot={dotFor(palette.accent, 3)}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      )
+    }
+    if (chartType === 'pie') {
+      return (
+        <PieChart margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+          <Pie
+            data={pieData}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            outerRadius="68%"
+            innerRadius="38%"
+            paddingAngle={2}
+            isAnimationActive={false}
+          >
+            {pieData.map((entry, index) => (
+              <Cell
+                key={entry.name}
+                fill={entry.name === OTHER_LABEL ? palette.other : (palette.series[index] ?? palette.other)}
+                stroke={palette.surface}
+                strokeWidth={2}
+              />
+            ))}
+          </Pie>
+          <Tooltip content={<ValueTooltip />} />
+          <Legend wrapperStyle={{ color: palette.muted, fontSize: 12, maxHeight: 72, overflowY: 'auto' }} />
+        </PieChart>
+      )
+    }
+    return (
+      <ScatterChart margin={margin}>
+        <CartesianGrid {...grid} />
+        <XAxis dataKey="x" type="number" name="X" tick={tick} tickFormatter={formatValue} />
+        <YAxis dataKey="y" type="number" name="Y" tick={tick} tickFormatter={formatValue} width={60} />
+        <ZAxis range={[40, 40]} />
+        <Tooltip content={<ValueTooltip />} cursor={{ strokeDasharray: '3 3', stroke: palette.accent }} />
+        <Scatter data={scatterData} fill={palette.accent} isAnimationActive={false} />
+      </ScatterChart>
+    )
+  }
 
   return (
-    <div>
-      <motion.div
-        key={queryPlan.title}
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-        className="dp-chart"
-        role="img"
-        aria-label={summary}
-      >
+    <div className="app-chart">
+      <div className="viz-frame" role="img" aria-label={summary}>
         <ResponsiveContainer width="100%" height="100%">
-          {chartType === 'bar' ? (
-            <BarChart data={standardData} margin={{ top: 10, right: 20, left: 10, bottom: 40 }}>
-              <CartesianGrid {...GRID_PROPS} vertical={false} />
-              <XAxis {...axisProps} />
-              <YAxis tick={TICK_STYLE} tickFormatter={formatValue} width={60} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey={datasetName} fill="#ff3366" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                {standardData.map((_, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={`rgba(255,51,102,${0.6 + (index % 3) * 0.13})`}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          ) : chartType === 'line' ? (
-            <LineChart data={standardData} margin={{ top: 10, right: 20, left: 10, bottom: 40 }}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis {...axisProps} />
-              <YAxis tick={TICK_STYLE} tickFormatter={formatValue} width={60} />
-              <Tooltip content={<CustomTooltip />} />
-              <Line
-                type="monotone"
-                dataKey={datasetName}
-                stroke="#ff3366"
-                strokeWidth={2.5}
-                dot={plotLabels.length > MAX_BAR_GROUPS ? false : { fill: '#ff3366', r: 4, strokeWidth: 0 }}
-                activeDot={{ r: 6, fill: '#ff6b9d' }}
-              />
-            </LineChart>
-          ) : chartType === 'area' ? (
-            <AreaChart data={standardData} margin={{ top: 10, right: 20, left: 10, bottom: 40 }}>
-              <defs>
-                <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ff3366" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#ff3366" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis {...axisProps} />
-              <YAxis tick={TICK_STYLE} tickFormatter={formatValue} width={60} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area
-                type="monotone"
-                dataKey={datasetName}
-                stroke="#ff3366"
-                strokeWidth={2.5}
-                fill="url(#areaGradient)"
-                dot={plotLabels.length > MAX_BAR_GROUPS ? false : { fill: '#ff3366', r: 3, strokeWidth: 0 }}
-              />
-            </AreaChart>
-          ) : chartType === 'pie' ? (
-            <PieChart margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-              <Pie
-                data={pieData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius="68%"
-                innerRadius="38%"
-                paddingAngle={3}
-                isAnimationActive={false}
-              >
-                {pieData.map((_, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={PIE_COLORS[index % PIE_COLORS.length] ?? '#ff3366'}
-                  />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-              <Legend
-                wrapperStyle={{
-                  color: '#8a8aaa',
-                  fontSize: '12px',
-                  fontFamily: 'DM Sans',
-                  maxHeight: '72px',
-                  overflowY: 'auto',
-                }}
-              />
-            </PieChart>
-          ) : (
-            <ScatterChart margin={{ top: 10, right: 20, left: 10, bottom: 40 }}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis
-                dataKey="x"
-                type="number"
-                name="X"
-                tick={TICK_STYLE}
-                tickFormatter={formatValue}
-              />
-              <YAxis
-                dataKey="y"
-                type="number"
-                name="Y"
-                tick={TICK_STYLE}
-                tickFormatter={formatValue}
-                width={60}
-              />
-              <ZAxis range={[40, 40]} />
-              <Tooltip
-                cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,51,102,0.3)' }}
-                content={({ active, payload }) => {
-                  if (!active || !payload || payload.length === 0) return null
-                  const point = payload[0]?.payload as { name: string; y: number } | undefined
-                  return (
-                    <div
-                      style={{
-                        background: '#0e0e1c',
-                        border: '1px solid rgba(255,51,102,0.3)',
-                        borderRadius: '8px',
-                        padding: '10px 14px',
-                        fontFamily: 'DM Sans, sans-serif',
-                      }}
-                    >
-                      {point && (
-                        <>
-                          <p style={{ color: '#8a8aaa', fontSize: '11px', margin: '0 0 4px' }}>
-                            {point.name}
-                          </p>
-                          <p style={{ color: '#ff3366', fontSize: '14px', fontWeight: 600, margin: 0 }}>
-                            {formatValue(point.y)}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  )
-                }}
-              />
-              <Scatter data={scatterData} fill="#ff3366" isAnimationActive={false} />
-            </ScatterChart>
-          )}
+          {renderChart()}
         </ResponsiveContainer>
-      </motion.div>
-
-      <p className="sr-only">{summary}</p>
-
-      {limited.note && (
-        <p
-          style={{
-            margin: '8px 2px 0',
-            fontSize: '11.5px',
-            color: '#8a8aaa',
-            lineHeight: 1.5,
-          }}
-        >
-          {limited.note}
-        </p>
-      )}
+      </div>
+      {limited.note && <p className="ds-hint">{limited.note}</p>}
+      <details className="app-details">
+        <summary>Show the values as a table</summary>
+        <div className="app-table-wrap">
+          <table className="app-table">
+            <caption>
+              {queryPlan.aggregate.fn} of {queryPlan.aggregate.field} by {queryPlan.groupBy}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{queryPlan.groupBy}</th>
+                <th scope="col">{queryPlan.aggregate.field}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {labels.map((label, index) => (
+                <tr key={`${index}-${label}`}>
+                  <th scope="row">{label}</th>
+                  <td>{formatExact(values[index] ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   )
 }

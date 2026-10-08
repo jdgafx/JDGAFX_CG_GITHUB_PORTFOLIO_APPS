@@ -1,10 +1,13 @@
 import { validateQueryPlan } from '../../src/lib/queryPlan'
+import type { QueryPlan, RunStep, RunSummary } from '../../src/types'
 import {
-  getFallbackProvider,
-  getProvider,
-  providerRequest,
-  providerText,
-  requestWithContentRetry,
+  callModel,
+  describeFailure,
+  getApiKey,
+  sumUsage,
+  type ChatMessage,
+  type ModelReply,
+  type ModelUsage,
 } from '../shared/provider'
 
 interface RequestBody {
@@ -35,8 +38,10 @@ const MAX_QUESTION_CHARS = 2000
 const MAX_SAMPLE_ROWS = 5
 const MAX_HEADERS = 200
 const MAX_CELL_CHARS = 200
+/** Covers the first call, its empty-reply retry and the repair turn. Netlify's synchronous limit is 60 s. */
 const UPSTREAM_TIMEOUT_MS = 25_000
-type ExecutionStage = 'accepted' | 'provider' | 'validation' | 'completed'
+/** A repair turn needs at least this much time left in the run budget, or it is skipped. */
+const REPAIR_MIN_MS = 8_000
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -135,7 +140,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
     "dir": "asc" | "desc"
   },
   "title": "<descriptive chart title>",
-  "explanation": "<brief explanation of what this visualization shows and why>"
+  "explanation": "<brief explanation of what this visualization shows and why>",
+  "notice": "<one plain sentence, or null>"
 }
 
 Rules:
@@ -144,7 +150,212 @@ Rules:
 - groupBy, aggregate.field and filter.field MUST be exact column names copied from the dataset. Never invent a column.
 - sortBy.field must be either the groupBy column or the aggregate field — nothing else is plotted
 - For count queries, aggregate.field must still be a real column name (count ignores its value)
-- Choose the most appropriate chartType for the data pattern`
+- Choose the most appropriate chartType for the data pattern
+- "notice": if the question asks about a column, measure or category that is not in the dataset, say so in one sentence and name the real column you used instead. Otherwise set it to null.`
+
+/** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
+class RunLog {
+  readonly startedAt = Date.now()
+  readonly trace: RunStep[] = []
+  readonly usage: ModelUsage[] = []
+  model: string | null = null
+
+  step(
+    name: string,
+    status: RunStep['status'],
+    startedAt: number,
+    detail: string,
+    extra: { tokens?: number; cost?: number } = {},
+  ): void {
+    this.trace.push({ name, status, ms: Date.now() - startedAt, detail, ...extra })
+  }
+
+  skip(names: string[], detail: string): void {
+    for (const name of names) this.trace.push({ name, status: 'skipped', ms: 0, detail })
+  }
+
+  summary(): RunSummary {
+    return {
+      trace: this.trace,
+      usage: sumUsage(this.usage),
+      model: this.model,
+      totalMs: Date.now() - this.startedAt,
+    }
+  }
+}
+
+const CUT_OFF_MESSAGE = 'The AI reply was cut off before the JSON finished. Try a narrower question.'
+const EMPTY_MESSAGE = 'The AI returned an empty response. Try rephrasing your question.'
+const UNREADABLE_MESSAGE = 'The AI response could not be read. Try rephrasing your question.'
+const AFTER_MODEL_CALL = ['Read JSON reply', 'Check plan against columns', 'Repair turn']
+const AFTER_READ = ['Check plan against columns', 'Repair turn']
+
+type PlanRead = { ok: true; value: unknown; fields: number } | { ok: false; message: string }
+type Checked = { ok: true; plan: QueryPlan } | { ok: false; message: string }
+type Repaired = { ok: true; plan: QueryPlan } | { ok: false; status: number; message: string }
+
+function readPlanJson(text: string): PlanRead {
+  if (!text) return { ok: false, message: EMPTY_MESSAGE }
+  const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(cleaned)
+  } catch {
+    const candidate = extractJsonObject(cleaned)
+    if (!candidate) return { ok: false, message: UNREADABLE_MESSAGE }
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      return { ok: false, message: UNREADABLE_MESSAGE }
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, message: UNREADABLE_MESSAGE }
+  }
+  return { ok: true, value: parsed, fields: Object.keys(parsed).length }
+}
+
+function planSummary(plan: QueryPlan): string {
+  return `${plan.chartType} chart: ${plan.aggregate.fn} of ${plan.aggregate.field} by ${plan.groupBy}.`
+}
+
+function callDetail(reply: ModelReply): string {
+  const served = reply.model ? `Served by ${reply.model}.` : 'The reply did not name the model.'
+  const retry = reply.attempts > 1 ? ' Retried once because the first reply was empty.' : ''
+  return served + retry
+}
+
+function checkPlan(value: unknown, headers: string[], log: RunLog): Checked {
+  const checkAt = Date.now()
+  const validation = validateQueryPlan(value, headers)
+  if (validation.ok) {
+    log.step('Check plan against columns', 'ok', checkAt, planSummary(validation.plan))
+    return { ok: true, plan: validation.plan }
+  }
+  log.step('Check plan against columns', 'failed', checkAt, validation.error)
+  return { ok: false, message: validation.error }
+}
+
+/** One bounded repair turn: the model sees its rejected reply and the checker's reason, then answers once more. */
+async function repairPlan(
+  rejected: { reply: ModelReply; message: string },
+  messages: ChatMessage[],
+  headers: string[],
+  log: RunLog,
+  signal: AbortSignal,
+): Promise<Repaired> {
+  if (UPSTREAM_TIMEOUT_MS - (Date.now() - log.startedAt) < REPAIR_MIN_MS) {
+    log.skip(['Repair turn'], 'Skipped: not enough time is left in this request for a second model call.')
+    return { ok: false, status: 422, message: rejected.message }
+  }
+
+  const repairAt = Date.now()
+  const askAgain: ChatMessage[] = [
+    ...messages,
+    { role: 'assistant', content: rejected.reply.text },
+    {
+      role: 'user',
+      content: `Your previous reply was rejected: ${rejected.message} Reply again with the corrected JSON object only, using only column names from the dataset.`,
+    },
+  ]
+
+  let reply: ModelReply
+  try {
+    reply = await callModel(askAgain, signal)
+  } catch (err) {
+    const failure = describeFailure(err)
+    log.step('Repair turn', 'failed', repairAt, failure.message)
+    return { ok: false, status: failure.status, message: failure.message }
+  }
+  log.model = reply.model ?? log.model
+  log.usage.push(reply.usage)
+  const costs = { tokens: reply.usage.total_tokens, cost: reply.usage.cost }
+
+  const read = readPlanJson(reply.text)
+  if (!read.ok) {
+    const message = reply.finish === 'length' ? CUT_OFF_MESSAGE : read.message
+    log.step('Repair turn', 'failed', repairAt, message, costs)
+    return { ok: false, status: 502, message }
+  }
+  const check = validateQueryPlan(read.value, headers)
+  if (!check.ok) {
+    log.step('Repair turn', 'failed', repairAt, check.error, costs)
+    return { ok: false, status: 422, message: check.error }
+  }
+  log.step('Repair turn', 'ok', repairAt, `The repaired plan passed the column check. ${planSummary(check.plan)}`, costs)
+  return { ok: true, plan: check.plan }
+}
+
+function failed(log: RunLog, status: number, error: string, cors: Record<string, string>): Response {
+  const headers = status === 429 ? { ...cors, 'Retry-After': '10' } : cors
+  return json({ error, ...log.summary() }, status, headers)
+}
+
+interface AnalysisInput {
+  question: string
+  headers: string[]
+  sampleRows: Record<string, string>[]
+  rowCount: number
+}
+
+async function analyse(
+  input: AnalysisInput,
+  log: RunLog,
+  signal: AbortSignal,
+  cors: Record<string, string>,
+): Promise<Response> {
+  const buildAt = Date.now()
+  const schema = `Dataset with ${input.rowCount} rows.
+Columns: ${input.headers.join(', ')}
+Sample rows:
+${JSON.stringify(input.sampleRows, null, 2)}`
+  const messages: ChatMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: `Dataset:\n${schema}\n\nQuestion: ${input.question}` },
+  ]
+  log.step(
+    'Build request',
+    'ok',
+    buildAt,
+    `Sending ${input.sampleRows.length} sample rows and ${input.headers.length} column names from a dataset of ${input.rowCount} rows.`,
+  )
+
+  const callAt = Date.now()
+  let reply: ModelReply
+  try {
+    reply = await callModel(messages, signal)
+  } catch (err) {
+    const failure = describeFailure(err)
+    log.step('Model call', 'failed', callAt, failure.message)
+    log.skip(AFTER_MODEL_CALL, 'Not reached: the model call did not finish.')
+    return failed(log, failure.status, failure.message, cors)
+  }
+  log.model = reply.model ?? log.model
+  log.usage.push(reply.usage)
+  log.step('Model call', 'ok', callAt, callDetail(reply), {
+    tokens: reply.usage.total_tokens,
+    cost: reply.usage.cost,
+  })
+
+  const readAt = Date.now()
+  const read = readPlanJson(reply.text)
+  if (!read.ok) {
+    const message = reply.finish === 'length' ? CUT_OFF_MESSAGE : read.message
+    log.step('Read JSON reply', 'failed', readAt, message)
+    log.skip(AFTER_READ, 'Not reached: the reply was not a readable JSON object.')
+    return failed(log, 502, message, cors)
+  }
+  log.step('Read JSON reply', 'ok', readAt, `Read a JSON object with ${read.fields} fields.`)
+
+  const checked = checkPlan(read.value, input.headers, log)
+  if (checked.ok) {
+    log.skip(['Repair turn'], 'Not needed: the first plan passed the column check.')
+    return json({ result: checked.plan, ...log.summary() }, 200, cors)
+  }
+  const outcome = await repairPlan({ reply, message: checked.message }, messages, input.headers, log, signal)
+  if (!outcome.ok) return failed(log, outcome.status, outcome.message, cors)
+  return json({ result: outcome.plan, ...log.summary() }, 200, cors)
+}
 
 export default async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin')
@@ -171,8 +382,7 @@ export default async (req: Request): Promise<Response> => {
     })
   }
 
-  const provider = getProvider('~anthropic/claude-haiku-latest')
-  if (!provider) {
+  if (!getApiKey()) {
     return json({ error: 'The analysis service is not configured.' }, 500, headersOut)
   }
 
@@ -224,109 +434,20 @@ export default async (req: Request): Promise<Response> => {
       }
       return out
     })
-
   const safeRowCount = Number.isFinite(rowCount) ? Math.max(0, Math.trunc(Number(rowCount))) : 0
-  const schemaDescription = `Dataset with ${safeRowCount} rows.
-Columns: ${safeHeaders.join(', ')}
-Sample rows:
-${JSON.stringify(safeRows, null, 2)}`
 
+  const log = new RunLog()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
-  const executionStartedAt = Date.now()
-  const executionStages: Array<{ stage: ExecutionStage; status: 'complete' }> = [{ stage: 'accepted', status: 'complete' }]
-
   try {
-    const callProvider = (candidate: typeof provider) => {
-      const request = providerRequest(candidate, {
-        system: SYSTEM_PROMPT,
-        user: `Dataset:\n${schemaDescription}\n\nQuestion: ${question}`,
-        maxTokens: 2048,
-        requireParameters: true,
-      })
-      return requestWithContentRetry(() => fetch(candidate.url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: request.headers,
-        body: request.body,
-      }))
-    }
-
-    let activeProvider = provider
-    executionStages.push({ stage: 'provider', status: 'complete' })
-    let aiResponse = await callProvider(activeProvider)
-    if (!aiResponse.ok) {
-      const fallback = getFallbackProvider(activeProvider)
-      if (fallback) {
-        activeProvider = fallback
-        aiResponse = await callProvider(activeProvider)
-      }
-    }
-
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return json(
-          { error: 'The AI service is busy right now. Please try again in a moment.' },
-          429,
-          { ...headersOut, 'Retry-After': '10' },
-        )
-      }
-      if (aiResponse.status === 401 || aiResponse.status === 403) {
-        return json({ error: 'The analysis service rejected our credentials.' }, 502, headersOut)
-      }
-      return json({ error: 'The AI service is unavailable right now.' }, 502, headersOut)
-    }
-
-    const aiData = (await aiResponse.json()) as {
-      model?: string
-      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
-    }
-    const rawText = providerText(aiData)
-    if (!rawText) {
-      return json({ error: 'The AI returned an empty response. Try rephrasing your question.' }, 502, headersOut)
-    }
-
-    const cleaned = rawText.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(cleaned)
-    } catch {
-      const candidate = extractJsonObject(cleaned)
-      if (!candidate) {
-        return json(
-          { error: 'The AI response could not be read. Try rephrasing your question.' },
-          502,
-          headersOut,
-        )
-      }
-      try {
-        parsed = JSON.parse(candidate)
-      } catch {
-        return json(
-          { error: 'The AI response could not be read. Try rephrasing your question.' },
-          502,
-          headersOut,
-        )
-      }
-    }
-
-    const validation = validateQueryPlan(parsed, safeHeaders)
-    if (!validation.ok) {
-      return json({ error: validation.error }, 422, headersOut)
-    }
-
-    executionStages.push({ stage: 'validation', status: 'complete' }, { stage: 'completed', status: 'complete' })
-    return json({
-      ...validation.plan,
-      served_model: aiData.model ?? activeProvider.model,
-      served_provider: activeProvider.name,
-      execution: { stages: executionStages, durationMs: Date.now() - executionStartedAt },
-    }, 200, headersOut)
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return json({ error: 'The analysis timed out. Please try again.' }, 504, headersOut)
-    }
-    return json({ error: 'Could not reach the analysis service. Please try again.' }, 502, headersOut)
+    return await analyse(
+      { question, headers: safeHeaders, sampleRows: safeRows, rowCount: safeRowCount },
+      log,
+      controller.signal,
+      headersOut,
+    )
+  } catch {
+    return failed(log, 502, 'The analysis failed unexpectedly. Please try again.', headersOut)
   } finally {
     clearTimeout(timer)
   }

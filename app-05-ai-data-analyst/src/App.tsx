@@ -1,132 +1,96 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart2, Zap, Info } from 'lucide-react'
-import { parseCSV, executeQuery } from './lib/dataEngine'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
 import { validateQueryPlan } from './lib/queryPlan'
-import { askData, CancelledError } from './lib/api'
+import { askData, AnalysisRunError, CancelledError, clientRun } from './lib/api'
 import { SAMPLE_DATASETS, SAMPLE_QUERIES } from './lib/sampleData'
-import AppHeader from './components/AppHeader'
+import AppHeader, { type HeaderStatus } from './components/AppHeader'
 import QueryBar from './components/QueryBar'
 import Banners from './components/Banners'
 import DataPreview from './components/DataPreview'
-import HistoryRail from './components/HistoryRail'
 import AnalysisPanel from './components/AnalysisPanel'
-import ChartView from './components/ChartView'
-import type { ParsedData, AnalysisResult, HistoryEntry, DatasetMeta } from './types'
+import RunTrace from './components/RunTrace'
+import RunMetrics from './components/RunMetrics'
+import HistoryList from './components/HistoryList'
+import type {
+  AnalysisResult,
+  DatasetOption,
+  EngineResult,
+  HistoryEntry,
+  ParsedData,
+  RunOutcome,
+  RunStep,
+  RunView,
+} from './types'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
 const MAX_HISTORY = 20
-const RAIL_BREAKPOINT_PX = 900
+const SAMPLE_ROWS = 5
+const CUSTOM = 'custom'
 
-const BASE_DATASETS: DatasetMeta[] = [
-  {
-    value: 'sales',
-    label: 'Sales Performance',
-    description: '50 rows · products, revenue, regions',
-    icon: 'trending',
-  },
-  {
-    value: 'analytics',
-    label: 'User Analytics',
-    description: '30 rows · signups, active users, churn',
-    icon: 'users',
-  },
-  {
-    value: 'weather',
-    label: 'Weather Data',
-    description: '40 rows · cities, temperature, humidity',
-    icon: 'weather',
-  },
-  {
-    value: 'custom',
-    label: 'Custom Upload',
-    description: 'Upload your own CSV file',
-    icon: 'upload',
-  },
+const SAMPLE_OPTIONS: DatasetOption[] = [
+  { value: 'sales', label: 'Sales Performance' },
+  { value: 'analytics', label: 'User Analytics' },
+  { value: 'weather', label: 'Weather Data' },
 ]
 
-function ChartSkeleton() {
-  const bars = [55, 75, 42, 88, 62, 70, 48]
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-end',
-        gap: '12px',
-        height: '280px',
-        padding: '20px 16px',
-      }}
-    >
-      {bars.map((h, i) => (
-        <motion.div
-          key={i}
-          className="shimmer"
-          style={{
-            flex: 1,
-            height: `${h}%`,
-            borderRadius: '4px 4px 0 0',
-            background: 'rgba(255,51,102,0.12)',
-          }}
-          animate={{ opacity: [0.3, 0.65, 0.3] }}
-          transition={{ duration: 1.6, repeat: Infinity, delay: i * 0.12, ease: 'easeInOut' }}
-        />
-      ))}
-    </div>
-  )
+const OUTCOME: Record<RunOutcome, { label: string; tone: string }> = {
+  done: { label: 'Completed', tone: 'ds-badge--success' },
+  failed: { label: 'Failed', tone: 'ds-badge--danger' },
+  stopped: { label: 'Stopped', tone: '' },
 }
 
 export default function App() {
   const [selectedDataset, setSelectedDataset] = useState<string>('sales')
+  const [customData, setCustomData] = useState<ParsedData | null>(null)
   const [customFileName, setCustomFileName] = useState<string | null>(null)
   const [parsedData, setParsedData] = useState<ParsedData | null>(null)
   const [question, setQuestion] = useState<string>('')
   const [isLoading, setIsLoading] = useState<boolean>(false)
-  const [currentResult, setCurrentResult] = useState<AnalysisResult | null>(null)
+  const [current, setCurrent] = useState<AnalysisResult | null>(null)
+  const [run, setRun] = useState<RunView | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [isRailOpen, setIsRailOpen] = useState<boolean>(
-    () => typeof window === 'undefined' || window.innerWidth > RAIL_BREAKPOINT_PX,
-  )
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const datasets = useMemo<DatasetMeta[]>(
-    () =>
-      BASE_DATASETS.map((d) =>
-        d.value === 'custom' && customFileName ? { ...d, description: customFileName } : d,
-      ),
+  const options = useMemo<DatasetOption[]>(
+    () => (customFileName ? [...SAMPLE_OPTIONS, { value: CUSTOM, label: customFileName }] : SAMPLE_OPTIONS),
     [customFileName],
   )
+  const datasetLabel = options.find((option) => option.value === selectedDataset)?.label ?? selectedDataset
 
+  // Loads the chosen dataset. The previous result is cleared in handleSelect instead,
+  // so a finished upload keeps the notice it just set.
   useEffect(() => {
-    if (selectedDataset === 'custom') return
+    if (selectedDataset === CUSTOM) {
+      setParsedData(customData)
+      return
+    }
     const csv = SAMPLE_DATASETS[selectedDataset]
     if (!csv) return
     try {
       setParsedData(parseCSV(csv))
-      setCurrentResult(null)
-      setError(null)
-      setNotice(null)
     } catch (err) {
       setParsedData(null)
-      setError(
-        err instanceof Error ? err.message : 'This sample dataset could not be loaded.',
-      )
+      setError(err instanceof Error ? err.message : 'This sample dataset could not be loaded.')
     }
-  }, [selectedDataset])
+  }, [selectedDataset, customData])
 
   // Never leave a request in flight after the view goes away.
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const handleUploadClick = () => {
-    // Selection only moves to "Custom Upload" once a file actually parses, so
-    // cancelling the dialog leaves the current dataset (and its chip) untouched.
-    fileInputRef.current?.click()
+  const handleSelect = (value: string) => {
+    setSelectedDataset(value)
+    setCurrent(null)
+    setRun(null)
+    setError(null)
+    setNotice(null)
   }
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
 
     // Reset the input so re-selecting the same file triggers onChange
@@ -139,7 +103,7 @@ export default function App() {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setError(`File is too large (${file.size.toLocaleString()} bytes exceeds the 5 MB limit).`)
+      setError('That file is larger than 5 MB. Choose a smaller CSV.')
       return
     }
 
@@ -155,10 +119,6 @@ export default function App() {
       }
       try {
         const parsed = parseCSV(text)
-        setParsedData(parsed)
-        setCurrentResult(null)
-        setCustomFileName(file.name)
-        setSelectedDataset('custom')
         const noticeParts: string[] = []
         if (parsed.truncated) {
           noticeParts.push(
@@ -173,6 +133,11 @@ export default function App() {
             `${parsed.parseErrorRowCount.toLocaleString()} ${noun} in this file could not be parsed cleanly and may be incomplete.`,
           )
         }
+        setCustomData(parsed)
+        setCustomFileName(file.name)
+        setCurrent(null)
+        setRun(null)
+        setSelectedDataset(CUSTOM)
         if (noticeParts.length > 0) setNotice(noticeParts.join(' '))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'That file could not be read as CSV.')
@@ -192,50 +157,82 @@ export default function App() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    const startedAt = Date.now()
     setIsLoading(true)
     setError(null)
 
     try {
-      const rawPlan = await askData(
+      const response = await askData(
         {
           question: asked,
           headers: parsedData.headers,
-          sampleRows: parsedData.rows.slice(0, 5),
+          sampleRows: parsedData.rows.slice(0, SAMPLE_ROWS),
           rowCount: parsedData.rows.length,
         },
         { signal: controller.signal },
       )
 
-      // Second gate: the function already validated, but a plan never reaches the
-      // engine — and never renders as a chart — without matching this dataset.
-      const validation = validateQueryPlan(rawPlan, parsedData.headers)
-      if (!validation.ok) throw new Error(validation.error)
+      // Second gate: the function already checked the plan, but a plan never reaches
+      // the engine, and never renders as a chart, without matching this dataset.
+      const checkAt = Date.now()
+      const validation = validateQueryPlan(response.result, parsedData.headers)
+      if (!validation.ok) {
+        const step: RunStep = {
+          name: 'Check plan in the browser',
+          status: 'failed',
+          ms: Date.now() - checkAt,
+          detail: validation.error,
+        }
+        setRun({
+          trace: [...response.trace, step],
+          usage: response.usage,
+          model: response.model,
+          totalMs: response.totalMs,
+          outcome: 'failed',
+        })
+        setError(validation.error)
+        return
+      }
 
-      const servedProvider = rawPlan.served_provider === 'xAI' || rawPlan.served_provider === 'Anthropic' || rawPlan.served_provider === 'OpenRouter'
-        ? rawPlan.served_provider
-        : undefined
-      const servedModel = typeof rawPlan.served_model === 'string' ? rawPlan.served_model : undefined
-      const plan = { ...validation.plan, served_provider: servedProvider, served_model: servedModel, execution: rawPlan.execution }
-      const engineResult = executeQuery(parsedData, plan)
-      const result: AnalysisResult = { ...engineResult, queryPlan: plan }
-      setCurrentResult(result)
+      const executeAt = Date.now()
+      const engine: EngineResult = executeQuery(parsedData, validation.plan)
+      const top = topGroup(engine)
+      const runStep: RunStep = {
+        name: 'Run plan on the rows',
+        status: 'ok',
+        ms: Date.now() - executeAt,
+        detail: top
+          ? `${engine.labels.length} groups. Highest: ${top.label}.`
+          : 'No rows matched, so there are no groups.',
+      }
+      const done: RunView = {
+        trace: [...response.trace, runStep],
+        usage: response.usage,
+        model: response.model,
+        totalMs: response.totalMs,
+        outcome: 'done',
+      }
+      const result: AnalysisResult = {
+        ...engine,
+        queryPlan: validation.plan,
+        question: asked,
+        dataset: datasetLabel,
+      }
+      setCurrent(result)
+      setRun(done)
       setHistory((prev) =>
-        [
-          {
-            id: Date.now().toString(),
-            question: asked,
-            dataset: datasets.find((d) => d.value === selectedDataset)?.label ?? selectedDataset,
-            result,
-            timestamp: new Date(),
-          },
-          ...prev,
-        ].slice(0, MAX_HISTORY),
+        [{ id: String(Date.now()), result, run: done, timestamp: new Date() }, ...prev].slice(0, MAX_HISTORY),
       )
     } catch (err) {
-      if (!(err instanceof CancelledError)) {
-        setError(
-          err instanceof Error ? err.message : 'Analysis failed. Try rephrasing your question.',
-        )
+      if (err instanceof CancelledError) {
+        setRun({ ...clientRun('Stopped by you before a reply.', startedAt, 'skipped'), outcome: 'stopped' })
+      } else if (err instanceof AnalysisRunError) {
+        setRun({ ...err.run, outcome: 'failed' })
+        setError(err.message)
+      } else {
+        const message = err instanceof Error ? err.message : 'Analysis failed. Try rephrasing your question.'
+        setRun({ ...clientRun(message, startedAt), outcome: 'failed' })
+        setError(message)
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null
@@ -243,209 +240,99 @@ export default function App() {
     }
   }
 
-  const suggestedQueries = SAMPLE_QUERIES[selectedDataset] ?? []
-  const warnings = currentResult?.warnings ?? []
+  const handleReopen = (entry: HistoryEntry) => {
+    setCurrent(entry.result)
+    setRun(entry.run)
+    setQuestion(entry.result.question)
+  }
+
+  const headerStatus: HeaderStatus = isLoading ? 'running' : run ? run.outcome : 'idle'
+  const suggestions = SAMPLE_QUERIES[selectedDataset] ?? []
+  const liveText = isLoading
+    ? 'Analyzing your question.'
+    : run?.outcome === 'done' && current
+      ? `Chart updated: ${current.queryPlan.title}.`
+      : run?.outcome === 'failed'
+        ? 'The analysis failed.'
+        : run?.outcome === 'stopped'
+          ? 'Analysis stopped.'
+          : ''
 
   return (
-    <div className="dp-shell">
-      <AppHeader
-        datasets={datasets}
-        selected={selectedDataset}
-        parsedData={parsedData}
-        fileInputRef={fileInputRef}
-        onSelect={setSelectedDataset}
-        onUploadClick={handleUploadClick}
-        onFileChange={handleFileUpload}
-      />
+    <div className="ds-app">
+      <AppHeader status={headerStatus} />
 
-      <div
-        className="dp-blurb"
-        style={{
-          width: '100%',
-          padding: '8px 24px',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-          background: 'rgba(255,51,102,0.02)',
-          flexShrink: 0,
-        }}
-      >
-        <p style={{ margin: 0, fontSize: '11.5px', color: '#a6a6c2', lineHeight: 1.55, maxWidth: 860 }}>
-          Load a CSV or pick one of the sample datasets, then ask questions like you're talking to a
-          colleague. The AI figures out what you're looking for, crunches the numbers right in your
-          browser, and draws the chart that tells the story.
+      <main className="ds-main">
+        <QueryBar
+          options={options}
+          selected={selectedDataset}
+          parsedData={parsedData}
+          question={question}
+          suggestions={suggestions}
+          isLoading={isLoading}
+          fileInputRef={fileInputRef}
+          onSelect={handleSelect}
+          onUploadClick={() => fileInputRef.current?.click()}
+          onFileChange={handleFileUpload}
+          onQuestionChange={setQuestion}
+          onAnalyze={() => void handleAnalyze()}
+          onStop={handleStop}
+        />
+
+        {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
+
+        <Banners
+          error={error}
+          notice={notice}
+          onDismissError={() => setError(null)}
+          onDismissNotice={() => setNotice(null)}
+        />
+
+        <p className="ds-hint" role="status" aria-live="polite">
+          {liveText}
         </p>
-      </div>
 
-      <div className="dp-body">
-        <main className="dp-main">
-          <QueryBar
-            question={question}
-            suggestions={suggestedQueries}
-            isLoading={isLoading}
-            hasData={Boolean(parsedData)}
-            onQuestionChange={setQuestion}
-            onAnalyze={() => void handleAnalyze()}
-            onStop={handleStop}
-          />
+        <div className="ds-grid-2">
+          {isLoading ? (
+            <section className="ds-card" aria-busy="true" aria-label="Analysis in progress">
+              <div className="app-skeleton" />
+            </section>
+          ) : current ? (
+            <AnalysisPanel result={current} />
+          ) : (
+            <section className="ds-card">
+              <p className="ds-empty">
+                {parsedData
+                  ? 'Ask a question to draw a chart from your data.'
+                  : 'Choose a sample dataset or upload a CSV to start.'}
+              </p>
+            </section>
+          )}
 
-          <Banners
-            error={error}
-            notice={notice}
-            onDismissError={() => setError(null)}
-            onDismissNotice={() => setNotice(null)}
-          />
-
-          {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
-
-          <div
-            style={{
-              background: 'rgba(14,14,28,0.6)',
-              border: '1px solid rgba(255,255,255,0.05)',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              minHeight: '200px',
-            }}
-          >
-            {isLoading ? (
-              <div>
-                <div
-                  style={{
-                    padding: '16px 20px 0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <motion.div
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    <Zap size={14} color="#ff3366" aria-hidden="true" />
-                  </motion.div>
-                  <span role="status" style={{ fontSize: '12px', color: '#a6a6c2' }}>
-                    Analyzing data...
-                  </span>
-                </div>
-                <ChartSkeleton />
-              </div>
-            ) : currentResult ? (
-              <div>
-                <div
-                  style={{
-                    padding: '16px 20px 8px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontSize: '15px',
-                      fontWeight: 600,
-                      fontFamily: 'Syne, sans-serif',
-                      color: '#f0f0fa',
-                    }}
-                  >
-                    {currentResult.queryPlan.title}
-                  </h2>
-                  <span
-                    title={`Rendered as a ${currentResult.queryPlan.chartType} chart`}
-                    style={{
-                      fontSize: '11px',
-                      color: '#ff3366',
-                      background: 'rgba(255,51,102,0.1)',
-                      border: '1px solid rgba(255,51,102,0.2)',
-                      borderRadius: '4px',
-                      padding: '2px 8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {currentResult.queryPlan.chartType}
-                  </span>
-                </div>
-
-                {warnings.length > 0 && (
-                  <div
-                    role="status"
-                    style={{
-                      margin: '12px 20px 0',
-                      padding: '9px 12px',
-                      background: 'rgba(255,170,0,0.07)',
-                      border: '1px solid rgba(255,170,0,0.2)',
-                      borderRadius: '8px',
-                      color: '#ffbb44',
-                      fontSize: '12px',
-                      lineHeight: 1.5,
-                      display: 'flex',
-                      gap: '8px',
-                      alignItems: 'flex-start',
-                    }}
-                  >
-                    <Info size={13} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
-                    <span>{warnings.join(' ')}</span>
-                  </div>
-                )}
-
-                <div style={{ padding: '8px 20px 16px' }}>
-                  <ChartView result={currentResult} datasetRowCount={parsedData?.rows.length} />
-                </div>
+          <section className="ds-card" aria-labelledby="run-title">
+            <div className="ds-card__head">
+              <h2 id="run-title" className="ds-card__title">Agent run</h2>
+              {run && <span className={`ds-badge ${OUTCOME[run.outcome].tone}`}>{OUTCOME[run.outcome].label}</span>}
+            </div>
+            {run ? (
+              <div className="app-stack">
+                <p className="ds-hint">
+                  Each step shows what it did and how long it took. Steps that did not run are marked skipped.
+                </p>
+                <RunTrace steps={run.trace} />
+                <RunMetrics run={run} />
               </div>
             ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '240px',
-                  gap: '12px',
-                  color: '#a6a6c2',
-                  padding: '24px',
-                  textAlign: 'center',
-                }}
-              >
-                <BarChart2 size={40} color="rgba(255,51,102,0.2)" aria-hidden="true" />
-                <p style={{ margin: 0, fontSize: '14px' }}>
-                  {parsedData
-                    ? 'Ask a question to visualize your data'
-                    : 'Select a dataset to get started'}
-                </p>
-              </div>
+              <p className="ds-empty">Ask a question to see each step, its timing and the token use.</p>
             )}
-          </div>
+          </section>
+        </div>
 
-          <AnimatePresence>
-            {currentResult && <AnalysisPanel result={currentResult} />}
-          </AnimatePresence>
-        </main>
+        <HistoryList entries={history} disabled={isLoading} onReopen={handleReopen} />
+      </main>
 
-        <HistoryRail
-          history={history}
-          isOpen={isRailOpen}
-          onToggle={() => setIsRailOpen((o) => !o)}
-          onSelect={(entry) => {
-            setCurrentResult(entry.result)
-            setQuestion(entry.question)
-          }}
-        />
-      </div>
-
-      <footer
-        style={{
-          textAlign: 'center',
-          padding: '8px 0',
-          fontSize: 11,
-          color: '#a6a6c2',
-          borderTop: '1px solid rgba(255,255,255,0.04)',
-          flexShrink: 0,
-        }}
-      >
-        Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
+      <footer className="ds-footer">
+        <div className="ds-footer__inner">Christopher Gentile</div>
       </footer>
     </div>
   )

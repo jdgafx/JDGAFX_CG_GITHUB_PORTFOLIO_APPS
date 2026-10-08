@@ -28,8 +28,9 @@ function unknownColumn(role: string, name: string, headers: string[]): string {
 
 /**
  * Validates an LLM-produced query plan against the real dataset columns.
- * Runs on both sides of the wire: the function rejects with 422, the client
- * refuses to execute, so a hallucinated column can never render as a chart.
+ * Runs on both sides of the wire: the function repairs a rejected plan once and
+ * then answers 422, and the client refuses to execute, so a hallucinated column
+ * can never render as a chart.
  */
 export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidation {
   if (!isRecord(raw)) {
@@ -120,6 +121,9 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
     }
     plan.sortBy = { field: sortField, dir: dir as SortDir }
   }
+
+  const notice = str(raw.notice)
+  if (notice && notice.toLowerCase() !== 'null') plan.notice = notice
 
   return { ok: true, plan }
 }
