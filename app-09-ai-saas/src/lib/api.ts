@@ -1,9 +1,13 @@
 import type { SummaryStats } from './mockData'
-import { isAuthNetworkError } from './supabase'
 
 const INSIGHTS_ENDPOINT = '/api/ai'
 const SSE_PREFIX = 'data: '
 const SSE_TERMINATOR = '[DONE]'
+/** Backstop for a server that stops answering without closing the stream. The server's own deadline is shorter. */
+const CLIENT_TIMEOUT_MS = 40_000
+const NETWORK_MESSAGE = "Couldn't reach the insights service. Check your connection and try again."
+const TIMEOUT_MESSAGE = 'The insights service did not answer in time. Try again.'
+const GENERIC_MESSAGE = 'The insights request could not be completed. Please try again.'
 
 let activeController: AbortController | null = null
 
@@ -64,7 +68,7 @@ export function abortInsights(): void {
   activeController = null
 }
 
-/** True when a rejection came from abortInsights() rather than a real failure. */
+/** True when a rejection came from an abort (a Stop, a new run or the client deadline), not from a server failure. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
@@ -81,10 +85,9 @@ function consumeSseLine(line: string, handlers: RunHandlers): boolean {
 
   let frame: Frame
   try {
-    frame = JSON.parse(data) as Frame
-  } catch (e) {
-    if (e instanceof SyntaxError) return false
-    throw e
+    frame = (JSON.parse(data) as Frame | null) ?? {}
+  } catch {
+    return false
   }
 
   if (frame.error) throw new RunError(frame.error, frame.totalMs ?? null)
@@ -108,70 +111,75 @@ function consumeSseLine(line: string, handlers: RunHandlers): boolean {
 function messageForStatus(status: number): string {
   if (status === 429) return 'Too many requests. Try again in a minute.'
   if (status >= 500) return 'The insights service is temporarily unavailable. Please try again.'
-  return 'The insights request could not be completed. Please try again.'
+  return GENERIC_MESSAGE
 }
 
+async function send(metrics: SummaryStats, signal: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(INSIGHTS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metrics }),
+      signal,
+    })
+  } catch (err) {
+    if (isAbortError(err)) throw err
+    // fetch rejects only when the request never reached the server
+    throw new RunError(NETWORK_MESSAGE)
+  }
+}
+
+async function readStream(body: ReadableStream<Uint8Array>, handlers: RunHandlers): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (consumeSseLine(line.trim(), handlers)) return
+      }
+    }
+    // Process any trailing frame left in the buffer
+    if (buffer.trim()) consumeSseLine(buffer.trim(), handlers)
+  } catch (err) {
+    if (isAbortError(err) || err instanceof RunError) throw err
+    throw new RunError(NETWORK_MESSAGE)
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+/**
+ * Posts the summary and streams the answer to the handlers. Resolves when the stream ends.
+ * Rejects with a RunError (plain words) or an AbortError (the viewer stopped the run).
+ */
 export async function getInsights(metrics: SummaryStats, handlers: RunHandlers): Promise<void> {
   // Cancel any in-flight request before starting a new one
   abortInsights()
 
   const controller = new AbortController()
   activeController = controller
+  let timedOut = false
+  const watchdog = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, CLIENT_TIMEOUT_MS)
 
   try {
-    let response: Response
-    try {
-      response = await fetch(INSIGHTS_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metrics }),
-        signal: controller.signal,
-      })
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') throw err
-      if (isAuthNetworkError(err)) {
-        console.error('getInsights: network error', err)
-        throw new RunError("Couldn't reach the insights service. Check your connection and try again.")
-      }
-      throw err
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      console.error(`getInsights: upstream ${response.status}`, text)
-      throw new RunError(messageForStatus(response.status))
-    }
-
-    if (!response.body) {
-      throw new RunError('The insights service returned no response. Please try again.')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (consumeSseLine(line.trim(), handlers)) return
-        }
-      }
-
-      // Process any trailing frame left in the buffer
-      if (buffer.trim()) consumeSseLine(buffer.trim(), handlers)
-    } finally {
-      await reader.cancel().catch(() => {})
-    }
+    const response = await send(metrics, controller.signal)
+    if (!response.ok) throw new RunError(messageForStatus(response.status))
+    if (!response.body) throw new RunError('The insights service returned no response. Please try again.')
+    await readStream(response.body, handlers)
+  } catch (err) {
+    if (timedOut && isAbortError(err)) throw new RunError(TIMEOUT_MESSAGE)
+    throw err
   } finally {
-    if (activeController === controller) {
-      activeController = null
-    }
+    clearTimeout(watchdog)
+    if (activeController === controller) activeController = null
   }
 }

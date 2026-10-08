@@ -18,6 +18,7 @@ interface InsightsPanelProps {
 type RunStatus = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
 
 const COMPLETE_LABEL = 'Analysis complete'
+const GENERIC_FAILURE_MESSAGE = 'The analysis could not be completed. Try again.'
 
 export default function InsightsPanel({ stats }: InsightsPanelProps) {
   const [status, setStatus] = useState<RunStatus>('idle')
@@ -69,7 +70,7 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
         return
       }
       setStatus('failed')
-      setErrorMessage(err instanceof Error ? err.message : 'The analysis could not be completed. Try again.')
+      setErrorMessage(err instanceof RunError ? err.message : GENERIC_FAILURE_MESSAGE)
       setTotalMs(err instanceof RunError ? err.totalMs : null)
     }
   }
