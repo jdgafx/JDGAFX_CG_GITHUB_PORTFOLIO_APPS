@@ -6,7 +6,7 @@ export function emptyUsage(): Usage {
   return { prompt_tokens: null, completion_tokens: null, reasoning_tokens: null, total_tokens: null }
 }
 
-export function usageOf(raw: unknown): Usage {
+function usageOf(raw: unknown): Usage {
   if (!isRecord(raw)) return emptyUsage()
   const details: Record<string, unknown> = isRecord(raw.completion_tokens_details) ? raw.completion_tokens_details : {}
   return {
@@ -19,6 +19,7 @@ export function usageOf(raw: unknown): Usage {
 
 // The billed cost wins. Without it, estimate from the catalogue price of the model that
 // actually served the request. Stay null when either side is unknown: never invent a number.
+// An estimate of zero is also null, because it would read as "free" without the provider saying so.
 export function costOf(
   usage: Usage,
   reported: unknown,
@@ -30,10 +31,8 @@ export function costOf(
   const price = served && prices ? prices.get(served) : undefined
   if (!price || price.promptPerTok === null || price.completionPerTok === null) return null
   if (usage.prompt_tokens === null || usage.completion_tokens === null) return null
-  return {
-    usd: usage.prompt_tokens * price.promptPerTok + usage.completion_tokens * price.completionPerTok,
-    source: 'estimated',
-  }
+  const usd = usage.prompt_tokens * price.promptPerTok + usage.completion_tokens * price.completionPerTok
+  return usd > 0 ? { usd, source: 'estimated' } : null
 }
 
 export function usageFrom(

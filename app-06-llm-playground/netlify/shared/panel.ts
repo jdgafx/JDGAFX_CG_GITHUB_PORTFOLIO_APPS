@@ -6,7 +6,7 @@ import { strOrNull } from './parse'
 
 export const PANEL_TIMEOUT_MS = 25_000
 
-export interface PanelInput {
+interface PanelInput {
   key: string
   slot: Slot
   model: string
@@ -14,6 +14,8 @@ export interface PanelInput {
   system?: string
   temperature?: number
   prices: Map<string, LiveModel> | null
+  timeoutMs: number
+  signal?: AbortSignal
 }
 
 export async function runPanel(input: PanelInput): Promise<PanelResult> {
@@ -28,7 +30,7 @@ export async function runPanel(input: PanelInput): Promise<PanelResult> {
       max_tokens: COMPARE_MAX_TOKENS,
       temperature: input.temperature,
     },
-    PANEL_TIMEOUT_MS,
+    { timeoutMs: input.timeoutMs, signal: input.signal },
   )
   const base = { slot: input.slot, requestedModel: input.model, latencyMs: result.latencyMs }
   if (!result.ok) {

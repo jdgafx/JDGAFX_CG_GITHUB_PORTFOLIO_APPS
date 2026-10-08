@@ -35,6 +35,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
     }
     throw new ApiError(`Request failed with status ${res.status}`)
   }
+  if (body === null) throw new ApiError('The server sent a reply that could not be read. Try again.')
   return body as T
 }
 

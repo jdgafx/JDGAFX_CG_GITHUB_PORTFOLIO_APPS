@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
+import { DEFAULT_PICKS, MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
 import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
-import { chooseOption, failedJudgeStep, statusLine, type RunView } from './lib/run'
+import { chooseOption, failedJudgeStep, listed, statusLine, type RunView } from './lib/run'
 import { Header } from './components/Header'
 import { PromptCard } from './components/PromptCard'
 import { PanelSetup, type Picks } from './components/PanelSetup'
@@ -9,8 +9,6 @@ import { ResultCard, type CardPhase } from './components/ResultCard'
 import { EvidenceCard } from './components/EvidenceCard'
 import { JudgeCard } from './components/JudgeCard'
 import { TraceCard } from './components/TraceCard'
-
-const DEFAULT_PICKS: Picks = { B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5' }
 
 function messageFor(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
@@ -41,7 +39,13 @@ export default function App() {
   }, [])
 
   const running = run?.status === 'running'
-  const canRun = catalogue !== null && !running && prompt.trim() !== '' && prompt.length <= PROMPT_MAX_CHARS
+  const canRun =
+    catalogue !== null &&
+    listed(catalogue, picks.B) &&
+    listed(catalogue, picks.C) &&
+    !running &&
+    prompt.trim() !== '' &&
+    prompt.length <= PROMPT_MAX_CHARS
 
   async function handleRun() {
     if (!canRun || !catalogue) return

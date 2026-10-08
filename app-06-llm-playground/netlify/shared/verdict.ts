@@ -19,7 +19,7 @@ export function judgeMessages(prompt: string, answers: { slot: Slot; text: strin
   ]
 }
 
-export type VerdictParse =
+type VerdictParse =
   | { ok: true; bestOverall: Slot | 'tie'; perPanel: Partial<Record<Slot, string>>; caveat: string }
   | { ok: false; reason: string }
 

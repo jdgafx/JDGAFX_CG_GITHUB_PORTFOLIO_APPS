@@ -1,6 +1,6 @@
 // The curated picker options from app-06-picker.md. The server offers one only when the
 // live catalogue still lists it (or, in fallback mode, as the only known set).
-export interface CuratedGroup {
+interface CuratedGroup {
   label: string
   items: [id: string, why: string][]
 }

@@ -1,7 +1,10 @@
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 20)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000)
 
-export type Gate = { ok: true; headers: Record<string, string> } | { ok: false; response: Response }
+export const SERVER_ERROR = 'Something went wrong on the server. Try again.'
+const TOO_LARGE = 'The request is too large. Shorten the prompt and try again.'
+
+type Gate = { ok: true; headers: Record<string, string> } | { ok: false; response: Response }
 
 // Browser origins allowed to call these endpoints. Netlify injects URL and DEPLOY_PRIME_URL
 // for the live site and deploy previews, so the deployed host is never hardcoded.
@@ -83,10 +86,22 @@ export function gate(req: Request, method: 'GET' | 'POST'): Gate {
   return { ok: true, headers }
 }
 
-export async function readJson(req: Request): Promise<unknown> {
+type BodyRead = { ok: true; value: unknown } | { ok: false; error: string }
+
+// Refuses an oversized body before it is parsed. The declared length is checked first, then
+// the measured text, so a missing or wrong content-length cannot let a large body through.
+export async function readJson(req: Request, maxBytes: number): Promise<BodyRead> {
+  if (Number(req.headers.get('content-length') ?? 0) > maxBytes) return { ok: false, error: TOO_LARGE }
+  let text: string
   try {
-    return await req.json()
+    text = await req.text()
   } catch {
-    return undefined
+    return { ok: false, error: 'The request body could not be read' }
+  }
+  if (new TextEncoder().encode(text).byteLength > maxBytes) return { ok: false, error: TOO_LARGE }
+  try {
+    return { ok: true, value: JSON.parse(text) }
+  } catch {
+    return { ok: false, error: 'The request body must be JSON' }
   }
 }

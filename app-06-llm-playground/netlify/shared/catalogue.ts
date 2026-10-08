@@ -3,7 +3,7 @@ import { CURATED_GROUPS } from './curated'
 import { OPENROUTER_BASE } from './openrouter'
 import { errorName, isRecord, perToken } from './parse'
 
-const TTL_MS = 60 * 60 * 1000
+const TTL_MS = 10 * 60 * 1000
 const RETRY_MS = 60 * 1000
 const FETCH_TIMEOUT_MS = 10_000
 const OTHER_MIN_CONTEXT = 32_000
@@ -92,13 +92,29 @@ export async function liveModels(): Promise<Map<string, LiveModel> | null> {
   return (await current())?.models ?? null
 }
 
-// The IDs a compare may call. Live: every text model except the free router. Fallback:
-// the curated IDs, which are the only options the server offers in that mode.
+// An other-model the picker offers outside the curated groups. Compare accepts the same set.
+function isOtherOffer(model: LiveModel, curated: Set<string>): boolean {
+  return (
+    model.textOutput &&
+    !curated.has(model.id) &&
+    !model.id.startsWith('openrouter/') &&
+    !model.id.includes(':free') &&
+    !model.id.includes(':batch') &&
+    (model.contextLength ?? 0) >= OTHER_MIN_CONTEXT
+  )
+}
+
+// The IDs a compare may call, and exactly the IDs the picker offers. Live: the curated IDs the
+// list still shows, plus the other-model offers. Fallback: the curated IDs, the only options in that mode.
 export function acceptedIds(live: Map<string, LiveModel> | null): Set<string> {
-  if (!live) return new Set(curatedIds())
+  const curated = new Set(curatedIds())
+  if (!live) return curated
   const ids = new Set<string>()
+  for (const id of curated) {
+    if (live.get(id)?.textOutput) ids.add(id)
+  }
   for (const model of live.values()) {
-    if (model.textOutput && !model.id.startsWith('openrouter/')) ids.add(model.id)
+    if (isOtherOffer(model, curated)) ids.add(model.id)
   }
   return ids
 }
@@ -108,8 +124,10 @@ export async function catalogueView(): Promise<CatalogueResponse> {
   if (!snap) {
     return { source: 'fallback', fetchedAt: null, defaultModel: MODEL, groups: curatedGroups(null) }
   }
+  // Past its TTL the copy is served only while refreshes fail, so the page labels it cached.
+  const source = Date.now() - snap.fetchedAt < TTL_MS ? 'live' : 'cached'
   return {
-    source: 'live',
+    source,
     fetchedAt: new Date(snap.fetchedAt).toISOString(),
     defaultModel: MODEL,
     groups: [...curatedGroups(snap.models), ...otherGroups(snap.models)],
@@ -135,14 +153,7 @@ function otherGroups(models: Map<string, LiveModel>): ModelGroup[] {
   const curated = new Set(curatedIds())
   const options: ModelOption[] = []
   for (const model of models.values()) {
-    const eligible =
-      model.textOutput &&
-      !curated.has(model.id) &&
-      !model.id.startsWith('openrouter/') &&
-      !model.id.includes(':free') &&
-      !model.id.includes(':batch') &&
-      (model.contextLength ?? 0) >= OTHER_MIN_CONTEXT
-    if (eligible) options.push(option(model.id, model, ''))
+    if (isOtherOffer(model, curated)) options.push(option(model.id, model, ''))
   }
   if (options.length === 0) return []
   options.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))

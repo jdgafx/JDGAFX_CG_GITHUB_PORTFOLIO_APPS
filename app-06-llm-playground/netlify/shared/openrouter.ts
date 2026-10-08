@@ -3,22 +3,28 @@ import { errorName, isRecord, strOrNull } from './parse'
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
 const UNREADABLE = 'The AI provider could not be reached or returned an unreadable reply'
+const NO_ANSWER = 'The AI provider did not answer in time'
+const STOPPED = 'The request was stopped before the AI provider answered'
 
 export interface ChatMessage {
   role: 'system' | 'user'
   content: string
 }
 
-export interface ChatRequest {
+interface ChatRequest {
   model: string
   messages: ChatMessage[]
   max_tokens: number
   temperature?: number
   reasoning?: { enabled: boolean }
-  provider?: { require_parameters: boolean }
 }
 
-export type ChatResult =
+interface ChatLimits {
+  timeoutMs: number
+  signal?: AbortSignal
+}
+
+type ChatResult =
   | { ok: true; data: Record<string, unknown>; latencyMs: number }
   | { ok: false; error: string; latencyMs: number }
 
@@ -30,40 +36,58 @@ export function providerKey(): string | null {
 
 // Plain-language summary for the browser. Raw provider bodies can name provider
 // accounts, so they go to the function log only.
-export function providerFailure(status: number): string {
-  if (status === 402) return 'The AI provider is out of credit right now'
-  if (status === 429) return 'Rate limited, try again shortly'
-  if (status === 401 || status === 403) return 'The AI provider rejected the server key'
-  if (status >= 500) return 'The AI provider failed'
+function providerFailure(status: number): string {
+  if (status === 401 || status === 402) return 'The AI provider rejected the key or is out of credit'
+  if (status === 429) return 'Rate limited, try again in a minute'
+  if (status >= 500) return NO_ANSWER
   return `The AI provider rejected the request (status ${status})`
 }
 
+// The signal ends at the call's own timeout or when the caller's signal aborts, whichever is first.
+// AbortSignal.any is avoided because it needs Node 20.3 or later.
+function callSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(Math.max(0, timeoutMs))
+  if (!caller) return timeout
+  const linked = new AbortController()
+  for (const source of [caller, timeout]) {
+    if (source.aborted) linked.abort(source.reason)
+    else source.addEventListener('abort', () => linked.abort(source.reason), { once: true })
+  }
+  return linked.signal
+}
+
 // One non-streaming chat call. usage.include makes OpenRouter report the billed cost.
-export async function chat(key: string, body: ChatRequest, timeoutMs: number): Promise<ChatResult> {
+// A caller that stopped while the call was pending gets the stop message, even when the provider
+// answers late: the stop wins over the reply.
+export async function chat(key: string, body: ChatRequest, limits: ChatLimits): Promise<ChatResult> {
   const started = Date.now()
+  const signal = callSignal(limits.timeoutMs, limits.signal)
+  const stopped = (): ChatResult => ({ ok: false, error: STOPPED, latencyMs: Date.now() - started })
   try {
     const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, usage: { include: true } }),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     })
+    if (limits.signal?.aborted) return stopped()
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 500)
       console.error(`Provider returned ${res.status} for ${body.model}: ${detail}`)
       return { ok: false, error: providerFailure(res.status), latencyMs: Date.now() - started }
     }
     const data: unknown = await res.json()
+    if (limits.signal?.aborted) return stopped()
     if (!isRecord(data)) return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started }
     return { ok: true, data, latencyMs: Date.now() - started }
   } catch (err) {
+    if (limits.signal?.aborted) return stopped()
     const name = errorName(err)
-    const latencyMs = Date.now() - started
     if (name === 'TimeoutError' || name === 'AbortError') {
-      return { ok: false, error: `Timed out after ${Math.round(timeoutMs / 1000)} s`, latencyMs }
+      return { ok: false, error: NO_ANSWER, latencyMs: Date.now() - started }
     }
     console.error(`Provider call failed for ${body.model}: ${name}`)
-    return { ok: false, error: UNREADABLE, latencyMs }
+    return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started }
   }
 }
 

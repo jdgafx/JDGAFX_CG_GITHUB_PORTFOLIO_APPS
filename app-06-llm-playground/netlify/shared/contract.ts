@@ -4,12 +4,30 @@
 export const MODEL = '~anthropic/claude-haiku-latest'
 export const PROMPT_MAX_CHARS = 4000
 export const SYSTEM_MAX_CHARS = 2000
-export const ANSWER_MAX_CHARS = 16000
+// Judge input: one answer at most ANSWER_MAX_CHARS, and all answers together at most
+// JUDGE_TOTAL_MAX_CHARS. Longer input is refused, not cut.
+export const ANSWER_MAX_CHARS = 8000
+export const JUDGE_TOTAL_MAX_CHARS = 20000
 export const COMPARE_MAX_TOKENS = 2048
 export const JUDGE_MAX_TOKENS = 1024
 
 export const SLOTS = ['A', 'B', 'C'] as const
 export type Slot = (typeof SLOTS)[number]
+
+// A model ID the server will consider is at most this many characters.
+export const MODEL_ID_MAX_CHARS = 200
+
+// Largest JSON body each POST endpoint reads. A character can take 6 bytes in JSON (a \u escape),
+// so the limit is 6 bytes per character plus room for keys and model IDs. Every body within the
+// character limits fits.
+export const COMPARE_BODY_MAX_BYTES = (PROMPT_MAX_CHARS + SYSTEM_MAX_CHARS) * 6 + 4_096
+export const JUDGE_BODY_MAX_BYTES = (PROMPT_MAX_CHARS + JUDGE_TOTAL_MAX_CHARS) * 6 + 4_096
+
+// The picker's starting models for panels B and C. Both must be curated IDs (see curated.ts).
+export const DEFAULT_PICKS: Record<'B' | 'C', string> = {
+  B: 'google/gemini-2.5-flash-lite',
+  C: 'anthropic/claude-sonnet-5',
+}
 
 export interface ModelOption {
   id: string
@@ -26,7 +44,8 @@ export interface ModelGroup {
 }
 
 export interface CatalogueResponse {
-  source: 'live' | 'fallback'
+  // cached: the last good copy, served while refreshes fail after its TTL.
+  source: 'live' | 'cached' | 'fallback'
   fetchedAt: string | null
   defaultModel: string
   groups: ModelGroup[]
@@ -106,7 +125,7 @@ export interface JudgeVerdict {
   trace: TraceStep[]
 }
 
-export interface JudgeFailure {
+interface JudgeFailure {
   ok: false
   reason: string
   model: string | null

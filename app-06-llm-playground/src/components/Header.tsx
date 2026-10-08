@@ -9,6 +9,7 @@ function catalogueBadge({ catalogue, catalogueFailed }: HeaderProps): { label: s
   if (catalogueFailed) return { label: 'Model list unavailable', className: 'ds-badge--danger' }
   if (!catalogue) return { label: 'Loading model list', className: '' }
   if (catalogue.source === 'live') return { label: 'Live model list', className: 'ds-badge--success' }
+  if (catalogue.source === 'cached') return { label: 'Cached model list', className: 'ds-badge--warning' }
   return { label: 'Fallback model list', className: 'ds-badge--warning' }
 }
 

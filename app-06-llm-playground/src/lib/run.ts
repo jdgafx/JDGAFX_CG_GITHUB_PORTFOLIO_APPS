@@ -13,7 +13,7 @@ import {
 } from '../../netlify/shared/contract'
 import { formatUsd } from './format'
 
-export type RunStatus = 'running' | 'done' | 'stopped' | 'error'
+type RunStatus = 'running' | 'done' | 'stopped' | 'error'
 
 export type JudgeView =
   | { state: 'idle' }
@@ -32,7 +32,7 @@ export interface RunView {
 // The server reports ok, failed or skipped. The browser adds "running" for a step in progress.
 export type StepStatus = TraceStep['status'] | 'running'
 
-export interface ViewStep extends Omit<TraceStep, 'status'> {
+interface ViewStep extends Omit<TraceStep, 'status'> {
   status: StepStatus
 }
 
@@ -49,15 +49,19 @@ export function panelStatus(panel: PanelResult): Status {
   return { label: 'Complete', tone: 'success' }
 }
 
-export function allOptions(catalogue: CatalogueResponse): ModelOption[] {
+function allOptions(catalogue: CatalogueResponse): ModelOption[] {
   return catalogue.groups.flatMap(group => group.options)
+}
+
+// True when the loaded model list offers this ID. A run never starts with a pick that fails this.
+export function listed(catalogue: CatalogueResponse, id: string): boolean {
+  return allOptions(catalogue).some(option => option.id === id)
 }
 
 // Keeps the current pick when the list still offers it, otherwise takes the first option.
 export function chooseOption(catalogue: CatalogueResponse, current: string): string {
-  const options = allOptions(catalogue)
-  if (options.some(option => option.id === current)) return current
-  return options[0]?.id ?? current
+  if (listed(catalogue, current)) return current
+  return allOptions(catalogue)[0]?.id ?? current
 }
 
 export function statusLine(run: RunView | null): string {

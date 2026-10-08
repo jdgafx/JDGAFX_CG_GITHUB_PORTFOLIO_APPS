@@ -13,7 +13,7 @@ interface PanelSetupProps {
 
 export function PanelSetup({ catalogue, catalogueFailed, picks, onPick, disabled }: PanelSetupProps) {
   const groups = catalogue?.groups ?? []
-  const placeholder = catalogueFailed ? 'Model list unavailable' : 'Loading models'
+  const placeholder = catalogueFailed ? 'Model list unavailable' : catalogue ? 'No models listed' : 'Loading models'
   return (
     <section className="ds-card" aria-labelledby="models-title">
       <div className="ds-card__head">
