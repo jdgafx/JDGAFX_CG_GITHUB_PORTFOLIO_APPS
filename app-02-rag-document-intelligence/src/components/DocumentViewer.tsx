@@ -16,7 +16,8 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
   const listRef = useRef<HTMLUListElement>(null)
   const passageRefs = useRef(new Map<number, HTMLLIElement>())
   const [focusIndex, setFocusIndex] = useState(0)
-  const [pendingScroll, setPendingScroll] = useState<number | null>(null)
+  // A new object per request, so the scroll effect runs once for each request.
+  const [scrollRequest, setScrollRequest] = useState<{ index: number } | null>(null)
   const [jumpValue, setJumpValue] = useState('')
 
   const total = document.chunks.length
@@ -25,19 +26,23 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
   const end = isWindowed ? start + WINDOW_SIZE : total
 
   const target = highlightedChunks[0]
+  const [seenTarget, setSeenTarget] = useState(target)
 
-  // A cited passage may sit outside the rendered window, so move the window
-  // to it first, then scroll once the node exists.
-  useEffect(() => {
-    if (target === undefined) return
-    setFocusIndex(target)
-    setPendingScroll(target)
-  }, [target])
+  // A cited passage may sit outside the rendered window. When the cited passage
+  // changes, move the window to it and ask for a scroll. Adjusting state during
+  // render, not in an effect, lets the window and the request land in one commit.
+  if (target !== seenTarget) {
+    setSeenTarget(target)
+    if (target !== undefined) {
+      setFocusIndex(target)
+      setScrollRequest({ index: target })
+    }
+  }
 
   useEffect(() => {
-    if (pendingScroll === null) return
+    if (scrollRequest === null) return
     const list = listRef.current
-    const item = passageRefs.current.get(pendingScroll)
+    const item = passageRefs.current.get(scrollRequest.index)
     if (!list || !item) return
     // Scroll the list itself. scrollIntoView would also move the page, which
     // jumps the layout every time someone hovers a source in the chat.
@@ -46,13 +51,12 @@ export function DocumentViewer({ document, highlightedChunks }: DocumentViewerPr
       top: item.offsetTop - list.clientHeight / 2 + item.offsetHeight / 2,
       behavior: reduceMotion ? 'auto' : 'smooth',
     })
-    setPendingScroll(null)
-  }, [pendingScroll, start, end])
+  }, [scrollRequest])
 
   const goTo = (index: number) => {
     const clamped = Math.max(0, Math.min(index, total - 1))
     setFocusIndex(clamped)
-    setPendingScroll(clamped)
+    setScrollRequest({ index: clamped })
   }
 
   const handleJump = (e: FormEvent<HTMLFormElement>) => {

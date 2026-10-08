@@ -1,11 +1,15 @@
 /** The one chat model every call in this app uses. No client field or env var overrides it. */
 export const MODEL = '~anthropic/claude-haiku-latest'
 
+const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const CATALOGUE_URL = 'https://openrouter.ai/api/v1/models'
+
 /** Output cap sent on every model call, so no answer can run unbounded. */
-export const MAX_OUTPUT_TOKENS = 4096
+const MAX_OUTPUT_TOKENS = 4096
+
+export const TIMEOUT_MESSAGE = 'The AI provider did not answer in time.'
 
 export interface ProviderConfig {
-  url: string
   apiKey: string
   model: string
 }
@@ -23,26 +27,21 @@ export interface RawUsage {
 }
 
 export type AttemptOk = { ok: true; content: string; finishReason: string | null; model: string | null; usage: RawUsage }
-export type Attempt = AttemptOk | { ok: false; status: number; message: string }
+type Attempt = AttemptOk | { ok: false; status: number; message: string }
 
 /** The provider for the given model, or null when no OpenRouter key is configured. */
 export function getProvider(model: string): ProviderConfig | null {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return null
-  return {
-    url: process.env.OPENROUTER_URL ?? 'https://openrouter.ai/api/v1/chat/completions',
-    apiKey,
-    model,
-  }
+  return { apiKey, model }
 }
 
 // Upstream error bodies carry account identifiers. The function log keeps them;
 // the browser gets one plain sentence per status.
 function upstreamMessage(status: number): string {
-  if (status === 401 || status === 403) return 'The AI provider rejected the API key.'
-  if (status === 402) return 'The AI provider is out of credit for this demo.'
-  if (status === 429) return 'The AI provider is rate limiting requests. Try again shortly.'
-  if (status >= 500) return 'The AI provider failed. Try again shortly.'
+  if (status === 401 || status === 402 || status === 403) return 'The AI provider rejected the key or is out of credit.'
+  if (status === 429) return 'Rate limited, try again in a minute.'
+  if (status >= 500) return TIMEOUT_MESSAGE
   return 'The AI provider rejected the request.'
 }
 
@@ -50,8 +49,12 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
 function readUsage(raw: unknown): RawUsage {
-  const usage = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+  const usage = asRecord(raw)
   return {
     prompt_tokens: numberOrNull(usage['prompt_tokens']),
     completion_tokens: numberOrNull(usage['completion_tokens']),
@@ -60,20 +63,52 @@ function readUsage(raw: unknown): RawUsage {
   }
 }
 
-interface ProviderBody {
-  model?: unknown
-  usage?: unknown
-  choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown } | undefined>
+/** The fields this app reads from a chat completion body. Anything else is ignored. */
+function readReply(raw: unknown): { model: string | null; content: string; finishReason: string | null; usage: RawUsage } | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const body = raw as Record<string, unknown>
+  const choices: unknown = body['choices']
+  const choice = asRecord(Array.isArray(choices) ? (choices as unknown[])[0] : undefined)
+  const message = asRecord(choice['message'])
+  return {
+    model: typeof body['model'] === 'string' ? body['model'] : null,
+    content: typeof message['content'] === 'string' ? message['content'] : '',
+    finishReason: typeof choice['finish_reason'] === 'string' ? choice['finish_reason'] : null,
+    usage: readUsage(body['usage']),
+  }
+}
+
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
 }
 
 /**
- * One chat call. `deadline` is shared across attempts, so a retry gets only the
- * time the first call left over rather than a fresh full timeout.
+ * A signal that aborts when the deadline passes or the caller's signal aborts, whichever
+ * comes first. Written out by hand, so the function does not need AbortSignal.any.
  */
-export async function callModel(provider: ProviderConfig, messages: ChatMessage[], deadline: number): Promise<Attempt> {
+function deadlineSignal(remaining: number, caller: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(remaining)
+  if (!caller) return timeout
+  const combined = new AbortController()
+  for (const source of [timeout, caller]) {
+    if (source.aborted) combined.abort(source.reason)
+    else source.addEventListener('abort', () => combined.abort(source.reason), { once: true })
+  }
+  return combined.signal
+}
+
+/**
+ * One chat call. `deadline` is an epoch-millisecond time shared by every call in a
+ * request, so a retry gets only the time the first call left over. `signal`, when
+ * given, cancels the call as well, for example when the browser has gone away.
+ */
+export async function callModel(provider: ProviderConfig, messages: ChatMessage[], deadline: number, signal?: AbortSignal): Promise<Attempt> {
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) return { ok: false, status: 504, message: TIMEOUT_MESSAGE }
+
   let response: Response
   try {
-    response = await fetch(provider.url, {
+    response = await fetch(CHAT_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -84,40 +119,39 @@ export async function callModel(provider: ProviderConfig, messages: ChatMessage[
         response_format: { type: 'json_object' },
         usage: { include: true },
       }),
-      signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
+      signal: deadlineSignal(remaining, signal),
     })
   } catch (err) {
-    const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
-    console.error('OpenRouter request failed:', err)
-    return timedOut
-      ? { ok: false, status: 504, message: 'The model took too long to answer. Try a shorter question.' }
-      : { ok: false, status: 502, message: 'Could not reach the model provider. Try again shortly.' }
+    console.error('OpenRouter request failed:', err instanceof Error ? err.name : 'non-error')
+    return isTimeout(err)
+      ? { ok: false, status: 504, message: TIMEOUT_MESSAGE }
+      : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.' }
   }
 
   if (!response.ok) {
     console.error('OpenRouter error:', response.status, await response.text().catch(() => ''))
-    return { ok: false, status: 502, message: upstreamMessage(response.status) }
+    // A provider rate limit is passed on as 429. Other provider failures are a 502 from this function.
+    return { ok: false, status: response.status === 429 ? 429 : 502, message: upstreamMessage(response.status) }
   }
 
-  const body = (await response.json().catch(() => null)) as ProviderBody | null
-  if (!body) return { ok: false, status: 502, message: 'The model provider returned an unreadable response.' }
-
-  const first = body.choices?.[0]
-  const content = first?.message?.content
-  const finishReason = first?.finish_reason
-  return {
-    ok: true,
-    content: typeof content === 'string' ? content : '',
-    finishReason: typeof finishReason === 'string' ? finishReason : null,
-    model: typeof body.model === 'string' ? body.model : null,
-    usage: readUsage(body.usage),
+  let raw: unknown
+  try {
+    raw = await response.json()
+  } catch (err) {
+    // The deadline also covers reading the body, so a body cut off by it is a timeout.
+    if (isTimeout(err)) return { ok: false, status: 504, message: TIMEOUT_MESSAGE }
+    return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.' }
   }
+  const reply = readReply(raw)
+  if (!reply) return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.' }
+  return { ok: true, content: reply.content, finishReason: reply.finishReason, model: reply.model, usage: reply.usage }
 }
 
 // Catalogue pricing is public and changes rarely, so one lookup per instance
 // per hour is enough. Only used when the provider does not report a cost.
-const CATALOGUE_URL = 'https://openrouter.ai/api/v1/models'
 const CATALOGUE_TTL_MS = 60 * 60 * 1000
+const CATALOGUE_MAX_MS = 4000
+const CATALOGUE_MIN_MS = 1000
 
 interface Price {
   prompt: number
@@ -131,33 +165,41 @@ function perToken(value: unknown): number {
   return typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
 }
 
-async function loadPrices(): Promise<Map<string, Price> | null> {
+async function loadPrices(deadline: number): Promise<Map<string, Price> | null> {
   if (catalogue && Date.now() - catalogue.loadedAt < CATALOGUE_TTL_MS) return catalogue.prices
+  const remaining = deadline - Date.now()
+  if (remaining < CATALOGUE_MIN_MS) return null
   try {
-    const response = await fetch(CATALOGUE_URL, { signal: AbortSignal.timeout(4000) })
+    const response = await fetch(CATALOGUE_URL, { signal: AbortSignal.timeout(Math.min(CATALOGUE_MAX_MS, remaining)) })
     if (!response.ok) return null
-    const body = (await response.json()) as {
-      data?: Array<{ id?: unknown; pricing?: { prompt?: unknown; completion?: unknown } } | undefined>
-    }
+    const body = asRecord(await response.json().catch(() => null))
+    const data: unknown = body['data']
+    // Anything other than a list is not cached, so one bad reply cannot hide prices for an hour.
+    if (!Array.isArray(data)) return null
     const prices = new Map<string, Price>()
-    for (const entry of body.data ?? []) {
-      const prompt = perToken(entry?.pricing?.prompt)
-      const completion = perToken(entry?.pricing?.completion)
-      if (typeof entry?.id === 'string' && prompt >= 0 && completion >= 0) {
-        prices.set(entry.id, { prompt, completion })
+    for (const item of data as unknown[]) {
+      const entry = asRecord(item)
+      const pricing = asRecord(entry['pricing'])
+      const prompt = perToken(pricing['prompt'])
+      const completion = perToken(pricing['completion'])
+      if (typeof entry['id'] === 'string' && prompt >= 0 && completion >= 0) {
+        prices.set(entry['id'], { prompt, completion })
       }
     }
     catalogue = { loadedAt: Date.now(), prices }
     return prices
   } catch (err) {
-    console.error('OpenRouter catalogue lookup failed:', err)
+    console.error('OpenRouter catalogue lookup failed:', err instanceof Error ? err.name : 'non-error')
     return null
   }
 }
 
-/** USD cost from catalogue pricing and token counts, or null if the model has no listed price. */
-export async function estimateCost(model: string, promptTokens: number, completionTokens: number): Promise<number | null> {
-  const price = (await loadPrices())?.get(model)
+/**
+ * USD cost from catalogue pricing and token counts. Null when the model has no listed
+ * price, or when the request has too little time left to fetch the catalogue.
+ */
+export async function estimateCost(model: string, promptTokens: number, completionTokens: number, deadline: number): Promise<number | null> {
+  const price = (await loadPrices(deadline))?.get(model)
   if (!price) return null
   return promptTokens * price.prompt + completionTokens * price.completion
 }

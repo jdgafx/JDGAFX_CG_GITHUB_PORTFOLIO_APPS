@@ -7,7 +7,7 @@ import { pageMarkerPattern } from './chunk'
 // offline and needs no third-party script origin in the CSP.
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
-export interface ExtractResult {
+interface ExtractResult {
   text: string
   pages: number
 }

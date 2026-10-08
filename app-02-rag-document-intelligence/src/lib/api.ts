@@ -59,7 +59,7 @@ export function scoreChunk(chunk: string, qSet: Set<string>): number {
   return coverage + 0.4 * step * Math.min(density, 1)
 }
 
-export interface RetrievedChunk {
+interface RetrievedChunk {
   chunk: string
   index: number
   score: number
@@ -81,7 +81,7 @@ export function retrieve(question: string, chunks: string[], limit: number = TOP
 const RETRIEVE_STEP = 'Retrieve passages'
 const SERVER_STEPS = ['Accept request', 'Build prompt', 'Call model', 'Parse and validate']
 
-export type AskOutcome =
+type AskOutcome =
   | { status: 'answered'; answer: string; sourceChunks: number[]; selfRated: number; run: RunReport }
   | { status: 'no-matches'; run: RunReport }
 
@@ -97,7 +97,7 @@ export class AskError extends Error {
 }
 
 /** Progress callbacks, so the page can show each step as it happens. */
-export interface AskEvents {
+interface AskEvents {
   onStart: (name: string) => void
   onStep: (step: TraceStep) => void
 }
@@ -115,8 +115,9 @@ type StreamEnd =
   | { kind: 'error'; message: string; trace: TraceStep[]; totalMs: number | null }
 
 function fallbackMessage(status: number): string {
-  if (status === 429) return 'Too many questions in a row. Wait a moment and ask again.'
+  if (status === 429) return 'Rate limited, try again in a minute.'
   if (status === 413) return 'That document section was too large to send. Try a narrower question.'
+  if (status === 504) return 'The AI provider did not answer in time.'
   if (status >= 500) return 'The document assistant is temporarily unavailable. Please try again.'
   return 'The document assistant could not answer that question. Please try again.'
 }
@@ -237,7 +238,7 @@ export async function askQuestion(
     if (signal?.aborted) throw err
     console.error('DocMind request failed:', err)
     throw new AskError(
-      'Could not reach the document assistant. Check your connection and try again.',
+      'Could not reach the server. Check your connection and try again.',
       runWith([retrieval, failedStep('Call model', 'Could not reach the server.')], null),
     )
   }
@@ -299,19 +300,11 @@ export async function askQuestion(
     run = data
   }
 
-  // The model echoes chunk numbers back as text, so they can be out of range or
-  // repeated. Anything that would not resolve to a real passage is dropped.
-  const seen = new Set<number>()
-  const sourceChunks = run.result.source_chunk_indices.filter(idx => {
-    if (!Number.isInteger(idx) || idx < 0 || idx >= chunks.length || seen.has(idx)) return false
-    seen.add(idx)
-    return true
-  })
-
+  // The server keeps only citations that name a passage it was sent, so they are used as they are.
   return {
     status: 'answered',
     answer: run.result.answer,
-    sourceChunks,
+    sourceChunks: run.result.source_chunk_indices,
     selfRated: Math.min(1, Math.max(0, run.result.confidence)),
     run: { trace: [retrieval, ...run.trace], usage: run.usage, model: run.model, totalMs: run.totalMs },
   }
