@@ -1,9 +1,36 @@
-export interface ProviderConfig { url: string; apiKey: string; model: string; name: 'xAI' | 'OpenRouter' }
-export function generationOptions(provider: ProviderConfig, maxTokens: number, requireParameters = false): Record<string, unknown> { const options: Record<string, unknown> = requireParameters && provider.name === 'OpenRouter' ? { provider: { require_parameters: true } } : {}; if (provider.name !== 'OpenRouter' || provider.model !== 'openrouter/free') options.max_tokens = maxTokens; return options }
+// The one chat model this app calls. It accepts images. The server owns the
+// choice: clients cannot send a model, and no environment variable changes it.
+export const MODEL = '~anthropic/claude-haiku-latest'
 
-export function getProvider(_openRouterModel: string): ProviderConfig | null {
-  const openRouterKey = process.env.OPENROUTER_API_KEY
-  if (openRouterKey) return { url: process.env.OPENROUTER_URL ?? 'https://openrouter.ai/api/v1/chat/completions', apiKey: openRouterKey, model: process.env.OPENROUTER_MODEL ?? 'openrouter/free', name: 'OpenRouter' }
-  const xaiKey = process.env.XAI_API_KEY
-  return xaiKey ? { url: process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1/chat/completions', apiKey: xaiKey, model: process.env.XAI_MODEL ?? 'grok-4.6', name: 'xAI' } : null
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+export interface Provider {
+  url: string
+  apiKey: string
+}
+
+export type ChatMessage =
+  | { role: 'system'; content: string }
+  | {
+      role: 'user'
+      content: Array<{ type: 'image_url'; image_url: { url: string } } | { type: 'text'; text: string }>
+    }
+
+export function getProvider(): Provider | null {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) return null
+  return { url: process.env.OPENROUTER_URL ?? OPENROUTER_URL, apiKey }
+}
+
+// Every call sets max_tokens and turns reasoning off, so a reasoning-capable
+// alias cannot spend the output budget before any visible text is written.
+export function chatBody(messages: ChatMessage[], maxTokens: number): Record<string, unknown> {
+  return {
+    model: MODEL,
+    messages,
+    stream: true,
+    max_tokens: maxTokens,
+    reasoning: { enabled: false },
+    provider: { require_parameters: true },
+  }
 }

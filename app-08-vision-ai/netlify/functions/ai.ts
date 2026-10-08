@@ -1,16 +1,26 @@
-import { generationOptions, getProvider } from '../shared/provider'
+import { getProvider, type ChatMessage } from '../shared/provider'
+import { streamVisionRun, type TraceStep } from '../shared/vision-run'
 
 export const config = { path: '/api/ai' }
 
 const ANALYSIS_MODES = ['describe', 'analyze', 'qa', 'extract'] as const
 type AnalysisMode = (typeof ANALYSIS_MODES)[number]
 
-interface RequestBody {
+const MODE_LABELS: Record<AnalysisMode, string> = {
+  describe: 'Describe',
+  analyze: 'Analyze',
+  qa: 'Q&A',
+  extract: 'Extract',
+}
+
+interface AnalysisRequest {
   image: string
   mediaType: string
   mode: AnalysisMode
-  question?: string
+  question: string
 }
+
+type CheckedBody = { ok: true; value: AnalysisRequest } | { ok: false; status: number; message: string }
 
 const ALLOWED_ORIGINS = [
   'https://jdgafx-app-08-vision-ai.netlify.app',
@@ -22,20 +32,24 @@ const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/we
 
 // Netlify caps a function request body at 6MB; reject past that with a clear message.
 const MAX_BODY_BYTES = 6 * 1024 * 1024
+const TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 4MB.'
 
 const MAX_TOKENS_DEFAULT = 4096
 const MAX_TOKENS_EXTRACT = 8192
-const EMPTY_VISION_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash-vision-exp'
-
-// Netlify's function wall is ~30s. Stop streaming early and report truncation
-// rather than letting the platform kill the response mid-flight.
-const STREAM_BUDGET_MS = 25_000
-const UPSTREAM_CONNECT_TIMEOUT_MS = 20_000
 
 // Best-effort throttle. In-memory, so it only covers a single warm instance.
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
 const rateBuckets = new Map<string, number[]>()
+
+const SYSTEM_PROMPTS: Record<Exclude<AnalysisMode, 'qa'>, string> = {
+  describe:
+    'Provide a rich, detailed description of this image. Cover everything you observe: subjects, setting, mood, colors, composition, lighting, and any interesting or notable details.',
+  analyze:
+    'Provide a thorough technical analysis of this image. Cover: composition and framing, color palette and tones, key objects and their relationships, any visible text, image quality, and overall visual impact.',
+  extract:
+    'Extract all text, numbers, data, tables, and structured information from this image. Present the extracted content clearly and organized, preserving the original structure where possible.',
+}
 
 function baseHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
@@ -51,6 +65,16 @@ function baseHeaders(origin: string | null): Record<string, string> {
 
 function jsonError(message: string, status: number, origin: string | null): Response {
   return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...baseHeaders(origin), 'Content-Type': 'application/json' },
+  })
+}
+
+// Failures before the model call carry a one-step trace, so the UI can mark the failed step.
+function checkFailed(message: string, status: number, origin: string | null, startedAt: number): Response {
+  const totalMs = Date.now() - startedAt
+  const trace: TraceStep[] = [{ name: 'Request checked', status: 'failed', ms: totalMs, detail: message }]
+  return new Response(JSON.stringify({ error: message, trace, totalMs }), {
     status,
     headers: { ...baseHeaders(origin), 'Content-Type': 'application/json' },
   })
@@ -87,26 +111,53 @@ function isRateLimited(key: string): boolean {
   return false
 }
 
-function mapUpstreamError(status: number): { status: number; message: string } {
-  if (status === 401 || status === 403) {
-    return { status: 502, message: 'The vision service rejected our credentials.' }
+function isAnalysisMode(value: string): value is AnalysisMode {
+  return (ANALYSIS_MODES as readonly string[]).includes(value)
+}
+
+function rejected(status: number, message: string): CheckedBody {
+  return { ok: false, status, message }
+}
+
+function checkBody(input: unknown): CheckedBody {
+  if (typeof input !== 'object' || input === null) return rejected(400, 'Request body must be a JSON object.')
+  const { image, mediaType, mode, question } = input as Record<string, unknown>
+  if (typeof image !== 'string' || !image || typeof mode !== 'string') {
+    return rejected(400, 'image and mode are required')
   }
-  if (status === 402) {
-    return { status: 402, message: 'The vision service quota has been exhausted.' }
+  if (!isAnalysisMode(mode)) {
+    return rejected(400, `Unsupported mode. Use one of: ${ANALYSIS_MODES.join(', ')}.`)
   }
-  if (status === 413) {
-    return { status: 413, message: 'The image is too large for the vision service.' }
+  if (typeof mediaType !== 'string' || !SUPPORTED_MEDIA_TYPES.includes(mediaType)) {
+    const shown = typeof mediaType === 'string' && mediaType ? mediaType : 'unknown'
+    return rejected(400, `Unsupported image format: ${shown}. Use JPG, PNG, WebP, or GIF.`)
   }
-  if (status === 429) {
-    return { status: 429, message: 'The vision service is busy. Please retry in a moment.' }
-  }
-  if (status >= 500) {
-    return { status: 502, message: 'The vision service is temporarily unavailable.' }
-  }
-  return { status: 502, message: 'The vision service could not process this image.' }
+  const text = typeof question === 'string' ? question.trim() : ''
+  if (mode === 'qa' && !text) return rejected(400, 'A question is required for Q&A mode.')
+  if (image.length > MAX_BODY_BYTES) return rejected(413, TOO_LARGE_MESSAGE)
+  return { ok: true, value: { image, mediaType, mode, question: text } }
+}
+
+function buildMessages(request: AnalysisRequest): ChatMessage[] {
+  const system =
+    request.mode === 'qa'
+      ? `Answer the following question about this image concisely and accurately: ${request.question}`
+      : SYSTEM_PROMPTS[request.mode]
+  const userText = request.mode === 'qa' ? request.question : 'Please analyze this image as requested.'
+  return [
+    { role: 'system', content: system },
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:${request.mediaType};base64,${request.image}` } },
+        { type: 'text', text: userText },
+      ],
+    },
+  ]
 }
 
 export default async function handler(req: Request): Promise<Response> {
+  const startedAt = Date.now()
   const origin = req.headers.get('origin')
 
   if (req.method === 'OPTIONS') {
@@ -114,292 +165,44 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 204, headers: baseHeaders(origin) })
   }
 
-  if (!isOriginAllowed(origin)) {
-    return jsonError('Origin not allowed', 403, origin)
-  }
-
-  if (req.method !== 'POST') {
-    return jsonError('Method not allowed', 405, origin)
-  }
-
+  if (!isOriginAllowed(origin)) return jsonError('Origin not allowed', 403, origin)
+  if (req.method !== 'POST') return jsonError('Method not allowed', 405, origin)
   if (isRateLimited(clientKey(req))) {
-    return jsonError('Too many requests. Please wait a minute and try again.', 429, origin)
+    return checkFailed('Too many requests. Please wait a minute and try again.', 429, origin, startedAt)
   }
 
   const declaredLength = Number(req.headers.get('content-length') ?? '0')
-  if (declaredLength > MAX_BODY_BYTES) {
-    return jsonError('Image is too large. Please use an image under 4MB.', 413, origin)
-  }
+  if (declaredLength > MAX_BODY_BYTES) return checkFailed(TOO_LARGE_MESSAGE, 413, origin, startedAt)
 
-  const provider = getProvider('~anthropic/claude-sonnet-latest')
+  const provider = getProvider()
   if (!provider) {
-    console.error('No server-side AI provider is configured')
-    return jsonError('Vision service is not configured.', 500, origin)
+    console.error('OPENROUTER_API_KEY is not set')
+    return checkFailed('The AI provider is not configured on the server.', 500, origin, startedAt)
   }
 
-  let body: RequestBody
+  let body: unknown
   try {
-    body = (await req.json()) as RequestBody
+    body = await req.json()
   } catch {
-    return jsonError('Invalid JSON', 400, origin)
+    return checkFailed('Invalid JSON', 400, origin, startedAt)
   }
+  const checked = checkBody(body)
+  if (!checked.ok) return checkFailed(checked.message, checked.status, origin, startedAt)
 
-  const { image, mediaType, mode, question } = body
-  if (!image || !mode) {
-    return jsonError('image and mode are required', 400, origin)
+  const request = checked.value
+  const kilobytes = Math.round((request.image.length * 3) / 4 / 1024)
+  const checkedStep: TraceStep = {
+    name: 'Request checked',
+    status: 'ok',
+    ms: Date.now() - startedAt,
+    detail: `${MODE_LABELS[request.mode]}, ${request.mediaType}, about ${kilobytes} KB`,
   }
-  if (!ANALYSIS_MODES.includes(mode)) {
-    return jsonError(`Unsupported mode. Use one of: ${ANALYSIS_MODES.join(', ')}.`, 400, origin)
-  }
-  if (!SUPPORTED_MEDIA_TYPES.includes(mediaType)) {
-    return jsonError(
-      `Unsupported image format: ${mediaType || 'unknown'}. Use JPG, PNG, WebP, or GIF.`,
-      400,
-      origin,
-    )
-  }
-  if (mode === 'qa' && !question?.trim()) {
-    return jsonError('A question is required for Q&A mode.', 400, origin)
-  }
-  if (image.length > MAX_BODY_BYTES) {
-    return jsonError('Image is too large. Please use an image under 4MB.', 413, origin)
-  }
-
-  const systemPrompts: Record<AnalysisMode, string> = {
-    describe:
-      'Provide a rich, detailed description of this image. Cover everything you observe: subjects, setting, mood, colors, composition, lighting, and any interesting or notable details.',
-    analyze:
-      'Provide a thorough technical analysis of this image. Cover: composition and framing, color palette and tones, key objects and their relationships, any visible text, image quality, and overall visual impact.',
-    qa: `Answer the following question about this image concisely and accurately: ${question ?? 'What do you see?'}`,
-    extract:
-      'Extract all text, numbers, data, tables, and structured information from this image. Present the extracted content clearly and organized, preserving the original structure where possible.',
-  }
-
-  const userText =
-    mode === 'qa'
-      ? (question ?? 'What do you see in this image?')
-      : 'Please analyze this image as requested.'
-
-  const imageUrl = `data:${mediaType};base64,${image}`
-  const maxTokens = mode === 'extract' ? MAX_TOKENS_EXTRACT : MAX_TOKENS_DEFAULT
-
-  const upstreamAbort = new AbortController()
-  const connectTimer = setTimeout(() => upstreamAbort.abort(), UPSTREAM_CONNECT_TIMEOUT_MS)
-
-  let upstream: Response
-  try {
-    upstream = await fetch(provider.url, {
-      method: 'POST',
-      signal: upstreamAbort.signal,
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        ...generationOptions(provider, maxTokens, true),
-        stream: true,
-        messages: [
-          { role: 'system', content: systemPrompts[mode] },
-          {
-            role: 'user',
-            content: [
-              { type: 'image_url', image_url: { url: imageUrl } },
-              { type: 'text', text: userText },
-            ],
-          },
-        ],
-      }),
-    })
-  } catch (err) {
-    clearTimeout(connectTimer)
-    console.error('Upstream request failed:', err)
-    return jsonError('Could not reach the vision service. Please try again.', 502, origin)
-  }
-  clearTimeout(connectTimer)
-
-  if (!upstream.ok) {
-    const detail = await upstream.text().catch(() => '<unreadable body>')
-    console.error(`OpenRouter error ${upstream.status}: ${detail}`)
-    const mapped = mapUpstreamError(upstream.status)
-    return jsonError(mapped.message, mapped.status, origin)
-  }
-
-  const upstreamBody = upstream.body
-  if (!upstreamBody) {
-    console.error('OpenRouter returned an empty response body')
-    return jsonError('The vision service returned an empty response.', 502, origin)
-  }
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder()
-      let reader = upstreamBody.getReader()
-      const decoder = new TextDecoder()
-      const deadline = Date.now() + STREAM_BUDGET_MS
-      let truncated = false
-      let buffer = ''
-      let hasContent = false
-      let usedEmptyFallback = false
-      let modelKnown = false
-      let unsuitableModel = false
-      let pendingText: string[] = []
-
-      const send = (payload: Record<string, string | boolean>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
-      }
-      let servedModel = provider.model
-      send({ stage: 'accepted' })
-      send({ stage: 'provider', served_provider: provider.name, served_model: provider.model })
-
-      try {
-        for (;;) {
-          const remaining = deadline - Date.now()
-          if (remaining <= 0) {
-            truncated = true
-            break
-          }
-
-          let timer: ReturnType<typeof setTimeout> | undefined
-          const readPromise = reader.read()
-          // If the watchdog wins, nobody awaits this read; swallow its rejection.
-          readPromise.catch(() => undefined)
-          const chunk = await Promise.race([
-            readPromise,
-            new Promise<'watchdog'>(resolve => {
-              timer = setTimeout(() => resolve('watchdog'), remaining)
-            }),
-          ])
-          if (timer) clearTimeout(timer)
-
-          if (chunk === 'watchdog') {
-            truncated = true
-            break
-          }
-          if (chunk.done) {
-            if (!unsuitableModel && pendingText.length > 0) {
-              for (const text of pendingText) {
-                send({ stage: 'streaming' })
-                send({ text })
-              }
-              pendingText = []
-            }
-            if ((!hasContent || unsuitableModel) && !usedEmptyFallback && provider.name === 'OpenRouter' && provider.model === 'openrouter/free') {
-              const fallbackProvider = { ...provider, model: EMPTY_VISION_FALLBACK_MODEL }
-              const fallback = await fetch(fallbackProvider.url, {
-                method: 'POST',
-                signal: upstreamAbort.signal,
-                headers: {
-                  Authorization: `Bearer ${fallbackProvider.apiKey}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: fallbackProvider.model,
-                  ...generationOptions(fallbackProvider, maxTokens, true),
-                  stream: true,
-                  messages: [
-                    { role: 'system', content: systemPrompts[mode] },
-                    {
-                      role: 'user',
-                      content: [
-                        { type: 'image_url', image_url: { url: imageUrl } },
-                        { type: 'text', text: userText },
-                      ],
-                    },
-                  ],
-                }),
-              })
-              if (fallback.ok && fallback.body) {
-                usedEmptyFallback = true
-                reader = fallback.body.getReader()
-                buffer = ''
-                servedModel = fallbackProvider.model
-                hasContent = false
-                modelKnown = false
-                unsuitableModel = false
-                pendingText = []
-                send({ stage: 'provider', served_provider: fallbackProvider.name, served_model: fallbackProvider.model })
-                continue
-              }
-            }
-            break
-          }
-
-          buffer += decoder.decode(chunk.value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed || !trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              if (typeof parsed.model === 'string') {
-                servedModel = parsed.model
-                modelKnown = true
-                unsuitableModel = parsed.model.includes('content-safety')
-                if (!unsuitableModel) {
-                  for (const text of pendingText) {
-                    send({ stage: 'streaming' })
-                    send({ text })
-                  }
-                  pendingText = []
-                }
-              }
-              const choice = parsed.choices?.[0]
-              const delta = choice?.delta?.content
-              if (delta) {
-                hasContent = true
-                if (modelKnown && !unsuitableModel) {
-                  send({ stage: 'streaming' })
-                  send({ text: delta })
-                } else {
-                  pendingText.push(delta)
-                }
-              }
-              if (choice?.finish_reason === 'length') truncated = true
-            } catch (err) {
-              console.error('Failed to parse upstream SSE payload:', data.slice(0, 200), err)
-            }
-          }
-        }
-
-        // A watchdog, provider length stop, unsuitable model, or empty stream
-        // is a recoverable failure. Never turn partial/empty output into a
-        // validated result that the client can store in its gallery.
-        if (truncated || !hasContent || unsuitableModel) {
-          send({
-            error: truncated
-              ? 'The vision service stopped before the analysis finished. Please retry with the same image.'
-              : 'The vision service returned no usable analysis. Please retry with the same image.',
-            friendly: true,
-            recoverable: true,
-            truncated,
-          })
-        } else {
-          send({ stage: 'complete', served_provider: provider.name, served_model: servedModel })
-        }
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-      } catch (err) {
-        console.error('Streaming failed:', err)
-        send({ error: 'The analysis stream failed partway through.' })
-      } finally {
-        await reader.cancel().catch(() => undefined)
-        upstreamAbort.abort()
-        controller.close()
-      }
-    },
-  })
-
-  return new Response(stream, {
-    headers: {
-      ...baseHeaders(origin),
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
+  return streamVisionRun({
+    provider,
+    messages: buildMessages(request),
+    maxTokens: request.mode === 'extract' ? MAX_TOKENS_EXTRACT : MAX_TOKENS_DEFAULT,
+    startedAt,
+    checked: checkedStep,
+    headers: baseHeaders(origin),
   })
 }

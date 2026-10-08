@@ -1,4 +1,42 @@
 export type AnalysisMode = 'describe' | 'analyze' | 'qa' | 'extract'
+export type StepStatus = 'running' | 'ok' | 'failed' | 'skipped'
+
+export interface TraceStep {
+  name: string
+  status: StepStatus
+  ms?: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+export interface RunUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  cost?: number
+}
+
+export interface RunSummary {
+  trace: TraceStep[]
+  usage: RunUsage | null
+  model: string | null
+  totalMs: number
+}
+
+export type RunOutcome =
+  | { status: 'complete'; result: string; summary: RunSummary }
+  | { status: 'failed'; message: string; truncated: boolean; summary: RunSummary }
+  | { status: 'cancelled'; summary: RunSummary }
+
+export interface AnalyzeOptions {
+  file: File
+  mode: AnalysisMode
+  question?: string
+  signal?: AbortSignal
+  onStep: (step: TraceStep) => void
+  onText: (text: string) => void
+}
 
 export const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 export const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
@@ -7,33 +45,43 @@ export const ACCEPTED_LABEL = 'JPG, PNG, WebP, or GIF'
 // Generous enough for an 8192-token extraction, short enough that a wedged
 // request cannot hang the UI indefinitely.
 const REQUEST_TIMEOUT_MS = 60_000
-
-const STREAM_DROPPED_MESSAGE =
+const STEP_STATUSES: readonly string[] = ['running', 'ok', 'failed', 'skipped']
+const TIMED_OUT_MESSAGE = 'The analysis timed out. Try again, or use a smaller image.'
+const TIMED_OUT_DETAIL = 'No answer within 60 seconds'
+const STOPPED_DETAIL = 'Stopped by you before it finished'
+const DROPPED_MESSAGE =
   'The connection dropped before the analysis finished. The result above may be incomplete.'
+const NETWORK_MESSAGE = 'Could not reach the analysis service. Check your connection and try again.'
+const UNREADABLE_MESSAGE = 'This image could not be read in the browser. Try another file.'
+const NO_RESULT_MESSAGE = 'The vision service returned no usable analysis. Please retry with the same image.'
 
-export const CANCELLED_ERROR = 'AnalysisCancelled'
-export const TIMEOUT_ERROR = 'AnalysisTimeout'
-
-export function isCancellation(error: Error): boolean {
-  return error.name === CANCELLED_ERROR
-}
-
-export interface AnalyzeOptions {
-  file: File
-  mode: AnalysisMode
-  question?: string
-  signal?: AbortSignal
-  onChunk: (text: string) => void
-  onComplete: () => void
-  onError: (error: Error) => void
-  onTruncated?: () => void
-  onStage?: (stage: 'accepted' | 'provider' | 'streaming' | 'complete') => void
-  onProvenance?: (provider: string, model: string) => void
+export function fileProblem(file: File): string | null {
+  if (!ACCEPTED_TYPES.includes(file.type)) {
+    return `Unsupported file type: ${file.type || 'unknown'}. Please use ${ACCEPTED_LABEL}.`
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+    return `Image is too large (${sizeMB} MB). Maximum size is 4 MB.`
+  }
+  return null
 }
 
 interface Base64Result {
   data: string
   mediaType: string
+}
+
+interface StreamFrame {
+  stage?: unknown
+  step?: unknown
+  text?: unknown
+  result?: unknown
+  error?: unknown
+  truncated?: unknown
+  trace?: unknown
+  usage?: unknown
+  model?: unknown
+  totalMs?: unknown
 }
 
 export function fileToBase64(file: File): Promise<Base64Result> {
@@ -60,142 +108,230 @@ export function fileToBase64(file: File): Promise<Base64Result> {
   })
 }
 
-function named(name: string, message: string): Error {
-  const error = new Error(message)
-  error.name = name
-  return error
-}
+// Keeps the steps of one run and reports each change, so the trace updates live.
+// Running steps are timed from the moment they were first reported.
+class TraceRecorder {
+  readonly steps: TraceStep[] = []
+  private readonly startedAt = Date.now()
+  private readonly since = new Map<string, number>()
+  private readonly onStep: (step: TraceStep) => void
 
-async function errorMessageFor(res: Response): Promise<string> {
-  try {
-    const parsed = (await res.json()) as { error?: unknown }
-    if (typeof parsed.error === 'string' && parsed.error) return parsed.error
-  } catch {
-    // Fall through to the generic message below.
+  constructor(onStep: (step: TraceStep) => void) {
+    this.onStep = onStep
   }
-  return `Analysis failed (${res.status}). Please try again.`
+
+  record(step: TraceStep): void {
+    if (step.status === 'running') this.since.set(step.name, Date.now())
+    const index = this.steps.findIndex(existing => existing.name === step.name)
+    if (index === -1) this.steps.push(step)
+    else this.steps[index] = step
+    this.onStep(step)
+  }
+
+  // Ends every step still running, so a stopped run never shows a step in progress.
+  settle(detail: string): void {
+    for (const step of this.steps.filter(s => s.status === 'running')) {
+      this.record({ name: step.name, status: 'failed', ms: this.elapsed(step.name), detail })
+    }
+  }
+
+  fail(name: string, detail: string, message: string): RunOutcome {
+    this.record({ name, status: 'failed', ms: this.elapsed(name), detail })
+    return { status: 'failed', message, truncated: false, summary: this.localSummary() }
+  }
+
+  activeName(): string {
+    return this.steps.find(step => step.status === 'running')?.name ?? 'Request checked'
+  }
+
+  localSummary(): RunSummary {
+    return { trace: this.steps.slice(), usage: null, model: null, totalMs: Date.now() - this.startedAt }
+  }
+
+  private elapsed(name: string): number {
+    return Date.now() - (this.since.get(name) ?? this.startedAt)
+  }
 }
 
-export async function analyzeImage(opts: AnalyzeOptions): Promise<void> {
-  const { file, mode, question, signal, onChunk, onComplete, onError, onTruncated } = opts
-
+export async function analyzeImage(opts: AnalyzeOptions): Promise<RunOutcome> {
+  const trace = new TraceRecorder(opts.onStep)
   const controller = new AbortController()
-  const abortFromCaller = () => controller.abort()
   let timedOut = false
-  const timeoutId = setTimeout(() => {
+  const timer = setTimeout(() => {
     timedOut = true
     controller.abort()
   }, REQUEST_TIMEOUT_MS)
-
-  if (signal) {
-    if (signal.aborted) controller.abort()
-    else signal.addEventListener('abort', abortFromCaller, { once: true })
-  }
+  const stopFromCaller = () => controller.abort()
+  if (opts.signal?.aborted) controller.abort()
+  opts.signal?.addEventListener('abort', stopFromCaller)
 
   try {
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      throw new Error(
-        `Unsupported image format: ${file.type || 'unknown'}. Use ${ACCEPTED_LABEL}.`,
-      )
+    return await runRequest(opts, trace, controller.signal)
+  } catch (err) {
+    if (!isAbortError(err)) {
+      const message = 'The analysis stopped unexpectedly. Please try again.'
+      return trace.fail(trace.activeName(), message, message)
     }
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error('Image is too large. Please use an image under 4MB.')
+    if (timedOut) {
+      trace.settle(TIMED_OUT_DETAIL)
+      return { status: 'failed', message: TIMED_OUT_MESSAGE, truncated: false, summary: trace.localSummary() }
     }
+    trace.settle(STOPPED_DETAIL)
+    return { status: 'cancelled', summary: trace.localSummary() }
+  } finally {
+    clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', stopFromCaller)
+  }
+}
 
-    const { data, mediaType } = await fileToBase64(file)
+async function runRequest(opts: AnalyzeOptions, trace: TraceRecorder, signal: AbortSignal): Promise<RunOutcome> {
+  const problem = fileProblem(opts.file)
+  if (problem) return trace.fail('Request checked', problem, problem)
 
-    const res = await fetch('/api/ai', {
+  let encoded: Base64Result
+  try {
+    encoded = await fileToBase64(opts.file)
+  } catch {
+    return trace.fail('Request checked', UNREADABLE_MESSAGE, UNREADABLE_MESSAGE)
+  }
+
+  let response: Response
+  try {
+    response = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({ image: data, mediaType, mode, question }),
+      signal,
+      body: JSON.stringify({
+        image: encoded.data,
+        mediaType: encoded.mediaType,
+        mode: opts.mode,
+        question: opts.mode === 'qa' ? opts.question : undefined,
+      }),
     })
+  } catch (err) {
+    if (isAbortError(err)) throw err
+    return trace.fail('Request checked', NETWORK_MESSAGE, NETWORK_MESSAGE)
+  }
 
-    if (!res.ok) throw new Error(await errorMessageFor(res))
-    if (!res.body) throw new Error('The server returned an empty response.')
+  if (!response.ok) return rejectedRequest(response, trace)
+  if (!response.body) return trace.fail('Request checked', NO_RESULT_MESSAGE, NO_RESULT_MESSAGE)
+  return readStream(response.body, opts, trace)
+}
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let sawDone = false
-    let sawComplete = false
-    let receivedText = ''
-    let streamTruncated = false
+// The server answers before streaming starts with a JSON error. When it includes
+// a trace, the failed step is shown exactly as the server recorded it.
+async function rejectedRequest(response: Response, trace: TraceRecorder): Promise<RunOutcome> {
+  const body: unknown = await response.json().catch(() => null)
+  const fields: Record<string, unknown> = isRecord(body) ? body : {}
+  const message =
+    typeof fields.error === 'string' && fields.error
+      ? fields.error
+      : `The analysis could not start (HTTP ${response.status}). Please try again.`
+  const steps = fields.trace
+  if (!Array.isArray(steps)) return trace.fail('Request checked', message, message)
+  for (const step of steps.filter(isTraceStep)) trace.record(step)
+  return { status: 'failed', message, truncated: false, summary: trace.localSummary() }
+}
 
+async function readStream(
+  body: ReadableStream<Uint8Array>,
+  opts: AnalyzeOptions,
+  trace: TraceRecorder,
+): Promise<RunOutcome> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
     for (;;) {
       let chunk: ReadableStreamReadResult<Uint8Array>
       try {
         chunk = await reader.read()
       } catch (err) {
-        // A socket that dies mid-stream throws a bare "network error"; say
-        // something the user can act on instead.
-        if (err instanceof Error && err.name === 'AbortError') throw err
-        throw new Error(STREAM_DROPPED_MESSAGE)
+        // A socket that dies mid-stream throws a bare network error; say what happened instead.
+        if (isAbortError(err)) throw err
+        return trace.fail('Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
       }
-      const { done, value } = chunk
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
+      if (chunk.done) break
+      buffer += decoder.decode(chunk.value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
-
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const payload = line.slice(6).trim()
-        if (payload === '[DONE]') {
-          sawDone = true
-          continue
-        }
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(payload)
-        } catch {
-          continue
-        }
-        if (typeof parsed === 'object' && parsed !== null) {
-          const obj = parsed as Record<string, unknown>
-          if (obj['stage'] === 'accepted' || obj['stage'] === 'provider' || obj['stage'] === 'streaming' || obj['stage'] === 'complete') {
-            opts.onStage?.(obj['stage'])
-            if (obj['stage'] === 'complete') sawComplete = true
-          }
-          if (typeof obj['served_provider'] === 'string' && typeof obj['served_model'] === 'string') {
-            opts.onProvenance?.(obj['served_provider'], obj['served_model'])
-          }
-          if (typeof obj['text'] === 'string') {
-            receivedText += obj['text']
-            onChunk(obj['text'])
-          }
-          if (obj['truncated'] === true) {
-            streamTruncated = true
-            onTruncated?.()
-          }
-          if (typeof obj['error'] === 'string') throw new Error(obj['error'])
-        }
+        const finished = handleLine(line, opts, trace)
+        if (finished) return finished
       }
     }
-
-    // No terminator means the connection dropped mid-analysis. Treat the result
-    // as incomplete rather than silently accepting a partial answer.
-    if (!sawDone) throw new Error(STREAM_DROPPED_MESSAGE)
-    if (streamTruncated || !sawComplete || !receivedText.trim()) {
-      throw new Error(
-        streamTruncated
-          ? 'The vision service stopped before the analysis finished. Please retry with the same image.'
-          : 'The vision service returned no usable analysis. Please retry with the same image.',
-      )
-    }
-
-    onComplete()
-  } catch (err) {
-    const isAbort = err instanceof Error && err.name === 'AbortError'
-    if (isAbort && timedOut) {
-      onError(named(TIMEOUT_ERROR, 'The analysis timed out. Try again, or use a smaller image.'))
-    } else if (isAbort) {
-      onError(named(CANCELLED_ERROR, 'Analysis cancelled.'))
-    } else {
-      onError(err instanceof Error ? err : new Error(String(err)))
-    }
+    buffer += decoder.decode()
+    // No terminal frame means the connection dropped mid-analysis: never treat a partial answer as complete.
+    return handleLine(buffer, opts, trace) ?? trace.fail('Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
   } finally {
-    clearTimeout(timeoutId)
-    signal?.removeEventListener('abort', abortFromCaller)
+    void reader.cancel().catch(() => undefined)
   }
+}
+
+// Returns the outcome when the line is the terminal frame, otherwise null.
+function handleLine(line: string, opts: AnalyzeOptions, trace: TraceRecorder): RunOutcome | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('data:')) return null
+  const payload = trimmed.slice(5).trim()
+  if (!payload || payload === '[DONE]') return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(payload)
+  } catch {
+    return null
+  }
+  if (!isRecord(parsed)) return null
+  const frame = parsed as StreamFrame
+
+  if (frame.stage === 'step' && isTraceStep(frame.step)) {
+    trace.record(frame.step)
+    return null
+  }
+  if (typeof frame.text === 'string') {
+    opts.onText(frame.text)
+    return null
+  }
+  if (frame.stage === 'complete') {
+    const result = typeof frame.result === 'string' ? frame.result : ''
+    const summary = summaryFrom(frame, trace)
+    return result.trim()
+      ? { status: 'complete', result, summary }
+      : { status: 'failed', message: NO_RESULT_MESSAGE, truncated: false, summary }
+  }
+  if (frame.stage === 'failed') {
+    return {
+      status: 'failed',
+      message: typeof frame.error === 'string' && frame.error ? frame.error : NO_RESULT_MESSAGE,
+      truncated: frame.truncated === true,
+      summary: summaryFrom(frame, trace),
+    }
+  }
+  return null
+}
+
+function summaryFrom(frame: StreamFrame, trace: TraceRecorder): RunSummary {
+  return {
+    trace: Array.isArray(frame.trace) ? frame.trace.filter(isTraceStep) : trace.steps.slice(),
+    usage: isRecord(frame.usage) ? (frame.usage as RunUsage) : null,
+    model: typeof frame.model === 'string' ? frame.model : null,
+    totalMs: typeof frame.totalMs === 'number' ? frame.totalMs : trace.localSummary().totalMs,
+  }
+}
+
+function isTraceStep(value: unknown): value is TraceStep {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.name === 'string' &&
+    typeof value.detail === 'string' &&
+    typeof value.status === 'string' &&
+    STEP_STATUSES.includes(value.status)
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isAbortError(err: unknown): boolean {
+  return isRecord(err) && err.name === 'AbortError'
 }

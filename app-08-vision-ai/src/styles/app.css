@@ -1,0 +1,274 @@
+/* App-specific rules only. Colors, type, and the shared components come from tokens.css. */
+
+.image-card__name {
+  overflow-wrap: anywhere;
+}
+
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 200px;
+  padding: 24px 16px;
+  font: inherit;
+  color: var(--ds-text);
+  text-align: center;
+  background: var(--ds-surface-2);
+  border: 2px dashed var(--ds-border);
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+}
+
+.dropzone.is-dragging {
+  border-color: var(--ds-accent);
+}
+
+.dropzone__title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.image-preview {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+}
+
+.image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.mode-set {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mode-set legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.run-status {
+  min-height: 1.5em;
+  margin: 0;
+  font-size: 14px;
+  color: var(--ds-text-muted);
+}
+
+.result-body {
+  min-width: 0;
+}
+
+.result-text {
+  max-width: 72ch;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.result-text > * + * {
+  margin-top: 12px;
+}
+
+.result-text h1,
+.result-text h2,
+.result-text h3,
+.result-text h4 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.result-text ul,
+.result-text ol,
+.result-text blockquote,
+.result-text pre,
+.table-wrap {
+  margin: 0;
+}
+
+.result-text ul,
+.result-text ol {
+  padding-left: 22px;
+}
+
+.result-text li + li {
+  margin-top: 4px;
+}
+
+.result-text blockquote {
+  padding-left: 12px;
+  color: var(--ds-text-muted);
+  border-left: 3px solid var(--ds-border);
+}
+
+.result-text a {
+  color: var(--ds-accent);
+}
+
+.result-text code {
+  padding: 1px 4px;
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  background: var(--ds-surface-2);
+  border-radius: 4px;
+}
+
+.result-text pre {
+  padding: 12px;
+  overflow-x: auto;
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius-sm);
+}
+
+.result-text pre code {
+  padding: 0;
+  background: none;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.result-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.result-text th,
+.result-text td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.result-text th {
+  font-weight: 650;
+  background: var(--ds-surface-2);
+}
+
+/* The one moving element: a caret while the answer streams in. */
+.result-text.is-streaming > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--ds-accent);
+  animation: caret 1s steps(2, start) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.run-metrics {
+  margin-top: 16px;
+}
+
+.zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 56px 16px 16px;
+  background: rgba(8, 10, 16, 0.92);
+}
+
+.zoom img {
+  max-width: 100%;
+  max-height: calc(100vh - 72px);
+  object-fit: contain;
+  border-radius: var(--ds-radius-sm);
+}
+
+.zoom__close {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+}
+
+.history {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+
+.history__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.history__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__item {
+  display: grid;
+  gap: 6px;
+  width: 104px;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ds-text-muted);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.history__item img {
+  width: 104px;
+  height: 78px;
+  object-fit: cover;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.history__item[aria-current='true'] img {
+  border-color: var(--ds-accent);
+  box-shadow: 0 0 0 1px var(--ds-accent);
+}
+
+.history__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.history__item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__mode {
+  color: var(--ds-text-muted);
+}
