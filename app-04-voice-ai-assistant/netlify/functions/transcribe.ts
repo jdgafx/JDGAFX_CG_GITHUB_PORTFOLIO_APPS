@@ -1,10 +1,14 @@
-import { corsHeaders, guardRequest, jsonError, upstreamStatus } from '../shared/http'
+import { corsHeaders, guardRequest, jsonError, providerFailure, upstreamStatus } from '../shared/http'
+import { createRecorder } from '../shared/trace'
 
 const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen'
-const TRANSCRIBE_MODEL = process.env.DEEPGRAM_MODEL ?? 'nova-3'
+
+// A fixed server constant. The browser never chooses the speech-to-text model,
+// and no picker exposes it.
+const TRANSCRIBE_MODEL = 'nova-3'
 
 // Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
-// upstream turns into a clean 503 instead of a dead socket.
+// upstream turns into a clean error instead of a dead socket.
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
 
 // Netlify's request body ceiling is ~6MB once base64-encoded. 4.5MB of decoded
@@ -15,6 +19,16 @@ const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES ?? 4.5 * 1024 * 1024)
 // The client transcodes to wav when possible; these are the accepted upload
 // labels for the fallback containers it can preserve.
 const ALLOWED_FORMATS = ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'aiff']
+
+const CONTENT_TYPES: Record<string, string> = {
+  wav: 'audio/wav',
+  mp3: 'audio/mpeg',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  aiff: 'audio/aiff',
+}
 
 // The model occasionally wraps its answer or narrates an empty clip; strip the
 // well-known shapes so the client sees either real words or an empty string.
@@ -73,121 +87,132 @@ function wavHasSpeechEnergy(audio: Buffer): boolean | null {
   return null
 }
 
+function previewOf(text: string): string {
+  return text.length > 120 ? `"${text.slice(0, 117)}..."` : `"${text}"`
+}
+
 export default async (req: Request): Promise<Response> => {
   const guard = guardRequest(req)
   if (guard) return guard
 
   const origin = req.headers.get('origin')
+  const run = createRecorder()
+  const reply = (message: string, status: number) =>
+    jsonError(message, status, origin, { trace: run.steps, totalMs: run.elapsed() })
 
   try {
     let body: { audio?: unknown; format?: unknown }
     try {
       body = (await req.json()) as { audio?: unknown; format?: unknown }
     } catch {
-      return jsonError('Invalid JSON body', 400, origin)
+      run.add('audio received', 'failed', 'The request body was not JSON')
+      return reply('The request was not valid JSON.', 400)
     }
 
     const audio = body.audio
     if (typeof audio !== 'string' || audio.length === 0) {
-      return jsonError('Missing audio field', 400, origin)
+      run.add('audio received', 'failed', 'No audio was sent')
+      return reply('No audio was received. Try recording again.', 400)
     }
 
     const format = typeof body.format === 'string' ? body.format.toLowerCase() : 'wav'
     if (!ALLOWED_FORMATS.includes(format)) {
-      return jsonError('Unsupported audio format', 400, origin)
+      run.add('audio received', 'failed', 'The audio format is not supported')
+      return reply('Unsupported audio format', 400)
     }
 
     // base64 carries 3 bytes per 4 characters.
     if (audio.length * 0.75 > MAX_AUDIO_BYTES) {
-      return jsonError('Recording is too long to process. Try a shorter one.', 413, origin)
+      run.add('audio received', 'failed', 'The recording is larger than the upload limit')
+      return reply('Recording is too long to process. Try a shorter one.', 413)
     }
 
-    if (format === 'wav' && wavHasSpeechEnergy(Buffer.from(audio, 'base64')) === false) {
-      return Response.json({ text: '' }, { headers: corsHeaders(origin) })
+    const clip = Buffer.from(audio, 'base64')
+    run.add('audio received', 'ok', `${format.toUpperCase()}, ${Math.round(clip.length / 1024)} KB`)
+
+    if (format === 'wav' && wavHasSpeechEnergy(clip) === false) {
+      run.add('speech to text', 'skipped', 'No speech energy in the clip, so Deepgram was not called')
+      return Response.json(
+        { result: '', trace: run.steps, model: TRANSCRIBE_MODEL, totalMs: run.elapsed() },
+        { headers: corsHeaders(origin) },
+      )
     }
 
     const apiKey = process.env.DEEPGRAM_API_KEY
     if (!apiKey) {
       console.error('transcribe: DEEPGRAM_API_KEY is not configured')
-      return jsonError('Transcription is not configured on this deployment.', 500, origin)
-    }
-
-    const contentType: Record<string, string> = {
-      wav: 'audio/wav',
-      mp3: 'audio/mpeg',
-      ogg: 'audio/ogg',
-      flac: 'audio/flac',
-      m4a: 'audio/mp4',
-      aac: 'audio/aac',
-      aiff: 'audio/aiff',
+      run.add('speech to text', 'failed', 'No speech-to-text provider is configured on this deployment')
+      return reply('Transcription is not configured on this deployment.', 500)
     }
 
     let response: Response
     try {
-      response = await fetch(`${DEEPGRAM_URL}?model=${encodeURIComponent(TRANSCRIBE_MODEL)}&smart_format=true`, {
+      response = await fetch(`${DEEPGRAM_URL}?model=${TRANSCRIBE_MODEL}&smart_format=true`, {
         method: 'POST',
         headers: {
           Authorization: `Token ${apiKey}`,
-          'Content-Type': contentType[format],
+          'Content-Type': CONTENT_TYPES[format],
         },
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        body: Buffer.from(audio, 'base64'),
+        body: clip,
       })
     } catch (err) {
       const timedOut = err instanceof Error && err.name === 'TimeoutError'
       console.error('transcribe: upstream request failed', err)
-      return jsonError(
+      run.add(
+        'speech to text',
+        'failed',
+        timedOut ? 'No reply before the time limit' : 'The request did not reach Deepgram',
+      )
+      return reply(
         timedOut
           ? 'Transcription timed out. Try a shorter recording.'
           : 'Transcription service is unreachable. Try again in a moment.',
         503,
-        origin,
       )
     }
 
     if (!response.ok) {
-      // Vendor error text can carry account/billing detail — log it, never ship it.
+      // Vendor error text can carry account or billing detail. Log it, never ship it.
       const detail = await response.text().catch(() => '<unreadable>')
       console.error(`transcribe: upstream ${response.status} ${response.statusText}: ${detail}`)
-      return jsonError(
-        response.status === 429
-          ? 'Transcription is rate limited right now. Try again in a moment.'
-          : response.status === 402
-            ? 'The transcription service is temporarily unavailable. Please try again later.'
-            : 'Transcription service failed. Try again in a moment.',
-        upstreamStatus(response.status),
-        origin,
-      )
+      run.add('speech to text', 'failed', `HTTP ${response.status} from Deepgram`)
+      return reply(providerFailure('The transcription service', response.status), upstreamStatus(response.status))
     }
 
     let data: {
-      metadata?: { model_info?: { name?: string } }
+      metadata?: { model_info?: { name?: string }; duration?: number }
       results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> }
     }
     try {
       data = (await response.json()) as typeof data
     } catch (err) {
       console.error('transcribe: could not parse upstream JSON', err)
-      return jsonError('Transcription service returned an unreadable response.', 502, origin)
+      run.add('speech to text', 'failed', 'The reply was not JSON')
+      return reply('Transcription service returned an unreadable response.', 502)
     }
+
+    const model = data.metadata?.model_info?.name ?? TRANSCRIBE_MODEL
+    const seconds = typeof data.metadata?.duration === 'number' ? `, ${data.metadata.duration.toFixed(1)} s of audio` : ''
+    run.add('speech to text', 'ok', `${model}${seconds}`)
 
     const content = data.results?.channels?.[0]?.alternatives?.[0]?.transcript
     if (typeof content !== 'string') {
-      console.error(
-        'transcribe: unexpected upstream payload shape',
-        JSON.stringify(data).slice(0, 500),
-      )
-      return jsonError('Transcription service returned an unexpected response.', 502, origin)
+      console.error('transcribe: unexpected upstream payload shape', JSON.stringify(data).slice(0, 500))
+      run.add('parse and validate', 'failed', 'The reply had no transcript field')
+      return reply('Transcription service returned an unexpected response.', 502)
     }
 
-    return Response.json({
-      text: cleanTranscript(content),
-      provider: 'Deepgram',
-      model: data.metadata?.model_info?.name ?? TRANSCRIBE_MODEL,
-    }, { headers: corsHeaders(origin) })
+    const text = cleanTranscript(content)
+    run.add('parse and validate', 'ok', text ? previewOf(text) : 'No words in the clip')
+    return Response.json(
+      { result: text, trace: run.steps, model, totalMs: run.elapsed() },
+      { headers: corsHeaders(origin) },
+    )
   } catch (err) {
     console.error('transcribe: unhandled failure', err)
-    return jsonError('Transcription failed. Try again in a moment.', 500, origin)
+    run.add('server error', 'failed', 'Unexpected failure in the transcription function')
+    return reply('Transcription failed. Try again in a moment.', 500)
   }
 }
 

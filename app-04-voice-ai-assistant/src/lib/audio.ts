@@ -1,11 +1,9 @@
 // Recording + upload encoding.
 //
-// OpenRouter's `input_audio` part accepts wav / mp3 / ogg / flac / m4a / aac /
-// aiff (https://openrouter.ai/docs/features/multimodal/audio) — notably NOT
-// webm, which is what Chrome's MediaRecorder produces. Every browser can decode
-// the container it just recorded, so we decode locally and re-encode to 16kHz
-// mono PCM wav: one format the API always accepts, and small enough to stay
-// under Netlify's request ceiling.
+// The recorder's output (webm, ogg or mp4, depending on the browser) is decoded
+// locally and re-encoded as 16kHz mono PCM wav: one format every browser can
+// produce after decoding, and small enough to stay under Netlify's request
+// ceiling.
 
 export const MAX_RECORDING_MS = Number(import.meta.env.VITE_MAX_RECORDING_MS ?? 90_000)
 
@@ -48,7 +46,7 @@ export function pickRecorderMimeType(): string | null {
   return null
 }
 
-// Fallback path only: map a recorded container onto an OpenRouter format name.
+// Fallback path only: map a recorded container onto a format name the transcribe endpoint accepts.
 // Returns null for containers the API will not accept.
 function formatFromMimeType(mimeType: string): string | null {
   if (mimeType.includes('mp4') || mimeType.includes('m4a') || mimeType.includes('aac')) return 'm4a'

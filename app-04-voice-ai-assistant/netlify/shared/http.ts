@@ -62,12 +62,15 @@ export function rateLimited(req: Request): boolean {
   return bucket.count > RATE_LIMIT_MAX
 }
 
+// Error bodies carry the run's trace when there is one, so the browser can mark
+// the step that failed. Vendor text never goes in them.
 export function jsonError(
   message: string,
   status: number,
   origin: string | null,
+  extra: Record<string, unknown> = {},
 ): Response {
-  return Response.json({ error: message }, { status, headers: corsHeaders(origin) })
+  return Response.json({ error: message, ...extra }, { status, headers: corsHeaders(origin) })
 }
 
 // Runs the OPTIONS / origin / method / rate-limit gauntlet. Returns a Response
@@ -95,4 +98,13 @@ export function upstreamStatus(status: number): number {
   if (status === 429) return 429
   if (status >= 500) return 503
   return 502
+}
+
+// Plain-language copy for an upstream failure. The status code alone picks the
+// wording; the provider's own text is never shown.
+export function providerFailure(service: string, status: number): string {
+  if (status === 402) return `${service} is out of credit, so it cannot respond right now.`
+  if (status === 429) return `${service} is rate limited. Wait a moment and try again.`
+  if (status >= 500) return `${service} failed. Try again in a moment.`
+  return `${service} did not accept the request (HTTP ${status}).`
 }

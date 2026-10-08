@@ -1,0 +1,176 @@
+/* App-specific styles, layered on tokens.css. Anything shared belongs in tokens.css. */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vox-brand {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The waveform stage is the one visual focus of the page. */
+.vox-stage {
+  height: 120px;
+  overflow: hidden;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.vox-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.vox-controls {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.vox-mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font: inherit;
+  color: var(--ds-accent-text);
+  background: var(--ds-accent);
+  box-shadow: var(--ds-shadow);
+  cursor: pointer;
+}
+
+.vox-mic:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.vox-mic[data-state="recording"] {
+  background: var(--ds-danger);
+  animation: vox-pulse 1.6s ease-out infinite;
+}
+
+.vox-mic[data-state="speaking"] {
+  background: var(--ds-text-muted);
+}
+
+@keyframes vox-pulse {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ds-danger) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 18px color-mix(in srgb, var(--ds-danger) 0%, transparent);
+  }
+}
+
+.vox-spin {
+  animation: vox-spin 0.9s linear infinite;
+}
+
+@keyframes vox-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vox-status {
+  margin: 0;
+  max-width: 40ch;
+  font-size: 14px;
+}
+
+/* Conversation */
+.vox-log {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.vox-message {
+  max-width: 85%;
+  padding: 10px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.vox-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.vox-message .ds-hint {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.vox-message--user {
+  justify-self: end;
+  background: var(--ds-accent-soft);
+}
+
+.vox-message--assistant {
+  justify-self: start;
+  background: var(--ds-surface-2);
+}
+
+/* Typed question */
+.vox-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 480px) {
+  .vox-input {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vox-input .ds-button {
+    width: 100%;
+  }
+}
+
+/* Notices and errors */
+.vox-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vox-banner p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Run trace: the bar colour follows the step status as well as its width */
+.vox-trace-body {
+  min-width: 0;
+}
+
+.ds-trace__step[data-status="failed"] .ds-trace__bar {
+  background: var(--ds-danger);
+}
+
+.ds-trace__step[data-status="skipped"] .ds-trace__bar {
+  background: var(--ds-text-muted);
+}

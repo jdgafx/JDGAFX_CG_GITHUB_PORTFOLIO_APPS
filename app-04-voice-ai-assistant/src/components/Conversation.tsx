@@ -1,77 +1,53 @@
 import { useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { MessageCircle, Trash2 } from 'lucide-react'
 import type { ChatMessage } from '../lib/api'
 
 interface ConversationProps {
   messages: ChatMessage[]
   onClear: () => void
+  clearDisabled: boolean
 }
 
-export default function Conversation({ messages, onClear }: ConversationProps) {
-  const endRef = useRef<HTMLDivElement | null>(null)
+export default function Conversation({ messages, onClear, clearDisabled }: ConversationProps) {
+  const logRef = useRef<HTMLDivElement>(null)
 
+  // Keep the newest message in view by scrolling the log itself, not the page.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const log = logRef.current
+    if (log) log.scrollTop = log.scrollHeight
   }, [messages])
 
-  if (messages.length === 0) return null
-
   return (
-    <section className="w-full space-y-3" aria-label="Conversation">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium uppercase tracking-wider">
-          <MessageCircle size={12} aria-hidden="true" />
+    <section className="ds-card" aria-labelledby="conversation-title">
+      <div className="ds-card__head">
+        <h2 id="conversation-title" className="ds-card__title">
           Conversation
-        </div>
+        </h2>
         <button
           type="button"
+          className="ds-button"
           onClick={onClear}
-          aria-label="Clear the conversation"
-          title="Clear the conversation and start over"
-          className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-zinc-400 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
-          style={{ background: '#18181b', border: '1px solid #27272a' }}
+          disabled={clearDisabled || messages.length === 0}
         >
-          <Trash2 size={12} aria-hidden="true" />
-          Clear
+          Clear conversation
         </button>
       </div>
-      <div className="space-y-2 max-h-72 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}>
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className="max-w-xs px-4 py-2.5 rounded-2xl text-sm leading-relaxed"
-                title={msg.role === 'user' ? 'You said' : 'VoxAI replied'}
-                style={msg.role === 'user' ? {
-                  background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
-                  color: 'white',
-                  borderBottomRightRadius: 4,
-                } : {
-                  background: '#18181b',
-                  color: '#d4d4d8',
-                  border: '1px solid #27272a',
-                  borderBottomLeftRadius: 4,
-                }}
-              >
-                {msg.content}
-                {msg.role === 'assistant' && msg.servedProvider && (
-                  <div className="mt-1 text-[10px] text-zinc-500" title="Provider and model reported by the answer service">
-                    {msg.servedProvider}{msg.servedModel ? ` · ${msg.servedModel}` : ''}
-                  </div>
-                )}
-              </div>
-            </motion.div>
+      {messages.length === 0 ? (
+        <div className="ds-empty">Ask something by voice or by typing. Replies appear here.</div>
+      ) : (
+        <div ref={logRef} className="vox-log" role="log" aria-live="polite" aria-label="Messages">
+          {messages.map(message => (
+            <div key={message.id} className={`vox-message vox-message--${message.role}`}>
+              <p>
+                <span className="sr-only">{message.role === 'user' ? 'You said: ' : 'VoxAI replied: '}</span>
+                {message.content}
+              </p>
+              {message.role === 'assistant' && message.model && (
+                <p className="ds-hint">Answered by {message.model}</p>
+              )}
+            </div>
           ))}
-        </AnimatePresence>
-        <div ref={endRef} />
-      </div>
+        </div>
+      )}
     </section>
   )
 }

@@ -1,5 +1,4 @@
 import { useRef } from 'react'
-import { Send } from 'lucide-react'
 
 export const MAX_TEXT_INPUT_LENGTH = 2000
 
@@ -15,40 +14,45 @@ export default function MessageInput({ value, onChange, onSubmit, disabled, hasM
   const composingRef = useRef(false)
 
   return (
-    <div className="w-full flex gap-2">
-      <label htmlFor="voxai-text-input" className="sr-only">
-        Type a message to the assistant
-      </label>
-      <input
-        id="voxai-text-input"
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value.slice(0, MAX_TEXT_INPUT_LENGTH))}
-        onCompositionStart={() => { composingRef.current = true }}
-        onCompositionEnd={() => { composingRef.current = false }}
-        onKeyDown={(e) => {
-          // Enter confirms an IME candidate; don't send mid-composition.
-          if (e.key === 'Enter' && !composingRef.current && !e.nativeEvent.isComposing) {
-            onSubmit()
-          }
-        }}
-        placeholder={hasMic ? 'Or type a message...' : 'Type a message...'}
-        disabled={disabled}
-        maxLength={MAX_TEXT_INPUT_LENGTH}
-        title="Type a message and press Enter to send it to the assistant"
-        className="flex-1 px-4 py-3 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus:ring-2 focus:ring-violet-500/50 disabled:opacity-50"
-        style={{ background: '#18181b', border: '1px solid #27272a' }}
-      />
+    <div className="vox-input">
+      <div className="ds-field">
+        <label htmlFor="vox-text" className="ds-label">
+          {hasMic ? 'Or type a question' : 'Type a question'}
+        </label>
+        <input
+          id="vox-text"
+          className="ds-input"
+          type="text"
+          value={value}
+          maxLength={MAX_TEXT_INPUT_LENGTH}
+          disabled={disabled}
+          autoComplete="off"
+          aria-describedby="vox-text-hint"
+          onChange={event => onChange(event.target.value.slice(0, MAX_TEXT_INPUT_LENGTH))}
+          onCompositionStart={() => {
+            composingRef.current = true
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false
+          }}
+          onKeyDown={event => {
+            // Enter confirms an IME candidate; don't send mid-composition.
+            if (event.key === 'Enter' && !composingRef.current && !event.nativeEvent.isComposing) {
+              onSubmit()
+            }
+          }}
+        />
+        <span id="vox-text-hint" className="ds-hint">
+          Press Enter to send.
+        </span>
+      </div>
       <button
         type="button"
+        className="ds-button ds-button--primary"
         onClick={onSubmit}
-        disabled={!value.trim() || disabled}
-        aria-label="Send message"
-        title="Send this message to the assistant"
-        className="px-4 py-3 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
-        style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
+        disabled={disabled || !value.trim()}
       >
-        <Send size={16} aria-hidden="true" />
+        Send
       </button>
     </div>
   )

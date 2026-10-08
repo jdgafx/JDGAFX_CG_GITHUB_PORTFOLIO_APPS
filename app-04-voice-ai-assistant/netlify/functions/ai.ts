@@ -1,14 +1,14 @@
-import { corsHeaders, guardRequest, jsonError, upstreamStatus } from '../shared/http'
-import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
+import { corsHeaders, guardRequest, jsonError } from '../shared/http'
+import { MODEL, replyText, runModelCall, type Turn } from '../shared/provider'
+import { createRecorder } from '../shared/trace'
 
-const CHAT_MODEL = process.env.CHAT_MODEL ?? 'nvidia/nemotron-3-nano-30b-a3b:free'
 const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
 const MAX_MESSAGE_CHARS = Number(process.env.MAX_MESSAGE_CHARS ?? 5000)
 const MAX_HISTORY_MESSAGES = Number(process.env.MAX_HISTORY_MESSAGES ?? 20)
 
-// Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
-// upstream turns into a clean 503 instead of a dead socket.
-const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
+// Netlify caps a synchronous invocation at ~30s. The whole run, retry included,
+// shares this budget, so a slow upstream becomes a clean error instead of a dead socket.
+const RUN_BUDGET_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
 
 const SYSTEM_PROMPT =
   'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise ' +
@@ -46,11 +46,16 @@ export default async (req: Request): Promise<Response> => {
   if (guard) return guard
 
   const origin = req.headers.get('origin')
+  const deadlineAt = Date.now() + RUN_BUDGET_MS
+  const run = createRecorder()
+  const reply = (message: string, status: number) =>
+    jsonError(message, status, origin, { trace: run.steps, totalMs: run.elapsed() })
 
-  const provider = getProvider(CHAT_MODEL)
-  if (!provider) {
-    console.error('ai: no server-side AI provider is configured')
-    return jsonError('The assistant is not configured on this deployment.', 500, origin)
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    console.error('ai: OPENROUTER_API_KEY is not set')
+    run.add('request built', 'failed', 'No AI provider is configured on this deployment')
+    return reply('The assistant is not configured on this deployment.', 500)
   }
 
   try {
@@ -58,90 +63,58 @@ export default async (req: Request): Promise<Response> => {
     try {
       body = (await req.json()) as { message?: unknown; history?: unknown }
     } catch {
-      return jsonError('Invalid JSON body', 400, origin)
+      run.add('request built', 'failed', 'The request body was not JSON')
+      return reply('The request was not valid JSON.', 400)
     }
 
     const { message, history } = body
-
     if (!message || typeof message !== 'string') {
-      return jsonError('message is required', 400, origin)
+      run.add('request built', 'failed', 'No message text was sent')
+      return reply('Type or say a message first.', 400)
     }
-
     if (message.length > MAX_MESSAGE_CHARS) {
-      return jsonError('Message exceeds maximum allowed length', 400, origin)
+      run.add('request built', 'failed', `Message is longer than ${MAX_MESSAGE_CHARS} characters`)
+      return reply(`Keep messages under ${MAX_MESSAGE_CHARS} characters.`, 400)
     }
 
-    const messages: ChatMessage[] = [
-      ...sanitizeHistory(history),
+    const earlier = sanitizeHistory(history)
+    const turns: Turn[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...earlier,
       { role: 'user', content: message },
     ]
+    run.add('request built', 'ok', `${earlier.length} earlier messages, ${message.length} characters`)
 
-    let aiResponse: Response | null = null
-    let aiData: { model?: string; choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }> }
-    let selectedProvider = provider
-    try {
-      aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-          body: JSON.stringify({
-            model: provider.model,
-            ...generationOptions(provider, MAX_OUTPUT_TOKENS),
-            messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
-          }),
-        }))
-    } catch (err) {
-      const timedOut = err instanceof Error && err.name === 'TimeoutError'
-      console.error('ai: upstream request failed', err)
-      return jsonError(
-        timedOut
-          ? 'The assistant took too long to respond. Try again.'
-          : 'The assistant is unreachable. Try again in a moment.',
-        503,
-        origin,
-      )
+    const outcome = await runModelCall(apiKey, turns, { maxTokens: MAX_OUTPUT_TOKENS, deadlineAt }, run)
+    if (!outcome.ok) return reply(outcome.message, outcome.httpStatus)
+
+    const { completion } = outcome
+    const model = completion.model ?? MODEL
+    const text = replyText(completion)
+    if (unsuitableModel(model) || classificationShaped(text)) {
+      console.error(`ai: rejected unsuitable conversational output from ${model}`)
+      run.add('parse and validate', 'failed', 'The reply was a moderation label, not an answer')
+      return reply('The model returned a label instead of a reply. Try again.', 502)
+    }
+    if (!text) {
+      run.add('parse and validate', 'failed', 'The reply had no text')
+      return reply('The assistant returned an empty response. Try again.', 502)
     }
 
-    if (!aiResponse.ok) {
-      // Vendor error text can carry account/billing detail — log it, never ship it.
-      const detail = await aiResponse.text().catch(() => '<unreadable>')
-      console.error(`ai: upstream ${aiResponse.status} ${aiResponse.statusText}: ${detail}`)
-      return jsonError(
-        aiResponse.status === 429
-          ? 'The assistant is rate limited right now. Try again in a moment.'
-          : aiResponse.status === 402
-            ? 'The assistant service is temporarily unavailable. Please try again later.'
-            : 'The assistant failed to respond. Try again in a moment.',
-        upstreamStatus(aiResponse.status),
-        origin,
-      )
-    }
-
-    try {
-      aiData = (await aiResponse.json()) as typeof aiData
-    } catch (err) {
-      console.error('ai: could not parse upstream JSON', err)
-      return jsonError('The assistant returned an unreadable response.', 502, origin)
-    }
-
-    const rawText = aiData?.choices?.[0]?.message?.content
-    const servedModel = aiData?.model ?? selectedProvider.model
-    if (unsuitableModel(servedModel) || (typeof rawText === 'string' && classificationShaped(rawText))) {
-      console.error(`ai: rejected unsuitable conversational output from ${servedModel}`)
-      return jsonError('The assistant route returned a non-conversational result. Please retry.', 502, origin)
-    }
-    if (typeof rawText !== 'string' || !rawText.trim()) {
-      console.error('ai: unexpected upstream payload shape', JSON.stringify(aiData).slice(0, 500))
-      return jsonError('The assistant returned an empty response. Try again.', 502, origin)
-    }
-
-    return Response.json({ response: rawText, served_model: servedModel, served_provider: selectedProvider.name }, { headers: corsHeaders(origin) })
+    const cut = completion.choices?.[0]?.finish_reason === 'length'
+    run.add(
+      'parse and validate',
+      'ok',
+      cut ? `${text.length} characters, cut off at the length limit` : `${text.length} characters`,
+    )
+    return Response.json(
+      { result: text, trace: run.steps, usage: outcome.usage, model, totalMs: run.elapsed() },
+      { headers: corsHeaders(origin) },
+    )
   } catch (err) {
     console.error('ai: unhandled failure', err)
-    return jsonError('The assistant failed. Try again in a moment.', 500, origin)
+    run.add('server error', 'failed', 'Unexpected failure in the assistant function')
+    return reply('The assistant failed. Try again in a moment.', 500)
   }
 }
 
