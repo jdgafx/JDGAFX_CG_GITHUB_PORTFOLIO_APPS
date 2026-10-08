@@ -1,303 +1,47 @@
-import { generationOptions, getProvider, requestWithContentRetry } from '../shared/provider'
+import { getProvider, MODEL, type ProviderConfig } from '../shared/provider'
+import { runAnswer, type AnswerInput, type RunOutcome, type RunPayload, type TraceStep } from '../shared/answer'
+import { clientKey, corsHeaders, originAllowed, rateLimited, RATE_LIMIT_WINDOW_MS, validate } from '../shared/http'
 
 export const config = { path: '/api/ai' }
 
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? '~anthropic/claude-haiku-latest'
+/** One frame of the live stream. The browser applies them in the order they arrive. */
+type StreamFrame =
+  | { type: 'start'; name: string }
+  | { type: 'step'; step: TraceStep }
+  | { type: 'result'; run: RunPayload }
+  | { type: 'error'; error: string; trace: TraceStep[]; totalMs: number }
 
-const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
-// Must stay >= the client's TOP_K in src/lib/constants.ts, or well-formed
-// requests from our own UI would be rejected here.
-const MAX_CHUNKS = Number(process.env.MAX_CHUNKS ?? 20)
-const MAX_CHUNK_CHARS = Number(process.env.MAX_CHUNK_CHARS ?? 2000)
-const MAX_QUESTION_CHARS = Number(process.env.MAX_QUESTION_CHARS ?? 2000)
-const MAX_TITLE_CHARS = Number(process.env.MAX_TITLE_CHARS ?? 200)
-
-// Netlify caps a synchronous function invocation at ~30s; give up a beat early
-// so we can return a shaped 504 instead of the socket dying silently.
-const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
-
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 20)
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000)
-
-interface AiResponse {
-  answer: string
-  source_chunk_indices: number[]
-  confidence: number
+// The brief's response shape. The client reads exactly these five fields.
+function runBody(run: RunPayload): RunPayload {
+  return { result: run.result, trace: run.trace, usage: run.usage, model: run.model, totalMs: run.totalMs }
 }
 
-interface ExecutionEvent {
-  type: 'stage' | 'answer' | 'error'
-  stage?: 'accepted' | 'retrieval' | 'provider' | 'validation' | 'completed'
-  detail?: string
-  served_model?: string
-  served_provider?: string
-  payload?: AiResponse & { served_model: string; served_provider: string }
-  error?: string
-}
-
-// Browser origins allowed to call this endpoint. Netlify injects URL /
-// DEPLOY_PRIME_URL for the live site and deploy previews, so the deployed host
-// never has to be hardcoded here.
-function allowedOrigins(): string[] {
-  const configured = process.env.ALLOWED_ORIGINS?.split(',') ?? []
-  return [
-    ...configured,
-    process.env.URL ?? '',
-    process.env.DEPLOY_PRIME_URL ?? '',
-    process.env.DEPLOY_URL ?? '',
-    'http://localhost:8888',
-    'http://localhost:5173',
-  ]
-    .map(o => o.trim().replace(/\/$/, ''))
-    .filter(Boolean)
-}
-
-function corsHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    Vary: 'Origin',
-  }
-  if (origin) headers['Access-Control-Allow-Origin'] = origin
-  return headers
-}
-
-// Requests without an Origin header are not browser cross-site traffic (curl,
-// server-to-server), so they are allowed through without an echo header.
-function originAllowed(origin: string | null): boolean {
-  if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
-}
-
-// Best-effort per-instance throttle. Netlify may run many warm instances, so
-// this is a cost guard rather than a hard quota.
-const rateBuckets = new Map<string, { count: number; resetAt: number }>()
-
-function rateLimited(key: string): boolean {
-  const now = Date.now()
-  for (const [k, v] of rateBuckets) {
-    if (v.resetAt <= now) rateBuckets.delete(k)
-  }
-  const bucket = rateBuckets.get(key)
-  if (!bucket || bucket.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
-    return false
-  }
-  bucket.count += 1
-  return bucket.count > RATE_LIMIT_MAX
-}
-
-function clientKey(req: Request): string {
-  return (
-    req.headers.get('x-nf-client-connection-ip') ??
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'unknown'
-  )
-}
-
-// Upstream error bodies carry provider account identifiers -- keep the detail in
-// the function log and hand the browser a status-shaped summary only.
-function upstreamMessage(status: number): string {
-  if (status === 401 || status === 403) return 'Upstream authentication failed.'
-  if (status === 402) return 'The model provider credit for this demo is exhausted.'
-  if (status === 429) return 'The model provider is rate limiting requests. Try again shortly.'
-  if (status >= 500) return 'The model provider is temporarily unavailable. Try again shortly.'
-  return 'The model provider rejected the request.'
-}
-
-const SYSTEM_PROMPT = `You are DocMind, an intelligent document Q&A assistant. You answer questions based ONLY on the provided document chunks.
-
-Rules:
-- Answer using ONLY information explicitly found in the provided chunks
-- If the chunks don't contain enough information to answer, clearly say so
-- Never fabricate or infer information beyond what is in the chunks
-- Be precise, clear, and cite which chunks contain the relevant information
-
-Confidence scoring:
-- 0.8-1.0: The chunks directly and clearly answer the question
-- 0.5-0.79: Partial or indirect answer found in chunks
-- 0.0-0.49: Limited or no relevant information in the provided chunks
-
-You MUST respond with ONLY a valid JSON object in this exact format (no markdown, no extra text):
-{"answer":"your detailed answer here","source_chunk_indices":[0,2,5],"confidence":0.85}
-
-The source_chunk_indices must reference the exact [Chunk N] numbers from the provided text (0-based index N).`
-
-function buildUserMessage(question: string, chunks: string[], documentTitle: string): string {
-  return `Document: "${documentTitle}"
-
-Document Chunks:
-${chunks.join('\n\n')}
-
-Question: ${question}
-
-Respond with ONLY the JSON object.`
-}
-
-function streamExecution(
-  provider: NonNullable<ReturnType<typeof getProvider>>,
-  question: string,
-  chunks: string[],
-  documentTitle: string,
-  headers: Record<string, string>,
-): Response {
+function streamRun(input: AnswerInput, provider: ProviderConfig, started: number, headers: Record<string, string>): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: ExecutionEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-      const finish = () => {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
-      }
-      send({ type: 'stage', stage: 'accepted', detail: 'Question accepted for this document.' })
-      send({ type: 'stage', stage: 'retrieval', detail: `Using ${chunks.length} ranked document passage${chunks.length === 1 ? '' : 's'}.` })
-      send({ type: 'stage', stage: 'provider', detail: 'Request sent to the configured answer provider.', served_provider: provider.name, served_model: provider.model })
-
-      let aiResponse: Response
+      const send = (frame: StreamFrame) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
       try {
-        aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: provider.model,
-            ...generationOptions(provider, MAX_OUTPUT_TOKENS, true),
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
-            ],
-          }),
-          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        }))
+        const outcome = await runAnswer(input, provider, started, {
+          start: name => send({ type: 'start', name }),
+          step: step => send({ type: 'step', step }),
+        })
+        send(outcome.ok
+          ? { type: 'result', run: runBody(outcome) }
+          : { type: 'error', error: outcome.error, trace: outcome.trace, totalMs: outcome.totalMs })
       } catch (err) {
-        const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
-        console.error('OpenRouter request failed:', err)
-        send({ type: 'error', error: timedOut ? 'The model took too long to answer. Try a shorter question.' : 'Could not reach the model provider. Try again shortly.' })
-        finish()
-        return
+        console.error('DocMind run failed:', err)
+        send({ type: 'error', error: 'The document assistant failed. Please try again.', trace: [], totalMs: Date.now() - started })
       }
-      if (!aiResponse.ok) {
-        console.error('OpenRouter error:', aiResponse.status, await aiResponse.text().catch(() => ''))
-        send({ type: 'error', error: upstreamMessage(aiResponse.status) })
-        finish()
-        return
-      }
-
-      let rawText: string | undefined
-      let servedModel = provider.model
-      try {
-        const aiData = (await aiResponse.json()) as { model?: string; choices?: Array<{ message?: { content?: string } }> }
-        rawText = aiData.choices?.[0]?.message?.content
-        servedModel = aiData.model ?? provider.model
-      } catch (err) {
-        console.error('Could not parse OpenRouter response:', err)
-      }
-      if (!rawText) {
-        send({ type: 'error', error: 'The model returned an empty response. Please try again.' })
-        finish()
-        return
-      }
-
-      let result: AiResponse
-      try {
-        result = JSON.parse(extractJson(rawText)) as AiResponse
-      } catch {
-        send({ type: 'error', error: 'The model returned a malformed response. Please try again.' })
-        finish()
-        return
-      }
-      if (typeof result.answer !== 'string' || !Array.isArray(result.source_chunk_indices) || typeof result.confidence !== 'number' || !Number.isFinite(result.confidence)) {
-        send({ type: 'error', error: 'The model returned an invalid response structure. Please try again.' })
-        finish()
-        return
-      }
-
-      send({ type: 'stage', stage: 'validation', detail: 'Answer structure and cited passages validated.' })
-      const payload = {
-        answer: result.answer,
-        source_chunk_indices: result.source_chunk_indices.filter((i): i is number => typeof i === 'number' && Number.isInteger(i)),
-        confidence: Math.min(1, Math.max(0, result.confidence)),
-        served_model: servedModel,
-        served_provider: provider.name,
-      }
-      send({ type: 'stage', stage: 'completed', detail: 'Answer ready with provider and source provenance.', served_model: servedModel, served_provider: provider.name })
-      send({ type: 'answer', payload })
-      finish()
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+      controller.close()
     },
   })
   return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } })
 }
 
-function extractJson(text: string): string {
-  const trimmed = text.trim()
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-  if (codeBlockMatch) {
-    const inner = codeBlockMatch[1]
-    if (inner !== undefined) return inner.trim()
-  }
-  const jsonStart = trimmed.indexOf('{')
-  const jsonEnd = trimmed.lastIndexOf('}')
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    return trimmed.slice(jsonStart, jsonEnd + 1)
-  }
-  return trimmed
-}
-
-interface ValidRequest {
-  question: string
-  chunks: string[]
-  documentTitle: string
-}
-
-type Validation = { ok: true; value: ValidRequest } | { ok: false; status: number; message: string }
-
-function validate(body: unknown): Validation {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return { ok: false, status: 400, message: 'Request body must be a JSON object.' }
-  }
-  const b = body as Record<string, unknown>
-
-  if (typeof b['question'] !== 'string' || b['question'].trim() === '') {
-    return { ok: false, status: 400, message: 'A question is required.' }
-  }
-  if (b['question'].length > MAX_QUESTION_CHARS) {
-    return {
-      ok: false,
-      status: 400,
-      message: `The question must be ${MAX_QUESTION_CHARS} characters or fewer.`,
-    }
-  }
-
-  if (!Array.isArray(b['chunks'])) {
-    return { ok: false, status: 400, message: 'chunks must be an array of document passages.' }
-  }
-  if (b['chunks'].length === 0) {
-    return { ok: false, status: 400, message: 'No document passages were provided.' }
-  }
-  if (b['chunks'].length > MAX_CHUNKS) {
-    return {
-      ok: false,
-      status: 413,
-      message: `At most ${MAX_CHUNKS} document passages can be sent per question.`,
-    }
-  }
-
-  if (typeof b['documentTitle'] !== 'string' || b['documentTitle'].trim() === '') {
-    return { ok: false, status: 400, message: 'A document title is required.' }
-  }
-
-  return {
-    ok: true,
-    value: {
-      question: b['question'],
-      // Truncate overly long passages to keep the prompt inside the token budget.
-      chunks: b['chunks'].map(c => (typeof c === 'string' ? c.slice(0, MAX_CHUNK_CHARS) : '')),
-      documentTitle: b['documentTitle'].slice(0, MAX_TITLE_CHARS),
-    },
-  }
-}
-
 export default async (req: Request): Promise<Response> => {
+  const started = Date.now()
   const origin = req.headers.get('origin')
   const headers = corsHeaders(origin)
   const json = (status: number, payload: unknown, extra: Record<string, string> = {}) =>
@@ -337,91 +81,25 @@ export default async (req: Request): Promise<Response> => {
   if (!validated.ok) {
     return json(validated.status, { error: validated.message })
   }
-  const { question, chunks, documentTitle } = validated.value
 
-  const provider = getProvider(OPENROUTER_MODEL)
+  const provider = getProvider(MODEL)
   if (!provider) {
     return json(500, { error: 'The document assistant is not configured on this deployment.' })
   }
 
   if (req.headers.get('accept')?.includes('text/event-stream')) {
-    return streamExecution(provider, question, chunks, documentTitle, headers)
+    return streamRun(validated.value, provider, started, headers)
   }
 
-  let aiResponse: Response
+  let outcome: RunOutcome
   try {
-    aiResponse = await requestWithContentRetry(() => fetch(provider.url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        ...generationOptions(provider, MAX_OUTPUT_TOKENS, true),
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserMessage(question, chunks, documentTitle) },
-        ],
-      }),
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    }))
+    outcome = await runAnswer(validated.value, provider, started, { start: () => {}, step: () => {} })
   } catch (err) {
-    const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
-    console.error('OpenRouter request failed:', err)
-    return json(timedOut ? 504 : 502, {
-      error: timedOut
-        ? 'The model took too long to answer. Try a shorter question.'
-        : 'Could not reach the model provider. Try again shortly.',
-    })
+    console.error('DocMind run failed:', err)
+    return json(500, { error: 'The document assistant failed. Please try again.' })
   }
-
-  if (!aiResponse.ok) {
-    console.error('OpenRouter error:', aiResponse.status, await aiResponse.text().catch(() => ''))
-    return json(502, { error: upstreamMessage(aiResponse.status) })
+  if (!outcome.ok) {
+    return json(outcome.status, { error: outcome.error, trace: outcome.trace, totalMs: outcome.totalMs })
   }
-
-  let rawText: string | undefined
-  let servedModel = provider.model
-  try {
-    const aiData = (await aiResponse.json()) as {
-      model?: string
-      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
-    }
-    rawText = aiData.choices?.[0]?.message?.content
-    servedModel = aiData.model ?? provider.model
-  } catch (err) {
-    console.error('Could not parse OpenRouter response:', err)
-  }
-
-  if (!rawText) {
-    return json(502, { error: 'The model returned an empty response. Please try again.' })
-  }
-
-  let result: AiResponse
-  try {
-    result = JSON.parse(extractJson(rawText)) as AiResponse
-  } catch {
-    return json(502, { error: 'The model returned a malformed response. Please try again.' })
-  }
-
-  if (
-    typeof result.answer !== 'string' ||
-    !Array.isArray(result.source_chunk_indices) ||
-    typeof result.confidence !== 'number' ||
-    !Number.isFinite(result.confidence)
-  ) {
-    return json(502, { error: 'The model returned an invalid response structure. Please try again.' })
-  }
-
-  return json(200, {
-    answer: result.answer,
-    source_chunk_indices: result.source_chunk_indices.filter(
-      (i): i is number => typeof i === 'number' && Number.isInteger(i),
-    ),
-      confidence: Math.min(1, Math.max(0, result.confidence)),
-    served_model: servedModel,
-    served_provider: provider.name,
-  })
+  return json(200, runBody(outcome))
 }

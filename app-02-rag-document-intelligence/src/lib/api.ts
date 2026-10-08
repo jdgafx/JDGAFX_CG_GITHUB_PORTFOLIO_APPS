@@ -1,4 +1,5 @@
 import { TOP_K } from './constants'
+import type { RunReport, TraceStep, Usage } from '../types'
 
 /**
  * Words carried by almost every question and almost every passage. Left in the
@@ -76,35 +77,42 @@ export function retrieve(question: string, chunks: string[], limit: number = TOP
   return scored.slice(0, limit).sort((a, b) => a.index - b.index)
 }
 
-export type AskResult =
-  | { status: 'answered'; answer: string; sourceChunks: number[]; confidence: number; servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'; servedModel?: string }
-  | { status: 'no-matches' }
+// The step names the server records. Kept in step with netlify/shared/answer.ts.
+const RETRIEVE_STEP = 'Retrieve passages'
+const SERVER_STEPS = ['Accept request', 'Build prompt', 'Call model', 'Parse and validate']
 
-export type ExecutionStage = 'accepted' | 'retrieval' | 'provider' | 'validation' | 'completed'
-export interface ExecutionUpdate {
-  stage: ExecutionStage
-  detail: string
-  servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'
-  servedModel?: string
+export type AskOutcome =
+  | { status: 'answered'; answer: string; sourceChunks: number[]; selfRated: number; run: RunReport }
+  | { status: 'no-matches'; run: RunReport }
+
+/** A question that got no answer. `run` holds every step that ran, including the one that failed. */
+export class AskError extends Error {
+  readonly run: RunReport
+
+  constructor(message: string, run: RunReport) {
+    super(message)
+    this.name = 'AskError'
+    this.run = run
+  }
 }
 
-interface ApiPayload {
-  answer: string
-  source_chunk_indices: number[]
-  confidence: number
-  served_provider?: 'xAI' | 'Anthropic' | 'OpenRouter'
-  served_model?: string
+/** Progress callbacks, so the page can show each step as it happens. */
+export interface AskEvents {
+  onStart: (name: string) => void
+  onStep: (step: TraceStep) => void
 }
 
-function isApiPayload(data: unknown): data is ApiPayload {
-  if (typeof data !== 'object' || data === null) return false
-  const d = data as Record<string, unknown>
-  return (
-    typeof d['answer'] === 'string' &&
-    Array.isArray(d['source_chunk_indices']) &&
-    typeof d['confidence'] === 'number'
-  )
+interface ServerRun {
+  result: { answer: string; source_chunk_indices: number[]; confidence: number }
+  trace: TraceStep[]
+  usage: Usage
+  model: string | null
+  totalMs: number
 }
+
+type StreamEnd =
+  | { kind: 'result'; run: ServerRun }
+  | { kind: 'error'; message: string; trace: TraceStep[]; totalMs: number | null }
 
 function fallbackMessage(status: number): string {
   if (status === 429) return 'Too many questions in a row. Wait a moment and ask again.'
@@ -113,38 +121,107 @@ function fallbackMessage(status: number): string {
   return 'The document assistant could not answer that question. Please try again.'
 }
 
-/** Turn a failed response into one plain sentence for the chat bubble, keeping
- * the raw body in the console for debugging. */
-async function describeFailure(response: Response): Promise<string> {
-  let body = ''
-  try {
-    body = await response.text()
-  } catch {
-    // Body already consumed or connection dropped -- status alone will do.
-  }
-  console.error(`DocMind API error ${response.status}:`, body || '(empty response body)')
-
-  try {
-    const parsed: unknown = JSON.parse(body)
-    if (typeof parsed === 'object' && parsed !== null) {
-      const error = (parsed as Record<string, unknown>)['error']
-      if (typeof error === 'string' && error.trim()) return error
-    }
-  } catch {
-    // Not JSON (HTML error page, proxy text) -- fall through to the status text.
-  }
-  return fallbackMessage(response.status)
+function runWith(trace: TraceStep[], totalMs: number | null): RunReport {
+  return { trace, usage: null, model: null, totalMs }
 }
 
+function failedStep(name: string, detail: string): TraceStep {
+  return { name, status: 'failed', ms: null, detail }
+}
+
+function skippedStep(name: string, detail: string): TraceStep {
+  return { name, status: 'skipped', ms: null, detail }
+}
+
+function isStep(value: unknown): value is TraceStep {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v['name'] === 'string' && typeof v['status'] === 'string' && typeof v['detail'] === 'string'
+}
+
+function isServerRun(data: unknown): data is ServerRun {
+  if (typeof data !== 'object' || data === null) return false
+  const d = data as Record<string, unknown>
+  const result = d['result']
+  const usage = d['usage']
+  if (typeof result !== 'object' || result === null || typeof usage !== 'object' || usage === null) return false
+  const r = result as Record<string, unknown>
+  return (
+    typeof r['answer'] === 'string' &&
+    Array.isArray(r['source_chunk_indices']) &&
+    typeof r['confidence'] === 'number' &&
+    Array.isArray(d['trace']) &&
+    typeof d['totalMs'] === 'number'
+  )
+}
+
+/** Reads the event stream frame by frame. Ends on the first result or error frame. */
+async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents): Promise<StreamEnd | null> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let end: StreamEnd | null = null
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+    for (const frame of frames) {
+      const line = frame.split('\n').find(item => item.startsWith('data: '))
+      if (!line) continue
+      const raw = line.slice(6)
+      if (raw === '[DONE]') continue
+      const { type, name, step, run, error, trace, totalMs } = JSON.parse(raw) as Record<string, unknown>
+      if (type === 'start' && typeof name === 'string') {
+        events.onStart(name)
+      } else if (type === 'step' && isStep(step)) {
+        events.onStep(step)
+      } else if (type === 'result' && isServerRun(run)) {
+        end = { kind: 'result', run }
+      } else if (type === 'error' && typeof error === 'string') {
+        end = {
+          kind: 'error',
+          message: error,
+          trace: Array.isArray(trace) ? trace.filter(isStep) : [],
+          totalMs: typeof totalMs === 'number' ? totalMs : null,
+        }
+      } else {
+        throw new Error('Unexpected stream frame')
+      }
+    }
+  }
+  return end
+}
+
+/**
+ * Ranks the passages in the browser, then asks the server to answer from them.
+ * The browser times its own retrieval step. The server times the steps it runs.
+ */
 export async function askQuestion(
   question: string,
   chunks: string[],
   documentTitle: string,
-  signal?: AbortSignal,
-  onUpdate?: (update: ExecutionUpdate) => void,
-): Promise<AskResult> {
+  signal: AbortSignal | undefined,
+  events: AskEvents,
+): Promise<AskOutcome> {
+  const began = performance.now()
   const top = retrieve(question, chunks)
-  if (top.length === 0) return { status: 'no-matches' }
+  const retrieval: TraceStep = {
+    name: RETRIEVE_STEP,
+    status: 'ok',
+    ms: Math.round(performance.now() - began),
+    detail: top.length > 0
+      ? `Kept ${top.length} of ${chunks.length} passages by term overlap.`
+      : `None of the ${chunks.length} passages shares a word with the question.`,
+  }
+  events.onStep(retrieval)
+
+  if (top.length === 0) {
+    const skipped = SERVER_STEPS.map(name => skippedStep(name, 'Not run. No passage matched, so the model was not called.'))
+    for (const step of skipped) events.onStep(step)
+    return { status: 'no-matches', run: runWith([retrieval, ...skipped], retrieval.ms) }
+  }
 
   const labeledChunks = top.map(t => `[Chunk ${t.index}]:\n${t.chunk}`)
 
@@ -154,64 +231,78 @@ export async function askQuestion(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({ question, chunks: labeledChunks, documentTitle }),
-      ...(signal ? { signal } : {}),
+      signal,
     })
   } catch (err) {
     if (signal?.aborted) throw err
     console.error('DocMind request failed:', err)
-    throw new Error('Could not reach the document assistant. Check your connection and try again.')
+    throw new AskError(
+      'Could not reach the document assistant. Check your connection and try again.',
+      runWith([retrieval, failedStep('Call model', 'Could not reach the server.')], null),
+    )
   }
 
   if (!response.ok) {
-    throw new Error(await describeFailure(response))
+    const text = await response.text().catch(() => '')
+    console.error(`DocMind API error ${response.status}:`, text || '(empty response body)')
+    const fields: Record<string, unknown> = parseBody(text) ?? {}
+    const { error: bodyError, trace: bodyTrace, totalMs: bodyTotalMs } = fields
+    const message = typeof bodyError === 'string' && bodyError.trim() !== '' ? bodyError : fallbackMessage(response.status)
+    const serverTrace = Array.isArray(bodyTrace) ? bodyTrace.filter(isStep) : []
+    // A rejected request never reached a model step, so a 4xx marks the first step.
+    const failure = serverTrace.length > 0
+      ? serverTrace
+      : [failedStep(response.status >= 500 ? 'Call model' : 'Accept request', message)]
+    const totalMs = typeof bodyTotalMs === 'number' ? bodyTotalMs : null
+    throw new AskError(message, runWith([retrieval, ...failure], totalMs))
   }
 
-  let data: unknown
-  try {
-    if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let answerPayload: unknown
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const frames = buffer.split('\n\n')
-        buffer = frames.pop() ?? ''
-        for (const frame of frames) {
-          const line = frame.split('\n').find(item => item.startsWith('data: '))
-          if (!line) continue
-          const raw = line.slice(6)
-          if (raw === '[DONE]') continue
-          const event = JSON.parse(raw) as { type?: string; stage?: ExecutionStage; detail?: string; served_provider?: string; served_model?: string; payload?: unknown; error?: string }
-          if (event.type === 'stage' && event.stage && event.detail) {
-            onUpdate?.({ stage: event.stage, detail: event.detail, servedProvider: event.served_provider as ExecutionUpdate['servedProvider'], servedModel: event.served_model })
-          } else if (event.type === 'answer') {
-            answerPayload = event.payload
-          } else if (event.type === 'error') {
-            throw new Error(event.error ?? 'The document assistant failed.')
-          }
-        }
-      }
-      data = answerPayload
-    } else {
-      data = await response.json()
+  let run: ServerRun
+  if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+    let end: StreamEnd | null
+    try {
+      end = await readStream(response.body, events)
+    } catch (err) {
+      if (signal?.aborted) throw err
+      console.error('DocMind response was not readable:', err)
+      throw new AskError(
+        'The document assistant returned an unreadable response. Please try again.',
+        runWith([retrieval, failedStep('Parse and validate', 'The response could not be read.')], null),
+      )
     }
-  } catch (err) {
-    console.error('DocMind response was not JSON:', err)
-    throw new Error('The document assistant returned an unreadable response. Please try again.')
-  }
-
-  if (!isApiPayload(data)) {
-    console.error('DocMind response had an unexpected shape:', data)
-    throw new Error('The document assistant returned an unexpected response. Please try again.')
+    if (end?.kind === 'error') {
+      throw new AskError(end.message, runWith([retrieval, ...end.trace], end.totalMs))
+    }
+    if (end?.kind !== 'result') {
+      throw new AskError(
+        'The document assistant returned an unexpected response. Please try again.',
+        runWith([retrieval, failedStep('Parse and validate', 'The response ended before an answer.')], null),
+      )
+    }
+    run = end.run
+  } else {
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch {
+      throw new AskError(
+        'The document assistant returned an unreadable response. Please try again.',
+        runWith([retrieval, failedStep('Parse and validate', 'The response was not JSON.')], null),
+      )
+    }
+    if (!isServerRun(data)) {
+      throw new AskError(
+        'The document assistant returned an unexpected response. Please try again.',
+        runWith([retrieval, failedStep('Parse and validate', 'The response had an unexpected shape.')], null),
+      )
+    }
+    run = data
   }
 
   // The model echoes chunk numbers back as text, so they can be out of range or
   // repeated. Anything that would not resolve to a real passage is dropped.
   const seen = new Set<number>()
-  const sourceChunks = data.source_chunk_indices.filter(idx => {
+  const sourceChunks = run.result.source_chunk_indices.filter(idx => {
     if (!Number.isInteger(idx) || idx < 0 || idx >= chunks.length || seen.has(idx)) return false
     seen.add(idx)
     return true
@@ -219,10 +310,18 @@ export async function askQuestion(
 
   return {
     status: 'answered',
-    answer: data.answer,
+    answer: run.result.answer,
     sourceChunks,
-    confidence: Math.min(1, Math.max(0, data.confidence)),
-    servedProvider: data.served_provider,
-    servedModel: data.served_model,
+    selfRated: Math.min(1, Math.max(0, run.result.confidence)),
+    run: { trace: [retrieval, ...run.trace], usage: run.usage, model: run.model, totalMs: run.totalMs },
+  }
+}
+
+function parseBody(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
   }
 }

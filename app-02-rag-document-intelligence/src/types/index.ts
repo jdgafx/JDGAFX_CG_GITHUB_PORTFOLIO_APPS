@@ -1,6 +1,5 @@
 export interface DocumentState {
   title: string
-  text: string
   chunks: string[]
   /** Page number each chunk starts on, parallel to `chunks`. */
   chunkPages: number[]
@@ -8,14 +7,46 @@ export interface DocumentState {
   charCount: number
 }
 
-export interface Message {
+/** One step of a run. `ms` is null when the step was not timed (skipped, or failed before timing). */
+export interface TraceStep {
+  name: string
+  status: 'ok' | 'failed' | 'skipped'
+  ms: number | null
+  detail: string
+  tokens?: number | null
+  cost?: number | null
+}
+
+export interface Usage {
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  cost: number | null
+  cost_source: 'reported' | 'estimated' | null
+}
+
+/** What the run report shows about one question. Null fields render as "not reported". */
+export interface RunReport {
+  trace: TraceStep[]
+  usage: Usage | null
+  model: string | null
+  totalMs: number | null
+}
+
+/** How the latest run ended. Drives the badge and which metrics are shown. */
+export type RunState = 'answered' | 'no-matches' | 'failed' | 'stopped'
+
+export interface LatestRun {
+  report: RunReport
+  state: RunState
+}
+
+export interface Turn {
   id: string
-  role: 'user' | 'assistant'
-  content: string
-  sourceChunks?: number[]
-  confidence?: number
-  servedProvider?: 'xAI' | 'Anthropic' | 'OpenRouter'
-  servedModel?: string
-  timestamp: Date
-  error?: boolean
+  question: string
+  kind: 'answered' | 'no-matches'
+  answer: string
+  sourceChunks: number[]
+  selfRated: number | null
+  model: string | null
 }

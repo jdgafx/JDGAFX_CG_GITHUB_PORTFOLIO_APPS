@@ -1,9 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   optimizeDeps: {
     exclude: ['pdfjs-dist'],
   },
@@ -16,7 +15,6 @@ export default defineConfig({
         manualChunks: {
           pdfjs: ['pdfjs-dist'],
           vendor: ['react', 'react-dom'],
-          motion: ['framer-motion'],
         },
       },
     },

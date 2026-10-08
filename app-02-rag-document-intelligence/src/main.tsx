@@ -1,8 +1,9 @@
+import './styles/tokens.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import './styles/app.css'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import './index.css'
 
 const container = document.getElementById('root')
 if (!container) {

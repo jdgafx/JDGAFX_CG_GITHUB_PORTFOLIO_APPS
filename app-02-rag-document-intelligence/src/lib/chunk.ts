@@ -6,6 +6,14 @@ import { CHUNK_SIZE, CHUNK_OVERLAP, MIN_CHUNK_CHARS } from './constants'
  */
 export const pageMarkerPattern = () => /--- Page (\d+) ---/g
 
+/**
+ * Removes page markers from passage text. Call it only after the markers have
+ * been read for page numbers, so they never reach the prompt or the passage list.
+ */
+export function stripPageMarkers(text: string): string {
+  return text.replace(/\s*--- Page \d+ ---\s*/g, ' ').trim()
+}
+
 export interface ChunkedText {
   chunks: string[]
   /** Page number each chunk starts on, parallel to `chunks`. */
@@ -51,7 +59,8 @@ export function chunkText(text: string, maxChars: number = CHUNK_SIZE): ChunkedT
     }
 
     const slice = text.slice(start, end)
-    const chunk = slice.trim()
+    // Checked after stripping, so a slice that held only a page marker is dropped.
+    const chunk = stripPageMarkers(slice)
     if (chunk.length > MIN_CHUNK_CHARS) {
       // Offset of the chunk's first visible character. Trimming can skip past a
       // page marker, which would otherwise credit the chunk to the page before.

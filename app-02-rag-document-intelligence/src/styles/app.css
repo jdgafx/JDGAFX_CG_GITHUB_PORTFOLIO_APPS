@@ -1,0 +1,76 @@
+/* DocMind-only styles. Cards, buttons, badges, trace and metrics come from tokens.css. */
+
+/* Upload. The file input stays focusable and labelled; the label is the visible button. */
+.docmind-upload { position: relative; }
+.docmind-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.docmind-file:focus-visible + .ds-button { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.docmind-file:disabled + .ds-button { opacity: 0.55; cursor: not-allowed; }
+.docmind-drop[data-dragging="true"] { border-color: var(--ds-accent); background: var(--ds-accent-soft); }
+
+/* Two cards side by side; each sizes to its own content. */
+.docmind-pair { align-items: start; }
+
+/* Long names and model ids wrap instead of pushing the page wider than 390px. */
+.docmind-wrap { overflow-wrap: anywhere; min-width: 0; }
+
+/* Answers */
+.docmind-conversation {
+  display: grid;
+  gap: 16px;
+  max-height: 55vh;
+  overflow-y: auto;
+  min-width: 0;
+  padding-right: 4px;
+}
+.docmind-turn { display: grid; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--ds-border); min-width: 0; }
+.docmind-turn:last-child { border-bottom: 0; padding-bottom: 0; }
+.docmind-question { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.docmind-answer { display: grid; gap: 8px; max-width: 70ch; overflow-wrap: anywhere; }
+.docmind-answer ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.docmind-sources summary { cursor: pointer; color: var(--ds-text-muted); font-size: 13px; border-radius: var(--ds-radius-sm); }
+.docmind-sources summary:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.docmind-sources ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Passages */
+.docmind-passages {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 0 0;
+  display: grid;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  position: relative;
+}
+.docmind-passage {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  min-width: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+.docmind-passage--cited { border-left-color: var(--ds-accent); background: var(--ds-accent-soft); }
+.docmind-passage__text {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.docmind-jump { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.docmind-jump .ds-input { width: 8rem; }
+
+/* Latest run: trace first, metrics beside it on wide screens. */
+.docmind-run { display: grid; gap: 20px; min-width: 0; }
+@media (min-width: 900px) {
+  .docmind-run { grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); align-items: start; }
+}

@@ -30,55 +30,38 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children
 
     return (
-      <div
-        className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center"
-        style={{ background: 'var(--color-bg)', fontFamily: 'var(--font-body)' }}
-      >
-        <h1
-          className="text-2xl font-bold"
-          style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text-primary)' }}
-        >
-          Something went wrong
-        </h1>
-        <p className="text-sm max-w-md" style={{ color: 'var(--color-text-secondary)' }}>
-          DocMind hit an unexpected error and stopped. Your document was never uploaded anywhere,
-          so nothing is left behind. Start over and try again.
-        </p>
-        <p
-          className="text-xs max-w-md px-3 py-2 rounded-lg"
-          style={{
-            color: 'var(--color-text-muted)',
-            fontFamily: 'var(--font-mono)',
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border)',
-          }}
-        >
-          {error.message || 'Unknown error'}
-        </p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={this.handleRetry}
-            title="Return to the upload screen and start with a fresh document"
-            className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: 'var(--color-accent)', color: '#000' }}
-          >
-            Start over
-          </button>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            title="Reload DocMind from scratch"
-            className="px-4 py-2 rounded-lg text-sm"
-            style={{
-              color: 'var(--color-text-secondary)',
-              background: 'var(--color-bg-card)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            Reload the app
-          </button>
-        </div>
+      <div className="ds-app">
+        <header className="ds-header">
+          <div className="ds-header__inner">
+            <div>
+              <h1 className="ds-title">DocMind</h1>
+              <p className="ds-subtitle">Ask questions about a PDF or TXT. Each answer lists the passages it used.</p>
+            </div>
+          </div>
+        </header>
+        <main className="ds-main">
+          <section className="ds-card ds-stack" aria-labelledby="crash-title">
+            <h2 id="crash-title" className="ds-card__title">Something went wrong</h2>
+            <p className="ds-hint">
+              DocMind stopped on an unexpected error. Your document stays in this browser. Only passages sent
+              with a question leave it. Start over to try again.
+            </p>
+            <div className="ds-notice ds-notice--error ds-mono docmind-wrap" role="alert">
+              {error.message || 'Unknown error'}
+            </div>
+            <div className="ds-row">
+              <button type="button" className="ds-button ds-button--primary" onClick={this.handleRetry}>
+                Start over
+              </button>
+              <button type="button" className="ds-button" onClick={() => window.location.reload()}>
+                Reload the page
+              </button>
+            </div>
+          </section>
+        </main>
+        <footer className="ds-footer">
+          <div className="ds-footer__inner">Christopher Gentile</div>
+        </footer>
       </div>
     )
   }
