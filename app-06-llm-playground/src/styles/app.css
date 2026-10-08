@@ -335,3 +335,13 @@
   align-items: center;
   gap: 8px;
 }
+
+/* Phone width: the evidence table becomes one labelled block per measure, so all three panels stay readable. */
+@media (max-width: 560px) {
+  .arena-table { min-width: 0; }
+  .arena-table thead { display: none; }
+  .arena-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 8px 0; border-bottom: 1px solid var(--ds-border); }
+  .arena-table tbody th { width: auto; padding: 0 0 4px; border-bottom: 0; }
+  .arena-table td { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 0; }
+  .arena-table td::before { content: attr(data-panel); color: var(--ds-text-muted); font-size: 13px; text-align: left; }
+}

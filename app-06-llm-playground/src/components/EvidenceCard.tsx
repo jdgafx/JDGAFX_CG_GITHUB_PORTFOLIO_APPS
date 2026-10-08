@@ -77,7 +77,7 @@ export function EvidenceCard({ compare }: { compare: CompareResponse | null }) {
                     {SLOTS.map(slot => {
                       const panel = compare.panels.find(p => p.slot === slot)
                       return (
-                        <td key={slot} className={measure.className}>
+                        <td key={slot} className={measure.className} data-panel={`Panel ${slot}`}>
                           {panel ? measure.cell(panel) : 'not reported'}
                         </td>
                       )
