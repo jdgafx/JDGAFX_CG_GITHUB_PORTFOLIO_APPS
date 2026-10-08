@@ -12,9 +12,13 @@ export function Header({ badgeLabel, badgeTone }: HeaderProps) {
       <div className="ds-header__inner">
         <div>
           <h1 className="ds-title">AgentFlow</h1>
-          <p className="ds-subtitle">Four model calls in order: research, analysis, critique, synthesis.</p>
+          <p className="ds-subtitle">Answers one research question with a researcher, an analyst, a critic and a synthesizer.</p>
         </div>
         <span className={badgeClass}>{badgeLabel}</span>
+        <p className="ds-showcase">
+          <strong>What this showcases:</strong> a fixed multi-agent pipeline, four model calls in order, each stage traced with its
+          own tokens and cost.
+        </p>
       </div>
     </header>
   )

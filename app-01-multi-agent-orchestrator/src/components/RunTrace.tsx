@@ -10,17 +10,27 @@ export interface TraceRow {
   cost?: number
 }
 
-const TONE: Record<TraceRow['status'], string> = {
-  waiting: 'ds-badge',
-  running: 'ds-badge ds-badge--accent',
-  ok: 'ds-badge ds-badge--success',
-  'cut off': 'ds-badge ds-badge--warning',
-  failed: 'ds-badge ds-badge--danger',
-  skipped: 'ds-badge',
-  stopped: 'ds-badge ds-badge--warning',
+const LABEL: Record<TraceRow['status'], string> = {
+  waiting: 'Waiting',
+  running: 'Running',
+  ok: 'Finished',
+  'cut off': 'Cut off',
+  failed: 'Failed',
+  skipped: 'Not run',
+  stopped: 'Stopped',
 }
 
-/** One step per stage. The bar shows each stage's share of the time spent in stages. */
+const DOT: Record<TraceRow['status'], string> = {
+  waiting: 'ds-dot',
+  running: 'ds-dot ds-dot--running',
+  ok: 'ds-dot ds-dot--ok',
+  'cut off': 'ds-dot app-dot--warning',
+  failed: 'ds-dot ds-dot--failed',
+  skipped: 'ds-dot ds-dot--skipped',
+  stopped: 'ds-dot app-dot--warning',
+}
+
+/** One numbered step per stage. The bar shows each stage's share of the time spent in stages. */
 export function RunTrace({ rows }: { rows: TraceRow[] }) {
   const stageMs = rows.reduce((sum, row) => sum + (row.ms ?? 0), 0)
 
@@ -29,13 +39,17 @@ export function RunTrace({ rows }: { rows: TraceRow[] }) {
       {rows.map(row => {
         const share = row.ms !== undefined && stageMs > 0 ? (row.ms / stageMs) * 100 : 0
         const finished = row.status === 'ok' || row.status === 'cut off'
+        const running = row.status === 'running'
         return (
-          <li key={row.index} className="ds-trace__step">
+          <li key={row.index} className={running ? 'ds-trace__step ds-trace__step--running' : 'ds-trace__step'}>
             <span className="ds-trace__index">{row.index}</span>
             <div>
               <div className="ds-row">
                 <span className="ds-trace__name">{row.name}</span>
-                <span className={TONE[row.status]}>{row.status}</span>
+                <span className="app-trace__status">
+                  <span className={DOT[row.status]} aria-hidden="true" />
+                  {LABEL[row.status]}
+                </span>
               </div>
               <div className="ds-trace__detail">{row.detail}</div>
               {share > 0 && <div className="ds-trace__bar" style={{ width: `${share}%` }} aria-hidden="true" />}

@@ -12,18 +12,21 @@ interface RunMetricsProps {
   model?: string
 }
 
-function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/** One figure in the readout strip. The model ID is the only figure set in mono. */
+function Figure({ label, value, hint, mono }: { label: string; value: string; hint?: string; mono?: boolean }) {
   return (
-    <div className="ds-metric">
-      <div className="ds-metric__label">{label}</div>
-      <div className="ds-metric__value">{value}</div>
-      {hint && <div className="ds-metric__hint">{hint}</div>}
+    <div className="ds-strip__item">
+      <dt className="ds-strip__label">{label}</dt>
+      <dd className={mono ? 'ds-strip__value ds-mono' : 'ds-strip__value ds-num'}>{value}</dd>
+      {hint && <dd className="ds-strip__hint">{hint}</dd>}
     </div>
   )
 }
 
 export function RunMetrics({ state, totalMs, totalIsStageSum, usage, model }: RunMetricsProps) {
-  if (state === 'idle') return <p className="ds-hint">Metrics appear once a run starts.</p>
+  if (state === 'idle') {
+    return <p className="ds-empty">Start research to fill in the latency, tokens, cost and served model.</p>
+  }
 
   const running = state === 'running'
   const pending = (text: string) => (running ? '-' : text)
@@ -34,17 +37,22 @@ export function RunMetrics({ state, totalMs, totalIsStageSum, usage, model }: Ru
       : 'Reported by the provider'
 
   return (
-    <div className="ds-metrics">
-      <Metric
+    <dl className="ds-strip app-readout">
+      <Figure
         label="Total latency"
         value={formatMs(totalMs)}
         hint={running ? 'Running' : totalIsStageSum ? 'Sum of stage times' : 'Measured on the server'}
       />
-      <Metric label="Prompt tokens" value={pending(formatCount(usage.prompt_tokens))} />
-      <Metric label="Completion tokens" value={pending(formatCount(usage.completion_tokens))} />
-      <Metric label="Total tokens" value={pending(formatCount(usage.total_tokens))} />
-      <Metric label="Cost (USD)" value={pending(formatUsd(usage.cost))} hint={costHint} />
-      <Metric label="Served model" value={pending(model ?? 'not reported')} hint={running ? undefined : 'From the provider response'} />
-    </div>
+      <Figure label="Prompt tokens" value={pending(formatCount(usage.prompt_tokens))} />
+      <Figure label="Completion tokens" value={pending(formatCount(usage.completion_tokens))} />
+      <Figure label="Total tokens" value={pending(formatCount(usage.total_tokens))} />
+      <Figure label="Cost (USD)" value={pending(formatUsd(usage.cost))} hint={costHint} />
+      <Figure
+        label="Served model"
+        value={pending(model ?? 'not reported')}
+        hint={running ? undefined : 'From the provider response'}
+        mono
+      />
+    </dl>
   )
 }

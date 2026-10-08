@@ -2,6 +2,8 @@
 
 AgentFlow answers one research question with four model calls in a fixed order. A Researcher lists key facts, an Analyst finds patterns in them, a Critic names gaps, and a Synthesizer writes the final report from those three outputs. The page draws the four stages as a graph, shows a trace with the time, tokens and cost of each stage, and shows the model the provider served. The report can be exported as PDF, Word or Markdown.
 
+What this showcases: a fixed multi-agent pipeline, four model calls in order, each stage traced with its own tokens and cost.
+
 Each stage's output appears when that stage has finished. The server reads each model reply as it arrives, but it sends a stage to the browser only when that stage ends.
 
 ## The pipeline
@@ -19,11 +21,11 @@ The time cap is a ceiling for one attempt. The run budget in the next section ca
 
 ## What the page shows
 
-- **Pipeline graph:** one node per stage, labelled Waiting, Working, Finished, Cut off, Failed, Not run or Stopped. A finished node shows its time.
-- **Stage outputs:** one tab per stage. A tab shows text once that stage has finished.
-- **Run trace:** one line per stage with its status, a one-line summary, its time in milliseconds, and for finished stages its tokens and cost. A stage whose reply stopped before its finish reason shows as cut off.
-- **Run metrics:** total latency, prompt, completion and total tokens, cost in USD, and the served model. A figure the provider did not send shows as "not reported". The page never estimates one.
-- **Export:** PDF, DOCX or Markdown, once a run has produced output.
+- **Controls:** the research topic, Start research, Stop research while a run is going, and the export group. Export offers PDF, DOCX or Markdown once a run has output, and each file holds all four stages.
+- **Pipeline:** one node per stage, labelled Waiting, Working, Finished, Cut off, Failed, Not run or Stopped. A node shows its time once its stage has finished. The edges are labelled Research, Analysis and Gaps, and an edge takes the signal colour once a run passes along it. Wide screens show the four stages in one row. Narrower screens show them as a 2x2 grid.
+- **Report:** one tab per stage. A tab shows text once that stage has finished, and the Synthesizer tab holds the final answer.
+- **Run figures:** total latency, prompt, completion and total tokens, cost in USD, and the served model. A figure the provider did not send shows as "not reported". The page never estimates one.
+- **Run trace:** one numbered line per stage with its status, a one-line summary, its time in milliseconds, and for finished stages its tokens and cost. A stage whose reply stopped before its finish reason shows as cut off.
 
 ## Architecture
 

@@ -14,6 +14,9 @@ import { AgentNode } from './AgentNode'
 
 const nodeTypes: NodeTypes = { agent: AgentNode as unknown as NodeTypes[string] }
 
+/** Fit padding is a fraction of each side. Small, so the stages fill the panel. */
+const FIT_PADDING = 0.04
+
 interface PipelineCanvasProps {
   nodes: Node[]
   edges: Edge[]
@@ -33,7 +36,7 @@ function Canvas({ nodes, edges, onNodesChange, onEdgesChange }: PipelineCanvasPr
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        void fitView({ padding: 0.15, duration: 150 })
+        void fitView({ padding: FIT_PADDING, duration: 150 })
       })
     })
     observer.observe(el)
@@ -52,7 +55,7 @@ function Canvas({ nodes, edges, onNodesChange, onEdgesChange }: PipelineCanvasPr
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: FIT_PADDING }}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -62,10 +65,10 @@ function Canvas({ nodes, edges, onNodesChange, onEdgesChange }: PipelineCanvasPr
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
         minZoom={0.4}
-        maxZoom={1.2}
+        maxZoom={1}
         aria-label="Pipeline: four stages in order"
       >
-        <Controls showInteractive={false} showZoom={false} showFitView={true} />
+        <Controls showInteractive={false} showZoom={false} showFitView={true} position="top-right" />
       </ReactFlow>
     </div>
   )

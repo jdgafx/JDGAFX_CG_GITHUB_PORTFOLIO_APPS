@@ -1,4 +1,4 @@
-/* App-specific styles. Layout, cards, forms, trace and metrics come from tokens.css. */
+/* App-specific styles. Layout, panels, forms, the trace and the readout strip come from tokens.css. */
 
 .app-status {
   min-height: 1.5em;
@@ -15,46 +15,59 @@
 .app-notes {
   display: grid;
   gap: 6px;
-  margin-top: 14px;
+  margin-top: 16px;
   font-size: 14px;
 }
 
-/* Example queries, shown before the first run */
+/* One line of body text: empty states and cut-off notes */
+.app-note {
+  font-size: 15px;
+  color: var(--ds-text-muted);
+}
+
+/* Warning dot for cut-off and stopped stages */
+.app-dot--warning {
+  background: var(--ds-warning);
+}
+
+/* Research: each example is a full-width row, so a long question wraps inside its button */
 .example-chips {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
 }
 
 .example-chip {
-  min-height: 36px;
-  padding: 6px 12px;
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
+  line-height: 1.4;
   text-align: left;
   color: var(--ds-text);
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-sm);
   cursor: pointer;
 }
 
 .example-chip:hover:not(:disabled) {
-  background: var(--ds-accent-soft);
+  background: var(--ds-surface-2);
 }
 
 .example-chip:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Pipeline graph (React Flow) */
+/* Pipeline: the hero. One row of four on wide screens, a 2x2 grid below 1200px. */
+.pipeline-panel {
+  padding: 12px;
+}
+
 .pipeline-canvas {
-  height: 200px;
-  overflow: hidden;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
+  height: 208px;
 }
 
 .pipeline-graph {
@@ -62,13 +75,13 @@
   height: 100%;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1199px) {
   .pipeline-canvas {
-    height: 300px;
+    height: 352px;
   }
 }
 
-/* React Flow paints its own white background by default. The card supplies the surface. */
+/* React Flow paints its own white by default. The panel supplies the surface. */
 .pipeline-graph .react-flow {
   background-color: transparent;
 }
@@ -82,28 +95,38 @@
   opacity: 0;
 }
 
+/* Edges: a quiet rule until a run takes it, then the signal colour */
 .react-flow__edge-path {
-  stroke: var(--ds-border);
-  stroke-width: 2;
+  stroke: var(--ds-text-muted);
+  stroke-width: 1.5;
 }
 
-.react-flow__edge.animated .react-flow__edge-path {
+.react-flow__edge.pipeline-edge--taken .react-flow__edge-path {
   stroke: var(--ds-accent);
-  stroke-dasharray: 6 4;
-  animation: flow-dash 0.6s linear infinite;
+  stroke-width: 2.5;
 }
 
-@keyframes flow-dash {
-  to {
-    stroke-dashoffset: -10;
-  }
+.react-flow__edge-textbg {
+  fill: var(--ds-surface-2);
 }
 
+.react-flow__edge-text {
+  font-family: var(--ds-font);
+  font-size: 13px;
+  fill: var(--ds-text-muted);
+}
+
+.react-flow__edge.pipeline-edge--taken .react-flow__edge-text {
+  fill: var(--ds-text);
+  font-weight: 650;
+}
+
+/* Fit-view control. React Flow ships a shadow here; the system has none. */
 .react-flow__controls {
   overflow: hidden;
   border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
-  box-shadow: var(--ds-shadow);
+  box-shadow: none;
 }
 
 .react-flow__controls-button {
@@ -116,52 +139,76 @@
   background: var(--ds-surface-2);
 }
 
-/* One pipeline node. The status word carries the meaning; the border only reinforces it. */
+/* One stage. The running stage takes the signal colour; a finished stage stays quiet. */
 .agent-node {
-  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 136px;
+  min-height: 128px;
   padding: 10px 12px;
   color: var(--ds-text);
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
-  border-left-width: 4px;
   border-radius: var(--ds-radius);
-  box-shadow: var(--ds-shadow);
 }
 
 .agent-node[data-status="working"] {
+  background: var(--ds-accent-soft);
   border-color: var(--ds-accent);
-  box-shadow: 0 0 0 2px var(--ds-accent-soft);
 }
 
-.agent-node[data-status="complete"] {
-  border-left-color: var(--ds-success);
-}
-
-.agent-node[data-status="error"] {
-  border-left-color: var(--ds-danger);
-}
-
-.agent-node[data-status="stopped"] {
-  border-left-color: var(--ds-warning);
-}
-
-.agent-node__name {
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.agent-node__state {
-  margin-top: 2px;
-  font-size: 12.5px;
+.agent-node[data-status="skipped"] {
   color: var(--ds-text-muted);
 }
 
-/* Stage tabs over the report */
+.agent-node[data-status="error"] {
+  border-color: var(--ds-danger);
+}
+
+.agent-node[data-status="stopped"],
+.agent-node[data-cut] {
+  border-color: var(--ds-warning);
+}
+
+.agent-node__name {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.agent-node__ms {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-node__desc {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ds-text-muted);
+}
+
+.agent-node__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Report: the stage tabs sit inside the panel. The selected tab is marked by a signal bar, not a border. */
+.report-panel {
+  background: var(--ds-surface);
+}
+
 .output-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 16px;
 }
 
 @media (max-width: 520px) {
@@ -171,33 +218,47 @@
 }
 
 .output-tab {
+  position: relative;
   display: grid;
   gap: 2px;
   justify-items: start;
-  min-height: 52px;
+  min-height: 56px;
   padding: 8px 10px;
   font: inherit;
   text-align: left;
-  color: var(--ds-text);
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
+  color: var(--ds-text-muted);
+  background: var(--ds-surface-2);
+  border: 0;
   border-radius: var(--ds-radius-sm);
   cursor: pointer;
 }
 
 .output-tab[aria-selected="true"] {
-  border-color: var(--ds-accent);
+  color: var(--ds-text);
   background: var(--ds-accent-soft);
 }
 
+.output-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--ds-accent);
+  border-radius: 0 0 var(--ds-radius-sm) var(--ds-radius-sm);
+}
+
 .output-tab__name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 650;
 }
 
 .output-tab__state {
-  font-size: 12px;
-  color: var(--ds-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
 }
 
 .output-body {
@@ -205,31 +266,58 @@
   overflow-wrap: anywhere;
 }
 
-/* Rendered agent output */
+/* Run figures: three across, two on phones */
+.app-readout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .app-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Trace status: a dot and its word */
+.app-trace__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+/* Rendered stage output: the type scale, no decorative rules, the signal colour kept for state */
 .md {
   font-size: 15px;
   line-height: 1.6;
   color: var(--ds-text);
+  max-width: var(--ds-measure);
+}
+
+.md > :first-child {
+  margin-top: 0;
 }
 
 .md h3,
 .md h4,
 .md h5 {
-  margin: 18px 0 8px;
+  margin: 18px 0 6px;
   line-height: 1.3;
+  font-weight: 650;
 }
 
 .md h3 {
-  font-size: 17px;
+  font-size: 18px;
 }
 
 .md h4 {
-  font-size: 15.5px;
+  font-size: 15px;
 }
 
 .md h5 {
-  font-size: 14.5px;
-  color: var(--ds-accent);
+  font-size: 13px;
+  color: var(--ds-text-muted);
 }
 
 .md p,
@@ -253,7 +341,6 @@
 .md blockquote {
   padding-left: 12px;
   color: var(--ds-text-muted);
-  border-left: 3px solid var(--ds-border);
 }
 
 .md pre {
@@ -284,7 +371,7 @@
 
 .md table {
   min-width: 100%;
-  font-size: 13.5px;
+  font-size: 14px;
   border-collapse: collapse;
 }
 
@@ -293,16 +380,26 @@
   padding: 6px 10px;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid var(--ds-border);
+}
+
+.md th {
+  font-weight: 650;
+  background: var(--ds-surface-2);
+}
+
+.md tbody tr:nth-child(even) {
+  background: var(--ds-surface-2);
 }
 
 .md hr {
-  margin: 14px 0;
+  margin: 16px 0;
   border: 0;
   border-top: 1px solid var(--ds-border);
 }
 
 .md a {
-  color: var(--ds-accent);
+  color: var(--ds-text);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-text-muted);
   text-underline-offset: 2px;
 }

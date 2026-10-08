@@ -2,10 +2,12 @@ import { Download, FileCode, FileText } from 'lucide-react'
 
 export type ExportKind = 'pdf' | 'docx' | 'md'
 
+/** running: a run is in progress. empty: no output yet. partial: some stages have output. complete: every stage has output. */
+export type ExportState = 'running' | 'empty' | 'partial' | 'complete'
+
 interface ExportBarProps {
-  complete: boolean
+  state: ExportState
   busy: ExportKind | null
-  disabled: boolean
   onExport: (kind: ExportKind) => void
 }
 
@@ -15,34 +17,36 @@ const BUTTONS: Array<{ kind: ExportKind; label: string; title: string; icon: typ
   { kind: 'md', label: 'Markdown', title: 'Download the report as a Markdown file', icon: FileCode },
 ]
 
-export function ExportBar({ complete, busy, disabled, onExport }: ExportBarProps) {
-  const locked = disabled || busy !== null
+const HELP: Record<ExportState, string> = {
+  running: 'Available when the run ends. It exports all four stages in order.',
+  empty: 'Available once a run has output. It exports all four stages in order.',
+  partial: 'Exports all four stages in order. A stage that produced no output says so in the file.',
+  complete: 'Exports all four stages in order: research, analysis, critique and synthesis.',
+}
+
+/** The export section: one button per format, with one line on what gets exported. */
+export function ExportBar({ state, busy, onExport }: ExportBarProps) {
+  const locked = busy !== null || state === 'running' || state === 'empty'
 
   return (
-    <section className="ds-card" aria-labelledby="export-heading">
-      <div className="ds-card__head">
-        <h2 id="export-heading" className="ds-card__title">
+    <section className="ds-section" aria-labelledby="export-heading">
+      <div className="ds-section__head">
+        <h2 id="export-heading" className="ds-section__title">
           Export report
         </h2>
-        <span className="ds-hint">
-          {complete ? 'All four stages are in the report.' : 'Partial run. The export holds the stages that finished.'}
-        </span>
+        <p className="ds-section__sub">Save the report as a file.</p>
       </div>
-      <div className="ds-row">
+      <div className="ds-row" role="group" aria-labelledby="export-heading" aria-describedby="export-help">
         {BUTTONS.map(({ kind, label, title, icon: Icon }) => (
-          <button
-            key={kind}
-            type="button"
-            className="ds-button"
-            onClick={() => onExport(kind)}
-            disabled={locked}
-            title={title}
-          >
+          <button key={kind} type="button" className="ds-button" onClick={() => onExport(kind)} disabled={locked} title={title}>
             <Icon size={14} aria-hidden="true" />
             {busy === kind ? 'Preparing...' : label}
           </button>
         ))}
       </div>
+      <p id="export-help" className="ds-help">
+        {HELP[state]}
+      </p>
     </section>
   )
 }

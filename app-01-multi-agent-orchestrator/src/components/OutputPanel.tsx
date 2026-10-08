@@ -3,13 +3,28 @@ import { AGENT_META, AGENT_ORDER, wasTruncated } from '../lib/agents'
 import type { AgentRole, AgentState, AgentStatus } from '../types'
 import { Markdown } from './Markdown'
 
-const TAB_STATE: Record<AgentStatus, string> = {
-  idle: 'waiting',
-  working: 'working',
-  complete: 'done',
-  error: 'failed',
-  skipped: 'not run',
-  stopped: 'stopped',
+const TAB_WORD: Record<AgentStatus, string> = {
+  idle: 'Waiting',
+  working: 'Working',
+  complete: 'Finished',
+  error: 'Failed',
+  skipped: 'Not run',
+  stopped: 'Stopped',
+}
+
+const TAB_DOT: Record<AgentStatus, string> = {
+  idle: 'ds-dot',
+  working: 'ds-dot ds-dot--running',
+  complete: 'ds-dot ds-dot--ok',
+  error: 'ds-dot ds-dot--failed',
+  skipped: 'ds-dot ds-dot--skipped',
+  stopped: 'ds-dot app-dot--warning',
+}
+
+/** The word and dot a stage tab shows. A stage cut off mid-answer says so. */
+function tabState(agent: AgentState): { word: string; dot: string } {
+  if (agent.status === 'complete' && wasTruncated(agent)) return { word: 'Cut off', dot: 'ds-dot app-dot--warning' }
+  return { word: TAB_WORD[agent.status], dot: TAB_DOT[agent.status] }
 }
 
 interface OutputPanelProps {
@@ -23,7 +38,7 @@ function EmptyState({ agent }: { agent: AgentState }) {
   const name = AGENT_META[agent.id].name
   switch (agent.status) {
     case 'working':
-      return <p className="ds-hint">{name} is working. Its output appears when it finishes.</p>
+      return <p className="app-note">{name} is working. Its text appears when it finishes.</p>
     case 'error':
       return (
         <div className="ds-notice ds-notice--error" role="alert">
@@ -31,9 +46,9 @@ function EmptyState({ agent }: { agent: AgentState }) {
         </div>
       )
     case 'idle':
-      return <p className="ds-hint">Start a run to see the {name.toLowerCase()} output here.</p>
+      return <p className="app-note">Start research to fill this tab.</p>
     default:
-      return <p className="ds-hint">{agent.detail}</p>
+      return <p className="app-note">{agent.detail}</p>
   }
 }
 
@@ -58,6 +73,7 @@ export function OutputPanel({ agents, activeTab, onSelect }: OutputPanelProps) {
       <div role="tablist" aria-label="Stage outputs" className="output-tabs" onKeyDown={onTabKeyDown}>
         {AGENT_ORDER.map(role => {
           const isActive = role === activeTab
+          const state = tabState(agents[role])
           return (
             <button
               key={role}
@@ -71,7 +87,10 @@ export function OutputPanel({ agents, activeTab, onSelect }: OutputPanelProps) {
               onClick={() => onSelect(role)}
             >
               <span className="output-tab__name">{AGENT_META[role].name}</span>
-              <span className="output-tab__state">{TAB_STATE[agents[role].status]}</span>
+              <span className="output-tab__state">
+                <span className={state.dot} aria-hidden="true" />
+                {state.word}
+              </span>
             </button>
           )
         })}
@@ -89,7 +108,7 @@ export function OutputPanel({ agents, activeTab, onSelect }: OutputPanelProps) {
           <>
             <Markdown text={active.output} />
             {wasTruncated(active) && (
-              <p className="ds-hint">This stage was cut off before {AGENT_META[activeTab].name} finished.</p>
+              <p className="app-note">This stage was cut off before {AGENT_META[activeTab].name} finished.</p>
             )}
           </>
         ) : (
