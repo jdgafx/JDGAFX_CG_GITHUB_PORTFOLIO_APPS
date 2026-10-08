@@ -4,15 +4,17 @@ import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
 import type { TraceStep } from './lib/api'
 import AnalysisPanel from './components/AnalysisPanel'
+import AnswerStage from './components/AnswerStage'
 import HistoryStrip from './components/HistoryStrip'
-import ImageCard from './components/ImageCard'
-import ResultPanel from './components/ResultPanel'
+import ImagePicker from './components/ImagePicker'
+import ModeChoice from './components/ModeChoice'
+import ReadoutStrip from './components/ReadoutStrip'
 import RunTrace from './components/RunTrace'
 import ZoomOverlay from './components/ZoomOverlay'
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   idle: 'Ready',
-  running: 'Running',
+  running: 'Analyzing',
   complete: 'Complete',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -26,17 +28,26 @@ const STATUS_BADGE: Record<RunStatus, string> = {
   cancelled: 'ds-badge--warning',
 }
 
+// The dot repeats the badge's state as a mark, so the status never relies on colour alone.
+const STATUS_DOT: Record<RunStatus, string> = {
+  idle: '',
+  running: 'ds-dot--running',
+  complete: 'ds-dot--ok',
+  failed: 'ds-dot--failed',
+  cancelled: '',
+}
+
 function statusLine(status: RunStatus, steps: TraceStep[], totalMs: number | undefined, hasImage: boolean): string {
   if (status === 'running') {
     const current = steps.find(step => step.status === 'running')
-    return current ? `Running: ${current.name}` : 'Sending the image'
+    return current ? `Analyzing: ${current.name}` : 'Analyzing: sending the image'
   }
   if (status === 'complete') {
     return totalMs === undefined ? 'Response complete' : `Response complete in ${formatSeconds(totalMs)}`
   }
-  if (status === 'failed') return 'The run failed. The reason is shown under the result.'
-  if (status === 'cancelled') return 'The run was cancelled.'
-  return hasImage ? 'Ready to run.' : 'Choose an image to begin.'
+  if (status === 'failed') return 'The analysis failed. The reason is shown with the answer.'
+  if (status === 'cancelled') return 'The analysis was cancelled.'
+  return hasImage ? 'Ready to analyze.' : 'Choose an image to begin.'
 }
 
 export default function App() {
@@ -63,6 +74,7 @@ export default function App() {
 
   const running = vision.status === 'running'
   const hasImage = vision.imageUrl !== ''
+  const fileName = vision.file?.name ?? ''
 
   return (
     <div className="ds-app">
@@ -70,55 +82,71 @@ export default function App() {
         <div className="ds-header__inner">
           <div>
             <h1 className="ds-title">VisionLab</h1>
-            <p className="ds-subtitle">Describe, analyze, extract, or ask about one image.</p>
+            <p className="ds-subtitle">Choose one image, pick a mode, and read the answer as it streams in.</p>
           </div>
-          <span className={`ds-badge ${STATUS_BADGE[vision.status]}`}>{STATUS_LABEL[vision.status]}</span>
+          <span className={`ds-badge ${STATUS_BADGE[vision.status]}`}>
+            <span className={`ds-dot ${STATUS_DOT[vision.status]}`} aria-hidden="true" />
+            {STATUS_LABEL[vision.status]}
+          </span>
+          <p className="ds-showcase">
+            <strong>What this showcases:</strong> a multimodal call, one image and one prompt in, a streamed answer out,
+            with the reply checked for completeness before it is marked done.
+          </p>
         </div>
       </header>
 
       <main className="ds-main">
-        <div className="ds-grid-2">
-          <ImageCard
-            imageUrl={vision.imageUrl}
-            fileName={vision.file?.name ?? ''}
-            disabled={running}
-            uploadError={vision.uploadError}
-            onFile={vision.chooseFile}
-            onRemove={vision.removeImage}
-            onZoom={() => setZoomed(true)}
-          />
-          <AnalysisPanel
-            mode={vision.mode}
-            question={vision.question}
-            questionError={vision.questionError}
-            running={running}
-            canRun={hasImage}
-            statusText={statusLine(vision.status, vision.steps, vision.summary?.totalMs, hasImage)}
-            onModeChange={vision.changeMode}
-            onQuestionChange={vision.updateQuestion}
-            onRun={vision.run}
-            onCancel={vision.cancel}
-          />
+        <div className="ds-bench">
+          <div className="ds-controls">
+            <ImagePicker
+              imageUrl={vision.imageUrl}
+              fileName={fileName}
+              disabled={running}
+              uploadError={vision.uploadError}
+              onFile={vision.chooseFile}
+              onRemove={vision.removeImage}
+            />
+            <ModeChoice
+              mode={vision.mode}
+              question={vision.question}
+              questionError={vision.questionError}
+              running={running}
+              onModeChange={vision.changeMode}
+              onQuestionChange={vision.updateQuestion}
+              onRun={vision.run}
+            />
+            <AnalysisPanel
+              running={running}
+              canRun={hasImage}
+              statusText={statusLine(vision.status, vision.steps, vision.summary?.totalMs, hasImage)}
+              onRun={vision.run}
+              onCancel={vision.cancel}
+            />
+          </div>
+
+          <div className="ds-run">
+            <AnswerStage
+              mode={vision.mode}
+              imageUrl={vision.imageUrl}
+              fileName={fileName}
+              result={vision.result}
+              status={vision.status}
+              truncated={vision.truncated}
+              notice={vision.notice}
+              onFile={vision.chooseFile}
+              onZoom={() => setZoomed(true)}
+            />
+            <ReadoutStrip summary={vision.summary} />
+            <RunTrace steps={vision.steps} summary={vision.summary} />
+            <HistoryStrip
+              items={vision.gallery}
+              activeId={vision.activeId}
+              disabled={running}
+              onSelect={vision.reopen}
+              onClear={vision.clearGallery}
+            />
+          </div>
         </div>
-
-        <ResultPanel
-          result={vision.result}
-          status={vision.status}
-          truncated={vision.truncated}
-          notice={vision.notice}
-        />
-
-        <RunTrace steps={vision.steps} summary={vision.summary} />
-
-        {vision.gallery.length > 0 && (
-          <HistoryStrip
-            items={vision.gallery}
-            activeId={vision.activeId}
-            disabled={running}
-            onSelect={vision.reopen}
-            onClear={vision.clearGallery}
-          />
-        )}
       </main>
 
       <footer className="ds-footer">
@@ -126,7 +154,7 @@ export default function App() {
       </footer>
 
       {zoomed && hasImage && (
-        <ZoomOverlay src={vision.imageUrl} label={vision.file?.name ?? 'image'} onClose={closeZoom} />
+        <ZoomOverlay src={vision.imageUrl} label={fileName || 'image'} onClose={closeZoom} />
       )}
     </div>
   )

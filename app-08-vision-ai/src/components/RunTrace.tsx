@@ -1,16 +1,12 @@
 import type { StepStatus, TraceStep, RunSummary } from '../lib/api'
 import { formatCount, formatMs, formatUsd } from '../lib/format'
 
-const STEP_BADGE: Record<StepStatus, { label: string; className: string }> = {
-  running: { label: 'Running', className: 'ds-badge--accent' },
-  ok: { label: 'OK', className: 'ds-badge--success' },
-  failed: { label: 'Failed', className: 'ds-badge--danger' },
-  skipped: { label: 'Skipped', className: '' },
-}
-
-interface RunTraceProps {
-  steps: TraceStep[]
-  summary: RunSummary | null
+// Each state is a dot plus its word, so no state relies on colour alone.
+const STEP_STATE: Record<StepStatus, { label: string; badge: string; dot: string }> = {
+  running: { label: 'Running', badge: 'ds-badge--accent', dot: 'ds-dot--running' },
+  ok: { label: 'Done', badge: 'ds-badge--success', dot: 'ds-dot--ok' },
+  failed: { label: 'Failed', badge: 'ds-badge--danger', dot: 'ds-dot--failed' },
+  skipped: { label: 'Skipped', badge: '', dot: 'ds-dot--skipped' },
 }
 
 // Each bar is the step's share of the total time, so the slow stage is visible at a glance.
@@ -19,26 +15,34 @@ function sharePercent(ms: number | undefined, total: number): string {
   return `${Math.min(100, (ms / total) * 100).toFixed(1)}%`
 }
 
+interface RunTraceProps {
+  steps: TraceStep[]
+  summary: RunSummary | null
+}
+
 export default function RunTrace({ steps, summary }: RunTraceProps) {
   const total = summary?.totalMs ?? 0
 
   return (
-    <section className="ds-card" aria-labelledby="trace-title">
-      <div className="ds-card__head">
-        <h2 id="trace-title" className="ds-card__title">
+    <section className="ds-section" aria-labelledby="trace-title">
+      <div className="ds-section__head">
+        <h2 id="trace-title" className="ds-section__title">
           Run trace
         </h2>
-        <span className="ds-hint">Each bar is that step&apos;s share of total time.</span>
+        <p className="ds-section__sub">Each bar is that step&apos;s share of total time.</p>
       </div>
 
       {steps.length === 0 ? (
-        <div className="ds-empty">Each step of a run appears here, with its time and outcome.</div>
+        <div className="ds-empty">Analyze an image to see its three steps here, each with its time and outcome.</div>
       ) : (
         <ol className="ds-trace">
           {steps.map((step, index) => {
-            const badge = STEP_BADGE[step.status]
+            const state = STEP_STATE[step.status]
             return (
-              <li key={`${step.name}-${index}`} className="ds-trace__step">
+              <li
+                key={`${step.name}-${index}`}
+                className={step.status === 'running' ? 'ds-trace__step ds-trace__step--running' : 'ds-trace__step'}
+              >
                 <span className="ds-trace__index">{index + 1}</span>
                 <div>
                   <p className="ds-trace__name">{step.name}</p>
@@ -46,7 +50,10 @@ export default function RunTrace({ steps, summary }: RunTraceProps) {
                   <div className="ds-trace__bar" aria-hidden="true" style={{ width: sharePercent(step.ms, total) }} />
                 </div>
                 <div className="ds-trace__meta">
-                  <span className={`ds-badge ${badge.className}`}>{badge.label}</span>
+                  <span className={`ds-badge ${state.badge}`}>
+                    <span className={`ds-dot ${state.dot}`} aria-hidden="true" />
+                    {state.label}
+                  </span>
                   <div>{step.ms === undefined ? 'not measured' : formatMs(step.ms)}</div>
                   {step.tokens !== undefined && <div>{formatCount(step.tokens)} tokens</div>}
                   {step.cost !== undefined && <div>{formatUsd(step.cost)}</div>}
@@ -56,27 +63,6 @@ export default function RunTrace({ steps, summary }: RunTraceProps) {
           })}
         </ol>
       )}
-
-      {summary && (
-        <div className="ds-metrics run-metrics">
-          <Metric label="Total latency" value={formatMs(summary.totalMs)} />
-          <Metric label="Prompt tokens" value={formatCount(summary.usage?.prompt_tokens)} />
-          <Metric label="Completion tokens" value={formatCount(summary.usage?.completion_tokens)} />
-          <Metric label="Total tokens" value={formatCount(summary.usage?.total_tokens)} />
-          <Metric label="Cost (USD)" value={formatUsd(summary.usage?.cost)} hint="As reported by the provider" />
-          <Metric label="Served model" value={summary.model ?? 'not reported'} />
-        </div>
-      )}
     </section>
-  )
-}
-
-function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="ds-metric">
-      <p className="ds-metric__label">{label}</p>
-      <p className="ds-metric__value">{value}</p>
-      {hint && <p className="ds-metric__hint">{hint}</p>}
-    </div>
   )
 }

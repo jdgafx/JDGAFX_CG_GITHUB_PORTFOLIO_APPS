@@ -20,8 +20,8 @@ export interface GalleryItem {
 type GalleryDraft = Omit<GalleryItem, 'id' | 'previewUrl' | 'name'>
 
 const HISTORY_LIMIT = 12
-const CANCELLED_NOTICE = 'Run cancelled. Anything above is only a partial result.'
-const QUESTION_REQUIRED = 'Type a question before you run this analysis.'
+const CANCELLED_NOTICE = 'Analysis cancelled. Anything above is only a partial answer.'
+const QUESTION_REQUIRED = 'Type a question before you analyze the image.'
 
 function upsertStep(steps: TraceStep[], step: TraceStep): TraceStep[] {
   const index = steps.findIndex(existing => existing.name === step.name)

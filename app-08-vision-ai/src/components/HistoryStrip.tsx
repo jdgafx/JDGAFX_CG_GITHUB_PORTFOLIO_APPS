@@ -11,35 +11,41 @@ interface HistoryStripProps {
 
 export default function HistoryStrip({ items, activeId, disabled, onSelect, onClear }: HistoryStripProps) {
   return (
-    <section className="history" aria-labelledby="history-title">
-      <div className="history__head">
-        <h2 id="history-title" className="ds-card__title">
-          Recent analyses
-        </h2>
-        <button type="button" className="ds-button" onClick={onClear}>
+    <section className="ds-section" aria-labelledby="history-title">
+      <div className="ds-section__head ds-section__head--row">
+        <div>
+          <h2 id="history-title" className="ds-section__title">
+            Recent analyses
+          </h2>
+          <p className="ds-section__sub">Up to 12 completed analyses are kept until the page reloads.</p>
+        </div>
+        <button type="button" className="ds-button" onClick={onClear} disabled={disabled || items.length === 0}>
           Clear history
         </button>
       </div>
-      <p className="ds-hint">Up to 12 completed analyses are kept until the page reloads.</p>
 
-      <ul className="history__list">
-        {items.map(item => (
-          <li key={item.id}>
-            <button
-              type="button"
-              className="history__item"
-              onClick={() => onSelect(item)}
-              disabled={disabled}
-              aria-current={item.id === activeId ? 'true' : undefined}
-              aria-label={`Reopen ${item.name}, ${MODE_LABELS[item.mode]} analysis`}
-            >
-              <img src={item.previewUrl} alt="" />
-              <span>{item.name}</span>
-              <span className="history__mode">{MODE_LABELS[item.mode]}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {items.length === 0 ? (
+        <div className="ds-empty">Completed analyses appear here. Select one to reopen it with its answer.</div>
+      ) : (
+        <ul className="history__list">
+          {items.map(item => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className="history__item"
+                onClick={() => onSelect(item)}
+                disabled={disabled}
+                aria-current={item.id === activeId ? 'true' : undefined}
+                aria-label={`Reopen ${item.name}, ${MODE_LABELS[item.mode]} analysis`}
+              >
+                <img src={item.previewUrl} alt="" />
+                <span className="history__name">{item.name}</span>
+                <span className="history__mode">{MODE_LABELS[item.mode]}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

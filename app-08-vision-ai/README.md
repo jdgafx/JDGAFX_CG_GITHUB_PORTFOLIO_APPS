@@ -2,7 +2,9 @@
 
 Live: https://jdgafx-app-08-vision-ai.netlify.app
 
-VisionLab answers questions about one image. Choose a JPG, PNG, WebP or GIF up to 4 MB, pick a mode, and run it. Describe gives a full description of the scene. Analyze covers composition, colour, objects, visible text and image quality. Question answers one question you type. Extract pulls out text, numbers and tables in their original structure. The answer streams in as it arrives, and a run trace shows each step with its time, tokens and cost.
+VisionLab answers questions about one image. Choose a JPG, PNG, WebP or GIF up to 4 MB, pick a mode, and analyze it. Describe gives a full description of the scene. Analyze covers composition, colour, objects, visible text and image quality. Question answers one question you type. Extract pulls out text, numbers and tables in their original structure. The answer streams in as it arrives, and a run trace shows each step with its time, tokens and cost.
+
+**What this showcases:** a multimodal call, one image and one prompt in, a streamed answer out, with the reply checked for completeness before it is marked done.
 
 ## The pipeline
 
@@ -12,7 +14,7 @@ Each run has three steps. The names match the trace exactly.
 2. **Model call.** The server sends the image and prompt to one vision model through OpenRouter and streams the reply back. The step shows the served model and the number of text chunks.
 3. **Parse and validate.** The server checks that the reply is not empty, did not stop at the output limit, was not filtered, and was not written by a moderation model. This is a format check. It does not check whether the answer is correct.
 
-The page shows the trace with each step's status and time. Below it, metric cards show total latency, prompt, completion and total tokens, the cost in USD as the provider reports it, and the served model. A metric card shows "not reported" when the provider does not send that value.
+The page shows the trace with each step's status and time. Below it, a readout strip shows total latency, prompt, completion and total tokens, the cost in USD as the provider reports it, and the served model. A value shows "not reported" when the provider does not send it.
 
 ## Architecture
 

@@ -1,27 +1,28 @@
-/* App-specific rules only. Colors, type, and the shared components come from tokens.css. */
+/* App-specific rules only. Colors, type and the shared components come from tokens.css. */
 
-.image-card__name {
-  overflow-wrap: anywhere;
-}
-
+/* Image picker: a drop zone until a picture is chosen, then a compact row */
 .dropzone {
   display: grid;
   justify-items: center;
-  gap: 6px;
+  align-content: center;
+  gap: 4px;
   width: 100%;
-  min-height: 200px;
-  padding: 24px 16px;
+  min-height: 120px;
+  padding: 20px 16px;
   font: inherit;
   color: var(--ds-text);
   text-align: center;
   background: var(--ds-surface-2);
-  border: 2px dashed var(--ds-border);
+  border: 2px dashed var(--ds-text-muted);
   border-radius: var(--ds-radius);
   cursor: pointer;
 }
 
-.dropzone.is-dragging {
+.dropzone.is-dragging,
+.picked.is-dragging {
+  background: var(--ds-accent-soft);
   border-color: var(--ds-accent);
+  border-style: solid;
 }
 
 .dropzone__title {
@@ -29,42 +30,122 @@
   font-weight: 650;
 }
 
-.image-preview {
+.dropzone__prompt {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.picked {
   display: grid;
-  gap: 12px;
-  margin: 0;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.picked__name {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+/* Mode options: one radio per mode, each with the line that says what it asks for */
+.mode-list {
+  display: grid;
+  gap: 4px;
   min-width: 0;
 }
 
-.image-preview img {
+.mode-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 8px 12px;
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+}
+
+.mode-option.is-selected {
+  background: var(--ds-accent-soft);
+}
+
+.mode-option input {
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  accent-color: var(--ds-accent);
+}
+
+.mode-option__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mode-option__label {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* The answer stage: the mode leads, the picture sits beside the streamed reply */
+.answer-title {
+  font-size: 22px;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.answer-stage {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.answer-column {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.picture {
+  min-width: 0;
+}
+
+.picture__frame {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.picture__frame img {
   display: block;
   width: 100%;
-  max-height: 360px;
+  max-height: 340px;
   object-fit: contain;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
+  background: var(--ds-surface);
   border-radius: var(--ds-radius-sm);
 }
 
-.mode-set {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.mode-set legend {
-  margin-bottom: 6px;
-  padding: 0;
-}
-
-.run-status {
-  min-height: 1.5em;
-  margin: 0;
-  font-size: 14px;
+.picture__name {
+  font-size: 13px;
   color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.picture.is-dragging .ds-panel,
+.picture.is-dragging .ds-empty {
+  border-color: var(--ds-accent);
+}
+
+@media (min-width: 720px) {
+  .answer-stage {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+    gap: 24px;
+  }
 }
 
 .result-body {
@@ -136,10 +217,9 @@
   background: none;
 }
 
+/* Wide tables scroll inside their own box instead of widening the page */
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
 }
 
 .result-text table {
@@ -179,10 +259,68 @@
   }
 }
 
-.run-metrics {
-  margin-top: 16px;
+/* A figure the provider did not send: quieter than a value */
+.readout-missing {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ds-text-muted);
 }
 
+/* Recent analyses: thumbnails, with the open one marked by an outline */
+.history__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__item {
+  display: grid;
+  gap: 6px;
+  width: 104px;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.history__item img {
+  display: block;
+  width: 104px;
+  height: 78px;
+  object-fit: cover;
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius-sm);
+}
+
+.history__item[aria-current='true'] img {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 2px;
+}
+
+.history__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.history__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ds-text);
+}
+
+.history__mode {
+  color: var(--ds-text-muted);
+}
+
+/* Full-size view of the picture */
 .zoom {
   position: fixed;
   inset: 0;
@@ -206,69 +344,9 @@
   right: 12px;
 }
 
-.history {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-  padding-top: 16px;
-  border-top: 1px solid var(--ds-border);
-}
-
-.history__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-}
-
-.history__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.run-status {
+  min-height: 1.5em;
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.history__item {
-  display: grid;
-  gap: 6px;
-  width: 104px;
-  padding: 0;
-  font: inherit;
-  font-size: 12px;
-  color: var(--ds-text-muted);
-  text-align: left;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.history__item img {
-  width: 104px;
-  height: 78px;
-  object-fit: cover;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.history__item[aria-current='true'] img {
-  border-color: var(--ds-accent);
-  box-shadow: 0 0 0 1px var(--ds-accent);
-}
-
-.history__item:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.history__item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history__mode {
+  font-size: 14px;
   color: var(--ds-text-muted);
 }
