@@ -1,118 +1,108 @@
-import { useEffect, useRef, useState } from 'react'
-import type { SummaryStats } from '../lib/mockData'
-import {
-  getInsights,
-  abortInsights,
-  isAbortError,
-  RunError,
-  type RunOutcome,
-  type TraceStep,
-} from '../lib/api'
-import RunTrace from './RunTrace'
+import { TRACE_STAGES, type TraceStep } from '../lib/api'
+import type { InsightRun, RunStatus } from '../lib/insightRun'
 import RunMetrics from './RunMetrics'
+import RunTrace from './RunTrace'
 
 interface InsightsPanelProps {
-  stats: SummaryStats
+  run: InsightRun
 }
 
-type RunStatus = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
+// The server's own wording, for example "2 of 3 figures match the snapshot" or "1 of 1 figure matches the snapshot".
+const COUNT_LINE = /^(\d+) of (\d+) (figures? match(?:es)? the snapshot[\s\S]*)$/
 
-const COMPLETE_LABEL = 'Analysis complete'
-const GENERIC_FAILURE_MESSAGE = 'The analysis could not be completed. Try again.'
+const CHECK_WORD: Record<TraceStep['status'], string> = {
+  ok: 'Check passed',
+  failed: 'Check failed',
+  skipped: 'Check not run',
+}
 
-export default function InsightsPanel({ stats }: InsightsPanelProps) {
-  const [status, setStatus] = useState<RunStatus>('idle')
-  const [stage, setStage] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [steps, setSteps] = useState<TraceStep[]>([])
-  const [outcome, setOutcome] = useState<RunOutcome | null>(null)
-  const [totalMs, setTotalMs] = useState<number | null>(null)
-  const [errorMessage, setErrorMessage] = useState('')
-  const completedRef = useRef(false)
+/** One line of plain words for the status region. The verb matches the button that starts the run. */
+function statusLine(status: RunStatus, openIndex: number, anyFailedStep: boolean): string {
+  if (status === 'running') {
+    const next = openIndex >= 0 ? TRACE_STAGES[openIndex] : undefined
+    return next
+      ? `Generating insights. Step ${openIndex + 1} of ${TRACE_STAGES.length}: ${next.name}.`
+      : 'Generating insights. Finishing the run.'
+  }
+  if (status === 'done') {
+    return anyFailedStep ? 'Analysis complete, with a failed check. See the trace.' : 'Analysis complete'
+  }
+  if (status === 'failed') return 'Run failed. Generate insights to try again.'
+  if (status === 'stopped') return 'Stopped. The text above is what arrived before you stopped.'
+  return 'Ready. The model has not been called yet.'
+}
 
-  // Leaving the dashboard (Exit Demo, sign out, navigation) must not leave a
-  // stream running against the function.
-  useEffect(() => abortInsights, [])
+interface FigureCheckProps {
+  step: TraceStep | undefined
+  running: boolean
+  stopped: boolean
+}
 
-  const handleGenerate = async () => {
-    completedRef.current = false
-    setStatus('running')
-    setStage('Sending the summary figures to the server')
-    setAnswer('')
-    setSteps([])
-    setOutcome(null)
-    setTotalMs(null)
-    setErrorMessage('')
-
-    try {
-      await getInsights(stats, {
-        onStage: () => setStage('Streaming the analysis'),
-        onStep: (step) => {
-          setSteps((prev) => [...prev, step])
-          if (step.name === 'Call model' && step.status === 'ok') setStage('Waiting for the first words')
-        },
-        onText: (chunk) => setAnswer((prev) => prev + chunk),
-        onComplete: (run) => {
-          completedRef.current = true
-          setOutcome(run)
-          setAnswer(run.result)
-          setTotalMs(run.totalMs)
-          setStatus('done')
-        },
-      })
-      if (!completedRef.current) {
-        setStatus('failed')
-        setErrorMessage('The run ended before the analysis finished. Try again.')
-      }
-    } catch (err) {
-      if (isAbortError(err)) {
-        setStatus('stopped')
-        return
-      }
-      setStatus('failed')
-      setErrorMessage(err instanceof RunError ? err.message : GENERIC_FAILURE_MESSAGE)
-      setTotalMs(err instanceof RunError ? err.totalMs : null)
-    }
+/** The hero readout: how many figures in the answer match the snapshot, shown beside the streamed text. */
+function FigureCheck({ step, running, stopped }: FigureCheckProps) {
+  if (!step) {
+    return (
+      <div className="hub-check">
+        <p className="hub-check__line">
+          {running
+            ? 'The check runs after the answer finishes.'
+            : stopped
+              ? 'The check did not run because the run stopped.'
+              : 'The check did not run.'}
+        </p>
+        <p className={running ? 'hub-check__state hub-check__state--running' : 'hub-check__state'}>
+          <span className={running ? 'ds-dot ds-dot--running' : 'ds-dot ds-dot--skipped'} aria-hidden="true" />
+          {running ? 'Check waiting' : 'Check not run'}
+        </p>
+      </div>
+    )
   }
 
-  const handleStop = () => abortInsights()
+  const match = step.status === 'skipped' ? null : COUNT_LINE.exec(step.detail)
+  return (
+    <div className="hub-check">
+      <p className="hub-check__line">
+        {match ? (
+          <>
+            <span className="hub-check__count ds-num">{`${match[1]} of ${match[2]}`}</span> {match[3]}
+          </>
+        ) : (
+          step.detail
+        )}
+      </p>
+      <p className={`hub-check__state hub-check__state--${step.status}`}>
+        <span className={`ds-dot ds-dot--${step.status}`} aria-hidden="true" />
+        {CHECK_WORD[step.status]}
+      </p>
+    </div>
+  )
+}
 
+/** The run column: the status line, the figure check beside the streamed answer, then the run metrics and trace. */
+export default function InsightsPanel({ run }: InsightsPanelProps) {
+  const { status, steps, answer, outcome, totalMs, errorMessage } = run
   const running = status === 'running'
+  const openIndex = TRACE_STAGES.findIndex((stage) => !steps.some((step) => step.name === stage.name))
   const anyFailedStep = steps.some((step) => step.status === 'failed')
-  const statusLine: Record<RunStatus, string> = {
-    idle: '',
-    running: stage,
-    done: anyFailedStep ? `${COMPLETE_LABEL}, with a failed check. See the trace.` : COMPLETE_LABEL,
-    failed: 'Run failed',
-    stopped: 'Stopped',
-  }
+  const checkStep = steps.find((step) => step.name === 'Check figures')
+  const finished = status === 'done' || status === 'failed'
+  const answerText = answer || (running ? 'Waiting for the first words…' : 'No answer was produced for this run.')
 
   return (
-    <>
-      <section className="ds-card" aria-labelledby="analysis-title">
-        <div className="ds-card__head">
-          <h2 id="analysis-title" className="ds-card__title">AI analysis</h2>
-          <span className="ds-hint">Sends only the summary figures above. The server calls the model.</span>
+    <div className="hub-insights">
+      <section className="ds-section" aria-labelledby="insights-title">
+        <div className="ds-section__head">
+          <h2 id="insights-title" className="ds-section__title">
+            Insights
+          </h2>
+          <p className="ds-section__sub">
+            Each figure the model quotes is checked against the summary. A failed check does not fail the run.
+          </p>
         </div>
 
-        <div className="ds-row">
-          <button type="button" className="ds-button ds-button--primary" onClick={handleGenerate} disabled={running}>
-            {running ? 'Generating…' : answer ? 'Regenerate' : 'Generate insights'}
-          </button>
-          {running && (
-            <button type="button" className="ds-button" onClick={handleStop}>
-              Stop
-            </button>
-          )}
-          {running && (
-            <span className="ds-badge ds-badge--accent">
-              <span className="hub-live-dot" aria-hidden="true" />
-              Running
-            </span>
-          )}
-        </div>
-
-        <p role="status" className="ds-hint">{statusLine[status]}</p>
+        <p role="status" className="hub-status">
+          {statusLine(status, openIndex, anyFailedStep)}
+        </p>
 
         {status === 'failed' && (
           <div role="alert" className="ds-notice ds-notice--error">
@@ -120,31 +110,23 @@ export default function InsightsPanel({ stats }: InsightsPanelProps) {
           </div>
         )}
 
-        {status === 'idle' && (
+        {status === 'idle' ? (
           <div className="ds-empty">
-            Generate insights to send the figures above to the model. The answer streams in here, and the run
-            trace shows each step.
+            No analysis yet. Generate insights sends the five summary figures to the model. The answer streams in here,
+            and the figure check then reports how many figures match the snapshot.
           </div>
-        )}
-
-        {(answer !== '' || running) && (
-          <div className="hub-answer" aria-live="polite" aria-busy={running}>
-            {answer || 'Waiting for the first words…'}
+        ) : (
+          <div className="ds-panel hub-result">
+            <FigureCheck step={checkStep} running={running} stopped={status === 'stopped'} />
+            <div className="hub-answer" aria-live="polite" aria-busy={running}>
+              {answerText}
+            </div>
           </div>
-        )}
-
-        {status === 'stopped' && (
-          <p role="status" className="ds-hint">
-            Stopped. The text above is what arrived before you stopped.
-          </p>
         )}
       </section>
 
-      {steps.length > 0 && <RunTrace steps={steps} />}
-
-      {(status === 'done' || status === 'failed') && (
-        <RunMetrics totalMs={totalMs} usage={outcome?.usage ?? null} model={outcome?.model ?? null} />
-      )}
-    </>
+      <RunMetrics ready={finished} totalMs={totalMs} usage={outcome?.usage ?? null} model={outcome?.model ?? null} />
+      <RunTrace steps={steps} status={status} />
+    </div>
   )
 }

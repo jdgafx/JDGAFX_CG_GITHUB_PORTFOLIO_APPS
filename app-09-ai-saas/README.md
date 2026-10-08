@@ -4,11 +4,13 @@ Live: https://jdgafx-app-09-ai-saas.netlify.app
 
 InsightHub is a SaaS analytics dashboard. It shows five summary figures and three charts over 30 days of API usage, then asks a model to write four or five insights about the summary. The data is a seeded demo dataset generated in the browser. It is not customer data. Visitors can sign in with Supabase when the project is configured, or use demo mode with no account.
 
-Generate insights sends only the summary figures and their trends to a server function. The function calls the model through OpenRouter and streams the answer back as it is written.
+What this showcases: a streamed AI analysis whose numbers are checked against the dashboard's own figures. The data is a seeded demo dataset, not customer data.
+
+Generate insights sends only the summary figures and their trends to a server function. The function calls the model through OpenRouter and streams the answer back as it is written. On a desktop, the controls stay in a column on the left while the figures, the analysis and the charts scroll on the right. On a phone, the same parts stack in that order.
 
 ## Agentic steps
 
-The run trace lists these steps in order. The server times each one.
+The run trace lists these steps in order. Before a run, each row says what its step does. While a run is going, the step in progress is marked. The server times each step.
 
 | Step | What it does | What the UI shows |
 | --- | --- | --- |
@@ -18,7 +20,7 @@ The run trace lists these steps in order. The server times each one.
 | Check figures | Matches each percentage, millisecond and dollar figure to the summary, rounded to the figure's own decimals. A trend figure must also carry its direction | How many figures match, and the ones that do not |
 | Validate output | Fails an answer the provider cut off before it finished, or an empty answer. Flags an answer cut at the output cap | Failure message, or cut-off warning |
 
-Run metrics below the trace show total latency, measured on the server, plus prompt, completion and total tokens, cost in USD, and the served model. These come from the provider's response. A value the provider did not report reads "not reported".
+Run metrics sit under the answer and show total latency, measured on the server, plus prompt, completion and total tokens, cost in USD, and the served model. These come from the provider's response. A value the provider did not report reads "not reported".
 
 The status line reads "Analysis complete" when a run finishes. It adds "with a failed check" when a step failed, for example a figure that is not in the summary. A failed check does not mean the run failed.
 

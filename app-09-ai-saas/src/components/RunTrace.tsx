@@ -1,44 +1,105 @@
-import type { TraceStep } from '../lib/api'
+import { TRACE_STAGES, type TraceStep } from '../lib/api'
+import type { RunStatus } from '../lib/insightRun'
 
-const BADGE: Record<TraceStep['status'], string> = {
-  ok: 'ds-badge ds-badge--success',
-  failed: 'ds-badge ds-badge--danger',
-  skipped: 'ds-badge',
+type RowState = TraceStep['status'] | 'running' | 'stopped' | 'notRun' | 'waiting'
+
+interface Row {
+  name: string
+  state: RowState
+  detail: string
+  ms?: number
+  tokens?: number
+}
+
+const DOT: Record<RowState, string> = {
+  ok: 'ds-dot ds-dot--ok',
+  failed: 'ds-dot ds-dot--failed',
+  skipped: 'ds-dot ds-dot--skipped',
+  running: 'ds-dot ds-dot--running',
+  stopped: 'ds-dot ds-dot--skipped',
+  notRun: 'ds-dot ds-dot--skipped',
+  waiting: 'ds-dot',
+}
+
+const WORD: Record<RowState, string> = {
+  ok: 'Done',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  running: 'Running',
+  stopped: 'Stopped',
+  notRun: 'Not run',
+  waiting: 'Waiting',
+}
+
+/**
+ * One row per stage, in the server's order. A received step is matched by name. A stage not yet received is
+ * waiting before a run, running or stopped at the point the run is at, and not run after that.
+ */
+function buildRows(steps: TraceStep[], status: RunStatus): Row[] {
+  const firstOpen = TRACE_STAGES.find((stage) => !steps.some((step) => step.name === stage.name))?.name
+  const rows: Row[] = TRACE_STAGES.map((stage): Row => {
+    const step = steps.find((candidate) => candidate.name === stage.name)
+    if (step) return { name: stage.name, state: step.status, detail: step.detail, ms: step.ms, tokens: step.tokens }
+    if (status === 'idle') return { name: stage.name, state: 'waiting', detail: stage.does }
+    if (stage.name === firstOpen && status === 'running') {
+      return { name: stage.name, state: 'running', detail: 'In progress' }
+    }
+    if (stage.name === firstOpen && status === 'stopped') {
+      return { name: stage.name, state: 'stopped', detail: 'Stopped before this stage ran' }
+    }
+    return { name: stage.name, state: 'notRun', detail: 'Not run' }
+  })
+
+  // A stage name this page does not know is still shown, after the five stages, rather than dropped.
+  for (const step of steps) {
+    if (!TRACE_STAGES.some((stage) => stage.name === step.name)) {
+      rows.push({ name: step.name, state: step.status, detail: step.detail, ms: step.ms, tokens: step.tokens })
+    }
+  }
+  return rows
 }
 
 interface RunTraceProps {
   steps: TraceStep[]
+  status: RunStatus
 }
 
-/** The stages of one run, in order, with the server's own timings. */
-export default function RunTrace({ steps }: RunTraceProps) {
-  const totalMs = steps.reduce((sum, step) => sum + step.ms, 0)
+/** The stages of one run, in order. Before a run each row says what its stage does; then the server's own timings. */
+export default function RunTrace({ steps, status }: RunTraceProps) {
+  const rows = buildRows(steps, status)
+  const totalMs = rows.reduce((sum, row) => sum + (row.ms ?? 0), 0)
 
   return (
-    <section className="ds-card" aria-labelledby="trace-title">
-      <div className="ds-card__head">
-        <h2 id="trace-title" className="ds-card__title">Run trace</h2>
-        <span className="ds-hint">Each stage timed on the server</span>
+    <section className="ds-section" aria-labelledby="trace-title">
+      <div className="ds-section__head">
+        <h2 id="trace-title" className="ds-section__title">
+          Run trace
+        </h2>
+        <p className="ds-section__sub">The five stages in order, each timed on the server. Rows fill in as the run goes.</p>
       </div>
       <ol className="ds-trace">
-        {steps.map((step, i) => (
-          <li key={step.name} className="ds-trace__step">
+        {rows.map((row, i) => (
+          <li
+            key={row.name}
+            className={row.state === 'running' ? 'ds-trace__step ds-trace__step--running' : 'ds-trace__step'}
+          >
             <span className="ds-trace__index">{i + 1}</span>
             <div className="hub-trace__body">
               <div className="ds-row">
-                <span className="ds-trace__name">{step.name}</span>
-                <span className={BADGE[step.status]}>{step.status}</span>
+                <span className="ds-trace__name">{row.name}</span>
+                <span className={`hub-state hub-state--${row.state}`}>
+                  <span className={DOT[row.state]} aria-hidden="true" />
+                  {WORD[row.state]}
+                </span>
               </div>
-              <p className="ds-trace__detail">{step.detail}</p>
-              <div
-                className="ds-trace__bar"
-                style={{ width: totalMs > 0 ? `${(step.ms / totalMs) * 100}%` : '0%' }}
-                aria-hidden="true"
-              />
+              <p className="ds-trace__detail">{row.detail}</p>
+              {row.ms !== undefined && row.ms > 0 && totalMs > 0 && (
+                <div className="ds-trace__bar" style={{ width: `${(row.ms / totalMs) * 100}%` }} aria-hidden="true" />
+              )}
             </div>
             <span className="ds-trace__meta">
-              {step.ms} ms
-              {step.tokens !== undefined && <span className="hub-trace__extra">{step.tokens.toLocaleString()} tokens</span>}
+              {row.ms !== undefined && `${row.ms} ms`}
+              {row.tokens !== undefined && <span className="hub-trace__extra">{row.tokens.toLocaleString()} tokens</span>}
             </span>
           </li>
         ))}

@@ -21,6 +21,15 @@ export interface TraceStep {
   cost?: number
 }
 
+/** The five stages the server runs, in order, each with what it does in plain words. */
+export const TRACE_STAGES: ReadonlyArray<{ name: string; does: string }> = [
+  { name: 'Build request', does: 'Builds the prompt from the five summary figures.' },
+  { name: 'Call model', does: 'Sends one chat request to the model, with a fixed output limit.' },
+  { name: 'Stream answer', does: 'Passes each piece of the answer to this page as it arrives.' },
+  { name: 'Check figures', does: 'Matches each percentage, millisecond and dollar figure to the snapshot.' },
+  { name: 'Validate output', does: 'Fails an empty answer, or one cut off before it finished.' },
+]
+
 /** Token and cost figures as the provider reported them. A missing field was not reported. */
 export interface RunUsage {
   prompt_tokens?: number

@@ -115,15 +115,15 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
   const subheading = isReset
     ? "We'll email you a link to choose a new password"
     : isLogin
-      ? 'Sign in to your dashboard'
+      ? 'Sign in with your email and password to open the dashboard'
       : 'Use an email address and a password of at least 6 characters'
 
   return (
     <AppShell
-      purpose="Sign in to the analytics dashboard"
+      purpose="Sign in to the analytics dashboard, or try it with demo data first."
       badge={<span className="ds-badge">Not signed in</span>}
     >
-      <section className="ds-card hub-auth" aria-labelledby="auth-title">
+      <div className="hub-auth">
         {authUnavailable && (
           <div role="status" className="ds-notice hub-unavailable">
             <p className="hub-unavailable__title">Authentication temporarily unavailable</p>
@@ -131,7 +131,7 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
               The sign-in service can't be reached right now. The full dashboard is still available with the demo
               dataset.
             </p>
-            <button type="button" className="ds-button ds-button--primary" onClick={onDemoMode}>
+            <button type="button" className="ds-button" onClick={onDemoMode}>
               Continue in demo mode
             </button>
           </div>
@@ -143,107 +143,120 @@ export default function AuthPage({ onDemoMode, authReachable, notice }: AuthPage
           </p>
         )}
 
-        <h2 id="auth-title" className="hub-auth__title">{heading}</h2>
-        <p className="ds-hint">{subheading}</p>
-
-        <form onSubmit={handleSubmit} className="ds-stack">
-          <div className="ds-field">
-            <label htmlFor="auth-email" className="ds-label">
-              Email address
-            </label>
-            <input
-              id="auth-email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              placeholder="you@company.com"
-              className="ds-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+        <section className="ds-section" aria-labelledby="demo-title">
+          <div className="ds-section__head">
+            <h2 id="demo-title" className="ds-section__title">
+              Demo mode
+            </h2>
+            <p className="ds-section__sub">
+              Opens the full dashboard on the seeded demo dataset. No account is needed, and Generate insights works the
+              same way.
+            </p>
           </div>
-
-          {!isReset && (
-            <div className="ds-field">
-              <label htmlFor="auth-password" className="ds-label">
-                Password
-              </label>
-              <input
-                id="auth-password"
-                name="password"
-                type="password"
-                autoComplete={isLogin ? 'current-password' : 'new-password'}
-                placeholder="At least 6 characters"
-                className="ds-input"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-          )}
-
-          {error && (
-            <p role="alert" className="ds-notice ds-notice--error">
-              {error}
-            </p>
-          )}
-
-          {emailNotConfirmed && (
-            <button type="button" className="ds-button" onClick={handleResend} disabled={resending}>
-              {resending ? 'Sending…' : 'Resend confirmation email'}
-            </button>
-          )}
-
-          {resendMsg && (
-            <p role="status" className="ds-hint">
-              {resendMsg}
-            </p>
-          )}
-
-          {successMsg && (
-            <p role="status" className="ds-notice">
-              {successMsg}
-            </p>
-          )}
-
-          <button type="submit" className="ds-button ds-button--primary" disabled={loading}>
-            {loading ? 'Working…' : submitLabel}
+          <button type="button" className="ds-button ds-button--primary hub-wide" onClick={onDemoMode}>
+            Try demo mode, no account needed
           </button>
-        </form>
-
-        {isLogin && (
-          <button type="button" className="hub-link" onClick={() => switchMode('reset')}>
-            Forgot your password?
-          </button>
-        )}
-
-        {isReset && (
-          <button type="button" className="hub-link" onClick={() => switchMode('login')}>
-            Back to sign in
-          </button>
-        )}
+        </section>
 
         <div className="hub-divider">or</div>
 
-        <button type="button" className="ds-button" onClick={onDemoMode}>
-          Try demo mode, no account needed
-        </button>
+        <section className="ds-section" aria-labelledby="auth-title">
+          <div className="ds-section__head">
+            <h2 id="auth-title" className="ds-section__title">
+              {heading}
+            </h2>
+            <p className="ds-section__sub">{subheading}</p>
+          </div>
 
-        {!isReset && (
-          <p className="ds-hint hub-switch">
-            {isLogin ? "Don't have an account? " : 'Already have an account? '}
-            <button
-              type="button"
-              className="hub-link"
-              onClick={() => switchMode(isLogin ? 'signup' : 'login')}
-            >
-              {isLogin ? 'Sign up' : 'Sign in'}
+          <form onSubmit={handleSubmit} className="ds-stack">
+            <div className="ds-field">
+              <label htmlFor="auth-email" className="ds-label">
+                Email address
+              </label>
+              <input
+                id="auth-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@company.com"
+                className="ds-input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            {!isReset && (
+              <div className="ds-field">
+                <label htmlFor="auth-password" className="ds-label">
+                  Password
+                </label>
+                <input
+                  id="auth-password"
+                  name="password"
+                  type="password"
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
+                  placeholder="At least 6 characters"
+                  className="ds-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </div>
+            )}
+
+            {error && (
+              <p role="alert" className="ds-notice ds-notice--error">
+                {error}
+              </p>
+            )}
+
+            {emailNotConfirmed && (
+              <button type="button" className="ds-button" onClick={handleResend} disabled={resending}>
+                {resending ? 'Sending…' : 'Resend confirmation email'}
+              </button>
+            )}
+
+            {resendMsg && (
+              <p role="status" className="ds-hint">
+                {resendMsg}
+              </p>
+            )}
+
+            {successMsg && (
+              <p role="status" className="ds-notice">
+                {successMsg}
+              </p>
+            )}
+
+            <button type="submit" className="ds-button hub-wide" disabled={loading}>
+              {loading ? 'Working…' : submitLabel}
             </button>
-          </p>
-        )}
-      </section>
+          </form>
+
+          {isLogin && (
+            <button type="button" className="hub-link" onClick={() => switchMode('reset')}>
+              Forgot your password?
+            </button>
+          )}
+
+          {isReset && (
+            <button type="button" className="hub-link" onClick={() => switchMode('login')}>
+              Back to sign in
+            </button>
+          )}
+
+          {!isReset && (
+            <p className="ds-hint">
+              {isLogin ? "Don't have an account? " : 'Already have an account? '}
+              <button type="button" className="hub-link" onClick={() => switchMode(isLogin ? 'signup' : 'login')}>
+                {isLogin ? 'Sign up' : 'Sign in'}
+              </button>
+            </p>
+          )}
+        </section>
+      </div>
     </AppShell>
   )
 }

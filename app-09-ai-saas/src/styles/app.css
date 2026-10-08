@@ -1,5 +1,6 @@
-/* App-specific rules only. Colour, spacing and shared components come from tokens.css and the ds-* classes. */
+/* App rules for InsightHub only. Colour, type and the shared components come from tokens.css and the ds-* classes. */
 
+/* Header: the mark is outlined so the signal colour stays on the one primary action */
 .hub-brand {
   display: flex;
   align-items: center;
@@ -17,9 +18,10 @@
   flex-shrink: 0;
   width: 36px;
   height: 36px;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-sm);
-  background: var(--ds-accent);
-  color: var(--ds-accent-text);
 }
 
 .hub-email {
@@ -27,17 +29,234 @@
   overflow-wrap: anywhere;
 }
 
-.hub-auth {
+.hub-action {
   display: grid;
-  gap: 12px;
-  width: 100%;
-  max-width: 440px;
-  justify-self: center;
+  gap: 4px;
+  justify-items: end;
 }
 
-.hub-auth__title {
+.hub-action .ds-help {
+  text-align: right;
+}
+
+/* The bench: controls in a sticky column on the left; figures, insights and charts on the right, from 1000px up */
+.hub-bench > * {
+  min-width: 0;
+}
+
+@media (min-width: 1000px) {
+  .hub-controls {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 16px;
+  }
+
+  .hub-figures {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .hub-insights {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .hub-charts {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}
+
+/* Summary figures: one readout strip, two across on a phone, three across, five across when the run column is wide */
+.hub-figure-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hub-figure-strip .ds-strip__item:last-child {
+  grid-column: 1 / -1;
+}
+
+.hub-figure-strip .ds-strip__value {
   font-size: 22px;
+}
+
+.hub-trend--better {
+  color: var(--ds-success);
+}
+
+.hub-trend--worse {
+  color: var(--ds-danger);
+}
+
+@media (min-width: 720px) {
+  .hub-figure-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hub-figure-strip .ds-strip__item:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 1200px) {
+  .hub-figure-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* Insights: the hero. The figure check sits above the streamed answer in the same panel. */
+.hub-insights {
+  display: grid;
+  gap: 32px;
+  min-width: 0;
+  align-content: start;
+}
+
+.hub-status {
+  font-size: 15px;
   font-weight: 650;
+}
+
+.hub-result {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.hub-check {
+  display: grid;
+  gap: 6px;
+}
+
+.hub-check__line {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.hub-check__count {
+  font-size: 32px;
+  font-weight: 750;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-check__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ds-text-muted);
+}
+
+.hub-check__state--ok {
+  color: var(--ds-success);
+}
+
+.hub-check__state--failed {
+  color: var(--ds-danger);
+}
+
+.hub-check__state--running {
+  color: var(--ds-accent);
+}
+
+.hub-answer {
+  min-height: 96px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Run metrics: six readouts, two across on a phone and three across beside the trace */
+.hub-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 720px) {
+  .hub-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Trace rows: the state is a dot and a word, never colour alone */
+.hub-trace__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hub-trace__extra {
+  display: block;
+}
+
+.hub-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.hub-state--ok {
+  color: var(--ds-success);
+}
+
+.hub-state--failed {
+  color: var(--ds-danger);
+}
+
+.hub-state--running {
+  color: var(--ds-accent);
+}
+
+/* Charts: sections separated by rules; Recharts is coloured from the tokens */
+.hub-charts {
+  display: grid;
+  gap: 32px;
+  min-width: 0;
+}
+
+/* Each chart has a fixed height. Series take the shared tokens, with literal fallbacks in the same rule. */
+.hub-chart {
+  height: 220px;
+  min-width: 0;
+}
+
+.hub-chart .recharts-cartesian-grid line {
+  stroke: var(--ds-border, #d3dae4);
+}
+
+.hub-chart .recharts-cartesian-axis-tick-value {
+  fill: var(--ds-text-muted, #56637a);
+}
+
+.hub-chart .recharts-line-curve {
+  stroke: var(--ds-accent, #0e7c86);
+}
+
+.hub-chart.hub-chart--muted .recharts-line-curve {
+  stroke: var(--ds-text-muted, #56637a);
+}
+
+.hub-chart .recharts-bar-rectangle .recharts-rectangle {
+  fill: var(--ds-accent, #0e7c86);
+}
+
+/* Sign-in and demo screen */
+.hub-auth {
+  display: grid;
+  gap: 32px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.hub-wide {
+  width: 100%;
 }
 
 .hub-unavailable {
@@ -50,7 +269,7 @@
 }
 
 .hub-link {
-  justify-self: center;
+  justify-self: start;
   padding: 0;
   border: 0;
   background: none;
@@ -60,10 +279,6 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
-}
-
-.hub-switch {
-  text-align: center;
 }
 
 .hub-divider {
@@ -80,65 +295,4 @@
   flex: 1;
   height: 1px;
   background: var(--ds-border);
-}
-
-.hub-answer {
-  min-height: 96px;
-  padding: 16px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.7;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.hub-live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: hub-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes hub-pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-.hub-trace__body {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.hub-trace__extra {
-  display: block;
-}
-
-.hub-chart {
-  min-width: 0;
-}
-
-.hub-chart .recharts-cartesian-grid line {
-  stroke: var(--ds-border);
-}
-
-.hub-chart .recharts-cartesian-axis-tick-value {
-  fill: var(--ds-text-muted);
-}
-
-.hub-chart .recharts-line-curve {
-  stroke: var(--ds-accent);
-}
-
-.hub-chart--warn .recharts-line-curve {
-  stroke: var(--ds-warning);
-}
-
-.hub-chart .recharts-bar-rectangle .recharts-rectangle {
-  fill: var(--ds-accent);
 }

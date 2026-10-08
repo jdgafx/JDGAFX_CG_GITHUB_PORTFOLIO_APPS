@@ -8,7 +8,7 @@ interface AppShellProps {
   children: ReactNode
 }
 
-/** Header, main and byline footer shared by every screen. */
+/** Header with the showcase callout, main, and the byline footer shared by every screen. */
 export default function AppShell({ purpose, badge, actions, children }: AppShellProps) {
   return (
     <div className="ds-app">
@@ -35,6 +35,10 @@ export default function AppShell({ purpose, badge, actions, children }: AppShell
               {actions}
             </div>
           )}
+          <p className="ds-showcase">
+            <strong>What this showcases:</strong> a streamed AI analysis whose numbers are checked against the
+            dashboard's own figures. The data is a seeded demo dataset, not customer data.
+          </p>
         </div>
       </header>
 
