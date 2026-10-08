@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { SLOTS, type CompareResponse, type JudgeVerdict, type Slot } from '../../netlify/shared/contract'
 import type { JudgeView } from '../lib/run'
 
@@ -8,10 +9,12 @@ interface JudgeCardProps {
 
 export function JudgeCard({ judge, compare }: JudgeCardProps) {
   return (
-    <section className="ds-card" aria-labelledby="judge-title">
-      <div className="ds-card__head">
-        <h2 className="ds-card__title" id="judge-title">AI judge (opinion)</h2>
-        <span className="ds-hint">One model's view, not a measurement</span>
+    <section className="ds-section" aria-labelledby="judge-title">
+      <div className="ds-section__head">
+        <h2 className="ds-section__title" id="judge-title">
+          AI judge
+        </h2>
+        <p className="ds-section__sub">One model's opinion of the three answers. It is not a measurement.</p>
       </div>
       <JudgeBody judge={judge} compare={compare} />
     </section>
@@ -23,9 +26,13 @@ function JudgeBody({ judge, compare }: JudgeCardProps) {
     case 'idle':
       return <div className="ds-empty">The judge reads the answers after a run.</div>
     case 'running':
-      return <p className="ds-hint" aria-busy="true">The judge is reading the answers.</p>
+      return (
+        <p className="ds-help" aria-busy="true">
+          The judge is reading the answers.
+        </p>
+      )
     case 'skipped':
-      return <p className="ds-hint">{judge.reason}</p>
+      return <p className="ds-help">{judge.reason}</p>
     case 'failed':
       return (
         <div className="ds-notice ds-notice--error" role="alert">
@@ -37,31 +44,48 @@ function JudgeBody({ judge, compare }: JudgeCardProps) {
   }
 }
 
-function nameFor(slot: Slot, compare: CompareResponse | null): string {
+// The model name after a panel, when the panel has one.
+function nameTag(slot: Slot, compare: CompareResponse | null): ReactNode {
   const panel = compare?.panels.find(p => p.slot === slot)
-  return panel ? (panel.servedModel ?? panel.requestedModel) : ''
+  const name = panel ? (panel.servedModel ?? panel.requestedModel) : ''
+  return name ? (
+    <>
+      , <span className="ds-mono">{name}</span>
+    </>
+  ) : null
 }
 
 function Verdict({ verdict, compare }: { verdict: JudgeVerdict; compare: CompareResponse | null }) {
   const best = verdict.bestOverall
   const answered = SLOTS.filter(slot => verdict.perPanel[slot] !== undefined)
-  const headline =
-    best === 'tie'
-      ? 'Tie. The judge sees no clear winner.'
-      : `Best overall: Panel ${best}${nameFor(best, compare) ? `, ${nameFor(best, compare)}` : ''}.`
   return (
-    <div className="arena-verdicts">
-      <p>{headline}</p>
+    <div className="arena-judge">
+      <p className="arena-judge__headline">
+        {best === 'tie' ? (
+          'Tie. The judge sees no clear winner.'
+        ) : (
+          <>
+            Best overall: Panel {best}
+            {nameTag(best, compare)}.
+          </>
+        )}
+      </p>
       <dl className="arena-notes">
         {answered.map(slot => (
           <div key={slot}>
-            <dt>{`Panel ${slot}${nameFor(slot, compare) ? `, ${nameFor(slot, compare)}` : ''}`}</dt>
+            <dt>
+              Panel {slot}
+              {nameTag(slot, compare)}
+            </dt>
             <dd>{verdict.perPanel[slot]}</dd>
           </div>
         ))}
       </dl>
-      {verdict.caveat && <p className="ds-hint">{verdict.caveat}</p>}
-      <p className="ds-hint">Judged by {verdict.model ?? 'a model not reported'}.</p>
+      {verdict.caveat && <p className="ds-help">{verdict.caveat}</p>}
+      <p className="ds-help">
+        Judged by{' '}
+        {verdict.model ? <span className="ds-mono">{verdict.model}</span> : 'a model not reported'}.
+      </p>
     </div>
   )
 }

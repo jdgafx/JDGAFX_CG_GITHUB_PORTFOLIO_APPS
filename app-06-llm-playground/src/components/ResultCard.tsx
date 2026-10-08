@@ -2,18 +2,10 @@ import { useEffect, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import type { PanelResult, Slot } from '../../netlify/shared/contract'
 import { barPercent, formatCount, formatMs, formatUsd } from '../lib/format'
-import { panelStatus, type Status, type Tone } from '../lib/run'
-import { Metric } from './Metric'
+import { panelStatus } from '../lib/run'
+import { toneDot } from '../lib/state'
 
 export type CardPhase = 'idle' | 'running' | 'stopped' | 'error' | 'done'
-
-const TONE_CLASS: Record<Tone, string> = {
-  success: 'ds-badge--success',
-  warning: 'ds-badge--warning',
-  danger: 'ds-badge--danger',
-  accent: 'ds-badge--accent',
-  muted: '',
-}
 
 const PLACEHOLDER: Record<CardPhase, string> = {
   idle: 'Run a comparison to see this answer.',
@@ -23,10 +15,26 @@ const PLACEHOLDER: Record<CardPhase, string> = {
   done: 'No answer text was returned.',
 }
 
-function phaseStatus(phase: CardPhase): Status {
-  if (phase === 'running') return { label: 'Running', tone: 'accent' }
-  if (phase === 'stopped') return { label: 'Stopped', tone: 'muted' }
-  return { label: 'Not run', tone: 'muted' }
+interface StateView {
+  label: string
+  dot: string
+}
+
+// The panel's state word, with the dot that matches it.
+function stateView(panel: PanelResult | null, phase: CardPhase): StateView {
+  if (panel) {
+    const status = panelStatus(panel)
+    return { label: status.label, dot: toneDot(status.tone) }
+  }
+  if (phase === 'running') return { label: 'Running', dot: 'ds-dot--running' }
+  if (phase === 'stopped') return { label: 'Stopped', dot: 'ds-dot--skipped' }
+  return { label: 'Not run', dot: '' }
+}
+
+// Estimated costs say so. Billed costs say they came from usage.
+function costHint(panel: PanelResult): string | null {
+  if (!panel.cost) return null
+  return panel.cost.source === 'estimated' ? 'estimated' : 'from usage'
 }
 
 interface ResultCardProps {
@@ -35,10 +43,13 @@ interface ResultCardProps {
   panel: PanelResult | null
   phase: CardPhase
   fastest: boolean
+  cheapest: boolean
+  judgePick: boolean
   scaleMs: number | null
 }
 
-export function ResultCard({ slot, requested, panel, phase, fastest, scaleMs }: ResultCardProps) {
+export function ResultCard(props: ResultCardProps) {
+  const { slot, requested, panel, phase, fastest, cheapest, judgePick, scaleMs } = props
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -47,13 +58,11 @@ export function ResultCard({ slot, requested, panel, phase, fastest, scaleMs }: 
     return () => clearTimeout(timer)
   }, [copyState])
 
-  const status = panel ? panelStatus(panel) : phaseStatus(phase)
+  const state = stateView(panel, phase)
   const headingId = `panel-${slot}-title`
-  const servedLine = panel
-    ? panel.servedModel
-      ? `Served by ${panel.servedModel}`
-      : 'Served model not reported'
-    : `Model ${requested}`
+  const pending = phase === 'running' ? 'waiting' : 'not run'
+  const active = panel === null && phase === 'running'
+  const hint = panel ? costHint(panel) : null
 
   async function copyAnswer() {
     if (!panel) return
@@ -66,15 +75,56 @@ export function ResultCard({ slot, requested, panel, phase, fastest, scaleMs }: 
   }
 
   return (
-    <article className="ds-card arena-card" aria-labelledby={headingId}>
-      <div className="ds-card__head">
-        <h3 className="ds-card__title" id={headingId}>Panel {slot}</h3>
-        <div className="ds-row">
-          {fastest && <span className="ds-badge ds-badge--accent">Fastest</span>}
-          <span className={`ds-badge ${TONE_CLASS[status.tone]}`}>{status.label}</span>
-        </div>
+    <article
+      className={active ? 'ds-panel arena-panel arena-panel--active' : 'ds-panel arena-panel'}
+      aria-labelledby={headingId}
+    >
+      <div className="arena-panel__head">
+        <h3 className="arena-panel__title" id={headingId}>
+          Panel {slot}
+        </h3>
+        <span className="ds-badge">
+          <span className={`ds-dot ${state.dot}`} aria-hidden="true" />
+          {state.label}
+        </span>
       </div>
-      <p className="arena-served ds-mono">{servedLine}</p>
+      {(fastest || cheapest || judgePick) && (
+        <ul className="arena-marks" aria-label={`Panel ${slot} markers`}>
+          {fastest && (
+            <li className="ds-badge ds-badge--accent">
+              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
+              Fastest
+            </li>
+          )}
+          {cheapest && (
+            <li className="ds-badge ds-badge--accent">
+              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
+              Cheapest
+            </li>
+          )}
+          {judgePick && (
+            <li className="ds-badge">
+              <span className="ds-dot arena-dot--ring" aria-hidden="true" />
+              Judge's pick
+            </li>
+          )}
+        </ul>
+      )}
+      <p className="arena-served">
+        {panel ? (
+          panel.servedModel ? (
+            <>
+              Served by <span className="ds-mono">{panel.servedModel}</span>
+            </>
+          ) : (
+            'Served model not reported'
+          )
+        ) : (
+          <>
+            Model <span className="ds-mono">{requested}</span>
+          </>
+        )}
+      </p>
       {panel?.error && (
         <div className="ds-notice ds-notice--error" role="alert">
           {panel.error}
@@ -96,24 +146,28 @@ export function ResultCard({ slot, requested, panel, phase, fastest, scaleMs }: 
           </div>
         </>
       ) : (
-        <p className="ds-hint">{panel ? PLACEHOLDER.done : PLACEHOLDER[phase]}</p>
+        <p className="ds-help arena-placeholder">{panel ? PLACEHOLDER.done : PLACEHOLDER[phase]}</p>
       )}
-      {panel && (
-        <>
-          <div className="arena-bar" aria-hidden="true">
-            <span style={{ width: `${barPercent(panel.latencyMs ?? 0, scaleMs)}%` }} />
-          </div>
-          <div className="ds-metrics">
-            <Metric label="Latency" value={formatMs(panel.latencyMs)} />
-            <Metric label="Output tokens" value={formatCount(panel.usage.completion_tokens)} />
-            <Metric
-              label="Cost"
-              value={panel.cost ? formatUsd(panel.cost.usd) : 'not reported'}
-              hint={panel.cost?.source}
-            />
-          </div>
-        </>
-      )}
+      <div className="arena-readouts">
+        <div className="arena-readout">
+          <span className="arena-readout__label">Latency</span>
+          <span className="arena-readout__value">{panel ? formatMs(panel.latencyMs) : pending}</span>
+          <span className="arena-bar" aria-hidden="true">
+            <span style={{ width: `${barPercent(panel?.latencyMs ?? 0, scaleMs)}%` }} />
+          </span>
+        </div>
+        <div className="arena-readout">
+          <span className="arena-readout__label">Output tokens</span>
+          <span className="arena-readout__value">{panel ? formatCount(panel.usage.completion_tokens) : pending}</span>
+        </div>
+        <div className="arena-readout">
+          <span className="arena-readout__label">Cost</span>
+          <span className="arena-readout__value">
+            {panel ? (panel.cost ? formatUsd(panel.cost.usd) : 'not reported') : pending}
+          </span>
+          {hint && <span className="arena-readout__hint">{hint}</span>}
+        </div>
+      </div>
     </article>
   )
 }

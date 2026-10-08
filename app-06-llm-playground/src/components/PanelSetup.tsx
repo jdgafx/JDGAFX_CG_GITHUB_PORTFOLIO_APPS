@@ -1,4 +1,5 @@
 import { MODEL, type CatalogueResponse, type ModelGroup, type ModelOption } from '../../netlify/shared/contract'
+import { groupReason } from '../lib/categories'
 import { formatPrice } from '../lib/format'
 
 export type Picks = Record<'B' | 'C', string>
@@ -15,16 +16,20 @@ export function PanelSetup({ catalogue, catalogueFailed, picks, onPick, disabled
   const groups = catalogue?.groups ?? []
   const placeholder = catalogueFailed ? 'Model list unavailable' : catalogue ? 'No models listed' : 'Loading models'
   return (
-    <section className="ds-card" aria-labelledby="models-title">
-      <div className="ds-card__head">
-        <h2 className="ds-card__title" id="models-title">Models</h2>
-        <span className="ds-hint">Panel A is fixed. Choose B and C from the list.</span>
+    <section className="ds-section" aria-labelledby="models-title">
+      <div className="ds-section__head">
+        <h2 className="ds-section__title" id="models-title">Models</h2>
+        <p className="ds-section__sub">Panel A stays on the Haiku alias. Pick B and C to compare it against.</p>
       </div>
-      <div className="arena-setup">
+      <div className="ds-stack">
         <div className="ds-field">
-          <span className="ds-label">Panel A</span>
-          <span className="ds-badge ds-badge--accent ds-mono arena-fixed">{MODEL}</span>
-          <span className="ds-hint">Fixed for every run.</span>
+          <span className="ds-label">Panel A model</span>
+          <p className="arena-fixed" aria-describedby="fixed-help">
+            {MODEL}
+          </p>
+          <p className="ds-help" id="fixed-help">
+            Fixed for every run, so each comparison includes the same Haiku alias.
+          </p>
         </div>
         <ModelPicker
           slot="B"
@@ -51,6 +56,13 @@ function optionText(option: ModelOption): string {
   return `${option.id}: ${option.why || option.label}. ${formatPrice(option.inPerM, option.outPerM)}`
 }
 
+// The category's reason, then this model's note and price. Each sentence starts with a capital and ends once.
+function pickerHelp(group: ModelGroup, option: ModelOption): string {
+  const note = option.why || option.label
+  const sentence = note.charAt(0).toUpperCase() + note.slice(1)
+  return `${groupReason(group.label)} ${sentence}. ${formatPrice(option.inPerM, option.outPerM)}.`
+}
+
 interface ModelPickerProps {
   slot: 'B' | 'C'
   value: string
@@ -62,23 +74,27 @@ interface ModelPickerProps {
 
 function ModelPicker({ slot, value, groups, placeholder, disabled, onChange }: ModelPickerProps) {
   const id = `pick-${slot}`
-  const selected = groups.flatMap(group => group.options).find(option => option.id === value)
+  const helpId = `${id}-help`
+  const group = groups.find(g => g.options.some(option => option.id === value))
+  const selected = group?.options.find(option => option.id === value)
   const empty = groups.length === 0
   return (
     <div className="ds-field">
-      <label className="ds-label" htmlFor={id}>Panel {slot} model</label>
+      <label className="ds-label" htmlFor={id}>
+        Panel {slot} model
+      </label>
       <select
         id={id}
         className="ds-select"
         value={empty ? '' : value}
         disabled={disabled || empty}
         onChange={e => onChange(e.target.value)}
-        aria-describedby={`${id}-why`}
+        aria-describedby={helpId}
       >
         {empty && <option value="">{placeholder}</option>}
-        {groups.map(group => (
-          <optgroup key={group.label} label={group.label}>
-            {group.options.map(option => (
+        {groups.map(g => (
+          <optgroup key={g.label} label={g.label}>
+            {g.options.map(option => (
               <option key={option.id} value={option.id}>
                 {optionText(option)}
               </option>
@@ -86,8 +102,8 @@ function ModelPicker({ slot, value, groups, placeholder, disabled, onChange }: M
           </optgroup>
         ))}
       </select>
-      <p className="ds-hint" id={`${id}-why`}>
-        {selected ? `${selected.why || selected.label}. ${formatPrice(selected.inPerM, selected.outPerM)}.` : placeholder}
+      <p className="ds-help" id={helpId}>
+        {group && selected ? pickerHelp(group, selected) : placeholder}
       </p>
     </div>
   )

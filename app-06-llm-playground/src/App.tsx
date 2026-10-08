@@ -3,15 +3,54 @@ import { DEFAULT_PICKS, MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, 
 import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
 import { chooseOption, failedJudgeStep, listed, statusLine, type RunView } from './lib/run'
 import { Header } from './components/Header'
-import { PromptCard } from './components/PromptCard'
+import { PromptCard, SAMPLE_PROMPT } from './components/PromptCard'
 import { PanelSetup, type Picks } from './components/PanelSetup'
+import { RunActions } from './components/RunActions'
 import { ResultCard, type CardPhase } from './components/ResultCard'
 import { EvidenceCard } from './components/EvidenceCard'
 import { JudgeCard } from './components/JudgeCard'
+import { RunTotalsStrip } from './components/RunTotals'
 import { TraceCard } from './components/TraceCard'
+
+const IDLE_STATUS = 'Enter a prompt, then choose Compare models.'
 
 function messageFor(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
+}
+
+// The first thing that stops a run, so the disabled button can say what to do next.
+function blockedReason(catalogue: CatalogueResponse | null, picks: Picks, prompt: string): string | null {
+  if (catalogue === null) return 'Wait for the model list to load.'
+  if (!listed(catalogue, picks.B) || !listed(catalogue, picks.C)) return 'Choose panel B and C models from the list.'
+  if (prompt.trim() === '') return 'Enter a prompt, or use the sample prompt.'
+  if (prompt.length > PROMPT_MAX_CHARS) {
+    return `Shorten the prompt to ${PROMPT_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
+  }
+  return null
+}
+
+// The status line's words. After an error the alert carries the message, so the line does not repeat it.
+function statusText(run: RunView | null): string {
+  if (!run) return IDLE_STATUS
+  if (run.status === 'error') return 'Comparison did not finish.'
+  return statusLine(run)
+}
+
+// The status dot follows the run's state, and the status line's words say the same thing.
+function statusDot(run: RunView | null): string {
+  if (!run) return ''
+  if (run.status === 'running') return 'ds-dot--running'
+  if (run.status === 'error') return 'ds-dot--failed'
+  if (run.status === 'stopped') return 'ds-dot--skipped'
+  const allAnswered = run.compare?.panels.every(p => p.ok) ?? false
+  return allAnswered ? 'ds-dot--ok' : 'arena-dot--warn'
+}
+
+// The slot the judge named best, or null for a tie or when there is no verdict.
+function judgePickOf(run: RunView | null): Slot | null {
+  const judge = run?.judge
+  if (judge?.state !== 'done') return null
+  return judge.verdict.bestOverall === 'tie' ? null : judge.verdict.bestOverall
 }
 
 export default function App() {
@@ -39,13 +78,8 @@ export default function App() {
   }, [])
 
   const running = run?.status === 'running'
-  const canRun =
-    catalogue !== null &&
-    listed(catalogue, picks.B) &&
-    listed(catalogue, picks.C) &&
-    !running &&
-    prompt.trim() !== '' &&
-    prompt.length <= PROMPT_MAX_CHARS
+  const blocked = blockedReason(catalogue, picks, prompt)
+  const canRun = !running && blocked === null
 
   async function handleRun() {
     if (!canRun || !catalogue) return
@@ -128,65 +162,92 @@ export default function App() {
   const panels = run?.compare?.panels ?? []
   const scaleMs = panels.length > 0 ? Math.max(0, ...panels.map(p => p.latencyMs ?? 0)) : null
   const requested = (slot: Slot) => (slot === 'A' ? MODEL : picks[slot])
+  const fastestSlot = run?.compare?.summary.fastest?.slot ?? null
+  const cheapestSlot = run?.compare?.summary.cheapest?.slot ?? null
+  const pickSlot = judgePickOf(run)
+  const dot = statusDot(run)
 
   return (
     <div className="ds-app">
       <Header catalogue={catalogue} catalogueFailed={catalogueFailed} />
       <main className="ds-main">
-        <p className="sr-only" role="status" aria-live="polite">
-          {statusLine(run)}
-        </p>
-        <PromptCard
-          prompt={prompt}
-          onPrompt={setPrompt}
-          system={system}
-          onSystem={setSystem}
-          temperature={temperature}
-          onTemperature={setTemperature}
-          canRun={canRun}
-          running={running}
-          hasRun={run !== null}
-          onRun={handleRun}
-          onStop={handleStop}
-          onClear={handleClear}
-        />
-        {catalogueFailed && (
-          <div className="ds-notice ds-notice--error" role="alert">
-            The model list could not be loaded. Reload the page to try again.
+        <div className="ds-bench">
+          <div className="ds-controls">
+            <PromptCard
+              prompt={prompt}
+              onPrompt={setPrompt}
+              onSample={() => setPrompt(SAMPLE_PROMPT)}
+              system={system}
+              onSystem={setSystem}
+              temperature={temperature}
+              onTemperature={setTemperature}
+              running={running}
+              onRun={handleRun}
+            />
+            {catalogueFailed && (
+              <div className="ds-notice ds-notice--error" role="alert">
+                The model list could not be loaded. Reload the page to try again.
+              </div>
+            )}
+            <PanelSetup
+              catalogue={catalogue}
+              catalogueFailed={catalogueFailed}
+              picks={picks}
+              onPick={(slot, id) => setPicks(prev => ({ ...prev, [slot]: id }))}
+              disabled={running || catalogue === null}
+            />
+            <RunActions
+              canRun={canRun}
+              running={running}
+              hasRun={run !== null}
+              blockedBy={running ? null : blocked}
+              onRun={handleRun}
+              onStop={handleStop}
+              onClear={handleClear}
+            />
           </div>
-        )}
-        <PanelSetup
-          catalogue={catalogue}
-          catalogueFailed={catalogueFailed}
-          picks={picks}
-          onPick={(slot, id) => setPicks(prev => ({ ...prev, [slot]: id }))}
-          disabled={running || catalogue === null}
-        />
-        {run?.error && (
-          <div className="ds-notice ds-notice--error" role="alert">
-            {run.error}
+
+          <div className="ds-run">
+            <p className="arena-status" role="status" aria-live="polite">
+              {dot && <span className={`ds-dot ${dot}`} aria-hidden="true" />}
+              {statusText(run)}
+            </p>
+            {run?.error && (
+              <div className="ds-notice ds-notice--error" role="alert">
+                {run.error}
+              </div>
+            )}
+            <section className="ds-section" aria-labelledby="answers-title">
+              <div className="ds-section__head">
+                <h2 className="ds-section__title" id="answers-title">
+                  Answers
+                </h2>
+                <p className="ds-section__sub">
+                  Each panel shows the model that served it, its answer, and the figures measured for that call.
+                </p>
+              </div>
+              <div className="arena-grid">
+                {SLOTS.map(slot => (
+                  <ResultCard
+                    key={slot}
+                    slot={slot}
+                    requested={requested(slot)}
+                    panel={panels.find(p => p.slot === slot) ?? null}
+                    phase={phase}
+                    fastest={fastestSlot === slot}
+                    cheapest={cheapestSlot === slot}
+                    judgePick={pickSlot === slot}
+                    scaleMs={scaleMs}
+                  />
+                ))}
+              </div>
+            </section>
+            <EvidenceCard compare={run?.compare ?? null} />
+            <JudgeCard judge={run?.judge ?? { state: 'idle' }} compare={run?.compare ?? null} />
+            <RunTotalsStrip run={run} />
+            <TraceCard run={run} />
           </div>
-        )}
-        {run ? (
-          <section className="arena-grid" aria-label="Panel answers">
-            {SLOTS.map(slot => (
-              <ResultCard
-                key={slot}
-                slot={slot}
-                requested={requested(slot)}
-                panel={panels.find(p => p.slot === slot) ?? null}
-                phase={phase}
-                fastest={run.compare?.summary.fastest?.slot === slot}
-                scaleMs={scaleMs}
-              />
-            ))}
-          </section>
-        ) : (
-          <div className="ds-empty">Run a prompt to see three answers side by side.</div>
-        )}
-        <EvidenceCard compare={run?.compare ?? null} />
-        <JudgeCard judge={run?.judge ?? { state: 'idle' }} compare={run?.compare ?? null} />
-        <TraceCard run={run} />
+        </div>
       </main>
       <footer className="ds-footer">
         <div className="ds-footer__inner">Christopher Gentile</div>

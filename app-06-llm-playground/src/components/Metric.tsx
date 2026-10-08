@@ -2,14 +2,16 @@ interface MetricProps {
   label: string
   value: string
   hint?: string
+  mono?: boolean
 }
 
-export function Metric({ label, value, hint }: MetricProps) {
+// One figure in the readout strip: a label, the value in tabular figures, and an optional note.
+export function Metric({ label, value, hint, mono = false }: MetricProps) {
   return (
-    <div className="ds-metric">
-      <div className="ds-metric__label">{label}</div>
-      <div className="ds-metric__value">{value}</div>
-      {hint && <div className="ds-metric__hint">{hint}</div>}
+    <div className="ds-strip__item">
+      <div className="ds-strip__label">{label}</div>
+      <div className={mono ? 'ds-strip__value ds-mono' : 'ds-strip__value'}>{value}</div>
+      {hint && <div className="ds-strip__hint">{hint}</div>}
     </div>
   )
 }

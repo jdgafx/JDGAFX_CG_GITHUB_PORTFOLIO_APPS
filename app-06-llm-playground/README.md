@@ -2,6 +2,12 @@
 
 ModelArena sends one prompt to three models at the same time and shows what each one returned: the answer, the latency, the output tokens, the cost, and the model that served it. Panel A always runs the fixed alias `~anthropic/claude-haiku-latest`. Panels B and C take any text model from the live OpenRouter catalogue, chosen from a grouped picker. An AI judge then gives one model's opinion on the three answers, and the page labels that note as opinion. Timings, tokens and cost are measured.
 
+What this showcases: the same prompt measured on three models at once, with cost from the provider's usage and an AI judge's note labelled as opinion.
+
+## Screen
+
+From 1000px wide, the controls sit on the left and the results on the right. Below that, the controls stack above the results. The controls are the prompt (with a sample prompt, the options and the system prompt), the models (Panel A is fixed, and B and C come from the grouped picker), and the Compare, Stop and Clear buttons. The results hold, in order: the status line, Answers (three panels, each with its served model, answer, latency, output tokens and cost), Evidence (summary lines and a table of measures), AI judge (one model's opinion, in a dashed panel), Run totals, and Run trace.
+
 ## Agentic steps
 
 A run makes up to four model calls. The run trace names them with these steps:
@@ -14,7 +20,7 @@ A run makes up to four model calls. The run trace names them with these steps:
 | `Judge` | One chat call to the fixed alias. It reads the answers that came back and names the best one, with a short note per panel. Skipped when fewer than two panels answer. | The verdict, the judge model, and its time and tokens. |
 | `Compare request` | Shown only when the compare call fails before any panel answers. | The plain-language error. |
 
-The three panels run in parallel. Each one reports its own failure, so one failed panel does not stop the others. The Evidence card and the verdict lines use only measured numbers: the fastest panel, the cheapest panel, and the panel with the most output tokens. Ties go to the earlier panel. The Run trace card shows the run time, which covers the compare request and the judge. Its token and cost totals cover the answering panels only. The judge's own tokens and cost appear on its trace step.
+The three panels run in parallel. Each one reports its own failure, so one failed panel does not stop the others. The Evidence section and its summary lines use only measured numbers: the fastest panel, the cheapest panel, and the panel with the most output tokens. Ties go to the earlier panel. The Run totals section shows the run time, which covers the compare request and the judge. Its token and cost totals cover the answering panels only. The judge's own tokens and cost appear on its trace step.
 
 Cost comes from the billed amount that OpenRouter reports. When OpenRouter reports no cost for a panel, the server estimates it from that model's listed price and the measured tokens, if the model is listed, and labels it "estimated". The judge does not look up prices, so its cost reads "not reported" unless OpenRouter reports one. When neither is available, the page shows "not reported". A cost of zero is never shown unless OpenRouter reports zero.
 
@@ -34,7 +40,7 @@ The server holds `OPENROUTER_API_KEY`. The key is read in `netlify/shared/openro
 
 **Limits.** Each client IP can make 20 POST requests per minute on each warm function instance. This is a cost guard, not a hard quota. Each request has a budget of 24 seconds, and that budget is the real bound. Netlify's synchronous function limit is 60 seconds and cannot be configured, so the app returns well inside the platform limit. The catalogue fetch waits up to 10 seconds, and the cached list lasts 10 minutes. After a failed fetch, the server waits a minute before it tries again. A panel waits up to 25 seconds and the judge up to 20 seconds, each capped by what is left of the budget. Nothing is retried, because every provider call is billed.
 
-**Errors.** A refused request returns `{ "error": "<plain sentence>" }` with a 400, 403, 405, 429, 503 or 500 status. A panel or judge failure returns 200 with the failure in the body. A failed panel shows its error in its card, and a failed judge returns `ok: false` with a reason. For those failures the messages are:
+**Errors.** A refused request returns `{ "error": "<plain sentence>" }` with a 400, 403, 405, 429, 503 or 500 status. A panel or judge failure returns 200 with the failure in the body. A failed panel shows its error in its column, and a failed judge returns `ok: false` with a reason. For those failures the messages are:
 
 - 401 or 402: "The AI provider rejected the key or is out of credit"
 - 429: "Rate limited, try again in a minute"
@@ -67,6 +73,6 @@ Live site: https://jdgafx-app-06-llm-playground.netlify.app
 - Cost is the billed amount OpenRouter reports, or an estimate from the listed price. An estimate appears only when it is above zero.
 - The picker and the compare function each keep the model list in their own memory. After a model leaves the list, the picker can still offer it until its cache refreshes, and a compare request for that model then returns a 400.
 - During an outage, the last good copy of the list is served and labelled "Cached model list" in the header.
-- A judge request with answers totalling more than 20,000 characters is refused. This can happen when all three panels answer near the 2,048-token output cap, and the judge card then shows the refusal.
+- A judge request with answers totalling more than 20,000 characters is refused. This can happen when all three panels answer near the 2,048-token output cap, and the AI judge section then shows the refusal.
 - The rate limit and the model-list cache apply per warm instance. A new model can take up to 10 minutes to appear.
 - A panel that has not answered within its share of the 24-second budget is reported as not answering in time, even if the model would have replied later.

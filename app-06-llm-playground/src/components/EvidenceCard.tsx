@@ -1,60 +1,95 @@
-import { COMPARE_MAX_TOKENS, type CompareResponse } from '../../netlify/shared/contract'
+import type { ReactNode } from 'react'
+import { COMPARE_MAX_TOKENS, SLOTS, type CompareResponse, type PanelResult } from '../../netlify/shared/contract'
 import { formatCost, formatCount, formatMs, tokensPerSecond } from '../lib/format'
 import { panelStatus, verdictSentences } from '../lib/run'
+import { toneDot } from '../lib/state'
+
+interface Measure {
+  label: string
+  className?: string
+  cell: (panel: PanelResult) => ReactNode
+}
+
+// Measures run down the rows and panels across the columns, so each panel reads straight down its column.
+const MEASURES: Measure[] = [
+  { label: 'Served model', className: 'ds-mono', cell: p => p.servedModel ?? 'not reported' },
+  {
+    label: 'Status',
+    cell: p => {
+      const status = panelStatus(p)
+      return (
+        <span className="ds-badge">
+          <span className={`ds-dot ${toneDot(status.tone)}`} aria-hidden="true" />
+          {status.label}
+        </span>
+      )
+    },
+  },
+  { label: 'Latency', className: 'ds-num', cell: p => formatMs(p.latencyMs) },
+  { label: 'Prompt tokens', className: 'ds-num', cell: p => formatCount(p.usage.prompt_tokens) },
+  { label: 'Output tokens', className: 'ds-num', cell: p => formatCount(p.usage.completion_tokens) },
+  { label: 'Reasoning tokens', className: 'ds-num', cell: p => formatCount(p.usage.reasoning_tokens) },
+  {
+    label: 'Tokens per second',
+    className: 'ds-num',
+    cell: p => tokensPerSecond(p.usage.completion_tokens, p.latencyMs),
+  },
+  { label: 'Cost', className: 'ds-num', cell: p => formatCost(p.cost) },
+]
 
 export function EvidenceCard({ compare }: { compare: CompareResponse | null }) {
   return (
-    <section className="ds-card" aria-labelledby="evidence-title">
-      <div className="ds-card__head">
-        <h2 className="ds-card__title" id="evidence-title">Evidence</h2>
-        <span className="ds-hint">Measured per panel</span>
+    <section className="ds-section" aria-labelledby="evidence-title">
+      <div className="ds-section__head">
+        <h2 className="ds-section__title" id="evidence-title">
+          Evidence
+        </h2>
+        <p className="ds-section__sub">Measured results only. Ties go to the earlier panel.</p>
       </div>
       {!compare ? (
         <div className="ds-empty">Measured numbers for each panel appear here after a run.</div>
       ) : (
         <>
-          <div className="arena-table-wrap">
+          <ul className="arena-verdicts">
+            {verdictSentences(compare.summary).map(sentence => (
+              <li key={sentence}>{sentence}</li>
+            ))}
+          </ul>
+          <div className="ds-scroll-x">
             <table className="arena-table">
               <caption className="sr-only">Measured results for each panel</caption>
               <thead>
                 <tr>
-                  <th scope="col">Panel</th>
-                  <th scope="col">Served model</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Latency</th>
-                  <th scope="col">Prompt tokens</th>
-                  <th scope="col">Output tokens</th>
-                  <th scope="col">Reasoning tokens</th>
-                  <th scope="col">Tokens per second</th>
-                  <th scope="col">Cost</th>
+                  <th scope="col">
+                    <span className="sr-only">Measure</span>
+                  </th>
+                  {SLOTS.map(slot => (
+                    <th scope="col" key={slot}>
+                      Panel {slot}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {compare.panels.map(panel => (
-                  <tr key={panel.slot}>
-                    <th scope="row" data-label="Panel">Panel {panel.slot}</th>
-                    <td data-label="Served model">{panel.servedModel ?? 'not reported'}</td>
-                    <td data-label="Status">{panelStatus(panel).label}</td>
-                    <td className="arena-num" data-label="Latency">{formatMs(panel.latencyMs)}</td>
-                    <td className="arena-num" data-label="Prompt tokens">{formatCount(panel.usage.prompt_tokens)}</td>
-                    <td className="arena-num" data-label="Output tokens">{formatCount(panel.usage.completion_tokens)}</td>
-                    <td className="arena-num" data-label="Reasoning tokens">{formatCount(panel.usage.reasoning_tokens)}</td>
-                    <td className="arena-num" data-label="Tokens per second">
-                      {tokensPerSecond(panel.usage.completion_tokens, panel.latencyMs)}
-                    </td>
-                    <td className="arena-num" data-label="Cost">{formatCost(panel.cost)}</td>
+                {MEASURES.map(measure => (
+                  <tr key={measure.label}>
+                    <th scope="row">{measure.label}</th>
+                    {SLOTS.map(slot => {
+                      const panel = compare.panels.find(p => p.slot === slot)
+                      return (
+                        <td key={slot} className={measure.className}>
+                          {panel ? measure.cell(panel) : 'not reported'}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="arena-verdicts">
-            {verdictSentences(compare.summary).map(sentence => (
-              <p key={sentence}>{sentence}</p>
-            ))}
-          </div>
-          <p className="ds-hint">
-            One prompt, one sample. This is a comparison, not a benchmark. Output capped at {COMPARE_MAX_TOKENS} tokens per model.
+          <p className="ds-help">
+            One prompt, one sample. This is a comparison, not a benchmark. Output capped at{' '}
+            {COMPARE_MAX_TOKENS.toLocaleString('en-US')} tokens per model.
           </p>
         </>
       )}
