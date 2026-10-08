@@ -1,6 +1,8 @@
 # CodeLens AI
 
-CodeLens AI reviews a snippet of code. You paste the code, pick its language and run a review. The app returns comments, each with a line number, a severity, a message and a suggested change. Select a line number to jump to that line in the editor. The run trace shows each stage of the review, how long it took, and the tokens and cost the provider reported.
+CodeLens AI reviews a snippet of code. You paste the code, pick its language and run a review. The app returns comments, each with a line number, a severity, a message and a suggested change. Select Line to jump to that line in the editor. The run figures show how long the review took, and the tokens and cost the provider reported. The run trace lists each stage of the review in order.
+
+What this showcases: a structured JSON review whose line citations are validated against the real file before anything is shown.
 
 Severity levels are `critical`, `warning` and `info`. Critical covers security holes, crashes and data loss risks. Warning covers likely bugs, performance problems and code smells. Info covers style, best practice and refactoring notes.
 
@@ -17,7 +19,7 @@ A review runs these stages in this order. The trace shows each one with its stat
 
 If the browser cannot reach the server, the trace shows a single step, **Send request**, marked failed.
 
-The Review card lists the comments. The Run trace card shows the stages, then a metrics row: total latency, prompt, completion and total tokens, cost in USD, and the served model named in the provider's reply. A value the provider did not report shows as "not reported". The app never estimates a cost.
+The review panel shows each comment beside the line it cites, with that line's text. A row of cells shows the comment budget for the file: one cell per comment the reviewer could return, filled for each comment it did return. The run figures show total latency, prompt, completion and total tokens, cost in USD, and the served model named in the provider's reply. The run trace lists the stages, each with its status and time. A value the provider did not report shows as "not reported". The app never estimates a cost.
 
 ## Architecture
 

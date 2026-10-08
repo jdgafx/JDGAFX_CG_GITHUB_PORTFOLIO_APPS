@@ -39,47 +39,41 @@ export function ReviewForm({
   const canReview = !isRunning && code.trim().length > 0 && !isOverLimit
 
   return (
-    <section className="ds-card" aria-labelledby="code-title">
-      <div className="ds-card__head">
-        <h2 id="code-title" className="ds-card__title">
-          Code
-        </h2>
-        <span className="ds-hint">
-          code.{getFileExt(language)}, {lineCount.toLocaleString('en-US')} {lineCount === 1 ? 'line' : 'lines'}
-        </span>
-      </div>
+    <section className="ds-controls" aria-labelledby="code-title">
+      <div className="ds-section">
+        <div className="ds-section__head">
+          <h2 id="code-title" className="ds-section__title">
+            Code
+          </h2>
+          <p className="ds-section__sub">The snippet to review, and the language it is written in.</p>
+        </div>
 
-      <div className="ds-stack">
-        <p className="ds-hint">Paste code in any language. Each comment names a line, a severity and a suggested change.</p>
-
-        <div className="ds-row">
-          <div className="ds-field field-narrow">
-            <label className="ds-label" htmlFor="language-select">
-              Language
-            </label>
-            <select
-              id="language-select"
-              className="ds-select"
-              value={language}
-              onChange={(e) => onLanguageChange(e.target.value)}
-            >
-              {LANGUAGES.map((lang) => (
-                <option key={lang.value} value={lang.value}>
-                  {lang.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="button" className="ds-button" onClick={onSample} disabled={isRunning}>
-            Load sample
-          </button>
-          <button type="button" className="ds-button" onClick={onClear} disabled={isRunning || !code}>
-            Clear
-          </button>
+        <div className="ds-field">
+          <label className="ds-label" htmlFor="language-select">
+            Language
+          </label>
+          <select
+            id="language-select"
+            className="ds-select field-narrow"
+            value={language}
+            aria-describedby="language-help"
+            onChange={(e) => onLanguageChange(e.target.value)}
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.value} value={lang.value}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+          <p id="language-help" className="ds-help">
+            Shapes the review prompt and names the file, such as code.ts.
+          </p>
         </div>
 
         <CodeEditor
           code={code}
+          fileLabel={`code.${getFileExt(language)}`}
+          lineCount={lineCount}
           highlightedLine={highlightedLine}
           textareaRef={textareaRef}
           lineNumbersRef={lineNumbersRef}
@@ -89,21 +83,54 @@ export function ReviewForm({
 
         {isOverLimit && (
           <p role="alert" className="ds-notice ds-notice--error">
-            {OVER_LIMIT_MESSAGE}. Remove {(code.length - MAX_CODE_LENGTH).toLocaleString('en-US')} characters to
-            review it.
+            {OVER_LIMIT_MESSAGE}. Remove {(code.length - MAX_CODE_LENGTH).toLocaleString('en-US')} characters to review
+            it.
           </p>
         )}
 
-        <div className="ds-row">
-          <button type="button" className="ds-button ds-button--primary" onClick={onReview} disabled={!canReview}>
-            {isRunning ? 'Reviewing…' : 'Review code'}
-          </button>
-          {isRunning && (
-            <button type="button" className="ds-button" onClick={onCancel}>
-              Cancel review
+        <div className="ds-field">
+          <div className="ds-row">
+            <button
+              type="button"
+              className="ds-button"
+              onClick={onSample}
+              disabled={isRunning}
+              aria-describedby="sample-help"
+            >
+              Load sample
             </button>
+            <button type="button" className="ds-button" onClick={onClear} disabled={isRunning || !code}>
+              Clear
+            </button>
+          </div>
+          <p id="sample-help" className="ds-help">
+            Fills the editor with a snippet that has known problems. Clear empties it.
+          </p>
+        </div>
+
+        <div className="ds-field">
+          <div className="ds-row">
+            <button
+              type="button"
+              className="ds-button ds-button--primary"
+              onClick={onReview}
+              disabled={!canReview}
+              aria-busy={isRunning}
+            >
+              {isRunning ? 'Reviewing…' : 'Review code'}
+            </button>
+            {isRunning && (
+              <button type="button" className="ds-button" onClick={onCancel} aria-describedby="cancel-help">
+                Cancel review
+              </button>
+            )}
+          </div>
+          <p className="ds-help">Ctrl or Cmd+Enter also runs the review. Reviews are not saved, so a reload clears them.</p>
+          {isRunning && (
+            <p id="cancel-help" className="ds-help">
+              Cancel stops the browser request. The provider may still bill the call.
+            </p>
           )}
-          <span className="ds-hint">Ctrl or Cmd+Enter also runs the review.</span>
         </div>
       </div>
     </section>

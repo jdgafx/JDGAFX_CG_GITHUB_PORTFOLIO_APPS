@@ -46,4 +46,5 @@ export interface ReviewRun {
 
 export type RunSummary = Omit<ReviewRun, 'result'>
 
-export type RunPhase = 'idle' | 'running' | 'done' | 'failed'
+/** 'stopped' is a run the user cancelled. It keeps no result. */
+export type RunPhase = 'idle' | 'running' | 'done' | 'failed' | 'stopped'

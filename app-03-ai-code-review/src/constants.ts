@@ -16,11 +16,11 @@ export const LANGUAGES = [
   { value: 'sql', label: 'SQL' },
 ]
 
-/** The label carries the meaning; the badge tone only reinforces it. */
-export const SEVERITY_CONFIG: Record<Severity, { label: string; badge: string }> = {
-  critical: { label: 'Critical', badge: 'ds-badge--danger' },
-  warning: { label: 'Warning', badge: 'ds-badge--warning' },
-  info: { label: 'Info', badge: 'ds-badge--accent' },
+/** The label carries the meaning. The dot beside it is coloured in app.css. */
+export const SEVERITY_CONFIG: Record<Severity, { label: string }> = {
+  critical: { label: 'Critical' },
+  warning: { label: 'Warning' },
+  info: { label: 'Info' },
 }
 
 export const SEVERITIES: Severity[] = ['critical', 'warning', 'info']
@@ -32,6 +32,16 @@ export const SEVERITY_HINT: Record<Severity, string> = {
   warning: 'Likely bugs, performance problems and code smells',
   info: 'Style, best practice and refactoring notes',
 }
+
+/** The stages of a run, in order. Names match the server's trace; details follow the README. */
+export const PIPELINE_STAGES: ReadonlyArray<{ name: string; detail: string }> = [
+  { name: 'Check request', detail: 'Applies the rate limit, confirms the key and checks the code length.' },
+  { name: 'Build prompt', detail: 'Numbers every line and sets the comment budget.' },
+  { name: 'Model call', detail: 'One chat completion, with the token usage the provider reports.' },
+  { name: 'Retry', detail: 'Runs only if the first reply is empty or cut short, and at most once.' },
+  { name: 'Parse reply', detail: 'Reads the JSON review. Code fences and surrounding prose are tolerated.' },
+  { name: 'Validate comments', detail: 'Keeps comments that cite a real line and carry valid text.' },
+]
 
 const FILE_EXTENSIONS: Record<string, string> = {
   javascript: 'js',

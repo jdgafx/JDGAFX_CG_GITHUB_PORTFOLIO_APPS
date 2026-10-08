@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Header, statusBadge } from './components/Header'
+import { ReadoutStrip } from './components/ReadoutStrip'
 import { ReviewForm } from './components/ReviewForm'
 import { ReviewPanel } from './components/ReviewPanel'
 import { RunTrace } from './components/RunTrace'
@@ -30,6 +31,8 @@ export default function App() {
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null)
   const [filters, setFilters] = useState<Record<Severity, boolean>>(ALL_SEVERITIES_ON)
   const [copied, setCopied] = useState(false)
+  /** The exact code the shown result was reviewed from. Cited lines are read from this, not from the editor. */
+  const [reviewedCode, setReviewedCode] = useState<string | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lineNumbersRef = useRef<HTMLDivElement>(null)
@@ -39,6 +42,8 @@ export default function App() {
   const comments = result ? [...result.comments].sort(bySeverityThenLine) : []
   const visibleComments = comments.filter((c) => filters[c.severity])
   const counts = countBySeverity(comments)
+  const reviewedLines = useMemo(() => (reviewedCode === null ? [] : reviewedCode.split('\n')), [reviewedCode])
+  const stale = result !== null && reviewedCode !== null && code !== reviewedCode
 
   // Drop the in-flight review and the pending copy reset when the component goes away.
   useEffect(
@@ -73,12 +78,14 @@ export default function App() {
     setHighlightedLine(null)
     setFilters(ALL_SEVERITIES_ON)
     setCopied(false)
+    setReviewedCode(null)
     try {
       const run = await reviewCode(code, language, controller.signal)
       if (controller.signal.aborted) return
       const { result: next, ...runSummary } = run
       setResult(next)
       setSummary(runSummary)
+      setReviewedCode(code)
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) return
@@ -106,7 +113,7 @@ export default function App() {
   const handleCancel = () => {
     abortRef.current?.abort()
     abortRef.current = null
-    setPhase('idle')
+    setPhase('stopped')
     setError(null)
   }
 
@@ -116,6 +123,7 @@ export default function App() {
     setSummary(null)
     setError(null)
     setHighlightedLine(null)
+    setReviewedCode(null)
   }
 
   const handleCodeChange = (value: string) => {
@@ -168,7 +176,7 @@ export default function App() {
       <Header badge={statusBadge(phase, comments.length)} />
 
       <main className="ds-main">
-        <div className="ds-grid-2 review-layout">
+        <div className="ds-bench">
           <ReviewForm
             code={code}
             language={language}
@@ -183,23 +191,28 @@ export default function App() {
             onSample={handleLoadSample}
             onClear={handleClear}
           />
-          <ReviewPanel
-            phase={phase}
-            error={error}
-            result={result}
-            visibleComments={visibleComments}
-            counts={counts}
-            filters={filters}
-            highlightedLine={highlightedLine}
-            copied={copied}
-            onToggleFilter={handleToggleFilter}
-            onShowLine={handleShowLine}
-            onRetry={() => void handleReview()}
-            onCopy={() => void handleCopy()}
-          />
-        </div>
 
-        <RunTrace phase={phase} summary={summary} />
+          <div className="ds-run">
+            <ReviewPanel
+              phase={phase}
+              error={error}
+              result={result}
+              visibleComments={visibleComments}
+              counts={counts}
+              filters={filters}
+              highlightedLine={highlightedLine}
+              copied={copied}
+              reviewedLines={reviewedLines}
+              stale={stale}
+              onToggleFilter={handleToggleFilter}
+              onShowLine={handleShowLine}
+              onRetry={() => void handleReview()}
+              onCopy={() => void handleCopy()}
+            />
+            <ReadoutStrip phase={phase} summary={summary} />
+            <RunTrace phase={phase} summary={summary} />
+          </div>
+        </div>
       </main>
 
       <footer className="ds-footer">
