@@ -1,0 +1,212 @@
+/* App-specific layer. Structure, colour and type come from tokens.css and the shared ds-* classes. */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Input */
+.doc-input {
+  height: clamp(180px, 34vh, 320px);
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.doc-count {
+  text-align: right;
+}
+
+.doc-count.is-over {
+  color: var(--ds-danger);
+}
+
+.doc-actions {
+  justify-content: flex-end;
+}
+
+/* Graph: one row of stages, with the extract fan in the middle */
+.graph-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.graph-node {
+  display: grid;
+  gap: 2px;
+  min-width: 104px;
+  padding: 10px 12px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.graph-node__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.graph-node__state,
+.graph-branch__state {
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
+.graph-node.is-running,
+.graph-branch.is-running {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+
+.graph-node.is-ok,
+.graph-branch.is-ok {
+  border-color: var(--ds-success);
+}
+
+.graph-node.is-failed,
+.graph-branch.is-failed {
+  border-color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+}
+
+.graph-arrow {
+  list-style: none;
+  align-self: center;
+  color: var(--ds-text-muted);
+}
+
+.graph-fan {
+  flex: 1 1 240px;
+  min-width: 0;
+  list-style: none;
+  padding: 10px 12px;
+  border: 1px dashed var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.graph-fan__title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
+.graph-branches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 6px;
+}
+
+.graph-branch {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.graph-loop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--ds-accent-soft);
+  border: 1px dashed var(--ds-accent);
+  border-radius: var(--ds-radius-sm);
+}
+
+.graph-loop__label {
+  font-weight: 600;
+}
+
+.graph-loop__note,
+.graph-finish {
+  color: var(--ds-text-muted);
+  font-size: 13px;
+}
+
+.graph-finish {
+  margin-top: 10px;
+}
+
+/* Summary and coverage */
+.summary-overview {
+  font-size: 15px;
+}
+
+.summary-section {
+  display: grid;
+  gap: 6px;
+}
+
+.summary-section__title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.summary-points {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.summary-points li {
+  overflow-wrap: anywhere;
+}
+
+.cite {
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.coverage-count {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.coverage-gap {
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .graph-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .graph-arrow {
+    display: none;
+  }
+
+  .graph-fan {
+    flex-basis: auto;
+  }
+
+  .doc-actions .ds-button {
+    width: 100%;
+  }
+}
