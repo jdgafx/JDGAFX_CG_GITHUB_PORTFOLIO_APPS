@@ -14,8 +14,9 @@ export interface AgentConfig {
 }
 
 /**
- * Netlify stops a function at 26 s. Every stage and retry draws on this one budget,
- * which starts when the run does. Per-stage timeouts are caps inside it, not a sum.
+ * Netlify's synchronous function limit is 60 s and cannot be configured. This budget is the
+ * app's own bound, well inside that limit. Every stage and retry draws on it, starting when the
+ * run does. Per-stage timeouts are caps inside it, not a sum.
  */
 export const RUN_BUDGET_MS = 24_000
 /** A stage is not started with less time than this left in the budget. */
@@ -36,7 +37,7 @@ export function keyLine(text: string): string {
     .split('\n')
     .map(part => part.trim())
     .find(part => part.length > 0)
-  return (line ?? '').replace(/[*_`#>]/g, '').replace(/^(?:[-•]|\d+\.)\s*/, '').slice(0, 140)
+  return (line ?? '').replace(/[*_`#>]/g, '').trim().replace(/^(?:[-•]|\d+\.)\s*/, '').slice(0, 140)
 }
 
 export const AGENTS: AgentConfig[] = [
@@ -70,7 +71,7 @@ export const AGENTS: AgentConfig[] = [
     role: 'synthesizer',
     name: 'Synthesizer',
     systemPrompt:
-      'You are a synthesis agent. Combine research, analysis, and critique into a final report with clear markdown sections. Be comprehensive but concise — aim for 200-300 words.',
+      'You are a synthesis agent. Combine research, analysis, and critique into a final report with clear markdown sections. If the question sets a length or format, such as "in two sentences" or "under 50 words", follow it exactly. Otherwise aim for 200-300 words.',
     buildUserMessage: (query, ctx) =>
       `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx.researcher)}\n\nAnalysis:\n${trimCtx(ctx.analyst)}\n\nGaps:\n${trimCtx(ctx.critic)}`,
     maxTokens: 1200,

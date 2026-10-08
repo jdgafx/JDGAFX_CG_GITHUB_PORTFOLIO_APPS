@@ -1,11 +1,14 @@
+import { isCutOff } from '../../src/lib/finish'
 import { sumUsage } from '../../src/lib/usage'
 import type { StageUsage } from '../../src/types'
 import type { AgentConfig } from './agents'
-import { APP_TITLE, MODEL, SITE_URL, type Provider } from './provider'
+import { buildChatBody, requestHeaders, type Provider } from './provider'
 
 const RETRY_DELAY_MS = 800
 /** A second attempt only starts if at least this much of the run budget is left. */
 const MIN_RETRY_MS = 2_000
+
+export const TIMEOUT_MESSAGE = 'The AI provider did not answer in time.'
 
 /** Upstream returned a non-2xx. The status is kept so it can be mapped to plain words. */
 export class UpstreamError extends Error {
@@ -15,7 +18,7 @@ export class UpstreamError extends Error {
   }
 }
 
-/** The attempt's time cap expired before the connection opened. */
+/** The attempt's time cap expired before the provider answered. */
 class AgentTimeoutError extends Error {
   constructor() {
     super('agent timed out')
@@ -23,9 +26,17 @@ class AgentTimeoutError extends Error {
   }
 }
 
+/** The visitor left, so the run stops. Nothing further is called and nothing further is sent. */
+export class RunCancelledError extends Error {
+  constructor() {
+    super('run cancelled')
+    this.name = 'RunCancelledError'
+  }
+}
+
 export interface StageResult {
   content: string
-  /** 'stop' | 'length' | 'timeout' | null */
+  /** The provider's finish reason, or a cut-off reason from src/lib/finish.ts. */
   finish: string | null
   servedModel?: string
   reasoningTokens: number
@@ -34,10 +45,9 @@ export interface StageResult {
 
 /** Maps a provider status to words a visitor can act on. Raw provider bodies never leave the server. */
 export function friendlyUpstreamMessage(status: number): string {
-  if (status === 402) return 'The AI provider is out of credit, so this stage could not run.'
-  if (status === 429) return 'The AI provider is rate limiting this demo. Wait a few seconds and try again.'
-  if (status === 401 || status === 403) return 'The AI provider rejected the server credentials.'
-  if (status >= 500) return 'The AI provider failed on its side. Try again in a moment.'
+  if (status === 401 || status === 402 || status === 403) return 'The AI provider rejected the key or is out of credit.'
+  if (status === 429) return 'Rate limited, try again in a minute.'
+  if (status === 408 || status >= 500) return TIMEOUT_MESSAGE
   return 'The AI provider could not complete this request.'
 }
 
@@ -49,6 +59,7 @@ interface OpenStream {
 
 interface OpenRouterChunk {
   model?: unknown
+  error?: unknown
   choices?: Array<{ delta?: { content?: unknown }; finish_reason?: unknown }>
   usage?: {
     prompt_tokens?: unknown
@@ -67,44 +78,44 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function isRetryable(err: unknown): boolean {
-  if (err instanceof AgentTimeoutError) return true
-  return err instanceof UpstreamError && (err.status === 408 || err.status === 429 || err.status >= 500)
+/** A fetch cut off by a timer or by the run surfaces as an AbortError or TimeoutError. */
+function isAbortLike(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')
 }
 
+/** Only a rate limit or a server error is retried. */
+function isRetryable(err: unknown): err is UpstreamError {
+  return err instanceof UpstreamError && (err.status === 429 || err.status >= 500)
+}
+
+/** A reply is retried when it has no text, or when it stopped before its finish reason. */
 function needsRetry(result: StageResult): boolean {
-  return !result.content.trim() || result.finish === 'length' || result.finish === 'timeout'
+  return !result.content.trim() || isCutOff(result.finish)
 }
 
-/** Opens one upstream stream under its own abort timer. Each attempt gets a fresh signal. */
-async function openStream(agent: AgentConfig, userMessage: string, provider: Provider, timeoutMs: number): Promise<OpenStream> {
+/** Opens one upstream stream under its own abort timer. The run signal aborts it too. */
+async function openStream(
+  agent: AgentConfig,
+  userMessage: string,
+  provider: Provider,
+  timeoutMs: number,
+  runSignal: AbortSignal,
+): Promise<OpenStream> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
-  const clearTimer = () => clearTimeout(timer)
+  const onRunAbort = () => abort.abort()
+  runSignal.addEventListener('abort', onRunAbort, { once: true })
+  const clearTimer = () => {
+    clearTimeout(timer)
+    runSignal.removeEventListener('abort', onRunAbort)
+  }
 
   try {
     const response = await fetch(provider.url, {
       method: 'POST',
       signal: abort.signal,
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': SITE_URL,
-        'X-Title': APP_TITLE,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: agent.maxTokens,
-        provider: { require_parameters: true },
-        stream: true,
-        stream_options: { include_usage: true },
-        // Reasoning tokens are billed against max_tokens, so reasoning stays off.
-        reasoning: { enabled: false },
-        messages: [
-          { role: 'system', content: agent.systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-      }),
+      headers: requestHeaders(provider.apiKey),
+      body: JSON.stringify(buildChatBody(agent.systemPrompt, userMessage, agent.maxTokens)),
     })
 
     if (!response.ok) {
@@ -115,12 +126,14 @@ async function openStream(agent: AgentConfig, userMessage: string, provider: Pro
     return { body: response.body, abort, clearTimer }
   } catch (err) {
     clearTimer()
-    if (abort.signal.aborted) throw new AgentTimeoutError()
+    if (runSignal.aborted) throw new RunCancelledError()
+    if (abort.signal.aborted || isAbortLike(err)) throw new AgentTimeoutError()
     throw err
   }
 }
 
-function parseFrame(line: string, result: StageResult): void {
+/** Reads one `data:` line of the upstream stream into the result. Other lines are ignored. */
+export function parseFrame(line: string, result: StageResult): void {
   const trimmed = line.trim()
   if (!trimmed.startsWith('data: ')) return
   const data = trimmed.slice(6)
@@ -140,6 +153,8 @@ function parseFrame(line: string, result: StageResult): void {
   const text = choice?.delta?.content
   if (typeof text === 'string') result.content += text
   if (typeof choice?.finish_reason === 'string') result.finish = choice.finish_reason
+  // An error object inside the stream means the provider cut the reply short. Its text is never kept.
+  if (chunk.error) result.finish = 'error'
 
   const usage = chunk.usage
   if (usage) {
@@ -153,7 +168,11 @@ function parseFrame(line: string, result: StageResult): void {
   }
 }
 
-/** Reads one attempt to its end. An abort from the timer ends it with whatever arrived. */
+/**
+ * Reads one attempt to its end. A timer or a cancelled run ends it with what arrived. A read
+ * that fails mid-body keeps what was already parsed. A reply that stopped without a finish
+ * reason is labelled interrupted.
+ */
 async function readAttempt(stream: OpenStream): Promise<StageResult> {
   const result: StageResult = { content: '', finish: null, reasoningTokens: 0, usage: {} }
   const reader = stream.body.getReader()
@@ -170,20 +189,22 @@ async function readAttempt(stream: OpenStream): Promise<StageResult> {
       for (const line of lines) parseFrame(line, result)
     }
     for (const line of buffer.split('\n')) parseFrame(line, result)
-  } catch (err) {
-    if (!stream.abort.signal.aborted) throw err
+  } catch {
+    // A failed read keeps what was parsed. The reply is labelled below.
   } finally {
-    await reader.cancel().catch(() => {})
     stream.clearTimer()
+    await reader.cancel().catch(() => {})
   }
   if (stream.abort.signal.aborted) result.finish = 'timeout'
+  else if (result.finish === null) result.finish = 'interrupted'
   return result
 }
 
 /**
- * Folds the attempts of one stage into one result. The text and finish reason come from
- * the attempt with the most text (a later attempt wins ties). Usage is summed over every
- * attempt, because a retry is billed too.
+ * Folds the attempts of one stage into one result. The text and finish reason come from the
+ * attempt with the most text (a later attempt wins ties). Usage is summed over every attempt,
+ * because a retry is billed too. As in usage.ts, the total is reported only when every attempt
+ * reported usage, so an attempt that was cut off before its usage arrived leaves it not reported.
  */
 function combineAttempts(attempts: StageResult[]): StageResult {
   let best = attempts[0]
@@ -201,30 +222,46 @@ function combineAttempts(attempts: StageResult[]): StageResult {
 }
 
 /**
- * Runs one stage: at most two attempts, both on MODEL. A second attempt only starts
- * when at least MIN_RETRY_MS of the run budget is left. If a later attempt fails, the
- * text from the attempts that completed is kept.
+ * Runs one stage: at most two attempts, both on the fixed model. Every attempt's time cap is cut
+ * to what is left of the shared run deadline, and a second attempt starts only when MIN_RETRY_MS
+ * or more is left. A retry follows an empty or cut-off reply, or a 429 or 5xx that produced
+ * nothing. Text from earlier attempts is kept if a later one fails. If the retry delay leaves no
+ * room for a second attempt and nothing arrived, the provider's own error is thrown, not a timeout.
+ * A cancelled run throws RunCancelledError and starts no further call.
  */
-export async function runStage(agent: AgentConfig, userMessage: string, provider: Provider, deadline: number): Promise<StageResult> {
+export async function runStage(
+  agent: AgentConfig,
+  userMessage: string,
+  provider: Provider,
+  deadline: number,
+  runSignal: AbortSignal,
+): Promise<StageResult> {
   const attempts: StageResult[] = []
+  let providerError: UpstreamError | undefined
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt > 0 && deadline - Date.now() < MIN_RETRY_MS) break
+    if (runSignal.aborted) throw new RunCancelledError()
+    if (attempt > 0 && deadline - Date.now() < MIN_RETRY_MS) {
+      if (attempts.length === 0 && providerError) throw providerError
+      break
+    }
 
     let stream: OpenStream
     try {
-      stream = await openStream(agent, userMessage, provider, Math.min(agent.timeoutMs, deadline - Date.now()))
+      stream = await openStream(agent, userMessage, provider, Math.min(agent.timeoutMs, deadline - Date.now()), runSignal)
     } catch (err) {
-      if (attempts.length > 0) break
+      if (err instanceof RunCancelledError) throw err
+      if (attempts.length > 0 || err instanceof AgentTimeoutError) break
       if (attempt === 0 && isRetryable(err)) {
+        providerError = err
         await delay(RETRY_DELAY_MS)
         continue
       }
-      if (err instanceof AgentTimeoutError) break
       throw err
     }
 
     const result = await readAttempt(stream)
+    if (runSignal.aborted) throw new RunCancelledError()
     attempts.push(result)
     if (!needsRetry(result)) break
   }

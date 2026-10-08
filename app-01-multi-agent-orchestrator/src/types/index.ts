@@ -14,7 +14,7 @@ export interface StageUsage {
 
 export interface TraceStep {
   name: string
-  status: 'ok' | 'failed' | 'skipped'
+  status: 'ok' | 'cut off' | 'failed' | 'skipped'
   ms: number
   detail: string
   tokens?: number

@@ -8,6 +8,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? [DEFAULT_SITE_URL, 'http
 
 const MAX_BODY_BYTES = 8 * 1024
 export const MAX_QUERY_CHARS = 500
+const TOO_LARGE = 'Request body too large.'
 
 // One request fans out to four model calls, so the ceiling is lower than a plain proxy
 // needs. Best effort only: each warm function instance keeps its own counter.
@@ -62,8 +63,9 @@ function requestHost(req: Request): string {
 }
 
 /**
- * The allowlist exists to stop other sites using this endpoint, so it must never reject
- * the app's own page. Same-origin always passes, so deploy previews and custom domains
+ * A browser-side guard, not access control. It stops other sites' pages from using this
+ * endpoint by accident. Any script can send an allowed Origin header, and a request with no
+ * Origin header passes. Same-origin always passes, so deploy previews and custom domains
  * need no manual entry.
  */
 export function isOriginAllowed(req: Request, origin: string | null): boolean {
@@ -88,30 +90,42 @@ export function corsHeaders(req: Request, origin: string | null): Record<string,
   return base
 }
 
+/** Every error response is JSON with one plain-language `error` field. */
 export function fail(message: string, status: number, headers: Record<string, string>): Response {
-  return new Response(message, { status, headers })
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' },
+  })
 }
 
 export function sseEvent(event: object): string {
   return `data: ${JSON.stringify(event)}\n\n`
 }
 
-/** Reads and validates the body. Only `query` is read; any model field the client sends is ignored. */
+/**
+ * Reads and validates the body. Only `query` is read; any model field the client sends is
+ * ignored. Every rejection is a 400 with a plain-language message.
+ */
 export async function readQuery(req: Request): Promise<string> {
+  const declared = Number(req.headers.get('content-length') ?? '0')
+  if (declared > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
+
   const raw = await req.text()
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
-    throw new RequestError(413, 'Request body too large.')
-  }
-  let body: { query?: unknown } | null
+  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
+
+  let body: unknown
   try {
-    body = JSON.parse(raw) as { query?: unknown } | null
+    body = JSON.parse(raw)
   } catch {
     throw new RequestError(400, 'Invalid JSON.')
   }
-  const query = typeof body?.query === 'string' ? body.query.trim() : ''
+  if (!body || typeof body !== 'object' || !('query' in body)) throw new RequestError(400, 'Missing query.')
+  if (typeof body.query !== 'string') throw new RequestError(400, 'Query must be text.')
+
+  const query = body.query.trim()
   if (!query) throw new RequestError(400, 'Missing query.')
   if (query.length > MAX_QUERY_CHARS) {
-    throw new RequestError(400, `Query too long — ${MAX_QUERY_CHARS} characters max.`)
+    throw new RequestError(400, `Query too long: ${MAX_QUERY_CHARS} characters at most.`)
   }
   return query
 }

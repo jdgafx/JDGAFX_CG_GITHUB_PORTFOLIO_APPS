@@ -25,7 +25,11 @@ function EmptyState({ agent }: { agent: AgentState }) {
     case 'working':
       return <p className="ds-hint">{name} is working. Its output appears when it finishes.</p>
     case 'error':
-      return <div className="ds-notice ds-notice--error">{agent.error ?? `${name} failed.`}</div>
+      return (
+        <div className="ds-notice ds-notice--error" role="alert">
+          {agent.error ?? `${name} failed.`}
+        </div>
+      )
     case 'idle':
       return <p className="ds-hint">Start a run to see the {name.toLowerCase()} output here.</p>
     default:

@@ -1,4 +1,5 @@
 import type { AgentRole, AgentState } from '../types'
+import { isCutOff } from './finish'
 
 export const AGENT_ORDER: AgentRole[] = ['researcher', 'analyst', 'critic', 'synthesizer']
 
@@ -25,7 +26,7 @@ export const EXAMPLE_QUERIES = [
 ]
 
 /** A stage needs at least this much text before its output counts as usable. */
-export const MIN_USEFUL_CHARS = 40
+const MIN_USEFUL_CHARS = 40
 
 /** Mirrors the server-side cap in netlify/shared/gate.ts. */
 export const MAX_QUERY_CHARS = 500
@@ -56,7 +57,7 @@ export function hasUsefulOutput(agent: AgentState): boolean {
 
 /** True when the stage was cut off mid-answer rather than finishing cleanly. */
 export function wasTruncated(agent: AgentState): boolean {
-  return agent.finish === 'length' || agent.finish === 'timeout'
+  return isCutOff(agent.finish)
 }
 
 /** Filename-safe slug. Punctuation-only queries fall back to a usable name. */

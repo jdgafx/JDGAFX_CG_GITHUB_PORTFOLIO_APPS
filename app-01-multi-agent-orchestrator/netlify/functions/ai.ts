@@ -1,9 +1,17 @@
+import { isCutOff } from '../../src/lib/finish'
 import { sumUsage } from '../../src/lib/usage'
 import type { StageUsage, StreamEvent, TraceStep } from '../../src/types'
 import { AGENTS, MIN_STAGE_MS, RUN_BUDGET_MS, keyLine, type AgentConfig, type AgentContext } from '../shared/agents'
 import { RequestError, clientKey, corsHeaders, fail, isOriginAllowed, rateLimit, readQuery, sseEvent } from '../shared/gate'
 import { getProvider, type Provider } from '../shared/provider'
-import { friendlyUpstreamMessage, runStage, UpstreamError, type StageResult } from '../shared/stream'
+import {
+  RunCancelledError,
+  TIMEOUT_MESSAGE,
+  friendlyUpstreamMessage,
+  runStage,
+  UpstreamError,
+  type StageResult,
+} from '../shared/stream'
 
 type Outcome = { ok: true; stage: StageResult } | { ok: false; message: string; usage?: StageUsage }
 
@@ -39,28 +47,36 @@ async function runOneStage(
   context: AgentContext,
   provider: Provider,
   deadline: number,
+  runSignal: AbortSignal,
 ): Promise<Outcome> {
   try {
-    const stage = await runStage(agent, agent.buildUserMessage(query, context), provider, deadline)
+    const stage = await runStage(agent, agent.buildUserMessage(query, context), provider, deadline, runSignal)
     if (stage.content.trim()) return { ok: true, stage }
-    const message =
-      stage.finish === 'timeout'
-        ? `${agent.name} ran out of time before it wrote anything.`
-        : `${agent.name} returned no text. Try again.`
+    const message = stage.finish === 'timeout' ? TIMEOUT_MESSAGE : `${agent.name} returned no text. Try again.`
     return { ok: false, message, usage: stage.usage }
   } catch (err) {
+    if (err instanceof RunCancelledError) throw err
     return { ok: false, message: failureMessage(err, agent.name) }
   }
 }
 
-/** Runs the four stages in order against one shared deadline and reports each step as it ends. */
-async function runPipeline(query: string, provider: Provider, send: (event: StreamEvent) => void): Promise<void> {
+/**
+ * Runs the four stages in order against one shared deadline and reports each step as it ends.
+ * When the visitor leaves, no later stage starts and the call in flight is aborted.
+ */
+async function runPipeline(
+  query: string,
+  provider: Provider,
+  send: (event: StreamEvent) => void,
+  runSignal: AbortSignal,
+): Promise<void> {
   const runStart = Date.now()
   const deadline = runStart + RUN_BUDGET_MS
   const context: AgentContext = {}
   const records: StageRecord[] = []
 
   for (const agent of AGENTS) {
+    if (runSignal.aborted) return
     const started = Date.now()
     if (deadline - started < MIN_STAGE_MS) {
       const detail = 'Not started: the run ran out of time.'
@@ -71,14 +87,15 @@ async function runPipeline(query: string, provider: Provider, send: (event: Stre
     }
 
     send({ type: 'agent_start', agent: agent.role, maxTokens: agent.maxTokens })
-    const outcome = await runOneStage(agent, query, context, provider, deadline)
+    const outcome = await runOneStage(agent, query, context, provider, deadline, runSignal)
     const ms = Date.now() - started
 
     if (outcome.ok) {
       const { stage } = outcome
       const detail = keyLine(stage.content)
       context[agent.role] = stage.content
-      records.push({ name: agent.name, status: 'ok', ms, detail, usage: stage.usage, servedModel: stage.servedModel })
+      const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
+      records.push({ name: agent.name, status, ms, detail, usage: stage.usage, servedModel: stage.servedModel })
       send({ type: 'agent_chunk', agent: agent.role, content: stage.content })
       send({
         type: 'agent_complete',
@@ -97,6 +114,7 @@ async function runPipeline(query: string, provider: Provider, send: (event: Stre
     }
   }
 
+  if (runSignal.aborted) return
   // Skipped stages were never called, so they are left out of the totals.
   const called = records.filter(record => record.status !== 'skipped')
   send({
@@ -110,7 +128,8 @@ async function runPipeline(query: string, provider: Provider, send: (event: Stre
   })
 }
 
-export default async (req: Request): Promise<Response> => {
+/** The whole request path. Anything it does not expect is caught by the wrapper below. */
+async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
   const allowed = isOriginAllowed(req, origin)
   const headersOut = corsHeaders(req, origin)
@@ -119,11 +138,11 @@ export default async (req: Request): Promise<Response> => {
     return new Response(null, { status: allowed ? 204 : 403, headers: headersOut })
   }
   if (!allowed) return fail('Origin not allowed.', 403, headersOut)
-  if (req.method !== 'POST') return fail('Method not allowed', 405, headersOut)
+  if (req.method !== 'POST') return fail('Method not allowed.', 405, headersOut)
 
   const limit = rateLimit(clientKey(req))
   if (!limit.allowed) {
-    return fail('Too many requests. Wait a minute and try again.', 429, {
+    return fail('Rate limited, try again in a minute.', 429, {
       ...headersOut,
       'Retry-After': String(limit.retryAfter),
     })
@@ -133,26 +152,51 @@ export default async (req: Request): Promise<Response> => {
   try {
     query = await readQuery(req)
   } catch (err) {
-    const status = err instanceof RequestError ? err.status : 400
-    return fail(err instanceof RequestError ? err.message : 'Invalid request.', status, headersOut)
+    if (err instanceof RequestError) return fail(err.message, err.status, headersOut)
+    throw err
   }
 
   const provider = getProvider()
   if (!provider) return fail('The AI service is not configured on the server.', 500, headersOut)
 
   const encoder = new TextEncoder()
-  const stream = new ReadableStream({
+  // The run stops when the visitor leaves: the request is aborted, or the response stream is cancelled.
+  const runAbort = new AbortController()
+  const onLeave = () => runAbort.abort()
+  if (req.signal.aborted) runAbort.abort()
+  req.signal.addEventListener('abort', onLeave, { once: true })
+
+  const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: StreamEvent) => controller.enqueue(encoder.encode(sseEvent(event)))
+      // A visitor who has left closes the controller. The run still finishes its bookkeeping.
+      const write = (text: string) => {
+        try {
+          controller.enqueue(encoder.encode(text))
+        } catch {
+          /* the visitor has gone */
+        }
+      }
+      const send = (event: StreamEvent) => write(sseEvent(event))
 
       try {
-        await runPipeline(query, provider, send)
-      } catch {
-        send({ type: 'agent_error', agent: 'system', error: 'The run stopped unexpectedly. Try again.' })
+        await runPipeline(query, provider, send, runAbort.signal)
+      } catch (err) {
+        // A cancelled run stops quietly. Anything else is reported once.
+        if (!(err instanceof RunCancelledError)) {
+          send({ type: 'agent_error', agent: 'system', error: 'The run stopped unexpectedly. Try again.' })
+        }
       } finally {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
+        req.signal.removeEventListener('abort', onLeave)
+        write('data: [DONE]\n\n')
+        try {
+          controller.close()
+        } catch {
+          /* already closed */
+        }
       }
+    },
+    cancel() {
+      runAbort.abort()
     },
   })
 
@@ -164,4 +208,13 @@ export default async (req: Request): Promise<Response> => {
       Connection: 'keep-alive',
     },
   })
+}
+
+/** Every request gets a response. Unexpected failures become a generic 500 JSON body. */
+export default async (req: Request): Promise<Response> => {
+  try {
+    return await handle(req)
+  } catch {
+    return fail('Something went wrong on the server. Try again.', 500, corsHeaders(req, req.headers.get('origin')))
+  }
 }

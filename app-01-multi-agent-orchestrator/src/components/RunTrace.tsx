@@ -3,7 +3,7 @@ import { formatUsd } from '../lib/usage'
 export interface TraceRow {
   index: number
   name: string
-  status: 'waiting' | 'running' | 'ok' | 'failed' | 'skipped' | 'stopped'
+  status: 'waiting' | 'running' | 'ok' | 'cut off' | 'failed' | 'skipped' | 'stopped'
   ms?: number
   detail: string
   tokens?: number
@@ -14,6 +14,7 @@ const TONE: Record<TraceRow['status'], string> = {
   waiting: 'ds-badge',
   running: 'ds-badge ds-badge--accent',
   ok: 'ds-badge ds-badge--success',
+  'cut off': 'ds-badge ds-badge--warning',
   failed: 'ds-badge ds-badge--danger',
   skipped: 'ds-badge',
   stopped: 'ds-badge ds-badge--warning',
@@ -27,6 +28,7 @@ export function RunTrace({ rows }: { rows: TraceRow[] }) {
     <ol className="ds-trace">
       {rows.map(row => {
         const share = row.ms !== undefined && stageMs > 0 ? (row.ms / stageMs) * 100 : 0
+        const finished = row.status === 'ok' || row.status === 'cut off'
         return (
           <li key={row.index} className="ds-trace__step">
             <span className="ds-trace__index">{row.index}</span>
@@ -40,10 +42,10 @@ export function RunTrace({ rows }: { rows: TraceRow[] }) {
             </div>
             <div className="ds-trace__meta">
               <div>{row.ms !== undefined ? `${row.ms.toLocaleString('en-US')} ms` : '-'}</div>
-              {row.status === 'ok' && (
+              {finished && (
                 <div>{row.tokens !== undefined ? `${row.tokens.toLocaleString('en-US')} tokens` : 'tokens not reported'}</div>
               )}
-              {row.status === 'ok' && <div>{row.cost !== undefined ? formatUsd(row.cost) : 'cost not reported'}</div>}
+              {finished && <div>{row.cost !== undefined ? formatUsd(row.cost) : 'cost not reported'}</div>}
             </div>
           </li>
         )

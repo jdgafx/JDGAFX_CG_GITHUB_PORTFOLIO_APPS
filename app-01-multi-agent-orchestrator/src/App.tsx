@@ -1,5 +1,5 @@
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useEdgesState, useNodesState, type Edge, type Node } from '@xyflow/react'
 import { ExportBar, type ExportKind } from './components/ExportBar'
 import { Header, type BadgeTone } from './components/Header'
@@ -9,7 +9,7 @@ import { QueryBar } from './components/QueryBar'
 import { RunMetrics, type MetricsState } from './components/RunMetrics'
 import { RunTrace, type TraceRow } from './components/RunTrace'
 import { AGENT_META, AGENT_ORDER, MAX_QUERY_CHARS, createAgents, hasUsefulOutput, wasTruncated } from './lib/agents'
-import { startResearch } from './lib/api'
+import { isAbortError, runErrorMessage, startResearch } from './lib/api'
 import { sumUsage } from './lib/usage'
 import type { AgentRole, AgentState, AgentStatus, RunSummary, StreamEvent } from './types'
 
@@ -36,16 +36,19 @@ const TRACE_STATUS: Record<AgentStatus, TraceRow['status']> = {
   stopped: 'stopped',
 }
 
+function subscribeCompact(onChange: () => void): () => void {
+  const query = window.matchMedia(COMPACT_QUERY)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
+function readCompact(): boolean {
+  return window.matchMedia(COMPACT_QUERY).matches
+}
+
+/** The viewport class, read from the media query on every render. No state is copied in an effect. */
 function useIsCompact(): boolean {
-  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches)
-  useEffect(() => {
-    const query = window.matchMedia(COMPACT_QUERY)
-    const onChange = (event: MediaQueryListEvent) => setCompact(event.matches)
-    setCompact(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-  return compact
+  return useSyncExternalStore(subscribeCompact, readCompact)
 }
 
 function nodePosition(index: number, compact: boolean): { x: number; y: number } {
@@ -127,7 +130,8 @@ function derivePhase(agents: Record<AgentRole, AgentState>, isRunning: boolean, 
   if (isRunning) return 'running'
   if (AGENT_ORDER.every(role => agents[role].status === 'idle')) return 'ready'
   if (wasStopped) return 'stopped'
-  if (AGENT_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]))) return 'complete'
+  if (AGENT_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]) && !wasTruncated(agents[role])))
+    return 'complete'
   if (AGENT_ORDER.some(role => agents[role].output.trim().length > 0)) return 'partial'
   return 'failed'
 }
@@ -269,9 +273,7 @@ export default function App() {
       try {
         await startResearch(text, handleEvent, controller.signal)
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          setPipelineError((err as Error).message || 'The run stopped unexpectedly. Try again.')
-        }
+        if (!isAbortError(err)) setPipelineError(runErrorMessage(err))
       } finally {
         setIsRunning(false)
         if (timerRef.current) {
@@ -314,9 +316,7 @@ export default function App() {
           else if (kind === 'docx') await mod.downloadDocx(ranQuery, agents)
           else mod.downloadMarkdown(ranQuery, agents)
         })
-        .catch((err: unknown) =>
-          setPipelineError(`Export failed: ${err instanceof Error ? err.message : 'unknown error'}`),
-        )
+        .catch(() => setPipelineError('Export failed. Try again.'))
         .finally(() => setExporting(null))
     },
     [ranQuery, agents],
@@ -355,7 +355,7 @@ export default function App() {
     return {
       index: i + 1,
       name: AGENT_META[role].name,
-      status: TRACE_STATUS[agent.status],
+      status: agent.status === 'complete' && wasTruncated(agent) ? 'cut off' : TRACE_STATUS[agent.status],
       ms: agent.ms,
       detail: traceDetail(agent),
       tokens: agent.usage?.completion_tokens,
