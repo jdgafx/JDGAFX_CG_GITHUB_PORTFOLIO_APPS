@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { STAGE_LABELS, type StageId, type StageOutputs } from '../lib/api'
 import type { StageView } from '../lib/run'
 import StateMark from './StateMark'
@@ -63,7 +65,9 @@ export default function Stages({ outputs, views, idle, copyNote, onCopy }: Stage
                   <>
                     <details open>
                       <summary>Output, {view.words} words</summary>
-                      <p className="stage-output">{text}</p>
+                      <div className="stage-output">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                      </div>
                     </details>
                     <div className="ds-row">
                       <button
