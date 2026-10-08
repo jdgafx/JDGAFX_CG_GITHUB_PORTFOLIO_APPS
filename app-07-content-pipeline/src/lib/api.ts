@@ -1,37 +1,70 @@
-export type StepId = 'research' | 'outline' | 'draft' | 'edit' | 'polish'
+export const STAGE_IDS = ['research', 'outline', 'draft', 'edit', 'polish'] as const
+export type StageId = (typeof STAGE_IDS)[number]
 
-export const PIPELINE_STEPS: StepId[] = ['research', 'outline', 'draft', 'edit', 'polish']
+export const STAGE_LABELS: Record<StageId, string> = {
+  research: 'Research',
+  outline: 'Outline',
+  draft: 'Draft',
+  edit: 'Edit',
+  polish: 'Polish',
+}
 
-export type PipelineContext = Partial<Record<StepId, string>>
+export const CONTENT_TYPES = ['Blog Post', 'Technical Article', 'Marketing Copy', 'Newsletter', 'Social Thread'] as const
+export type ContentType = (typeof CONTENT_TYPES)[number]
 
-const API_PATH = '/api/ai'
-const ERROR_DETAIL_CHARS = 200
+export type StageOutputs = Partial<Record<StageId, string>>
 
-export interface StepEvent {
-  type: 'step_start' | 'step_chunk' | 'step_complete' | 'error'
-  step?: StepId
-  content?: string
-  truncated?: boolean
-  served_model?: string
-  served_provider?: string
-  /** Server marks error content that is curated end-user copy. Unmarked error text is never rendered. */
-  friendly?: boolean
+export interface Usage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cost?: number
+}
+
+export interface TraceRow {
+  name: string
+  status: 'ok' | 'failed'
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+// One call to the server, with the usage and model it reported.
+export interface CallRecord {
+  stage: StageId
+  row: TraceRow
+  usage: Usage | null
+  model: string | null
+}
+
+export type PipelineOutcome =
+  | { kind: 'complete' }
+  | { kind: 'stopped'; stage: StageId }
+  | { kind: 'failed'; stage: StageId; message: string }
+
+export interface RunRequest {
+  topic: string
+  contentType: ContentType
+  context: StageOutputs
+  signal: AbortSignal
 }
 
 export interface PipelineCallbacks {
-  onStepStart: (step: StepId) => void
-  onStepChunk: (step: StepId, chunk: string) => void
-  onStepComplete: (step: StepId, fullContent: string, truncated: boolean, servedModel?: string, servedProvider?: string) => void
-  onPipelineComplete: () => void
-  onError: (step: StepId, error: string) => void
-  onAbort: (step: StepId) => void
+  onStageStart: (stage: StageId) => void
+  onCall: (record: CallRecord) => void
+  onStageDone: (stage: StageId, content: string) => void
 }
 
-export interface PipelineOptions {
-  signal: AbortSignal
-  /** Resume from this step, reusing the supplied context for the earlier ones. */
-  startAt?: StepId
-  context?: PipelineContext
+const API_PATH = '/api/ai'
+// A timed-out or cut-off stage gets one more call. Rate and credit errors do not.
+const RETRY_LIMIT = 1
+
+// A failed call. The record is its trace line, and `retryable` says whether a second call may succeed.
+class StageFailure extends Error {
+  constructor(message: string, readonly retryable: boolean, readonly record: CallRecord) {
+    super(message)
+  }
 }
 
 function isAbort(err: unknown): boolean {
@@ -44,185 +77,138 @@ function friendlyHttpError(status: number): string {
   return 'The request could not be completed. Please retry.'
 }
 
-interface StepOutcome {
-  content: string
-  truncated: boolean
-  servedModel?: string
-  servedProvider?: string
+function readUsage(value: unknown): Usage | null {
+  if (!value || typeof value !== 'object') return null
+  const usage = value as Record<string, unknown>
+  if (typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number' || typeof usage.total_tokens !== 'number') {
+    return null
+  }
+  return {
+    prompt_tokens: usage.prompt_tokens,
+    completion_tokens: usage.completion_tokens,
+    total_tokens: usage.total_tokens,
+    cost: typeof usage.cost === 'number' ? usage.cost : undefined,
+  }
 }
 
-async function runStep(
-  topic: string,
-  contentType: string,
-  step: StepId,
-  context: PipelineContext,
-  callbacks: PipelineCallbacks,
-  signal: AbortSignal,
-  attempt = 0,
-): Promise<StepOutcome> {
+function readRow(value: unknown): TraceRow | null {
+  const row = Array.isArray(value) ? (value[0] as Partial<TraceRow> | undefined) : undefined
+  if (!row || typeof row.ms !== 'number' || typeof row.detail !== 'string') return null
+  return {
+    name: typeof row.name === 'string' ? row.name : '',
+    status: row.status === 'ok' ? 'ok' : 'failed',
+    ms: row.ms,
+    detail: row.detail,
+    tokens: typeof row.tokens === 'number' ? row.tokens : undefined,
+    cost: typeof row.cost === 'number' ? row.cost : undefined,
+  }
+}
+
+async function readBody(response: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const value: unknown = await response.json()
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+  } catch (err) {
+    if (isAbort(err)) throw err
+    return null
+  }
+}
+
+// One call to the server for one stage. `name` labels the trace line ("Draft" or "Draft (retry)").
+async function postStage(
+  req: RunRequest,
+  stage: StageId,
+  name: string,
+): Promise<{ content: string; record: CallRecord }> {
+  const sentAt = Date.now()
   let response: Response
   try {
     response = await fetch(API_PATH, {
       method: 'POST',
-      signal,
+      signal: req.signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, contentType, step, context }),
+      body: JSON.stringify({ topic: req.topic, contentType: req.contentType, stage, context: req.context }),
     })
   } catch (err) {
     if (isAbort(err)) throw err
-    console.error(`${step} request failed:`, err)
-    throw new Error('Lost connection. Check your network and retry.')
+    console.error(`${stage} request failed:`, err)
+    throw new StageFailure('Lost connection. Check your network and retry.', true, {
+      stage,
+      usage: null,
+      model: null,
+      row: { name, status: 'failed', ms: Date.now() - sentAt, detail: 'Connection lost before the stage finished.' },
+    })
   }
+
+  const body = await readBody(response)
+  const serverRow = readRow(body?.trace)
 
   if (!response.ok) {
-    let detail = `${response.status}`
-    try {
-      const text = await response.text()
-      if (text) detail += ` - ${text.slice(0, ERROR_DETAIL_CHARS)}`
-    } catch { /* body already consumed or unreadable */ }
-    console.error(`${step} request failed: ${detail}`)
-    throw new Error(friendlyHttpError(response.status))
+    const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : friendlyHttpError(response.status)
+    const retryable = typeof body?.retryable === 'boolean' ? body.retryable : response.status === 502 || response.status === 504
+    console.error(`${stage} request failed with HTTP ${response.status}`)
+    throw new StageFailure(message, retryable, {
+      stage,
+      usage: null,
+      model: null,
+      row: serverRow ? { ...serverRow, name, status: 'failed' } : { name, status: 'failed', ms: Date.now() - sentAt, detail: message },
+    })
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) {
-    throw new Error('No response stream')
+  const content = typeof body?.result === 'string' ? body.result : ''
+  if (!content.trim() || !serverRow) {
+    throw new StageFailure('The stage returned no usable text. Please retry.', true, {
+      stage,
+      usage: null,
+      model: null,
+      row: { name, status: 'failed', ms: Date.now() - sentAt, detail: 'The response had no usable text.' },
+    })
   }
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let content = ''
-  let truncated = false
-  let completed = false
-  let servedModel: string | undefined
-  let servedProvider: string | undefined
-  let serverError = ''
-  let serverErrorFriendly = false
-
-  const processLine = (line: string) => {
-    if (!line.startsWith('data: ')) return
-    const payload = line.slice(6).trim()
-    if (!payload || payload === '[DONE]') return
-
-    let event: StepEvent
-    try {
-      event = JSON.parse(payload) as StepEvent
-    } catch {
-      return
-    }
-
-    switch (event.type) {
-      case 'step_start':
-        if (event.step) callbacks.onStepStart(event.step)
-        break
-      case 'step_chunk':
-        if (event.step && event.content) {
-          content += event.content
-          callbacks.onStepChunk(event.step, event.content)
-        }
-        break
-      case 'step_complete':
-        if (event.step) {
-          completed = true
-          // Server content is authoritative — it reconciles any dropped chunk.
-          content = event.content ?? content
-          truncated = event.truncated === true
-          servedModel = event.served_model
-          servedProvider = event.served_provider
-        }
-        break
-      case 'error':
-        serverError = event.content ?? 'Unknown error'
-        serverErrorFriendly = event.friendly === true
-        break
-    }
+  return {
+    content,
+    record: {
+      stage,
+      row: { ...serverRow, name },
+      usage: readUsage(body?.usage),
+      model: typeof body?.model === 'string' ? body.model : null,
+    },
   }
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        processLine(line)
-      }
-    }
-
-    if (buffer.trim()) processLine(buffer)
-  } catch (err) {
-    void reader.cancel().catch(() => { })
-    if (isAbort(err)) throw err
-    console.error(`${step} stream failed:`, err)
-    throw new Error('Lost connection. Check your network and retry.')
-  }
-
-  if (serverError) {
-    if (!serverErrorFriendly) {
-      console.error(`${step} server error:`, serverError)
-      throw new Error('Something went wrong generating this step. Please retry.')
-    }
-    // A bounded server timeout is recoverable. Retry exactly once before the
-    // pipeline reports failure, while the caller's AbortSignal still wins.
-    if (attempt === 0 && !signal.aborted && /timed out/i.test(serverError)) {
-      return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
-    }
-    throw new Error(serverError)
-  }
-
-  // A stream that stops without step_complete was cut off (function timeout,
-  // dropped connection). That is a failure, never a silent success.
-  if (!completed) {
-    if (attempt === 0 && !signal.aborted) {
-      return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
-    }
-    throw new Error(`The ${step} step was cut off before it finished. Nothing was returned for it.`)
-  }
-
-  if (truncated && attempt === 0 && !signal.aborted) {
-    return runStep(topic, contentType, step, context, callbacks, signal, attempt + 1)
-  }
-
-  if (truncated) {
-    throw new Error(`The ${step} step was cut off before it finished. Nothing was returned for it.`)
-  }
-
-  return { content, truncated, servedModel, servedProvider }
 }
 
-export async function runPipeline(
-  topic: string,
-  contentType: string,
-  callbacks: PipelineCallbacks,
-  options: PipelineOptions,
-): Promise<void> {
-  const { signal } = options
-  const context: PipelineContext = { ...options.context }
-  const startIndex = options.startAt ? PIPELINE_STEPS.indexOf(options.startAt) : 0
-  const steps = PIPELINE_STEPS.slice(startIndex < 0 ? 0 : startIndex)
-
-  for (const step of steps) {
-    if (signal.aborted) {
-      callbacks.onAbort(step)
-      return
-    }
-
+async function runStage(req: RunRequest, stage: StageId, callbacks: PipelineCallbacks): Promise<string> {
+  const label = STAGE_LABELS[stage]
+  for (let attempt = 0; ; attempt += 1) {
+    const name = attempt === 0 ? label : `${label} (retry)`
     try {
-      const { content, truncated, servedModel, servedProvider } = await runStep(topic, contentType, step, context, callbacks, signal)
-      context[step] = content
-      callbacks.onStepComplete(step, content, truncated, servedModel, servedProvider)
+      const { content, record } = await postStage(req, stage, name)
+      callbacks.onCall(record)
+      return content
     } catch (err) {
-      if (isAbort(err) || signal.aborted) {
-        callbacks.onAbort(step)
-      } else {
-        callbacks.onError(step, err instanceof Error ? err.message : 'Unexpected error')
-      }
-      return
+      if (isAbort(err) || req.signal.aborted) throw err
+      if (!(err instanceof StageFailure)) throw err
+      callbacks.onCall(err.record)
+      if (!err.retryable || attempt >= RETRY_LIMIT) throw err
     }
   }
+}
 
-  callbacks.onPipelineComplete()
+// Runs the stages that have no output yet, in order. Each stage is its own short call.
+export async function runPipeline(req: RunRequest, callbacks: PipelineCallbacks): Promise<PipelineOutcome> {
+  const context: StageOutputs = { ...req.context }
+  for (const stage of STAGE_IDS) {
+    if (context[stage]) continue
+    if (req.signal.aborted) return { kind: 'stopped', stage }
+
+    callbacks.onStageStart(stage)
+    try {
+      const content = await runStage({ ...req, context }, stage, callbacks)
+      context[stage] = content
+      callbacks.onStageDone(stage, content)
+    } catch (err) {
+      if (isAbort(err) || req.signal.aborted) return { kind: 'stopped', stage }
+      const message = err instanceof StageFailure ? err.message : 'Something went wrong. Please retry.'
+      return { kind: 'failed', stage, message }
+    }
+  }
+  return { kind: 'complete' }
 }

@@ -1,0 +1,90 @@
+/* App-only layout. Colours, type and the shared components come from tokens.css. */
+
+.brief-form {
+  display: grid;
+  gap: 16px;
+}
+
+.brief-fields {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.brief-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-line {
+  min-height: 1.5em;
+}
+
+.notice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.stage-item {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.stage-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stage-item summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.stage-output {
+  margin: 8px 0 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-body {
+  min-width: 0;
+}
+
+.ds-trace__meta > div + div {
+  margin-top: 2px;
+}
+
+@media (min-width: 720px) {
+  .brief-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 14rem);
+  }
+}

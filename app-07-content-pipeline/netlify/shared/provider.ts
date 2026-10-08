@@ -1,31 +1,86 @@
-export interface ProviderConfig { url: string; apiKey: string; model: string; name: 'xAI' | 'OpenRouter' }
-export function generationOptions(provider: ProviderConfig, maxTokens: number): Record<string, unknown> { const options: Record<string, unknown> = provider.name === 'OpenRouter' && provider.model === 'openrouter/free' ? { provider: { require_parameters: true } } : {}; options.max_tokens = maxTokens; if (provider.name === 'OpenRouter' && provider.model !== 'openrouter/free') options.reasoning = { exclude: true }; return options }
+// The one chat model for every text call in this app. Clients cannot pick it,
+// and no environment variable overrides it.
+export const MODEL = '~anthropic/claude-haiku-latest'
 
-// Verified in the live OpenRouter account on 2026-08-23: this direct route
-// returned a short, stopped chat completion. The free router is intentionally
-// not used here because it can select a slow or empty provider for Research.
-export const VERIFIED_FAST_MODELS = [
-  '~anthropic/claude-haiku-latest',
-  'liquid/lfm-2.5-2.6b:free',
-  'nvidia/nemotron-3-nano-30b-a3b:free',
-  'nvidia/nemotron-3.5-lightning:free',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-  'openrouter/free',
-]
+export const SITE_URL = process.env.URL || 'https://jdgafx-app-07-content-pipeline.netlify.app'
 
-export function getProviders(_openRouterModel: string): ProviderConfig[] {
-  const openRouterKey = process.env.OPENROUTER_API_KEY
-  if (openRouterKey) {
-    const configured = process.env.OPENROUTER_MODEL
-    const models = configured && configured !== 'openrouter/free' && VERIFIED_FAST_MODELS.includes(configured)
-      ? [configured, ...VERIFIED_FAST_MODELS.filter(model => model !== configured)]
-      : VERIFIED_FAST_MODELS
-    return models.map(model => ({ url: process.env.OPENROUTER_URL ?? 'https://openrouter.ai/api/v1/chat/completions', apiKey: openRouterKey, model, name: 'OpenRouter' as const }))
-  }
-  const xaiKey = process.env.XAI_API_KEY
-  return xaiKey ? [{ url: process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1/chat/completions', apiKey: xaiKey, model: process.env.XAI_MODEL ?? 'grok-4.6', name: 'xAI' }] : []
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+export interface Usage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cost?: number
 }
 
-export function getProvider(_openRouterModel: string): ProviderConfig | null {
-  return getProviders(_openRouterModel)[0] ?? null
+export interface ChatReply {
+  content: string
+  finishReason: string | null
+  servedModel: string | null
+  usage: Usage | null
+}
+
+// Carries only the HTTP status. The provider's error body can name the account,
+// so it is never copied into an error or sent to the browser.
+export class ProviderStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`AI provider responded with HTTP ${status}`)
+  }
+}
+
+function readUsage(raw: unknown): Usage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const { prompt_tokens, completion_tokens, total_tokens, cost } = raw as Record<string, unknown>
+  if (typeof prompt_tokens !== 'number' || typeof completion_tokens !== 'number' || typeof total_tokens !== 'number') {
+    return null
+  }
+  const usage: Usage = { prompt_tokens, completion_tokens, total_tokens }
+  if (typeof cost === 'number' && Number.isFinite(cost)) usage.cost = cost
+  return usage
+}
+
+// One non-streaming chat call with an explicit token ceiling. The caller owns the signal.
+export async function chat(system: string, user: string, maxTokens: number, signal: AbortSignal): Promise<ChatReply> {
+  const response = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    signal,
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY ?? ''}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': SITE_URL,
+      'X-Title': 'ContentForge',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      // A "latest" alias can move to a reasoning model. With reasoning off, hidden
+      // tokens cannot use up the budget and cut the answer short.
+      reasoning: { enabled: false },
+      // Asks OpenRouter to report the token counts and the cost of this call.
+      usage: { include: true },
+      stream: false,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new ProviderStatusError(response.status)
+  }
+
+  const parsed = await response.json() as {
+    model?: unknown
+    choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>
+    usage?: unknown
+  }
+  const choice = parsed.choices?.[0]
+  return {
+    content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
+    finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+    servedModel: typeof parsed.model === 'string' ? parsed.model : null,
+    usage: readUsage(parsed.usage),
+  }
 }
