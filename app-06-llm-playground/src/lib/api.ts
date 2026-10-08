@@ -1,125 +1,51 @@
-export interface TextChunk {
-  type: 'text'
-  text: string
+import type {
+  CatalogueResponse,
+  CompareRequest,
+  CompareResponse,
+  JudgeRequest,
+  JudgeResponse,
+} from '../../netlify/shared/contract'
+
+// A message that is safe to show: the server writes these in plain language.
+export class ApiError extends Error {}
+
+export function isAbortError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'AbortError'
 }
 
-export interface DoneChunk {
-  type: 'done'
-  latencyMs: number | null
-  inputTokens: number | null
-  outputTokens: number | null
-  /** Authoritative USD cost reported by the provider; null when unavailable. */
-  cost?: number | null
-  /** Model id that actually served the request, resolved from the alias. */
-  servedModel?: string | null
-  /** True when the server hit its time budget before the model finished. */
-  truncated?: boolean
-  /** True when the provider itself reported finish_reason "length" -- the model hit Max Tokens. */
-  capped?: boolean
+function postJson(body: unknown, signal?: AbortSignal): RequestInit {
+  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal }
 }
 
-export interface ErrorChunk {
-  type: 'error'
-  message: string
-}
-
-export type StreamChunk = TextChunk | DoneChunk | ErrorChunk
-
-export interface Message {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export interface StreamOptions {
-  temperature?: number
-  max_tokens?: number
-}
-
-const CONNECTION_LOST = 'Connection lost before the model finished responding.'
-
-export async function streamModel(
-  model: string,
-  messages: Message[],
-  system: string | undefined,
-  options: StreamOptions,
-  onChunk: (chunk: StreamChunk) => void,
-  signal?: AbortSignal,
-): Promise<void> {
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   let res: Response
   try {
-    res = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        system,
-        max_tokens: options.max_tokens ?? 1024,
-        temperature: options.temperature ?? 0.7,
-      }),
-      signal,
-    })
+    res = await fetch(path, init)
   } catch (err) {
-    if ((err as Error).name === 'AbortError') throw err
-    console.error('Initial fetch to /api/ai failed', err)
-    throw new Error(CONNECTION_LOST)
+    if (isAbortError(err)) throw err
+    throw new ApiError('Could not reach the server. Check your connection and try again.')
   }
-
+  const body: unknown = await res.json().catch(() => null)
   if (!res.ok) {
-    const text = await res.text()
-    console.error(`API error ${res.status}: ${text}`)
-    throw new Error(text || `Request failed with status ${res.status}`)
-  }
-
-  if (!res.body) throw new Error('No response body')
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let sawTerminal = false
-
-  const processLines = (lines: string[]) => {
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data: ')) continue
-      const data = trimmed.slice(6).trim()
-      if (data === '[DONE]') continue
-
-      try {
-        const parsed = JSON.parse(data) as StreamChunk
-        if (parsed.type === 'done' || parsed.type === 'error') sawTerminal = true
-        onChunk(parsed)
-      } catch (err) {
-        console.warn('Skipping malformed SSE line', (err as Error).message, trimmed)
-      }
+    const message = typeof body === 'object' && body !== null ? (body as { error?: unknown }).error : undefined
+    if (typeof message === 'string') throw new ApiError(message)
+    // A gateway timeout answers with an HTML page, not the JSON the functions send.
+    if (res.status === 502 || res.status === 504) {
+      throw new ApiError('The server did not answer in time. Try again, or use a shorter prompt.')
     }
+    throw new ApiError(`Request failed with status ${res.status}`)
   }
+  return body as T
+}
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+export function fetchCatalogue(signal?: AbortSignal): Promise<CatalogueResponse> {
+  return request<CatalogueResponse>('/api/models', { signal })
+}
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      processLines(lines)
-    }
-  } catch (err) {
-    // A user-initiated abort is not a failure -- let the caller handle it.
-    if (signal?.aborted) throw err
-    onChunk({ type: 'error', message: CONNECTION_LOST })
-    return
-  }
+export function runCompare(body: CompareRequest, signal?: AbortSignal): Promise<CompareResponse> {
+  return request<CompareResponse>('/api/compare', postJson(body, signal))
+}
 
-  // Process any remaining data in the buffer after the stream ends
-  if (buffer.trim()) {
-    processLines([buffer])
-  }
-
-  // A stream that ends without done/error means the connection dropped
-  // mid-generation -- surface it rather than leaving the panel spinning.
-  if (!sawTerminal) {
-    onChunk({ type: 'error', message: CONNECTION_LOST })
-  }
+export function runJudge(body: JudgeRequest, signal?: AbortSignal): Promise<JudgeResponse> {
+  return request<JudgeResponse>('/api/judge', postJson(body, signal))
 }

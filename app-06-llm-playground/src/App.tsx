@@ -1,348 +1,192 @@
-import { useState, useCallback, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Square, ChevronDown, ChevronUp, Settings, RotateCcw } from 'lucide-react'
-import { streamModel } from './lib/api'
-import type { ModelResult } from './models'
-import { MODELS, createEmptyResult, estimateCost } from './models'
-import { Header, PromptSection, ModelSelector, SettingsPanel, WinnerBanner } from './components/Controls'
-import { ResponsePanel } from './components/ResponsePanel'
+import { useEffect, useRef, useState } from 'react'
+import { MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
+import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
+import { chooseOption, failedJudgeStep, statusLine, type RunView } from './lib/run'
+import { Header } from './components/Header'
+import { PromptCard } from './components/PromptCard'
+import { PanelSetup, type Picks } from './components/PanelSetup'
+import { ResultCard, type CardPhase } from './components/ResultCard'
+import { EvidenceCard } from './components/EvidenceCard'
+import { JudgeCard } from './components/JudgeCard'
+import { TraceCard } from './components/TraceCard'
 
-const MAX_SELECTED = 3
-const MIN_SELECTED = 2
+const DEFAULT_PICKS: Picks = { B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5' }
+
+function messageFor(err: unknown): string {
+  return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
+}
 
 export default function App() {
   const [prompt, setPrompt] = useState('')
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [showSystem, setShowSystem] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(1024)
-  const [selectedModels, setSelectedModels] = useState<string[]>([
-    'free-router-b',
-    'free-router-c',
-  ])
-  // Model list frozen at submit time, so changing the selection mid-run or
-  // after a run never re-maps the results grid onto the wrong models.
-  const [runModels, setRunModels] = useState<string[]>([])
-  const [results, setResults] = useState<Record<string, ModelResult>>({})
-  const [running, setRunning] = useState(false)
-  const [winnerId, setWinnerId] = useState<string | null>(null)
-  const abortRefs = useRef<Record<string, AbortController>>({})
-  const stoppedRef = useRef(false)
+  const [system, setSystem] = useState('')
+  // null leaves the model's own temperature in place, so the default request matches the spec.
+  const [temperature, setTemperature] = useState<number | null>(null)
+  const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null)
+  const [catalogueFailed, setCatalogueFailed] = useState(false)
+  const [picks, setPicks] = useState<Picks>(DEFAULT_PICKS)
+  const [run, setRun] = useState<RunView | null>(null)
+  const controllerRef = useRef<AbortController | null>(null)
 
-  const toggleModel = (id: string) => {
-    setSelectedModels(prev => {
-      if (prev.includes(id)) {
-        if (prev.length <= MIN_SELECTED) return prev
-        return prev.filter(m => m !== id)
-      }
-      if (prev.length >= MAX_SELECTED) return prev
-      return [...prev, id]
-    })
-  }
-
-  const updateResult = useCallback((modelId: string, patch: Partial<ModelResult>) => {
-    setResults(prev => ({
-      ...prev,
-      [modelId]: { ...(prev[modelId] ?? createEmptyResult()), ...patch },
-    }))
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchCatalogue(controller.signal)
+      .then(loaded => {
+        setCatalogue(loaded)
+        setPicks(prev => ({ B: chooseOption(loaded, prev.B), C: chooseOption(loaded, prev.C) }))
+      })
+      .catch(err => {
+        if (!isAbortError(err)) setCatalogueFailed(true)
+      })
+    return () => controller.abort()
   }, [])
 
-  const handleCompare = async () => {
-    if (!prompt.trim() || running || selectedModels.length < MIN_SELECTED) return
+  const running = run?.status === 'running'
+  const canRun = catalogue !== null && !running && prompt.trim() !== '' && prompt.length <= PROMPT_MAX_CHARS
 
-    Object.values(abortRefs.current).forEach(c => c.abort())
-    abortRefs.current = {}
-    stoppedRef.current = false
-
-    const modelsToRun = [...selectedModels]
-    const startTimes: Record<string, number> = {}
-    const initial: Record<string, ModelResult> = {}
-    modelsToRun.forEach(id => {
-      startTimes[id] = Date.now()
-      initial[id] = { ...createEmptyResult(), streaming: true, startTime: startTimes[id] }
-    })
-    setRunModels(modelsToRun)
-    setResults(initial)
-    setWinnerId(null)
-    setRunning(true)
-
-    const messages = [{ role: 'user' as const, content: prompt }]
-    const completed: Record<string, number> = {}
-
-    // A model is only eligible to win if it produced a full response: errors,
-    // cancellations and truncations record as ineligible but still settle the run.
-    const settle = (modelId: string, latency: number, eligible: boolean) => {
-      if (stoppedRef.current) return
-      if (modelId in completed) return
-      completed[modelId] = eligible ? latency : Infinity
-      if (Object.keys(completed).length === modelsToRun.length) {
-        const ranked = Object.entries(completed)
-          .filter(([, ms]) => Number.isFinite(ms))
-          .sort((a, b) => a[1] - b[1])
-        setWinnerId(ranked.length > 0 ? ranked[0][0] : null)
-        setRunning(false)
+  async function handleRun() {
+    if (!canRun || !catalogue) return
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const sent = prompt
+    setRun({ status: 'running', compare: null, judge: { state: 'idle' }, error: null })
+    try {
+      const compare = await runCompare(
+        {
+          prompt: sent,
+          models: [catalogue.defaultModel, picks.B, picks.C],
+          system: system.trim() === '' ? undefined : system,
+          temperature: temperature ?? undefined,
+        },
+        controller.signal,
+      )
+      const answers = compare.panels.flatMap(p => (p.ok ? [{ slot: p.slot, text: p.text }] : []))
+      if (answers.length < 2) {
+        setRun({
+          status: 'done',
+          compare,
+          judge: { state: 'skipped', reason: `The judge needs two answers. ${answers.length} of ${SLOTS.length} panels answered.` },
+          error: null,
+        })
+        return
       }
-    }
-
-    await Promise.allSettled(
-      modelsToRun.map(async (modelId) => {
-        const ctrl = new AbortController()
-        abortRefs.current[modelId] = ctrl
-
-        try {
-          await streamModel(
-            modelId,
-            messages,
-            systemPrompt || undefined,
-            { temperature, max_tokens: maxTokens },
-            (chunk) => {
-              if (stoppedRef.current) return
-
-              if (chunk.type === 'text') {
-                setResults(prev => {
-                  const existing = prev[modelId] ?? createEmptyResult()
-                  return {
-                    ...prev,
-                    [modelId]: { ...existing, text: existing.text + chunk.text },
-                  }
-                })
-                return
-              }
-
-              if (chunk.type === 'error') {
-                updateResult(modelId, {
-                  streaming: false,
-                  done: true,
-                  error: chunk.message,
-                  latencyMs: Date.now() - startTimes[modelId],
-                })
-                settle(modelId, Infinity, false)
-                return
-              }
-
-              const latency = chunk.latencyMs ?? Date.now() - startTimes[modelId]
-              const reported = typeof chunk.cost === 'number' ? chunk.cost : null
-              const cost = reported ?? estimateCost(modelId, chunk.inputTokens, chunk.outputTokens)
-              updateResult(modelId, {
-                streaming: false,
-                done: true,
-                latencyMs: latency,
-                inputTokens: chunk.inputTokens ?? null,
-                outputTokens: chunk.outputTokens ?? null,
-                cost,
-                costEstimated: reported === null && cost !== null,
-                servedModel: chunk.servedModel ?? null,
-                truncated: chunk.truncated === true,
-                capped: chunk.capped === true,
-              })
-              settle(modelId, latency, chunk.truncated !== true)
-            },
-            ctrl.signal,
-          )
-        } catch (err) {
-          if (stoppedRef.current) return
-          if ((err as Error).name !== 'AbortError') {
-            updateResult(modelId, {
-              streaming: false,
-              done: true,
-              error: (err as Error).message,
-              latencyMs: Date.now() - startTimes[modelId],
-            })
-          }
-          settle(modelId, Infinity, false)
+      setRun({ status: 'running', compare, judge: { state: 'running' }, error: null })
+      const verdict = await runJudge({ prompt: sent, answers }, controller.signal)
+      setRun(prev =>
+        prev && {
+          ...prev,
+          status: 'done',
+          judge: verdict.ok
+            ? { state: 'done', verdict }
+            : { state: 'failed', step: verdict.trace[0], model: verdict.model },
+        },
+      )
+    } catch (err) {
+      const stopped = isAbortError(err)
+      setRun(prev => {
+        if (!prev) return prev
+        // Before the panels answered, the whole run failed or stopped.
+        if (!prev.compare) {
+          return { ...prev, status: stopped ? 'stopped' : 'error', error: stopped ? null : messageFor(err) }
         }
-      }),
-    )
-  }
-
-  const handleStop = () => {
-    stoppedRef.current = true
-    Object.values(abortRefs.current).forEach(c => c.abort())
-    abortRefs.current = {}
-    setResults(prev => {
-      const next = { ...prev }
-      runModels.forEach(id => {
-        const res = next[id]
-        if (res?.streaming) {
-          next[id] = {
-            ...res,
-            streaming: false,
-            done: true,
-            cancelled: true,
-            latencyMs: res.startTime ? Date.now() - res.startTime : res.latencyMs,
-          }
+        // The panels answered, so keep them and mark only the judge step.
+        return {
+          ...prev,
+          status: stopped ? 'stopped' : 'done',
+          judge: {
+            state: 'failed',
+            step: failedJudgeStep(stopped ? 'Stopped before the judge answered.' : messageFor(err)),
+            model: null,
+          },
         }
       })
-      return next
-    })
-    setWinnerId(null)
-    setRunning(false)
+    } finally {
+      controllerRef.current = null
+    }
   }
 
-  const handleClear = () => {
-    stoppedRef.current = true
-    Object.values(abortRefs.current).forEach(c => c.abort())
-    abortRefs.current = {}
-    setResults({})
-    setRunModels([])
-    setWinnerId(null)
-    setRunning(false)
+  function handleStop() {
+    controllerRef.current?.abort()
   }
 
-  const hasResults = runModels.length > 0
-  const allDone = hasResults && runModels.every(id => results[id]?.done)
-  const canRun = prompt.trim().length > 0 && selectedModels.length >= MIN_SELECTED
+  function handleClear() {
+    setRun(null)
+  }
+
+  const phase: CardPhase = !run
+    ? 'idle'
+    : run.status === 'running'
+      ? 'running'
+      : run.status === 'stopped'
+        ? 'stopped'
+        : run.status === 'error'
+          ? 'error'
+          : 'done'
+  const panels = run?.compare?.panels ?? []
+  const scaleMs = panels.length > 0 ? Math.max(0, ...panels.map(p => p.latencyMs ?? 0)) : null
+  const requested = (slot: Slot) => (slot === 'A' ? MODEL : picks[slot])
 
   return (
-    <div className="mesh-bg noise min-h-screen relative">
-      <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
-        <Header />
-        <div className="mt-3 rounded-xl px-4 py-2" style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.1)' }}>
-          <p className="text-xs text-slate-500 leading-relaxed" style={{ margin: 0, maxWidth: 860 }}>
-            Pick two or three OpenRouter-hosted free models, type one prompt, and compare the real streams side by side.
-            Each card reports its actual served model, response timing, token usage, cost, truncation, cancellation,
-            and failure state. Max Tokens is intentionally user-controlled here because this product is a token-limit comparison.
-          </p>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          <PromptSection
-            prompt={prompt}
-            setPrompt={setPrompt}
-            systemPrompt={systemPrompt}
-            setSystemPrompt={setSystemPrompt}
-            showSystem={showSystem}
-            setShowSystem={setShowSystem}
-            onSubmit={handleCompare}
-          />
-
-          <div className="flex flex-col sm:flex-row gap-4">
-            <ModelSelector selectedModels={selectedModels} toggleModel={toggleModel} />
-
-            <button
-              onClick={() => setShowSettings(s => !s)}
-              aria-expanded={showSettings}
-              aria-controls="settings-panel"
-              title="Adjust temperature and the max output tokens sent to every model"
-              className="glass glass-hover flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-slate-400 hover:text-slate-200 transition-all"
-            >
-              <Settings size={15} />
-              Settings
-              {showSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
+    <div className="ds-app">
+      <Header catalogue={catalogue} catalogueFailed={catalogueFailed} />
+      <main className="ds-main">
+        <p className="sr-only" role="status" aria-live="polite">
+          {statusLine(run)}
+        </p>
+        <PromptCard
+          prompt={prompt}
+          onPrompt={setPrompt}
+          system={system}
+          onSystem={setSystem}
+          temperature={temperature}
+          onTemperature={setTemperature}
+          canRun={canRun}
+          running={running}
+          hasRun={run !== null}
+          onRun={handleRun}
+          onStop={handleStop}
+          onClear={handleClear}
+        />
+        {catalogueFailed && (
+          <div className="ds-notice ds-notice--error" role="alert">
+            The model list could not be loaded. Reload the page to try again.
           </div>
-
-          <AnimatePresence>
-            {showSettings && (
-              <motion.div
-                id="settings-panel"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <SettingsPanel
-                  temperature={temperature}
-                  setTemperature={setTemperature}
-                  maxTokens={maxTokens}
-                  setMaxTokens={setMaxTokens}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="flex gap-3 items-center flex-wrap">
-            {!running ? (
-              <motion.button
-                key="compare"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleCompare}
-                disabled={!canRun}
-                title={
-                  canRun
-                    ? 'Send the prompt to every selected model and stream the responses side by side'
-                    : 'Enter a prompt and select at least two models first'
-                }
-                className="flex items-center gap-2 px-8 py-3 bg-accent hover:bg-accent-dark text-white rounded-xl font-semibold text-sm disabled:opacity-80 disabled:cursor-not-allowed transition-all glow-blue"
-              >
-                <Play size={16} fill="currentColor" />
-                Compare Models
-              </motion.button>
-            ) : (
-              <motion.button
-                key="stop"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleStop}
-                title="Cancel every in-flight request and keep whatever text has streamed so far"
-                className="flex items-center gap-2 px-8 py-3 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl font-semibold text-sm hover:bg-red-500/30 transition-all"
-              >
-                <Square size={16} fill="currentColor" />
-                Stop
-              </motion.button>
-            )}
-            {hasResults && !running && (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleClear}
-                title="Remove the current results and start over"
-                className="flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-slate-400 hover:text-slate-200 transition-all border border-white/10 hover:border-white/20"
-              >
-                <RotateCcw size={14} />
-                Clear
-              </motion.button>
-            )}
-            {!running && (
-              <span className="text-xs text-slate-400 hidden sm:inline" title="Keyboard shortcut for Compare Models">
-                Ctrl+Enter to run
-              </span>
-            )}
+        )}
+        <PanelSetup
+          catalogue={catalogue}
+          catalogueFailed={catalogueFailed}
+          picks={picks}
+          onPick={(slot, id) => setPicks(prev => ({ ...prev, [slot]: id }))}
+          disabled={running || catalogue === null}
+        />
+        {run?.error && (
+          <div className="ds-notice ds-notice--error" role="alert">
+            {run.error}
           </div>
-        </div>
-
-        <AnimatePresence>
-          {hasResults && (
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, ease: 'easeOut' }}
-              className="mt-8"
-            >
-              {allDone && winnerId && (
-                <WinnerBanner winnerId={winnerId} results={results} />
-              )}
-              <div
-                className={`grid gap-4 mt-4 grid-cols-1 ${
-                  runModels.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
-                }`}
-              >
-                {runModels.map(modelId => {
-                  const cfg = MODELS.find(m => m.id === modelId)
-                  const res = results[modelId]
-                  if (!cfg || !res) return null
-                  return (
-                    <ResponsePanel
-                      key={modelId}
-                      model={cfg}
-                      result={res}
-                      isWinner={winnerId === modelId}
-                    />
-                  )
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <footer className="text-center py-4 text-xs text-slate-400">
-          Authored by Christopher Gentile / CGDarkstardev1 / NewDawn AI
-        </footer>
-      </div>
+        )}
+        {run ? (
+          <section className="arena-grid" aria-label="Panel answers">
+            {SLOTS.map(slot => (
+              <ResultCard
+                key={slot}
+                slot={slot}
+                requested={requested(slot)}
+                panel={panels.find(p => p.slot === slot) ?? null}
+                phase={phase}
+                fastest={run.compare?.summary.fastest?.slot === slot}
+                scaleMs={scaleMs}
+              />
+            ))}
+          </section>
+        ) : (
+          <div className="ds-empty">Run a prompt to see three answers side by side.</div>
+        )}
+        <EvidenceCard compare={run?.compare ?? null} />
+        <JudgeCard judge={run?.judge ?? { state: 'idle' }} compare={run?.compare ?? null} />
+        <TraceCard run={run} />
+      </main>
+      <footer className="ds-footer">
+        <div className="ds-footer__inner">Christopher Gentile</div>
+      </footer>
     </div>
   )
 }
