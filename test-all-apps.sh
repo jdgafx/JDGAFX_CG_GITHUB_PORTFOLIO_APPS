@@ -1,473 +1,319 @@
 #!/usr/bin/env bash
-set -uo pipefail
-
-###############################################################################
-# Portfolio Apps — Comprehensive End-to-End Test Suite
+# Live smoke suite for the ten Netlify AI apps in this portfolio.
 #
-# Tests every Netlify function endpoint + frontend availability for all 10 apps.
-# Validates: HTTP status, response format, error handling, streaming, JSON parsing.
+# Per app: the frontend loads and its JS bundle carries the author credit; the
+# main function answers GET with 405 and an empty POST with a 400 error; one
+# real task returns the values its contract promises. Streams are read as
+# text/event-stream data frames. Every request sends the app's live URL as
+# Origin, since the functions check Origin before they check the method.
 #
 # Usage:
-#   ./test-all-apps.sh              # Test all apps against production
-#   ./test-all-apps.sh local        # Test all apps against local dev (localhost:8888)
-#   ./test-all-apps.sh app-03       # Test single app against production
-###############################################################################
+#   ./test-all-apps.sh              all apps against production
+#   ./test-all-apps.sh local        all apps against http://localhost:8888
+#   ./test-all-apps.sh app-03       one app against production
+#
+# Needs bash, curl and jq. Each run makes real model calls, so it costs usage.
+# Exit status is 1 when any check fails.
 
-PASS=0
-FAIL=0
-SKIP=0
-ERRORS=()
+set -u
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-MODE="${1:-prod}"
+MODE=prod
+PASS=0
+FAIL=0
+FAILED=()
+CURRENT=""
+BASE=""
+ORIGIN=""
+CODE=""
+CTYPE=""
+BODY=""
 
-if [[ "$MODE" == "local" ]]; then
-  BASE="http://localhost:8888"
-elif [[ "$MODE" == app-* ]]; then
-  SINGLE_APP="$MODE"
-  MODE="prod"
-fi
-
-declare -A URLS=(
-  ["app-01"]="https://jdgafx-app-01-multi-agent-orchestrator.netlify.app"
-  ["app-02"]="https://jdgafx-app-02-rag-document-intelligence.netlify.app"
-  ["app-03"]="https://jdgafx-app-03-ai-code-review.netlify.app"
-  ["app-04"]="https://jdgafx-app-04-voice-ai-assistant.netlify.app"
-  ["app-05"]="https://jdgafx-app-05-ai-data-analyst.netlify.app"
-  ["app-06"]="https://jdgafx-app-06-llm-playground.netlify.app"
-  ["app-07"]="https://jdgafx-app-07-content-pipeline.netlify.app"
-  ["app-08"]="https://jdgafx-app-08-vision-ai.netlify.app"
-  ["app-09"]="https://jdgafx-app-09-ai-saas.netlify.app"
-  ["app-10"]="https://jdgafx-app-10-browser-agent.netlify.app"
+declare -A SLUG=(
+  [01]=multi-agent-orchestrator [02]=rag-document-intelligence [03]=ai-code-review
+  [04]=voice-ai-assistant [05]=ai-data-analyst [06]=llm-playground
+  [07]=content-pipeline [08]=vision-ai [09]=ai-saas [10]=browser-agent
 )
 
-log_pass() { ((PASS++)); echo -e "  ${GREEN}✓ PASS${NC} $1"; }
-log_fail() { ((FAIL++)); ERRORS+=("$1: $2"); echo -e "  ${RED}✗ FAIL${NC} $1 — $2"; }
-log_skip() { ((SKIP++)); echo -e "  ${YELLOW}○ SKIP${NC} $1"; }
-log_header() { echo -e "\n${CYAN}━━━ $1 ━━━${NC}"; }
+# A 1x1 white PNG, sent to the vision app.
+VISION_PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
 
-get_url() {
-  local app="$1"
-  if [[ "$MODE" == "local" ]]; then
-    echo "$BASE"
+# jq prelude for event streams. frame KEY VALUE is the last frame whose KEY
+# equals VALUE. sse_done is true when the stream ends with [DONE].
+SSE_DEFS='
+def sse_lines: split("\n") | map(sub("\r$"; ""));
+def sse_frames: [sse_lines[] | select(startswith("data:")) | ltrimstr("data:") | ltrimstr(" ") | select(. != "[DONE]") | fromjson];
+def frame(k; v): [sse_frames[] | select(.[k] == v)] | last;
+def sse_done: any(sse_lines[]; . == "data: [DONE]" or . == "data:[DONE]");
+'
+
+pass() { PASS=$((PASS + 1)); printf '  %b✓ PASS%b %s\n' "$GREEN" "$NC" "$1"; }
+
+# excerpt TEXT: one line of at most 160 characters, for failure output.
+excerpt() {
+  local s=${1//$'\n'/ }
+  s=${s//$'\r'/ }
+  [[ -n $s ]] || s='(empty)'
+  printf '%s' "${s:0:160}"
+}
+
+# fail LABEL [DETAIL]: records the check and prints what came back.
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILED+=("$CURRENT: $1")
+  printf '  %b✗ FAIL%b %s\n' "$RED" "$NC" "$1"
+  if (( $# > 1 )); then printf '         got: %s\n' "$(excerpt "$2")"; fi
+}
+
+# call METHOD URL TIMEOUT [JSON]: one request. Sets CODE (000 when there is no
+# response), CTYPE and BODY. The status line follows the body in curl's output,
+# so nothing is written to disk.
+call() {
+  local method=$1 url=$2 timeout=$3 out line
+  local -a args=(-sS -X "$method" --max-time "$timeout" -H "Origin: $ORIGIN"
+    -w $'\n%{http_code} %{content_type}')
+  if (( $# > 3 )); then args+=(-H 'Content-Type: application/json' --data-raw "$4"); fi
+  out=$(curl "${args[@]}" "$url" 2>/dev/null) || true
+  line=${out##*$'\n'}
+  BODY=${out%$'\n'*}
+  CODE=${line%% *}
+  CODE=${CODE:-000}
+  CTYPE=
+  if [[ $line == *' '* ]]; then CTYPE=${line#* }; fi
+}
+
+# expect_status LABEL CODE: the last call returned CODE.
+expect_status() {
+  if [[ $CODE == "$2" ]]; then pass "$1"; else fail "$1 (HTTP $CODE, want $2)" "$BODY"; fi
+}
+
+# expect_type PREFIX: the last response has a Content-Type starting with PREFIX.
+expect_type() {
+  if [[ $CTYPE == "$1"* ]]; then pass "content type starts with $1"; else fail "content type starts with $1" "$CTYPE"; fi
+}
+
+# expect LABEL FILTER: FILTER is true for the last JSON body.
+expect() {
+  if jq -e "$2" >/dev/null 2>&1 <<<"$BODY"; then pass "$1"; else fail "$1" "$BODY"; fi
+}
+
+# expect_sse LABEL FILTER: FILTER is true for the last event stream.
+expect_sse() {
+  if jq -Rse "$SSE_DEFS $2" >/dev/null 2>&1 <<<"$BODY"; then pass "$1"; else fail "$1" "$BODY"; fi
+}
+
+# has_keys KEY...: a jq filter that is true when every KEY is present.
+has_keys() {
+  local filter=true key
+  for key in "$@"; do filter+=" and has(\"$key\")"; done
+  printf '%s' "$filter"
+}
+
+# check_frontend: the page loads, and a script it references has the author credit.
+check_frontend() {
+  local srcs src url js=""
+  call GET "$BASE/" 30
+  expect_status "frontend loads" 200
+  srcs=$(grep -oE 'src="[^"]+\.(m?js|[jt]sx?)(\?[^"]*)?"' <<<"$BODY" | sed -E 's/^src="//; s/"$//')
+  if [[ -z $srcs ]]; then fail "HTML references a JS bundle" "$BODY"; return 0; fi
+  pass "HTML references a JS bundle"
+  while IFS= read -r src; do
+    case $src in
+      http*) url=$src ;;
+      /*) url=$BASE$src ;;
+      *) url=$BASE/$src ;;
+    esac
+    call GET "$url" 30
+    js+=$BODY
+  done <<<"$srcs"
+  if [[ $js == *"Christopher Gentile"* ]]; then
+    pass "JS bundle contains the author credit"
   else
-    echo "${URLS[$app]}"
+    fail "JS bundle contains the author credit" "${#js} bytes of script, no match"
   fi
+}
+
+# reject_checks PATH: GET is 405, and POST {} is 400 with an error string.
+reject_checks() {
+  call GET "$BASE$1" 30
+  expect_status "GET $1 returns 405" 405
+  call POST "$BASE$1" 30 '{}'
+  expect_status "POST {} $1 returns 400" 400
+  expect "POST {} $1 error is a non-empty string" '.error | type == "string" and length > 0'
 }
 
 ###############################################################################
-# Test Helpers
+# Per-app checks. Each one leaves BODY holding the response it checks last.
 ###############################################################################
 
-test_frontend_loads() {
-  local app="$1" url
-  url="$(get_url "$app")"
-  local status
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url/")
-  if [[ "$status" == "200" ]]; then
-    log_pass "Frontend loads (HTTP $status)"
-  else
-    log_fail "Frontend loads" "HTTP $status"
-  fi
+app_01() {
+  reject_checks /.netlify/functions/ai
+  expect "POST {} /.netlify/functions/ai error is Missing query." '.error == "Missing query."'
+  call POST "$BASE/.netlify/functions/ai" 60 '{"query":"In two sentences, compare SSE and WebSockets for streaming LLM output."}'
+  expect_status "agent pipeline returns 200" 200
+  expect_type text/event-stream
+  expect_sse "four agent_complete events" '[sse_frames[] | select(.type == "agent_complete")] | length == 4'
+  expect_sse "session_complete has result, trace, usage, model, totalMs" "frame(\"type\"; \"session_complete\") | $(has_keys result trace usage model totalMs)"
+  expect_sse "session_complete model is a non-empty string and usage.total_tokens > 0" 'frame("type"; "session_complete") | (.model | type == "string" and length > 0) and (.usage.total_tokens // 0) > 0'
+  expect_sse "stream ends with [DONE]" 'sse_done'
 }
 
-test_method_not_allowed() {
-  local app="$1" endpoint="$2"
-  local url
-  url="$(get_url "$app")${endpoint}"
-  local status
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url")
-  if [[ "$status" == "405" ]]; then
-    log_pass "GET ${endpoint} returns 405"
-  else
-    log_fail "GET ${endpoint} returns 405" "Got HTTP $status"
-  fi
+app_02() {
+  reject_checks /api/ai
+  call POST "$BASE/api/ai" 30 '{"question":"In what year was the Harbor Station opened?","chunks":["[Chunk 0]:\nThe Harbor Station was opened in 1987 in Lisbon."],"documentTitle":"harbor.pdf"}'
+  expect_status "answer returns 200" 200
+  expect "keys: result trace usage model totalMs" "$(has_keys result trace usage model totalMs)"
+  expect "result.answer contains 1987" '.result.answer | type == "string" and contains("1987")'
+  expect "model is a non-empty string" '.model | type == "string" and length > 0'
 }
 
-test_missing_body() {
-  local app="$1" endpoint="$2"
-  local url
-  url="$(get_url "$app")${endpoint}"
-  local status
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$url" -H 'Content-Type: application/json' -d '{}')
-  if [[ "$status" == "400" ]]; then
-    log_pass "POST ${endpoint} empty body returns 400"
-  else
-    log_fail "POST ${endpoint} empty body returns 400" "Got HTTP $status"
-  fi
+app_03() {
+  reject_checks /api/ai
+  expect "POST {} /api/ai has success false" '.success == false'
+  call POST "$BASE/api/ai" 30 '{"code":"def divide(a, b):\n    return a / b","language":"python"}'
+  expect_status "review returns 200" 200
+  expect "keys: success result trace usage model totalMs" "$(has_keys success result trace usage model totalMs)"
+  expect "success is true" '.success == true'
+  expect "result.comments is a non-empty array" '.result.comments | type == "array" and length > 0'
+  expect "a comment cites line 2" '.result.comments | any(.line == 2)'
+  expect "model is a non-empty string" '.model | type == "string" and length > 0'
 }
 
-test_json_response() {
-  local app="$1" endpoint="$2" payload="$3" check_field="$4" test_name="$5"
-  local url
-  url="$(get_url "$app")${endpoint}"
-  local response="" attempt
-  for attempt in 1 2; do
-    response=$(timeout 20 curl -s --max-time 18 -X POST "$url" -H 'Content-Type: application/json' -d "$payload" 2>&1 || true)
-    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$check_field' in str(d)" 2>/dev/null; then
-      log_pass "$test_name"
-      return
-    fi
-  done
-  log_fail "$test_name" "Response: ${response:0:200}"
+app_04() {
+  reject_checks /api/ai
+  expect "POST {} /api/ai has trace and totalMs" "$(has_keys trace totalMs)"
+  call POST "$BASE/api/ai" 30 '{"message":"Reply with the single word: pong"}'
+  expect_status "chat returns 200" 200
+  expect "keys: result model trace totalMs usage" "$(has_keys result model trace totalMs usage)"
+  expect "result contains pong, case-insensitive" '.result | type == "string" and (ascii_downcase | contains("pong"))'
+  call POST "$BASE/api/transcribe" 30 '{}'
+  expect_status "POST {} /api/transcribe returns 400" 400
+  expect "POST {} /api/transcribe error is a non-empty string" '.error | type == "string" and length > 0'
 }
 
-test_sse_stream() {
-  local app="$1" endpoint="$2" payload="$3" expected_event="$4" test_name="$5"
-  local url
-  url="$(get_url "$app")${endpoint}"
-  local response="" attempt
-  for attempt in 1 2; do
-    # The timeout bounds the stream; do not truncate it before checking its
-    # terminal event. Some valid provider responses exceed 20KB.
-    response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
-      -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
-    if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_event"; then
-      log_pass "$test_name"
-      return
-    fi
-  done
-  log_fail "$test_name" "Expected '$expected_event' in stream. Got: ${response:0:200}"
+app_05() {
+  reject_checks /api/ai
+  call POST "$BASE/api/ai" 30 '{"question":"Which product has the highest total revenue?","headers":["product","revenue"],"sampleRows":[{"product":"Gadget Y","revenue":"24000"}],"rowCount":50}'
+  expect_status "query plan returns 200" 200
+  expect "keys: result trace usage model totalMs" "$(has_keys result trace usage model totalMs)"
+  expect "result.groupBy is product" '.result.groupBy == "product"'
+  expect "result.aggregate.field is revenue" '.result.aggregate.field == "revenue"'
+  expect "model is a non-empty string" '.model | type == "string" and length > 0'
 }
 
-test_json_stage() {
-  local app="$1" endpoint="$2" payload="$3" expected_text="$4" test_name="$5"
-  local url response
-  url="$(get_url "$app")${endpoint}"
-  response=$(timeout 28 curl -s --max-time 25 -X POST "$url" \
-    -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
-  if [[ -n "$response" ]] && echo "$response" | grep -q "$expected_text"; then
-    log_pass "$test_name"
-  else
-    log_fail "$test_name" "Expected '$expected_text' in JSON body. Got: ${response:0:200}"
-  fi
+app_06() {
+  local model
+  call GET "$BASE/api/models" 30
+  expect_status "GET /api/models returns 200" 200
+  expect "keys: source fetchedAt defaultModel groups" "$(has_keys source fetchedAt defaultModel groups)"
+  expect "groups is non-empty" '.groups | length > 0'
+  model=$(jq -r '.defaultModel // empty' 2>/dev/null <<<"$BODY")
+  [[ -n $model ]] || fail "GET /api/models gives a defaultModel" "$BODY"
+  call POST "$BASE/api/models" 30 '{}'
+  expect_status "POST /api/models returns 405" 405
+  reject_checks /api/compare
+  call POST "$BASE/api/judge" 30 '{}'
+  expect_status "POST {} /api/judge returns 400" 400
+  expect "POST {} /api/judge error is a non-empty string" '.error | type == "string" and length > 0'
+  [[ -n $model ]] || return 0
+  call POST "$BASE/api/compare" 30 "$(jq -nc --arg m "$model" '{prompt: "Reply with exactly the word READY.", models: ["~anthropic/claude-haiku-latest", $m, $m]}')"
+  expect_status "compare returns 200" 200
+  expect "keys: runId totalMs panels trace summary" "$(has_keys runId totalMs panels trace summary)"
+  expect "a panel answer contains READY" 'any(.panels[]; (.text // "") | contains("READY"))'
 }
 
-test_has_author_credit() {
-  local app="$1"
-  local app_dir
-  app_dir="$(find . -maxdepth 1 -type d -name "${app}-*" -print -quit)"
-  if [[ -n "$app_dir" ]] && rg -a -q "Christopher Gentile" "$app_dir/src"; then
-    log_pass "Author credit present in source"
-  else
-    log_fail "Author credit present in source" "No author credit found under ${app_dir:-$app}/src"
-  fi
+app_07() {
+  reject_checks /api/ai
+  expect "POST {} /api/ai retryable is a boolean" '.retryable | type == "boolean"'
+  call POST "$BASE/api/ai" 60 '{"topic":"Why unit tests matter for small teams","contentType":"Blog Post","stage":"research","context":{}}'
+  expect_status "research stage returns 200" 200
+  expect "keys: result trace usage model totalMs" "$(has_keys result trace usage model totalMs)"
+  expect "result is a string of at least 20 words" '.result | type == "string" and ([scan("\\S+")] | length >= 20)'
+  expect "model is a non-empty string" '.model | type == "string" and length > 0'
 }
 
-# Real 1x1 PNG fixture: exercises the vision request contract without adding a
-# repository asset or pretending that an unavailable provider succeeded.
-VISION_SMOKE_IMAGE="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-
-###############################################################################
-# Per-App Test Suites
-###############################################################################
-
-test_app_01() {
-  log_header "App-01: AgentFlow (Multi-Agent Orchestrator)"
-  test_frontend_loads "app-01"
-  test_method_not_allowed "app-01" "/.netlify/functions/ai"
-
-  local response
-  response=$(timeout 12 curl -s --max-time 10 -X POST "$(get_url app-01)/.netlify/functions/ai" \
-    -H 'Content-Type: application/json' -d '{}' 2>&1 || true)
-  if echo "$response" | grep -qi "missing\|query\|required"; then
-    log_pass "Empty body validation"
-  else
-    log_fail "Empty body validation" "Response: ${response:0:200}"
-  fi
-
-  test_sse_stream "app-01" "/.netlify/functions/ai" \
-    '{"query":"test topic"}' "agent_start" \
-    "SSE stream with 4 agents"
-
-  test_has_author_credit "app-01"
+app_08() {
+  reject_checks /api/ai
+  expect "POST {} /api/ai has trace and totalMs" "$(has_keys trace totalMs)"
+  call POST "$BASE/api/ai" 30 "{\"image\":\"$VISION_PNG\",\"mediaType\":\"image/png\",\"mode\":\"describe\"}"
+  expect_status "vision stream returns 200" 200
+  expect_type text/event-stream
+  expect_sse "complete frame has stage, result, trace, usage, model, totalMs" "frame(\"stage\"; \"complete\") | $(has_keys stage result trace usage model totalMs)"
+  expect_sse "complete frame has non-empty result and model" 'frame("stage"; "complete") | (.result | type == "string" and length > 0) and (.model | type == "string" and length > 0)'
+  expect_sse "stream ends with [DONE]" 'sse_done'
 }
 
-test_app_02() {
-  log_header "App-02: DocMind (RAG Document Intelligence)"
-  test_frontend_loads "app-02"
-  test_method_not_allowed "app-02" "/api/ai"
-
-  test_json_response "app-02" "/api/ai" \
-    '{"question":"What is this about?","chunks":["AI is transforming healthcare by improving diagnosis accuracy."],"documentTitle":"AI Healthcare"}' \
-    "answer" \
-    "RAG Q&A returns answer"
-
-  test_has_author_credit "app-02"
+app_09() {
+  reject_checks /api/ai
+  call POST "$BASE/api/ai" 30 '{"metrics":{"totalApiCalls":24656,"totalTokens":42400000,"avgResponseTime":253,"totalCost":57.35,"avgErrorRate":1.67,"apiCallsTrend":30.9,"tokensTrend":29.6,"responseTimeTrend":-13.5,"costTrend":6.3,"errorRateTrend":-28.3}}'
+  expect_status "insights stream returns 200" 200
+  expect_type text/event-stream
+  expect_sse "complete frame has stage, result, trace, usage, model, totalMs" "frame(\"stage\"; \"complete\") | $(has_keys stage result trace usage model totalMs)"
+  expect_sse "complete frame has non-empty result and model" 'frame("stage"; "complete") | (.result | type == "string" and length > 0) and (.model | type == "string" and length > 0)'
+  expect_sse "stream ends with [DONE]" 'sse_done'
 }
 
-test_app_03() {
-  log_header "App-03: CodeLens AI (AI Code Review)"
-  test_frontend_loads "app-03"
-  test_method_not_allowed "app-03" "/api/ai"
-  test_missing_body "app-03" "/api/ai"
-
-  test_json_response "app-03" "/api/ai" \
-    '{"code":"function run(input){ return eval(input) }\nconst token = \"secret\";","language":"javascript"}' \
-    "comments" \
-    "Code review returns comments array"
-
-  local response="" attempt
-  for attempt in 1 2; do
-    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-03)/api/ai" \
-      -H 'Content-Type: application/json' \
-      -d '{"code":"function run(input){ return eval(input) }\nconst token = \"secret\";","language":"javascript"}')
-    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['success']==True; assert len(d['data']['comments'])>0" 2>/dev/null; then
-      log_pass "Review has structured comments with severity"
-      break
-    fi
-    if [[ "$attempt" == 2 ]]; then
-      log_fail "Review structured comments" "Response: ${response:0:200}"
-    fi
-  done
-
-  test_has_author_credit "app-03"
-}
-
-test_voxai_chat_quality() {
-  local response="" attempt
-  for attempt in 1 2; do
-    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-04)/api/ai" \
-      -H 'Content-Type: application/json' -d '{"message":"What is 2+2?"}' 2>&1 || true)
-    if printf '%s' "$response" | python3 -c 'import json,sys,re; d=json.load(sys.stdin); text=d.get("response",""); model=d.get("served_model",""); assert isinstance(text,str) and text.strip(); assert model and not re.search(r"content[- ]?safety|moderation|classifier|guard|toxicity", model, re.I); assert not re.match(r"^(user )?safety\\s*:", text.strip(), re.I)' 2>/dev/null; then
-      log_pass "Chat returns non-classifier conversational response with truthful model"
-      return
-    fi
-  done
-  log_fail "Chat returns non-classifier conversational response with truthful model" "Response: ${response:0:240}"
-}
-
-test_app_04() {
-  log_header "App-04: VoxAI (Voice AI Assistant)"
-  test_frontend_loads "app-04"
-  test_method_not_allowed "app-04" "/api/ai"
-  test_missing_body "app-04" "/api/ai"
-
-  test_voxai_chat_quality
-
-  test_json_response "app-04" "/api/ai" \
-    '{"message":"Tell me a joke","history":[{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello!"}]}' \
-    "response" \
-    "Chat with history returns response"
-
-  local status
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-    -X POST "$(get_url app-04)/api/transcribe" \
-    -H 'Content-Type: application/json' -d '{}')
-  if [[ "$status" == "400" ]]; then
-    log_pass "Transcribe empty body returns 400"
-  else
-    log_fail "Transcribe empty body returns 400" "Got HTTP $status"
-  fi
-
-  test_has_author_credit "app-04"
-}
-
-test_app_05() {
-  log_header "App-05: DataPilot (AI Data Analyst)"
-  test_frontend_loads "app-05"
-  test_method_not_allowed "app-05" "/api/ai"
-
-  test_json_response "app-05" "/api/ai" \
-    '{"question":"show total sales by region","headers":["product","sales","region"],"sampleRows":[{"product":"Widget","sales":"100","region":"East"},{"product":"Gadget","sales":"200","region":"West"}],"rowCount":2}' \
-    "chartType" \
-    "Query plan with chartType returned"
-
-  local response="" attempt
-  for attempt in 1 2; do
-    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-05)/api/ai" \
-      -H 'Content-Type: application/json' \
-      -d '{"question":"show total sales by region","headers":["product","sales","region"],"sampleRows":[{"product":"Widget","sales":"100","region":"East"}],"rowCount":1}')
-    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'groupBy' in d; assert 'aggregate' in d" 2>/dev/null; then
-      log_pass "Query plan has groupBy and aggregate"
-      break
-    fi
-    if [[ "$attempt" == 2 ]]; then
-      log_fail "Query plan structure" "Response: ${response:0:200}"
-    fi
-  done
-
-  test_has_author_credit "app-05"
-}
-
-test_app_06() {
-  log_header "App-06: ModelArena (LLM Playground)"
-  test_frontend_loads "app-06"
-  test_method_not_allowed "app-06" "/api/ai"
-
-  local status
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-    -X POST "$(get_url app-06)/api/ai" \
-    -H 'Content-Type: application/json' -d '{}')
-  if [[ "$status" == "400" ]]; then
-    log_pass "Empty body returns 400"
-  else
-    log_fail "Empty body returns 400" "Got HTTP $status"
-  fi
-
-  test_sse_stream "app-06" "/api/ai" \
-    '{"model":"free-router-b","messages":[{"role":"user","content":"Say hello in one word"}]}' \
-    '"type":"text"' \
-    "Haiku streaming response"
-
-  test_sse_stream "app-06" "/api/ai" \
-    '{"model":"free-router-b","messages":[{"role":"user","content":"Say hi"}]}' \
-    '"type":"done"' \
-    "Stream includes done event with metrics"
-
-  test_has_author_credit "app-06"
-}
-
-test_contentforge_full_pipeline() {
-  local topic='Three concrete ways to reduce API latency'
-  local context='{}' response completed step payload attempt
-  for step in research outline draft edit polish; do
-    payload=$(jq -nc --arg topic "$topic" --arg step "$step" --argjson context "$context" \
-      '{topic:$topic,contentType:"blog",stage:$step,context:$context}')
-    completed=''
-    for attempt in 1 2; do
-      response=$(timeout 28 curl -s --max-time 25 -X POST "$(get_url app-07)/api/ai" \
-        -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
-      completed=$(printf '%s' "$response" | jq -r '.result // empty' 2>/dev/null) || completed=''
-      [[ -n "$completed" ]] && break
-    done
-    if [[ -z "$completed" ]]; then
-      log_fail "ContentForge exact topic completes ${step}" "No non-empty result in the JSON response"
-      return
-    fi
-    context=$(jq -nc --arg step "$step" --arg content "$completed" --argjson context "$context" \
-      '$context + {($step): $content}')
-  done
-  log_pass "ContentForge exact topic completes all five stages with Copy Final inputs"
-}
-
-test_app_07() {
-  log_header "App-07: ContentForge (Content Pipeline)"
-  test_frontend_loads "app-07"
-  test_method_not_allowed "app-07" "/api/ai"
-
-  test_json_stage "app-07" "/api/ai" \
-    '{"topic":"remote work tips","contentType":"blog","stage":"research","context":{}}' \
-    '"trace"' \
-    "Research stage returns a JSON result with a trace"
-
-  test_contentforge_full_pipeline
-
-  test_has_author_credit "app-07"
-}
-
-test_app_08() {
-  log_header "App-08: VisionLab (Vision AI)"
-  test_frontend_loads "app-08"
-  test_method_not_allowed "app-08" "/api/ai"
-
-  test_missing_body "app-08" "/api/ai"
-
-  test_sse_stream "app-08" "/api/ai" \
-    "{\"image\":\"${VISION_SMOKE_IMAGE}\",\"mediaType\":\"image/png\",\"mode\":\"describe\"}" \
-    '"text"' \
-    "Vision analysis streams text for a real image upload"
-  test_has_author_credit "app-08"
-}
-
-test_app_09() {
-  log_header "App-09: InsightHub (AI SaaS Dashboard)"
-  test_frontend_loads "app-09"
-  test_method_not_allowed "app-09" "/api/ai"
-
-  test_missing_body "app-09" "/api/ai"
-
-  test_sse_stream "app-09" "/api/ai" \
-    '{"metrics":{"totalApiCalls":15000,"totalTokens":2500000,"avgResponseTime":245,"totalCost":12.50,"apiCallsTrend":15,"tokensTrend":8,"responseTimeTrend":-5,"costTrend":10}}' \
-    "text" \
-    "AI insights streaming response"
-
-  test_has_author_credit "app-09"
-}
-
-test_app_10() {
-  log_header "App-10: BrowseBot (Browser Agent)"
-  test_frontend_loads "app-10"
-  test_method_not_allowed "app-10" "/api/ai"
-  test_missing_body "app-10" "/api/ai"
-
-  test_json_response "app-10" "/api/ai" \
-    '{"task":"search google for weather"}' \
-    "steps" \
-    "Returns automation steps array"
-
-  local response="" attempt
-  for attempt in 1 2; do
-    response=$(timeout 20 curl -s --max-time 18 -X POST "$(get_url app-10)/api/ai" \
-      -H 'Content-Type: application/json' \
-      -d '{"task":"go to amazon and search for laptops"}')
-    if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); steps=d['steps']; assert len(steps)>=3; assert all('action' in s and 'thought' in s for s in steps)" 2>/dev/null; then
-      log_pass "Steps have action and thought fields"
-      break
-    fi
-    if [[ "$attempt" == 2 ]]; then
-      log_fail "Steps structure" "Response: ${response:0:200}"
-    fi
-  done
-
-  test_has_author_credit "app-10"
+app_10() {
+  reject_checks /api/ai
+  call POST "$BASE/api/ai" 30 '{"task":"Open google.com and report the page title."}'
+  expect_status "plan returns 200" 200
+  expect "keys: result trace usage model totalMs" "$(has_keys result trace usage model totalMs)"
+  expect "result.steps is a non-empty array" '.result.steps | type == "array" and length > 0'
+  expect "first step has an action string" '.result.steps[0].action | type == "string" and length > 0'
+  expect "model is a non-empty string" '.model | type == "string" and length > 0'
+  reject_checks /api/execute
 }
 
 ###############################################################################
 # Runner
 ###############################################################################
 
-echo -e "\n${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       Portfolio Apps — End-to-End Test Suite                 ║${NC}"
-echo -e "${CYAN}║       Mode: ${MODE}                                              ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+# run_app NN: the frontend checks, then the app's own checks.
+run_app() {
+  local nn=$1
+  CURRENT="app-$nn"
+  ORIGIN="https://jdgafx-app-$nn-${SLUG[$nn]}.netlify.app"
+  BASE=$ORIGIN
+  if [[ $MODE == local ]]; then BASE=http://localhost:8888; fi
+  printf '\n%b━━━ app-%s %s ━━━%b\n' "$CYAN" "$nn" "${SLUG[$nn]}" "$NC"
+  check_frontend
+  "app_$nn"
+}
 
-if [[ -n "${SINGLE_APP:-}" ]]; then
-  case "$SINGLE_APP" in
-    app-01) test_app_01 ;;
-    app-02) test_app_02 ;;
-    app-03) test_app_03 ;;
-    app-04) test_app_04 ;;
-    app-05) test_app_05 ;;
-    app-06) test_app_06 ;;
-    app-07) test_app_07 ;;
-    app-08) test_app_08 ;;
-    app-09) test_app_09 ;;
-    app-10) test_app_10 ;;
-    *) echo "Unknown app: $SINGLE_APP"; exit 1 ;;
+summary() {
+  printf '\n%b━━━ RESULTS ━━━%b\n' "$CYAN" "$NC"
+  printf '  %bPassed: %s%b\n' "$GREEN" "$PASS" "$NC"
+  printf '  %bFailed: %s%b\n' "$RED" "$FAIL" "$NC"
+  printf '  Total:  %s\n' "$((PASS + FAIL))"
+  if (( FAIL > 0 )); then
+    printf '\n%bFailed checks:%b\n' "$RED" "$NC"
+    for line in "${FAILED[@]}"; do printf '  %b✗%b %s\n' "$RED" "$NC" "$line"; done
+    exit 1
+  fi
+  printf '\n%bAll checks passed.%b\n' "$GREEN" "$NC"
+}
+
+main() {
+  local arg=${1:-} nn
+  local -a apps=(01 02 03 04 05 06 07 08 09 10)
+  case $arg in
+    '') ;;
+    local) MODE=local ;;
+    app-[0-9][0-9])
+      nn=${arg#app-}
+      [[ -n ${SLUG[$nn]-} ]] || { echo "Unknown app: $arg" >&2; exit 1; }
+      apps=("$nn") ;;
+    *) echo "Usage: $0 [local|app-NN]" >&2; exit 1 ;;
   esac
-else
-  test_app_01
-  test_app_02
-  test_app_03
-  test_app_04
-  test_app_05
-  test_app_06
-  test_app_07
-  test_app_08
-  test_app_09
-  test_app_10
-fi
+  printf '\n%bPortfolio apps smoke suite, mode: %s%b\n' "$CYAN" "$MODE" "$NC"
+  for nn in "${apps[@]}"; do run_app "$nn"; done
+  summary
+}
 
-echo -e "\n${CYAN}━━━ RESULTS ━━━${NC}"
-echo -e "  ${GREEN}Passed: $PASS${NC}"
-echo -e "  ${RED}Failed: $FAIL${NC}"
-echo -e "  ${YELLOW}Skipped: $SKIP${NC}"
-TOTAL=$((PASS + FAIL + SKIP))
-echo -e "  Total:  $TOTAL"
-
-if [[ $FAIL -gt 0 ]]; then
-  echo -e "\n${RED}Failed tests:${NC}"
-  for err in "${ERRORS[@]}"; do
-    echo -e "  ${RED}✗${NC} $err"
-  done
-  exit 1
-else
-  echo -e "\n${GREEN}All tests passed!${NC}"
-  exit 0
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
 fi
