@@ -1,5 +1,11 @@
 import type { RunState } from '../types'
 
+/** 'passage' or 'passages', by count. */
+function noun(count: number): string {
+  return count === 1 ? 'passage' : 'passages'
+}
+
+
 /** Most cells the document map draws, so each stays wide enough to see. */
 export const MAP_CELLS = 64
 
@@ -50,9 +56,9 @@ export function sentSummary(total: number, sent: number[], cited: number[], stat
   if (sent.length === 0) {
     return state === 'no-matches'
       ? 'No passage shares a word with the question, so the model was not called.'
-      : `This document has ${passages} passages. Ask a question to see which ones go to the model.`
+      : `This document has ${passages} ${noun(total)}. Ask a question to see which ones go to the model.`
   }
-  const sentLine = `The browser sent ${sent.length.toLocaleString('en-US')} of ${passages} passages to the model.`
+  const sentLine = `The browser sent ${sent.length.toLocaleString('en-US')} of ${passages} ${noun(total)} to the model.`
   if (cited.length === 0) return sentLine
   const word = cited.length === 1 ? 'passage' : 'passages'
   return `${sentLine} The answer cites ${word} ${listNumbers(cited)}.`

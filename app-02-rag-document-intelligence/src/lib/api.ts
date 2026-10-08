@@ -1,6 +1,12 @@
 import { TOP_K } from './constants'
 import type { RunReport, TraceStep, Usage } from '../types'
 
+/** 'passage' or 'passages', by count. */
+function noun(count: number): string {
+  return count === 1 ? 'passage' : 'passages'
+}
+
+
 /**
  * Words carried by almost every question and almost every passage. Left in the
  * term set they swamp the signal, so a question about "revenue" would rank on
@@ -216,8 +222,8 @@ export async function askQuestion(
     status: 'ok',
     ms: Math.round(performance.now() - began),
     detail: top.length > 0
-      ? `Kept ${top.length} of ${chunks.length} passages by term overlap.`
-      : `None of the ${chunks.length} passages shares a word with the question.`,
+      ? `Kept ${top.length} of ${chunks.length} ${noun(chunks.length)} by term overlap.`
+      : `None of the ${chunks.length} ${noun(chunks.length)} shares a word with the question.`,
   }
   events.onStep(retrieval)
 

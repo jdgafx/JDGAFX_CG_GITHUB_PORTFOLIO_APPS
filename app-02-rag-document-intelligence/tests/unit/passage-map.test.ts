@@ -38,6 +38,12 @@ describe('sentSummary', () => {
     )
   })
 
+  it('uses the singular when the document has one passage', () => {
+    expect(sentSummary(1, [0], [0], 'answered')).toBe(
+      'The browser sent 1 of 1 passage to the model. The answer cites passage 1.',
+    )
+  })
+
   it('uses the singular for one cited passage', () => {
     expect(sentSummary(10, [0], [0], 'answered')).toBe(
       'The browser sent 1 of 10 passages to the model. The answer cites passage 1.',

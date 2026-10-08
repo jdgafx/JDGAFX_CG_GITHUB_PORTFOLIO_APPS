@@ -1,5 +1,11 @@
 import { callModel, estimateCost, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type ProviderConfig, type RawUsage } from './provider'
 
+/** 'passage' or 'passages', by count. */
+function noun(count: number): string {
+  return count === 1 ? 'passage' : 'passages'
+}
+
+
 export interface AnswerInput {
   question: string
   /** Passages as the browser labelled them. Each starts with "[Chunk N]:". */
@@ -205,7 +211,7 @@ export async function runAnswer(
   }
 
   events.start(STEP_ACCEPT)
-  record(STEP_ACCEPT, started, 'ok', `Question and ${input.chunks.length} passages checked.`)
+  record(STEP_ACCEPT, started, 'ok', `Question and ${input.chunks.length} ${noun(input.chunks.length)} checked.`)
 
   events.start(STEP_BUILD)
   const built = Date.now()
@@ -214,7 +220,7 @@ export async function runAnswer(
     { role: 'user', content: buildUserMessage(input.question, input.chunks, input.documentTitle) },
   ]
   const characters = messages.reduce((total, m) => total + m.content.length, 0)
-  record(STEP_BUILD, built, 'ok', `System prompt and ${input.chunks.length} passages, ${characters} characters in total.`)
+  record(STEP_BUILD, built, 'ok', `System prompt and ${input.chunks.length} ${noun(input.chunks.length)}, ${characters} characters in total.`)
 
   const deadline = started + UPSTREAM_TIMEOUT_MS
   events.start(STEP_CALL)
