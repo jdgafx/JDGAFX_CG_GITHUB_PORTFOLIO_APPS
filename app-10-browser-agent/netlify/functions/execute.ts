@@ -1,19 +1,24 @@
 import Browserbase from '@browserbasehq/sdk'
-import { chromium, type Browser, type Page } from 'playwright-core'
-import type { BotStep, RunEvent, StepAction } from '../../src/types'
-import { browserMessage, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
-import { allowedDomains } from '../shared/domains'
+import type { Browser, Page } from 'playwright-core'
+import type { BotStep, ObservedPage, RunEvent, StepAction } from '../../src/types'
+import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
+import { allowedDomains, isAllowedHost } from '../shared/domains'
 import { BodyError, clientKey, corsHeaders, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
+import { BROWSER_TIMEOUT_MS, connectBrowser, releaseSession } from '../shared/session'
 import { StepError, validateSteps } from '../shared/steps'
 
 export const config = { path: '/api/execute' }
 
 // Each run is one billable Browserbase session, so the limit is tighter than the planner's.
 const RUN_RATE_LIMIT = 10
-/** Steps stop starting once the run passes this budget. Streaming past Netlify's 10 s sync cap is a live-check item. */
+/** No new step starts after this much run time. Streaming past Netlify's 10 s sync cap is a live-check item. */
 const MAX_EXECUTION_MS = 15_000
+/** Limit on each Browserbase API request. Creating a session is never retried, so a timeout there is final. */
 const SESSION_TIMEOUT_MS = 7_000
-const CONNECT_TIMEOUT_MS = 7_000
+/** Seconds after which Browserbase ends the session by itself, so a session that is never released still stops. */
+const SESSION_CAP_SECONDS = 120
+/** Largest plan body: ten steps with every field at its limit, in ASCII. */
+const MAX_BODY_BYTES = 32_768
 
 const LABELS: Record<StepAction, string> = {
   navigate: 'Navigate',
@@ -31,8 +36,21 @@ function stepName(step: BotStep): string {
 }
 
 /**
- * Runs the plan in one Browserbase session and streams each stage as it finishes. The browser
- * is closed and the session released even when a stage fails before the first step.
+ * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of
+ * the page's content is read, and the message names the host and nothing more.
+ */
+async function observeAllowed(page: Page, domains: string[]): Promise<ObservedPage> {
+  const host = currentHost(page)
+  if (host === null) throw new ExecutionError('The browser did not reach a web page.')
+  if (!isAllowedHost(host, domains)) {
+    throw new ExecutionError(`The run stopped. The page moved to ${host}, which is outside the allowed sites.`)
+  }
+  return pageSnapshot(page)
+}
+
+/**
+ * Runs the plan in one Browserbase session and streams each stage as it finishes. The browser is
+ * closed and the session released even when a stage fails. The final event comes after the release.
  */
 async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<void> {
   const startedAt = Date.now()
@@ -46,18 +64,20 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
   let stepStarted = Date.now()
   let completed = 0
   let inStep = false
+  let outcome: RunEvent
 
   try {
-    const session = await client.sessions.create({ projectId })
+    const session = await client.sessions.create({ projectId, api_timeout: SESSION_CAP_SECONDS })
     sessionId = session.id
     send({ type: 'session', sessionId })
     send({ type: 'stage', name: stage, status: 'ok', ms: Date.now() - stageStarted, detail: 'Browser session started.' })
 
     stage = 'Connect browser'
     stageStarted = Date.now()
-    browser = await withTimeout(chromium.connectOverCDP(session.connectUrl), CONNECT_TIMEOUT_MS, 'The browser did not connect in time.')
+    browser = await connectBrowser(session.connectUrl)
     const context = browser.contexts()[0]
-    const activePage = context?.pages()[0] ?? await context?.newPage()
+    const activePage = context?.pages()[0]
+      ?? (context ? await withTimeout(context.newPage(), BROWSER_TIMEOUT_MS, 'The browser did not open a page in time.') : undefined)
     if (!activePage) throw new ExecutionError('Browserbase returned no usable browser page.')
     page = activePage
     send({ type: 'stage', name: stage, status: 'ok', ms: Date.now() - stageStarted, detail: 'Connected to the browser.' })
@@ -71,8 +91,9 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
         throw new ExecutionError('The run reached its time limit before every step finished.')
       }
       send({ type: 'step_start', index, name: stepName(step) })
-      const detail = await runStep(activePage, step, domains)
-      const observed = await pageSnapshot(activePage)
+      const detail = await runStep(activePage, step)
+      // After every step, the host is checked before the page is read.
+      const observed = await observeAllowed(activePage, domains)
       if ((step.action === 'extract' || step.action === 'verify') && !observed.excerpt) {
         throw new ExecutionError('The page returned no readable text to extract.')
       }
@@ -83,13 +104,14 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
 
     stage = 'Read final page'
     stageStarted = Date.now()
-    const finalPage = await pageSnapshot(activePage)
+    const finalPage = await observeAllowed(activePage, domains)
     send({ type: 'result', ms: Date.now() - stageStarted, observed: finalPage })
-    send({ type: 'done', totalMs: Date.now() - startedAt })
+    outcome = { type: 'done', totalMs: Date.now() - startedAt }
   } catch (error) {
     const message = browserMessage(error)
     if (inStep) {
-      const observed = page ? await pageSnapshot(page).catch(() => undefined) : undefined
+      // A page on a disallowed host is not read here either, so its content cannot reach the client.
+      const observed = page ? await observeAllowed(page, domains).catch(() => undefined) : undefined
       send({
         type: 'step_complete',
         index: completed,
@@ -105,14 +127,26 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
     for (let index = inStep ? completed + 1 : completed; index < steps.length; index++) {
       send({ type: 'step_complete', index, name: stepName(steps[index]), status: 'skipped', ms: 0, detail: 'Not run: an earlier stage failed.' })
     }
-    send({ type: 'error', message, index: inStep ? completed : null })
+    outcome = { type: 'error', message, index: inStep ? completed : null }
   } finally {
-    await browser?.close().catch(() => undefined)
-    // Closing the CDP connection does not end the session. Releasing it stops the billing clock.
-    if (sessionId) {
-      await client.sessions.update(sessionId, { status: 'REQUEST_RELEASE', projectId }).catch(() => undefined)
-    }
+    if (browser) await withTimeout(browser.close(), BROWSER_TIMEOUT_MS, 'The browser did not close in time.').catch(() => undefined)
   }
+
+  // Closing the CDP connection does not end the session. Releasing it stops the billing clock.
+  if (sessionId) {
+    const releaseStarted = Date.now()
+    const released = await releaseSession(client, sessionId, projectId)
+    send({
+      type: 'stage',
+      name: 'Release browser session',
+      status: released ? 'ok' : 'failed',
+      ms: Date.now() - releaseStarted,
+      detail: released
+        ? 'Browser session released.'
+        : 'The browser session could not be released. It may run until Browserbase ends it on its own timeout.',
+    })
+  }
+  send(outcome)
 }
 
 /** Streams RunEvent records as server-sent events and stops work when the client disconnects. */
@@ -148,12 +182,12 @@ function eventStream(req: Request, headers: Record<string, string>, run: (send: 
   })
 }
 
-export default async (req: Request): Promise<Response> => {
+async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
   const headers = corsHeaders(origin)
-  if (!originAllowed(origin)) return new Response('Origin not allowed', { status: 403, headers: corsHeaders(null) })
+  if (!originAllowed(origin)) return jsonResponse({ error: 'This page is not allowed to start browser runs.' }, 403, corsHeaders(null))
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers })
+  if (req.method !== 'POST') return jsonResponse({ error: 'Use POST for this request.' }, 405, headers)
 
   if (!process.env.BROWSERBASE_API_KEY || !process.env.BROWSERBASE_PROJECT_ID) {
     return jsonResponse({ error: 'The external browser service is not configured yet. Please try again later.' }, 503, headers)
@@ -165,7 +199,7 @@ export default async (req: Request): Promise<Response> => {
   const domains = allowedDomains()
   let steps: BotStep[]
   try {
-    const body = await readJson(req) as { steps?: unknown }
+    const body = await readJson(req, MAX_BODY_BYTES) as { steps?: unknown }
     steps = validateSteps(body.steps, domains)
   } catch (error) {
     const message = error instanceof StepError || error instanceof BodyError
@@ -175,4 +209,13 @@ export default async (req: Request): Promise<Response> => {
   }
 
   return eventStream(req, headers, (send, isCancelled) => runPlan(send, isCancelled, steps, domains))
+}
+
+export default async (req: Request): Promise<Response> => {
+  try {
+    return await handle(req)
+  } catch (error) {
+    console.error('Browser handler failed:', error instanceof Error ? error.name : 'unknown error')
+    return jsonResponse({ error: 'Something went wrong while starting the browser run. Please try again.' }, 500, corsHeaders(req.headers.get('origin')))
+  }
 }

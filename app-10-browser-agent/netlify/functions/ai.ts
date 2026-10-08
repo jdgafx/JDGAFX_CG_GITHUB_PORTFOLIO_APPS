@@ -8,11 +8,15 @@ export const config = { path: '/api/ai' }
 
 const PLAN_RATE_LIMIT = 20
 const MAX_TASK_CHARS = 500
+/** Room for a full task, even one written in four-byte letters, plus its JSON wrapper. */
+const MAX_BODY_BYTES = 8_192
 const MAX_ATTEMPTS = 2
 /** Netlify's synchronous function cap is 10 s. The first call and any retry share this budget. */
 const PLAN_BUDGET_MS = 8_500
 /** A retry needs this much budget left, or it would only time out. */
 const MIN_RETRY_MS = 2_000
+/** Copy for a provider that timed out or failed on its side. */
+const TIMEOUT_COPY = 'The AI provider did not answer in time'
 
 /** A failure with curated copy the browser may show verbatim. */
 class PlanError extends Error {
@@ -59,13 +63,14 @@ Example: {"steps":[{"action":"navigate","target":"Google home page","thought":"O
 
 /** Maps a provider status to a plain sentence. The provider body is never shown. */
 function providerMessage(status: number): string {
-  if (status === 401 || status === 403) {
-    return 'The AI provider rejected the service credentials. The site owner needs to check the API key.'
-  }
-  if (status === 402) return 'The AI provider is out of credit, so no plan was made. Try again later.'
-  if (status === 429) return 'The AI provider is rate limiting requests. Wait a moment and try again.'
-  if (status >= 500) return 'The AI provider failed to answer. Try again in a moment.'
+  if (status === 401 || status === 402 || status === 403) return 'The AI provider rejected the key or is out of credit'
+  if (status === 429) return 'Rate limited, try again in a minute'
+  if (status >= 500) return TIMEOUT_COPY
   return 'The AI provider rejected the request. Try a shorter task, or try again later.'
+}
+
+function timedOut(): PlanError {
+  return new PlanError(TIMEOUT_COPY, 504)
 }
 
 function isTimeout(error: unknown): boolean {
@@ -127,7 +132,7 @@ async function callOnce(provider: ProviderConfig, task: string, domains: string[
     })
   } catch (error) {
     throw isTimeout(error)
-      ? new PlanError('The model took too long to respond. Try again or pick a shorter task.', 504)
+      ? timedOut()
       : new PlanError('The AI provider could not be reached. Try again in a moment.', 502)
   }
 
@@ -139,8 +144,10 @@ async function callOnce(provider: ProviderConfig, task: string, domains: string[
   let data: ChatResponse
   try {
     data = await response.json() as ChatResponse
-  } catch {
-    throw new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
+  } catch (error) {
+    throw isTimeout(error)
+      ? timedOut()
+      : new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
   }
 
   const choice = data.choices?.[0]
@@ -210,12 +217,12 @@ function parseSteps(content: string): unknown {
   return Array.isArray(parsed) ? parsed : (parsed as { steps?: unknown } | null)?.steps
 }
 
-export default async (req: Request): Promise<Response> => {
+async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
   const headers = corsHeaders(origin)
-  if (!originAllowed(origin)) return new Response('Origin not allowed', { status: 403, headers: corsHeaders(null) })
+  if (!originAllowed(origin)) return jsonResponse({ error: 'This page is not allowed to plan tasks.' }, 403, corsHeaders(null))
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers })
+  if (req.method !== 'POST') return jsonResponse({ error: 'Use POST for this request.' }, 405, headers)
 
   const provider = getProvider()
   if (!provider) {
@@ -228,7 +235,7 @@ export default async (req: Request): Promise<Response> => {
 
   let task: string
   try {
-    const body = await readJson(req) as { task?: unknown }
+    const body = await readJson(req, MAX_BODY_BYTES) as { task?: unknown }
     task = typeof body.task === 'string' ? body.task.trim() : ''
   } catch (error) {
     return jsonResponse({ error: error instanceof BodyError ? error.message : 'The request could not be read.' }, 400, headers)
@@ -318,4 +325,13 @@ export default async (req: Request): Promise<Response> => {
     model: last.model,
     totalMs: Date.now() - startedAt,
   }, 200, headers)
+}
+
+export default async (req: Request): Promise<Response> => {
+  try {
+    return await handle(req)
+  } catch (error) {
+    console.error('Planner handler failed:', error instanceof Error ? error.name : 'unknown error')
+    return jsonResponse({ error: 'Something went wrong while planning this task. Please try again.' }, 500, corsHeaders(req.headers.get('origin')))
+  }
 }

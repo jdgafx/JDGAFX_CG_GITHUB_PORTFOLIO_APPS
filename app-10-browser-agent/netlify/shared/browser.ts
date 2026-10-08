@@ -1,9 +1,9 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from '@browserbasehq/sdk'
-import type { Page } from 'playwright-core'
+import type { Locator, Page } from 'playwright-core'
 import type { BotStep, ObservedPage } from '../../src/types'
-import { isAllowedHost } from './domains'
 
-export const MAX_STEP_MS = 3_000
+/** Longest one browser action may take. A step that runs longer fails with a curated message. */
+const MAX_STEP_MS = 3_000
 const MAX_EXCERPT = 4_000
 
 /** A run failure whose message is curated copy the browser may show. */
@@ -28,9 +28,24 @@ async function acting(action: Promise<unknown>, failure: string): Promise<void> 
   }
 }
 
+/** Counts the elements a locator matches, under the step time limit. */
+async function countOf(locator: Locator): Promise<number> {
+  return withTimeout(locator.count(), MAX_STEP_MS, 'The page did not answer in time.')
+}
+
+/** The host the page is on now, or null when the page is not an http or https address. */
+export function currentHost(page: Page): string | null {
+  try {
+    const url = new URL(page.url())
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.hostname : null
+  } catch {
+    return null
+  }
+}
+
 export async function pageSnapshot(page: Page): Promise<ObservedPage> {
   const [title, body] = await Promise.all([
-    page.title().catch(() => ''),
+    withTimeout(page.title(), MAX_STEP_MS, 'The page title did not load in time.').catch(() => ''),
     page.locator('body').innerText({ timeout: 1_000 }).catch(() => ''),
   ])
   return { url: page.url(), title, excerpt: body.trim().slice(0, MAX_EXCERPT) }
@@ -50,41 +65,37 @@ function targetLocator(page: Page, target: string) {
 
 /**
  * Runs one planned step on the live page and returns a short, factual detail. Throws an
- * ExecutionError with curated copy when the page does not allow the step.
+ * ExecutionError with curated copy when the step cannot be done. The caller checks the host the
+ * page lands on after every step, before it reads the page.
  */
-export async function runStep(page: Page, step: BotStep, domains: string[]): Promise<string> {
+export async function runStep(page: Page, step: BotStep): Promise<string> {
   switch (step.action) {
     case 'navigate': {
       await acting(page.goto(step.url ?? '', { waitUntil: 'domcontentloaded' }), 'The page could not be loaded.')
-      const landed = new URL(page.url())
-      if (landed.protocol !== 'https:' && landed.protocol !== 'http:') {
-        throw new ExecutionError('The browser did not reach a web page.')
-      }
-      if (!isAllowedHost(landed.hostname, domains)) {
-        throw new ExecutionError(`The page redirected to ${landed.hostname}, which is outside the allowed sites.`)
-      }
-      return `Opened ${landed.hostname}.`
+      const host = currentHost(page)
+      if (host === null) throw new ExecutionError('The browser did not reach a web page.')
+      return `Opened ${host}.`
     }
     case 'find': {
       const locator = targetLocator(page, step.target)
-      if (await locator.count() > 0) return `Found ${step.target}.`
+      if (await countOf(locator) > 0) return `Found ${step.target}.`
       const observed = await pageSnapshot(page)
       const needle = step.target.toLowerCase()
       const haystack = `${observed.title}\n${observed.excerpt}`.toLowerCase()
-      if (haystack.includes(needle) || (needle.includes('title') && observed.title)) {
+      if (haystack.includes(needle) || (needle.includes('title') && observed.title.trim() !== '')) {
         return `Found ${step.target} in the page text.`
       }
       throw new ExecutionError(`The target was not found: ${step.target}.`)
     }
     case 'click': {
       const locator = targetLocator(page, step.target)
-      if (await locator.count() === 0) throw new ExecutionError(`The target was not found: ${step.target}.`)
+      if (await countOf(locator) === 0) throw new ExecutionError(`The target was not found: ${step.target}.`)
       await acting(locator.click(), `${step.target} could not be clicked.`)
       return `Clicked ${step.target}.`
     }
     case 'type': {
       const locator = targetLocator(page, step.target)
-      if (await locator.count() === 0) throw new ExecutionError(`No text input was found for ${step.target}.`)
+      if (await countOf(locator) === 0) throw new ExecutionError(`No text input was found for ${step.target}.`)
       const value = step.value ?? ''
       await acting(locator.fill(value), `${step.target} could not take the text.`)
       // Outcome check: the field must now hold exactly what the plan typed.

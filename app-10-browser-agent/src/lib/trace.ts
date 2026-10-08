@@ -160,8 +160,10 @@ const STOPWORDS = new Set([
 export function overlapWith(expectation: string, observed: ObservedPage): { found: string[]; missing: string[] } {
   const terms = [...new Set(expectation.toLowerCase().match(/[a-z]{4,}/g) ?? [])].filter((term) => !STOPWORDS.has(term))
   const haystack = `${observed.title}\n${observed.excerpt}`.toLowerCase()
+  // "title" names the page title, which the observed page carries apart from its text.
+  const seen = (term: string) => haystack.includes(term) || (term === 'title' && observed.title.trim() !== '')
   return {
-    found: terms.filter((term) => haystack.includes(term)),
-    missing: terms.filter((term) => !haystack.includes(term)),
+    found: terms.filter(seen),
+    missing: terms.filter((term) => !seen(term)),
   }
 }

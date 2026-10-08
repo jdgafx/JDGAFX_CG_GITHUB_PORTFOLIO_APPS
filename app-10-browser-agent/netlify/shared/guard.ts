@@ -2,9 +2,6 @@
 const PRODUCTION_ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
 const LOCAL_ORIGINS = ['http://localhost:8888', 'http://localhost:5173']
 
-/** Largest request body either endpoint accepts, in characters. */
-const MAX_BODY_CHARS = 16_384
-
 /** A request body that cannot be used. The message is curated copy. */
 export class BodyError extends Error {}
 
@@ -75,13 +72,18 @@ export function jsonResponse(body: unknown, status: number, headers: Record<stri
   })
 }
 
-/** Reads a JSON body under the size cap. Failures are BodyError with curated copy. */
-export async function readJson(req: Request): Promise<unknown> {
+/**
+ * Reads a JSON body under a byte cap. A declared length over the cap is refused before the body
+ * is read. The bytes actually read are checked as well, because a length header can be missing.
+ */
+export async function readJson(req: Request, maxBytes: number): Promise<unknown> {
+  const declared = Number(req.headers.get('content-length') ?? 0)
+  if (declared > maxBytes) throw new BodyError('The request is too large.')
   const text = await req.text()
-  if (text.length > MAX_BODY_CHARS) throw new BodyError('The request is too large.')
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new BodyError('The request is too large.')
   try {
     return JSON.parse(text)
   } catch {
-    throw new BodyError('Invalid JSON')
+    throw new BodyError('The request body is not valid JSON.')
   }
 }

@@ -2,14 +2,10 @@ import type { BotStep, PlanResponse, RunEvent, StepAction, TraceEntry, TraceStat
 
 const ACTIONS: StepAction[] = ['navigate', 'find', 'click', 'type', 'extract', 'verify']
 const TRACE_STATUSES: TraceStatus[] = ['ok', 'failed', 'skipped']
+const EVENT_TYPES: RunEvent['type'][] = ['session', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
 const MAX_ERROR_CHARS = 300
-
-const STATUS_COPY: Record<number, string> = {
-  429: 'The planning service is handling too many requests right now. Wait a moment and try again.',
-  502: 'The AI provider is unavailable right now. Try again in a moment.',
-  503: 'The service is not available right now. Try again in a moment.',
-  504: 'The agent took too long to respond. Try again or pick a shorter task.',
-}
+const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
+const UNREADABLE_EVENT_COPY = 'The browser run sent a message the page could not read.'
 
 /** A failed request. `message` is curated copy. `trace` holds the stages measured before the failure. */
 export class RequestFailure extends Error {
@@ -19,6 +15,13 @@ export class RequestFailure extends Error {
     super(message)
     this.trace = trace
   }
+}
+
+/** Copy for a response with no curated error text. The response body is never shown. */
+function statusCopy(status: number): string {
+  if (status === 429) return 'Rate limited, try again in a minute'
+  if (status >= 500) return 'The AI provider did not answer in time'
+  return `The request failed with HTTP ${status}. Try again in a moment.`
 }
 
 function toTrace(raw: unknown): TraceEntry[] {
@@ -78,23 +81,26 @@ async function readFailure(response: Response): Promise<RequestFailure> {
     // Not JSON, such as a gateway page. Never show it raw.
   }
   const error = typeof body?.error === 'string' ? body.error.trim().slice(0, MAX_ERROR_CHARS) : ''
-  const message = error || STATUS_COPY[response.status] || `The request failed with HTTP ${response.status}. Try again in a moment.`
-  return new RequestFailure(message, toTrace(body?.trace))
+  return new RequestFailure(error || statusCopy(response.status), toTrace(body?.trace))
 }
 
-export async function planTask(task: string, signal: AbortSignal): Promise<PlanResponse> {
-  let response: Response
+/** Posts JSON to the server. A network failure becomes curated copy, unless the caller cancelled. */
+async function postJson(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
   try {
-    response = await fetch('/api/ai', {
+    return await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task }),
+      body: JSON.stringify(body),
       signal,
     })
   } catch (error) {
     if (signal.aborted) throw error
-    throw new RequestFailure('Could not reach the planning service. Check your connection and try again.')
+    throw new RequestFailure(NETWORK_COPY)
   }
+}
+
+export async function planTask(task: string, signal: AbortSignal): Promise<PlanResponse> {
+  const response = await postJson('/api/ai', { task }, signal)
   if (!response.ok) throw await readFailure(response)
 
   let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; totalMs?: unknown }
@@ -117,28 +123,78 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
   }
 }
 
+/** Reads the next chunk of the stream. A dropped connection becomes curated copy, unless the caller cancelled. */
+async function readChunk(reader: ReadableStreamDefaultReader<Uint8Array>, signal: AbortSignal): Promise<ReadableStreamReadResult<Uint8Array>> {
+  try {
+    return await reader.read()
+  } catch (error) {
+    if (signal.aborted) throw error
+    throw new RequestFailure(NETWORK_COPY)
+  }
+}
+
+/** The text after "data: " on a record's data line, or undefined when the record has none (a comment or keep-alive). */
+function dataLine(record: string): string | undefined {
+  return record.split('\n').find((item) => item.startsWith('data: '))?.slice(6)
+}
+
+/** The event a data line carries, or null when it is not valid JSON or not a known event type. */
+function eventOf(data: string): RunEvent | null {
+  let parsed: { type?: unknown } | null
+  try {
+    parsed = JSON.parse(data) as { type?: unknown } | null
+  } catch {
+    return null
+  }
+  return typeof parsed?.type === 'string' && EVENT_TYPES.includes(parsed.type as RunEvent['type'])
+    ? parsed as RunEvent
+    : null
+}
+
+/** A complete record in the middle of the stream. Anything that is not a known event is a protocol error. */
+function emitRecord(record: string, onEvent: (event: RunEvent) => void): void {
+  const data = dataLine(record)
+  if (data === undefined) return
+  const event = eventOf(data)
+  if (!event) throw new RequestFailure(UNREADABLE_EVENT_COPY)
+  onEvent(event)
+}
+
+/**
+ * The last piece of a stream that has ended. A whole event is delivered. A record the end of the
+ * stream cut off is ignored, so the caller reports the run as ended before a result.
+ */
+function emitTail(tail: string, onEvent: (event: RunEvent) => void): void {
+  const data = dataLine(tail)
+  if (data === undefined) return
+  const event = eventOf(data)
+  if (event) onEvent(event)
+}
+
 /** Runs the plan and calls onEvent for each server event, in order, until the stream ends. */
 export async function streamRun(steps: BotStep[], onEvent: (event: RunEvent) => void, signal: AbortSignal): Promise<void> {
-  const response = await fetch('/api/execute', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ steps }),
-    signal,
-  })
+  const response = await postJson('/api/execute', { steps }, signal)
   if (!response.ok || !response.body) throw await readFailure(response)
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done })
-    const records = buffer.split('\n\n')
-    buffer = records.pop() ?? ''
-    for (const record of records) {
-      const line = record.split('\n').find((item) => item.startsWith('data: '))
-      if (line) onEvent(JSON.parse(line.slice(6)) as RunEvent)
+  try {
+    for (;;) {
+      const chunk = await readChunk(reader, signal)
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done })
+      const records = buffer.split('\n\n')
+      // The last piece is a record still in flight, unless the stream has ended.
+      const tail = records.pop() ?? ''
+      for (const record of records) emitRecord(record, onEvent)
+      if (chunk.done) {
+        emitTail(tail, onEvent)
+        return
+      }
+      buffer = tail
     }
-    if (done) break
+  } finally {
+    // A throw leaves the body open, so it is cancelled here. On a body that has finished this does nothing.
+    await reader.cancel().catch(() => undefined)
   }
 }

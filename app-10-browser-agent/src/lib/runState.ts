@@ -2,8 +2,10 @@ import type { BotStep, ObservedPage, PlanResponse, RunEvent, TraceEntry, TraceSt
 
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
+const ENDED_EARLY = 'The run ended before it reported a result.'
+
 /** One row of the browser run: a stage, or a planned step. `running` is a display state only. */
-export interface RunRow {
+interface RunRow {
   index: number | null
   name: string
   status: TraceStatus | 'running'
@@ -65,6 +67,18 @@ function failRunning(rows: RunRow[]): RunRow[] {
     : row))
 }
 
+/** A failed run always leaves a failed row in the trace, even when the server sent no failed row. */
+function withFailedRow(rows: RunRow[], message: string): RunRow[] {
+  if (rows.some((row) => row.status === 'failed')) return rows
+  return [...rows, { index: null, name: 'Browser run', status: 'failed', ms: 0, detail: message }]
+}
+
+/** A failed planning request leaves a failed entry in the trace, even when it never reached the server. */
+function withFailedEntry(trace: TraceEntry[], message: string): TraceEntry[] {
+  if (trace.some((entry) => entry.status === 'failed')) return trace
+  return [...trace, { name: 'Planner request', status: 'failed', ms: 0, detail: message }]
+}
+
 function applyEvent(state: RunState, event: RunEvent): RunState {
   switch (event.type) {
     case 'session':
@@ -106,7 +120,12 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
         observed: event.observed,
       }
     case 'error':
-      return { ...state, phase: 'failed', error: { message: event.message, index: event.index } }
+      return {
+        ...state,
+        phase: 'failed',
+        rows: withFailedRow(state.rows, event.message),
+        error: { message: event.message, index: event.index },
+      }
     case 'done':
       return state.phase === 'failed' ? state : { ...state, phase: 'complete', runMs: event.totalMs }
   }
@@ -126,7 +145,12 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         planMs: action.plan.totalMs,
       }
     case 'planFailed':
-      return { ...initialRunState, phase: 'failed', planTrace: action.trace, error: { message: action.message, index: null } }
+      return {
+        ...initialRunState,
+        phase: 'failed',
+        planTrace: withFailedEntry(action.trace, action.message),
+        error: { message: action.message, index: null },
+      }
     case 'running':
       // A replay makes no model call, so its latency leaves out the planner time.
       return {
@@ -142,10 +166,20 @@ export function runReducer(state: RunState, action: RunAction): RunState {
     case 'event':
       return applyEvent(state, action.event)
     case 'runFailed':
-      return { ...state, phase: 'failed', rows: failRunning(state.rows), error: { message: action.message, index: null } }
+      return {
+        ...state,
+        phase: 'failed',
+        rows: withFailedRow(failRunning(state.rows), action.message),
+        error: { message: action.message, index: null },
+      }
     case 'streamEnded':
       return state.phase === 'running'
-        ? { ...state, phase: 'failed', rows: failRunning(state.rows), error: { message: 'The run ended before it reported a result.', index: null } }
+        ? {
+            ...state,
+            phase: 'failed',
+            rows: withFailedRow(failRunning(state.rows), ENDED_EARLY),
+            error: { message: ENDED_EARLY, index: null },
+          }
         : state
     case 'stopped':
       return {

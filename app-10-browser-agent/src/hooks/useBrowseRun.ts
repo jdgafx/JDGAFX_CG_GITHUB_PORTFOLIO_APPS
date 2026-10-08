@@ -31,7 +31,7 @@ export function useBrowseRun() {
         type: 'runFailed',
         message: error instanceof RequestFailure
           ? error.message
-          : 'The browser run could not be reached. Check your connection and try again.',
+          : 'Something went wrong while running the plan. Try again.',
       })
     }
   }, [])
