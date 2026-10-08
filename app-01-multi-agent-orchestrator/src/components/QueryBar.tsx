@@ -1,4 +1,3 @@
-import { ChevronRight, Square } from 'lucide-react'
 import { EXAMPLE_QUERIES, MAX_QUERY_CHARS } from '../lib/agents'
 
 interface QueryBarProps {
@@ -12,92 +11,63 @@ interface QueryBarProps {
 }
 
 export function QueryBar({ query, onQueryChange, isRunning, showExamples, onStart, onStop, onExample }: QueryBarProps) {
-  const canStart = isRunning || query.trim().length > 0
+  const canStart = !isRunning && query.trim().length > 0
 
   return (
-    <div
-      style={{
-        padding: '12px 20px',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-        background: '#111827',
-        flexShrink: 0,
-      }}
-    >
-      {showExamples && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 12.5, color: '#94a3b8' }}>Try one:</span>
-          {EXAMPLE_QUERIES.map(example => (
-            <button
-              key={example}
-              onClick={() => onExample(example)}
-              title={`Run the pipeline on: ${example}`}
-              className="example-chip"
-            >
-              {example}
-            </button>
-          ))}
+    <section className="ds-card" aria-label="Research topic">
+      <form
+        className="ds-stack"
+        onSubmit={event => {
+          event.preventDefault()
+          if (canStart) onStart()
+        }}
+      >
+        <div className="ds-card__head">
+          <label htmlFor="research-query" className="ds-card__title">
+            Research topic
+          </label>
+          <span className="ds-hint">Up to {MAX_QUERY_CHARS} characters</span>
         </div>
-      )}
-      <div style={{ display: 'flex', gap: 10 }}>
         <input
+          id="research-query"
+          className="ds-input"
           type="text"
           value={query}
           onChange={event => onQueryChange(event.target.value.slice(0, MAX_QUERY_CHARS))}
-          onKeyDown={event => {
-            if (event.key === 'Enter' && !event.shiftKey) onStart()
-          }}
-          placeholder="Enter research query..."
+          placeholder="What should the four agents research?"
           disabled={isRunning}
           maxLength={MAX_QUERY_CHARS}
-          aria-label="Research query"
-          title={`What should the agents research? Up to ${MAX_QUERY_CHARS} characters.`}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            padding: '10px 16px',
-            borderRadius: 12,
-            background: 'rgba(17,24,39,0.7)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#f1f5f9',
-            fontSize: 14,
-            outline: 'none',
-            fontFamily: 'inherit',
-          }}
+          autoComplete="off"
         />
-        <button
-          onClick={isRunning ? onStop : onStart}
-          disabled={!canStart}
-          aria-label={isRunning ? 'Stop research' : 'Start research'}
-          title={isRunning ? 'Stop the run and keep whatever the agents produced' : 'Run all four agents on this query'}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '10px 20px',
-            borderRadius: 12,
-            fontSize: 13,
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            cursor: canStart ? 'pointer' : 'not-allowed',
-            background: isRunning ? 'rgba(255,51,102,0.12)' : 'rgba(0,212,255,0.1)',
-            color: isRunning ? '#ff3366' : '#00d4ff',
-            border: isRunning ? '1px solid rgba(255,51,102,0.3)' : '1px solid rgba(0,212,255,0.3)',
-            transition: 'all 0.15s',
-            opacity: canStart ? 1 : 0.85,
-            fontFamily: 'inherit',
-          }}
-        >
-          {isRunning ? (
-            <>
-              <Square size={13} aria-hidden="true" /> Stop
-            </>
-          ) : (
-            <>
-              <ChevronRight size={13} aria-hidden="true" /> Start Research
-            </>
+        <div className="ds-row">
+          <button type="submit" className="ds-button ds-button--primary" disabled={!canStart}>
+            Start research
+          </button>
+          {isRunning && (
+            <button type="button" className="ds-button" onClick={onStop}>
+              Stop
+            </button>
           )}
-        </button>
-      </div>
-    </div>
+        </div>
+        {showExamples && (
+          <div className="ds-stack">
+            <p className="ds-hint">Or try one of these:</p>
+            <div className="example-chips">
+              {EXAMPLE_QUERIES.map(example => (
+                <button
+                  key={example}
+                  type="button"
+                  className="example-chip"
+                  disabled={isRunning}
+                  onClick={() => onExample(example)}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </form>
+    </section>
   )
 }

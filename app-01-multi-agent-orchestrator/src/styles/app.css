@@ -1,0 +1,308 @@
+/* App-specific styles. Layout, cards, forms, trace and metrics come from tokens.css. */
+
+.app-status {
+  min-height: 1.5em;
+}
+
+.app-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-notes {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 14px;
+}
+
+/* Example queries, shown before the first run */
+.example-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example-chip {
+  min-height: 36px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.example-chip:hover:not(:disabled) {
+  background: var(--ds-accent-soft);
+}
+
+.example-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Pipeline graph (React Flow) */
+.pipeline-canvas {
+  height: 200px;
+  overflow: hidden;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.pipeline-graph {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 720px) {
+  .pipeline-canvas {
+    height: 300px;
+  }
+}
+
+/* React Flow paints its own white background by default. The card supplies the surface. */
+.pipeline-graph .react-flow {
+  background-color: transparent;
+}
+
+.react-flow__pane {
+  cursor: default !important;
+}
+
+.react-flow__handle {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.react-flow__edge-path {
+  stroke: var(--ds-border);
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: var(--ds-accent);
+  stroke-dasharray: 6 4;
+  animation: flow-dash 0.6s linear infinite;
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  box-shadow: var(--ds-shadow);
+}
+
+.react-flow__controls-button {
+  background: var(--ds-surface);
+  border-bottom: 1px solid var(--ds-border);
+  fill: var(--ds-text);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--ds-surface-2);
+}
+
+/* One pipeline node. The status word carries the meaning; the border only reinforces it. */
+.agent-node {
+  width: 180px;
+  padding: 10px 12px;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-left-width: 4px;
+  border-radius: var(--ds-radius);
+  box-shadow: var(--ds-shadow);
+}
+
+.agent-node[data-status="working"] {
+  border-color: var(--ds-accent);
+  box-shadow: 0 0 0 2px var(--ds-accent-soft);
+}
+
+.agent-node[data-status="complete"] {
+  border-left-color: var(--ds-success);
+}
+
+.agent-node[data-status="error"] {
+  border-left-color: var(--ds-danger);
+}
+
+.agent-node[data-status="stopped"] {
+  border-left-color: var(--ds-warning);
+}
+
+.agent-node__name {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.agent-node__state {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ds-text-muted);
+}
+
+/* Stage tabs over the report */
+.output-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 520px) {
+  .output-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.output-tab {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  min-height: 52px;
+  padding: 8px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+}
+
+.output-tab[aria-selected="true"] {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+
+.output-tab__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.output-tab__state {
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
+.output-body {
+  min-height: 120px;
+  overflow-wrap: anywhere;
+}
+
+/* Rendered agent output */
+.md {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ds-text);
+}
+
+.md h3,
+.md h4,
+.md h5 {
+  margin: 18px 0 8px;
+  line-height: 1.3;
+}
+
+.md h3 {
+  font-size: 17px;
+}
+
+.md h4 {
+  font-size: 15.5px;
+}
+
+.md h5 {
+  font-size: 14.5px;
+  color: var(--ds-accent);
+}
+
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre,
+.md .md-table {
+  margin: 0 0 10px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+
+.md li + li {
+  margin-top: 4px;
+}
+
+.md blockquote {
+  padding-left: 12px;
+  color: var(--ds-text-muted);
+  border-left: 3px solid var(--ds-border);
+}
+
+.md pre {
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius-sm);
+}
+
+.md code {
+  padding: 1px 4px;
+  font-family: var(--ds-mono);
+  font-size: 0.9em;
+  background: var(--ds-surface-2);
+  border-radius: 4px;
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+}
+
+.md .md-table {
+  overflow-x: auto;
+}
+
+.md table {
+  min-width: 100%;
+  font-size: 13.5px;
+  border-collapse: collapse;
+}
+
+.md th,
+.md td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.md hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--ds-border);
+}
+
+.md a {
+  color: var(--ds-accent);
+  text-underline-offset: 2px;
+}

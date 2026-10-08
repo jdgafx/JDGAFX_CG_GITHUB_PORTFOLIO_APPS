@@ -1,415 +1,113 @@
-import type { AgentRole } from '../../src/types'
-import { generationOptions, getProvider, type ProviderConfig } from '../shared/provider'
+import { sumUsage } from '../../src/lib/usage'
+import type { StageUsage, StreamEvent, TraceStep } from '../../src/types'
+import { AGENTS, MIN_STAGE_MS, RUN_BUDGET_MS, keyLine, type AgentConfig, type AgentContext } from '../shared/agents'
+import { RequestError, clientKey, corsHeaders, fail, isOriginAllowed, rateLimit, readQuery, sseEvent } from '../shared/gate'
+import { getProvider, type Provider } from '../shared/provider'
+import { friendlyUpstreamMessage, runStage, UpstreamError, type StageResult } from '../shared/stream'
 
-type AgentContext = Partial<Record<AgentRole, string>>
+type Outcome = { ok: true; stage: StageResult } | { ok: false; message: string; usage?: StageUsage }
 
-interface AgentConfig {
-  role: AgentRole
+/** What the server keeps about each stage, to build the trace and the totals. */
+interface StageRecord {
   name: string
-  systemPrompt: string
-  buildUserMessage: (query: string, context: AgentContext) => string
-  /** Ceiling on generated tokens. Sized with headroom above the prompt's word budget. */
-  maxTokens: number
-  /** Hard wall-clock timeout per agent — abort stream after this many ms */
-  timeoutMs: number
-}
-
-const DEFAULT_MODEL = '~google/gemini-flash-latest'
-const DEFAULT_SITE_URL = 'https://jdgafx-app-01-multi-agent-orchestrator.netlify.app'
-const APP_TITLE = 'AgentFlow'
-
-const SITE_URL = process.env.URL || DEFAULT_SITE_URL
-
-const DEFAULT_ALLOWED_ORIGINS = [DEFAULT_SITE_URL, 'http://localhost:8888', 'http://localhost:5173']
-
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.join(','))
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean)
-
-const MAX_BODY_BYTES = 8 * 1024
-const MAX_QUERY_CHARS = 500
-const MAX_CONTEXT_CHARS = 800
-const RETRY_DELAY_MS = 800
-const OPENROUTER_FREE_FALLBACK_MODEL = 'nvidia/nemotron-3-nano-30b-a3b:free'
-
-// One request fans out to four upstream LLM calls, so the ceiling is lower than
-// a plain proxy would need. Best effort only: each warm function instance keeps
-// its own counter, so the effective limit scales with instance count. Enough to
-// blunt casual abuse of an unauthenticated demo endpoint.
-const RATE_LIMIT_MAX = 10
-const RATE_LIMIT_WINDOW_MS = 60_000
-
-/** Trim context to stay within the time budget — shorter input = faster generation */
-function trimCtx(text: string | undefined, maxChars = MAX_CONTEXT_CHARS): string {
-  const value = text?.trim() ?? ''
-  if (!value) return '(no output from the previous agent)'
-  return value.length > maxChars ? `${value.slice(0, maxChars)}\n[trimmed]` : value
-}
-
-/**
- * Time budget: Netlify functions time out at 26s.
- * 4 agents x ~5s each = ~20s generation + ~4s network overhead = 24s.
- * Per-agent timeouts guarantee we never exceed the budget; the token ceilings
- * exist so nothing is cut off mid-sentence, not to bound the wall clock.
- */
-const agents: AgentConfig[] = [
-  {
-    role: 'researcher',
-    name: 'Researcher',
-    systemPrompt:
-      'You are a research assistant. Give 3-5 bullet points with key facts. Use markdown. STRICT LIMIT: 150 words max. Do NOT write long paragraphs.',
-    buildUserMessage: query => `Research: ${query}\n\n3-5 bullet points only. Be extremely concise.`,
-    maxTokens: 600,
-    timeoutMs: 5500,
-  },
-  {
-    role: 'analyst',
-    name: 'Analyst',
-    systemPrompt:
-      'You are an analyst. Identify 2-3 key patterns from the research. Markdown bullets. STRICT LIMIT: 150 words max.',
-    buildUserMessage: (_query, ctx) =>
-      `Analyze:\n${trimCtx(ctx.researcher)}\n\n2-3 key patterns only. Extremely concise.`,
-    maxTokens: 600,
-    timeoutMs: 5500,
-  },
-  {
-    role: 'critic',
-    name: 'Critic',
-    systemPrompt:
-      'You are a critic. Note 2-3 gaps or missing angles. Markdown bullets. STRICT LIMIT: 100 words max.',
-    buildUserMessage: (_query, ctx) => `Review:\n${trimCtx(ctx.analyst)}\n\n2-3 gaps only. Very brief.`,
-    maxTokens: 400,
-    timeoutMs: 4500,
-  },
-  {
-    role: 'synthesizer',
-    name: 'Synthesizer',
-    systemPrompt:
-      'You are a synthesis agent. Combine research, analysis, and critique into a final report with clear markdown sections. Be comprehensive but concise — aim for 200-300 words.',
-    buildUserMessage: (query, ctx) =>
-      `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx.researcher)}\n\nAnalysis:\n${trimCtx(ctx.analyst)}\n\nGaps:\n${trimCtx(ctx.critic)}`,
-    maxTokens: 1200,
-    timeoutMs: 10000,
-  },
-]
-
-interface OpenRouterChunk {
-  choices?: Array<{
-    delta?: { content?: string; reasoning?: string }
-    finish_reason?: string | null
-  }>
-  usage?: {
-    completion_tokens?: number
-    completion_tokens_details?: { reasoning_tokens?: number }
-  }
-}
-
-interface AgentResult {
-  content: string
-  /** Content tokens only — upstream reasoning tokens are excluded. */
-  tokens: number
-  reasoningTokens: number
-  /** Streamed reasoning text length, used when upstream reports no usage block. */
-  reasoningChars: number
-  /** 'stop' | 'length' | 'timeout' | null */
-  finish: string | null
+  status: TraceStep['status']
+  ms: number
+  detail: string
+  usage?: StageUsage
   servedModel?: string
 }
 
-/** Rough chars-per-token, only used to estimate reasoning when usage is missing. */
-const CHARS_PER_TOKEN = 4
+function failureMessage(err: unknown, name: string): string {
+  if (err instanceof UpstreamError) return friendlyUpstreamMessage(err.status)
+  return `${name} could not finish. Try again.`
+}
 
-/** Upstream returned a non-2xx. Carries the status so 429 can be retried. */
-class UpstreamError extends Error {
-  constructor(readonly status: number, detail: string) {
-    super(detail)
-    this.name = 'UpstreamError'
+function toTraceStep(record: StageRecord): TraceStep {
+  return {
+    name: record.name,
+    status: record.status,
+    ms: record.ms,
+    detail: record.detail,
+    tokens: record.usage?.completion_tokens,
+    cost: record.usage?.cost,
   }
 }
 
-/** The agent's wall-clock budget expired. Partial output is still usable. */
-class AgentTimeoutError extends Error {
-  constructor() {
-    super('agent timed out')
-    this.name = 'AgentTimeoutError'
-  }
-}
-
-function friendlyUpstreamMessage(status: number): string {
-  if (status === 429) return 'The AI service is rate limiting this demo. Wait a few seconds and try again.'
-  if (status === 401 || status === 403) return 'The AI service rejected this request — the server API key is invalid or expired.'
-  if (status >= 500) return 'The AI service is having trouble right now. Try again in a moment.'
-  return 'The AI service could not complete this request.'
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function retryProvider(provider: ProviderConfig): ProviderConfig {
-  if (provider.name !== 'OpenRouter') return provider
-  return { ...provider, model: OPENROUTER_FREE_FALLBACK_MODEL }
-}
-
-/** A live upstream stream plus the timer that bounds it. */
-interface OpenStream {
-  body: ReadableStream<Uint8Array>
-  abort: AbortController
-  clearTimer: () => void
-}
-
-/**
- * Opens one upstream stream under its own AbortController and timer. Each call
- * gets a fresh signal, so a retry is never poisoned by the first attempt's abort.
- */
-async function openStream(agent: AgentConfig, userMessage: string, provider: ProviderConfig): Promise<OpenStream> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), agent.timeoutMs)
-  const clearTimer = () => clearTimeout(timer)
-
-  try {
-    const response = await fetch(provider.url, {
-      method: 'POST',
-      signal: abort.signal,
-      headers: {
-        'Authorization': `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': SITE_URL,
-        'X-Title': APP_TITLE,
-      },
-      body: JSON.stringify({
-        model: provider.model,
-      ...generationOptions(provider, agent.maxTokens, true),
-        stream: true,
-        stream_options: { include_usage: true },
-        // Gemini's ~latest alias now resolves to a reasoning model, and reasoning
-        // tokens are billed against max_tokens. Left on, the agents burn their
-        // whole budget thinking and emit a truncated fragment.
-        reasoning: { enabled: false },
-        messages: [
-          { role: 'system', content: agent.systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-      }),
-    })
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new UpstreamError(response.status, detail.slice(0, 300) || response.statusText)
-    }
-    if (!response.body) {
-      throw new UpstreamError(response.status, 'empty response body from upstream')
-    }
-
-    return { body: response.body, abort, clearTimer }
-  } catch (err) {
-    clearTimer()
-    if (abort.signal.aborted) throw new AgentTimeoutError()
-    throw err
-  }
-}
-
-function parseFrame(line: string, result: AgentResult, onChunk: (text: string) => void): void {
-  const trimmed = line.trim()
-  if (!trimmed.startsWith('data: ')) return
-  const data = trimmed.slice(6)
-  if (data === '[DONE]') return
-
-  let parsed: OpenRouterChunk
-  try {
-    parsed = JSON.parse(data) as OpenRouterChunk
-  } catch {
-    return // keep-alive comments and partial frames
-  }
-
-  const servedModel = (parsed as OpenRouterChunk & { model?: unknown }).model
-  if (typeof servedModel === 'string') result.servedModel = servedModel
-
-  const choice = parsed.choices?.[0]
-  const content = choice?.delta?.content
-  if (content) {
-    result.content += content
-    onChunk(content)
-  }
-  // Reasoning text is tracked but never streamed to the client: it is not an
-  // answer. Recording it means a model that starts reasoning again shows up as a
-  // warning rather than as mysteriously short output.
-  const reasoning = choice?.delta?.reasoning
-  if (reasoning) result.reasoningChars += reasoning.length
-  if (choice?.finish_reason) result.finish = choice.finish_reason
-
-  const usage = parsed.usage
-  if (usage) {
-    // Counted separately so a model that starts reasoning again degrades visibly
-    // instead of silently inflating the token counter.
-    const reasoning = usage.completion_tokens_details?.reasoning_tokens ?? 0
-    result.reasoningTokens = reasoning
-    result.tokens = Math.max(0, (usage.completion_tokens ?? 0) - reasoning)
-  }
-}
-
-async function readStream(
-  body: ReadableStream<Uint8Array>,
-  result: AgentResult,
-  onChunk: (text: string) => void,
-): Promise<void> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) parseFrame(line, result, onChunk)
-    }
-    for (const line of buffer.split('\n')) parseFrame(line, result, onChunk)
-  } finally {
-    await reader.cancel().catch(() => {})
-  }
-}
-
-/** Runs one agent to completion, retrying once on 429, timeout, empty, or length-truncated output. */
-async function streamAgent(
+async function runOneStage(
   agent: AgentConfig,
-  userMessage: string,
-  provider: ProviderConfig,
-  onChunk: (text: string) => void,
-): Promise<AgentResult> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const result: AgentResult = { content: '', tokens: 0, reasoningTokens: 0, reasoningChars: 0, finish: null }
-    const chunks: string[] = []
-    let stream: OpenStream
-    const attemptProvider = attempt === 0 ? provider : retryProvider(provider)
-    try {
-      stream = await openStream(agent, userMessage, attemptProvider)
-    } catch (err) {
-      if (err instanceof UpstreamError && (err.status === 408 || err.status === 429 || err.status >= 500) && attempt === 0) {
-        await delay(RETRY_DELAY_MS)
-        continue
-      }
-      if (err instanceof AgentTimeoutError && attempt === 0) continue
-      if (err instanceof AgentTimeoutError) { result.finish = 'timeout'; return result }
-      throw err
-    }
-
-    try {
-      await readStream(stream.body, result, chunk => chunks.push(chunk))
-    } catch (err) {
-      if (!stream.abort.signal.aborted) throw err
-    } finally {
-      if (stream.abort.signal.aborted) result.finish = 'timeout'
-      stream.clearTimer()
-    }
-
-    if (result.reasoningTokens === 0 && result.reasoningChars > 0) {
-      result.reasoningTokens = Math.ceil(result.reasoningChars / CHARS_PER_TOKEN)
-    }
-    const unsuitableModel = result.servedModel?.includes('content-safety') === true
-    const needsRetry = attempt === 0 && (!result.content.trim() || result.finish === 'length' || result.finish === 'timeout' || unsuitableModel)
-    if (needsRetry) continue
-    chunks.forEach(onChunk)
-    return result
-  }
-  return { content: '', tokens: 0, reasoningTokens: 0, reasoningChars: 0, finish: 'timeout' }
-}
-
-const rateBuckets = new Map<string, { count: number; resetAt: number }>()
-
-function rateLimit(key: string): { allowed: boolean; retryAfter: number } {
-  const now = Date.now()
-  const bucket = rateBuckets.get(key)
-  if (!bucket || bucket.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
-    if (rateBuckets.size > 5000) {
-      for (const [k, v] of rateBuckets) if (v.resetAt <= now) rateBuckets.delete(k)
-    }
-    return { allowed: true, retryAfter: 0 }
-  }
-  bucket.count += 1
-  if (bucket.count > RATE_LIMIT_MAX) {
-    return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) }
-  }
-  return { allowed: true, retryAfter: 0 }
-}
-
-function clientKey(req: Request): string {
-  return (
-    req.headers.get('x-nf-client-connection-ip') ??
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'unknown'
-  )
-}
-
-/** The client-facing host, which is what the browser's Origin is built from. */
-function requestHost(req: Request): string {
-  const forwarded = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  if (forwarded) return forwarded
-  const host = req.headers.get('host')
-  if (host) return host
+  query: string,
+  context: AgentContext,
+  provider: Provider,
+  deadline: number,
+): Promise<Outcome> {
   try {
-    return new URL(req.url).host
-  } catch {
-    return ''
+    const stage = await runStage(agent, agent.buildUserMessage(query, context), provider, deadline)
+    if (stage.content.trim()) return { ok: true, stage }
+    const message =
+      stage.finish === 'timeout'
+        ? `${agent.name} ran out of time before it wrote anything.`
+        : `${agent.name} returned no text. Try again.`
+    return { ok: false, message, usage: stage.usage }
+  } catch (err) {
+    return { ok: false, message: failureMessage(err, agent.name) }
   }
 }
 
-/**
- * The allowlist exists to stop other sites using this endpoint, so it must never
- * reject the app's own page. Same-origin always passes — otherwise deploy previews,
- * branch deploys and custom domains would each need adding by hand.
- */
-function isOriginAllowed(req: Request, origin: string | null): boolean {
-  if (!origin) return true // non-browser client sends no Origin
-  if (ALLOWED_ORIGINS.includes(origin)) return true
-  try {
-    return new URL(origin).host === requestHost(req)
-  } catch {
-    return false
-  }
-}
+/** Runs the four stages in order against one shared deadline and reports each step as it ends. */
+async function runPipeline(query: string, provider: Provider, send: (event: StreamEvent) => void): Promise<void> {
+  const runStart = Date.now()
+  const deadline = runStart + RUN_BUDGET_MS
+  const context: AgentContext = {}
+  const records: StageRecord[] = []
 
-function corsHeaders(req: Request, origin: string | null): Record<string, string> {
-  const base: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    Vary: 'Origin',
-  }
-  if (origin && isOriginAllowed(req, origin)) {
-    base['Access-Control-Allow-Origin'] = origin
-  }
-  return base
-}
+  for (const agent of AGENTS) {
+    const started = Date.now()
+    if (deadline - started < MIN_STAGE_MS) {
+      const detail = 'Not started: the run ran out of time.'
+      records.push({ name: agent.name, status: 'skipped', ms: 0, detail })
+      send({ type: 'agent_skipped', agent: agent.role, detail })
+      context[agent.role] = ''
+      continue
+    }
 
-function fail(message: string, status: number, headers: Record<string, string>): Response {
-  return new Response(message, { status, headers })
-}
+    send({ type: 'agent_start', agent: agent.role, maxTokens: agent.maxTokens })
+    const outcome = await runOneStage(agent, query, context, provider, deadline)
+    const ms = Date.now() - started
 
-function sseEvent(data: Record<string, unknown>): string {
-  return `data: ${JSON.stringify(data)}\n\n`
-}
+    if (outcome.ok) {
+      const { stage } = outcome
+      const detail = keyLine(stage.content)
+      context[agent.role] = stage.content
+      records.push({ name: agent.name, status: 'ok', ms, detail, usage: stage.usage, servedModel: stage.servedModel })
+      send({ type: 'agent_chunk', agent: agent.role, content: stage.content })
+      send({
+        type: 'agent_complete',
+        agent: agent.role,
+        ms,
+        detail,
+        finish: stage.finish,
+        reasoningTokens: stage.reasoningTokens,
+        servedModel: stage.servedModel,
+        usage: stage.usage,
+      })
+    } else {
+      context[agent.role] = ''
+      records.push({ name: agent.name, status: 'failed', ms, detail: outcome.message, usage: outcome.usage })
+      send({ type: 'agent_error', agent: agent.role, ms, error: outcome.message })
+    }
+  }
 
-async function readQuery(req: Request): Promise<string> {
-  const raw = await req.text()
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
-    throw new UpstreamError(413, 'Request body too large.')
-  }
-  let body: { query?: unknown }
-  try {
-    body = JSON.parse(raw) as { query?: unknown }
-  } catch {
-    throw new UpstreamError(400, 'Invalid JSON.')
-  }
-  const query = typeof body.query === 'string' ? body.query.trim() : ''
-  if (!query) throw new UpstreamError(400, 'Missing query.')
-  if (query.length > MAX_QUERY_CHARS) {
-    throw new UpstreamError(400, `Query too long — ${MAX_QUERY_CHARS} characters max.`)
-  }
-  return query
+  // Skipped stages were never called, so they are left out of the totals.
+  const called = records.filter(record => record.status !== 'skipped')
+  send({
+    type: 'session_complete',
+    agent: 'synthesizer',
+    result: context.synthesizer ?? '',
+    trace: records.map(toTraceStep),
+    usage: sumUsage(called.map(record => record.usage)),
+    model: called.map(record => record.servedModel).find(Boolean),
+    totalMs: Date.now() - runStart,
+  })
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -435,56 +133,22 @@ export default async (req: Request): Promise<Response> => {
   try {
     query = await readQuery(req)
   } catch (err) {
-    const status = err instanceof UpstreamError ? err.status : 400
-    return fail(err instanceof Error ? err.message : 'Invalid request.', status, headersOut)
+    const status = err instanceof RequestError ? err.status : 400
+    return fail(err instanceof RequestError ? err.message : 'Invalid request.', status, headersOut)
   }
 
-  const provider = getProvider(process.env.OPENROUTER_MODEL || DEFAULT_MODEL)
-  if (!provider) return fail('No server-side AI provider configured', 500, headersOut)
+  const provider = getProvider()
+  if (!provider) return fail('The AI service is not configured on the server.', 500, headersOut)
 
   const encoder = new TextEncoder()
-  const context: AgentContext = {}
-
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: Record<string, unknown>) => controller.enqueue(encoder.encode(sseEvent(data)))
+      const send = (event: StreamEvent) => controller.enqueue(encoder.encode(sseEvent(event)))
 
       try {
-        for (const agent of agents) {
-          send({ type: 'agent_start', agent: agent.role, maxTokens: agent.maxTokens })
-
-          try {
-            const result = await streamAgent(
-              agent,
-              agent.buildUserMessage(query, context),
-              provider,
-              content => send({ type: 'agent_chunk', agent: agent.role, content }),
-            )
-            context[agent.role] = result.content
-            send({
-              type: 'agent_complete',
-              agent: agent.role,
-              tokens: result.tokens,
-              reasoningTokens: result.reasoningTokens,
-              finish: result.finish,
-              servedModel: result.servedModel,
-            })
-          } catch (err) {
-            // One agent failing should not kill the run — the remaining agents
-            // still produce something, and the client gates "complete" on output.
-            const message =
-              err instanceof UpstreamError
-                ? friendlyUpstreamMessage(err.status)
-                : `${agent.name} could not finish. ${err instanceof Error ? err.message : 'Unknown error'}`
-            context[agent.role] = ''
-            send({ type: 'agent_error', agent: agent.role, error: message })
-          }
-        }
-
-        send({ type: 'session_complete', agent: 'synthesizer' })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error'
-        send({ type: 'agent_error', agent: 'system', error: message })
+        await runPipeline(query, provider, send)
+      } catch {
+        send({ type: 'agent_error', agent: 'system', error: 'The run stopped unexpectedly. Try again.' })
       } finally {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()

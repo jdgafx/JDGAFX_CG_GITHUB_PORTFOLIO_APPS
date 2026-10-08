@@ -1,6 +1,33 @@
 export type AgentRole = 'researcher' | 'analyst' | 'critic' | 'synthesizer'
 
-export type AgentStatus = 'idle' | 'thinking' | 'working' | 'complete' | 'stopped' | 'error'
+/** 'stopped' is set in the browser when the visitor ends the run during this stage. */
+export type AgentStatus = 'idle' | 'working' | 'complete' | 'error' | 'skipped' | 'stopped'
+
+/** Usage as the provider reports it. A missing field means the provider did not report it. */
+export interface StageUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  /** USD, from usage.cost in the provider response. */
+  cost?: number
+}
+
+export interface TraceStep {
+  name: string
+  status: 'ok' | 'failed' | 'skipped'
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+export interface RunSummary {
+  result: string
+  trace: TraceStep[]
+  usage: StageUsage
+  model?: string
+  totalMs: number
+}
 
 export interface AgentState {
   id: AgentRole
@@ -8,41 +35,31 @@ export interface AgentState {
   description: string
   status: AgentStatus
   output: string
-  /** Content tokens reported by the server — excludes upstream reasoning tokens. */
-  tokens: number
-  /** Non-zero means the model spent budget thinking; surfaced as a warning. */
-  reasoningTokens: number
-  /** Upstream stop reason: 'stop' when the agent finished, 'length'/'timeout' when cut off. */
-  finish: string | null
-  /** Per-agent token ceiling, used to show real generation progress. */
   maxTokens: number
+  /** One line for the trace: the key output, or why the stage did not finish. */
+  detail: string
   error?: string
-  startTime?: number
-  endTime?: number
+  ms?: number
+  finish: string | null
+  reasoningTokens: number
+  usage?: StageUsage
   servedModel?: string
 }
 
-export interface ResearchSession {
-  id: string
-  query: string
-  status: 'idle' | 'running' | 'complete' | 'error'
-  agents: Record<AgentRole, AgentState>
-  finalReport: string
-  totalTokens: number
-  startTime?: number
-  endTime?: number
-}
-
-export interface StreamEvent {
-  type: 'agent_start' | 'agent_chunk' | 'agent_complete' | 'agent_error' | 'session_complete' | 'provider_started'
-  agent: AgentRole | 'system'
-  content?: string
-  tokens?: number
-  reasoningTokens?: number
-  finish?: string | null
-  maxTokens?: number
-  error?: string
-  provider?: string
-  model?: string
-  servedModel?: string
-}
+/** Every event the server streams. Both sides import this type, so keep it the only copy. */
+export type StreamEvent =
+  | { type: 'agent_start'; agent: AgentRole; maxTokens: number }
+  | { type: 'agent_chunk'; agent: AgentRole; content: string }
+  | {
+      type: 'agent_complete'
+      agent: AgentRole
+      ms: number
+      detail: string
+      finish: string | null
+      reasoningTokens: number
+      servedModel?: string
+      usage: StageUsage
+    }
+  | { type: 'agent_skipped'; agent: AgentRole; detail: string }
+  | { type: 'agent_error'; agent: AgentRole | 'system'; ms?: number; error: string }
+  | ({ type: 'session_complete'; agent: 'synthesizer' } & RunSummary)
