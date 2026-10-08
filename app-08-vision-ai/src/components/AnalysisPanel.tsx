@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { AnalysisMode } from '../lib/api'
+import { MAX_QUESTION_CHARS, type AnalysisMode } from '../lib/api'
 import { MODES } from '../lib/modes'
 
 interface AnalysisPanelProps {
@@ -77,6 +77,7 @@ export default function AnalysisPanel({
               id="question"
               className="ds-input"
               type="text"
+              maxLength={MAX_QUESTION_CHARS}
               value={question}
               disabled={running}
               placeholder="For example: what does the sign say?"

@@ -1,3 +1,5 @@
+import { fileProblem, parseDataUrl, type DataUrlParts } from './image'
+
 export type AnalysisMode = 'describe' | 'analyze' | 'qa' | 'extract'
 export type StepStatus = 'running' | 'ok' | 'failed' | 'skipped'
 
@@ -10,7 +12,7 @@ export interface TraceStep {
   cost?: number
 }
 
-export interface RunUsage {
+interface RunUsage {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
@@ -24,12 +26,12 @@ export interface RunSummary {
   totalMs: number
 }
 
-export type RunOutcome =
+type RunOutcome =
   | { status: 'complete'; result: string; summary: RunSummary }
   | { status: 'failed'; message: string; truncated: boolean; summary: RunSummary }
   | { status: 'cancelled'; summary: RunSummary }
 
-export interface AnalyzeOptions {
+interface AnalyzeOptions {
   file: File
   mode: AnalysisMode
   question?: string
@@ -38,38 +40,20 @@ export interface AnalyzeOptions {
   onText: (text: string) => void
 }
 
-export const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
-export const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-export const ACCEPTED_LABEL = 'JPG, PNG, WebP, or GIF'
+// Longest question the server accepts. The question input enforces the same limit.
+export const MAX_QUESTION_CHARS = 1000
 
-// Generous enough for an 8192-token extraction, short enough that a wedged
-// request cannot hang the UI indefinitely.
+// The server stops every provider call at 25 seconds and always sends a final frame,
+// so this limit only guards a connection that stalls.
 const REQUEST_TIMEOUT_MS = 60_000
 const STEP_STATUSES: readonly string[] = ['running', 'ok', 'failed', 'skipped']
-const TIMED_OUT_MESSAGE = 'The analysis timed out. Try again, or use a smaller image.'
+const TIMED_OUT_MESSAGE = 'The AI provider did not answer in time.'
 const TIMED_OUT_DETAIL = 'No answer within 60 seconds'
 const STOPPED_DETAIL = 'Stopped by you before it finished'
-const DROPPED_MESSAGE =
-  'The connection dropped before the analysis finished. The result above may be incomplete.'
-const NETWORK_MESSAGE = 'Could not reach the analysis service. Check your connection and try again.'
+const DROPPED_MESSAGE = 'The connection dropped before the analysis finished. The result above may be incomplete.'
+const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
 const UNREADABLE_MESSAGE = 'This image could not be read in the browser. Try another file.'
 const NO_RESULT_MESSAGE = 'The vision service returned no usable analysis. Please retry with the same image.'
-
-export function fileProblem(file: File): string | null {
-  if (!ACCEPTED_TYPES.includes(file.type)) {
-    return `Unsupported file type: ${file.type || 'unknown'}. Please use ${ACCEPTED_LABEL}.`
-  }
-  if (file.size > MAX_FILE_SIZE) {
-    const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
-    return `Image is too large (${sizeMB} MB). Maximum size is 4 MB.`
-  }
-  return null
-}
-
-interface Base64Result {
-  data: string
-  mediaType: string
-}
 
 interface StreamFrame {
   stage?: unknown
@@ -84,24 +68,13 @@ interface StreamFrame {
   totalMs?: unknown
 }
 
-export function fileToBase64(file: File): Promise<Base64Result> {
+function fileToBase64(file: File): Promise<DataUrlParts> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
-      const result = reader.result
-      if (typeof result !== 'string') {
-        reject(new Error('Unexpected FileReader result type'))
-        return
-      }
-      const commaIndex = result.indexOf(',')
-      if (commaIndex === -1) {
-        reject(new Error('Malformed data URL'))
-        return
-      }
-      const header = result.slice(0, commaIndex)
-      const data = result.slice(commaIndex + 1)
-      const mediaType = header.match(/data:([^;]+)/)?.[1] ?? 'image/jpeg'
-      resolve({ data, mediaType })
+      const parts = typeof reader.result === 'string' ? parseDataUrl(reader.result) : null
+      if (parts) resolve(parts)
+      else reject(new Error('Malformed data URL'))
     }
     reader.onerror = () => reject(new Error('Failed to read file'))
     reader.readAsDataURL(file)
@@ -188,7 +161,7 @@ async function runRequest(opts: AnalyzeOptions, trace: TraceRecorder, signal: Ab
   const problem = fileProblem(opts.file)
   if (problem) return trace.fail('Request checked', problem, problem)
 
-  let encoded: Base64Result
+  let encoded: DataUrlParts
   try {
     encoded = await fileToBase64(opts.file)
   } catch {

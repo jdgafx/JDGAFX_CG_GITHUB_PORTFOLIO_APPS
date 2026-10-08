@@ -1,26 +1,15 @@
-import { getProvider, type ChatMessage } from '../shared/provider'
+import { getProvider } from '../shared/provider'
+import {
+  MAX_BODY_BYTES,
+  TOO_LARGE_MESSAGE,
+  buildMessages,
+  checkBody,
+  checkedDetail,
+  maxTokensFor,
+} from '../shared/request'
 import { streamVisionRun, type TraceStep } from '../shared/vision-run'
 
 export const config = { path: '/api/ai' }
-
-const ANALYSIS_MODES = ['describe', 'analyze', 'qa', 'extract'] as const
-type AnalysisMode = (typeof ANALYSIS_MODES)[number]
-
-const MODE_LABELS: Record<AnalysisMode, string> = {
-  describe: 'Describe',
-  analyze: 'Analyze',
-  qa: 'Q&A',
-  extract: 'Extract',
-}
-
-interface AnalysisRequest {
-  image: string
-  mediaType: string
-  mode: AnalysisMode
-  question: string
-}
-
-type CheckedBody = { ok: true; value: AnalysisRequest } | { ok: false; status: number; message: string }
 
 const ALLOWED_ORIGINS = [
   'https://jdgafx-app-08-vision-ai.netlify.app',
@@ -28,27 +17,82 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
 ]
 
-const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-
-// Netlify caps a function request body at 6MB; reject past that with a clear message.
-const MAX_BODY_BYTES = 6 * 1024 * 1024
-const TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 4MB.'
-
-const MAX_TOKENS_DEFAULT = 4096
-const MAX_TOKENS_EXTRACT = 8192
+const GENERIC_FAILURE = 'The analysis could not start. Please try again.'
 
 // Best-effort throttle. In-memory, so it only covers a single warm instance.
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
 const rateBuckets = new Map<string, number[]>()
 
-const SYSTEM_PROMPTS: Record<Exclude<AnalysisMode, 'qa'>, string> = {
-  describe:
-    'Provide a rich, detailed description of this image. Cover everything you observe: subjects, setting, mood, colors, composition, lighting, and any interesting or notable details.',
-  analyze:
-    'Provide a thorough technical analysis of this image. Cover: composition and framing, color palette and tones, key objects and their relationships, any visible text, image quality, and overall visual impact.',
-  extract:
-    'Extract all text, numbers, data, tables, and structured information from this image. Present the extracted content clearly and organized, preserving the original structure where possible.',
+type BodyRead = { ok: true; value: unknown } | { ok: false; message: string }
+
+export default async function handler(req: Request): Promise<Response> {
+  const startedAt = Date.now()
+  let origin: string | null = null
+  try {
+    origin = req.headers.get('origin')
+    return await respond(req, origin, startedAt)
+  } catch (err) {
+    console.error('Analysis request failed unexpectedly:', err instanceof Error ? err.name : 'unknown')
+    return jsonError(GENERIC_FAILURE, 500, origin)
+  }
+}
+
+async function respond(req: Request, origin: string | null, startedAt: number): Promise<Response> {
+  if (req.method === 'OPTIONS') {
+    if (!isOriginAllowed(origin)) return new Response(null, { status: 403 })
+    return new Response(null, { status: 204, headers: baseHeaders(origin) })
+  }
+  if (!isOriginAllowed(origin)) return jsonError('Origin not allowed', 403, origin)
+  if (req.method !== 'POST') return jsonError('Method not allowed', 405, origin)
+  if (isRateLimited(clientKey(req))) {
+    return checkFailed('Too many requests. Please wait a minute and try again.', 429, origin, startedAt)
+  }
+
+  const body = await readJsonBody(req)
+  if (!body.ok) return checkFailed(body.message, 400, origin, startedAt)
+  const checked = checkBody(body.value)
+  if (!checked.ok) return checkFailed(checked.message, 400, origin, startedAt)
+
+  const provider = getProvider()
+  if (!provider) {
+    console.error('OPENROUTER_API_KEY is not set')
+    return checkFailed('The AI provider is not configured on the server.', 500, origin, startedAt)
+  }
+
+  const request = checked.value
+  const checkedStep: TraceStep = {
+    name: 'Request checked',
+    status: 'ok',
+    ms: Date.now() - startedAt,
+    detail: checkedDetail(request),
+  }
+  return streamVisionRun({
+    provider,
+    messages: buildMessages(request),
+    maxTokens: maxTokensFor(request.mode),
+    startedAt,
+    checked: checkedStep,
+    headers: baseHeaders(origin),
+  })
+}
+
+// The declared length is checked first, then the bytes actually received, because the header can be missing or wrong.
+async function readJsonBody(req: Request): Promise<BodyRead> {
+  const declared = Number(req.headers.get('content-length') ?? '0')
+  if (declared > MAX_BODY_BYTES) return { ok: false, message: TOO_LARGE_MESSAGE }
+  let bytes: ArrayBuffer
+  try {
+    bytes = await req.arrayBuffer()
+  } catch {
+    return { ok: false, message: 'The request body could not be read.' }
+  }
+  if (bytes.byteLength > MAX_BODY_BYTES) return { ok: false, message: TOO_LARGE_MESSAGE }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) }
+  } catch {
+    return { ok: false, message: 'The request body is not valid JSON.' }
+  }
 }
 
 function baseHeaders(origin: string | null): Record<string, string> {
@@ -109,100 +153,4 @@ function isRateLimited(key: string): boolean {
     }
   }
   return false
-}
-
-function isAnalysisMode(value: string): value is AnalysisMode {
-  return (ANALYSIS_MODES as readonly string[]).includes(value)
-}
-
-function rejected(status: number, message: string): CheckedBody {
-  return { ok: false, status, message }
-}
-
-function checkBody(input: unknown): CheckedBody {
-  if (typeof input !== 'object' || input === null) return rejected(400, 'Request body must be a JSON object.')
-  const { image, mediaType, mode, question } = input as Record<string, unknown>
-  if (typeof image !== 'string' || !image || typeof mode !== 'string') {
-    return rejected(400, 'image and mode are required')
-  }
-  if (!isAnalysisMode(mode)) {
-    return rejected(400, `Unsupported mode. Use one of: ${ANALYSIS_MODES.join(', ')}.`)
-  }
-  if (typeof mediaType !== 'string' || !SUPPORTED_MEDIA_TYPES.includes(mediaType)) {
-    const shown = typeof mediaType === 'string' && mediaType ? mediaType : 'unknown'
-    return rejected(400, `Unsupported image format: ${shown}. Use JPG, PNG, WebP, or GIF.`)
-  }
-  const text = typeof question === 'string' ? question.trim() : ''
-  if (mode === 'qa' && !text) return rejected(400, 'A question is required for Q&A mode.')
-  if (image.length > MAX_BODY_BYTES) return rejected(413, TOO_LARGE_MESSAGE)
-  return { ok: true, value: { image, mediaType, mode, question: text } }
-}
-
-function buildMessages(request: AnalysisRequest): ChatMessage[] {
-  const system =
-    request.mode === 'qa'
-      ? `Answer the following question about this image concisely and accurately: ${request.question}`
-      : SYSTEM_PROMPTS[request.mode]
-  const userText = request.mode === 'qa' ? request.question : 'Please analyze this image as requested.'
-  return [
-    { role: 'system', content: system },
-    {
-      role: 'user',
-      content: [
-        { type: 'image_url', image_url: { url: `data:${request.mediaType};base64,${request.image}` } },
-        { type: 'text', text: userText },
-      ],
-    },
-  ]
-}
-
-export default async function handler(req: Request): Promise<Response> {
-  const startedAt = Date.now()
-  const origin = req.headers.get('origin')
-
-  if (req.method === 'OPTIONS') {
-    if (!isOriginAllowed(origin)) return new Response(null, { status: 403 })
-    return new Response(null, { status: 204, headers: baseHeaders(origin) })
-  }
-
-  if (!isOriginAllowed(origin)) return jsonError('Origin not allowed', 403, origin)
-  if (req.method !== 'POST') return jsonError('Method not allowed', 405, origin)
-  if (isRateLimited(clientKey(req))) {
-    return checkFailed('Too many requests. Please wait a minute and try again.', 429, origin, startedAt)
-  }
-
-  const declaredLength = Number(req.headers.get('content-length') ?? '0')
-  if (declaredLength > MAX_BODY_BYTES) return checkFailed(TOO_LARGE_MESSAGE, 413, origin, startedAt)
-
-  const provider = getProvider()
-  if (!provider) {
-    console.error('OPENROUTER_API_KEY is not set')
-    return checkFailed('The AI provider is not configured on the server.', 500, origin, startedAt)
-  }
-
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return checkFailed('Invalid JSON', 400, origin, startedAt)
-  }
-  const checked = checkBody(body)
-  if (!checked.ok) return checkFailed(checked.message, checked.status, origin, startedAt)
-
-  const request = checked.value
-  const kilobytes = Math.round((request.image.length * 3) / 4 / 1024)
-  const checkedStep: TraceStep = {
-    name: 'Request checked',
-    status: 'ok',
-    ms: Date.now() - startedAt,
-    detail: `${MODE_LABELS[request.mode]}, ${request.mediaType}, about ${kilobytes} KB`,
-  }
-  return streamVisionRun({
-    provider,
-    messages: buildMessages(request),
-    maxTokens: request.mode === 'extract' ? MAX_TOKENS_EXTRACT : MAX_TOKENS_DEFAULT,
-    startedAt,
-    checked: checkedStep,
-    headers: baseHeaders(origin),
-  })
 }

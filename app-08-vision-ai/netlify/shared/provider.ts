@@ -19,11 +19,12 @@ export type ChatMessage =
 export function getProvider(): Provider | null {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return null
-  return { url: process.env.OPENROUTER_URL ?? OPENROUTER_URL, apiKey }
+  return { url: OPENROUTER_URL, apiKey }
 }
 
-// Every call sets max_tokens and turns reasoning off, so a reasoning-capable
-// alias cannot spend the output budget before any visible text is written.
+// Every call sets max_tokens, turns reasoning off so a reasoning-capable alias cannot
+// spend the output budget before any visible text is written, and asks for usage
+// (tokens and cost) on the response so the trace can show what the call cost.
 export function chatBody(messages: ChatMessage[], maxTokens: number): Record<string, unknown> {
   return {
     model: MODEL,
@@ -32,5 +33,6 @@ export function chatBody(messages: ChatMessage[], maxTokens: number): Record<str
     max_tokens: maxTokens,
     reasoning: { enabled: false },
     provider: { require_parameters: true },
+    usage: { include: true },
   }
 }

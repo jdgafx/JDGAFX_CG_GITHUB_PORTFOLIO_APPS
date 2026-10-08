@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
-import { ACCEPTED_LABEL, ACCEPTED_TYPES } from '../lib/api'
+import { ACCEPTED_LABEL, ACCEPTED_TYPES } from '../lib/image'
 
 interface ImageCardProps {
   imageUrl: string

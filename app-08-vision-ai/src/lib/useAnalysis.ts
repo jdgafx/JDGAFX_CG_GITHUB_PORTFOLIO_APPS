@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { analyzeImage, fileProblem } from './api'
+import { analyzeImage } from './api'
 import type { AnalysisMode, RunSummary, TraceStep } from './api'
-import { createThumbnailUrl } from './image'
+import { createThumbnailUrl, fileProblem } from './image'
 
 export type RunStatus = 'idle' | 'running' | 'complete' | 'failed' | 'cancelled'
 
@@ -187,14 +187,15 @@ export function useAnalysis() {
       resultRef.current = outcome.result
       setResult(outcome.result)
       setStatus('complete')
-      void addToGallery({
+      // A history thumbnail that cannot be made must not change the answer shown above.
+      addToGallery({
         file,
         mode,
         question: mode === 'qa' ? asked : '',
         result: outcome.result,
         truncated: false,
         summary: outcome.summary,
-      })
+      }).catch(() => undefined)
       return
     }
     // Partial output stays visible; the notice explains why it stopped.
