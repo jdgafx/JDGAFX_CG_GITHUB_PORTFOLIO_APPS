@@ -1,10 +1,14 @@
 # VoxAI
 
-VoxAI is a voice assistant. You ask a question by voice or by typing, and it answers in text and aloud. The browser records up to 90 seconds of speech by default, Deepgram turns the speech into words, and OpenRouter writes the reply. The browser reads the reply aloud with its own speech synthesis. A text box covers the case with no microphone. Under the conversation, the run card lists each step with its timing, token counts, cost, and the model that answered.
+VoxAI is a voice assistant. You ask a question by voice or by typing, and it answers in text and aloud. The browser records up to 90 seconds of speech by default, Deepgram turns the speech into words, and OpenRouter writes the reply. The browser reads the reply aloud with its own speech synthesis. A text box covers the case with no microphone. The Last run card lists each step with its timing, token counts, cost, and the model that answered.
+
+What this showcases: a voice loop, speech to text on the server, one chat call, and browser speech back, with each step timed.
+
+On a desktop screen the controls sit on the left: record a question, type one, stop the reply, or clear the conversation. The right side shows the three stages, Listen (Deepgram), Think (the chat model), and Speak (the browser voice). Below them are the conversation, with a live waveform while recording, and the Last run card. Under 1000 pixels the two columns stack, with the controls first.
 
 ## What a question does
 
-These are the step names the run card shows, in the order a voice question runs.
+These are the step names the Last run card shows, in the order a voice question runs.
 
 - **prepare audio** (browser): decodes the recording and re-encodes it as 16 kHz mono WAV. A recording with no speech energy is not sent.
 - **audio received** (server): checks the body, the audio field, the format, and the size.
@@ -17,9 +21,9 @@ These are the step names the run card shows, in the order a voice question runs.
 - **parse and validate** (server): refuses an empty reply and a safety-label reply.
 - **speak reply** (browser): reads the reply aloud. It is marked skipped when the browser has no voice installed.
 
-A typed question runs request built, model call, parse and validate, and speak reply. A microphone or recorder failure gets its own run card with one failed step: **start recording** or **record audio**. An unexpected server failure is recorded as **server error**.
+A typed question runs request built, model call, parse and validate, and speak reply. A microphone or recorder failure gets its own Last run card with one failed step: **start recording** or **record audio**. An unexpected server failure is recorded as **server error**.
 
-The run card shows each step's status (Done, Failed, or Skipped), its time, and its token count. It also shows total latency, prompt, completion and total tokens, cost in USD, and the served model. A value the provider did not report shows as "not reported", never as a guess.
+The Last run card shows each step's status (Done, Failed, or Skipped), its time, and its token count. It also shows total latency, prompt, completion and total tokens, cost in USD, and the served model. A value the provider did not report shows as "not reported", never as a guess.
 
 ## Architecture
 

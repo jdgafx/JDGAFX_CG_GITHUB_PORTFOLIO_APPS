@@ -18,65 +18,32 @@
   min-width: 0;
 }
 
-/* The waveform stage is the one visual focus of the page. */
-.vox-stage {
-  height: 120px;
-  overflow: hidden;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
+/* On desktop the controls stay in view while the run scrolls. If they are taller than the window, they scroll inside. */
+@media (min-width: 1000px) {
+  .ds-controls {
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    padding: 4px;
+    margin: -4px;
+  }
 }
 
-.vox-stage canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.vox-controls {
+.vox-control {
   display: grid;
-  justify-items: center;
-  gap: 12px;
-  text-align: center;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
 }
 
-.vox-mic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 96px;
-  height: 96px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  font: inherit;
-  color: var(--ds-accent-text);
-  background: var(--ds-accent);
-  box-shadow: var(--ds-shadow);
-  cursor: pointer;
+/* Record names the action, with its icon beside the words */
+.vox-record {
+  width: 100%;
+  min-height: 52px;
+  font-size: 18px;
 }
 
-.vox-mic:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.vox-mic[data-state="recording"] {
-  background: var(--ds-danger);
-  animation: vox-pulse 1.6s ease-out infinite;
-}
-
-.vox-mic[data-state="speaking"] {
-  background: var(--ds-text-muted);
-}
-
-@keyframes vox-pulse {
-  from {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ds-danger) 45%, transparent);
-  }
-  to {
-    box-shadow: 0 0 0 18px color-mix(in srgb, var(--ds-danger) 0%, transparent);
-  }
+.vox-send {
+  width: 100%;
 }
 
 .vox-spin {
@@ -89,13 +56,33 @@
   }
 }
 
-.vox-status {
-  margin: 0;
-  max-width: 40ch;
-  font-size: 14px;
+.vox-status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 
-/* Conversation */
+.vox-status {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* Conversation: the live waveform sits above the messages */
+.vox-stage {
+  height: 72px;
+  overflow: hidden;
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius);
+}
+
+.vox-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .vox-log {
   display: grid;
   gap: 10px;
@@ -106,7 +93,6 @@
 .vox-message {
   max-width: 85%;
   padding: 10px 12px;
-  border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius);
 }
 
@@ -115,9 +101,10 @@
   overflow-wrap: anywhere;
 }
 
-.vox-message .ds-hint {
+.vox-message__model {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
 }
 
 .vox-message--user {
@@ -130,22 +117,144 @@
   background: var(--ds-surface-2);
 }
 
-/* Typed question */
-.vox-input {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
+/* Hero: the three stages. A node takes its state as a fill, and each edge names what passes along it. */
+.vox-panel-help {
+  margin-top: 12px;
 }
 
-@media (max-width: 480px) {
-  .vox-input {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.vox-chain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(64px, 0.7fr) minmax(0, 1fr) minmax(64px, 0.7fr) minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 520px;
+}
 
-  .vox-input .ds-button {
-    width: 100%;
-  }
+.vox-node {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--ds-surface);
+  border-radius: var(--ds-radius);
+}
+
+.vox-node[data-state="waiting"],
+.vox-node[data-state="notrun"],
+.vox-node[data-state="skipped"] {
+  color: var(--ds-text-muted);
+}
+
+.vox-node[data-state="ok"] {
+  background: var(--ds-accent-soft);
+}
+
+.vox-node[data-state="failed"] {
+  background: var(--ds-danger-soft);
+}
+
+.vox-node[data-state="running"] {
+  color: var(--ds-accent-text);
+  background: var(--ds-accent);
+}
+
+.vox-node[data-state="running"] .vox-node__where {
+  color: inherit;
+}
+
+.vox-node[data-state="running"] .ds-dot {
+  background: var(--ds-accent-text);
+}
+
+.vox-node__name {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.vox-node__where {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.vox-node__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.vox-node__time {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.vox-edge {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--ds-text-muted);
+}
+
+.vox-edge__label {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.vox-edge svg {
+  display: block;
+  width: 100%;
+  max-width: 96px;
+  height: auto;
+  overflow: visible;
+}
+
+.vox-edge line {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.vox-edge path {
+  fill: currentColor;
+}
+
+.vox-edge--taken {
+  color: var(--ds-accent);
+}
+
+.vox-edge--taken line {
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+
+.vox-edge--taken .vox-edge__label {
+  color: var(--ds-text);
+  font-weight: 650;
+}
+
+/* Readout strip: the hint sits on its own line under the figure */
+.ds-strip__hint {
+  display: block;
+}
+
+/* Trace: the bar colour follows the step status as well as its width */
+.vox-trace-body {
+  min-width: 0;
+}
+
+.ds-trace__step[data-status="failed"] .ds-trace__bar {
+  background: var(--ds-danger);
+}
+
+.ds-trace__step[data-status="skipped"] .ds-trace__bar {
+  background: var(--ds-text-muted);
 }
 
 /* Notices and errors */
@@ -160,17 +269,4 @@
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-/* Run trace: the bar colour follows the step status as well as its width */
-.vox-trace-body {
-  min-width: 0;
-}
-
-.ds-trace__step[data-status="failed"] .ds-trace__bar {
-  background: var(--ds-danger);
-}
-
-.ds-trace__step[data-status="skipped"] .ds-trace__bar {
-  background: var(--ds-text-muted);
 }

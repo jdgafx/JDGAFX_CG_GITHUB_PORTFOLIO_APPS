@@ -185,6 +185,9 @@ export function useAssistant() {
       const controller = new AbortController()
       abortRef.current = controller
       setAppState('transcribing')
+      // Publish the run as it goes, so the stages and the trace show each finished step.
+      const publish = () => setLastRun({ id: runId, steps: [...steps] })
+      publish()
       try {
         const prepStarted = Date.now()
         let audio: EncodedAudio
@@ -207,12 +210,15 @@ export function useAssistant() {
           ),
         )
 
+        publish()
+
         let text = ''
         let serverMs = 0
         const sttStarted = Date.now()
         try {
           const result = await transcribe(audio, controller.signal)
           steps.push(...result.trace)
+          publish()
           serverMs = result.totalMs ?? 0
           text = result.text
         } catch (err) {
@@ -235,6 +241,7 @@ export function useAssistant() {
             return
           }
           steps.push(step('browser speech recognition', 'ok', 0, 'Used the browser transcript instead'))
+          publish()
           setNotice('Deepgram was unavailable, so the browser transcript was used.')
           text = fallback
         }
@@ -294,6 +301,7 @@ export function useAssistant() {
       setNotice(null)
       runCounter += 1
       const runId = runCounter
+      setLastRun({ id: runId, steps: [] })
       const controller = new AbortController()
       abortRef.current = controller
       void askAndSpeak(text, runId, [], 0, controller)
@@ -337,6 +345,7 @@ export function useAssistant() {
     analyserRef,
     handleMicClick,
     cancel,
+    stopSpeaking,
     sendText,
     clearConversation,
     dismissError: () => setError(null),

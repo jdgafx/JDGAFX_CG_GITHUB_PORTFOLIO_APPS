@@ -2,7 +2,7 @@
 // devicePixelRatio, and the store is re-synced to the element's box on every draw.
 
 const BAR_COUNT = 48
-const FALLBACK_ACCENT = '#3557d6'
+const FALLBACK_ACCENT = '#0e7c86'
 
 // Resizes the backing store to match the element's CSS box at the current
 // device pixel ratio. Returns false when the canvas has no layout yet.

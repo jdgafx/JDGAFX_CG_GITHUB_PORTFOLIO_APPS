@@ -170,7 +170,7 @@ export function micErrorMessage(err: unknown): string {
   switch (name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'Microphone access blocked — enable it in your browser’s address-bar permissions, then try again.'
+      return 'Microphone access is blocked. Allow it in the site permissions in your browser’s address bar, then try again.'
     case 'NotFoundError':
     case 'OverconstrainedError':
       return 'No microphone found. Use the text input below to chat.'
