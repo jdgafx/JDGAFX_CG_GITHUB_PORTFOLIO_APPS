@@ -28,6 +28,9 @@ jobs:
           - app-08-vision-ai
           - app-09-ai-saas
           - app-10-browser-agent
+          - app-11-langgraph-research-agent
+          - app-12-langgraph-approval-flow
+          - app-13-langgraph-map-reduce
     defaults:
       run:
         working-directory: ${{ matrix.app }}
