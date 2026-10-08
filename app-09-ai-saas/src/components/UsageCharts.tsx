@@ -21,6 +21,8 @@ const featurePoints = toFeaturePoints(mockFeatureUsage)
 const firstDay = dailyPoints[0]
 const lastDay = dailyPoints[dailyPoints.length - 1]
 const topFeature = featurePoints.reduce((top, f) => (f.calls > top.calls ? f : top))
+// 28px per feature row plus the axis, so every category label stays visible.
+const featureChartHeight = Math.max(220, featurePoints.length * 28 + 40)
 
 // Colours come from the tokens, with fallbacks, so the charts follow light and dark mode.
 const tooltipProps = {
@@ -83,11 +85,11 @@ export default function UsageCharts() {
           role="img"
           aria-label={`Calls by feature over ${WINDOW_DAYS} days; ${topFeature.feature} is the largest with ${topFeature.calls.toLocaleString()}`}
         >
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={featureChartHeight}>
             <BarChart data={featurePoints} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tickLine={false} axisLine={false} />
-              <YAxis type="category" dataKey={CHART_KEYS.feature} tickLine={false} axisLine={false} width={80} />
+              <YAxis type="category" dataKey={CHART_KEYS.feature} tickLine={false} axisLine={false} width={80} interval={0} />
               <Tooltip {...tooltipProps} formatter={(v: number) => [v.toLocaleString(), 'Calls']} />
               <Bar dataKey={CHART_KEYS.calls} fill={SIGNAL} radius={[0, 4, 4, 0]} {...CHART_MOTION} />
             </BarChart>

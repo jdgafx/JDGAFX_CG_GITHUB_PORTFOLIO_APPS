@@ -223,7 +223,7 @@
 
 /* Each chart has a fixed height. Series take the shared tokens, with literal fallbacks in the same rule. */
 .hub-chart {
-  height: 220px;
+  min-height: 220px;
   min-width: 0;
 }
 
