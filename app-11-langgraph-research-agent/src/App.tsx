@@ -4,10 +4,13 @@ import { AnswerCard } from './components/AnswerCard'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
 import { QuestionForm } from './components/QuestionForm'
+import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
 import { SAMPLE_QUESTION } from './lib/constants'
 import { INTERRUPTED_MESSAGE, streamResearch } from './lib/research'
-import { applyFrame, emptyRun, startRun, statusText, type RunView } from './lib/runState'
+import { applyFrame, emptyRun, failRun, researchStatus, startRun, stopRun, type RunView } from './lib/runState'
+
+const RETRY_HINT = 'Press Start research to try again.'
 
 type Action =
   | { type: 'start' }
@@ -23,9 +26,9 @@ function reducer(view: RunView, action: Action): RunView {
     case 'frame':
       return applyFrame(view, action.frame)
     case 'fail':
-      return { ...view, phase: 'failed', active: null, error: action.message }
+      return failRun(view, action.message)
     case 'cancel':
-      return { ...view, phase: 'idle', active: null, error: null }
+      return stopRun(view)
     case 'reset':
       return emptyRun()
   }
@@ -80,11 +83,11 @@ export default function App() {
 
   return (
     <div className="ds-app">
-      <Header phase={view.phase} active={view.active} />
+      <Header view={view} />
 
       <main className="ds-main">
-        <div className="ds-grid-2 research-layout">
-          <div className="ds-stack">
+        <div className="ds-bench">
+          <div className="ds-controls">
             <QuestionForm
               question={question}
               running={running}
@@ -93,20 +96,24 @@ export default function App() {
               onCancel={cancel}
               onSample={loadSample}
             />
-            <p className="ds-hint" role="status" aria-live="polite">
-              {statusText(view)}
+            <p className="ds-help" role="status" aria-live="polite">
+              {researchStatus(view)}
             </p>
             {view.error && (
               <div className="ds-notice ds-notice--error" role="alert">
-                {view.error}
+                <p>{view.error}</p>
+                <p>{RETRY_HINT}</p>
               </div>
             )}
-            <AnswerCard result={view.result} phase={view.phase} />
           </div>
-          <GraphView view={view} />
-        </div>
 
-        <RunTrace view={view} />
+          <div className="ds-run">
+            <GraphView view={view} />
+            <ReadoutStrip result={view.result} />
+            <AnswerCard result={view.result} phase={view.phase} />
+            <RunTrace view={view} />
+          </div>
+        </div>
       </main>
 
       <footer className="ds-footer">

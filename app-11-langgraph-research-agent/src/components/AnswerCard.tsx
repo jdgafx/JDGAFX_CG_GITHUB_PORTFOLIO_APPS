@@ -24,12 +24,17 @@ interface AnswerCardProps {
 export function AnswerCard({ result, phase }: AnswerCardProps) {
   if (!result) {
     return (
-      <section className="ds-card" aria-labelledby="answer-title">
-        <div className="ds-card__head">
-          <h2 id="answer-title" className="ds-card__title">Answer</h2>
+      <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
+        <div className="ds-section__head">
+          <h2 id="answer-title" className="ds-section__title">
+            Answer
+          </h2>
+          <p className="ds-section__sub">The draft the critic reviewed. Bracketed numbers match the sources.</p>
         </div>
         <div className="ds-empty">
-          {phase === 'running' ? 'Waiting for the draft and the critic.' : 'Run a question to see a cited answer here.'}
+          {phase === 'running'
+            ? 'Researching. The cited answer appears here when the critic is done.'
+            : 'Start research to see a cited answer, with its sources, here.'}
         </div>
       </section>
     )
@@ -38,10 +43,16 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
   const badge = criticBadge(result)
   const notice = answerNotice(result)
   return (
-    <section className="ds-card" aria-labelledby="answer-title">
-      <div className="ds-card__head">
-        <h2 id="answer-title" className="ds-card__title">Answer</h2>
-        <span className={`ds-badge ${badge.tone}`}>{badge.text}</span>
+    <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
+      <div className="ds-section__head">
+        <h2 id="answer-title" className="ds-section__title">
+          Answer
+        </h2>
+        <p className="ds-section__sub">The draft the critic reviewed. Bracketed numbers match the sources.</p>
+        <span className={`ds-badge answer-verdict ${badge.tone}`}>
+          <span className="ds-dot" aria-hidden="true" />
+          {badge.text}
+        </span>
       </div>
       <div className="ds-stack">
         {notice && <p className="ds-notice">{notice}</p>}
@@ -50,27 +61,27 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
             <p key={i}>{part}</p>
           ))}
         </div>
-
         <div>
           <h3 className="answer-subhead">Sources</h3>
           {result.sources.length === 0 ? (
-            <p className="ds-hint">The answer cites no source.</p>
+            <p className="ds-help">The answer cites no source.</p>
           ) : (
             <ol className="source-list">
               {result.sources.map((source) => (
-                <li key={source.n}>
-                  <span className="source-title">{`[${source.n}] ${source.title}`}</span>
-                  <br />
-                  <a href={source.url} target="_blank" rel="noopener noreferrer">
-                    {source.url}
-                  </a>
+                <li key={source.n} className="source-item">
+                  <span className="source-n">{`[${source.n}]`}</span>
+                  <span>
+                    <a className="source-title" href={source.url} target="_blank" rel="noopener noreferrer">
+                      {source.title}
+                    </a>
+                    <span className="source-url">{source.url}</span>
+                  </span>
                 </li>
               ))}
             </ol>
           )}
         </div>
-
-        <p className="ds-hint">
+        <p className="ds-help">
           {`Read ${plural(result.evidenceCount, 'page')}. Revised ${plural(result.revisions, 'time')}.`}
           {result.critic.notes ? ` Critic notes: ${result.critic.notes}` : ''}
         </p>

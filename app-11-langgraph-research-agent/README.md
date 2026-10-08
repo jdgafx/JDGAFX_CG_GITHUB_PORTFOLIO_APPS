@@ -2,6 +2,8 @@
 
 GraphScout answers a factual question from Wikipedia and lists its sources. You type a question or use the sample. A planner writes search queries. An agent calls two Wikipedia tools in a loop, reads the pages it chooses, and stops when it has enough. A draft writes the answer with numbered citations. A critic accepts the draft or sends it back for up to two revisions. The final answer lists the sources it cites, as links.
 
+**What this showcases:** a LangGraph agent whose tool loop and critic loop are real cycles in a state graph, each bounded and shown as it runs.
+
 A plain chain cannot do this, because the path depends on what the model finds. The agent may need one tool round or four. The critic may accept, or ask for up to two revisions, and each new draft must see the critic's notes. LangGraph.js holds the state, runs the conditional edges and enforces the limits, so each decision is an explicit edge with a label. The run trace shows every visit, which edge was taken and why.
 
 ## The graph
@@ -46,11 +48,12 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 
 ## What the page shows
 
-- **Graph**: the node running now is highlighted, finished nodes are marked, and each taken conditional edge shows its latest label.
-- **Run trace**: one row per node visit, with its status, time in milliseconds, the served model, tokens, and cost.
+- **Controls**: the question field, the sample question, and the Start research and Stop buttons. The line under them says what the run is doing.
+- **Graph**: each box shows its state as a dot and a word, and the running step pulses. Each arrow the run took turns signal colour. The two loops show their bounds before a run and their counts during it.
+- **Run totals**: total time, total tokens, total cost, and the models used.
 - **Cost**: a cost OpenRouter reports is shown as reported. Otherwise the cost is estimated from the list prices and labelled as estimated. A value that cannot be known shows as not reported. If some model calls have no price, the total is labelled partial and says how many.
-- **Answer**: the cited answer, the critic's verdict and notes, and the sources as links. If the draft hit its length limit, the answer carries a notice that it was cut short.
-- **Metrics**: total time, total tokens, total cost, and the models used.
+- **Answer**: the cited answer, the critic's verdict and notes, and the sources as numbered links. If the draft hit its length limit, the answer carries a notice that it was cut short.
+- **Run trace**: one numbered row per node visit, with its status, time in milliseconds, the served model, tokens, and cost.
 
 ## Architecture
 

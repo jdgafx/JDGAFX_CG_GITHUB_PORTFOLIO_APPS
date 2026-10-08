@@ -10,17 +10,17 @@ import type {
 
 export const NODES: NodeName[] = ['plan', 'agent', 'tools', 'draft', 'critic', 'final']
 
-export type Phase = 'idle' | 'running' | 'done' | 'failed'
+export type Phase = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
 
 /** How the graph view draws a node. */
-export type NodeMark = 'idle' | 'active' | 'ok' | 'failed' | 'skipped'
+export type NodeMark = 'idle' | 'active' | 'ok' | 'failed' | 'skipped' | 'stopped'
 
-/** One row of the run trace: a node visit, running or finished. */
+/** One row of the run trace: a node visit that is running, stopped, or finished. */
 export interface TraceEntry {
   key: string
   node: NodeName
   visit: number
-  status: NodeStatus | 'running'
+  status: NodeStatus | 'running' | 'stopped'
   ms?: number
   detail: string
   model?: string
@@ -83,6 +83,11 @@ function withEntry(trace: TraceEntry[], entry: TraceEntry): TraceEntry[] {
   return trace.map((item, i) => (i === index ? entry : item))
 }
 
+/** Ends every visit still running, so no row keeps saying "running" once the run is over. */
+function closeRunning(trace: TraceEntry[], status: 'failed' | 'stopped', detail: string): TraceEntry[] {
+  return trace.map((entry): TraceEntry => (entry.status === 'running' ? { ...entry, status, detail } : entry))
+}
+
 /** Folds one frame into the run view. Pure, so the page and the tests share it. */
 export function applyFrame(view: RunView, frame: Frame): RunView {
   switch (frame.type) {
@@ -114,27 +119,59 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
       return { ...view, taken: { ...view.taken, [`${frame.from}>${frame.to}`]: frame.label } }
     case 'result':
       return { ...view, phase: 'done', active: null, result: frame, error: null }
-    case 'error': {
+    case 'error':
       // A visit still running when the error arrives will never finish, so it is shown as failed.
-      const trace = view.trace.map((entry): TraceEntry =>
-        entry.status === 'running' ? { ...entry, status: 'failed', detail: frame.message } : entry,
-      )
       return {
         ...view,
         phase: 'failed',
         active: null,
         marks: view.active ? { ...view.marks, [view.active]: 'failed' } : view.marks,
-        trace,
+        trace: closeRunning(view.trace, 'failed', frame.message),
         error: frame.message,
       }
-    }
   }
 }
 
-/** The status line for the header badge and the live region. */
+/** The visitor stopped the run. The step in progress is marked stopped, and no row keeps running. */
+export function stopRun(view: RunView): RunView {
+  return {
+    ...view,
+    phase: 'stopped',
+    active: null,
+    marks: view.active ? { ...view.marks, [view.active]: 'stopped' } : view.marks,
+    trace: closeRunning(view.trace, 'stopped', 'Stopped before this step finished.'),
+    error: null,
+  }
+}
+
+/** The answer stream broke, or the server refused the run. The step in progress is marked failed. */
+export function failRun(view: RunView, message: string): RunView {
+  return {
+    ...view,
+    phase: 'failed',
+    active: null,
+    marks: view.active ? { ...view.marks, [view.active]: 'failed' } : view.marks,
+    trace: closeRunning(view.trace, 'failed', message),
+    error: message,
+  }
+}
+
+/** The word for the header badge. */
 export function statusText(view: RunView): string {
   if (view.phase === 'running') return view.active ? `Running: ${view.active}` : 'Starting the run'
   if (view.phase === 'done') return 'Answer ready'
   if (view.phase === 'failed') return 'Failed'
+  if (view.phase === 'stopped') return 'Stopped'
   return 'Ready'
+}
+
+/** The status line under the controls. It uses the button's verb, so the page says what it is doing. */
+export function researchStatus(view: RunView): string {
+  if (view.phase === 'running') {
+    return view.active ? `Research running. Current step: ${view.active}.` : 'Starting research.'
+  }
+  if (view.phase === 'done') return 'Research finished. The cited answer is ready.'
+  if (view.phase === 'failed') return 'Research failed. The message above says why.'
+  if (view.phase === 'stopped') return 'Research stopped. Steps that finished are still in the trace.'
+  return 'Ready. Start research when the question is set.'
 }

@@ -1,7 +1,12 @@
 import type { NodeName } from '../../netlify/shared/events'
+import { MAX_REVISIONS, MAX_TOOL_ROUNDS } from './constants'
+import type { NodeMark, TraceEntry } from './runState'
 
-/** The graph drawn as a column with a loop on each side. Units are SVG user units. */
-export const VIEW = { width: 480, height: 456 }
+/**
+ * The graph as a column of five steps, with the tools loop beside the agent and the revise loop
+ * beside the draft and critic. Units are SVG user units, drawn at 1:1 so the text keeps its size.
+ */
+export const VIEW = { width: 560, height: 492 }
 
 export interface NodeBox {
   x: number
@@ -13,12 +18,12 @@ export interface NodeBox {
 }
 
 export const BOXES: Record<NodeName, NodeBox> = {
-  plan: { x: 150, y: 24, w: 180, h: 48, title: 'plan', sub: 'search queries' },
-  agent: { x: 150, y: 112, w: 180, h: 48, title: 'agent', sub: 'decides on tools' },
-  tools: { x: 350, y: 112, w: 112, h: 48, title: 'tools', sub: 'Wikipedia' },
-  draft: { x: 150, y: 200, w: 180, h: 48, title: 'draft', sub: 'cited answer' },
-  critic: { x: 150, y: 288, w: 180, h: 48, title: 'critic', sub: 'accept or revise' },
-  final: { x: 150, y: 376, w: 180, h: 48, title: 'final', sub: 'sources listed' },
+  plan: { x: 170, y: 24, w: 180, h: 60, title: 'plan', sub: 'search queries' },
+  agent: { x: 170, y: 116, w: 180, h: 60, title: 'agent', sub: 'decides on tools' },
+  tools: { x: 420, y: 116, w: 120, h: 60, title: 'tools', sub: 'Wikipedia' },
+  draft: { x: 170, y: 208, w: 180, h: 60, title: 'draft', sub: 'cited answer' },
+  critic: { x: 170, y: 300, w: 180, h: 60, title: 'critic', sub: 'accept or revise' },
+  final: { x: 170, y: 392, w: 180, h: 60, title: 'final', sub: 'sources listed' },
 }
 
 export interface EdgeShape {
@@ -30,35 +35,77 @@ export interface EdgeShape {
   label?: { x: number; y: number; anchor: 'start' | 'middle' | 'end'; base: string }
 }
 
+/** Every edge drawn. The unconditional edges carry no label, and the run marks them taken from the trace. */
 export const EDGES: EdgeShape[] = [
-  { key: 'plan>agent', path: 'M240 72 V112', conditional: false },
+  { key: 'plan>agent', path: 'M260 84 V116', conditional: false },
   {
     key: 'agent>tools',
-    path: 'M300 112 C300 80 406 80 406 112',
+    path: 'M330 116 C330 80 480 80 480 116',
     conditional: true,
-    label: { x: 353, y: 74, anchor: 'middle', base: 'tools' },
+    label: { x: 362, y: 66, anchor: 'start', base: `tools, up to ${MAX_TOOL_ROUNDS} rounds` },
   },
-  { key: 'tools>agent', path: 'M380 160 C380 186 300 186 300 160', conditional: false },
+  { key: 'tools>agent', path: 'M480 176 C480 212 330 212 330 176', conditional: false },
   {
     key: 'agent>draft',
-    path: 'M240 160 V200',
+    path: 'M260 176 V208',
     conditional: true,
-    label: { x: 232, y: 184, anchor: 'end', base: 'draft' },
+    label: { x: 250, y: 196, anchor: 'end', base: 'draft' },
   },
-  { key: 'draft>critic', path: 'M240 248 V288', conditional: false },
+  { key: 'draft>critic', path: 'M260 268 V300', conditional: false },
   {
     key: 'critic>final',
-    path: 'M240 336 V376',
+    path: 'M260 360 V392',
     conditional: true,
-    label: { x: 232, y: 360, anchor: 'end', base: 'final' },
+    label: { x: 250, y: 380, anchor: 'end', base: 'final' },
   },
   {
     key: 'critic>draft',
-    path: 'M330 300 H440 V224 H330',
+    path: 'M350 330 H392 V238 H350',
     conditional: true,
-    label: { x: 385, y: 262, anchor: 'middle', base: 'revise' },
+    label: { x: 402, y: 286, anchor: 'start', base: `revise, up to ${MAX_REVISIONS} times` },
   },
 ]
 
-/** The arrow from the final node to the end of the run. */
-export const END_PATH = 'M240 424 V440'
+/** The arrow from the final node to the end of the run, and the key the run view uses for it. */
+export const END_KEY = 'final>end'
+export const END_PATH = 'M260 452 V470'
+export const START_LABEL = { x: 260, y: 14 }
+export const END_LABEL = { x: 260, y: 486 }
+
+/** The edges a run has moved along, read from the trace in visit order. A finished final step ends at the end. */
+export function traversedEdges(trace: readonly TraceEntry[]): Set<string> {
+  const keys = new Set<string>()
+  let previous: TraceEntry | undefined
+  for (const entry of trace) {
+    if (previous) keys.add(`${previous.node}>${entry.node}`)
+    previous = entry
+  }
+  if (previous && previous.node === 'final' && previous.status === 'ok') keys.add(END_KEY)
+  return keys
+}
+
+/** The server's label, reworded for the page: "tools (round 2 of 4)" reads "tools, round 2 of 4". */
+export function displayLabel(label: string): string {
+  return label.replace(' (', ', ').replace(/\)$/, '')
+}
+
+/**
+ * The mark a step shows. The marks hold the latest visit, so a step whose last visit was skipped
+ * (its tool budget was spent) still shows finished when an earlier visit finished.
+ */
+export function shownMark(
+  name: NodeName,
+  marks: Readonly<Record<NodeName, NodeMark>>,
+  trace: readonly TraceEntry[],
+): NodeMark {
+  const mark = marks[name]
+  if (mark !== 'skipped') return mark
+  return trace.some((entry) => entry.node === name && entry.status === 'ok') ? 'ok' : 'skipped'
+}
+
+/** The text on a conditional edge: its bound before any decision, then the latest decision taken. */
+export function labelText(edge: EdgeShape, taken: Readonly<Record<string, string>>): string | undefined {
+  if (!edge.label) return undefined
+  const decided = taken[edge.key]
+  return decided === undefined ? edge.label.base : displayLabel(decided)
+}
