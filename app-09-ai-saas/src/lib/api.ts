@@ -7,6 +7,57 @@ const SSE_TERMINATOR = '[DONE]'
 
 let activeController: AbortController | null = null
 
+/** One stage of a run, timed on the server. */
+export interface TraceStep {
+  name: string
+  status: 'ok' | 'failed' | 'skipped'
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+/** Token and cost figures as the provider reported them. A missing field was not reported. */
+export interface RunUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  cost?: number
+}
+
+export interface RunOutcome {
+  result: string
+  trace: TraceStep[]
+  usage: RunUsage | null
+  model: string | null
+  totalMs: number
+}
+
+export interface RunHandlers {
+  onStage: (stage: string) => void
+  onStep: (step: TraceStep) => void
+  onText: (text: string) => void
+  onComplete: (outcome: RunOutcome) => void
+}
+
+/** A run that failed. The message is plain language and safe to show as it is. */
+export class RunError extends Error {
+  readonly totalMs: number | null
+
+  constructor(message: string, totalMs: number | null = null) {
+    super(message)
+    this.name = 'RunError'
+    this.totalMs = totalMs
+  }
+}
+
+interface Frame extends Partial<RunOutcome> {
+  stage?: string
+  step?: TraceStep
+  text?: string
+  error?: string
+}
+
 /** Cancel the in-flight insights stream, if any. Safe to call when nothing is running. */
 export function abortInsights(): void {
   activeController?.abort()
@@ -20,40 +71,47 @@ export function isAbortError(err: unknown): boolean {
 
 /**
  * Handle one SSE line. Returns true once the terminator is seen.
- * Malformed JSON is a truncated frame, not a failure — skip it and keep reading.
+ * Malformed JSON is a truncated frame, not a failure: skip it and keep reading.
  */
-function consumeSseLine(line: string, onChunk: (text: string) => void, onMeta?: (data: Record<string, unknown>) => void): boolean {
+function consumeSseLine(line: string, handlers: RunHandlers): boolean {
   if (!line.startsWith(SSE_PREFIX)) return false
 
   const data = line.slice(SSE_PREFIX.length).trim()
   if (data === SSE_TERMINATOR) return true
 
-  let parsed: { text?: string; error?: string }
+  let frame: Frame
   try {
-    parsed = JSON.parse(data) as typeof parsed
+    frame = JSON.parse(data) as Frame
   } catch (e) {
     if (e instanceof SyntaxError) return false
     throw e
   }
 
-  if (parsed.error) throw new Error(parsed.error)
-  onMeta?.(parsed as Record<string, unknown>)
-  if (parsed.text) onChunk(parsed.text)
+  if (frame.error) throw new RunError(frame.error, frame.totalMs ?? null)
+  if (frame.step) handlers.onStep(frame.step)
+  if (frame.text) handlers.onText(frame.text)
+  if (frame.stage === 'complete') {
+    handlers.onComplete({
+      result: frame.result ?? '',
+      trace: frame.trace ?? [],
+      usage: frame.usage ?? null,
+      model: frame.model ?? null,
+      totalMs: frame.totalMs ?? 0,
+    })
+  } else if (frame.stage) {
+    handlers.onStage(frame.stage)
+  }
   return false
 }
 
 /** Maps an HTTP failure status to copy a user can act on. */
 function messageForStatus(status: number): string {
-  if (status === 429) return 'Too many requests — try again in a minute.'
+  if (status === 429) return 'Too many requests. Try again in a minute.'
   if (status >= 500) return 'The insights service is temporarily unavailable. Please try again.'
   return 'The insights request could not be completed. Please try again.'
 }
 
-export async function getInsights(
-  metrics: SummaryStats,
-  onChunk: (text: string) => void,
-  onMeta?: (data: Record<string, unknown>) => void,
-): Promise<void> {
+export async function getInsights(metrics: SummaryStats, handlers: RunHandlers): Promise<void> {
   // Cancel any in-flight request before starting a new one
   abortInsights()
 
@@ -73,7 +131,7 @@ export async function getInsights(
       if (err instanceof DOMException && err.name === 'AbortError') throw err
       if (isAuthNetworkError(err)) {
         console.error('getInsights: network error', err)
-        throw new Error("Couldn't reach the insights service. Check your connection and try again.")
+        throw new RunError("Couldn't reach the insights service. Check your connection and try again.")
       }
       throw err
     }
@@ -81,11 +139,11 @@ export async function getInsights(
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       console.error(`getInsights: upstream ${response.status}`, text)
-      throw new Error(messageForStatus(response.status))
+      throw new RunError(messageForStatus(response.status))
     }
 
     if (!response.body) {
-      throw new Error('No response body')
+      throw new RunError('The insights service returned no response. Please try again.')
     }
 
     const reader = response.body.getReader()
@@ -102,12 +160,12 @@ export async function getInsights(
         buffer = lines.pop() ?? ''
 
         for (const line of lines) {
-          if (consumeSseLine(line.trim(), onChunk, onMeta)) return
+          if (consumeSseLine(line.trim(), handlers)) return
         }
       }
 
       // Process any trailing frame left in the buffer
-      if (buffer.trim()) consumeSseLine(buffer.trim(), onChunk, onMeta)
+      if (buffer.trim()) consumeSseLine(buffer.trim(), handlers)
     } finally {
       await reader.cancel().catch(() => {})
     }

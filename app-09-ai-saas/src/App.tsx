@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
+import AppShell from './components/AppShell'
 import AuthPage from './components/AuthPage'
 import Dashboard from './components/Dashboard'
 
@@ -85,15 +86,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0a12' }}>
-        <div className="flex flex-col items-center gap-4">
-          <div
-            className="w-10 h-10 rounded-full border-2 border-t-transparent animate-spin"
-            style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }}
-          />
-          <p style={{ color: '#64748b', fontSize: '14px' }}>Loading InsightHub...</p>
-        </div>
-      </div>
+      <AppShell purpose="Checking your session">
+        <p role="status" className="ds-empty">Loading InsightHub…</p>
+      </AppShell>
     )
   }
 

@@ -1,21 +1,61 @@
-import { generationOptions, getProvider } from '../shared/provider'
+import { chatRequest, getProvider, type Provider } from '../shared/provider'
+import {
+  buildPrompt,
+  checkFigures,
+  COMPARISON_DAYS,
+  METRIC_COUNT,
+  type FigureCheck,
+  type Metrics,
+} from '../shared/insights'
 
 export const config = { path: '/api/ai' }
 
-const OPENROUTER_MODEL = process.env.INSIGHTS_MODEL ?? '~anthropic/claude-haiku-latest'
-const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 1024)
+// Fixed in code rather than read from the environment, so no config value can leave a call unbounded.
+const MAX_OUTPUT_TOKENS = 1024
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES ?? 32_000)
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 25_000)
 
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 20)
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000)
 
-/** Number of days the summary metrics cover on each side of the comparison. */
-const COMPARISON_DAYS = 15
+const STAGES = ['Build request', 'Call model', 'Stream answer', 'Check figures', 'Validate output'] as const
+type Stage = (typeof STAGES)[number]
 
-// Browser origins allowed to call this endpoint. Netlify injects URL /
-// DEPLOY_PRIME_URL for the live site and deploy previews, so the deployed host
-// never has to be hardcoded here.
+interface TraceStep {
+  name: string
+  status: 'ok' | 'failed' | 'skipped'
+  ms: number
+  detail: string
+  tokens?: number
+  cost?: number
+}
+
+interface Usage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  cost?: number
+}
+
+interface Answer {
+  text: string
+  chunks: number
+  finishReason: string | null
+  model: string | null
+  usage: Usage | null
+  providerError: number | null
+}
+
+interface ChunkFrame {
+  model?: string
+  usage?: Record<string, unknown>
+  choices?: { delta?: { content?: string }; finish_reason?: string | null }[]
+  error?: { code?: unknown }
+}
+
+type Emit = (frame: object) => void
+
+/** Browser origins allowed to call this endpoint. Netlify injects URL / DEPLOY_PRIME_URL for the live site and deploy previews, so the deployed host never has to be hardcoded here. */
 function allowedOrigins(): string[] {
   const configured = process.env.ALLOWED_ORIGINS?.split(',') ?? []
   return [
@@ -74,51 +114,178 @@ function clientKey(req: Request): string {
   )
 }
 
-// Upstream error bodies carry provider account identifiers -- keep the detail in
-// the function log and hand the browser a status-shaped summary only.
-function upstreamMessage(status: number): string {
-  if (status === 401 || status === 403) return 'Upstream authentication failed (502)'
-  if (status === 402) return 'Model provider credit exhausted (502)'
-  if (status === 429) return 'Model provider is rate limiting requests -- try again shortly (502)'
-  if (status >= 500) return 'Model provider is temporarily unavailable (502)'
-  return `Model provider rejected the request (status ${status})`
-}
-
-interface Metrics {
-  totalApiCalls: number
-  totalTokens: number
-  avgResponseTime: number
-  totalCost: number
-  avgErrorRate: number
-  apiCallsTrend: number
-  tokensTrend: number
-  responseTimeTrend: number
-  costTrend: number
-  errorRateTrend: number
+// Provider bodies name the account and key, so the browser only ever gets these plain sentences.
+function providerFailure(status: number): string {
+  if (status === 401 || status === 403) return 'The AI provider rejected the server credentials. The site owner needs to check the provider key.'
+  if (status === 402) return 'The AI provider is out of credit, so no analysis could be generated.'
+  if (status === 429) return 'The AI provider is rate limiting requests. Try again in a minute.'
+  if (status >= 500) return 'The AI provider failed to respond. Try again shortly.'
+  return `The AI provider rejected the request (HTTP ${status}).`
 }
 
 function num(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-function signed(value: number): string {
-  return `${value > 0 ? '+' : ''}${value}%`
+function pickUsage(raw: Record<string, unknown>): Usage {
+  const usage: Usage = {}
+  for (const key of ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const) {
+    const value = raw[key]
+    if (typeof value === 'number' && Number.isFinite(value)) usage[key] = value
+  }
+  return usage
 }
 
-function buildPrompt(m: Metrics): string {
-  const vs = `vs prev ${COMPARISON_DAYS} days`
-  return `You are an expert SaaS analytics consultant. Analyze these API usage metrics from the last ${COMPARISON_DAYS} days and provide 4-5 concise, actionable insights:
+function describeFigures(check: FigureCheck): string {
+  if (check.checked === 0) return 'No %, ms or $ figures in the answer to check'
+  if (check.unmatched.length === 0) return `${check.checked} of ${check.checked} figures match the snapshot`
+  return `${check.matched} of ${check.checked} figures match the snapshot. Not in the snapshot: ${check.unmatched.join(', ')}`
+}
 
-Metrics:
-- Total API Calls: ${m.totalApiCalls.toLocaleString()} (${signed(m.apiCallsTrend)} ${vs})
-- Total Tokens: ${m.totalTokens.toLocaleString()} (${signed(m.tokensTrend)} ${vs})
-- Average Response Time: ${m.avgResponseTime}ms (${signed(m.responseTimeTrend)} ${vs})
-- Error Rate: ${m.avgErrorRate}% of requests (${signed(m.errorRateTrend)} ${vs})
-- Total Cost: $${m.totalCost} (${signed(m.costTrend)} ${vs})
+/** Reads the provider's SSE stream and forwards each text delta to the browser as it arrives. */
+async function readAnswer(body: ReadableStream<Uint8Array>, emit: Emit): Promise<Answer> {
+  const answer: Answer = { text: '', chunks: 0, finishReason: null, model: null, usage: null, providerError: null }
+  const decoder = new TextDecoder()
 
-Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights. Be direct and actionable. Format as numbered insights with brief explanations.
+  const readLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data: ')) return
+    const data = trimmed.slice(6)
+    if (data === '[DONE]') return
 
-Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
+    let frame: ChunkFrame
+    try {
+      frame = JSON.parse(data) as ChunkFrame
+    } catch (e) {
+      // Partial frames are expected mid-stream; anything else is a bug.
+      if (e instanceof SyntaxError) return
+      throw e
+    }
+
+    if (frame.error) {
+      answer.providerError = Number(frame.error.code) || 502
+      return
+    }
+    if (frame.model) answer.model = frame.model
+    if (frame.usage) answer.usage = pickUsage(frame.usage)
+    const choice = frame.choices?.[0]
+    if (choice?.finish_reason) answer.finishReason = choice.finish_reason
+
+    const delta = choice?.delta?.content
+    if (!delta) return
+    if (answer.chunks === 0) emit({ stage: 'streaming' })
+    answer.chunks += 1
+    answer.text += delta
+    emit({ text: delta })
+  }
+
+  const reader = body.getReader()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach((line) => readLine(line))
+  }
+  readLine(buffer)
+  return answer
+}
+
+/**
+ * One insight run. Each stage is timed here with Date.now() and sent as a step frame as soon as
+ * it finishes, so the browser can draw the trace while the answer streams in.
+ */
+async function runInsight(metrics: Metrics, provider: Provider, upstream: AbortController, emit: Emit): Promise<void> {
+  const started = Date.now()
+  const steps: TraceStep[] = []
+  // A property rather than a let, so the catch block reads the live stage without TypeScript narrowing it.
+  const run = { stage: STAGES[0] as Stage, stageStart: started, timedOut: false }
+
+  const record = (step: TraceStep) => {
+    steps.push(step)
+    emit({ step })
+  }
+  const finishStage = (status: TraceStep['status'], detail: string, extra: Pick<TraceStep, 'tokens' | 'cost'> = {}) => {
+    record({ name: run.stage, status, ms: Date.now() - run.stageStart, detail, ...extra })
+  }
+  const beginStage = (next: Stage) => {
+    run.stage = next
+    run.stageStart = Date.now()
+  }
+  const failRun = (message: string) => {
+    finishStage('failed', message)
+    for (const later of STAGES.slice(STAGES.indexOf(run.stage) + 1)) {
+      record({ name: later, status: 'skipped', ms: 0, detail: 'Not run: an earlier step failed' })
+    }
+    emit({ error: message, totalMs: Date.now() - started })
+  }
+
+  const timer = setTimeout(() => {
+    run.timedOut = true
+    upstream.abort()
+  }, UPSTREAM_TIMEOUT_MS)
+
+  try {
+    const prompt = buildPrompt(metrics)
+    finishStage('ok', `${METRIC_COUNT} figures for the ${COMPARISON_DAYS}-day comparison`)
+
+    beginStage('Call model')
+    const response = await fetch(provider.url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(chatRequest(prompt, MAX_OUTPUT_TOKENS)),
+      signal: upstream.signal,
+    })
+    if (!response.ok) {
+      console.error(`ai function: provider HTTP ${response.status}`, await response.text().catch(() => ''))
+      return failRun(providerFailure(response.status))
+    }
+    finishStage('ok', `${provider.name} accepted the request (HTTP ${response.status})`)
+
+    beginStage('Stream answer')
+    if (!response.body) return failRun('The AI provider returned an empty response. Try again.')
+    const answer = await readAnswer(response.body, emit)
+    if (answer.providerError !== null) return failRun(providerFailure(answer.providerError))
+    finishStage('ok', `${answer.chunks} ${answer.chunks === 1 ? 'chunk' : 'chunks'}, ${answer.text.length} characters`, {
+      tokens: answer.usage?.total_tokens,
+      cost: answer.usage?.cost,
+    })
+
+    beginStage('Check figures')
+    const check = checkFigures(answer.text, metrics)
+    finishStage(check.unmatched.length > 0 ? 'failed' : 'ok', describeFigures(check))
+
+    beginStage('Validate output')
+    if (!answer.text.trim()) return failRun('The model returned no text. Try again.')
+    const cut = answer.finishReason === 'length'
+    finishStage(
+      cut ? 'failed' : 'ok',
+      cut ? `Stopped at the ${MAX_OUTPUT_TOKENS}-token output cap, so the answer may be cut short` : 'Non-empty answer that finished normally',
+    )
+
+    emit({
+      stage: 'complete',
+      result: answer.text,
+      trace: steps,
+      usage: answer.usage,
+      model: answer.model,
+      totalMs: Date.now() - started,
+    })
+  } catch (err) {
+    // The viewer left (Stop or navigation), so there is no one to tell.
+    if (upstream.signal.aborted && !run.timedOut) return
+    console.error('ai function: stream failed', err)
+    const message = run.timedOut
+      ? `The AI provider did not answer within ${UPSTREAM_TIMEOUT_MS / 1000} seconds. Try again.`
+      : run.stage === 'Call model'
+        ? 'Could not reach the AI provider. Try again shortly.'
+        : 'The AI provider connection dropped. Try again shortly.'
+    failRun(message)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export default async function handler(req: Request): Promise<Response> {
@@ -147,7 +314,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Request body is too large' }), { status: 413, headers: jsonHeaders })
   }
 
-  const provider = getProvider(OPENROUTER_MODEL)
+  const provider = getProvider()
   if (!provider) {
     // The missing variable's name is a deployment detail -- log it, don't ship it.
     console.error('ai function: no server-side AI provider is configured')
@@ -172,6 +339,7 @@ export default async function handler(req: Request): Promise<Response> {
     )
   }
 
+  // The request names no model: the client's model field, if any, is ignored.
   const metrics: Metrics = {
     totalApiCalls: num(raw.totalApiCalls),
     totalTokens: num(raw.totalTokens),
@@ -186,93 +354,34 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const encoder = new TextEncoder()
+  const upstream = new AbortController()
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: object) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
-      const finish = () => {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
+      const emit: Emit = (frame) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
+        } catch {
+          // The viewer has gone; cancel() has already stopped the provider call.
+        }
       }
-      const upstream = new AbortController()
-      const timeout = setTimeout(() => upstream.abort(), UPSTREAM_TIMEOUT_MS)
-
       try {
-        send({ stage: 'accepted' })
-        send({ stage: 'provider', served_provider: provider.name, served_model: provider.model })
-        let servedModel = provider.model
-        const response = await fetch(provider.url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: provider.model,
-            ...generationOptions(provider, MAX_OUTPUT_TOKENS),
-            stream: true,
-            messages: [{ role: 'user', content: buildPrompt(metrics) }],
-          }),
-          signal: upstream.signal,
-        })
-
-        if (!response.ok) {
-          console.error(`ai function: upstream ${response.status}`, await response.text().catch(() => ''))
-          send({ error: upstreamMessage(response.status) })
-          finish()
-          return
-        }
-
-        if (!response.body) {
-          console.error('ai function: upstream returned an empty body')
-          send({ error: 'Model provider returned an empty response' })
-          finish()
-          return
-        }
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data) as {
-                model?: string
-                choices?: { delta?: { content?: string } }[]
-              }
-              if (parsed.model) servedModel = parsed.model
-              const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) { send({ stage: 'streaming' }); send({ text: delta }) }
-            } catch (e) {
-              // Partial frames are expected mid-stream; anything else is a bug.
-              if (!(e instanceof SyntaxError)) throw e
-            }
-          }
-        }
-
-        send({ stage: 'complete', served_provider: provider.name, served_model: servedModel })
-        finish()
+        await runInsight(metrics, provider, upstream, emit)
       } catch (err) {
-        console.error('ai function: stream failed', err)
-        send({ error: 'Insight generation failed. Please try again.' })
-        finish()
+        console.error('ai function: run failed', err)
+        emit({ error: 'Insight generation failed. Please try again.' })
       } finally {
-        clearTimeout(timeout)
+        try {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        } catch {
+          // The viewer has gone; nothing left to deliver.
+        }
       }
+    },
+    cancel() {
+      // Stop or navigation: abort the provider call too, so it is not left running to completion.
+      upstream.abort()
     },
   })
 

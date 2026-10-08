@@ -1,216 +1,149 @@
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Sparkles, Square } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import type { SummaryStats } from '../lib/mockData'
-import { getInsights, abortInsights, isAbortError } from '../lib/api'
+import {
+  getInsights,
+  abortInsights,
+  isAbortError,
+  RunError,
+  type RunOutcome,
+  type TraceStep,
+} from '../lib/api'
+import RunTrace from './RunTrace'
+import RunMetrics from './RunMetrics'
 
 interface InsightsPanelProps {
   stats: SummaryStats
 }
 
+type RunStatus = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
+
+const COMPLETE_LABEL = 'Analysis complete'
+
 export default function InsightsPanel({ stats }: InsightsPanelProps) {
-  const [insights, setInsights] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [insightError, setInsightError] = useState('')
-  const [stopped, setStopped] = useState(false)
-  const [stage, setStage] = useState('Ready to inspect the supplied metrics')
-  const [provenance, setProvenance] = useState('')
-  const [durationMs, setDurationMs] = useState<number | null>(null)
+  const [status, setStatus] = useState<RunStatus>('idle')
+  const [stage, setStage] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [steps, setSteps] = useState<TraceStep[]>([])
+  const [outcome, setOutcome] = useState<RunOutcome | null>(null)
+  const [totalMs, setTotalMs] = useState<number | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
+  const completedRef = useRef(false)
 
   // Leaving the dashboard (Exit Demo, sign out, navigation) must not leave a
   // stream running against the function.
   useEffect(() => abortInsights, [])
 
   const handleGenerate = async () => {
-    setInsights('')
-    setInsightError('')
-    setStopped(false)
-    setStreaming(true)
-    setStage('Metrics accepted; validating dashboard snapshot')
-    setProvenance('')
-    setDurationMs(null)
-    const startedAt = Date.now()
+    completedRef.current = false
+    setStatus('running')
+    setStage('Sending the summary figures to the server')
+    setAnswer('')
+    setSteps([])
+    setOutcome(null)
+    setTotalMs(null)
+    setErrorMessage('')
 
     try {
-      await getInsights(stats, (chunk) => {
-        setInsights((prev) => prev + chunk)
-      }, (data) => {
-        if (data.stage === 'provider') setStage('Provider connected; requesting grounded insight')
-        if (data.stage === 'streaming') setStage('Streaming metric interpretation')
-        if (data.stage === 'complete') setStage('Validated complete insight')
-        if (typeof data.served_provider === 'string' && typeof data.served_model === 'string') setProvenance(`${data.served_provider} · ${data.served_model}`)
+      await getInsights(stats, {
+        onStage: () => setStage('Streaming the analysis'),
+        onStep: (step) => {
+          setSteps((prev) => [...prev, step])
+          if (step.name === 'Call model' && step.status === 'ok') setStage('Waiting for the first words')
+        },
+        onText: (chunk) => setAnswer((prev) => prev + chunk),
+        onComplete: (run) => {
+          completedRef.current = true
+          setOutcome(run)
+          setAnswer(run.result)
+          setTotalMs(run.totalMs)
+          setStatus('done')
+        },
       })
+      if (!completedRef.current) {
+        setStatus('failed')
+        setErrorMessage('The run ended before the analysis finished. Try again.')
+      }
     } catch (err) {
       if (isAbortError(err)) {
-        setStopped(true)
-      } else {
-        setInsightError(err instanceof Error ? err.message : 'Failed to generate insights')
-        setStage('Failed; retry the insight request')
+        setStatus('stopped')
+        return
       }
-    } finally {
-      setStreaming(false)
-      setDurationMs(Date.now() - startedAt)
+      setStatus('failed')
+      setErrorMessage(err instanceof Error ? err.message : 'The analysis could not be completed. Try again.')
+      setTotalMs(err instanceof RunError ? err.totalMs : null)
     }
   }
 
-  const handleStop = () => {
-    abortInsights()
-    setStopped(true)
+  const handleStop = () => abortInsights()
+
+  const running = status === 'running'
+  const anyFailedStep = steps.some((step) => step.status === 'failed')
+  const statusLine: Record<RunStatus, string> = {
+    idle: '',
+    running: stage,
+    done: anyFailedStep ? `${COMPLETE_LABEL}, with a failed check. See the trace.` : COMPLETE_LABEL,
+    failed: 'Run failed',
+    stopped: 'Stopped',
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: 0.35 }}
-      style={{
-        background: 'rgba(15, 15, 30, 0.8)',
-        border: '1px solid rgba(99, 102, 241, 0.15)',
-        borderRadius: '16px',
-        padding: '24px',
-      }}
-    >
-      <div className="flex items-center justify-between gap-3 mb-6" style={{ flexWrap: 'wrap' }}>
-        <div className="flex items-center gap-2">
-          <Sparkles size={16} style={{ color: '#6366f1' }} aria-hidden="true" />
-          <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#e2e8f0' }}>
-            AI-Generated Insights
-          </h3>
-          {streaming && (
-            <span
-              title="The configured model provider is streaming its analysis of the metrics above"
-              style={{
-                fontSize: '11px',
-                color: '#818cf8',
-                padding: '2px 8px',
-                background: 'rgba(99,102,241,0.1)',
-                borderRadius: '10px',
-                animation: 'pulse 1.5s infinite',
-              }}
-            >
-              Streaming...
+    <>
+      <section className="ds-card" aria-labelledby="analysis-title">
+        <div className="ds-card__head">
+          <h2 id="analysis-title" className="ds-card__title">AI analysis</h2>
+          <span className="ds-hint">Sends only the summary figures above. The server calls the model.</span>
+        </div>
+
+        <div className="ds-row">
+          <button type="button" className="ds-button ds-button--primary" onClick={handleGenerate} disabled={running}>
+            {running ? 'Generating…' : answer ? 'Regenerate' : 'Generate insights'}
+          </button>
+          {running && (
+            <button type="button" className="ds-button" onClick={handleStop}>
+              Stop
+            </button>
+          )}
+          {running && (
+            <span className="ds-badge ds-badge--accent">
+              <span className="hub-live-dot" aria-hidden="true" />
+              Running
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {streaming && (
-            <button
-              onClick={handleStop}
-              title="Stop the stream and keep the text generated so far"
-              className="flex items-center gap-2"
-              style={{
-                padding: '9px 14px',
-                background: 'rgba(248,113,113,0.1)',
-                border: '1px solid rgba(248,113,113,0.3)',
-                borderRadius: '8px',
-                color: '#f87171',
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <Square size={12} />
-              Stop
-            </button>
-          )}
-          <button
-            onClick={handleGenerate}
-            disabled={streaming}
-            title={
-              streaming
-                ? 'Generation already in progress'
-                : 'Send the summary metrics to the configured model provider and stream back an analysis'
-            }
-            className="flex items-center gap-2"
-            style={{
-              padding: '9px 16px',
-              background: streaming
-                ? 'rgba(99,102,241,0.3)'
-                : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              fontSize: '13px',
-              fontWeight: 500,
-              cursor: streaming ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-            }}
-          >
-            <Sparkles size={14} />
-            {streaming ? 'Generating...' : insights ? 'Regenerate' : 'Generate Insights'}
-          </button>
-        </div>
-      </div>
+        <p role="status" className="ds-hint">{statusLine[status]}</p>
 
-      <div role="status" style={{ marginBottom: '16px', fontSize: '12px', color: '#94a3b8' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}><span>{stage}</span>{durationMs !== null && <span>{(durationMs / 1000).toFixed(1)}s</span>}</div>
-        {provenance && <div style={{ marginTop: '4px', color: '#a5b4fc' }}>{provenance}</div>}
-      </div>
+        {status === 'failed' && (
+          <div role="alert" className="ds-notice ds-notice--error">
+            {errorMessage}
+          </div>
+        )}
 
-      {insightError && (
-        <div
-          role="alert"
-          style={{
-            padding: '12px 16px',
-            background: 'rgba(248,113,113,0.08)',
-            border: '1px solid rgba(248,113,113,0.2)',
-            borderRadius: '10px',
-            color: '#f87171',
-            fontSize: '14px',
-          }}
-        >
-          {insightError}
-        </div>
-      )}
+        {status === 'idle' && (
+          <div className="ds-empty">
+            Generate insights to send the figures above to the model. The answer streams in here, and the run
+            trace shows each step.
+          </div>
+        )}
 
-      {!insights && !streaming && !insightError && (
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#a5b4fc' }}>
-          <Sparkles size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} aria-hidden="true" />
-          <p style={{ fontSize: '14px' }}>
-            Click "Generate Insights" to get a streamed analysis from the configured model provider
+        {(answer !== '' || running) && (
+          <div className="hub-answer" aria-live="polite" aria-busy={running}>
+            {answer || 'Waiting for the first words…'}
+          </div>
+        )}
+
+        {status === 'stopped' && (
+          <p role="status" className="ds-hint">
+            Stopped. The text above is what arrived before you stopped.
           </p>
-        </div>
-      )}
+        )}
+      </section>
 
-      {(insights || streaming) && (
-        <div
-          aria-live="polite"
-          style={{
-            padding: '20px',
-            background: 'rgba(99,102,241,0.04)',
-            border: '1px solid rgba(99,102,241,0.1)',
-            borderRadius: '12px',
-            fontSize: '14px',
-            lineHeight: '1.8',
-            color: '#cbd5e1',
-            fontFamily: 'var(--font-sans)',
-            whiteSpace: 'pre-wrap',
-            minHeight: '120px',
-          }}
-        >
-          {insights}
-          {streaming && (
-            <span
-              style={{
-                display: 'inline-block',
-                width: '2px',
-                height: '16px',
-                background: '#6366f1',
-                marginLeft: '2px',
-                verticalAlign: 'middle',
-                animation: 'pulse 1s infinite',
-              }}
-            />
-          )}
-        </div>
-      )}
+      {steps.length > 0 && <RunTrace steps={steps} />}
 
-      {stopped && !streaming && (
-        <p role="status" style={{ marginTop: '12px', fontSize: '12px', color: '#a5b4fc' }}>
-          Generation stopped. Click Generate Insights to start again.
-        </p>
+      {(status === 'done' || status === 'failed') && (
+        <RunMetrics totalMs={totalMs} usage={outcome?.usage ?? null} model={outcome?.model ?? null} />
       )}
-    </motion.div>
+    </>
   )
 }
