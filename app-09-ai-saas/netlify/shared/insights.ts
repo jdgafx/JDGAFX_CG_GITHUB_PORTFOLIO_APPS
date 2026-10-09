@@ -22,6 +22,38 @@ function signed(value: number): string {
   return `${value > 0 ? '+' : ''}${value}%`
 }
 
+
+/** Whole-number count with thousands separators, for derived per-call figures. */
+function count(value: number): string {
+  return Math.round(value).toLocaleString('en-US')
+}
+
+/** Compares two growth rates in words, so the model cannot get the direction wrong. */
+function compareGrowth(a: string, aTrend: number, b: string, bTrend: number, ratio: string): string {
+  if (aTrend === bTrend) return `${a} and ${b} grew at the same rate, so ${ratio} is unchanged.`
+  const faster = aTrend > bTrend ? a : b
+  const slower = aTrend > bTrend ? b : a
+  const direction = aTrend > bTrend ? 'rose' : 'fell'
+  return `${faster} grew faster than ${slower}, so ${ratio} ${direction} slightly.`
+}
+
+/**
+ * Per-call figures now and before, and which rate grew faster. Counts only: the figure check reads
+ * percentages, milliseconds and dollars, and these lines add none.
+ */
+export function derivedNotes(m: Metrics): string {
+  const callsBefore = m.totalApiCalls / (1 + m.apiCallsTrend / 100)
+  const tokensBefore = m.totalTokens / (1 + m.tokensTrend / 100)
+  const perCallNow = m.totalApiCalls > 0 ? m.totalTokens / m.totalApiCalls : 0
+  const perCallBefore = callsBefore > 0 ? tokensBefore / callsBefore : 0
+  return [
+    `- Tokens per call: about ${count(perCallNow)} now, about ${count(perCallBefore)} before.`,
+    `- ${compareGrowth('Tokens', m.tokensTrend, 'API calls', m.apiCallsTrend, 'tokens per call')}`,
+    `- ${compareGrowth('Cost', m.costTrend, 'tokens', m.tokensTrend, 'cost per token')}`,
+    `- ${compareGrowth('Cost', m.costTrend, 'API calls', m.apiCallsTrend, 'cost per call')}`,
+  ].join('\n')
+}
+
 /** The prompt. It names only the snapshot figures and asks for plain text. */
 export function buildPrompt(m: Metrics): string {
   const vs = `vs prev ${COMPARISON_DAYS} days`
@@ -34,7 +66,10 @@ Metrics:
 - Error Rate: ${m.avgErrorRate}% of requests (${signed(m.errorRateTrend)} ${vs})
 - Total Cost: $${m.totalCost} (${signed(m.costTrend)} ${vs})
 
-Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights, using only the figures listed above. Do not invent percentages, rankings, or per-endpoint or per-customer numbers. Be direct and actionable. Format as numbered insights with brief explanations.
+Derived comparisons (already worked out from the figures above; state them exactly like this and do not quote them as new percentages):
+${derivedNotes(m)}
+
+Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights, using only the figures listed above. Do not invent percentages, rankings, or per-endpoint or per-customer numbers. When you compare two growth rates, say which one is larger using the derived comparisons. Be direct and actionable. Format as numbered insights with brief explanations.
 
 Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
 }

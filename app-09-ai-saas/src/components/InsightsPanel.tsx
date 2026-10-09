@@ -11,9 +11,9 @@ interface InsightsPanelProps {
 const COUNT_LINE = /^(\d+) of (\d+) (figures? match(?:es)? the snapshot[\s\S]*)$/
 
 const CHECK_WORD: Record<TraceStep['status'], string> = {
-  ok: 'Check passed',
-  failed: 'Check failed',
-  skipped: 'Check not run',
+  ok: 'Figures match',
+  failed: 'Figures differ',
+  skipped: 'Figures not checked',
 }
 
 /** One line of plain words for the status region. The verb matches the button that starts the run. */

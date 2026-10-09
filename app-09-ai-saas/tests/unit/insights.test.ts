@@ -180,3 +180,20 @@ describe('parseInsightRequest', () => {
     expect(parseInsightRequest({ metrics: { ...SNAPSHOT, responseTimeTrend: -40 } }).ok).toBe(true)
   })
 })
+
+import { derivedNotes } from '../../netlify/shared/insights'
+
+describe('derivedNotes', () => {
+  const metrics = {
+    totalApiCalls: 24656, totalTokens: 42400000, avgResponseTime: 253, totalCost: 57.35, avgErrorRate: 1.67,
+    apiCallsTrend: 30.9, tokensTrend: 29.6, responseTimeTrend: -13.5, costTrend: 6.3, errorRateTrend: -28.3,
+  }
+
+  it('says which rate grew faster and gives tokens per call as counts', () => {
+    const notes = derivedNotes(metrics)
+    expect(notes).toContain('Tokens per call: about 1,720 now, about 1,737 before.')
+    expect(notes).toContain('API calls grew faster than Tokens, so tokens per call fell slightly.')
+    expect(notes).toContain('tokens grew faster than Cost, so cost per token fell slightly.')
+    expect(notes).not.toMatch(/\d%|\$\d|\d ms/)
+  })
+})
