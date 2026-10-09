@@ -4,6 +4,7 @@ import {
   decidedWithoutModel,
   extractClaims,
   admitsGap,
+  reversedPair,
   unstatedSuperlatives,
   isAboutResearch,
   findQuote,
@@ -328,6 +329,43 @@ describe('names in plural form', () => {
   it('accepts "Suns" when the source says "the Sun"', () => {
     const source: Source = { n: 2, title: 'Black hole', site: 'Wikipedia', url: '', snippet: 'Masses of millions to billions of times the mass of the Sun. Almost every large galaxy has one at its center.' }
     expect(preCheck('Black holes have masses of millions to billions of Suns, at the centers of large galaxies [2].', [2], [source]).missingNames).toEqual([])
+  })
+})
+
+describe('a supported verdict the sources reverse', () => {
+  const eiffel: Source = { n: 3, title: 'Eiffel Tower', site: 'Wikipedia', url: '', snippet: 'It was the tallest man-made structure in the world until the Chrysler Building in New York City was finished in 1930.' }
+  const quote = 'It was the tallest man-made structure in the world until the Chrysler Building in New York City was finished in 1930.'
+  const settle = (text: string, reason: string) =>
+    settleClaim({ id: 1, block: 0, piece: 0, text, cites: [3] }, preCheck(text, [3], [eiffel]), [eiffel], { id: 1, verdict: 'supported', source: 3, quote, reason })
+
+  it('lowers the reversed Eiffel claim to unsupported and names both words', () => {
+    const claim = settle('The Eiffel Tower became the tallest man-made structure in the world after the Chrysler Building was finished [3].', 'Source says the tower was tallest until the Chrysler Building.')
+    expect(claim.verdict).toBe('unsupported')
+    expect(claim.reason).toContain('The claim says "after" where the source says "until".')
+    expect(claim.quote).toBeUndefined()
+  })
+
+  it('keeps the consistent claim supported', () => {
+    expect(settle('The Eiffel Tower was the tallest man-made structure in the world until the Chrysler Building was finished [3].', 'Source states it.').verdict).toBe('supported')
+  })
+
+  it.each([
+    ['It closed after the war ended', 'It closed after the war ended in 1945.'],
+    ['Work began before the winter storms', 'Work began before the winter storms hit.'],
+    ['It lies north of Paris', 'The town lies north of Paris.'],
+    ['Sales rose to 5 million', 'Sales rose to 5 million units.'],
+    ['It was built after 1887 and before 1889', 'Built after 1887, finished before 1889.'],
+    ['The fire caused the collapse', 'The collapse was caused by the fire.'],
+  ])('leaves a consistent sentence alone: %s', (claim, evidence) => {
+    expect(reversedPair(claim, evidence)).toBeNull()
+  })
+
+  it.each([
+    ['Sales rose to 5 million', 'Sales fell to 5 million units.'],
+    ['The town lies north of Paris', 'The town lies south of Paris.'],
+    ['The fire caused the collapse', 'The fire was caused by the collapse.'],
+  ])('catches a reversal: %s', (claim, evidence) => {
+    expect(reversedPair(claim, evidence)).not.toBeNull()
   })
 })
 
