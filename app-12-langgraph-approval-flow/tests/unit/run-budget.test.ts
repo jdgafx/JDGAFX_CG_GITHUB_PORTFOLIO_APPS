@@ -21,10 +21,9 @@ function hangingCheckpoints(hang: 'get' | 'set'): KeyValueStore {
   const memory = createMemoryStore()
   const isCheckpoint = (key: string) => key.startsWith('thread/')
   return {
+    ...memory,
     get: (key) => (hang === 'get' && isCheckpoint(key) ? NEVER() : memory.get(key)),
     set: (key, value) => (hang === 'set' && isCheckpoint(key) ? NEVER() : memory.set(key, value)),
-    delete: (key) => memory.delete(key),
-    list: (prefix) => memory.list(prefix),
   }
 }
 

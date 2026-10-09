@@ -4,7 +4,8 @@ import { issueFrom } from '../shared/issue-input'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
 import { startRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
-import { activeStore } from '../shared/store'
+import { claimThread, releaseClaim } from '../shared/claim'
+import { activeStore, guardStore } from '../shared/store'
 import { newThreadId } from '../shared/thread-index'
 
 /** POST /api/start: triages one GitHub issue and streams its frames until the review pause or the result. */
@@ -31,12 +32,14 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = activeStore()
     const threadId = newThreadId()
+    // The new thread is claimed while its first run goes, so opening it meanwhile reads as running, not failed.
+    const claim = await claimThread(guardStore(store, budget.signal), threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
       startRun(
         { store, storage: kind, chat, now: () => new Date() },
         { issue: issue.value, threadId, budget: signal, remainingMs: () => budget.remainingMs(), send },
-      ),
+      ).finally(() => (claim ? releaseClaim(guardStore(store), claim) : undefined)),
     )
   } catch (err) {
     console.error('GraphGate: unexpected start error', err)

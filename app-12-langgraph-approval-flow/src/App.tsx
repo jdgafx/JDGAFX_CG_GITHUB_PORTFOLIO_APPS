@@ -204,7 +204,13 @@ export default function App() {
     try {
       const view = await fetchThread(threadId)
       setRun(runFromView(view))
-      setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
+      if (view.status === 'running') {
+        // Another run holds the thread, so there is no card to answer and nothing to retry yet.
+        setPhase('idle')
+        setRequestError('This thread is being handled right now. Refresh the list in a moment to see the result.')
+      } else {
+        setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
+      }
       setOpened((count) => count + 1)
     } catch (err) {
       if (!isAbortError(err)) setRequestError(failureText(err))

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMemoryStore, guardStore, STORE_SLOW, StoreTimeoutError, type KeyValueStore } from '../../netlify/shared/store'
 
 const NEVER = () => new Promise<never>(() => {})
-const hanging: KeyValueStore = { get: NEVER, set: NEVER, delete: NEVER, list: NEVER }
+const hanging: KeyValueStore = { get: NEVER, set: NEVER, delete: NEVER, list: NEVER, setIfNew: NEVER, getTagged: NEVER, setIfMatch: NEVER }
 
 describe('guardStore', () => {
   it('passes results through unchanged', async () => {
@@ -12,6 +12,21 @@ describe('guardStore', () => {
     expect(await store.list('thread/a/')).toEqual(['thread/a/latest'])
     await store.delete('thread/a/latest')
     expect(await store.get('thread/a/latest')).toBeUndefined()
+  })
+
+  it('passes the conditional writes through, and bounds them like every other call', async () => {
+    const store = guardStore(createMemoryStore())
+    expect(await store.setIfNew('claims/a', 'one')).toBe(true)
+    expect(await store.setIfNew('claims/a', 'two')).toBe(false)
+    const tagged = await store.getTagged('claims/a')
+    expect(tagged?.value).toBe('one')
+    expect(await store.setIfMatch('claims/a', 'three', 'stale')).toBe(false)
+    expect(await store.setIfMatch('claims/a', 'three', tagged?.etag ?? '')).toBe(true)
+    expect(await store.get('claims/a')).toBe('three')
+
+    await expect(guardStore(hanging, undefined, 5).setIfNew('k', 'v')).rejects.toBeInstanceOf(StoreTimeoutError)
+    await expect(guardStore(hanging, undefined, 5).getTagged('k')).rejects.toBeInstanceOf(StoreTimeoutError)
+    await expect(guardStore(hanging, undefined, 5).setIfMatch('k', 'v', 't')).rejects.toBeInstanceOf(StoreTimeoutError)
   })
 
   it('keeps a store error as the store raised it', async () => {

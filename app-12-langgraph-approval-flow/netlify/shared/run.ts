@@ -9,7 +9,8 @@ import type { GraphValues } from './state'
 import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from './store'
 import { RUN_BUDGET_MS } from './budget'
 import { buildResult, threadViewOf } from './thread-view'
-import { getThreadEntry, titleFor, writeThread } from './thread-index'
+import { describeError, getThreadEntry, titleFor, writeThread } from './thread-index'
+import { isClaimed } from './claim'
 
 const GENERIC_RUN_FAILURE = 'The run stopped before it finished. The thread is marked failed.'
 
@@ -66,12 +67,6 @@ function userMessage(err: unknown, node: NodeName | null): string {
 type ThreadMeta = Pick<ThreadEntry, 'title' | 'repo' | 'number'>
 
 /**
- * Threads this function instance is running or resuming. A second resume or retry for one of them is
- * refused. This guards one instance only, not a race across instances.
- */
-export const inFlight = new Set<string>()
-
-/**
  * Writes the thread's own summary. These calls have the per-call limit but not the run budget, so a run
  * that used its whole budget can still record how it ended. A failed write is tried once more and then
  * logged with the thread id. The list may then be stale, but the checkpoint is not, and opening the
@@ -89,7 +84,7 @@ async function recordThread(
       await writeThread(guardStore(deps.store), { id: threadId, ...meta, status, priority }, deps.now())
       return
     } catch (err) {
-      console.error(`GraphGate: could not write the summary of thread ${threadId} (attempt ${attempt})`, err)
+      console.error(`GraphGate: could not write the summary of thread ${threadId} (attempt ${attempt}): ${describeError(err)}`)
     }
   }
 }
@@ -112,15 +107,6 @@ interface Attempt {
  * each. The caller always sends [DONE] after this returns.
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
-  inFlight.add(attempt.threadId)
-  try {
-    await driveStream(deps, attempt)
-  } finally {
-    inFlight.delete(attempt.threadId)
-  }
-}
-
-async function driveStream(deps: RunDeps, attempt: Attempt): Promise<void> {
   const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs)
   const began = Date.now()
   let firstNodeMs: number | null = null
@@ -226,38 +212,61 @@ async function snapshotOf(
   }
 }
 
-/** A thread as its checkpoint shows it, with the summary corrected to match. */
+/** A thread as its checkpoint shows it. */
 export interface InspectedThread {
   entry: ThreadEntry
   values: GraphValues
-  /** The pending review, when the checkpoint is stopped at the interrupt. */
+  /** The pending review, when the checkpoint is stopped at the interrupt and no run holds the thread. */
   proposal: ReviewPayload | null
   /** True when the checkpoint still has a step to run. */
   hasNext: boolean
+  /** True when another run holds the claim on this thread right now. Its checkpoint is mid-step, not failed. */
+  running: boolean
 }
 
 /**
  * The thread's state from its checkpoint, which is the source of truth: interrupted means awaiting a
  * maintainer, finished with a reply means completed, and anything else means the run stopped and failed.
- * The summary only supplies the title and the priority. When it is missing or says something else, it is
- * rewritten, so a lost or late summary write cannot strand a thread. Null when the thread has no issue in
+ * The priority of a finished thread comes from its result, which is null for a rejection. The summary only
+ * supplies the title. When it is missing or says something else, it is rewritten, so a lost or late
+ * summary write cannot strand a thread.
+ *
+ * While a run holds the claim on the thread, the checkpoint is mid-step and looks like a failure, so the
+ * thread is reported as running: no status is guessed and no summary is written. A caller that holds the
+ * claim itself passes `ownsClaim` to see the checkpoint as it is. Null when the thread has no issue in
  * its checkpoint: it never existed, or was saved by the refund version.
  */
-export async function inspectThread(deps: RunDeps, threadId: string, signal?: AbortSignal): Promise<InspectedThread | null> {
-  const stored = await getThreadEntry(guardStore(deps.store, signal), threadId)
+export async function inspectThread(
+  deps: RunDeps,
+  threadId: string,
+  signal?: AbortSignal,
+  options: { ownsClaim?: boolean } = {},
+): Promise<InspectedThread | null> {
+  const store = guardStore(deps.store, signal)
+  const stored = await getThreadEntry(store, threadId)
   const { values, proposal, hasNext } = await snapshotOf(deps, threadId, signal)
   if (!values.issue) return null
+  const meta = { title: stored?.title ?? titleFor(values.issue), repo: values.issue.repo, number: values.issue.number }
+  if (!options.ownsClaim && (await isClaimed(store, threadId, deps.now().getTime()))) {
+    const entry: ThreadEntry = stored ?? { id: threadId, ...meta, status: 'failed', priority: null, updatedAt: deps.now().toISOString() }
+    return { entry, values, proposal: null, hasNext, running: true }
+  }
   const status: ThreadStatus = proposal
     ? 'awaiting_approval'
     : !hasNext && values.triage !== null && values.replyDraft !== null
       ? 'completed'
       : 'failed'
-  const priority = proposal ? proposal.triage.priority : (stored?.priority ?? values.triage?.priority ?? null)
-  const meta = { title: stored?.title ?? titleFor(values.issue), repo: values.issue.repo, number: values.issue.number }
-  if (stored?.status === status && stored.priority === priority) return { entry: stored, values, proposal, hasNext }
+  const priority: Priority | null = proposal
+    ? proposal.triage.priority
+    : status === 'completed'
+      ? buildResult(threadId, values).priority
+      : stored
+        ? stored.priority
+        : (values.triage?.priority ?? null)
+  if (stored?.status === status && stored.priority === priority) return { entry: stored, values, proposal, hasNext, running: false }
   const entry: ThreadEntry = { id: threadId, ...meta, status, priority, updatedAt: deps.now().toISOString() }
   await recordThread(deps, threadId, meta, status, priority)
-  return { entry, values, proposal, hasNext }
+  return { entry, values, proposal, hasNext, running: false }
 }
 
 /** One thread for the read endpoint, or null when its checkpoint has no issue. */
@@ -270,6 +279,7 @@ export async function readThread(deps: RunDeps, threadId: string, signal?: Abort
     storage: deps.storage,
     values: info.values,
     proposal: info.proposal,
-    retryable: info.entry.status === 'failed' && info.hasNext,
+    running: info.running,
+    retryable: !info.running && info.entry.status === 'failed' && info.hasNext,
   })
 }

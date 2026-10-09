@@ -141,3 +141,143 @@ describe('the checkpoint is the source of truth, not the summary', () => {
     vi.restoreAllMocks()
   })
 })
+
+describe('the priority of a finished thread comes from its result', () => {
+  it('keeps "not set" for a rejected thread when it is opened, and does not rewrite its summary', async () => {
+    const id = await startOne(4000, 'ip-cons-h')
+    vi.stubGlobal('fetch', providerFetch())
+    await readFrames(await resume(postJson('/api/resume', { threadId: id, decision: { action: 'reject' } }, 'ip-cons-h')))
+    expect((await listed('ip-cons-h')).find((row) => row.id === id)).toMatchObject({ status: 'completed', priority: null })
+    const store = await rawStore()
+    const before = await store.get(`threads/${id}`)
+
+    const body = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-h'))).json()) as Record<string, unknown>
+
+    expect(body).toMatchObject({ status: 'completed', result: { outcome: 'rejected', priority: null } })
+    expect(await store.get(`threads/${id}`)).toBe(before)
+    expect((await listed('ip-cons-h')).find((row) => row.id === id)?.priority).toBeNull()
+  })
+
+  it('repairs a stale priority to the one in the result, for an edited thread', async () => {
+    const id = await startOne(4100, 'ip-cons-i')
+    vi.stubGlobal('fetch', providerFetch())
+    await readFrames(
+      await resume(postJson('/api/resume', { threadId: id, decision: { action: 'edit', labels: ['bug'], priority: 'low' } }, 'ip-cons-i')),
+    )
+    const store = await rawStore()
+    await store.set(`threads/${id}`, JSON.stringify({ id, title: 'x', repo: 'acme/widgets', number: 4100, status: 'completed', updatedAt: '2026-10-09T00:00:00.000Z', priority: 'high' }))
+
+    await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-i'))
+
+    expect((await listed('ip-cons-i')).find((row) => row.id === id)).toMatchObject({ status: 'completed', priority: 'low' })
+  })
+})
+
+/** A fetch that holds every model call until `release` is called, then answers as the fake provider does. */
+function gatedProvider(options: Parameters<typeof providerFetch>[0] = {}) {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const inner = providerFetch(options)
+  const stub = vi.fn(async (url: string, init: RequestInit) => {
+    await gate
+    return inner(url, init)
+  })
+  return { stub, release: () => release() }
+}
+
+describe('two people on one thread (the claim works across function instances)', () => {
+  it('lets exactly one of two simultaneous answers run, and tells the other so', async () => {
+    const id = await startOne(5000, 'ip-cons-j')
+    vi.stubGlobal('fetch', providerFetch())
+
+    const [approve, reject] = await Promise.all([
+      resume(postJson('/api/resume', { threadId: id, decision: { action: 'approve' } }, 'ip-cons-j1')),
+      resume(postJson('/api/resume', { threadId: id, decision: { action: 'reject' } }, 'ip-cons-j2')),
+    ])
+
+    const statuses = [approve.status, reject.status].sort()
+    expect(statuses).toEqual([200, 409])
+    const loser = approve.status === 409 ? approve : reject
+    expect(await loser.json()).toEqual({ success: false, error: 'Another maintainer is handling this thread. Refresh to see the result.' })
+    const winner = approve.status === 200 ? approve : reject
+    const result = find(await readFrames(winner), 'result')?.result as { outcome: string }
+    const final = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-j'))).json()) as { result: { outcome: string } }
+    expect(final.result.outcome).toBe(result.outcome)
+  })
+
+  it('refuses a retry while the thread is being resumed, and shows the thread as running, not failed', async () => {
+    const id = await startOne(5100, 'ip-cons-k')
+    const gated = gatedProvider()
+    vi.stubGlobal('fetch', gated.stub)
+    const store = await rawStore()
+    const summaryBefore = await store.get(`threads/${id}`)
+
+    const running = await resume(postJson('/api/resume', { threadId: id, decision: { action: 'edit', labels: ['bug'], priority: 'low' } }, 'ip-cons-k1'))
+    for (let i = 0; i < 4; i += 1) {
+      const retry = (await import('../../netlify/functions/retry')).default
+      const refused = await retry(postJson('/api/retry', { threadId: id }, `ip-cons-k${i + 2}`))
+      expect(refused.status).toBe(409)
+      expect(await refused.json()).toEqual({ success: false, error: 'Another maintainer is handling this thread. Refresh to see the result.' })
+    }
+    const second = await resume(postJson('/api/resume', { threadId: id, decision: { action: 'reject' } }, 'ip-cons-k7'))
+    expect(second.status).toBe(409)
+
+    const during = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-k8'))).json()) as Record<string, unknown>
+    expect(during).toMatchObject({ status: 'running', retryable: false, proposal: null, result: null })
+    // Opening it while it runs wrote nothing: the summary is exactly what the run left.
+    expect(await store.get(`threads/${id}`)).toBe(summaryBefore)
+
+    gated.release()
+    const frames = await readFrames(running)
+    expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'edited', priority: 'low' })
+    // One resume, so one reply call: the refused retries and the second answer called no model.
+    expect(gated.stub).toHaveBeenCalledTimes(1)
+
+    const after = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-k9'))).json()) as Record<string, unknown>
+    expect(after).toMatchObject({ status: 'completed', retryable: false })
+    // The claim is released, so a late answer now gets the ordinary message.
+    const late = await resume(postJson('/api/resume', { threadId: id, decision: { action: 'approve' } }, 'ip-cons-k10'))
+    expect(await late.json()).toEqual({ success: false, error: 'This thread is not awaiting approval.' })
+  })
+
+  it('shows a thread as running, not failed, while its first run is still going', async () => {
+    const gated = gatedProvider({ classification: CLASSIFIED_BUG })
+    vi.stubGlobal('fetch', gated.stub)
+    const response = await start(postJson('/api/start', { issue: issue({ number: 5200, title: BUG.title, body: BUG.body, labels: BUG.labels }) }, 'ip-cons-l'))
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+    const first = new TextDecoder().decode((await reader.read()).value)
+    const id = (JSON.parse(first.split('\n\n')[0].slice(6)) as { threadId: string }).threadId
+    // Give the graph a moment to save its input checkpoint, which it does before the first model call.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const during = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-l1'))).json()) as Record<string, unknown>
+    expect(during).toMatchObject({ status: 'running', retryable: false })
+
+    gated.release()
+    for (;;) if ((await reader.read()).done) break
+    const after = (await (await thread(getFrom(`/api/thread?id=${id}`, 'ip-cons-l2'))).json()) as Record<string, unknown>
+    expect(after).toMatchObject({ status: 'awaiting_approval', retryable: false })
+  })
+
+  it('takes over a claim left by a run that crashed, once it is older than a minute', async () => {
+    const id = await startOne(5300, 'ip-cons-m')
+    const store = await rawStore()
+    await store.set(`claims/${id}`, JSON.stringify({ owner: 'crashed-run', at: Date.now() - 61_000 }))
+    vi.stubGlobal('fetch', providerFetch())
+
+    const frames = await readFrames(await resume(postJson('/api/resume', { threadId: id, decision: { action: 'approve' } }, 'ip-cons-m')))
+
+    expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'approved' })
+    expect(await store.get(`claims/${id}`)).toBeNull()
+  })
+
+  it('releases the claim when a request is refused after it, so the thread is not locked for a minute', async () => {
+    const id = await startOne(5400, 'ip-cons-n')
+    const store = await rawStore()
+    const refused = await resume(postJson('/api/resume', { threadId: id, decision: { action: 'edit', labels: ['not-offered'], priority: 'low' } }, 'ip-cons-n'))
+    expect(refused.status).toBe(400)
+    expect(await store.get(`claims/${id}`)).toBeNull()
+  })
+})

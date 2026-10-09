@@ -3,13 +3,28 @@ import { getStore } from '@netlify/blobs'
 /** The Netlify Blobs store that holds checkpoints and the thread index. */
 export const CHECKPOINT_STORE_NAME = 'graphgate-checkpoints'
 
-/** The four operations the checkpointer and the thread index need. Values are UTF-8 text. */
+/** A value and the tag that changes whenever it is written. A conditional write names the tag it read. */
+export interface Tagged {
+  value: string
+  etag: string
+}
+
+/**
+ * The operations the checkpointer, the thread summaries and the thread claims need. Values are UTF-8 text.
+ * The two conditional writes are atomic in the store: of several writers racing for one condition, one wins.
+ */
 export interface KeyValueStore {
   get(key: string): Promise<string | undefined>
   set(key: string, value: string): Promise<void>
   delete(key: string): Promise<void>
   /** Every key that starts with `prefix`. */
   list(prefix: string): Promise<string[]>
+  /** Writes only when the key does not exist. True when this call wrote it. */
+  setIfNew(key: string, value: string): Promise<boolean>
+  /** The value with its tag, or undefined when the key does not exist. */
+  getTagged(key: string): Promise<Tagged | undefined>
+  /** Writes only when the key still has the tag that was read. True when this call wrote it. */
+  setIfMatch(key: string, value: string, etag: string): Promise<boolean>
 }
 
 export type StorageKind = 'blobs' | 'memory'
@@ -46,18 +61,40 @@ export function storeTimeoutOf(err: unknown): StoreTimeoutError | undefined {
 /** An in-memory store. Tests use it, and local development uses it when Blobs is not configured. */
 export function createMemoryStore(): KeyValueStore {
   const values = new Map<string, string>()
+  const tags = new Map<string, number>()
+  let counter = 0
+  const write = (key: string, value: string) => {
+    values.set(key, value)
+    counter += 1
+    tags.set(key, counter)
+  }
   return {
     async get(key) {
       return values.get(key)
     },
     async set(key, value) {
-      values.set(key, value)
+      write(key, value)
     },
     async delete(key) {
       values.delete(key)
+      tags.delete(key)
     },
     async list(prefix) {
       return [...values.keys()].filter((key) => key.startsWith(prefix))
+    },
+    async setIfNew(key, value) {
+      if (values.has(key)) return false
+      write(key, value)
+      return true
+    },
+    async getTagged(key) {
+      const value = values.get(key)
+      return value === undefined ? undefined : { value, etag: String(tags.get(key)) }
+    },
+    async setIfMatch(key, value, etag) {
+      if (!values.has(key) || String(tags.get(key)) !== etag) return false
+      write(key, value)
+      return true
     },
   }
 }
@@ -82,6 +119,16 @@ function blobsStore(): KeyValueStore {
         for (const blob of page.blobs) keys.push(blob.key)
       }
       return keys
+    },
+    async setIfNew(key, value) {
+      return (await blobs.set(key, value, { onlyIfNew: true })).modified
+    },
+    async getTagged(key) {
+      const found = await blobs.getWithMetadata(key, { type: 'text' })
+      return found && found.etag ? { value: found.data, etag: found.etag } : undefined
+    },
+    async setIfMatch(key, value, etag) {
+      return (await blobs.set(key, value, { onlyIfMatch: etag })).modified
     },
   }
 }
@@ -139,5 +186,8 @@ export function guardStore(store: KeyValueStore, signal?: AbortSignal, timeoutMs
     set: (key, value) => bounded(store.set(key, value), signal, timeoutMs),
     delete: (key) => bounded(store.delete(key), signal, timeoutMs),
     list: (prefix) => bounded(store.list(prefix), signal, timeoutMs),
+    setIfNew: (key, value) => bounded(store.setIfNew(key, value), signal, timeoutMs),
+    getTagged: (key) => bounded(store.getTagged(key), signal, timeoutMs),
+    setIfMatch: (key, value, etag) => bounded(store.setIfMatch(key, value, etag), signal, timeoutMs),
   }
 }

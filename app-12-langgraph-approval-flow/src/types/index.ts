@@ -188,7 +188,8 @@ export interface ThreadView {
   title: string
   /** The issue the thread was started with, so opening a thread can show it again. */
   issue: IssueInput
-  status: ThreadStatus
+  /** running: another run holds the thread right now, so nothing else can be done with it yet. */
+  status: ThreadStatus | 'running'
   updatedAt: string
   storage: 'blobs' | 'memory'
   proposal: ReviewPayload | null

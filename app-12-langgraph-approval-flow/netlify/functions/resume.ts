@@ -11,18 +11,20 @@ import {
   threadIdFrom,
 } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
-import { inFlight, inspectThread, resumeRun } from '../shared/run'
+import { claimThread, releaseClaim, THREAD_BUSY, type Claim } from '../shared/claim'
+import { inspectThread, resumeRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
-import { activeStore, storeTimeoutOf } from '../shared/store'
+import { activeStore, guardStore, storeTimeoutOf } from '../shared/store'
 import { labelsProblem } from '../shared/triage'
 
 const NOT_AWAITING = 'This thread is not awaiting approval.'
-const BUSY = 'This thread is already being resumed. Wait for that run to finish.'
 
 /** POST /api/resume: continues a paused thread from its checkpoint with the maintainer's answer. */
 export default async (req: Request): Promise<Response> => {
   const budget = new RunBudget()
   let streaming = false
+  let claim: Claim | null = null
+  const { store: rawStore } = activeStore()
   try {
     const refused = checkRequest(req, 'POST')
     if (refused) return refused
@@ -44,10 +46,12 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = activeStore()
     const deps = { store, storage: kind, chat, now: () => new Date() }
-    if (inFlight.has(threadId)) return fail(BUSY, 409)
+    // One run at a time per thread, across function instances. The loser is told so, and nothing runs twice.
+    claim = await claimThread(guardStore(store, budget.signal), threadId)
+    if (!claim) return fail(THREAD_BUSY, 409)
     // The read before the stream shares the request budget, so a hung store cannot hold the request. The
     // checkpoint decides whether the thread is waiting, whatever its summary says.
-    const info = await inspectThread(deps, threadId, budget.signal)
+    const info = await inspectThread(deps, threadId, budget.signal, { ownsClaim: true })
     if (!info?.proposal) return fail(NOT_AWAITING, 409)
     const review = info.proposal
     const entry = info.entry
@@ -59,10 +63,10 @@ export default async (req: Request): Promise<Response> => {
       if (problem) return fail(problem, 400)
     }
 
-    inFlight.add(threadId)
     streaming = true
+    const held = claim
     return streamResponse(budget, (send, signal) =>
-      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => inFlight.delete(threadId)),
+      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => releaseClaim(guardStore(store), held)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)
@@ -70,7 +74,10 @@ export default async (req: Request): Promise<Response> => {
     console.error('GraphGate: unexpected resume error', err)
     return fail(SERVER_ERROR, 500)
   } finally {
-    if (!streaming) budget.dispose()
+    if (!streaming) {
+      budget.dispose()
+      if (claim) await releaseClaim(guardStore(rawStore), claim)
+    }
   }
 }
 

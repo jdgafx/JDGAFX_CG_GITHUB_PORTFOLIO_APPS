@@ -1,6 +1,6 @@
-import { checkRequest, fail, json, SERVER_ERROR } from '../shared/guard'
+import { checkRequest, fail, json } from '../shared/guard'
 import { activeStore, guardStore, MEMORY_NOTICE, storeTimeoutOf } from '../shared/store'
-import { listThreads } from '../shared/thread-index'
+import { describeError, listThreads } from '../shared/thread-index'
 
 /** GET /api/threads: the thread list, newest first, and where checkpoints are kept. */
 export default async (req: Request): Promise<Response> => {
@@ -8,13 +8,14 @@ export default async (req: Request): Promise<Response> => {
     const refused = checkRequest(req, 'GET')
     if (refused) return refused
     const { store, kind } = activeStore()
-    const threads = await listThreads(guardStore(store))
+    // Reads of many summaries get a shorter limit each, so one slow read cannot hold the whole list.
+    const threads = await listThreads(guardStore(store, undefined, 4_000))
     return json({ success: true, storage: kind, notice: kind === 'memory' ? MEMORY_NOTICE : null, threads }, 200)
   } catch (err) {
     const timeout = storeTimeoutOf(err)
     if (timeout) return fail(timeout.message, 503)
-    console.error('GraphGate: unexpected threads error', err)
-    return fail(SERVER_ERROR, 500)
+    console.error(`GraphGate: could not read the thread list: ${describeError(err)}`)
+    return fail('The saved threads could not be read right now. Try again in a moment.', 503)
   }
 }
 

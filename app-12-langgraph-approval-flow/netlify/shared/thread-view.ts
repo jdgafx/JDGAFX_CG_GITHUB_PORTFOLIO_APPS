@@ -59,23 +59,25 @@ interface ThreadViewInput {
   values: GraphValues
   proposal: ReviewPayload | null
   retryable: boolean
+  running?: boolean
 }
 
 /** What GET /api/thread returns: status, the pending proposal while waiting, and the result when done. */
 export function threadViewOf(input: ThreadViewInput): ThreadView {
   const { entry, values } = input
   const issue: IssueInput = requireValue(values.issue, 'issue')
-  const finished = entry.status === 'completed' && values.triage !== null && values.replyDraft !== null
+  const running = input.running === true
+  const finished = !running && entry.status === 'completed' && values.triage !== null && values.replyDraft !== null
   return {
     threadId: input.threadId,
     title: entry.title,
     issue,
-    status: entry.status,
+    status: running ? 'running' : entry.status,
     updatedAt: entry.updatedAt,
     storage: input.storage,
-    proposal: entry.status === 'awaiting_approval' ? input.proposal : null,
+    proposal: !running && entry.status === 'awaiting_approval' ? input.proposal : null,
     retryable: input.retryable,
-    trace: padTrace(values.trace, entry.status),
+    trace: padTrace(values.trace, running ? 'awaiting_approval' : entry.status),
     result: finished ? buildResult(input.threadId, values) : null,
   }
 }

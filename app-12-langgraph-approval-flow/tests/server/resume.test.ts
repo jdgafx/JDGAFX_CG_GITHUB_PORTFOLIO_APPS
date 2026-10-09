@@ -179,7 +179,7 @@ describe('POST /api/resume', () => {
     expect(second.status).toBe(409)
     expect(await second.json()).toEqual({
       success: false,
-      error: 'This thread is already being resumed. Wait for that run to finish.',
+      error: 'Another maintainer is handling this thread. Refresh to see the result.',
     })
     release()
     const frames = await readFrames(first)

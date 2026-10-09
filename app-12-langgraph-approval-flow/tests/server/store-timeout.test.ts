@@ -11,7 +11,10 @@ vi.mock('@netlify/blobs', () => ({
       if (shared.hang !== null && key.startsWith(shared.hang)) return new Promise<string>(() => {})
       return Promise.resolve(shared.values.get(key) ?? null)
     },
-    set: async (key: string, value: string) => {
+    getWithMetadata: async (key: string) =>
+      shared.values.has(key) ? { data: shared.values.get(key) as string, etag: 'tag', metadata: {} } : null,
+    set: async (key: string, value: string, options: { onlyIfNew?: boolean } = {}) => {
+      if (options.onlyIfNew && shared.values.has(key)) return { modified: false }
       shared.values.set(key, value)
       return { modified: true }
     },
@@ -31,13 +34,18 @@ import resume from '../../netlify/functions/resume'
 import threads from '../../netlify/functions/threads'
 import { STORE_SLOW } from '../../netlify/shared/store'
 
-const WAITING_ID = '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b'
+const WAITING_ID = '019c6a1b-2c3d-7e8f-8b7a-1c2d3e4f5a6b'
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   process.env.OPENROUTER_API_KEY = 'test-only-placeholder'
   shared.hang = null
   shared.values.clear()
+  // A summary under a time-ordered key, and the legacy index document with the same thread.
+  shared.values.set(
+    `threads/${WAITING_ID}`,
+    JSON.stringify({ id: WAITING_ID, title: 'acme/widgets #202: Router crashes', repo: 'acme/widgets', number: 202, status: 'awaiting_approval', updatedAt: '2026-10-09T12:00:00.000Z', priority: 'high' }),
+  )
   shared.values.set(
     'threads/index',
     JSON.stringify([
