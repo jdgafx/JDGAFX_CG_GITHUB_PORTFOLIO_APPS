@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerDirection, applyQuestionDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
+import { answerDirection, applyQuestionDirection, askedDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan } from '../../src/types'
 
 const HEADERS = ['date', 'product', 'revenue', 'units', 'region']
@@ -173,6 +173,26 @@ describe('answerDirection', () => {
   })
 })
 
+describe('askedDirection', () => {
+  it('reads the end of the ranking a question names', () => {
+    for (const q of ['Which region had the fewest earthquakes?', 'Coldest night?', 'the LEAST rain', 'smallest total', 'bottom 3 products']) {
+      expect(askedDirection(q)).toBe('lowest')
+    }
+    for (const q of ['Which region had the most earthquakes?', 'Highest revenue', 'top product', 'warmest month']) {
+      expect(askedDirection(q)).toBe('highest')
+    }
+  })
+
+  it('returns null for no ranking word, both ends, thresholds and aggregate names', () => {
+    expect(askedDirection('Average max temperature by month')).toBeNull()
+    expect(askedDirection('Lowest min temperature by month')).toBe('lowest')
+    expect(askedDirection('Minimum temperature by month')).toBeNull()
+    expect(askedDirection('most and least popular product')).toBeNull()
+    expect(askedDirection('regions with at least 5 earthquakes')).toBeNull()
+    expect(askedDirection('quakes of at most magnitude 3')).toBeNull()
+  })
+})
+
 describe('applyQuestionDirection', () => {
   const plan: QueryPlan = {
     chartType: 'bar',
@@ -181,18 +201,35 @@ describe('applyQuestionDirection', () => {
     title: 'T',
     explanation: '',
   }
+  const FEWEST = 'Which region had the fewest earthquakes?'
 
-  it('sorts the measure ascending when the question asks for the lowest and the plan has no sort', () => {
-    for (const question of ['Which region had the fewest earthquakes?', 'Coldest night?', 'the LEAST rain', 'smallest total']) {
-      expect(applyQuestionDirection(plan, question).sortBy).toEqual({ field: 'id', dir: 'asc' })
-    }
+  it('sorts the measure ascending when the plan has no sort', () => {
+    expect(applyQuestionDirection(plan, FEWEST).sortBy).toEqual({ field: 'id', dir: 'asc' })
   })
 
-  it('leaves a plan that already sorts, a time-series chart and an ordinary question alone', () => {
-    const sorted = { ...plan, sortBy: { field: 'region', dir: 'desc' as const } }
-    expect(applyQuestionDirection(sorted, 'fewest earthquakes')).toBe(sorted)
+  it('replaces a sort by the group name', () => {
+    const byName = { ...plan, sortBy: { field: 'region', dir: 'asc' as const } }
+    expect(applyQuestionDirection(byName, FEWEST).sortBy).toEqual({ field: 'id', dir: 'asc' })
+    expect(applyQuestionDirection(byName, 'Which region had the most earthquakes?').sortBy).toEqual({ field: 'id', dir: 'desc' })
+  })
+
+  it('lets the question win over the model sorting the measure the other way', () => {
+    const descending = { ...plan, sortBy: { field: 'id', dir: 'desc' as const } }
+    expect(applyQuestionDirection(descending, FEWEST).sortBy).toEqual({ field: 'id', dir: 'asc' })
+    const ascending = { ...plan, sortBy: { field: 'id', dir: 'asc' as const } }
+    expect(applyQuestionDirection(ascending, 'Which region had the most earthquakes?').sortBy).toEqual({ field: 'id', dir: 'desc' })
+  })
+
+  it('keeps a plan that already ranks the measure the way the question asks', () => {
+    const ascending = { ...plan, sortBy: { field: 'count', dir: 'asc' as const } }
+    expect(applyQuestionDirection(ascending, FEWEST)).toBe(ascending)
+  })
+
+  it('leaves line and area charts and questions without a ranking alone', () => {
     const line = { ...plan, chartType: 'line' as const }
     expect(applyQuestionDirection(line, 'lowest by month')).toBe(line)
-    expect(applyQuestionDirection(plan, 'Which region had the most earthquakes?')).toBe(plan)
+    const byName = { ...plan, sortBy: { field: 'region', dir: 'asc' as const } }
+    expect(applyQuestionDirection(byName, 'Count by region')).toBe(byName)
+    expect(applyQuestionDirection(plan, 'Which region had the most earthquakes at least 5 km deep?').sortBy).toEqual({ field: 'id', dir: 'desc' })
   })
 })

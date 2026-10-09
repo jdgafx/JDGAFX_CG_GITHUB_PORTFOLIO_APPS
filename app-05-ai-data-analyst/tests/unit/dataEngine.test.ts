@@ -3,6 +3,8 @@ import { executeQuery, parseCSV, parseNumericCell, topGroup } from '../../src/li
 import { parseEarthquakeCsv, parseWeatherCsv } from '../../src/lib/liveData/parse'
 import { OPEN_METEO_EXCERPT } from '../fixtures/openMeteo'
 import { USGS_EXCERPT } from '../fixtures/usgs'
+import { answerSentence } from '../../src/lib/answer'
+import { answerDirection, applyQuestionDirection } from '../../src/lib/queryPlan'
 import { MAX_ROWS } from '../../src/lib/limits'
 import type { AggregateFn, QueryPlan } from '../../src/types'
 
@@ -109,6 +111,25 @@ describe('executeQuery on a recorded USGS excerpt', () => {
       value: 1,
       tied: ['Georgia', 'Puerto Rico', 'Japan', 'Washington', 'Oregon', 'Japan region'],
     })
+  })
+
+  it('states the lowest group for a fewest question even when the model sorted by region name', () => {
+    const asked = 'Which region had the fewest earthquakes?'
+    for (const sortBy of [{ field: 'region', dir: 'asc' as const }, { field: 'count', dir: 'desc' as const }, undefined]) {
+      const raw = planWith('region', 'count', { sortBy })
+      const plan = applyQuestionDirection(raw, asked)
+      const result = executeQuery(quakes, plan)
+      const sentence = answerSentence(plan, topGroup(result, answerDirection(plan)))
+      expect(sentence).toBe('6 groups tie for the lowest number of rows: 1 (Georgia, Puerto Rico, Japan, and 3 more).')
+    }
+  })
+
+  it('computes the headline from the measure, not from the first row of the table', () => {
+    const byName = planWith('region', 'count', { sortBy: { field: 'region', dir: 'asc' } })
+    const result = executeQuery(quakes, byName)
+    expect(result.labels[0]).toBe('Alaska')
+    expect(topGroup(result, 'highest')).toMatchObject({ label: 'Alaska', value: 3 })
+    expect(topGroup(result, 'lowest')).toMatchObject({ label: 'Georgia', value: 1 })
   })
 
   it('sorts by the group label when asked', () => {

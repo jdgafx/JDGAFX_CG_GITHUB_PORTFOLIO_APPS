@@ -226,13 +226,17 @@ export default function App() {
       const engine: EngineResult = executeQuery(parsedData, plan)
       const direction = answerDirection(plan)
       const top = topGroup(engine, direction)
+      const reranked = plan !== validation.plan
+        ? ` Sorted by ${plan.aggregate.field}, ${direction} first, to match the question.`
+        : ''
       const runStep: RunStep = {
         name: 'Run plan on the rows',
         status: 'ok',
         ms: Date.now() - executeAt,
-        detail: top
-          ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}${top.tied.length > 1 ? ` and ${top.tied.length - 1} more tie` : ''}.`
-          : 'No rows matched, so there are no groups.',
+        detail:
+          (top
+            ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}${top.tied.length > 1 ? ` and ${top.tied.length - 1} more tie` : ''}.`
+            : 'No rows matched, so there are no groups.') + reranked,
       }
       const done: RunView = {
         trace: [...response.trace, runStep],

@@ -153,15 +153,33 @@ export function answerDirection(plan: QueryPlan): 'highest' | 'lowest' {
   return plan.sortBy && isValueSort(plan, plan.sortBy.field) && plan.sortBy.dir === 'asc' ? 'lowest' : 'highest'
 }
 
-const LOWEST_WORDS = /\b(lowest|least|fewest|coldest|smallest|bottom)\b/i
+const LOWEST_WORDS = /\b(lowest|least|fewest|smallest|coldest|bottom)\b/i
+const HIGHEST_WORDS = /\b(highest|most|largest|biggest|greatest|hottest|warmest|top)\b/i
+/** "at least 5" and "at most 5" are thresholds, not rankings. */
+const THRESHOLD_PHRASE = /\bat (least|most)\b/gi
 
 /**
- * A safety net for the headline. When the question asks for the lowest group but the plan
- * has no sort at all, the plan gets an ascending sort on the measure. A plan that already
- * sorts, and a line or area chart (whose order is the time axis), are left alone.
+ * Which end of the ranking the question asks for, read from its wording. Null when it names
+ * neither end or both. "Minimum" and "maximum" are left out: in "minimum temperature by month"
+ * they name the calculation, not a ranking.
+ */
+export function askedDirection(question: string): 'highest' | 'lowest' | null {
+  const text = question.replace(THRESHOLD_PHRASE, ' ')
+  const lowest = LOWEST_WORDS.test(text)
+  const highest = HIGHEST_WORDS.test(text)
+  if (lowest === highest) return null
+  return lowest ? 'lowest' : 'highest'
+}
+
+/**
+ * Makes the plan's ranking follow the question, not the model's sort choice. When the question
+ * asks for the lowest or the highest group, the measure is sorted that way, replacing a sort by
+ * the group name or the opposite direction. Line and area charts keep their natural order, and a
+ * question that asks for neither end leaves the plan alone.
  */
 export function applyQuestionDirection(plan: QueryPlan, question: string): QueryPlan {
-  if (plan.sortBy || plan.chartType === 'line' || plan.chartType === 'area') return plan
-  if (!LOWEST_WORDS.test(question)) return plan
-  return { ...plan, sortBy: { field: plan.aggregate.field, dir: 'asc' } }
+  const asked = askedDirection(question)
+  if (!asked || plan.chartType === 'line' || plan.chartType === 'area') return plan
+  if (answerDirection(plan) === asked && plan.sortBy && isValueSort(plan, plan.sortBy.field)) return plan
+  return { ...plan, sortBy: { field: plan.aggregate.field, dir: asked === 'lowest' ? 'asc' : 'desc' } }
 }
