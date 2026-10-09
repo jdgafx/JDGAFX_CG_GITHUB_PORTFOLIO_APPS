@@ -101,7 +101,7 @@ describe('checkClaims', () => {
 
   it('rejects 1.5 for 1.378, and the right ratio of the wrong pair', () => {
     const wrong = checkClaims("Zod is about 1.5 times react's total.", [claim('1.5 times', 'multiple', ['zod', 'react'])], S)
-    expect(wrong.rejected).toEqual([{ figure: '1.5 times', quote: '1.5 times' }])
+    expect(wrong.rejected).toEqual([{ figure: '1.5 times', quote: '1.5 times', start: 13, end: 22 }])
     expect(describeClaimCheck(wrong)).toBe('0 of 1 figure matches the summary and spike evidence. Not in the summary: 1.5 times')
     // 9.4 is zod / sdk, not zod / react.
     expect(checkClaims("Zod is 9.4 times react's total.", [claim('9.4 times', 'multiple', ['zod', 'react'])], S).rejected).toHaveLength(1)
@@ -129,9 +129,9 @@ describe('checkClaims', () => {
       ['the SDK fell 459.8%', claim('459.8%', 'change_pct', ['sdk']), false],
       ['react weekends sit 44.2% lower', claim('44.2%', 'weekend_pct', ['react']), true],
       ['react weekends run at 55.8% of weekdays', claim('55.8%', 'weekend_pct', ['react']), true],
-      ['504,907 downloads on the day', claim('504,907', 'spike_downloads', ['sdk'], { d: '2026-01-31' }), true],
-      ['504,907 downloads on the day', claim('504,907', 'spike_baseline', ['sdk']), false],
-      ['87% over usual', claim('87%', 'spike_pct', ['sdk']), true],
+      ['the SDK had 504,907 downloads on the day', claim('504,907', 'spike_downloads', ['sdk'], { d: '2026-01-31' }), true],
+      ['the SDK had 504,907 downloads on the day', claim('504,907', 'spike_baseline', ['sdk']), false],
+      ['the SDK ran 87% over usual', claim('87%', 'spike_pct', ['sdk']), true],
       ['the selection moved 14.4 billion downloads', claim('14.4 billion', 'total', []), true],
     ]
     for (const [text, c, ok] of cases) {
@@ -140,11 +140,11 @@ describe('checkClaims', () => {
   })
 
   it('checks dates and versions against the named package only', () => {
-    const text = 'Release 0.72.1 landed on January 30 before the spike on 2026-01-31.'
+    const text = "The SDK's release 0.72.1 landed on January 30 before the spike on 2026-01-31."
     const ok = checkClaims(text, [claim('0.72.1', 'version', ['sdk']), claim('January 30', 'date', ['sdk']), claim('2026-01-31', 'date', ['sdk'])], S)
     expect(ok).toMatchObject({ checked: 3, matched: 3, rejected: [] })
-    const wrong = checkClaims(text, [claim('0.72.1', 'version', ['react'])], S)
-    expect(wrong.rejected).toEqual([{ figure: '0.72.1', quote: '0.72.1' }])
+    const wrong = checkClaims('React shipped 0.72.1 that day.', [claim('0.72.1', 'version', ['react'])], S)
+    expect(wrong.rejected).toMatchObject([{ figure: '0.72.1', quote: '0.72.1' }])
   })
 
   it('sets aside a claim whose quote is not in the explanation, then reads its figure by sentence', () => {
@@ -166,7 +166,7 @@ describe('checkClaims', () => {
   })
 
   it('does not let one claim cover a second figure in the same quote', () => {
-    const text = "It is 1.4 times react's and 9.4 times the SDK's."
+    const text = "Zod leads. It is 1.4 times react's and 9.4 times the SDK's."
     const check = checkClaims(text, [claim("1.4 times react's and 9.4 times", 'multiple', ['zod', 'react'])], S)
     // The first figure is claimed. The second is not covered, and its sentence names only react, so it is unchecked.
     expect(check).toMatchObject({ checked: 1, matched: 1, rejected: [], unchecked: ['9.4 times'] })
@@ -177,6 +177,120 @@ describe('claims written loosely', () => {
   it('reads p as one string, splits several names run together, and ignores an empty date', () => {
     const [loose] = parseClaims('[{"q":"1.4 times","k":"multiple","p":"zod react","d":""}]') ?? []
     expect(loose).toEqual({ q: '1.4 times', k: 'multiple', p: ['zod react'] })
-    expect(checkClaims("It is 1.4 times react's.", [loose], S)).toMatchObject({ checked: 1, matched: 1, rejected: [] })
+    expect(checkClaims("Zod is big. It is 1.4 times react's.", [loose], S)).toMatchObject({ checked: 1, matched: 1, rejected: [] })
+  })
+})
+
+describe('attribution: the text must speak of the packages the claim names', () => {
+  // Three probes from the live check, each claimed for the wrong packages, plus the correct sentence.
+  const unchecked = (text: string, c: Claim) => {
+    const check = checkClaims(text, [c], S)
+    return { matched: check.matched, rejected: check.rejected.length, unchecked: check.unchecked }
+  }
+
+  it('does not accept a right ratio claimed for a pair the sentence does not name', () => {
+    // zod / sdk is 9.4, but the sentence is about react and the SDK.
+    expect(unchecked('React is about 9.4 times the Anthropic SDK.', claim('9.4 times', 'multiple', ['zod', 'sdk']))).toEqual({ matched: 0, rejected: 0, unchecked: ['9.4 times'] })
+  })
+
+  it("does not borrow a pair from elsewhere in the sentence: the quote's own neighbours decide", () => {
+    const text = "Zod is roughly 30 times react's 5.7 billion total and about 9.4 times the SDK's total."
+    // 30 times react is wrong (1.4), and "react" is its neighbour, so it is rejected, not borrowed onto zod / sdk.
+    const borrowed = checkClaims(text, [claim("30 times react's 5.7 billion", 'multiple', ['zod', 'sdk'])], S)
+    expect(borrowed.unchecked).toContain('30 times')
+    expect(borrowed.rejected).toEqual([])
+    expect(checkClaims(text, [claim('9.4 times', 'multiple', ['zod', 'sdk'])], S)).toMatchObject({ rejected: [], unchecked: ['30 times'] })
+  })
+
+  it('does not accept a weekend gap claimed for a package the sentence does not name', () => {
+    expect(unchecked('React weekends sit 44.2% lower.', claim('44.2%', 'weekend_pct', ['zod'])).matched).toBe(0)
+    expect(unchecked('React weekends sit 44.2% lower.', claim('44.2%', 'weekend_pct', ['react'])).matched).toBe(1)
+  })
+
+  it('keeps the correct sentence with the subject first: the SDK is 9.4 times smaller than zod', () => {
+    const text = 'The Anthropic SDK is much smaller, about 9.4 times fewer than Zod.'
+    expect(checkClaims(text, [claim('9.4 times', 'multiple', ['sdk', 'zod'])], S)).toMatchObject({ checked: 1, matched: 1, rejected: [], unchecked: [] })
+    // The subject must be p[0]: named the other way round, the figure is left unchecked.
+    expect(unchecked(text, claim('9.4 times', 'multiple', ['zod', 'sdk']))).toEqual({ matched: 0, rejected: 0, unchecked: ['9.4 times'] })
+  })
+
+  it('reaches back for the packages when the sentence names none, as in "The gap is about..."', () => {
+    const text = 'zod averaged 21,937,500 a day and react averaged 15,921,788. The gap is about 6,015,712 a day.'
+    expect(checkClaims(text, [claim('6,015,712 a day', 'difference', ['zod', 'react'], { m: 'per_day' })], S)).toMatchObject({ matched: 3, rejected: [], unchecked: [] })
+  })
+})
+
+describe('difference claims', () => {
+  const text = 'openai averaged 5,386,613 a day and the SDK averaged 5,287,553. The gap is small, about 99,060 per day.'
+  const T: Summary = {
+    ...S,
+    packages: [
+      { name: 'openai', total: 1_934_000_000, avgPerDay: 5_386_613, changePct: 1, weekendPct: 50, sharePct: 50 },
+      { name: '@anthropic-ai/sdk', total: 1_894_000_000, avgPerDay: 5_287_553, changePct: 2, weekendPct: 50, sharePct: 50 },
+    ],
+    spikes: [],
+  }
+  it('accepts |a - b| at the written precision', () => {
+    const check = checkClaims(text, [claim('about 99,060 per day', 'difference', ['openai', 'sdk'], { m: 'per_day' })], T)
+    expect(check).toMatchObject({ matched: 3, rejected: [], unchecked: [] })
+  })
+
+  it('rejects a wrong gap', () => {
+    const wrong = text.replace('99,060', '120,000')
+    expect(checkClaims(wrong, [claim('about 120,000 per day', 'difference', ['openai', 'sdk'])], T).rejected).toHaveLength(1)
+  })
+
+  it('leaves a gap filed as a per-day figure unchecked, not rejected', () => {
+    const check = checkClaims(text, [claim('about 99,060 per day', 'per_day', ['openai', 'sdk'])], T)
+    expect(check.rejected).toEqual([])
+    expect(check.unchecked).toEqual(['99,060'])
+  })
+})
+
+describe('hedged figures', () => {
+  const T: Summary = {
+    ...S,
+    packages: [
+      { name: 'openai', total: 1_934_000_000, avgPerDay: 5_386_613, changePct: 1, weekendPct: 50, sharePct: 50 },
+      { name: '@anthropic-ai/sdk', total: 1_894_000_000, avgPerDay: 5_287_553, changePct: 2, weekendPct: 50, sharePct: 50 },
+    ],
+    spikes: [],
+  }
+  const gap = (said: string) => checkClaims(`openai averages 5,386,613 a day and the SDK 5,287,553, a gap of ${said} per day.`, [claim(said, 'difference', ['openai', 'sdk'], { m: 'per_day' })], T)
+
+  it.each(['roughly 99,000', 'about 99,000', 'around 99,000', 'approximately 99,000', 'nearly 99,000', 'almost 99,000', 'close to 99,000', 'just over 99,000', '~99,000', 'some 99,000', 'roughly 99,060'])(
+    'accepts %s for a true gap of 99,060 (true value rounded to the figure\'s own significant figures)',
+    (said) => {
+      expect(gap(said).rejected).toEqual([])
+    },
+  )
+
+  it('still rejects a hedged figure that is not the true value at its own precision', () => {
+    expect(gap('roughly 120,000').rejected).toHaveLength(1)
+    expect(gap('about 98,000').rejected).toHaveLength(1)
+    expect(gap('around 99,500').rejected).toHaveLength(1)
+    expect(gap('around 99,100').rejected).toEqual([]) // 99,060 to three significant figures
+  })
+
+  it('keeps an unhedged full count exact', () => {
+    expect(gap('99,000').rejected).toHaveLength(1)
+    expect(gap('a gap of 99,000').rejected).toHaveLength(1)
+    expect(gap('99,060').rejected).toHaveLength(0)
+  })
+
+  it('does not let a hedge in another sentence soften a figure', () => {
+    const text = 'It is about the same. The SDK differs from openai by 99,000 per day.'
+    expect(checkClaims(text, [claim('99,000 per day', 'difference', ['openai', 'sdk'], { m: 'per_day' })], T).rejected).toHaveLength(1)
+  })
+
+  it('reads multiples at their written decimals, hedged or not', () => {
+    // zod / react = 1.378 (written 1.4 passes; 1.5 does not, hedged or not); zod / sdk = 9.407.
+    const text = (said: string) => `Zod is ${said} react's total.`
+    const run = (said: string) => checkClaims(text(said), [claim(said.replace(/^\w+ /, ''), 'multiple', ['zod', 'react'], { m: 'total' })], S).rejected.length
+    expect(run('about 1.4 times')).toBe(0)
+    expect(run('about 1.5 times')).toBe(1)
+    expect(run('1.5 times')).toBe(1)
+    expect(checkClaims("Zod is about 9 times the SDK's total.", [claim('9 times', 'multiple', ['zod', 'sdk'], { m: 'total' })], S).rejected).toEqual([])
+    expect(checkClaims("Zod is about 10 times the SDK's total.", [claim('10 times', 'multiple', ['zod', 'sdk'], { m: 'total' })], S).rejected).toHaveLength(1)
   })
 })

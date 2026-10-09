@@ -27,3 +27,27 @@ export function markFigures(text: string, figures: string[]): Marked[] {
   if (last < text.length) pieces.push({ text: text.slice(last), flagged: false })
   return pieces.length > 0 ? pieces : [{ text, flagged: false }]
 }
+
+/** A character range of the explanation. */
+export interface Span {
+  start: number
+  end: number
+}
+
+/** Splits `text` at the ranges given (relative to `text`), flagging each. Ranges outside the text are clipped away. */
+export function markSpans(text: string, spans: Span[]): Marked[] {
+  const cuts = spans
+    .map((span) => ({ start: Math.max(0, span.start), end: Math.min(text.length, span.end) }))
+    .filter((span) => span.end > span.start)
+    .sort((a, b) => a.start - b.start)
+  const pieces: Marked[] = []
+  let last = 0
+  for (const cut of cuts) {
+    if (cut.start < last) continue
+    if (cut.start > last) pieces.push({ text: text.slice(last, cut.start), flagged: false })
+    pieces.push({ text: text.slice(cut.start, cut.end), flagged: true })
+    last = cut.end
+  }
+  if (last < text.length) pieces.push({ text: text.slice(last), flagged: false })
+  return pieces.length > 0 ? pieces : [{ text, flagged: false }]
+}

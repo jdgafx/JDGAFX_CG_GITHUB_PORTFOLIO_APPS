@@ -33,7 +33,7 @@ export interface FigureResult {
   /** Figures the check could not judge, shown neutrally. */
   unchecked: string[]
   /** Figures that do not match the value they were claimed to be. `quote` is the words around it. */
-  rejected: { figure: string; quote: string }[]
+  rejected: { figure: string; quote: string; start?: number; end?: number }[]
 }
 
 /** The five stages the server runs, in order, each with what it does in plain words. */

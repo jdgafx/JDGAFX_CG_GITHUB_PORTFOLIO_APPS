@@ -1,7 +1,7 @@
 import type { TraceStep } from '../lib/api'
 import type { InsightRun } from '../lib/insightRun'
-import { parseInline } from '../lib/markdown'
-import { markFigures } from '../lib/markFigures'
+import { explanationLines, markLine } from '../lib/answerMarks'
+import type { Span } from '../lib/markFigures'
 
 // The server's own wording, for example "2 of 3 figures match the summary" or "1 of 1 figure matches the summary and spike evidence".
 const COUNT_LINE = /^(\d+) of (\d+) figures? match(?:es)? the summary(?: and spike evidence)?(?:\. Not in the summary: ([\s\S]*))?$/
@@ -40,10 +40,10 @@ function AnswerState({ tone, title, body, action }: StateProps) {
 }
 
 /** One line of model text: emphasis, strong and code become elements; nothing else is interpreted, so no markers or markup show. */
-function Inline({ line, missing }: { line: string; missing: string[] }) {
+function Inline({ line, offset, spans, figures }: { line: string; offset: number; spans: Span[] | null; figures: string[] }) {
   // A figure the check rejected is underlined where it is written, with the reason in its title.
-  const flag = (text: string) =>
-    markFigures(text, missing).map((part, i) =>
+  const parts = (pieceParts: ReturnType<typeof markLine>[number]['parts']) =>
+    pieceParts.map((part, i) =>
       part.flagged ? (
         <mark key={i} className="hub-unmatched" title="Not in the evidence">
           {part.text}
@@ -54,21 +54,15 @@ function Inline({ line, missing }: { line: string; missing: string[] }) {
     )
   return (
     <>
-      {parseInline(line).map((piece, i) =>
-        piece.kind === 'text' ? <span key={i}>{flag(piece.text)}</span> : piece.kind === 'strong' ? <strong key={i}>{flag(piece.text)}</strong> : piece.kind === 'em' ? <em key={i}>{flag(piece.text)}</em> : <code key={i}>{piece.text}</code>,
+      {markLine({ text: line, offset }, spans, figures).map((piece, i) =>
+        piece.kind === 'text' ? <span key={i}>{parts(piece.parts)}</span> : piece.kind === 'strong' ? <strong key={i}>{parts(piece.parts)}</strong> : piece.kind === 'em' ? <em key={i}>{parts(piece.parts)}</em> : <code key={i}>{parts(piece.parts)}</code>,
       )}
     </>
   )
 }
 
-const paragraphs = (text: string): string[] =>
-  text
-    .split('\n')
-    .map((part) => part.trim())
-    .filter((part) => part !== '')
-
 /** What the figure check came to: the counts the server worked out, or, for an older reply, the counts in its text. */
-function figureResult(step: TraceStep): { text: string; failed: boolean; rejected: string[]; titles: string[]; unchecked: string[] } {
+function figureResult(step: TraceStep): { text: string; failed: boolean; rejected: string[]; titles: string[]; unchecked: string[]; spans: Span[] | null } {
   const failed = step.status === 'failed'
   if (step.check) {
     const { matched, checked, rejected, unchecked } = step.check
@@ -78,6 +72,8 @@ function figureResult(step: TraceStep): { text: string; failed: boolean; rejecte
       rejected: rejected.map((r) => r.figure),
       titles: rejected.map((r) => r.quote),
       unchecked,
+      // Where each rejected figure is written, so only that place is underlined and a right figure with the same text is not.
+      spans: rejected.every((r) => r.start !== undefined && r.end !== undefined) ? rejected.map((r) => ({ start: r.start as number, end: r.end as number })) : null,
     }
   }
   const match = step.status === 'skipped' ? null : COUNT_LINE.exec(step.detail)
@@ -87,6 +83,7 @@ function figureResult(step: TraceStep): { text: string; failed: boolean; rejecte
     rejected: match?.[3]?.split(', ') ?? [],
     titles: [],
     unchecked: [],
+    spans: null,
   }
 }
 
@@ -128,7 +125,8 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
   const { status, answer, steps, errorMessage } = run
   const check = steps.find((step) => step.name === 'Check figures')
   const retry = onStart
-  const missing = check && check.status !== 'skipped' ? figureResult(check).rejected : []
+  const result = check && check.status !== 'skipped' ? figureResult(check) : null
+  const lines = explanationLines(answer)
 
   const card = (live: boolean) => (
     <article className="ds-lead" aria-live="polite" aria-busy={live}>
@@ -146,9 +144,9 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
         )}
       </div>
       <div className="ds-lead__text">
-        {paragraphs(answer).map((part, i) => (
+        {lines.map((line, i) => (
           <p key={i}>
-            <Inline line={part} missing={missing} />
+            <Inline line={line.text} offset={line.offset} spans={result?.spans ?? null} figures={result?.rejected ?? []} />
           </p>
         ))}
       </div>

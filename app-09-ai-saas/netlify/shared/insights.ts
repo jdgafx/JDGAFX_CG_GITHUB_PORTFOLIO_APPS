@@ -139,10 +139,22 @@ export interface Quoted {
   /** 1 for a figure written out in full, 1e6 for "million", and so on. */
   scale: number
   sign: Sign
+  /** True when a hedge such as "about" or "roughly" stands a few words before the figure in its sentence. */
+  hedged?: boolean
+}
+
+/** Words that say a figure is approximate. */
+const HEDGE = /(?:\b(?:about|roughly|around|approximately|approx\.?|nearly|almost|some|close to|just over|just under|circa)|~)\s*(?:\S+\s+){0,2}$/i
+
+/** Whether an approximating word stands up to two words before the figure that starts at `index`, in the same sentence. */
+export function isHedged(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - 48), index)
+  const sentence = before.split(/[;:!?\n]|\.(?=\s|$)/).pop() ?? ''
+  return HEDGE.test(sentence)
 }
 
 /** The sentences of `text` as character spans, split the way signOf reads the part before a figure. */
-function sentenceSpans(text: string): { start: number; end: number }[] {
+export function sentenceSpans(text: string): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = []
   let start = 0
   for (const match of text.matchAll(/[;:!?\n]|\.(?=\s|$)/g)) {
@@ -153,6 +165,7 @@ function sentenceSpans(text: string): { start: number; end: number }[] {
   return spans
 }
 
+export const PRONOUN_START_RE = /^\W*(?:it|its|this|that|the (?:package|library))\b/i
 /** A sentence that starts with one of these is about the package the sentence before it was about. */
 const PRONOUN_START = /^\W*(?:it|its|this|that|the (?:package|library))\b/i
 /** How many sentences back a pronoun's package is looked for. */
@@ -209,7 +222,7 @@ function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean 
 function judge(q: Quoted, pool: SummaryFigure[], named: ReadonlySet<string>): { matched: boolean; wrongDirection: boolean } {
   let sizeMatched = false
   for (const figure of pool) {
-    if (figure.unit !== q.unit || roundTo(Math.abs(figure.value) / q.scale, q.decimals) !== q.value) continue
+    if (figure.unit !== q.unit || !matchesQuoted(q, figure.value)) continue
     if (figure.pair && !pairNamed(figure.pair, named)) continue
     sizeMatched = true
     const signMatches = !figure.trend || q.sign === 0 || (q.sign < 0 ? figure.value <= 0 : figure.value >= 0)
@@ -240,6 +253,7 @@ export function figureOccurrences(text: string): Occurrence[] {
         decimals: digits.split('.')[1]?.length ?? 0,
         scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
         sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
+        hedged: isHedged(text, match.index ?? 0),
       } satisfies Quoted,
     }
   })
@@ -247,7 +261,14 @@ export function figureOccurrences(text: string): Occurrence[] {
 
 /** Whether `value`, divided by the figure's own scale and rounded to its own decimals, is what the figure says. */
 export function matchesQuoted(q: Quoted, value: number): boolean {
-  return roundTo(Math.abs(value) / q.scale, q.decimals) === q.value
+  if (roundTo(Math.abs(value) / q.scale, q.decimals) === q.value) return true
+  // A count written out in full is exact, unless the text hedges it ("roughly 99,000"): then it may be the true value
+  // rounded to the significant figures it is written with.
+  if (q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
+    const significant = String(q.value).replace(/0+$/, '').length
+    return Number(Math.abs(value).toPrecision(significant)) === q.value
+  }
+  return false
 }
 
 /** Whether the direction the text gives a trend figure agrees with the real value. A figure with no direction in the text passes. */

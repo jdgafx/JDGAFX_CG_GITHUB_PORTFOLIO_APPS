@@ -611,7 +611,7 @@ describe('netlify/functions/ai: structured claims', () => {
   })
 
   it('fails the check and names the figure when a claim does not match', async () => {
-    const bad = JSON.stringify([{ q: '2.2 times', k: 'multiple', p: ['react', 'vue'], m: 'total' }, { q: '62.5%', k: 'share_pct', p: ['vue'] }])
+    const bad = JSON.stringify([{ q: '2.2 times', k: 'multiple', p: ['react', 'vue'], m: 'total' }, { q: '62.5%', k: 'change_pct', p: ['react'] }])
     stubFetch(async () => claimsReply(bad))
     const reply = await readReply(await handler(post({ summary: SUMMARY })))
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')

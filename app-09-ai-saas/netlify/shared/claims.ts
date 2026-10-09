@@ -1,6 +1,6 @@
 import type { PackageFigures, Summary } from './contract'
 import { writtenDatesAndVersions, writtenIsKnown } from './evidence'
-import { checkFigures, directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Occurrence } from './insights'
+import { checkFigures, directionAgrees, figureOccurrences, matchesQuoted, PRONOUN_START_RE, sentenceSpans, weekendGap, type Occurrence } from './insights'
 
 /**
  * Structured claims. The model writes its explanation, then a marker line and a JSON array that says what each figure
@@ -13,7 +13,7 @@ import { checkFigures, directionAgrees, figureOccurrences, matchesQuoted, weeken
 
 export const CLAIMS_MARKER = '===CLAIMS==='
 
-export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'spike_downloads', 'spike_baseline', 'spike_pct', 'date', 'version'] as const
+export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'difference', 'spike_downloads', 'spike_baseline', 'spike_pct', 'date', 'version'] as const
 export type ClaimKind = (typeof CLAIM_KINDS)[number]
 
 export interface Claim {
@@ -35,9 +35,9 @@ export function claimsPrompt(): string {
   return `
 
 After the explanation, write a new line containing exactly ${CLAIMS_MARKER} and then a JSON array and nothing else (no code fence). Write one object for each number, percentage, multiple, date or version you wrote in the explanation:
-{"q": words copied exactly from the explanation that contain the figure, at most 8 words, "k": what the figure is, "p": an array of the package names from the list above it is about, "m": "total" or "per_day" (multiples only), "d": the spike's date as YYYY-MM-DD (spike kinds only; leave the key out otherwise)}
+{"q": words copied exactly from the explanation that contain the figure, at most 8 words, "k": what the figure is, "p": an array of the package names from the list above it is about, "m": "total" or "per_day" (multiples and differences), "d": the spike's date as YYYY-MM-DD (spike kinds only; leave the key out otherwise)}
 For example: [{"q":"9.4 times","k":"multiple","p":["zod","@anthropic-ai/sdk"],"m":"total"},{"q":"40.1%","k":"share_pct","p":["zod"]}]
-"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the larger first), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), date, version.`
+"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the one the sentence is about and names first, then the other), difference (the gap between two packages' downloads: "p" has both, "m" says total or per_day), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), date, version.`
 }
 
 /** Passes text through until the claims marker, holding back just enough to see a marker split across chunks. */
@@ -138,7 +138,7 @@ export interface ClaimCheck {
   checked: number
   matched: number
   /** Claims whose figure did not match the value they name. `figure` is the figure as written, `quote` the claim's words. */
-  rejected: { figure: string; quote: string }[]
+  rejected: { figure: string; quote: string; start: number; end: number }[]
   /** Figures no claim covers that the sentence check could not match. Shown neutrally. */
   unchecked: string[]
   /** Claims set aside: quote not in the explanation, package not in the selection, or no figure in the quote. */
@@ -170,6 +170,11 @@ function expectedValues(claim: Claim, packages: PackageFigures[], s: Summary): {
       }
       return { values: claim.m ? ratios(claim.m) : [...ratios('total'), ...ratios('per_day')], trend: false }
     }
+    case 'difference': {
+      if (!a || !b) return null
+      const gaps = (metric: 'total' | 'per_day') => [Math.abs((metric === 'total' ? a.total : a.avgPerDay) - (metric === 'total' ? b.total : b.avgPerDay))]
+      return { values: claim.m ? gaps(claim.m) : [...gaps('total'), ...gaps('per_day')], trend: false }
+    }
     case 'spike_downloads':
       return { values: spikes.map((spike) => spike.downloads), trend: false }
     case 'spike_baseline':
@@ -191,16 +196,75 @@ const UNIT: Partial<Record<ClaimKind, Occurrence['quoted']['unit']>> = {
   weekend_pct: '%',
   spike_pct: '%',
   multiple: 'times',
+  difference: 'count',
+}
+
+const escapeRe = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Where in `text` (from `from` up to `to`) a package is named: its name, the name after its scope, a word of it, or what the claim called it. Index, or -1. */
+function mentionAt(text: string, from: number, to: number, name: string, said: string[], names: string[]): number {
+  const words = name.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
+  const callings = said.filter((entry) => resolvePackage(entry, names) === name).map((entry) => entry.trim().replace(/^the\s+/i, ''))
+  const aliases = [name, name.split('/').pop() ?? name, ...words, ...callings].filter((alias) => alias.length > 0)
+  const region = text.slice(from, to)
+  let best = -1
+  for (const alias of aliases) {
+    const at = region.search(new RegExp(`(?<![\\w@/.-])${escapeRe(alias)}(?![\\w-])`, 'i'))
+    if (at >= 0 && (best < 0 || at < best)) best = at
+  }
+  return best < 0 ? -1 : from + best
+}
+
+/**
+ * Whether the text around a claimed figure really speaks of the packages the claim names. The model is trusted for
+ * what a figure is about only as far as the words show it. A package must be named in the figure's sentence, or, when
+ * that sentence opens with a pronoun or names no package, in the sentences just before it. A multiple also needs its
+ * subject (p[0]) named before the figure and its other package named in the quote or just after the figure, before the
+ * next figure, so a ratio cannot be borrowed for a different pair.
+ */
+function attributed(text: string, claim: Claim, quoteEnd: number, figureEnd: number, names: string[], said: string[]): boolean {
+  if (claim.p.length === 0) return true
+  const spans = sentenceSpans(text)
+  const at = Math.max(0, spans.findIndex((span) => quoteEnd - 1 >= span.start && quoteEnd - 1 <= span.end))
+  const own = text.slice(spans[at].start, spans[at].end)
+  const namesNone = names.every((name) => mentionAt(own, 0, own.length, name, [], names) < 0)
+  const reach = PRONOUN_START_RE.test(own) || namesNone ? Math.max(0, at - 3) : at
+  const from = spans[reach].start
+  const to = spans[at].end
+  const mention = (name: string, f: number, t: number) => mentionAt(text, f, t, name, said, names)
+  if (claim.k === 'multiple' && claim.p.length >= 2) {
+    const subject = mention(claim.p[0], from, quoteEnd)
+    const nextFigure = figureOccurrences(text).find((found) => found.index >= figureEnd)?.index ?? to
+    const other = mention(claim.p[1], text.indexOf(claim.q), Math.min(to, nextFigure))
+    return subject >= 0 && other >= 0 && subject < other
+  }
+  return claim.p.every((name) => mention(name, from, to) >= 0)
+}
+
+/** Counts a claim of a count kind could be mistaken for when it names a single package: gaps between packages and combined figures. */
+function derivedCounts(packages: PackageFigures[]): number[] {
+  const values = [packages.reduce((sum, pkg) => sum + pkg.total, 0), packages.reduce((sum, pkg) => sum + pkg.avgPerDay, 0)]
+  for (const [i, a] of packages.entries()) {
+    for (const b of packages.slice(i + 1)) values.push(Math.abs(a.total - b.total), Math.abs(a.avgPerDay - b.avgPerDay))
+  }
+  return values
 }
 
 /**
  * Checks an explanation against its claims. Figures inside a verified claim are judged by the claim; every other
- * figure goes to the sentence check, whose misses are reported as unchecked rather than rejected.
+ * figure goes to the sentence check, whose misses are reported as unchecked rather than rejected. A claim whose
+ * packages the text does not name around the figure is unchecked, and so is a count claim that fails but equals a
+ * gap or a combined figure the claim kinds of one package cannot represent.
  */
 export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimCheck {
   const names = s.packages.map((pkg) => pkg.name)
   const result: ClaimCheck = { checked: 0, matched: 0, rejected: [], unchecked: [], ignored: 0, claims: claims.length, withEvidence: s.spikes !== undefined }
   const covered: { start: number; end: number }[] = []
+  const reject = (figure: string, quote: string, start: number) => result.rejected.push({ figure, quote, start, end: start + figure.length })
+  const leaveUnchecked = (figure: string, start: number) => {
+    covered.push({ start, end: start + figure.length })
+    result.unchecked.push(figure)
+  }
 
   for (const claim of claims) {
     const at = text.indexOf(claim.q)
@@ -217,10 +281,15 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
         result.ignored += 1
         continue
       }
-      covered.push({ start: at + item.index, end: at + item.index + item.text.length })
+      const start = at + item.index
+      if (!attributed(text, resolved, at + claim.q.length, start + item.text.length, names, claim.p)) {
+        leaveUnchecked(item.text, start)
+        continue
+      }
+      covered.push({ start, end: start + item.text.length })
       result.checked += 1
       if (writtenIsKnown(item, s, resolved.p[0])) result.matched += 1
-      else result.rejected.push({ figure: item.text, quote: claim.q })
+      else reject(item.text, claim.q, start)
       continue
     }
 
@@ -232,13 +301,23 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       continue
     }
     const start = at + figure.index
+    if (!attributed(text, resolved, at + claim.q.length, start + figure.whole.length, names, claim.p)) {
+      leaveUnchecked(figure.whole, start)
+      continue
+    }
     covered.push({ start, end: start + figure.whole.length })
     // The figure's direction is read from the whole explanation, where the words before it are.
-    const quoted = unit === '%' ? figureOccurrences(text).find((found) => found.index === start)?.quoted ?? figure.quoted : figure.quoted
+    const quoted = figureOccurrences(text).find((found) => found.index === start)?.quoted ?? figure.quoted
     const ok = expected.values.some((value) => matchesQuoted(quoted, value) && (!expected.trend || directionAgrees(quoted, value)))
-    result.checked += 1
-    if (ok) result.matched += 1
-    else result.rejected.push({ figure: figure.whole, quote: claim.q })
+    if (ok) {
+      result.checked += 1
+      result.matched += 1
+    } else if (unit === 'count' && derivedCounts(s.packages).some((value) => matchesQuoted(quoted, value))) {
+      result.unchecked.push(figure.whole)
+    } else {
+      result.checked += 1
+      reject(figure.whole, claim.q, start)
+    }
   }
 
   const isCovered = (index: number) => covered.some((span) => index >= span.start && index < span.end)
