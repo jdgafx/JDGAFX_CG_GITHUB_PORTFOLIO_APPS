@@ -61,13 +61,13 @@
   cursor: not-allowed;
 }
 
-/* Pipeline: the hero. One row of four on wide screens, a 2x2 grid below 1200px. */
+/* Pipeline: the hero. Five steps snake three to a row, and two to a row below 640px. */
 .pipeline-panel {
   padding: 12px;
 }
 
 .pipeline-canvas {
-  height: 208px;
+  height: 328px;
 }
 
 .pipeline-graph {
@@ -75,9 +75,9 @@
   height: 100%;
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 639px) {
   .pipeline-canvas {
-    height: 352px;
+    height: 496px;
   }
 }
 
@@ -168,7 +168,7 @@
 }
 
 .agent-node[data-status="stopped"],
-.agent-node[data-cut] {
+.agent-node[data-warn] {
   border-color: var(--ds-warning);
 }
 
@@ -206,14 +206,19 @@
 
 .output-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 16px;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 720px) {
   .output-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Five tabs in two columns: Retrieve takes the first row alone */
+  .output-tab:first-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -402,4 +407,81 @@
   text-decoration: underline;
   text-decoration-color: var(--ds-text-muted);
   text-underline-offset: 2px;
+}
+
+/* A citation marker in the text links to its source */
+.md a.md-cite {
+  padding: 0 1px;
+  font-size: 0.85em;
+  font-weight: 650;
+  color: var(--ds-accent);
+  text-decoration: none;
+}
+
+.md a.md-cite:hover {
+  text-decoration: underline;
+}
+
+/* Sources: numbered like the trace, one rule between items, the link carrying the weight */
+.source-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--ds-border);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+}
+
+.source-list__item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ds-surface);
+}
+
+.source-list__index {
+  padding-top: 1px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ds-accent);
+}
+
+.source-list__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.source-list__title {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ds-text);
+  text-decoration-color: var(--ds-text-muted);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.source-list__site {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.source-list__snippet {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ds-text-muted);
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.app-note + .source-list {
+  margin-top: 10px;
 }

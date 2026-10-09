@@ -1,131 +1,26 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
+import {
+  installHarness,
+  FIXED_MODEL,
+  KEY,
+  PROVIDER_REJECTED,
+  PROVIDER_TIMEOUT,
+  SERVED,
+  VALID_BODY,
+  errorsOf,
+  frames,
+  plan,
+  providerCalls,
+  refuse,
+  reply,
+  request,
+  stalledBody,
+  stubFetch,
+  unfinishedReply,
+} from './helpers'
 
-const SITE = 'https://site.example'
-const ENDPOINT = `${SITE}/.netlify/functions/ai`
-const KEY = 'test-only-placeholder'
-const SERVED = 'anthropic/claude-haiku-4.5'
-const FIXED_MODEL = '~anthropic/claude-haiku-latest'
-const QUERY = 'In two sentences, compare SSE and WebSockets for streaming LLM output.'
-const VALID_BODY = JSON.stringify({ query: QUERY })
-const PROVIDER_REJECTED = 'The AI provider rejected the key or is out of credit.'
-const PROVIDER_TIMEOUT = 'The AI provider did not answer in time.'
-
-type Stage = 'researcher' | 'analyst' | 'critic' | 'synthesizer'
-type Frame = Record<string, unknown>
-
-let savedKey: string | undefined
-let requestCount = 0
-
-beforeEach(() => {
-  savedKey = process.env.OPENROUTER_API_KEY
-  process.env.OPENROUTER_API_KEY = KEY
-  // A call that no test planned fails loudly instead of reaching the network.
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => {
-      throw new Error('unplanned provider call')
-    }),
-  )
-})
-
-afterEach(() => {
-  if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY
-  else process.env.OPENROUTER_API_KEY = savedKey
-  vi.unstubAllGlobals()
-  vi.useRealTimers()
-})
-
-/** A request from a fresh client address, so the per-address rate limit never interferes. */
-function request(
-  body: string | undefined,
-  options: { method?: string; origin?: string; ip?: string; signal?: AbortSignal } = {},
-): Request {
-  requestCount += 1
-  return new Request(ENDPOINT, {
-    method: options.method ?? 'POST',
-    body: options.method === 'GET' ? undefined : body,
-    signal: options.signal,
-    headers: {
-      'content-type': 'application/json',
-      origin: options.origin ?? SITE,
-      'x-forwarded-host': 'site.example',
-      'x-nf-client-connection-ip': options.ip ?? `198.51.100.${(requestCount % 250) + 1}`,
-    },
-  })
-}
-
-/** A reply body that sends nothing until its call is aborted, as a stalled connection would. */
-function stalledBody(init: RequestInit | undefined): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
-    },
-  })
-}
-
-/** A reply that streams its text and then ends without a finish reason. */
-function unfinishedReply(text: string): () => Response {
-  return () =>
-    new Response(`data: ${JSON.stringify({ model: SERVED, choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`, {
-      status: 200,
-      headers: { 'content-type': 'text/event-stream' },
-    })
-}
-
-/** Reads the whole SSE body and returns its frames. The end marker must be the last line. */
-async function frames(response: Response): Promise<Frame[]> {
-  const text = await response.text()
-  expect(text.trimEnd().endsWith('data: [DONE]')).toBe(true)
-  return text
-    .split('\n\n')
-    .map(block => block.trim())
-    .filter(block => block.startsWith('data: ') && block !== 'data: [DONE]')
-    .map(block => JSON.parse(block.slice(6)) as Frame)
-}
-
-function stageOf(systemPrompt: string | undefined): Stage {
-  if (systemPrompt?.startsWith('You are a research assistant')) return 'researcher'
-  if (systemPrompt?.startsWith('You are an analyst')) return 'analyst'
-  if (systemPrompt?.startsWith('You are a critic')) return 'critic'
-  if (systemPrompt?.startsWith('You are a synthesis agent')) return 'synthesizer'
-  throw new Error('unknown stage prompt')
-}
-
-/** Routes each provider call to the reply planned for its stage, judged from the system prompt sent. */
-function plan(replies: Record<Stage, () => Response>) {
-  const fetchMock = vi.fn<typeof fetch>(async (...args) => {
-    const sent = JSON.parse(String(args[1]?.body)) as { messages: Array<{ content: string }> }
-    return replies[stageOf(sent.messages[0]?.content)]()
-  })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
-}
-
-function reply(text: string, cost: number, prompt: number, completion: number): () => Response {
-  return () => {
-    const body =
-      [
-        { model: SERVED, choices: [{ delta: { content: text } }] },
-        {
-          model: SERVED,
-          choices: [{ delta: {}, finish_reason: 'stop' }],
-          usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, cost },
-        },
-      ]
-        .map(value => `data: ${JSON.stringify(value)}\n\n`)
-        .join('') + 'data: [DONE]\n\n'
-    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
-  }
-}
-
-function refuse(status: number, body: string): () => Response {
-  return () => new Response(body, { status })
-}
-
-function errorsOf(events: Frame[]): unknown[] {
-  return events.filter(event => event.type === 'agent_error').map(event => event.error)
-}
+installHarness()
 
 describe('ai function: success path', () => {
   it('streams each stage as it finishes, then one summary with trace, usage, cost and served model', async () => {
@@ -142,45 +37,48 @@ describe('ai function: success path', () => {
     const events = await frames(res)
 
     expect(events.map(event => event.type)).toEqual([
+      'retrieve_start', 'retrieve_complete',
       'agent_start', 'agent_chunk', 'agent_complete',
       'agent_start', 'agent_chunk', 'agent_complete',
       'agent_start', 'agent_chunk', 'agent_complete',
       'agent_start', 'agent_chunk', 'agent_complete',
       'session_complete',
     ])
-    expect(events[0]).toEqual({ type: 'agent_start', agent: 'researcher', maxTokens: 600 })
-    expect(events[1]).toEqual({ type: 'agent_chunk', agent: 'researcher', content: '- SSE sends one-way events.\n- WebSockets are two-way.' })
-    expect(events[2]).toMatchObject({
+    expect(events[2]).toEqual({ type: 'agent_start', agent: 'researcher', maxTokens: 600 })
+    expect(events[3]).toEqual({ type: 'agent_chunk', agent: 'researcher', content: '- SSE sends one-way events.\n- WebSockets are two-way.' })
+    expect(events[4]).toMatchObject({
       type: 'agent_complete',
       agent: 'researcher',
       finish: 'stop',
       servedModel: SERVED,
       usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160, cost: 0.0001 },
     })
-    expect(typeof events[2]?.ms).toBe('number')
-    expect(events[6]).toEqual({ type: 'agent_start', agent: 'critic', maxTokens: 400 })
-    expect(events[9]).toEqual({ type: 'agent_start', agent: 'synthesizer', maxTokens: 1200 })
+    expect(typeof events[4]?.ms).toBe('number')
+    expect(events[8]).toEqual({ type: 'agent_start', agent: 'critic', maxTokens: 400 })
+    expect(events[11]).toEqual({ type: 'agent_start', agent: 'synthesizer', maxTokens: 1200 })
 
-    const summary = events[12]
+    const summary = events[14]
     expect(summary).toMatchObject({
       type: 'session_complete',
       agent: 'synthesizer',
-      result: 'SSE is one-way and simpler to proxy. WebSockets are two-way and heavier.',
+      result: expect.stringMatching(/^SSE is one-way and simpler to proxy\. WebSockets are two-way and heavier\.\n\n### Sources\n/),
       model: SERVED,
       usage: { prompt_tokens: 750, completion_tokens: 180, total_tokens: 930, cost: expect.closeTo(0.00063, 10) },
     })
     expect(summary?.trace).toEqual([
+      expect.objectContaining({ name: 'Retrieve', status: 'ok', detail: 'Found 2 Wikipedia articles and 1 Hacker News thread.' }),
       expect.objectContaining({ name: 'Researcher', status: 'ok', tokens: 40, cost: 0.0001 }),
       expect.objectContaining({ name: 'Analyst', status: 'ok', tokens: 30, cost: 0.00008 }),
       expect.objectContaining({ name: 'Critic', status: 'ok', tokens: 20, cost: 0.00005 }),
       expect.objectContaining({ name: 'Synthesizer', status: 'ok', tokens: 90, cost: 0.0004 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledTimes(4)
-    const sent = fetchMock.mock.calls.map(call => JSON.parse(String(call[1]?.body)) as { model: string; max_tokens: number; usage: { include: boolean } })
+    const modelCalls = providerCalls(fetchMock)
+    expect(modelCalls).toHaveLength(4)
+    const sent = modelCalls.map(call => JSON.parse(String(call[1]?.body)) as { model: string; max_tokens: number; usage: { include: boolean } })
     expect(sent.map(body => body.max_tokens)).toEqual([600, 600, 400, 1200])
     expect(sent.every(body => body.model === FIXED_MODEL && body.usage.include)).toBe(true)
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${KEY}` })
+    expect(modelCalls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${KEY}` })
   })
 
   it('reports each stage that returned no text, after one retry per stage', async () => {
@@ -199,7 +97,7 @@ describe('ai function: success path', () => {
       'Critic returned no text. Try again.',
       'Synthesizer returned no text. Try again.',
     ])
-    expect(fetchMock).toHaveBeenCalledTimes(8)
+    expect(providerCalls(fetchMock)).toHaveLength(8)
   })
 })
 
@@ -219,9 +117,9 @@ describe('ai function: provider failures', () => {
     expect(events.at(-1)).toMatchObject({
       type: 'session_complete',
       result: '',
-      trace: Array.from({ length: 4 }, () => expect.objectContaining({ status: 'failed' })),
+      trace: [expect.objectContaining({ name: 'Retrieve', status: 'ok' }), ...Array.from({ length: 4 }, () => expect.objectContaining({ status: 'failed' }))],
     })
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(providerCalls(fetchMock)).toHaveLength(4)
   })
 
   it('retries a 500 once per stage, then reports that the provider did not answer in time', async () => {
@@ -236,19 +134,18 @@ describe('ai function: provider failures', () => {
 
     expect(errorsOf(events)).toEqual([PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT])
     expect(JSON.stringify(events)).not.toContain('upstream exploded')
-    expect(fetchMock).toHaveBeenCalledTimes(8)
+    expect(providerCalls(fetchMock)).toHaveLength(8)
   }, 20_000)
 
   it('maps a provider timeout (an AbortError) to its message and does not retry it', async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => {
+    const fetchMock = stubFetch(() => {
       throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
     })
-    vi.stubGlobal('fetch', fetchMock)
 
     const events = await frames(await handler(request(VALID_BODY)))
 
     expect(errorsOf(events)).toEqual([PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT])
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(providerCalls(fetchMock)).toHaveLength(4)
   })
 })
 
@@ -329,20 +226,19 @@ describe('ai function: the visitor leaves', () => {
     const firstCall = new Promise<void>(resolve => {
       callStarted = resolve
     })
-    const fetchMock = vi.fn<typeof fetch>(async (...args) => {
+    const fetchMock = stubFetch((_input, init) => {
       callStarted?.()
-      return new Response(stalledBody(args[1]), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      return new Response(stalledBody(init), { status: 200, headers: { 'content-type': 'text/event-stream' } })
     })
-    vi.stubGlobal('fetch', fetchMock)
 
     const res = await handler(request(VALID_BODY, { signal: leave.signal }))
     await firstCall
     leave.abort()
     const events = await frames(res)
 
-    expect(events.map(event => event.type)).toEqual(['agent_start'])
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(events.map(event => event.type)).toEqual(['retrieve_start', 'retrieve_complete', 'agent_start'])
+    expect(providerCalls(fetchMock)).toHaveLength(1)
+    expect(providerCalls(fetchMock)[0]?.[1]?.signal?.aborted).toBe(true)
   })
 
   it('drops the call in flight when the visitor leaves mid-stage, and starts no later stage', async () => {
@@ -359,8 +255,10 @@ describe('ai function: the visitor leaves', () => {
 
     const events = await frames(await handler(request(VALID_BODY, { signal: leave.signal })))
 
-    expect(events.map(event => event.type)).toEqual(['agent_start', 'agent_chunk', 'agent_complete', 'agent_start'])
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(events.map(event => event.type)).toEqual([
+      'retrieve_start', 'retrieve_complete', 'agent_start', 'agent_chunk', 'agent_complete', 'agent_start',
+    ])
+    expect(providerCalls(fetchMock)).toHaveLength(2)
   })
 })
 
@@ -368,10 +266,9 @@ describe('ai function: budget and cut-off replies', () => {
   it('skips the synthesizer when the run budget is spent before it starts', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     // Every call sends its headers and then stalls, so each stage runs to its own cap.
-    const fetchMock = vi.fn<typeof fetch>(
-      async (...args) => new Response(stalledBody(args[1]), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    const fetchMock = stubFetch(
+      (_input, init) => new Response(stalledBody(init), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
     )
-    vi.stubGlobal('fetch', fetchMock)
 
     const pending = frames(await handler(request(VALID_BODY)))
     await vi.runAllTimersAsync()
@@ -385,6 +282,7 @@ describe('ai function: budget and cut-off replies', () => {
     expect(events.at(-1)).toMatchObject({
       type: 'session_complete',
       trace: [
+        expect.objectContaining({ name: 'Retrieve', status: 'ok' }),
         expect.objectContaining({ name: 'Researcher', status: 'failed' }),
         expect.objectContaining({ name: 'Analyst', status: 'failed' }),
         expect.objectContaining({ name: 'Critic', status: 'failed' }),
@@ -392,7 +290,7 @@ describe('ai function: budget and cut-off replies', () => {
       ],
     })
     // Researcher and Analyst each retry once after a cut-off body. Critic gets only the 2 s left.
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(providerCalls(fetchMock)).toHaveLength(5)
   })
 
   it('labels a reply that ends without a finish reason as cut off in the trace', async () => {
@@ -411,6 +309,7 @@ describe('ai function: budget and cut-off replies', () => {
     expect(events.at(-1)).toMatchObject({
       type: 'session_complete',
       trace: [
+        expect.objectContaining({ name: 'Retrieve', status: 'ok' }),
         expect.objectContaining({ name: 'Researcher', status: 'cut off' }),
         expect.objectContaining({ name: 'Analyst', status: 'ok' }),
         expect.objectContaining({ name: 'Critic', status: 'ok' }),
@@ -418,6 +317,6 @@ describe('ai function: budget and cut-off replies', () => {
       ],
     })
     // The researcher was retried once, so five calls in all.
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(providerCalls(fetchMock)).toHaveLength(5)
   })
 })

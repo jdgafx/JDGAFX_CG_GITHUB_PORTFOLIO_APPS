@@ -1,3 +1,4 @@
+import { MAX_QUERY_CHARS } from '../../src/lib/agents'
 import { DEFAULT_SITE_URL } from './provider'
 
 /** Browser origins allowed to call the endpoint. The site's own origin always passes. */
@@ -7,7 +8,6 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? [DEFAULT_SITE_URL, 'http
   .filter(Boolean)
 
 const MAX_BODY_BYTES = 8 * 1024
-export const MAX_QUERY_CHARS = 500
 const TOO_LARGE = 'Request body too large.'
 
 // One request fans out to four model calls, so the ceiling is lower than a plain proxy
@@ -111,7 +111,7 @@ export async function readQuery(req: Request): Promise<string> {
   if (declared > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
 
   const raw = await req.text()
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
+  if (Buffer.byteLength(raw) > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
 
   let body: unknown
   try {

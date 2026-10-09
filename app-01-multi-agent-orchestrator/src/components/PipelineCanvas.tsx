@@ -66,7 +66,7 @@ function Canvas({ nodes, edges, onNodesChange, onEdgesChange }: PipelineCanvasPr
         zoomOnDoubleClick={false}
         minZoom={0.4}
         maxZoom={1}
-        aria-label="Pipeline: four stages in order"
+        aria-label="Pipeline: retrieve sources, then four model stages in order"
       >
         <Controls showInteractive={false} showZoom={false} showFitView={true} position="top-right" />
       </ReactFlow>

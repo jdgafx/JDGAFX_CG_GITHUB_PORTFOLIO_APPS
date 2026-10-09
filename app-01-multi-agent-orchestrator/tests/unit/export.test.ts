@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { saveAs } from 'file-saver'
-import { buildMarkdown, downloadMarkdown } from '../../src/lib/export'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAgents } from '../../src/lib/agents'
+import { buildMarkdown, downloadMarkdown } from '../../src/lib/export'
+import type { Source } from '../../src/types'
 
-vi.mock('file-saver', () => ({ saveAs: vi.fn() }))
+const SOURCES: Source[] = [
+  { n: 1, title: 'WebSocket', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/WebSocket', snippet: 'A protocol.' },
+  { n: 2, title: 'SSE vs WS', site: 'Hacker News', url: 'https://news.ycombinator.com/item?id=7', snippet: 'Thread.', note: '30 points' },
+]
 
 function sampleAgents() {
   const agents = createAgents()
@@ -11,6 +14,11 @@ function sampleAgents() {
   agents.analyst.output = '   '
   return agents
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 describe('buildMarkdown', () => {
   it('writes the title, credit line and the four sections in pipeline order', () => {
@@ -21,22 +29,56 @@ describe('buildMarkdown', () => {
     expect(markdown).toContain('## Analysis\n\nNo output generated.')
     expect(markdown.indexOf('## Research Findings')).toBeLessThan(markdown.indexOf('## Critical Review'))
     expect(markdown.indexOf('## Critical Review')).toBeLessThan(markdown.indexOf('## Final Synthesis'))
+    expect(markdown).not.toContain('## Sources')
+  })
+
+  it('leaves the Sources list in the final synthesis when it already ends with one', () => {
+    const agents = sampleAgents()
+    agents.retriever.sources = SOURCES
+    agents.synthesizer.output = 'Report [1].\n\n### Sources\n\n1. [WebSocket](https://en.wikipedia.org/wiki/WebSocket) - Wikipedia\n'
+
+    const markdown = buildMarkdown('Q', agents)
+
+    expect(markdown.match(/### Sources/g)).toHaveLength(1)
+    expect(markdown).not.toMatch(/^## Sources$/m)
+  })
+
+  it('adds a Sources section with real links when the synthesis never ran', () => {
+    const agents = sampleAgents()
+    agents.retriever.sources = SOURCES
+
+    const markdown = buildMarkdown('Q', agents)
+
+    expect(markdown).toContain('## Final Synthesis\n\nNo output generated.')
+    expect(markdown).toContain(
+      '## Sources\n\n1. [WebSocket](https://en.wikipedia.org/wiki/WebSocket) - Wikipedia\n2. [SSE vs WS](https://news.ycombinator.com/item?id=7) - Hacker News, 30 points',
+    )
   })
 })
 
 describe('downloadMarkdown', () => {
-  beforeEach(() => {
-    vi.mocked(saveAs).mockClear()
-  })
+  it('saves the same text through a temporary link named after the query, then frees the object URL', async () => {
+    const link = { href: '', download: '', click: vi.fn(), remove: vi.fn() }
+    const append = vi.fn()
+    vi.stubGlobal('document', { createElement: vi.fn(() => link), body: { append } })
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:report')
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.useFakeTimers()
 
-  it('saves the same text under a filename built from the query', async () => {
     const agents = sampleAgents()
     downloadMarkdown('How is nuclear power?', agents)
 
-    const call = vi.mocked(saveAs).mock.calls[0]
-    expect(call?.[1]).toBe('research-report-how-is-nuclear-power.md')
-    const blob = call?.[0]
-    expect(blob).toBeInstanceOf(Blob)
-    expect(await (blob as Blob).text()).toBe(buildMarkdown('How is nuclear power?', agents))
+    expect(link.download).toBe('research-report-how-is-nuclear-power.md')
+    expect(link.href).toBe('blob:report')
+    expect(append).toHaveBeenCalledWith(link)
+    expect(link.click).toHaveBeenCalledTimes(1)
+    expect(link.remove).toHaveBeenCalledTimes(1)
+    const blob = create.mock.calls[0]?.[0] as Blob
+    expect(blob.type).toBe('text/markdown;charset=utf-8')
+    expect(await blob.text()).toBe(buildMarkdown('How is nuclear power?', agents))
+    expect(revoke).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1000)
+    expect(revoke).toHaveBeenCalledWith('blob:report')
+    vi.useRealTimers()
   })
 })

@@ -1,9 +1,11 @@
 import { isCutOff } from '../../src/lib/finish'
+import { withSources } from '../../src/lib/sources'
 import { sumUsage } from '../../src/lib/usage'
 import type { StageUsage, StreamEvent, TraceStep } from '../../src/types'
 import { AGENTS, MIN_STAGE_MS, RUN_BUDGET_MS, keyLine, type AgentConfig, type AgentContext } from '../shared/agents'
 import { RequestError, clientKey, corsHeaders, fail, isOriginAllowed, rateLimit, readQuery, sseEvent } from '../shared/gate'
 import { getProvider, type Provider } from '../shared/provider'
+import { RETRIEVE_TIMEOUT_MS, retrieveSources } from '../shared/retrieve'
 import {
   RunCancelledError,
   TIMEOUT_MESSAGE,
@@ -61,8 +63,10 @@ async function runOneStage(
 }
 
 /**
- * Runs the four stages in order against one shared deadline and reports each step as it ends.
- * When the visitor leaves, no later stage starts and the call in flight is aborted.
+ * Retrieves public sources, then runs the four model stages in order, all against one shared
+ * deadline, and reports each step as it ends. Retrieval draws on the same run budget, so a slow
+ * lookup shortens the stages instead of adding to the run. When the visitor leaves, no later step
+ * starts and the call in flight is aborted.
  */
 async function runPipeline(
   query: string,
@@ -74,6 +78,22 @@ async function runPipeline(
   const deadline = runStart + RUN_BUDGET_MS
   const context: AgentContext = {}
   const records: StageRecord[] = []
+
+  send({ type: 'retrieve_start' })
+  const found = await retrieveSources(query, {
+    signal: runSignal,
+    timeoutMs: Math.min(RETRIEVE_TIMEOUT_MS, deadline - Date.now()),
+  })
+  if (runSignal.aborted) return
+  const retrieveMs = Date.now() - runStart
+  context.sources = found.sources
+  const retrieveRecord: StageRecord = {
+    name: 'Retrieve',
+    status: found.reached ? 'ok' : 'failed',
+    ms: retrieveMs,
+    detail: found.detail,
+  }
+  send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail })
 
   for (const agent of AGENTS) {
     if (runSignal.aborted) return
@@ -93,10 +113,12 @@ async function runPipeline(
     if (outcome.ok) {
       const { stage } = outcome
       const detail = keyLine(stage.content)
-      context[agent.role] = stage.content
+      // The Sources list is built from what was retrieved, never from model text.
+      const content = agent.role === 'synthesizer' ? withSources(stage.content, found.sources) : stage.content
+      context[agent.role] = content
       const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
       records.push({ name: agent.name, status, ms, detail, usage: stage.usage, servedModel: stage.servedModel })
-      send({ type: 'agent_chunk', agent: agent.role, content: stage.content })
+      send({ type: 'agent_chunk', agent: agent.role, content })
       send({
         type: 'agent_complete',
         agent: agent.role,
@@ -115,13 +137,13 @@ async function runPipeline(
   }
 
   if (runSignal.aborted) return
-  // Skipped stages were never called, so they are left out of the totals.
+  // Skipped stages and the retrieval were never model calls, so they are left out of the totals.
   const called = records.filter(record => record.status !== 'skipped')
   send({
     type: 'session_complete',
     agent: 'synthesizer',
     result: context.synthesizer ?? '',
-    trace: records.map(toTraceStep),
+    trace: [retrieveRecord, ...records].map(toTraceStep),
     usage: sumUsage(called.map(record => record.usage)),
     model: called.map(record => record.servedModel).find(Boolean),
     totalMs: Date.now() - runStart,

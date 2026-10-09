@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createAgents, hasUsefulOutput, slugifyQuery, wasTruncated } from '../../src/lib/agents'
+import { EXAMPLE_QUERIES, createAgents, hasUsefulOutput, slugifyQuery, statusView, wasTruncated } from '../../src/lib/agents'
 
 describe('slugifyQuery', () => {
   it('makes a lowercase, dash-separated name from the first 40 characters', () => {
@@ -16,11 +16,28 @@ describe('slugifyQuery', () => {
 })
 
 describe('createAgents', () => {
-  it('starts all four stages idle, in pipeline order', () => {
+  it('starts Retrieve and the four model stages idle, in pipeline order', () => {
     const agents = createAgents()
-    expect(Object.keys(agents)).toEqual(['researcher', 'analyst', 'critic', 'synthesizer'])
+    expect(Object.keys(agents)).toEqual(['retriever', 'researcher', 'analyst', 'critic', 'synthesizer'])
+    expect(agents.retriever).toMatchObject({ name: 'Retrieve', description: 'Fetches live sources', status: 'idle', maxTokens: 0 })
     expect(agents.researcher).toMatchObject({ name: 'Researcher', status: 'idle', output: '', detail: 'Waiting to start.' })
     expect(agents.synthesizer.name).toBe('Synthesizer')
+  })
+})
+
+describe('statusView', () => {
+  const base = createAgents().researcher
+
+  it('gives one word and dot per status, shared by the graph, the tabs and the trace', () => {
+    const words = (['idle', 'working', 'complete', 'error', 'skipped', 'stopped'] as const).map(status => statusView({ ...base, status }).word)
+    expect(words).toEqual(['Waiting', 'Working', 'Finished', 'Failed', 'Not run', 'Stopped'])
+    expect(statusView({ ...base, status: 'working' }).dot).toBe('ds-dot ds-dot--running')
+    expect(statusView({ ...base, status: 'stopped' }).dot).toBe('ds-dot app-dot--warning')
+  })
+
+  it('says Cut off for a finished stage whose reply stopped early', () => {
+    expect(statusView({ ...base, status: 'complete', finish: 'length' })).toEqual({ word: 'Cut off', dot: 'ds-dot app-dot--warning' })
+    expect(statusView({ ...base, status: 'error', finish: 'length' }).word).toBe('Failed')
   })
 })
 
@@ -39,5 +56,12 @@ describe('stage output checks', () => {
     expect(wasTruncated({ ...base, finish: 'interrupted' })).toBe(true)
     expect(wasTruncated({ ...base, finish: 'stop' })).toBe(false)
     expect(wasTruncated({ ...base, finish: null })).toBe(false)
+  })
+})
+
+describe('example questions', () => {
+  it('offers three questions that fit the query limit', () => {
+    expect(EXAMPLE_QUERIES).toHaveLength(3)
+    expect(EXAMPLE_QUERIES.every(question => question.endsWith('?') && question.length <= 500)).toBe(true)
   })
 })

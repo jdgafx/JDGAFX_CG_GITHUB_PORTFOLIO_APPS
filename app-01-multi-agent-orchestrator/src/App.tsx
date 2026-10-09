@@ -8,7 +8,17 @@ import { PipelineCanvas } from './components/PipelineCanvas'
 import { QueryBar } from './components/QueryBar'
 import { RunMetrics, type MetricsState } from './components/RunMetrics'
 import { RunTrace, type TraceRow } from './components/RunTrace'
-import { AGENT_META, AGENT_ORDER, MAX_QUERY_CHARS, createAgents, hasUsefulOutput, wasTruncated } from './lib/agents'
+import {
+  AGENT_META,
+  AGENT_ORDER,
+  MAX_QUERY_CHARS,
+  MODEL_ORDER,
+  createAgents,
+  foundNoSources,
+  hasUsefulOutput,
+  statusView,
+  wasTruncated,
+} from './lib/agents'
 import { isAbortError, runErrorMessage, startResearch } from './lib/api'
 import {
   buildEdges,
@@ -18,14 +28,15 @@ import {
   refreshNodes,
   settleAgents,
   traceDetail,
+  traceMeta,
   type GraphLayout,
   type RunPhase,
 } from './lib/pipeline'
 import { sumUsage } from './lib/usage'
-import type { AgentRole, AgentState, AgentStatus, RunSummary, StreamEvent } from './types'
+import type { AgentRole, AgentState, RunSummary, StreamEvent } from './types'
 
-/** Below 1200px the four stages wrap into a 2x2 grid. Matches the pipeline breakpoint in app.css. */
-const GRID_QUERY = '(max-width: 1199px)'
+/** Below 640px the five steps snake two to a row instead of three. Matches the pipeline breakpoint in app.css. */
+const NARROW_QUERY = '(max-width: 639px)'
 
 const BADGE: Record<RunPhase, { label: string; tone: BadgeTone }> = {
   ready: { label: 'Ready', tone: 'neutral' },
@@ -36,23 +47,14 @@ const BADGE: Record<RunPhase, { label: string; tone: BadgeTone }> = {
   failed: { label: 'Failed', tone: 'danger' },
 }
 
-const TRACE_STATUS: Record<AgentStatus, TraceRow['status']> = {
-  idle: 'waiting',
-  working: 'running',
-  complete: 'ok',
-  error: 'failed',
-  skipped: 'skipped',
-  stopped: 'stopped',
-}
-
 function subscribeLayout(onChange: () => void): () => void {
-  const query = window.matchMedia(GRID_QUERY)
+  const query = window.matchMedia(NARROW_QUERY)
   query.addEventListener('change', onChange)
   return () => query.removeEventListener('change', onChange)
 }
 
 function readLayout(): GraphLayout {
-  return window.matchMedia(GRID_QUERY).matches ? 'grid' : 'row'
+  return window.matchMedia(NARROW_QUERY).matches ? 'cols2' : 'cols3'
 }
 
 export default function App() {
@@ -63,7 +65,7 @@ export default function App() {
   const [wasStopped, setWasStopped] = useState(false)
   const [summary, setSummary] = useState<RunSummary | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
-  const [activeTab, setActiveTab] = useState<AgentRole>('researcher')
+  const [activeTab, setActiveTab] = useState<AgentRole>('retriever')
   const [pipelineError, setPipelineError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
   const [noticesHidden, setNoticesHidden] = useState(false)
@@ -89,48 +91,53 @@ export default function App() {
         setSummary(event)
         if (event.result.trim()) setActiveTab('synthesizer')
         return
+      case 'retrieve_start':
+        setActiveTab('retriever')
+        setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'working', detail: 'Looking up Wikipedia and Hacker News.' } }))
+        setAnnouncement('Retrieve is fetching public sources.')
+        return
+      case 'retrieve_complete': {
+        const { ms, sources, detail } = event
+        setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'complete', ms, sources, detail } }))
+        setAnnouncement(sources.length > 0 ? `Retrieve found ${sources.length} sources.` : 'Retrieve found no sources.')
+        return
+      }
       case 'agent_start': {
-        const role = event.agent
-        const maxTokens = event.maxTokens
-        setActiveTab(role)
-        setAgents(prev => ({ ...prev, [role]: { ...prev[role], status: 'working', maxTokens, detail: 'Model call in progress.' } }))
-        setAnnouncement(`${AGENT_META[role].name} is working.`)
+        const { agent, maxTokens } = event
+        setActiveTab(agent)
+        setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], status: 'working', maxTokens, detail: 'Model call in progress.' } }))
+        setAnnouncement(`${AGENT_META[agent].name} is working.`)
         return
       }
       case 'agent_chunk': {
-        const role = event.agent
-        const text = event.content
-        setAgents(prev => ({ ...prev, [role]: { ...prev[role], output: prev[role].output + text } }))
+        const { agent, content } = event
+        setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], output: prev[agent].output + content } }))
         return
       }
       case 'agent_complete': {
-        const role = event.agent
-        const { ms, detail, finish, reasoningTokens, servedModel, usage } = event
+        const { agent, ms, detail, finish, reasoningTokens, servedModel, usage } = event
         setAgents(prev => ({
           ...prev,
-          [role]: { ...prev[role], status: 'complete', ms, detail, finish, reasoningTokens, servedModel, usage },
+          [agent]: { ...prev[agent], status: 'complete', ms, detail, finish, reasoningTokens, servedModel, usage },
         }))
-        setAnnouncement(`${AGENT_META[role].name} finished in ${ms.toLocaleString('en-US')} ms.`)
+        setAnnouncement(`${AGENT_META[agent].name} finished in ${ms.toLocaleString('en-US')} ms.`)
         return
       }
       case 'agent_skipped': {
-        const role = event.agent
-        const detail = event.detail
-        setAgents(prev => ({ ...prev, [role]: { ...prev[role], status: 'skipped', detail } }))
-        setAnnouncement(`${AGENT_META[role].name} was not run.`)
+        const { agent, detail } = event
+        setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], status: 'skipped', detail } }))
+        setAnnouncement(`${AGENT_META[agent].name} was not run.`)
         return
       }
       case 'agent_error': {
-        const message = event.error
-        setPipelineError(message)
-        if (event.agent === 'system') {
-          setAgents(prev => failInFlight(prev, message))
+        const { agent, ms, error } = event
+        setPipelineError(error)
+        if (agent === 'system') {
+          setAgents(prev => failInFlight(prev, error))
           return
         }
-        const role = event.agent
-        const ms = event.ms
-        setAgents(prev => ({ ...prev, [role]: { ...prev[role], status: 'error', error: message, detail: message, ms } }))
-        setAnnouncement(`${AGENT_META[role].name} failed. ${message}`)
+        setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], status: 'error', error, detail: error, ms } }))
+        setAnnouncement(`${AGENT_META[agent].name} failed. ${error}`)
         return
       }
     }
@@ -149,8 +156,8 @@ export default function App() {
       setWasStopped(false)
       setPipelineError(null)
       setNoticesHidden(false)
-      setActiveTab('researcher')
-      setAnnouncement('Research started. The four stages run in order.')
+      setActiveTab('retriever')
+      setAnnouncement('Research started. Sources are fetched first, then four stages run in order.')
       stoppedRef.current = false
 
       const startedAt = Date.now()
@@ -221,9 +228,9 @@ export default function App() {
     [],
   )
 
-  const startedRoles = AGENT_ORDER.filter(role => agents[role].status !== 'idle' && agents[role].status !== 'skipped')
+  const startedRoles = MODEL_ORDER.filter(role => agents[role].status !== 'idle' && agents[role].status !== 'skipped')
   const hasStarted = AGENT_ORDER.some(role => agents[role].status !== 'idle')
-  const hasAnyOutput = AGENT_ORDER.some(role => agents[role].output.trim().length > 0)
+  const hasAnyOutput = MODEL_ORDER.some(role => agents[role].output.trim().length > 0)
   const runningRole = AGENT_ORDER.find(role => agents[role].status === 'working')
   const phase = derivePhase(agents, isRunning, wasStopped)
   const badge =
@@ -243,11 +250,11 @@ export default function App() {
     return {
       index: i + 1,
       name: AGENT_META[role].name,
-      status: agent.status === 'complete' && wasTruncated(agent) ? 'cut off' : TRACE_STATUS[agent.status],
+      view: statusView(agent),
+      running: agent.status === 'working',
       ms: agent.ms,
       detail: traceDetail(agent),
-      tokens: agent.usage?.completion_tokens,
-      cost: agent.usage?.cost,
+      meta: traceMeta(agent),
     }
   })
 
@@ -256,10 +263,13 @@ export default function App() {
   if (!isRunning && wasStopped) notices.push('You stopped the run. Finished stages are kept below and can be exported.')
   const cut = AGENT_ORDER.filter(role => wasTruncated(agents[role]))
   if (!isRunning && cut.length > 0) notices.push(`Cut off before finishing: ${names(cut)}. Those sections may end mid-thought.`)
-  const incomplete = AGENT_ORDER.filter(role => agents[role].status === 'complete' && !hasUsefulOutput(agents[role]))
+  const incomplete = MODEL_ORDER.filter(role => agents[role].status === 'complete' && !hasUsefulOutput(agents[role]))
   if (!isRunning && incomplete.length > 0) notices.push(`No usable output from: ${names(incomplete)}. The report is incomplete.`)
   const notRun = AGENT_ORDER.filter(role => agents[role].status === 'skipped')
   if (!isRunning && notRun.length > 0) notices.push(`Not run: ${names(notRun)}. The run ended before reaching them.`)
+  if (!isRunning && foundNoSources(agents.retriever)) {
+    notices.push('No sources were retrieved, so the Researcher worked from model memory. Its facts carry no citations and are unverified.')
+  }
   if (AGENT_ORDER.some(role => agents[role].reasoningTokens > 0)) {
     notices.push('The model spent part of its budget on internal reasoning, which shortens the visible answers.')
   }
@@ -295,7 +305,7 @@ export default function App() {
                 <h2 id="pipeline-heading" className="ds-section__title">
                   Pipeline
                 </h2>
-                <p className="ds-section__sub">Each node is one model call. The Synthesizer reads all three stages before it.</p>
+                <p className="ds-section__sub">Retrieve fetches public sources. Each other node is one model call, and the Synthesizer reads the three stages before it.</p>
               </div>
               <div className="ds-panel pipeline-panel">
                 <div className="pipeline-canvas">
@@ -319,7 +329,7 @@ export default function App() {
                 <h2 id="report-heading" className="ds-section__title">
                   Report
                 </h2>
-                <p className="ds-section__sub">Each tab fills when its stage finishes. The Synthesizer holds the final answer.</p>
+                <p className="ds-section__sub">Each tab fills when its step finishes. Retrieve lists the sources, and the Synthesizer holds the final answer.</p>
               </div>
               <div className="ds-panel report-panel">
                 <OutputPanel agents={agents} activeTab={activeTab} onSelect={setActiveTab} />
@@ -343,7 +353,7 @@ export default function App() {
                 <h2 id="trace-heading" className="ds-section__title">
                   Run trace
                 </h2>
-                <p className="ds-section__sub">Timed on the server, one line per stage.</p>
+                <p className="ds-section__sub">Timed on the server, one line per step.</p>
               </div>
               <RunTrace rows={traceRows} />
             </section>

@@ -18,10 +18,10 @@ const BUTTONS: Array<{ kind: ExportKind; label: string; title: string; icon: typ
 ]
 
 const HELP: Record<ExportState, string> = {
-  running: 'Available when the run ends. It exports all four stages in order.',
-  empty: 'Available once a run has output. It exports all four stages in order.',
-  partial: 'Exports all four stages in order. A stage that produced no output says so in the file.',
-  complete: 'Exports all four stages in order: research, analysis, critique and synthesis.',
+  running: 'Available when the run ends. It exports all four stages in order, then the sources.',
+  empty: 'Available once a run has output. It exports all four stages in order, then the sources.',
+  partial: 'Exports all four stages in order, then the sources. A stage that produced no output says so in the file.',
+  complete: 'Exports research, analysis, critique and synthesis in order, with the sources the research cites.',
 }
 
 /** The export section: one button per format, with one line on what gets exported. */

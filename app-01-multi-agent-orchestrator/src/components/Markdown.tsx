@@ -1,5 +1,31 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { parseBlocks, parseInline, type Block } from '../lib/markdown'
+import type { Source } from '../types'
+
+/** The run's sources, so a [n] marker in the text links to source n. */
+const SourcesContext = createContext<Source[]>([])
+
+const CITATION = /(\[\d{1,2}\])/
+
+/** Plain text in which a [n] that matches a retrieved source becomes a link to it. */
+function CitedText({ text }: { text: string }) {
+  const sources = useContext(SourcesContext)
+  if (sources.length === 0) return <>{text}</>
+  return (
+    <>
+      {text.split(CITATION).map((piece, i) => {
+        const source = CITATION.test(piece) ? sources.find(candidate => `[${candidate.n}]` === piece) : undefined
+        return source ? (
+          <a key={i} className="md-cite" href={source.url} target="_blank" rel="noreferrer noopener" title={`${source.site}: ${source.title}`}>
+            {piece}
+          </a>
+        ) : (
+          piece
+        )
+      })}
+    </>
+  )
+}
 
 /** Only web links become links. Anything else the model writes shows as plain text. */
 const WEB_LINK = /^https?:\/\//i
@@ -24,7 +50,11 @@ function InlineText({ text }: { text: string }) {
               <span key={i}>{part.text}</span>
             )
           default:
-            return <span key={i}>{part.text}</span>
+            return (
+              <span key={i}>
+                <CitedText text={part.text} />
+              </span>
+            )
         }
       })}
     </>
@@ -88,9 +118,7 @@ function BlockView({ block }: { block: Block }) {
           <InlineText text={block.text} />
         </p>
       )
-    case 'bullet':
-    case 'numbered':
-    case 'blank':
+    default:
       return null
   }
 }
@@ -127,10 +155,12 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   return <>{out}</>
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, sources = [] }: { text: string; sources?: Source[] }) {
   return (
-    <div className="md">
-      <Blocks blocks={parseBlocks(text)} />
-    </div>
+    <SourcesContext.Provider value={sources}>
+      <div className="md">
+        <Blocks blocks={parseBlocks(text)} />
+      </div>
+    </SourcesContext.Provider>
   )
 }

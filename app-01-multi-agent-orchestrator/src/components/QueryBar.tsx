@@ -34,7 +34,7 @@ export function QueryBar({
         <h2 id="research-heading" className="ds-section__title">
           Research
         </h2>
-        <p className="ds-section__sub">Pick a question. Four model calls answer it in order.</p>
+        <p className="ds-section__sub">Pick a question. The app fetches live sources, then four model calls answer it from them.</p>
       </div>
       <form
         className="ds-stack"
@@ -60,7 +60,7 @@ export function QueryBar({
             aria-describedby="research-query-help"
           />
           <p id="research-query-help" className="ds-help">
-            The question the four agents research together, up to {MAX_QUERY_CHARS} characters.
+            The question to research. Wikipedia and Hacker News are searched for it. Up to {MAX_QUERY_CHARS} characters.
           </p>
         </div>
 

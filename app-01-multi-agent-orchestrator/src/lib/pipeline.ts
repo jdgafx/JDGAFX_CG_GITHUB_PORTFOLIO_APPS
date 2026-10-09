@@ -1,24 +1,31 @@
 import type { Edge, Node } from '@xyflow/react'
 import type { AgentRole, AgentState } from '../types'
-import { AGENT_ORDER, hasUsefulOutput, wasTruncated } from './agents'
+import { AGENT_ORDER, MODEL_ORDER, hasUsefulOutput, wasTruncated } from './agents'
+import { formatUsd } from './usage'
 
 export type RunPhase = 'ready' | 'running' | 'complete' | 'partial' | 'stopped' | 'failed'
 export type AgentMap = Record<AgentRole, AgentState>
-/** Row: the four stages in one line. Grid: two rows of two, used below 1200px. */
-export type GraphLayout = 'row' | 'grid'
+/** Steps snake across the graph: three per row, or two per row on phones. */
+export type GraphLayout = 'cols3' | 'cols2'
+
+const COLUMNS: Record<GraphLayout, number> = { cols3: 3, cols2: 2 }
 
 /** Node size and spacing in pixels. app.css sets the same node size. */
-export const NODE_WIDTH = 136
-export const NODE_HEIGHT = 128
+const NODE_WIDTH = 136
+const NODE_HEIGHT = 128
 const GAP_X = 72
 const GAP_Y = 40
 
-/** What each hand-off passes on: the Analyst reads research, the Critic reads analysis, the Synthesizer reads gaps. */
-const EDGE_LABELS = ['Research', 'Analysis', 'Gaps']
+/** What each hand-off passes on: the Researcher reads the sources, the Analyst reads research, the Critic reads analysis, the Synthesizer reads gaps. */
+const EDGE_LABELS = ['Sources', 'Research', 'Analysis', 'Gaps']
 
+/** Rows alternate direction, so each hand-off is a short step right, left or down. */
 export function nodePosition(index: number, layout: GraphLayout): { x: number; y: number } {
-  if (layout === 'row') return { x: index * (NODE_WIDTH + GAP_X), y: 0 }
-  return { x: (index % 2) * (NODE_WIDTH + GAP_X), y: Math.floor(index / 2) * (NODE_HEIGHT + GAP_Y) }
+  const columns = COLUMNS[layout]
+  const row = Math.floor(index / columns)
+  const offset = index % columns
+  const column = row % 2 === 0 ? offset : columns - 1 - offset
+  return { x: column * (NODE_WIDTH + GAP_X), y: row * (NODE_HEIGHT + GAP_Y) }
 }
 
 export function buildNodes(agents: AgentMap, layout: GraphLayout): Node[] {
@@ -54,19 +61,27 @@ export function refreshNodes(prev: Node[], agents: AgentMap, layout: GraphLayout
   return changed ? merged : prev
 }
 
+/** Which sides of two nodes an edge joins: across a row, or down to the next one. */
+export function edgeHandles(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): { sourceHandle: string; targetHandle: string } {
+  if (to.y > from.y) return { sourceHandle: 'source-bottom', targetHandle: 'target-top' }
+  if (to.x < from.x) return { sourceHandle: 'source-left', targetHandle: 'target-right' }
+  return { sourceHandle: 'source-right', targetHandle: 'target-left' }
+}
+
 /** An edge is taken once the stage it points to has started. Taken edges are drawn in the signal colour. */
 export function buildEdges(agents: AgentMap, layout: GraphLayout): Edge[] {
   return AGENT_ORDER.slice(0, -1).map((source, i) => {
     const target = AGENT_ORDER[i + 1] ?? source
-    const down = layout === 'grid' && i === 1
     const { status } = agents[target]
     const taken = status !== 'idle' && status !== 'skipped'
     return {
       id: `e-${source}`,
       source,
       target,
-      sourceHandle: down ? 'source-bottom' : 'source-right',
-      targetHandle: down ? 'target-top' : 'target-left',
+      ...edgeHandles(nodePosition(i, layout), nodePosition(i + 1, layout)),
       label: EDGE_LABELS[i],
       className: taken ? 'pipeline-edge pipeline-edge--taken' : 'pipeline-edge',
       selectable: false,
@@ -90,6 +105,21 @@ export function traceDetail(agent: AgentState): string {
     case 'stopped':
       return 'Stopped before it finished.'
   }
+}
+
+/** The figures on the right of a finished trace line: the sources found, or the tokens and cost. */
+export function traceMeta(agent: AgentState): string[] {
+  if (agent.status !== 'complete') return []
+  if (agent.id === 'retriever') {
+    const count = agent.sources?.length ?? 0
+    return [`${count} ${count === 1 ? 'source' : 'sources'}`]
+  }
+  const tokens = agent.usage?.completion_tokens
+  const cost = agent.usage?.cost
+  return [
+    tokens !== undefined ? `${tokens.toLocaleString('en-US')} tokens` : 'tokens not reported',
+    cost !== undefined ? formatUsd(cost) : 'cost not reported',
+  ]
 }
 
 /** Once the stream has ended nothing can still be running. Each unfinished stage says why. */
@@ -122,8 +152,8 @@ export function derivePhase(agents: AgentMap, isRunning: boolean, wasStopped: bo
   if (isRunning) return 'running'
   if (AGENT_ORDER.every(role => agents[role].status === 'idle')) return 'ready'
   if (wasStopped) return 'stopped'
-  if (AGENT_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]) && !wasTruncated(agents[role])))
+  if (MODEL_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]) && !wasTruncated(agents[role])))
     return 'complete'
-  if (AGENT_ORDER.some(role => agents[role].output.trim().length > 0)) return 'partial'
+  if (MODEL_ORDER.some(role => agents[role].output.trim().length > 0)) return 'partial'
   return 'failed'
 }

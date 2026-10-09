@@ -9,7 +9,7 @@ export type Block =
   | { kind: 'bullet'; text: string }
   | { kind: 'numbered'; marker: string; text: string }
   | { kind: 'quote'; text: string }
-  | { kind: 'code'; lang: string; lines: string[] }
+  | { kind: 'code'; lines: string[] }
   | { kind: 'table'; header: string[]; rows: string[][] }
   | { kind: 'rule' }
   | { kind: 'paragraph'; text: string }
@@ -68,15 +68,14 @@ export function parseBlocks(source: string): Block[] {
     const raw = lines[i] ?? ''
     const line = raw.trim()
 
-    const fence = /^```\s*(\S*)/.exec(line)
-    if (fence) {
+    if (line.startsWith('```')) {
       const body: string[] = []
       i += 1
       while (i < lines.length && !(lines[i] ?? '').trim().startsWith('```')) {
         body.push(lines[i] ?? '')
         i += 1
       }
-      blocks.push({ kind: 'code', lang: fence[1] ?? '', lines: body })
+      blocks.push({ kind: 'code', lines: body })
       continue
     }
 

@@ -35,7 +35,7 @@ describe('parseBlocks', () => {
     expect(blocks[2]).toEqual({ kind: 'bullet', text: 'one' })
     expect(blocks[3]).toEqual({ kind: 'bullet', text: 'two' })
     expect(blocks[4]).toEqual({ kind: 'numbered', marker: '1', text: 'first' })
-    expect(blocks[7]).toEqual({ kind: 'code', lang: 'js', lines: ['const x = 1'] })
+    expect(blocks[7]).toEqual({ kind: 'code', lines: ['const x = 1'] })
     expect(blocks[8]).toEqual({ kind: 'table', header: ['Name', 'Value'], rows: [['a', '1']] })
   })
 

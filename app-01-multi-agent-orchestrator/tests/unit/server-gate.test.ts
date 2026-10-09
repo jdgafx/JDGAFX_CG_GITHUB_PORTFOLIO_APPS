@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MAX_QUERY_CHARS, RequestError, clientKey, fail, rateLimit, readQuery, sseEvent } from '../../netlify/shared/gate'
+import { MAX_QUERY_CHARS } from '../../src/lib/agents'
+import { RequestError, clientKey, fail, rateLimit, readQuery, sseEvent } from '../../netlify/shared/gate'
 
 const SITE = 'https://site.example'
 const endpoint = `${SITE}/.netlify/functions/ai`

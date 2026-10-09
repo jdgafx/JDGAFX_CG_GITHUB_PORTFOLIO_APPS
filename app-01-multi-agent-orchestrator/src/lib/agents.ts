@@ -1,40 +1,45 @@
-import type { AgentRole, AgentState } from '../types'
+import type { AgentRole, AgentState, AgentStatus, ModelRole } from '../types'
 import { isCutOff } from './finish'
 
-export const AGENT_ORDER: AgentRole[] = ['researcher', 'analyst', 'critic', 'synthesizer']
+/** The retriever comes first. The four model stages follow in MODEL_ORDER. */
+export const AGENT_ORDER: AgentRole[] = ['retriever', 'researcher', 'analyst', 'critic', 'synthesizer']
+export const MODEL_ORDER: ModelRole[] = ['researcher', 'analyst', 'critic', 'synthesizer']
 
 /** Stage names match the server's trace. Descriptions show under each graph node. */
 export const AGENT_META: Record<AgentRole, { name: string; description: string }> = {
-  researcher: { name: 'Researcher', description: 'Gathers the key facts' },
+  retriever: { name: 'Retrieve', description: 'Fetches live sources' },
+  researcher: { name: 'Researcher', description: 'Lists cited facts' },
   analyst: { name: 'Analyst', description: 'Finds the patterns' },
   critic: { name: 'Critic', description: 'Points out the gaps' },
   synthesizer: { name: 'Synthesizer', description: 'Writes the final report' },
 }
 
 /** Section titles used in the exported report. */
-export const AGENT_LABELS: Record<AgentRole, string> = {
+export const AGENT_LABELS: Record<ModelRole, string> = {
   researcher: 'Research Findings',
   analyst: 'Analysis',
   critic: 'Critical Review',
   synthesizer: 'Final Synthesis',
 }
 
+/** Questions that Wikipedia and Hacker News can ground, so the Researcher has sources to cite. */
 export const EXAMPLE_QUERIES = [
-  'How is AI changing software engineering jobs?',
-  'Is nuclear power a realistic path to net zero?',
-  'What drives the rise of the creator economy?',
+  'What did the James Webb Space Telescope find in early galaxies?',
+  'How does CRISPR gene editing work and where is it used?',
+  'Why are developers adopting Rust for systems programming?',
 ]
 
 /** A stage needs at least this much text before its output counts as usable. */
 const MIN_USEFUL_CHARS = 40
 
-/** Mirrors the server-side cap in netlify/shared/gate.ts. */
+/** The longest question the server accepts. The page and the function both import it. */
 export const MAX_QUERY_CHARS = 500
 
 export function createAgents(): Record<AgentRole, AgentState> {
-  return AGENT_ORDER.reduce(
-    (acc, role) => {
-      acc[role] = {
+  return Object.fromEntries(
+    AGENT_ORDER.map(role => [
+      role,
+      {
         id: role,
         name: AGENT_META[role].name,
         description: AGENT_META[role].description,
@@ -44,11 +49,9 @@ export function createAgents(): Record<AgentRole, AgentState> {
         detail: 'Waiting to start.',
         finish: null,
         reasoningTokens: 0,
-      }
-      return acc
-    },
-    {} as Record<AgentRole, AgentState>,
-  )
+      } satisfies AgentState,
+    ]),
+  ) as Record<AgentRole, AgentState>
 }
 
 export function hasUsefulOutput(agent: AgentState): boolean {
@@ -68,4 +71,36 @@ export function slugifyQuery(query: string): string {
     .replace(/^-+|-+$/g, '')
     .toLowerCase()
   return slug || 'untitled'
+}
+
+export interface StatusView {
+  word: string
+  /** Class names for the dot beside the word. Colour never carries the state alone. */
+  dot: string
+}
+
+const STATUS_VIEW: Record<AgentStatus, StatusView> = {
+  idle: { word: 'Waiting', dot: 'ds-dot' },
+  working: { word: 'Working', dot: 'ds-dot ds-dot--running' },
+  complete: { word: 'Finished', dot: 'ds-dot ds-dot--ok' },
+  error: { word: 'Failed', dot: 'ds-dot ds-dot--failed' },
+  skipped: { word: 'Not run', dot: 'ds-dot ds-dot--skipped' },
+  stopped: { word: 'Stopped', dot: 'ds-dot app-dot--warning' },
+}
+
+const CUT_OFF_VIEW: StatusView = { word: 'Cut off', dot: 'ds-dot app-dot--warning' }
+const NO_SOURCES_VIEW: StatusView = { word: 'No sources', dot: 'ds-dot app-dot--warning' }
+
+/** True when the retriever finished but found nothing, so the Researcher works without sources. */
+export function foundNoSources(agent: AgentState): boolean {
+  return agent.id === 'retriever' && agent.status === 'complete' && (agent.sources?.length ?? 0) === 0
+}
+
+/** The word and dot for a stage in the graph, the report tabs and the trace. One table for all three. */
+export function statusView(agent: AgentState): StatusView {
+  if (agent.status === 'complete') {
+    if (wasTruncated(agent)) return CUT_OFF_VIEW
+    if (foundNoSources(agent)) return NO_SOURCES_VIEW
+  }
+  return STATUS_VIEW[agent.status]
 }
