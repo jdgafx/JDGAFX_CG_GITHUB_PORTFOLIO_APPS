@@ -1,4 +1,4 @@
-import { Play, RotateCw, Square } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { Phase } from '../lib/runState'
 
 export interface TaskErrorView {
@@ -22,6 +22,19 @@ interface RunControlsProps {
 /** Each button points at the help line under its pair, so a screen reader reads what the control does. */
 const START_HELP_ID = 'run-help-start'
 const REPLAY_HELP_ID = 'run-help-replay'
+
+/** A 14 px stroke icon in the same style as the lucide icons it replaces. The button text names the control. */
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
+
+const PlayIcon = () => <Icon><polygon points="6 3 20 12 6 21 6 3" /></Icon>
+const SquareIcon = () => <Icon><rect width="18" height="18" x="3" y="3" rx="2" /></Icon>
+const ReplayIcon = () => <Icon><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></Icon>
 
 /** Start, stop, replay or clear a run. Stop is the only control live while the browser run is in progress. */
 export default function RunControls({
@@ -48,11 +61,11 @@ export default function RunControls({
       <div className="ds-stack">
         <div className="bb-actions">
           <button type="button" className="ds-button ds-button--primary" aria-describedby={START_HELP_ID} disabled={busy || !task.trim()} onClick={onPlan}>
-            <Play size={14} aria-hidden="true" />
+            <PlayIcon />
             {planning ? 'Planning…' : running ? 'Running…' : 'Plan and run'}
           </button>
           <button type="button" className="ds-button" aria-describedby={START_HELP_ID} disabled={!running} onClick={onStop}>
-            <Square size={14} aria-hidden="true" />
+            <SquareIcon />
             Stop run
           </button>
         </div>
@@ -60,7 +73,7 @@ export default function RunControls({
 
         <div className="bb-actions">
           <button type="button" className="ds-button" aria-describedby={REPLAY_HELP_ID} disabled={busy || !canRunAgain} onClick={onRunAgain}>
-            <RotateCw size={14} aria-hidden="true" />
+            <ReplayIcon />
             Run plan again
           </button>
           <button type="button" className="ds-button" aria-describedby={REPLAY_HELP_ID} disabled={busy || !hasRun} onClick={onReset}>

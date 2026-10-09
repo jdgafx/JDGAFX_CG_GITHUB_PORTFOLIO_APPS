@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@browserbasehq/sdk": "^2.18.0",
-    "lucide-react": "^0.469.0",
     "playwright-core": "^1.62.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

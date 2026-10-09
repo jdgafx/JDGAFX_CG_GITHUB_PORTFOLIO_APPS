@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_STEPS, StepError, validateSteps } from '../../netlify/shared/steps'
+import { CuratedError } from '../../netlify/shared/guard'
+import { isPlainCssSelector, MAX_STEPS, validateSteps } from '../../netlify/shared/steps'
 
 const DEFAULTS = ['google.com', 'www.google.com', 'flights.google.com']
 const LIST = 'google.com, www.google.com, flights.google.com'
@@ -9,7 +10,7 @@ function outcome(raw: unknown): string {
   try {
     validateSteps(raw, DEFAULTS)
   } catch (error) {
-    expect(error).toBeInstanceOf(StepError)
+    expect(error).toBeInstanceOf(CuratedError)
     return error instanceof Error ? error.message : 'not an error'
   }
   return 'accepted'
@@ -120,3 +121,37 @@ describe('validateSteps', () => {
       .toBe('accepted')
   })
 })
+
+describe('selector', () => {
+  const extract = (selector: unknown) => [{ action: 'extract', target: 'story titles', thought: 'Read them.', selector }]
+
+  it('is kept, trimmed, on extract and verify steps', () => {
+    const [read] = validateSteps(extract('  .titleline > a '), DEFAULTS)
+    expect(read.selector).toBe('.titleline > a')
+    const [check] = validateSteps([{ action: 'verify', target: 'infobox', thought: 'Check it.', selector: 'table.infobox' }], DEFAULTS)
+    expect(check.selector).toBe('table.infobox')
+  })
+
+  it('is dropped from steps that do not read the page, and from a blank value', () => {
+    const [click] = validateSteps([{ action: 'click', target: 'Search button', thought: 'Click.', selector: '#go' }], DEFAULTS)
+    expect(click).not.toHaveProperty('selector')
+    const [blank] = validateSteps(extract('   '), DEFAULTS)
+    expect(blank.selector).toBeUndefined()
+  })
+
+  it('rejects a selector that is too long or not text', () => {
+    expect(outcome(extract('a'.repeat(201)))).toBe('Step 1 has a selector longer than 200 characters.')
+    expect(outcome(extract(7))).toBe('Step 1 has a selector that is not text.')
+  })
+
+  it('accepts plain CSS and refuses other Playwright selector engines', () => {
+    for (const ok of ['.titleline > a', 'table.infobox', '#mp-tfa', 'article.Box-row', '#mw-content-text .mw-parser-output > p', 'a[href^="/wiki/"]', 'li:nth-child(2)']) {
+      expect(isPlainCssSelector(ok), ok).toBe(true)
+    }
+    for (const bad of ['text=Log in', 'xpath=//a', 'css=a', '//a', '..', 'a >> b', '<script>', 'a; b', '`x`', 'a\\b']) {
+      expect(isPlainCssSelector(bad), bad).toBe(false)
+    }
+    expect(outcome(extract('xpath=//a'))).toBe('Step 1 has a selector that is not a plain CSS selector.')
+  })
+})
+

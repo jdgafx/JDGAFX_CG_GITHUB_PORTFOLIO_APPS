@@ -2,8 +2,8 @@
 const PRODUCTION_ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
 const LOCAL_ORIGINS = ['http://localhost:8888', 'http://localhost:5173']
 
-/** A request body that cannot be used. The message is curated copy. */
-export class BodyError extends Error {}
+/** A rejected request or plan. The message is curated copy the browser may show verbatim. */
+export class CuratedError extends Error {}
 
 // Origins allowed to call the billable endpoints. Netlify injects URL and DEPLOY_* for the live
 // site and deploy previews, so only the production host is spelled out here.
@@ -78,12 +78,12 @@ export function jsonResponse(body: unknown, status: number, headers: Record<stri
  */
 export async function readJson(req: Request, maxBytes: number): Promise<unknown> {
   const declared = Number(req.headers.get('content-length') ?? 0)
-  if (declared > maxBytes) throw new BodyError('The request is too large.')
+  if (declared > maxBytes) throw new CuratedError('The request is too large.')
   const text = await req.text()
-  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new BodyError('The request is too large.')
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new CuratedError('The request is too large.')
   try {
     return JSON.parse(text)
   } catch {
-    throw new BodyError('The request body is not valid JSON.')
+    throw new CuratedError('The request body is not valid JSON.')
   }
 }

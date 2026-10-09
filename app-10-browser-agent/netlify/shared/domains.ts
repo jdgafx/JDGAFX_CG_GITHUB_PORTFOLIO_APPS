@@ -1,4 +1,4 @@
-const DEFAULT_ALLOWED_DOMAINS = ['google.com', 'www.google.com', 'flights.google.com']
+const DEFAULT_ALLOWED_DOMAINS = ['google.com', 'www.google.com', 'flights.google.com', 'en.wikipedia.org', 'news.ycombinator.com', 'github.com']
 
 const PRIVATE_HOST = /^127\.|^10\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\./
 

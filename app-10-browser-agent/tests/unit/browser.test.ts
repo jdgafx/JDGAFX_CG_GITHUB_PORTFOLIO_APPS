@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Page } from 'playwright-core'
-import { currentHost, runStep } from '../../netlify/shared/browser'
+import { currentHost, pageSnapshot, regionText, runStep } from '../../netlify/shared/browser'
 import type { BotStep } from '../../src/types'
 
 /** A page at the given address whose text search finds nothing. */
@@ -42,3 +42,64 @@ describe('runStep', () => {
     await expect(runStep(pageWith('   '), find)).rejects.toMatchObject({ message: 'The target was not found: page title.' })
   })
 })
+
+/** A page whose region locator returns the given element texts, and whose body text is `body`. */
+function regionPage(texts: string[] | Error, body = 'Whole page text'): Page {
+  return {
+    url: () => 'https://news.ycombinator.com/',
+    title: async () => 'Hacker News',
+    locator: (selector: string) => ({
+      allInnerTexts: async () => {
+        if (texts instanceof Error) throw texts
+        return selector === '.titleline > a' ? texts : []
+      },
+      innerText: async () => body,
+    }),
+  } as unknown as Page
+}
+
+describe('regionText', () => {
+  it('puts one element per line and keeps only the first ten', () => {
+    const titles = Array.from({ length: 12 }, (_, i) => `Story ${i + 1}`)
+    expect(regionText(titles).split('\n')).toEqual(titles.slice(0, 10))
+  })
+
+  it('collapses spaces and blank lines inside an element, and sets multi-line elements apart', () => {
+    expect(regionText([' Star\n owner / repo\n\nA  tool \n  C++  1,200 ', 'next / repo\n\n\nOther'])).toBe(
+      'Star\nowner / repo\nA tool\nC++ 1,200\n\nnext / repo\nOther',
+    )
+  })
+
+  it('skips elements with no visible text', () => {
+    expect(regionText(['', '  \n ', 'Kept'])).toBe('Kept')
+  })
+})
+
+describe('pageSnapshot', () => {
+  it('reads the page text when no selector is given', async () => {
+    await expect(pageSnapshot(regionPage(['A']))).resolves.toEqual({
+      url: 'https://news.ycombinator.com/', title: 'Hacker News', excerpt: 'Whole page text',
+    })
+  })
+
+  it('reads the text of the region and names it', async () => {
+    await expect(pageSnapshot(regionPage(['First', 'Second']), '.titleline > a')).resolves.toEqual({
+      url: 'https://news.ycombinator.com/', title: 'Hacker News', excerpt: 'First\nSecond', region: '.titleline > a',
+    })
+  })
+
+  it('falls back to the page text, with no region named, when nothing matches or the selector is invalid', async () => {
+    const nothing = await pageSnapshot(regionPage(['First']), '.missing')
+    expect(nothing.excerpt).toBe('Whole page text')
+    expect(nothing).not.toHaveProperty('region')
+    const invalid = await pageSnapshot(regionPage(new Error('bad selector')), '.titleline > a')
+    expect(invalid.excerpt).toBe('Whole page text')
+    expect(invalid).not.toHaveProperty('region')
+  })
+
+  it('caps the excerpt at 4,000 characters', async () => {
+    const page = regionPage(['x'.repeat(5_000)], 'y')
+    expect((await pageSnapshot(page, '.titleline > a')).excerpt).toHaveLength(4_000)
+  })
+})
+

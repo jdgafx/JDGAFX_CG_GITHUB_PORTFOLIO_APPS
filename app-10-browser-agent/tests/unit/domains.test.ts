@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allowedDomains, isAllowedHost } from '../../netlify/shared/domains'
 
-const DEFAULTS = ['google.com', 'www.google.com', 'flights.google.com']
+const DEFAULTS = ['google.com', 'www.google.com', 'flights.google.com', 'en.wikipedia.org', 'news.ycombinator.com', 'github.com']
 
 afterEach(() => {
   vi.unstubAllEnvs()

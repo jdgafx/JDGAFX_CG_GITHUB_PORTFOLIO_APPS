@@ -5,6 +5,9 @@ import type { BotStep, ObservedPage } from '../../src/types'
 /** Longest one browser action may take. A step that runs longer fails with a curated message. */
 const MAX_STEP_MS = 3_000
 const MAX_EXCERPT = 4_000
+/** A region read returns the text of this many matching elements at most, and takes at most REGION_MS. */
+const MAX_REGION_ITEMS = 10
+const REGION_MS = 2_000
 
 /** A run failure whose message is curated copy the browser may show. */
 export class ExecutionError extends Error {}
@@ -43,12 +46,41 @@ export function currentHost(page: Page): string | null {
   }
 }
 
-export async function pageSnapshot(page: Page): Promise<ObservedPage> {
-  const [title, body] = await Promise.all([
-    withTimeout(page.title(), MAX_STEP_MS, 'The page title did not load in time.').catch(() => ''),
-    page.locator('body').innerText({ timeout: 1_000 }).catch(() => ''),
-  ])
-  return { url: page.url(), title, excerpt: body.trim().slice(0, MAX_EXCERPT) }
+/**
+ * The visible text of the first matches of a region, one element per line. When an element spans
+ * several lines, the elements are set apart by a blank line so they can still be told apart.
+ */
+export function regionText(texts: string[]): string {
+  const items = texts
+    .slice(0, MAX_REGION_ITEMS)
+    .map((text) => text.split('\n').map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n'))
+    .filter(Boolean)
+  return items.join(items.some((item) => item.includes('\n')) ? '\n\n' : '\n')
+}
+
+/** The text of a CSS region, or an empty string when nothing matches, the selector is not valid or the page is slow. */
+async function readRegion(page: Page, selector: string): Promise<string> {
+  try {
+    return regionText(await withTimeout(page.locator(selector).allInnerTexts(), REGION_MS, 'The region did not read in time.'))
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * What the page shows now. With a selector, the excerpt is the text of the matching elements and
+ * `region` names the selector. Without one, or when nothing matches, the excerpt is the page text.
+ */
+export async function pageSnapshot(page: Page, selector?: string): Promise<ObservedPage> {
+  const title = withTimeout(page.title(), MAX_STEP_MS, 'The page title did not load in time.').catch(() => '')
+  const region = selector ? await readRegion(page, selector) : ''
+  const text = region || await page.locator('body').innerText({ timeout: 1_000 }).catch(() => '')
+  return {
+    url: page.url(),
+    title: await title,
+    excerpt: text.trim().slice(0, MAX_EXCERPT),
+    ...(region ? { region: selector } : {}),
+  }
 }
 
 function targetLocator(page: Page, target: string) {
@@ -57,7 +89,7 @@ function targetLocator(page: Page, target: string) {
   if (['search input', 'search field', 'search box', 'search bar'].some((name) => normalized.includes(name)) || normalized === 'search') {
     return page.locator('textarea[name="q"], input[name="q"], input[aria-label*="Search" i]').first()
   }
-  if (normalized.includes('search button') || normalized === 'search') {
+  if (normalized.includes('search button')) {
     return page.getByRole('button', { name: /search/i }).first()
   }
   return page.getByText(target, { exact: false }).first()

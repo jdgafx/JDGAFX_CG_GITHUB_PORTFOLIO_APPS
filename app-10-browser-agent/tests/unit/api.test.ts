@@ -38,6 +38,19 @@ function signal(): AbortSignal {
 }
 
 describe('planTask', () => {
+  it('keeps the selector of a planned step, and nothing but text as a selector', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      result: {
+        steps: [
+          { action: 'extract', target: 'story titles', thought: 'Read them.', selector: '.titleline > a' },
+          { action: 'extract', target: 'page title', thought: 'Read it.', selector: 42 },
+        ],
+      },
+    }))
+    const plan = await planTask('Open news.ycombinator.com', signal())
+    expect(plan.result.steps.map((step) => step.selector)).toEqual(['.titleline > a', undefined])
+  })
+
   it('posts the task and keeps only well-formed steps and trace entries', async () => {
     fetchMock.mockResolvedValueOnce(json({
       result: {
@@ -48,7 +61,7 @@ describe('planTask', () => {
         ],
       },
       trace: [
-        { name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.', tokens: 976, cost: 0.00042 },
+        { name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.' },
         { name: 'Odd row', status: 'pending', ms: 1, detail: '' },
       ],
       usage: { prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 },
@@ -62,7 +75,7 @@ describe('planTask', () => {
       { action: 'navigate', target: 'Google home page', thought: 'Open it.', url: 'https://www.google.com/' },
       { action: 'extract', target: 'page title', thought: 'Read it.', value: 'The page title' },
     ])
-    expect(plan.trace).toEqual([{ name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.', tokens: 976, cost: 0.00042 }])
+    expect(plan.trace).toEqual([{ name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.' }])
     expect(plan.usage).toEqual({ prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 })
     expect(plan.model).toBe('anthropic/claude-haiku-5.5')
     expect(plan.totalMs).toBe(1500)
@@ -94,7 +107,7 @@ describe('planTask', () => {
     expect(failure).toBeInstanceOf(RequestFailure)
     expect(failure).toMatchObject({ message: 'The AI provider rejected the key or is out of credit' })
     expect((failure as RequestFailure).trace).toEqual([
-      { name: 'Model call', status: 'failed', ms: 40, detail: 'The AI provider rejected the key or is out of credit', tokens: undefined, cost: undefined },
+      { name: 'Model call', status: 'failed', ms: 40, detail: 'The AI provider rejected the key or is out of credit' },
     ])
   })
 

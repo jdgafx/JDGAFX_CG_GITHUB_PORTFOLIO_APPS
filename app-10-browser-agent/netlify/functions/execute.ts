@@ -1,11 +1,12 @@
 import Browserbase from '@browserbasehq/sdk'
 import type { Browser, Page } from 'playwright-core'
-import type { BotStep, ObservedPage, RunEvent, StepAction } from '../../src/types'
+import { stepLabel } from '../../src/lib/shared'
+import type { BotStep, ObservedPage, RunEvent } from '../../src/types'
 import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
 import { allowedDomains, isAllowedHost } from '../shared/domains'
-import { BodyError, clientKey, corsHeaders, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
+import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
 import { BROWSER_TIMEOUT_MS, connectBrowser, releaseSession } from '../shared/session'
-import { StepError, validateSteps } from '../shared/steps'
+import { validateSteps } from '../shared/steps'
 
 export const config = { path: '/api/execute' }
 
@@ -20,32 +21,20 @@ const SESSION_CAP_SECONDS = 120
 /** Largest plan body: ten steps with every field at its limit, in ASCII. */
 const MAX_BODY_BYTES = 32_768
 
-const LABELS: Record<StepAction, string> = {
-  navigate: 'Navigate',
-  find: 'Find',
-  click: 'Click',
-  type: 'Type',
-  extract: 'Extract',
-  verify: 'Verify',
-}
-
 type Send = (event: RunEvent) => void
-
-function stepName(step: BotStep): string {
-  return `${LABELS[step.action]}: ${step.target}`
-}
 
 /**
  * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of
- * the page's content is read, and the message names the host and nothing more.
+ * the page's content is read, and the message names the host and nothing more. A selector asks for
+ * the text of that region of the page.
  */
-async function observeAllowed(page: Page, domains: string[]): Promise<ObservedPage> {
+async function observeAllowed(page: Page, domains: string[], selector?: string): Promise<ObservedPage> {
   const host = currentHost(page)
   if (host === null) throw new ExecutionError('The browser did not reach a web page.')
   if (!isAllowedHost(host, domains)) {
     throw new ExecutionError(`The run stopped. The page moved to ${host}, which is outside the allowed sites.`)
   }
-  return pageSnapshot(page)
+  return pageSnapshot(page, selector)
 }
 
 /**
@@ -96,21 +85,25 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       if (Date.now() - startedAt > MAX_EXECUTION_MS) {
         throw new ExecutionError('The run reached its time limit before every step finished.')
       }
-      send({ type: 'step_start', index, name: stepName(step) })
-      const detail = await runStep(activePage, step)
+      send({ type: 'step_start', index, name: stepLabel(step) })
+      const stepDetail = await runStep(activePage, step)
       // After every step, the host is checked before the page is read.
-      const observed = await observeAllowed(activePage, domains)
+      const observed = await observeAllowed(activePage, domains, step.selector)
+      const detail = step.selector
+        ? `${stepDetail} ${observed.region ? `Read the text of ${step.selector}.` : `Nothing matched ${step.selector}, so the page text is shown.`}`
+        : stepDetail
       if ((step.action === 'extract' || step.action === 'verify') && !observed.excerpt) {
         throw new ExecutionError('The page returned no readable text to extract.')
       }
       inStep = false
       completed = index + 1
-      send({ type: 'step_complete', index, name: stepName(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed })
+      send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed })
     }
 
     stage = 'Read final page'
     stageStarted = Date.now()
-    const finalPage = await observeAllowed(activePage, domains)
+    // A run that ends on a region read shows that region again, not the whole page.
+    const finalPage = await observeAllowed(activePage, domains, steps[steps.length - 1].selector)
     send({ type: 'result', ms: Date.now() - stageStarted, observed: finalPage })
     outcome = { type: 'done', totalMs: Date.now() - startedAt }
   } catch (error) {
@@ -121,7 +114,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       send({
         type: 'step_complete',
         index: completed,
-        name: stepName(steps[completed]),
+        name: stepLabel(steps[completed]),
         status: 'failed',
         ms: Date.now() - stepStarted,
         detail: message,
@@ -131,7 +124,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       send({ type: 'stage', name: stage, status: 'failed', ms: Date.now() - stageStarted, detail: message })
     }
     for (let index = inStep ? completed + 1 : completed; index < steps.length; index++) {
-      send({ type: 'step_complete', index, name: stepName(steps[index]), status: 'skipped', ms: 0, detail: 'Not run: an earlier stage failed.' })
+      send({ type: 'step_complete', index, name: stepLabel(steps[index]), status: 'skipped', ms: 0, detail: 'Not run: an earlier stage failed.' })
     }
     outcome = { type: 'error', message, index: inStep ? completed : null }
   } finally {
@@ -184,7 +177,6 @@ function eventStream(req: Request, headers: Record<string, string>, run: (send: 
       ...headers,
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
     },
   })
 }
@@ -209,9 +201,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req, MAX_BODY_BYTES) as { steps?: unknown }
     steps = validateSteps(body.steps, domains)
   } catch (error) {
-    const message = error instanceof StepError || error instanceof BodyError
-      ? error.message
-      : 'The request could not be read.'
+    const message = error instanceof CuratedError ? error.message : 'The request could not be read.'
     return jsonResponse({ error: message }, 400, headers)
   }
 

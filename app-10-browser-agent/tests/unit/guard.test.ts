@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   allowedOrigins,
-  BodyError,
+  CuratedError,
   clientKey,
   corsHeaders,
   jsonResponse,
@@ -128,7 +128,7 @@ describe('readJson', () => {
       body: '{}',
     })
     const failure = readJson(req, 100)
-    await expect(failure).rejects.toBeInstanceOf(BodyError)
+    await expect(failure).rejects.toBeInstanceOf(CuratedError)
     await expect(failure).rejects.toThrow('The request is too large.')
   })
 

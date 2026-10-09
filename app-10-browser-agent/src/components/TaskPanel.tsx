@@ -7,7 +7,7 @@ interface TaskPanelProps {
   onSubmit: () => void
 }
 
-/** The task to plan and run, and the example picker that fills the field. */
+/** The task to plan and run, and the example tasks that fill the field. */
 export default function TaskPanel({ task, busy, onTaskChange, onSubmit }: TaskPanelProps) {
   const submit = () => {
     if (task.trim() && !busy) onSubmit()
@@ -32,7 +32,7 @@ export default function TaskPanel({ task, busy, onTaskChange, onSubmit }: TaskPa
             maxLength={MAX_TASK_CHARS}
             value={task}
             disabled={busy}
-            placeholder="For example: Open google.com and report the page title"
+            placeholder="For example: Open news.ycombinator.com and report the top three story titles"
             aria-describedby="task-help task-keys"
             onChange={(event) => onTaskChange(event.target.value)}
             onKeyDown={(event) => {
@@ -46,24 +46,20 @@ export default function TaskPanel({ task, busy, onTaskChange, onSubmit }: TaskPa
           <p className="ds-hint" id="task-keys">Enter plans and runs the task. Shift+Enter adds a line.</p>
         </div>
 
-        <div className="ds-field">
-          <label className="ds-label" htmlFor="example-task">Example tasks</label>
-          <select
-            id="example-task"
-            className="ds-select"
-            value=""
-            disabled={busy}
-            aria-describedby="example-help"
-            onChange={(event) => {
-              if (event.target.value) onTaskChange(event.target.value)
-            }}
-          >
-            <option value="">Choose an example to fill the box</option>
+        <div className="ds-field" role="group" aria-labelledby="example-label" aria-describedby="example-help">
+          <span className="ds-label" id="example-label">Example tasks</span>
+          <ul className="bb-presets">
             {PRESETS.map((preset) => (
-              <option key={preset} value={preset}>{preset}</option>
+              <li key={preset}>
+                <button type="button" className="ds-button bb-preset" disabled={busy} onClick={() => onTaskChange(preset)}>
+                  {preset}
+                </button>
+              </li>
             ))}
-          </select>
-          <p className="ds-help" id="example-help">Every example names only allowed sites, so each one runs as written.</p>
+          </ul>
+          <p className="ds-help" id="example-help">
+            Choose one to fill the box. The first three read live pages that change, and every example names only allowed sites.
+          </p>
         </div>
       </div>
     </section>

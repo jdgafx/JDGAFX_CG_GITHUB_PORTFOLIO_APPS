@@ -13,13 +13,65 @@
 
 .bb-allowlist {
   display: grid;
-  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 15px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+}
+
+.bb-site {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 8px 12px;
+  background: var(--ds-surface);
+}
+
+.bb-site + .bb-site {
+  border-top: 1px solid var(--ds-border);
+}
+
+.bb-site__host {
+  font-family: var(--ds-mono);
+  font-size: 14px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.bb-site__note {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.bb-presets {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bb-preset {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 8px 12px;
+  justify-content: flex-start;
+  text-align: left;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.bb-region {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  margin-bottom: 4px;
 }
 
 /* The hero: the plan pipeline beside the observed browser window, stacked below 720px */

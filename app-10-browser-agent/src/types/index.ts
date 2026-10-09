@@ -1,12 +1,14 @@
-export type StepAction = 'navigate' | 'find' | 'click' | 'type' | 'extract' | 'verify'
+export const ACTIONS = ['navigate', 'find', 'click', 'type', 'extract', 'verify'] as const
+export type StepAction = (typeof ACTIONS)[number]
 
-/** One planned browser step. `url` is set only for navigate steps. */
+/** One planned browser step. `url` is set only for navigate steps. `selector` is set only for extract and verify steps. */
 export interface BotStep {
   action: StepAction
   target: string
   thought: string
   value?: string
   url?: string
+  selector?: string
 }
 
 /** What the browser saw. The server captures it after each step. */
@@ -14,6 +16,8 @@ export interface ObservedPage {
   url: string
   title: string
   excerpt: string
+  /** The CSS selector whose text the excerpt holds. Absent when the excerpt is the page text. */
+  region?: string
 }
 
 export type TraceStatus = 'ok' | 'failed' | 'skipped'
@@ -24,8 +28,6 @@ export interface TraceEntry {
   status: TraceStatus
   ms: number
   detail: string
-  tokens?: number
-  cost?: number
 }
 
 /** Provider figures for the planner call. Null means the provider did not report the figure. */

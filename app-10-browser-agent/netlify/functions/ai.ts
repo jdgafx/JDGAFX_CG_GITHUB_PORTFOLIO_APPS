@@ -1,13 +1,14 @@
-import { getProvider, MAX_TOKENS, type ProviderConfig } from '../shared/provider'
+import { MAX_TOKENS, MODEL, OPENROUTER_URL } from '../shared/provider'
 import { allowedDomains } from '../shared/domains'
-import { BodyError, clientKey, corsHeaders, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
-import { StepError, validateSteps } from '../shared/steps'
+import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
+import { validateSteps } from '../shared/steps'
+import { MAX_TASK_CHARS } from '../../src/lib/constants'
+import { usageOf } from '../../src/lib/shared'
 import type { BotStep, TraceEntry, UsageReport } from '../../src/types'
 
 export const config = { path: '/api/ai' }
 
 const PLAN_RATE_LIMIT = 20
-const MAX_TASK_CHARS = 500
 /** Room for a full task, even one written in four-byte letters, plus its JSON wrapper. */
 const MAX_BODY_BYTES = 8_192
 const MAX_ATTEMPTS = 2
@@ -43,18 +44,21 @@ interface ChatResponse {
 }
 
 function systemPrompt(domains: string[]): string {
-  return `You plan browser steps for a bounded agent. Given a user task, return a JSON object with a "steps" array of 3 to 6 steps.
+  return `You plan browser steps for a bounded agent. Given a user task, return a JSON object with a "steps" array of 2 to 6 steps.
 
 Each step has:
 - action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
-- target: what the step acts on (string). For "type", name the field, for example "search input".
+- target: what the step acts on (string). For "type", name the field, for example "search input". For "find" and "click", use words that are visible on the page.
 - thought: one or two sentences saying what the step does and why. Never hidden reasoning.
 - value?: text to type, or a short description of what to observe (only for "type", "extract" and "verify")
 - url?: an absolute https URL, required for "navigate" and omitted for every other action
+- selector?: a plain CSS selector for the part of the page to read, only for "extract" and "verify". The browser reports the visible text of the first 10 elements that match it.
 
 Rules:
 - Use only these hosts in url: ${domains.join(', ')}. If the task needs another site, plan the closest step on these hosts and say so in the first thought.
+- Open the page that holds the answer with one "navigate" step whose url goes straight to it. Do not pad the plan with steps the task does not need.
 - The last step must be "extract" or "verify". Its value describes what the browser should observe. Never write results, prices or page titles yourself.
+- When the answer sits in one part of a page, give the last step a selector so the browser reads only that part. Known selectors: Hacker News front page story titles ".titleline > a"; a Wikipedia article's information box "table.infobox"; a Wikipedia article's opening paragraphs "#mw-content-text .mw-parser-output > p"; the Wikipedia main page's featured article "#mp-tfa". Omit the selector when you do not know one, and the browser reads the whole page text.
 - Never claim that a page was visited or that a result was found. The browser run is the source of truth.
 - Return ONLY valid JSON. No markdown and no commentary.
 
@@ -69,27 +73,10 @@ function providerMessage(status: number): string {
   return 'The AI provider rejected the request. Try a shorter task, or try again later.'
 }
 
-function timedOut(): PlanError {
-  return new PlanError(TIMEOUT_COPY, 504)
-}
-
 function isTimeout(error: unknown): boolean {
   const thrown = error as { name?: string; cause?: { name?: string } } | null
   const names = [thrown?.name, thrown?.cause?.name]
   return names.includes('TimeoutError') || names.includes('AbortError')
-}
-
-function numberOf(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function usageOf(raw: Record<string, unknown> | undefined): UsageReport {
-  return {
-    prompt_tokens: numberOf(raw?.prompt_tokens),
-    completion_tokens: numberOf(raw?.completion_tokens),
-    total_tokens: numberOf(raw?.total_tokens),
-    cost: numberOf(raw?.cost),
-  }
 }
 
 /** A total is reported only when every attempt reported its share. Otherwise it is not reported. */
@@ -113,15 +100,15 @@ function aggregateUsage(attempts: Attempt[]): UsageReport {
   }
 }
 
-async function callOnce(provider: ProviderConfig, task: string, domains: string[], timeoutMs: number): Promise<Attempt> {
+async function callOnce(apiKey: string, task: string, domains: string[], timeoutMs: number): Promise<Attempt> {
   const started = Date.now()
   let response: Response
   try {
-    response = await fetch(provider.url, {
+    response = await fetch(OPENROUTER_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: provider.model,
+        model: MODEL,
         max_tokens: MAX_TOKENS,
         // A reasoning model spends the completion budget on hidden reasoning and cuts the JSON short.
         reasoning: { enabled: false },
@@ -137,7 +124,7 @@ async function callOnce(provider: ProviderConfig, task: string, domains: string[
     })
   } catch (error) {
     throw isTimeout(error)
-      ? timedOut()
+      ? new PlanError(TIMEOUT_COPY, 504)
       : new PlanError('The AI provider could not be reached. Try again in a moment.', 502)
   }
 
@@ -151,7 +138,7 @@ async function callOnce(provider: ProviderConfig, task: string, domains: string[
     data = await response.json() as ChatResponse
   } catch (error) {
     throw isTimeout(error)
-      ? timedOut()
+      ? new PlanError(TIMEOUT_COPY, 504)
       : new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
   }
 
@@ -168,12 +155,12 @@ async function callOnce(provider: ProviderConfig, task: string, domains: string[
 }
 
 /** Asks the model once, and once more only when the answer is empty or cut off. */
-async function askModel(provider: ProviderConfig, task: string, domains: string[], deadline: number): Promise<Attempt[]> {
+async function askModel(apiKey: string, task: string, domains: string[], deadline: number): Promise<Attempt[]> {
   const attempts: Attempt[] = []
   for (let n = 0; n < MAX_ATTEMPTS; n++) {
     const remaining = deadline - Date.now()
     if (n > 0 && remaining < MIN_RETRY_MS) break
-    const attempt = await callOnce(provider, task, domains, Math.max(remaining, 1))
+    const attempt = await callOnce(apiKey, task, domains, Math.max(remaining, 1))
     attempts.push(attempt)
     if (attempt.content.trim() && attempt.finish !== 'length') break
   }
@@ -229,8 +216,8 @@ async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   if (req.method !== 'POST') return jsonResponse({ error: 'Use POST for this request.' }, 405, headers)
 
-  const provider = getProvider()
-  if (!provider) {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim()
+  if (!apiKey) {
     console.error('OPENROUTER_API_KEY is not set')
     return jsonResponse({ error: 'The agent service is not configured yet. Please try again later.' }, 503, headers)
   }
@@ -243,7 +230,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req, MAX_BODY_BYTES) as { task?: unknown }
     task = typeof body.task === 'string' ? body.task.trim() : ''
   } catch (error) {
-    return jsonResponse({ error: error instanceof BodyError ? error.message : 'The request could not be read.' }, 400, headers)
+    return jsonResponse({ error: error instanceof CuratedError ? error.message : 'The request could not be read.' }, 400, headers)
   }
   if (!task) return jsonResponse({ error: 'Enter a task first.' }, 400, headers)
   if (task.length > MAX_TASK_CHARS) {
@@ -264,7 +251,7 @@ async function handle(req: Request): Promise<Response> {
   const modelStarted = Date.now()
   let attempts: Attempt[]
   try {
-    attempts = await askModel(provider, task, domains, startedAt + PLAN_BUDGET_MS)
+    attempts = await askModel(apiKey, task, domains, startedAt + PLAN_BUDGET_MS)
   } catch (error) {
     const failure = error instanceof PlanError
       ? error
@@ -278,7 +265,6 @@ async function handle(req: Request): Promise<Response> {
   const retried = attempts.length > 1
   const usage = aggregateUsage(attempts)
   const modelMs = attempts.reduce((total, attempt) => total + attempt.ms, 0)
-  const measured = { tokens: usage.total_tokens ?? undefined, cost: usage.cost ?? undefined }
 
   if (!last.content.trim() || last.finish === 'length') {
     const cut = last.finish === 'length'
@@ -287,7 +273,6 @@ async function handle(req: Request): Promise<Response> {
       status: 'failed',
       ms: modelMs,
       detail: `${retried ? 'Asked twice. ' : ''}${cut ? 'The answer was cut off.' : 'The answer was empty.'}`,
-      ...measured,
     })
     return fail(
       cut
@@ -302,7 +287,6 @@ async function handle(req: Request): Promise<Response> {
     status: 'ok',
     ms: modelMs,
     detail: `${retried ? 'The first answer was empty or cut off, so the model was asked again. ' : ''}Served by ${last.model ?? 'a model the provider did not name'}. Finish reason: ${last.finish ?? 'not reported'}.`,
-    ...measured,
   })
 
   const parseStarted = Date.now()
@@ -310,7 +294,7 @@ async function handle(req: Request): Promise<Response> {
   try {
     steps = validateSteps(parseSteps(last.content), domains)
   } catch (error) {
-    const message = error instanceof StepError
+    const message = error instanceof CuratedError
       ? error.message
       : 'The model returned a plan the agent could not read. Try again.'
     trace.push({ name: 'Parse and validate', status: 'failed', ms: Date.now() - parseStarted, detail: message })

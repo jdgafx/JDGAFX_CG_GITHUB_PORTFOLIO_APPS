@@ -25,10 +25,12 @@ export default function ObservedPage({ observed, sessionId, expectation }: Obser
               <dd className="bb-page-title">{observed.title || 'Untitled page'}</dd>
             </div>
             <div>
-              <dt className="bb-sr-only">Page text</dt>
+              <dt className={observed.region ? 'bb-region' : 'bb-sr-only'}>
+                {observed.region ? <>Text of <code>{observed.region}</code>, first 10 matches</> : 'Page text'}
+              </dt>
               <dd>
                 {/* The text can be longer than its box, so the box takes focus and a keyboard user can scroll it. */}
-                <pre className="bb-pre" role="region" aria-label="Page text" tabIndex={0}>{observed.excerpt || 'The page returned no readable text.'}</pre>
+                <pre className="bb-pre" role="region" aria-label={observed.region ? `Text of ${observed.region}` : 'Page text'} tabIndex={0}>{observed.excerpt || 'The page returned no readable text.'}</pre>
               </dd>
             </div>
           </dl>

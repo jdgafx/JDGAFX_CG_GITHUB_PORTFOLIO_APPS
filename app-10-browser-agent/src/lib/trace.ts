@@ -1,5 +1,6 @@
 import type { BotStep, ObservedPage, TraceStatus } from '../types'
 import type { RunState } from './runState'
+import { stepLabel } from './shared'
 
 /** One line of the run trace. `running`, `waiting` and `skipped` are display states, not server statuses. */
 export interface TraceRow {
@@ -16,20 +17,6 @@ export interface Metric {
   label: string
   value: string
   hint: string
-}
-
-const ACTION_LABEL: Record<BotStep['action'], string> = {
-  navigate: 'Navigate',
-  find: 'Find',
-  click: 'Click',
-  type: 'Type',
-  extract: 'Extract',
-  verify: 'Verify',
-}
-
-/** Same format the server uses for run rows, so planned-but-unrun steps read the same way. */
-export function stepLabel(step: BotStep): string {
-  return `${ACTION_LABEL[step.action]}: ${step.target}`
 }
 
 export function formatMs(ms: number): string {
@@ -152,7 +139,7 @@ export function metricsFor(state: RunState): Metric[] {
   const planned = usage !== null
   const latency = state.runMs === null ? null : (state.planMs ?? 0) + state.runMs
   return [
-    { label: 'Total latency', value: latency === null ? '—' : formatMs(latency), hint: latencyHint(state) },
+    { label: 'Served model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
     { label: 'Prompt tokens', value: countOf(usage?.prompt_tokens ?? null, planned), hint: 'Planner call' },
     { label: 'Completion tokens', value: countOf(usage?.completion_tokens ?? null, planned), hint: 'Planner call' },
     { label: 'Total tokens', value: countOf(usage?.total_tokens ?? null, planned), hint: 'Planner call' },
@@ -161,7 +148,7 @@ export function metricsFor(state: RunState): Metric[] {
       value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—',
       hint: 'From usage.cost in the provider response',
     },
-    { label: 'Served model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
+    { label: 'Total latency', value: latency === null ? '—' : formatMs(latency), hint: latencyHint(state) },
   ]
 }
 

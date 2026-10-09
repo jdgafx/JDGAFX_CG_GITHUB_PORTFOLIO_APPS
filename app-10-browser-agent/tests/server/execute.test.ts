@@ -37,7 +37,7 @@ vi.mock('../../netlify/shared/browser', async (importOriginal) => {
 
 const ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
 const PLACEHOLDER = 'test-only-placeholder'
-const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com'
+const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com, github.com'
 const SESSION = 'sess_test_1'
 const SESSION_CAP = 120
 const NAVIGATE = { action: 'navigate', target: 'Google home page', thought: 'Open the Google home page.', url: 'https://www.google.com/' }
@@ -264,6 +264,33 @@ describe('execute function: a run', () => {
     expect(mocks.sessionsUpdate).toHaveBeenCalledTimes(1)
     expect(mocks.sessionsUpdate).toHaveBeenCalledWith(SESSION, { status: 'REQUEST_RELEASE', projectId: PLACEHOLDER })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reads the planned region on an extract step and on the final page, and says when nothing matched', async () => {
+    const HN = { action: 'navigate', target: 'Hacker News', thought: 'Open it.', url: 'https://news.ycombinator.com/' }
+    const TITLES = { action: 'extract', target: 'story titles', thought: 'Read them.', selector: '.titleline > a' }
+    const region = { url: 'https://news.ycombinator.com/', title: 'Hacker News', excerpt: 'First story\nSecond story', region: '.titleline > a' }
+    const whole = { url: 'https://news.ycombinator.com/', title: 'Hacker News', excerpt: 'Whole page' }
+    mocks.runStep.mockResolvedValueOnce('Opened news.ycombinator.com.').mockResolvedValueOnce('Observed the page for story titles.')
+    mocks.pageSnapshot.mockResolvedValueOnce(whole).mockResolvedValueOnce(region).mockResolvedValueOnce(region)
+    pageState.url = 'https://news.ycombinator.com/'
+
+    const frames = await framesOf(await handler(runRequest({ steps: [HN, TITLES] })))
+
+    expect(frames[6]).toMatchObject({
+      type: 'step_complete', index: 1, status: 'ok', observed: region,
+      detail: 'Observed the page for story titles. Read the text of .titleline > a.',
+    })
+    expect(frames[7]).toMatchObject({ type: 'result', observed: region })
+    expect(mocks.pageSnapshot.mock.calls.map((call) => call[1])).toEqual([undefined, '.titleline > a', '.titleline > a'])
+
+    mocks.runStep.mockResolvedValueOnce('Opened news.ycombinator.com.').mockResolvedValueOnce('Observed the page for story titles.')
+    mocks.pageSnapshot.mockReset().mockResolvedValue(whole)
+    const missed = await framesOf(await handler(runRequest({ steps: [HN, TITLES] })))
+    expect(missed[6]).toMatchObject({
+      status: 'ok', observed: whole,
+      detail: 'Observed the page for story titles. Nothing matched .titleline > a, so the page text is shown.',
+    })
   })
 
   it('marks the failing step, skips the rest with the curated message, then releases the session', async () => {

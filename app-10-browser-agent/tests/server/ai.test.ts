@@ -11,15 +11,13 @@ const PLAN = {
     { action: 'extract', target: 'page title', thought: 'Read the title the browser sees.', value: 'The page title' },
   ],
 }
-const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com'
+const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com, github.com'
 
 interface TraceEntry {
   name: string
   status: string
   ms: number
   detail: string
-  tokens?: number
-  cost?: number
 }
 
 interface PlanBody {
@@ -98,7 +96,7 @@ describe('planner function: a plan', () => {
     expect(body.usage).toEqual(USAGE)
     expect(body.trace?.map((entry) => entry.name)).toEqual(['Request built', 'Model call', 'Parse and validate'])
     expect(body.trace?.[0]?.detail).toContain(`Allowed sites: ${ALLOWED_LIST}.`)
-    expect(body.trace?.[1]).toMatchObject({ status: 'ok', tokens: 976, cost: 0.00042 })
+    expect(body.trace?.[1]).toMatchObject({ status: 'ok' })
     expect(body.trace?.[1]?.detail).toContain(`Served by ${SERVED}. Finish reason: stop.`)
     expect(body.trace?.[2]).toMatchObject({ status: 'ok', detail: '2 steps. Every address is on an allowed site.' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -169,7 +167,7 @@ describe('planner function: a plan', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(body.result?.steps).toEqual(PLAN.steps)
     expect(body.trace?.[1]?.detail).toContain('The first answer was empty or cut off, so the model was asked again.')
-    expect(body.trace?.[1]).toMatchObject({ tokens: 1952, cost: 0.00084 })
+    expect(body.usage).toEqual({ prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 })
   })
 
   it('stops after two cut-off answers with a plain message and both attempts in the trace', async () => {
@@ -194,7 +192,7 @@ describe('planner function: a plan', () => {
     const body = await bodyOf(response)
 
     expect(response.status).toBe(502)
-    expect(body.error).toBe('Step 1 opens example.com, which is outside the allowed sites: google.com, www.google.com, flights.google.com.')
+    expect(body.error).toBe(`Step 1 opens example.com, which is outside the allowed sites: ${ALLOWED_LIST}.`)
     expect(body.trace?.at(-1)).toMatchObject({ name: 'Parse and validate', status: 'failed' })
   })
 })
@@ -254,6 +252,28 @@ describe('planner function: refusals before any provider call', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
     expect((await bodyOf(response)).error).toBe('This page is not allowed to plan tasks.')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('trims the key it sends, and teaches the planner the selector field and the known selectors', async () => {
+    process.env.OPENROUTER_API_KEY = ` ${PLACEHOLDER} `
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    await handler(planRequest({ task: 'Open news.ycombinator.com and report the top three story titles' }))
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init?.headers as Record<string, string>).Authorization).toBe(`Bearer ${PLACEHOLDER}`)
+    const prompt = (JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }).messages[0].content
+    expect(prompt).toContain('- selector?: a plain CSS selector')
+    expect(prompt).toContain('".titleline > a"')
+    expect(prompt).toContain('"table.infobox"')
+  })
+
+  it('keeps the selector of an extract step the planner returned', async () => {
+    const plan = { steps: [
+      { action: 'navigate', target: 'Hacker News', thought: 'Open it.', url: 'https://news.ycombinator.com/' },
+      { action: 'extract', target: 'story titles', thought: 'Read them.', value: 'Top titles', selector: '.titleline > a' },
+    ] }
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(plan)))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open news.ycombinator.com and report the top three story titles' })))
+    expect(body.result?.steps[1]).toEqual(plan.steps[1])
   })
 
   it('answers 503 when the provider key is blank', async () => {

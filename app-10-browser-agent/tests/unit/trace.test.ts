@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, metricsFor, planItems, statusSummary, stepLabel } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, metricsFor, planItems, statusSummary } from '../../src/lib/trace'
+import { stepLabel } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
 
 const navigate: BotStep = { action: 'navigate', target: 'Google home page', thought: 'Open the home page.', url: 'https://www.google.com/' }
@@ -28,6 +29,12 @@ describe('labels and figures', () => {
 })
 
 describe('metricsFor', () => {
+  it('lists the served model first and the total latency last', () => {
+    expect(metricsFor(stateWith({})).map((metric) => metric.label)).toEqual([
+      'Served model', 'Prompt tokens', 'Completion tokens', 'Total tokens', 'Cost (USD)', 'Total latency',
+    ])
+  })
+
   it('shows latency, tokens, cost and the served model from the planner call', () => {
     const metrics = metricsByLabel(stateWith({
       phase: 'complete',

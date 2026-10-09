@@ -1,6 +1,6 @@
-import type { BotStep, PlanResponse, RunEvent, StepAction, TraceEntry, TraceStatus, UsageReport } from '../types'
+import type { BotStep, PlanResponse, RunEvent, TraceEntry, TraceStatus } from '../types'
+import { isAction, usageOf } from './shared'
 
-const ACTIONS: StepAction[] = ['navigate', 'find', 'click', 'type', 'extract', 'verify']
 const TRACE_STATUSES: TraceStatus[] = ['ok', 'failed', 'skipped']
 const EVENT_TYPES: RunEvent['type'][] = ['session', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
 const MAX_ERROR_CHARS = 300
@@ -34,38 +34,24 @@ function toTrace(raw: unknown): TraceEntry[] {
       status: entry.status as TraceStatus,
       ms: typeof entry.ms === 'number' ? entry.ms : 0,
       detail: typeof entry.detail === 'string' ? entry.detail : '',
-      tokens: typeof entry.tokens === 'number' ? entry.tokens : undefined,
-      cost: typeof entry.cost === 'number' ? entry.cost : undefined,
     }]
   })
-}
-
-function toUsage(raw: unknown): UsageReport {
-  const source = (raw ?? {}) as Record<string, unknown>
-  const figure = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
-  return {
-    prompt_tokens: figure(source.prompt_tokens),
-    completion_tokens: figure(source.completion_tokens),
-    total_tokens: figure(source.total_tokens),
-    cost: figure(source.cost),
-  }
 }
 
 function toStep(raw: unknown): BotStep | null {
   if (!raw || typeof raw !== 'object') return null
   const step = raw as Record<string, unknown>
-  if (typeof step.action !== 'string' || !ACTIONS.includes(step.action as StepAction)) return null
+  if (!isAction(step.action)) return null
   if (typeof step.target !== 'string' || typeof step.thought !== 'string') return null
   return {
-    action: step.action as StepAction,
+    action: step.action,
     target: step.target,
     thought: step.thought,
     value: typeof step.value === 'string' ? step.value : undefined,
     url: typeof step.url === 'string' ? step.url : undefined,
+    selector: typeof step.selector === 'string' ? step.selector : undefined,
   }
 }
-
-const isStep = (step: BotStep | null): step is BotStep => step !== null
 
 interface ErrorBody {
   error?: unknown
@@ -111,13 +97,13 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
   }
 
   const rawSteps = data.result?.steps
-  const steps = Array.isArray(rawSteps) ? rawSteps.map(toStep).filter(isStep) : []
+  const steps = Array.isArray(rawSteps) ? rawSteps.map(toStep).filter((step): step is BotStep => step !== null) : []
   if (steps.length === 0) throw new RequestFailure('The agent returned no usable steps for this task.')
 
   return {
     result: { steps },
     trace: toTrace(data.trace),
-    usage: toUsage(data.usage),
+    usage: usageOf(data.usage),
     model: typeof data.model === 'string' ? data.model : null,
     totalMs: typeof data.totalMs === 'number' ? data.totalMs : 0,
   }
