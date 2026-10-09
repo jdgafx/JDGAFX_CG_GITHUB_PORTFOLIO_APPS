@@ -128,9 +128,20 @@
 
 .gg-thread__meta {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   gap: 6px;
+}
+
+/* The words wrap inside their own box, next to the dot, instead of the whole span dropping to a new line. */
+.gg-thread__meta > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gg-thread__meta > .ds-dot {
+  flex: none;
+  margin-top: 0.4em;
 }
 
 /* The tokens have no dot for a paused step or a waiting run, so the app adds two. A paused review gate

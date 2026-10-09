@@ -17,7 +17,8 @@ import type {
 import { isRecord } from './guard'
 import { DECIDE_MAX_TOKENS, DECIDE_MODEL, INTAKE_MAX_TOKENS, INTAKE_MODEL, REPLY_MAX_TOKENS, REPLY_MODEL, estimateCost } from './models'
 import type { ChatFn, ChatRequest, ChatResult } from './openrouter'
-import { evaluatePolicy, resolveDecision } from './policy'
+import { evaluatePolicy, resolveDecision, type FinalDecision } from './policy'
+import { claimsPendingApproval } from './reply-guard'
 import type { GraphValues } from './state'
 
 export interface NodeDeps {
@@ -53,6 +54,8 @@ export const DECIDE_PROMPT = [
 export const REPLY_PROMPT = [
   'You write a short customer support email as plain text.',
   'Use only the facts given. Quote only the amount given, and no other number.',
+  'The outcome you are given is final and already decided.',
+  'Never say that approval, review or a follow-up is still needed or pending, and never promise to follow up about an approval.',
   'No subject line. Under 120 words. Sign off as Customer Support.',
 ].join(' ')
 
@@ -159,11 +162,41 @@ function subjectFor(action: DecisionAction, orderId: string | null): string {
   return action === 'refund' ? `Your refund for ${orderId ?? 'your order'}` : `Update on ${orderId ?? 'your request'}`
 }
 
-/** The standard wording, used only when the model returns no text. */
-function fallbackBody(action: DecisionAction, amount: number, rationale: string): string {
-  return action === 'refund'
-    ? `We have approved a refund of ${formatUsd(amount)}. ${rationale}`
-    : `Thank you for contacting us. We are not able to refund this request. ${rationale}`
+/**
+ * The standard wording, used when the model returns no text or a draft that calls the decision
+ * pending. It never mentions an approval that is still to come. A denial by the policy adds the
+ * policy's own reason, which is fixed text.
+ */
+export function fallbackBody(action: DecisionAction, amount: number, policyReason: string | null = null): string {
+  if (action === 'refund') return `We have approved a refund of ${formatUsd(amount)}.`
+  const base = 'Thank you for contacting us. We are not able to refund this request.'
+  return policyReason ? `${base} ${policyReason}` : base
+}
+
+/** What the person decided, in words that leave nothing open for the reply to promise. */
+function reviewerOutcome(answer: HumanDecision, final: FinalDecision): string {
+  if (answer.action === 'reject') return 'a support reviewer rejected the refund. No refund will be given.'
+  if (final.action === 'refund') {
+    const edited = answer.action === 'edit' ? ' after changing the amount' : ''
+    return `a support reviewer approved a refund of ${formatUsd(final.amount)}${edited}.`
+  }
+  return 'a support reviewer confirmed that no refund will be given.'
+}
+
+/**
+ * The outcome lines for the reply call. After a person decided, the earlier rationale and policy
+ * reason are left out, because they were written before the decision and talk about needing approval.
+ */
+export function replyFacts(proposal: Decision, final: FinalDecision, answer: HumanDecision | null): string[] {
+  const settled = 'Final outcome (already decided, nothing is pending):'
+  if (answer) {
+    return [`${settled} ${reviewerOutcome(answer, final)}`, `Reviewer note: ${final.note ?? 'none'}`]
+  }
+  return [
+    `${settled} ${outcomeText(final.action, final.amount)}.`,
+    `Reason: ${proposal.rationale}`,
+    'Decided automatically by the refund policy. Nothing is pending.',
+  ]
 }
 
 function tokenUsageOf(result: ChatResult): TokenUsage | undefined {
@@ -345,22 +378,24 @@ export async function replyNode(
       user: [
         `Ticket:\n${state.ticket}`,
         `Order: ${extracted.orderId ?? 'not stated'}`,
-        `Outcome: ${outcomeText(final.action, final.amount)}`,
-        `Reason: ${proposal.rationale}`,
-        `Reviewer note: ${final.note ?? 'none'}`,
+        ...replyFacts(proposal, final, state.humanDecision),
       ].join('\n'),
       // No temperature, for the same reason as the decide call.
     },
     signalOf(config),
   )
   const drafted = call.result.text
+  const contradicts = drafted !== '' && claimsPendingApproval(drafted)
+  const policyReason = state.humanDecision ? null : (state.policyResult?.reason ?? null)
   const replyEmail: Reply = {
     subject: subjectFor(final.action, extracted.orderId),
-    body: drafted || fallbackBody(final.action, final.amount, proposal.rationale),
+    body: drafted && !contradicts ? drafted : fallbackBody(final.action, final.amount, policyReason),
   }
-  const detail = drafted
-    ? `Wrote the customer email for a ${final.action === 'refund' ? 'refund' : 'denial'}.`
-    : 'The model returned no text, so the standard wording is used.'
+  const detail = contradicts
+    ? 'The draft said an approval was still pending, but the outcome is final, so the standard wording is used.'
+    : drafted
+      ? `Wrote the customer email for a ${final.action === 'refund' ? 'refund' : 'denial'}.`
+      : 'The model returned no text, so the standard wording is used.'
   return {
     replyEmail,
     status: 'completed',

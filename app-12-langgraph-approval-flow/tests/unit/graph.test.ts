@@ -6,6 +6,7 @@ import { DECIDE_MODEL, INTAKE_MODEL, REPLY_MODEL } from '../../netlify/shared/mo
 import { requestBody } from '../../netlify/shared/openrouter'
 import { createMemoryStore } from '../../netlify/shared/store'
 import type { TraceRow } from '../../src/types'
+import { REPLY_PROMPT } from '../../netlify/shared/nodes'
 import { fakeChat } from '../helpers/fake-chat'
 
 const NOW = new Date('2026-10-08T12:00:00Z')
@@ -175,7 +176,7 @@ describe('graph: large refund pauses for a human', () => {
     expect(second.nodes).toEqual(['review', 'reply'])
     const values = (await graph.getState({ configurable: { thread_id: threadId } })).values
     expect(values.humanDecision).toEqual({ action: 'reject', note: 'Bank shows one settled charge' })
-    expect(lastUserPrompt(chat, REPLY_MODEL)).toContain('Outcome: no refund')
+    expect(lastUserPrompt(chat, REPLY_MODEL)).toContain('a support reviewer rejected the refund. No refund will be given.')
     expect(lastUserPrompt(chat, REPLY_MODEL)).toContain('Reviewer note: Bank shows one settled charge')
     expect(values.replyEmail?.subject).toBe('Update on ORD-1042')
   })
@@ -188,7 +189,7 @@ describe('graph: large refund pauses for a human', () => {
 
     await resume(graph, threadId, { action: 'edit', amount: 100 })
 
-    expect(lastUserPrompt(chat, REPLY_MODEL)).toContain('Outcome: refund of $100.00')
+    expect(lastUserPrompt(chat, REPLY_MODEL)).toContain('a support reviewer approved a refund of $100.00 after changing the amount.')
     const values = (await graph.getState({ configurable: { thread_id: threadId } })).values
     expect(values.humanDecision).toEqual({ action: 'edit', amount: 100 })
     expect(values.decision).toMatchObject({ action: 'refund', amount: 129 })
@@ -225,3 +226,80 @@ describe('graph: large refund pauses for a human', () => {
     expect(values.policyResult).toMatchObject({ eligible: false, requiresHuman: true })
   })
 })
+
+const STALE = 'This refund requires human approval before it can be processed.'
+const CONTRADICTION =
+  'Your refund requires approval from a member of our team before it can be processed. We will follow up once that approval is complete.'
+
+describe('graph: the reply states a final outcome', () => {
+  it('after a person edited the amount, sends the final-decision line and no stale rationale or policy reason', async () => {
+    const chat = fakeChat({ rationale: STALE })
+    const { graph } = setup(chat)
+    await start(graph, 'reply-human-1', LARGE_TICKET)
+    await resume(graph, 'reply-human-1', { action: 'edit', amount: 100, note: 'Agreed by phone' })
+
+    const prompt = lastUserPrompt(chat, REPLY_MODEL)
+    expect(prompt).toContain('Final outcome (already decided, nothing is pending): a support reviewer approved a refund of $100.00 after changing the amount.')
+    expect(prompt).toContain('Reviewer note: Agreed by phone')
+    expect(prompt).not.toContain(STALE)
+    expect(prompt).not.toContain('Reason:')
+    expect(prompt).not.toContain('so a person must approve it')
+    expect(prompt).not.toContain('Decided automatically')
+  })
+
+  it('after a person approved or rejected, says so in the final-decision line', async () => {
+    const approve = fakeChat({ rationale: STALE })
+    const first = setup(approve)
+    await start(first.graph, 'reply-human-2', LARGE_TICKET)
+    await resume(first.graph, 'reply-human-2', { action: 'approve' })
+    expect(lastUserPrompt(approve, REPLY_MODEL)).toContain('a support reviewer approved a refund of $129.00.')
+
+    const reject = fakeChat({ rationale: STALE })
+    const second = setup(reject)
+    await start(second.graph, 'reply-human-3', LARGE_TICKET)
+    await resume(second.graph, 'reply-human-3', { action: 'reject' })
+    expect(lastUserPrompt(reject, REPLY_MODEL)).toContain('a support reviewer rejected the refund')
+    expect(lastUserPrompt(reject, REPLY_MODEL)).not.toContain(STALE)
+  })
+
+  it('on the policy path, says it was decided automatically and nothing is pending', async () => {
+    const chat = fakeChat({ rationale: 'Within the automatic limit.' })
+    const { graph } = setup(chat)
+    await start(graph, 'reply-policy-1', SMALL_TICKET)
+
+    const prompt = lastUserPrompt(chat, REPLY_MODEL)
+    expect(prompt).toContain('Final outcome (already decided, nothing is pending): refund of $24.50.')
+    expect(prompt).toContain('Reason: Within the automatic limit.')
+    expect(prompt).toContain('Decided automatically by the refund policy. Nothing is pending.')
+  })
+
+  it('tells the model that the outcome is final and nothing is pending', () => {
+    expect(REPLY_PROMPT).toContain('The outcome you are given is final and already decided.')
+    expect(REPLY_PROMPT).toContain('Never say that approval, review or a follow-up is still needed or pending')
+  })
+
+  it('replaces a reply that calls the decision pending with the standard wording, and says so in the trace', async () => {
+    const chat = fakeChat({ email: CONTRADICTION })
+    const { graph } = setup(chat)
+    await start(graph, 'reply-guard-1', LARGE_TICKET)
+    await resume(graph, 'reply-guard-1', { action: 'edit', amount: 100 })
+
+    const values = (await graph.getState({ configurable: { thread_id: 'reply-guard-1' } })).values
+    expect(values.replyEmail?.body).toBe('We have approved a refund of $100.00.')
+    const row = values.trace.find((entry: TraceRow) => entry.node === 'reply')
+    expect(row).toMatchObject({ status: 'ok' })
+    expect(row?.detail).toContain('standard wording')
+  })
+
+  it('keeps a clean reply, including one that says a team member approved the refund', async () => {
+    const clean = 'Good news: a member of our team approved a refund of $100.00. It will reach your card in a few days.'
+    const chat = fakeChat({ email: clean })
+    const { graph } = setup(chat)
+    await start(graph, 'reply-guard-2', LARGE_TICKET)
+    await resume(graph, 'reply-guard-2', { action: 'edit', amount: 100 })
+
+    const values = (await graph.getState({ configurable: { thread_id: 'reply-guard-2' } })).values
+    expect(values.replyEmail?.body).toBe(clean)
+  })
+})
+

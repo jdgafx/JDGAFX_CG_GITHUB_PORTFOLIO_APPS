@@ -12,16 +12,17 @@ import { SAMPLE_TICKETS, type SampleTicket } from './constants'
 import { failureText, fetchThread, fetchThreads, isAbortError, resumeThread, startTicket } from './lib/api'
 import { ticketProblem } from './lib/limits'
 import { outcomeAfterFailure } from './lib/resume-failure'
+import { approvalVisible, NO_STREAM, runningLine, type StreamFlow } from './lib/stream-view'
 import { applyEvent, emptyRun, NODES, runFromView, type Phase, type RunView } from './lib/run-state'
 import type { HumanDecision, NodeName } from './types'
 
 /** The one status line under the header. It uses the same verb as the Start button. */
-function statusLine(phase: Phase, run: RunView, current: NodeName | null): string {
+function statusLine(phase: Phase, run: RunView, current: NodeName | null, flow: StreamFlow): string {
   switch (phase) {
     case 'idle':
       return 'Ready. Start the refund run to watch the graph work.'
     case 'running':
-      return current ? `Running the ${current} step.` : 'Starting the refund run.'
+      return runningLine(current, flow)
     case 'paused':
       return 'Paused for a person. Approve the refund, edit the amount, or reject it.'
     case 'done':
@@ -38,6 +39,7 @@ export default function App() {
   const [ticket, setTicket] = useState(SAMPLE_TICKETS[0].text)
   const [run, setRun] = useState<RunView>(() => emptyRun())
   const [phase, setPhase] = useState<Phase>('idle')
+  const [flow, setFlow] = useState<StreamFlow>(NO_STREAM)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [threads, setThreads] = useState<ThreadsState>({
     loading: true,
@@ -76,11 +78,13 @@ export default function App() {
     const from = phase
     let eventsArrived = false
     setRequestError(null)
+    setFlow({ resuming, eventsArrived: false })
     setPhase('running')
 
     const outcome: { phase: Phase | null } = { phase: null }
     const onEvent = (event: StreamEvent) => {
       eventsArrived = true
+      setFlow((prev) => (prev.eventsArrived ? prev : { ...prev, eventsArrived: true }))
       setRun((prev) => applyEvent(prev, event))
       if (event.type === 'interrupt') {
         outcome.phase = 'paused'
@@ -107,7 +111,10 @@ export default function App() {
         setPhase(after.phase)
       }
     } finally {
-      if (streamRef.current === controller) streamRef.current = null
+      if (streamRef.current === controller) {
+        streamRef.current = null
+        setFlow(NO_STREAM)
+      }
       void loadThreads()
     }
   }
@@ -158,7 +165,7 @@ export default function App() {
 
       <main className="ds-main">
         <p className="ds-hint gg-live" role="status" aria-live="polite">
-          {statusLine(phase, run, current)}
+          {statusLine(phase, run, current, flow)}
         </p>
         {requestError ? (
           <p className="ds-notice ds-notice--error" role="alert">
@@ -186,7 +193,7 @@ export default function App() {
             ) : null}
             <GraphView run={run} />
             <Readout run={run} />
-            {phase === 'paused' && run.proposal ? (
+            {approvalVisible(phase, flow, run.proposal !== null) && run.proposal ? (
               <ApprovalCard proposal={run.proposal} busy={busy} onDecide={handleDecide} />
             ) : null}
             {run.result ? <ReplyCard result={run.result} /> : null}

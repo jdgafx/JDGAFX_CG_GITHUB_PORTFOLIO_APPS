@@ -18,7 +18,7 @@ START -> intake -> policy -> decide --requiresHuman--> review -> reply -> END
 - **policy** (tool, no model): applies the refund rules to the sample order table.
 - **decide** (model): writes the rationale. Its action and amount come from the policy, not the model.
 - **review** (human): calls `interrupt({ proposal, policy, ... })`. The run stops here until resumed with `approve`, `edit` or `reject`.
-- **reply** (model): writes the customer email for the final outcome.
+- **reply** (model): writes the customer email for the final outcome. After a person decides, the model gets the final outcome and the reviewer note, not the earlier rationale. A draft that says an approval is still pending is replaced with fixed wording, and the trace says so.
 
 Conditional edge from **decide**: `requiresHuman` goes to review when the policy amount is over $50 or the case is unclear. `otherwise` goes straight to reply. The graph has no cycles. The only pause is the review interrupt.
 
