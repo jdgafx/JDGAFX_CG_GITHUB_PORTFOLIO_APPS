@@ -37,6 +37,8 @@ export default function App() {
   const arena = useArena(catalogue)
   const { run } = arena
 
+  const [attempt, setAttempt] = useState(0)
+
   useEffect(() => {
     const controller = new AbortController()
     fetchCatalogue(controller.signal)
@@ -48,7 +50,12 @@ export default function App() {
         if (!isAbortError(err)) setCatalogueFailed(true)
       })
     return () => controller.abort()
-  }, [])
+  }, [attempt])
+
+  const retryCatalogue = () => {
+    setCatalogueFailed(false)
+    setAttempt(n => n + 1)
+  }
 
   const running = run?.status === 'running'
   const previousVote = useRef(false)
@@ -113,8 +120,13 @@ export default function App() {
               onClear={arena.clear}
             />
             {catalogueFailed && (
-              <div className="ds-notice ds-notice--error" role="alert">
-                The model list could not be loaded. Reload the page to try again.
+              <div className="ds-state ds-state--error" role="alert">
+                <span className="ds-state__mark" aria-hidden="true" />
+                <p className="ds-state__title">The model list could not be loaded</p>
+                <p className="ds-state__body">OpenRouter did not answer. No substitute list is shown.</p>
+                <div className="ds-state__actions">
+                  <button type="button" className="ds-button" onClick={retryCatalogue}>Try again</button>
+                </div>
               </div>
             )}
             <PanelSetup
