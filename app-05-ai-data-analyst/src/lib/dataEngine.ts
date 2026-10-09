@@ -1,5 +1,5 @@
 import Papa from 'papaparse'
-import type { ParsedData, QueryPlan, EngineResult, TopGroup } from '../types'
+import type { HavingOp, HavingStats, ParsedData, QueryPlan, EngineResult, TopGroup } from '../types'
 import { isValueSort } from './queryPlan'
 import { MAX_ROWS } from './limits'
 
@@ -69,6 +69,34 @@ export function parseCSV(csvString: string): ParsedData {
     totalRows: result.data.length,
     parseErrorRowCount,
   }
+}
+
+function meets(value: number, op: HavingOp, limit: number): boolean {
+  switch (op) {
+    case 'gt':
+      return value > limit
+    case 'gte':
+      return value >= limit
+    case 'lt':
+      return value < limit
+    case 'lte':
+      return value <= limit
+    case 'eq':
+      return value === limit
+    case 'neq':
+      return value !== limit
+  }
+}
+
+function havingStats(labels: string[], values: number[]): HavingStats {
+  let high = -1
+  let low = -1
+  values.forEach((value, index) => {
+    if (high === -1 || value > (values[high] ?? 0)) high = index
+    if (low === -1 || value < (values[low] ?? 0)) low = index
+  })
+  const at = (index: number) => (index === -1 ? null : { label: labels[index] ?? '', value: values[index] ?? 0 })
+  return { total: labels.length, highest: at(high), lowest: at(low) }
 }
 
 function labelComparator(labels: string[]): ((a: string, b: string) => number) | null {
@@ -176,6 +204,21 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
     values.push(agg)
   }
 
+  let having: HavingStats | undefined
+  if (plan.having) {
+    const { op, value: limit } = plan.having
+    having = havingStats(labels, values)
+    const kept = labels
+      .map((label, index) => ({ label, value: values[index] ?? 0 }))
+      .filter((group) => meets(group.value, op, limit))
+    labels.length = 0
+    values.length = 0
+    for (const group of kept) {
+      labels.push(group.label)
+      values.push(group.value)
+    }
+  }
+
   if (plan.sortBy) {
     const { field, dir } = plan.sortBy
     const byValue = isValueSort(plan, field)
@@ -201,6 +244,7 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
     labels,
     datasets: [{ name: plan.aggregate.field, values }],
     warnings,
+    ...(having ? { having } : {}),
   }
 }
 

@@ -128,6 +128,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
     "field": "<the groupBy column or the aggregate field>",
     "dir": "asc" | "desc"
   },
+  "having": { "op": "gt" | "gte" | "lt" | "lte" | "eq" | "neq", "value": <number> },
   "title": "<descriptive chart title>",
   "explanation": "<brief explanation of what this visualization shows and why>",
   "missing": ["<each column, measure or category the question names that the dataset does not have>"] | null,
@@ -135,7 +136,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 }
 
 Rules:
-- "filter" and "sortBy" are optional — only include them if relevant
+- "filter", "having" and "sortBy" are optional — only include them if relevant
+- "filter" tests individual rows before grouping, for conditions such as "only Alaska" or "magnitude over 4". A threshold on the grouped result, such as months whose total rain is at least 100, regions with at least 50 earthquakes or products whose average price is below 5, goes in "having", never in "filter". "having" compares the aggregate (sum, avg, count, min or max) of each group; its value is a plain number.
 - If the question does not explicitly name a filter condition, omit "filter" entirely. Never invent a filter field or use a placeholder such as "missing".
 - groupBy, aggregate.field and filter.field MUST be exact column names copied from the dataset. Never invent a column.
 - sortBy.field must be either the groupBy column or the aggregate field — nothing else is plotted

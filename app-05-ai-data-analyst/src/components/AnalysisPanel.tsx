@@ -7,14 +7,15 @@ import ChartView from './ChartView'
 const PLAN_PARTS = [
   ['Group by', 'groupBy'],
   ['Measure', 'measure'],
-  ['Filter', 'filter'],
+  ['Filter rows', 'filter'],
+  ['Keep groups where', 'having'],
   ['Sort', 'sort'],
 ] as const
 
 /** The hero: the one-sentence answer, the plan in plain words, then the chart it came from. */
 export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
   const { queryPlan: plan } = result
-  const headline = describeResult(plan, topGroup(result, answerDirection(plan)))
+  const headline = describeResult(plan, topGroup(result, answerDirection(plan)), result)
   const words = describePlan(plan)
 
   return (
@@ -40,7 +41,7 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
       )}
 
       <dl className="app-plan-words">
-        {PLAN_PARTS.map(([label, part]) => (
+        {PLAN_PARTS.filter(([, part]) => words[part] !== null).map(([label, part]) => (
           <div key={label}>
             <dt>{label}</dt>
             <dd>{words[part]}</dd>
@@ -65,6 +66,7 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
               groupBy: plan.groupBy,
               aggregate: plan.aggregate,
               ...(plan.filter ? { filter: plan.filter } : {}),
+              ...(plan.having ? { having: plan.having } : {}),
               ...(plan.sortBy ? { sortBy: plan.sortBy } : {}),
             },
             null,

@@ -71,6 +71,27 @@ describe('validateQueryPlan accepts good plans', () => {
     expect(validateQueryPlan({ ...GOOD, missing: ['a', 3] }, HEADERS)).toEqual({ ok: false, error: unreadable })
   })
 
+  it('keeps a threshold on the grouped value as a number', () => {
+    expect(planOf({ ...GOOD, having: { op: 'gte', value: 100 } }).having).toEqual({ op: 'gte', value: 100 })
+    expect(planOf({ ...GOOD, having: { op: 'lt', value: '1,250.5' } }).having).toEqual({ op: 'lt', value: 1250.5 })
+    expect(planOf({ ...GOOD, having: null }).having).toBeUndefined()
+    expect(planOf(GOOD).having).toBeUndefined()
+  })
+
+  it('rejects an unreadable threshold', () => {
+    const error = (having: unknown) => {
+      const result = validateQueryPlan({ ...GOOD, having }, HEADERS)
+      return result.ok ? null : result.error
+    }
+    expect(error('100')).toBe('The AI returned an unreadable threshold. Try rephrasing your question.')
+    expect(error({ op: 'contains', value: 5 })).toBe('The AI asked for an unsupported threshold comparison ("contains").')
+    expect(error({ value: 5 })).toBe('The AI asked for an unsupported threshold comparison ("missing").')
+    expect(error({ op: 'gt', value: 'lots' })).toBe('The AI returned a threshold without a number. Try rephrasing your question.')
+    expect(error({ op: 'gt', value: Number.POSITIVE_INFINITY })).toBe(
+      'The AI returned a threshold without a number. Try rephrasing your question.',
+    )
+  })
+
   it('keeps a notice sentence and drops a notice that says null', () => {
     expect(planOf({ ...GOOD, notice: 'There is no category column, so products are shown.' }).notice).toBe(
       'There is no category column, so products are shown.',

@@ -95,6 +95,7 @@ describe('describePlan', () => {
       groupBy: 'product',
       measure: 'total revenue',
       filter: 'None',
+      having: null,
       sort: 'None, file order',
     })
   })
@@ -107,6 +108,11 @@ describe('describePlan', () => {
     expect(filterWords('gt')).toBe('temp_f is greater than 70')
     expect(filterWords('lte')).toBe('temp_f is at most 70')
     expect(filterWords('contains')).toBe('temp_f contains 70')
+  })
+
+  it('puts a threshold on the aggregated value in words', () => {
+    expect(describePlan({ ...PLAN, having: { op: 'gte', value: 100 } }).having).toBe('total revenue of at least 100')
+    expect(describePlan({ ...PLAN, having: { op: 'lt', value: 5.5 } }).having).toBe('total revenue below 5.5')
   })
 
   it('says whether a sort follows the measured value or the group label', () => {

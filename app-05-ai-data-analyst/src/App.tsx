@@ -43,6 +43,7 @@ function statusMessage(
     const { notice, answer } = describeResult(
       current.queryPlan,
       topGroup(current, answerDirection(current.queryPlan)),
+      current,
     )
     return `Plan and run complete. ${notice ?? answer ?? current.queryPlan.title}`
   }
@@ -234,7 +235,9 @@ export default function App() {
         status: 'ok',
         ms: Date.now() - executeAt,
         detail:
-          (top
+          (engine.having && plan.having
+            ? `${engine.labels.length} of ${engine.having.total} groups meet the threshold.`
+            : top
             ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}${top.tied.length > 1 ? ` and ${top.tied.length - 1} more tie` : ''}.`
             : 'No rows matched, so there are no groups.') + reranked,
       }

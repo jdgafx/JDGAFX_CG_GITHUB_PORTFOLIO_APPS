@@ -150,7 +150,9 @@ export default function ChartView({ result }: ChartViewProps) {
   if (labels.length === 0) {
     return (
       <p className="ds-empty" role="status">
-        No rows matched this query. Try loosening the filter in your question.
+        {result.having && result.having.total > 0
+          ? 'No group met the threshold, so there is nothing to chart.'
+          : 'No rows matched this query. Try loosening the filter in your question.'}
       </p>
     )
   }

@@ -1,9 +1,11 @@
-import type { QueryPlan, ChartType, AggregateFn, FilterOp, SortDir } from '../types'
+import type { QueryPlan, ChartType, AggregateFn, FilterOp, HavingOp, SortDir } from '../types'
 
 const CHART_TYPES: ChartType[] = ['bar', 'line', 'pie', 'area', 'scatter']
 const AGGREGATE_FNS: AggregateFn[] = ['sum', 'avg', 'count', 'min', 'max']
 const FILTER_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'contains']
 const SORT_DIRS: SortDir[] = ['asc', 'desc']
+const HAVING_OPS: HavingOp[] = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq']
+const PLAIN_NUMBER = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/
 
 /** The most missing items kept from a reply. */
 const MAX_MISSING = 8
@@ -123,6 +125,22 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
       }
     }
     plan.sortBy = { field: sortField, dir: dir as SortDir }
+  }
+
+  if (raw.having !== undefined && raw.having !== null) {
+    if (!isRecord(raw.having)) {
+      return { ok: false, error: 'The AI returned an unreadable threshold. Try rephrasing your question.' }
+    }
+    const op = str(raw.having.op)
+    const text = typeof raw.having.value === 'string' ? raw.having.value.replace(/,/g, '').trim() : raw.having.value
+    const value = typeof text === 'number' ? text : typeof text === 'string' && PLAIN_NUMBER.test(text) ? Number(text) : NaN
+    if (!op || !HAVING_OPS.includes(op as HavingOp)) {
+      return { ok: false, error: `The AI asked for an unsupported threshold comparison ("${op ?? 'missing'}").` }
+    }
+    if (!Number.isFinite(value)) {
+      return { ok: false, error: 'The AI returned a threshold without a number. Try rephrasing your question.' }
+    }
+    plan.having = { op: op as HavingOp, value }
   }
 
   if (raw.missing !== undefined && raw.missing !== null) {

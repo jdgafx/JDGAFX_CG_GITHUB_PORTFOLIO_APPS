@@ -3,7 +3,7 @@ import { executeQuery, parseCSV, parseNumericCell, topGroup } from '../../src/li
 import { parseEarthquakeCsv, parseWeatherCsv } from '../../src/lib/liveData/parse'
 import { OPEN_METEO_EXCERPT } from '../fixtures/openMeteo'
 import { USGS_EXCERPT } from '../fixtures/usgs'
-import { answerSentence } from '../../src/lib/answer'
+import { answerSentence, describePlan, describeResult } from '../../src/lib/answer'
 import { answerDirection, applyQuestionDirection } from '../../src/lib/queryPlan'
 import { MAX_ROWS } from '../../src/lib/limits'
 import type { AggregateFn, QueryPlan } from '../../src/types'
@@ -166,6 +166,83 @@ describe('executeQuery on a recorded Open-Meteo excerpt', () => {
     const result = executeQuery(weather, plan)
     expect(result.datasets[0]?.values).toEqual([4.9, 4.0])
     expect(topGroup(result, 'lowest')).toEqual({ label: '2025-11', value: 4.0, tied: ['2025-11'] })
+  })
+})
+
+describe('executeQuery with a threshold on the grouped value (having)', () => {
+  const rainByMonth = (extra: Partial<QueryPlan>) =>
+    planWith('month', 'sum', { aggregate: { field: 'precipitation_mm', fn: 'sum' }, ...extra })
+
+  it('keeps the months whose total reaches the threshold', () => {
+    const result = executeQuery(weather, rainByMonth({ having: { op: 'gte', value: 50 } }))
+    expect(result.labels).toEqual(['2025-10'])
+    expect(result.datasets[0]?.values[0]).toBeCloseTo(54.0, 6)
+    expect(result.having?.total).toBe(2)
+  })
+
+  it('differs from a row filter, which tests single days before grouping', () => {
+    const asRowFilter = executeQuery(weather, rainByMonth({ filter: { field: 'precipitation_mm', op: 'gte', value: '50' } }))
+    expect(asRowFilter.labels).toEqual([])
+    expect(executeQuery(weather, rainByMonth({ having: { op: 'gte', value: 50 } })).labels).toEqual(['2025-10'])
+  })
+
+  it('supports every comparison on the grouped value', () => {
+    const labelsFor = (op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq', value: number) =>
+      executeQuery(weather, rainByMonth({ having: { op, value } })).labels
+    expect(labelsFor('gt', 54.5)).toEqual([])
+    expect(labelsFor('lt', 10)).toEqual(['2025-11'])
+    expect(labelsFor('lte', 0.1)).toEqual(['2025-11'])
+    expect(labelsFor('neq', 0.1)).toEqual(['2025-10'])
+    expect(labelsFor('eq', 999)).toEqual([])
+  })
+
+  it('reports the highest and lowest group even when none passes', () => {
+    const result = executeQuery(weather, rainByMonth({ having: { op: 'gte', value: 100 } }))
+    expect(result.labels).toEqual([])
+    expect(result.having?.total).toBe(2)
+    expect(result.having?.highest?.label).toBe('2025-10')
+    expect(result.having?.highest?.value).toBeCloseTo(54.0, 6)
+    expect(result.having?.lowest).toEqual({ label: '2025-11', value: 0.1 })
+  })
+
+  it('has no threshold stats for a plan without one', () => {
+    expect(executeQuery(weather, rainByMonth({})).having).toBeUndefined()
+  })
+
+  it('counts rows per region and keeps those at or above a count', () => {
+    const plan = planWith('region', 'count', { having: { op: 'gte', value: 3 }, sortBy: { field: 'region', dir: 'asc' } })
+    const result = executeQuery(quakes, plan)
+    expect(result.labels).toEqual(['Alaska', 'California'])
+    expect(result.datasets[0]?.values).toEqual([3, 3])
+  })
+
+  it('answers a threshold question with the matching groups and their count', () => {
+    const plan = planWith('region', 'count', { having: { op: 'gte', value: 3 }, sortBy: { field: 'region', dir: 'asc' } })
+    const sentence = describeResult(plan, null, executeQuery(quakes, plan)).answer
+    expect(sentence).toBe('2 regions with number of rows of at least 3: Alaska (3), California (3).')
+    const one = planWith('region', 'count', { having: { op: 'gt', value: 2 }, sortBy: { field: 'region', dir: 'asc' } })
+    expect(describeResult(one, null, executeQuery(quakes, one)).answer).toMatch(/^2 regions with/)
+    const single = rainByMonth({ having: { op: 'gte', value: 50 } })
+    expect(describeResult(single, null, executeQuery(weather, single)).answer).toBe(
+      '1 month with total precipitation_mm of at least 50: 2025-10 (54).',
+    )
+  })
+
+  it('says honestly that no group reached the threshold and names the closest value', () => {
+    const above = rainByMonth({ having: { op: 'gte', value: 100 } })
+    expect(describeResult(above, null, executeQuery(weather, above)).answer).toBe(
+      'No month has total precipitation_mm of at least 100. The highest is 54 (2025-10).',
+    )
+    const below = rainByMonth({ having: { op: 'lt', value: 0.05 } })
+    expect(describeResult(below, null, executeQuery(weather, below)).answer).toBe(
+      'No month has total precipitation_mm below 0.05. The lowest is 0.1 (2025-11).',
+    )
+  })
+
+  it('describes the threshold in the plan words', () => {
+    expect(describePlan(rainByMonth({ having: { op: 'gte', value: 100 } })).having).toBe(
+      'total precipitation_mm of at least 100',
+    )
   })
 })
 

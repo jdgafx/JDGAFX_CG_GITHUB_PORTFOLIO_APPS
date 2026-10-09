@@ -6,6 +6,9 @@ export type FilterOp = 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains'
 
 export type SortDir = 'asc' | 'desc'
 
+/** Comparisons for a threshold on the aggregated value. */
+export type HavingOp = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
+
 export interface QueryPlan {
   chartType: ChartType
   groupBy: string
@@ -21,6 +24,14 @@ export interface QueryPlan {
   sortBy?: {
     field: string
     dir: SortDir
+  }
+  /**
+   * A threshold on the aggregated value, applied after grouping ("months with at least 100 mm
+   * of rain in total"). `filter` is for single rows before grouping; this is for whole groups.
+   */
+  having?: {
+    op: HavingOp
+    value: number
   }
   title: string
   explanation: string
@@ -79,10 +90,20 @@ export interface ParsedData {
   parseErrorRowCount?: number
 }
 
+/** What the groups looked like before a `having` threshold removed some of them. */
+export interface HavingStats {
+  /** Groups before the threshold. */
+  total: number
+  highest: { label: string; value: number } | null
+  lowest: { label: string; value: number } | null
+}
+
 export interface EngineResult {
   labels: string[]
   datasets: { name: string; values: number[] }[]
   warnings: string[]
+  /** Set only when the plan has a `having` threshold. */
+  having?: HavingStats
 }
 
 /** The group a question points at. `tied` lists every group with the same value, the top one first. */

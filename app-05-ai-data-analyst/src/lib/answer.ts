@@ -1,5 +1,5 @@
 import { answerDirection, isValueSort } from './queryPlan'
-import type { AggregateFn, FilterOp, QueryPlan, TopGroup } from '../types'
+import type { AggregateFn, EngineResult, FilterOp, HavingOp, QueryPlan, TopGroup } from '../types'
 
 const MEASURE: Record<AggregateFn, (field: string) => string> = {
   sum: (field) => `total ${field}`,
@@ -17,6 +17,54 @@ const FILTER_WORDS: Record<FilterOp, string> = {
   gte: 'is at least',
   lte: 'is at most',
   contains: 'contains',
+}
+
+const HAVING_WORDS: Record<HavingOp, string> = {
+  gt: 'above',
+  gte: 'of at least',
+  lt: 'below',
+  lte: 'of at most',
+  eq: 'equal to',
+  neq: 'other than',
+}
+
+const NAMED_GROUPS = 5
+
+function formatNumber(value: number): string {
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
+}
+
+/** A column name as a plural noun: "month" -> "months", "category" -> "categories". */
+function plural(word: string): string {
+  if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`
+  return /(s|x|ch|sh)$/i.test(word) ? `${word}es` : `${word}s`
+}
+
+/**
+ * The answer to a threshold question: how many groups meet it and which, or, when none does,
+ * the value that came closest. Null when the plan has no threshold or no group existed at all.
+ */
+function havingSentence(plan: QueryPlan, result: EngineResult): string | null {
+  const { having } = plan
+  const stats = result.having
+  if (!having || !stats || stats.total === 0) return null
+  const rule = `${measureWords(plan)} ${HAVING_WORDS[having.op]} ${formatNumber(having.value)}`
+  const count = result.labels.length
+
+  if (count === 0) {
+    const lower = having.op === 'lt' || having.op === 'lte'
+    const closest = lower ? stats.lowest : stats.highest
+    if (!closest) return null
+    return `No ${plan.groupBy} has ${rule}. The ${lower ? 'lowest' : 'highest'} is ${formatNumber(closest.value)} (${closest.label}).`
+  }
+
+  const values = result.datasets[0]?.values ?? []
+  const named = result.labels
+    .slice(0, NAMED_GROUPS)
+    .map((label, index) => `${label} (${formatNumber(values[index] ?? 0)})`)
+    .join(', ')
+  const more = count > NAMED_GROUPS ? `, and ${count - NAMED_GROUPS} more` : ''
+  return `${count} ${count === 1 ? plan.groupBy : plural(plan.groupBy)} with ${rule}: ${named}${more}.`
 }
 
 /** The measure in words, such as "total revenue" or "number of rows". */
@@ -60,8 +108,8 @@ export interface ResultHeadline {
  * What the result leads with. Only a non-empty `missing` list marks a stand-in. Its notice
  * (or a line built from the list) leads; a remark without missing items stays a plain note.
  */
-export function describeResult(plan: QueryPlan, top: TopGroup | null): ResultHeadline {
-  const answer = answerSentence(plan, top)
+export function describeResult(plan: QueryPlan, top: TopGroup | null, result?: EngineResult): ResultHeadline {
+  const answer = (result && havingSentence(plan, result)) ?? answerSentence(plan, top)
   if (plan.missing) {
     return {
       notice: plan.notice ?? `The data has no column for: ${plan.missing.join(', ')}.`,
@@ -77,6 +125,8 @@ interface PlanWords {
   groupBy: string
   measure: string
   filter: string
+  /** The threshold on the aggregated value. Null when the plan has none. */
+  having: string | null
   sort: string
 }
 
@@ -97,5 +147,7 @@ export function describePlan(plan: QueryPlan): PlanWords {
     sort = 'None, file order'
   }
 
-  return { groupBy: plan.groupBy, measure, filter, sort }
+  const having = plan.having ? `${measure} ${HAVING_WORDS[plan.having.op]} ${formatNumber(plan.having.value)}` : null
+
+  return { groupBy: plan.groupBy, measure, filter, having, sort }
 }
