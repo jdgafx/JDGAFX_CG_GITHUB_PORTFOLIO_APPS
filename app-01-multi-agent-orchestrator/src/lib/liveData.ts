@@ -21,7 +21,7 @@ const clock = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(
  */
 export function liveDataView(retriever: Pick<AgentState, 'status' | 'sources'>, fetchedAt: Date | null): LiveDataView {
   const sites = [...new Set((retriever.sources ?? []).map(source => source.site))].join(' + ')
-  if (retriever.status === 'error' || (retriever.status === 'complete' && (retriever.sources ?? []).length === 0)) {
+  if (retriever.status === 'error' || retriever.status === 'skipped' || (retriever.status === 'complete' && (retriever.sources ?? []).length === 0)) {
     return { state: 'failed', text: `Live data unavailable: ${FALLBACK_SITES}`, title: HOSTS }
   }
   if (retriever.status === 'complete' && fetchedAt && sites) {

@@ -22,6 +22,7 @@ describe('liveDataView', () => {
   it('fails on an error or when nothing was found', () => {
     expect(liveDataView({ status: 'error' }, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
     expect(liveDataView({ status: 'complete', sources: [] }, at).state).toBe('failed')
+    expect(liveDataView({ status: 'skipped' }, null).state).toBe('failed')
   })
 })
 

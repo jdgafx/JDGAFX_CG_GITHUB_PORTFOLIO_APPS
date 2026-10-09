@@ -181,3 +181,11 @@ describe('report headings', () => {
     expect(out).not.toContain('a.m.. Opens')
   })
 })
+
+describe('report headings with casual Hacker News titles', () => {
+  it('keeps both capitals of a name a Wikipedia source writes and a Hacker News title writes in lower case', () => {
+    const wiki: Source = { n: 1, title: 'Black Death', site: 'Wikipedia', url: 'https://x.test', snippet: 'The Black Death was a plague pandemic in Europe.' }
+    const hn: Source = { n: 2, title: 'Did the black death rampage across the world?', site: 'Hacker News', url: 'https://x.test', snippet: 'Hacker News story.' }
+    expect(html(createElement(Markdown, { text: '## How Did the Black Death Spread Across Europe?', sources: [wiki, hn] }))).toContain('How did the Black Death spread across Europe?')
+  })
+})

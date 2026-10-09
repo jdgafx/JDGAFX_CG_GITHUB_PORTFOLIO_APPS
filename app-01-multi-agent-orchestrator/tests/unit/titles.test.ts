@@ -45,6 +45,24 @@ describe('sentenceCase: the live titles', () => {
   })
 })
 
+describe('sentenceCase: mixed-case names and short titles', () => {
+  it('keeps a mixed-case token such as mRNA or iPhone as written', () => {
+    expect(sentenceCase('How mRNA Vaccines Work')).toBe('How mRNA vaccines work')
+    expect(sentenceCase('Why the iPhone Changed Phones')).toBe('Why the iPhone changed phones')
+  })
+
+  it('lowers a title with one long word when every other word is capitalised', () => {
+    expect(sentenceCase('The Mechanism')).toBe('The mechanism')
+    expect(sentenceCase('Key Findings')).toBe('Key findings')
+    expect(sentenceCase('The Event')).toBe('The event')
+  })
+
+  it('leaves a short title alone when another word is lower case', () => {
+    expect(sentenceCase('Rain in the city')).toBe('Rain in the city')
+    expect(sentenceCase('Total rain')).toBe('Total rain')
+  })
+})
+
 describe('chartTitle', () => {
   const plan = { title: 'Average Wind Speed by Month', groupBy: 'month' }
 

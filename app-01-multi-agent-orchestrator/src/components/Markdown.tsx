@@ -23,7 +23,8 @@ const ClaimsContext = createContext<ClaimsValue | null>(null)
  * words that start with a capital in a source title and are never written in lower case anywhere in the sources.
  */
 const namesOf = (sources: Source[]) => {
-  const text = sources.map(source => `${source.title} ${source.snippet}`).join(' ')
+  // Hacker News titles are typed in casual case, so they cannot show that a word is ever written in lower case.
+  const text = sources.filter(source => source.site !== 'Hacker News').map(source => `${source.title} ${source.snippet}`).join(' ')
   // A Hacker News snippet quotes its story title, so that title is dropped before looking for capitals inside sentences.
   const snippets = sources.map(source => (source.site === 'Hacker News' ? source.snippet.split(source.title).join(' ') : source.snippet))
   // A capital in a snippet mid-sentence ("On the Eiffel Tower, ...") marks a name. A title's first word is capitalised whatever it is ("Did", "History"), so it needs that proof.
