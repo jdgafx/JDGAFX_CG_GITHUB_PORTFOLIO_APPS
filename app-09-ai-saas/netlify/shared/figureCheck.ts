@@ -57,18 +57,17 @@ function pool(s: Summary): PoolValue[] {
 
 /**
  * A multiple compares two packages, so it must be one the clause's own packages can produce: with two or more named, both
- * of its packages are named; with one named, it involves that one; with none named, any pair will do.
+ * of its packages are named; with one named, it involves that one; with none named, none can be told.
  */
 function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean {
   if (named.size >= 2) return named.has(pair[0]) && named.has(pair[1])
   if (named.size === 1) return named.has(pair[0]) || named.has(pair[1])
-  return true
+  return false
 }
 
-/** The packages a multiple's clause can be read as naming: its own, and, after a pronoun or with none named, the subject carried in as well. */
-function readings(ctx: Context): Set<string>[] {
-  const own = new Set(ctx.named)
-  return ctx.pronoun || ctx.named.length === 0 ? [own, new Set([...ctx.named, ...(ctx.subject ? [ctx.subject] : [])])] : [own]
+/** The packages a multiple's clause names, plus, after a pronoun or with none named, the subject carried in from before. */
+function named(ctx: Context): Set<string> {
+  return new Set([...ctx.named, ...(ctx.pronoun || ctx.named.length === 0 ? (ctx.subject ? [ctx.subject] : []) : [])])
 }
 
 /**
@@ -80,11 +79,11 @@ function readings(ctx: Context): Set<string>[] {
 function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null): { matched: boolean; wrongDirection: boolean; ambiguous: boolean } {
   let sizeMatched = false
   const hits: PoolValue[] = []
-  const sets = q.unit === 'times' ? readings(ctx) : []
+  const set = q.unit === 'times' ? named(ctx) : new Set<string>()
   for (const value of values) {
     if (value.unit !== q.unit) continue
     if (value.pair) {
-      if (!sets.some((named) => pairNamed(value.pair as [string, string], named))) continue
+      if (!pairNamed(value.pair as [string, string], set)) continue
     } else if (value.owner !== undefined) {
       if (ctx.owner !== value.owner) continue
     } else if (ctx.owner !== null && !SELECTION_WORDS.test(ctx.clause)) continue // a selection-wide value, in a clause about one package
@@ -116,6 +115,11 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
     if (covered(o.index)) return
     const end = o.index + o.whole.length
     const ctx = contextOf(text, o.index, end, names)
+    if (ctx.respectively) {
+      result.checked += 1
+      result.unmatched.push(o.whole)
+      return
+    }
     // The words that name a metric are the figure's own: after the delimiter before it, up to the one after it.
     const own = wordsOfFigure(text, o.index, end)
     const said = o.quoted.unit === 'times' ? null : metricOf(text, own.from, o.index, end, own.to, o.quoted.unit)

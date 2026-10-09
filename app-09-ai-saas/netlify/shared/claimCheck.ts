@@ -1,10 +1,10 @@
 import type { PackageFigures, Summary } from './contract'
-import { contextOf, mentionsIn, segmentsOf, wordsOfFigure } from './attribution'
+import { contextOf, mentionsIn, SELECTION_WORDS, segmentsOf, wordsOfFigure } from './attribution'
 import { writtenDatesAndVersions, writtenIsKnown } from './evidence'
 import { checkFigures } from './figureCheck'
-import { directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Unit } from './figures'
+import { directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Unit } from './figures'
 import { resolvePackages, type Claim, type ClaimKind } from './claims'
-import { allowedCounts, PARTIAL_COUNT, qualifierOf, readSpikeCount, scopeOfCount, writtenSpikeCounts } from './spikeCounts'
+import { judgeSpikeCount, numberTokens, scanSpikeCounts } from './spikeCounts'
 
 /**
  * Checks an explanation against its claims. Figures inside a verified claim are judged by the claim; every other figure
@@ -141,6 +141,7 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     else reject(figure, quote, start)
   }
 
+  const spikeClaims: { start: number; end: number; index: number; text: string }[] = []
   for (const claim of claims) {
     const at = text.indexOf(claim.q)
     const packages = resolvePackages(claim.p, names)
@@ -151,23 +152,10 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     const resolved: Claim = { ...claim, p: packages as string[] }
 
     if (claim.k === 'spike_count') {
-      const read = readSpikeCount(claim.q)
-      if (read === null) {
-        result.ignored += 1
-        continue
-      }
-      if (read === 'ambiguous') {
-        result.ignored += 1
-        continue
-      }
-      const start = at + read.count.index
-      const scope = resolved.p.length > 0 ? resolved.p[0] : scopeOfCount(text, { ...read.count, index: start }, names)
-      // A claim for one package is only checked when the text says the count is that package's.
-      const ctxOwner = contextOf(text, start, start + read.count.text.length, names).owner
-      const attributed = scope === 'unresolved' ? false : resolved.p.length === 0 ? true : ctxOwner === resolved.p[0] || allNamed(text, resolved, start, names)
-      const allowed = scope === 'unresolved' ? null : allowedCounts(s, scope, read.qualifier)
-      if (PARTIAL_COUNT.test(claim.q) || !attributed || allowed === null) leaveUnchecked(read.count.text, start)
-      else verdict(allowed.includes(read.count.value), read.count.text, claim.q, start)
+      // Counts are judged from the text itself, below. A claimed count that shape does not cover is shown as unchecked.
+      const token = numberTokens(claim.q)[0]
+      if (token) spikeClaims.push({ start: at, end: at + claim.q.length, index: at + token.index, text: token.text })
+      else result.ignored += 1
       continue
     }
 
@@ -197,9 +185,14 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     const fits = (values: number[], hedge: boolean) => values.some((value) => matchesQuoted(quoted, value, hedge) && (!expected.trend || directionAgrees(quoted, value)))
 
     if (claim.k === 'multiple' || claim.k === 'difference') {
+      if (contextOf(text, start, end, names).respectively) {
+        leaveUnchecked(figure.whole, start)
+        continue
+      }
       const inOrder = claim.k === 'multiple' ? pairInOrder(text, resolved, at, end, names) : allNamed(text, resolved, start, names)
       if (inOrder) {
-        verdict(fits(expected.values, claim.k === 'difference'), figure.whole, claim.q, start)
+        if (claim.k === 'difference' && !fits(expected.values, true) && expected.values.some((value) => matchesCoarsely(quoted, value))) leaveUnchecked(figure.whole, start)
+        else verdict(fits(expected.values, claim.k === 'difference'), figure.whole, claim.q, start)
         continue
       }
       // The claim's pair is not the one the text speaks of. Judge the ratio against every pair the text does name: a ratio
@@ -215,26 +208,38 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       continue
     }
 
-    // A figure about one package is only checked when the text says it is about that package.
-    const owner = contextOf(text, start, end, names).owner
-    if (claim.p.length > 0 && owner !== resolved.p[0]) {
+    // A figure about one package is only checked when the text says it is about that package; one with no package named is
+    // only the selection's when the text does not resolve it to a package or says so.
+    const ctx = contextOf(text, start, end, names)
+    if (ctx.respectively || (claim.p.length > 0 && ctx.owner !== resolved.p[0])) {
       leaveUnchecked(figure.whole, start)
       continue
     }
+    // A total claimed for no package, in a clause about one package, is that package's total.
+    if (claim.k === 'total' && claim.p.length === 0 && ctx.owner !== null && !SELECTION_WORDS.test(ctx.clause)) {
+      const own = s.packages.find((pkg) => pkg.name === ctx.owner)
+      if (own && matchesQuoted(quoted, own.total, true)) verdict(true, figure.whole, claim.q, start)
+      else leaveUnchecked(figure.whole, start)
+      continue
+    }
     if (fits(expected.values, true)) verdict(true, figure.whole, claim.q, start)
+    else if (expected.values.some((value) => matchesCoarsely(quoted, value))) leaveUnchecked(figure.whole, start)
     else if (unit === 'count' && fits(derivedCounts(s.packages), false)) leaveUnchecked(figure.whole, start)
     else verdict(false, figure.whole, claim.q, start)
   }
 
-  // Counts of unusual days the claims did not cover: checked here, or left unchecked when they cannot be told.
+  // Counts of unusual days: judged from the text, in the one shape that can be told, claimed or not. Others are unchecked.
   const isCovered = (index: number) => covered.some((span) => index >= span.start && index < span.end)
-  for (const { count, clause } of writtenSpikeCounts(text)) {
-    if (isCovered(count.index)) continue
-    const scope = scopeOfCount(text, count, names)
-    const allowed = scope === 'unresolved' ? null : allowedCounts(s, scope, qualifierOf(clause))
-    const around = text.slice(Math.max(0, count.index - 24), count.index + count.text.length + 20)
-    if (PARTIAL_COUNT.test(around) || allowed === null) leaveUnchecked(count.text, count.index)
-    else verdict(allowed.includes(count.value), count.text, clause.trim(), count.index)
+  const scanned = scanSpikeCounts(text, names)
+  for (const written of scanned) {
+    if (isCovered(written.count.index)) continue
+    const judged = judgeSpikeCount(written, s)
+    if (judged === 'unchecked') leaveUnchecked(written.count.text, written.count.index)
+    else verdict(judged === 'matched', written.count.text, written.sentence.trim(), written.count.index)
+  }
+  // A claimed count that the one checkable shape did not already take (it names no "unusual days") is shown as unchecked.
+  for (const claimed of spikeClaims) {
+    if (!scanned.some((w) => w.count.index >= claimed.start && w.count.index < claimed.end) && !isCovered(claimed.index)) leaveUnchecked(claimed.text, claimed.index)
   }
 
   const rest = checkFigures(text, s, isCovered)

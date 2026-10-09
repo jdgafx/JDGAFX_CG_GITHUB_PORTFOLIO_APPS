@@ -122,3 +122,12 @@ export function matchesQuoted(q: Quoted, value: number, allowHedge = true): bool
 export function directionAgrees(q: Quoted, value: number): boolean {
   return q.sign === 0 || (q.sign < 0 ? value <= 0 : value >= 0)
 }
+
+/**
+ * Whether a hedged count written with one significant figure ("nearly 100,000") is the true value rounded to that one
+ * figure. Too coarse to count as a match, so a check leaves it unchecked rather than accepting or rejecting it.
+ */
+export function matchesCoarsely(q: Quoted, value: number): boolean {
+  if (!(q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0)) return false
+  return significantFigures(q.value) === 1 && Number(Math.abs(value).toPrecision(1)) === q.value
+}

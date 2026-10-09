@@ -118,7 +118,7 @@ describe('checkFigures: a multiple must match the packages named in its sentence
   it('with one package named, accepts a multiple that involves it; with none, any real multiple', () => {
     expect(checkFigures('React is 6.6 times larger.', BASE).matched).toBe(1)
     expect(checkFigures('Vue is 6.6 times larger.', BASE).matched).toBe(0)
-    expect(checkFigures('One is 3.0 times the other.', BASE).matched).toBe(1)
+    expect(checkFigures('One is 3.0 times the other.', BASE).matched).toBe(0) // no package named, no subject to carry: nothing to tell it by
   })
 
   it('does not take react-dom for react', () => {
@@ -204,9 +204,9 @@ describe('checkFigures: a sentence that starts with a pronoun is about the previ
     expect(checkFigures(text, zodSummary).unmatched).toEqual([])
   })
 
-  it('accepts a multiple under either reading, so a pronoun never makes a right figure fail', () => {
-    // Own reading: only sdk is named, and react / sdk is 6.8. Borrowed reading: zod and sdk, which would make 6.8 wrong.
-    expect(checkFigures(`${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual([])
+  it('reads a pronoun sentence with the carried subject and its own packages together', () => {
+    // The pronoun carries zod, so the pair is zod and the SDK (9.4). React / SDK is 6.8, which is not what the text speaks of.
+    expect(checkFigures(`${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual(['6.8 times'])
   })
 })
 

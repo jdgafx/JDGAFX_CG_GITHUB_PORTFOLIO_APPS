@@ -315,7 +315,7 @@ describe('spike_count claims', () => {
     expect(run('There are 3 unusual days in all.', claim('3 unusual days', 'spike_count', []))).toMatchObject({ matched: 1, rejected: [] })
     expect(run('There are three unusual days in all.', claim('three unusual days', 'spike_count', []))).toMatchObject({ matched: 1, rejected: [] })
     const wrong = run('There are 8 unusual days in all.', claim('8 unusual days', 'spike_count', []))
-    expect(wrong.rejected).toEqual([{ figure: '8', quote: '8 unusual days', start: 10, end: 11 }])
+    expect(wrong.rejected).toMatchObject([{ figure: '8', start: 10, end: 11 }])
   })
 
   it('checks a package, only when the text names it', () => {
@@ -324,10 +324,10 @@ describe('spike_count claims', () => {
     expect(run('Seven spike days are listed.', claim('Seven spike days', 'spike_count', ['sdk']))).toMatchObject({ matched: 0, rejected: [], unchecked: ['Seven'] })
   })
 
-  it('counts only the spikes with a release, or with none, when the quote says so', () => {
-    expect(run('One of the SDK spikes follows a release.', claim('One of the SDK spikes follows a release', 'spike_count', ['sdk'])).matched).toBe(1)
-    expect(run('Two SDK spikes follow a release.', claim('Two SDK spikes follow a release', 'spike_count', ['sdk'])).rejected).toHaveLength(1)
-    expect(run('Two spikes have no release nearby.', claim('Two spikes have no release', 'spike_count', [])).matched).toBe(1)
+  it('counts only the spikes with a release, or with none, when the words right after the count say so', () => {
+    expect(run('The SDK had one unusual day with a release.', claim('one unusual day with a release', 'spike_count', ['sdk'])).matched).toBe(1)
+    expect(run('The SDK had two unusual days with a release.', claim('two unusual days with a release', 'spike_count', ['sdk'])).rejected).toHaveLength(1)
+    expect(run('The SDK had one unusual day with no release.', claim('one unusual day with no release', 'spike_count', ['sdk'])).matched).toBe(1)
   })
 
   it('leaves a partial count such as "the other 10" or "the remaining 8" unchecked', () => {

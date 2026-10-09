@@ -57,7 +57,12 @@ export function mentionsIn(text: string, names: string[], from = 0, to = text.le
   const found: Mention[] = []
   for (const name of names) {
     for (const pattern of patternsFor(name, names)) {
-      for (const match of region.matchAll(pattern)) found.push({ name, at: from + (match.index ?? 0), end: from + (match.index ?? 0) + match[0].length })
+      for (const match of region.matchAll(pattern)) {
+        const at = from + (match.index ?? 0)
+        // "Next, ..." opening a sentence is a connective, not the package.
+        if (name.toLowerCase() === 'next' && text.charAt(at + match[0].length) === ',' && /(?:^|[.!?\n])\s*$/.test(text.slice(0, at))) continue
+        found.push({ name, at, end: at + match[0].length })
+      }
     }
   }
   return found.sort((a, b) => a.at - b.at)
@@ -100,6 +105,8 @@ export interface Context {
   pronoun: boolean
   /** The clause's own words. */
   clause: string
+  /** True when the sentence is a "respectively" list, where figures and names pair up by position. */
+  respectively: boolean
 }
 
 /** Resolves the context of the figure written at `index` .. `end` of `text`. */
@@ -128,7 +135,10 @@ export function contextOf(text: string, index: number, end: number, names: strin
     const tied = own.find((m) => m.at >= end && m.at - end <= 36 && TIES.test(text.slice(end, m.at)))
     owner = tied?.name ?? before[before.length - 1]?.name ?? own[0].name
   } else if (carried.length === 1) owner = carried[0]
-  return { owner, named, carried, subject, pronoun, clause: text.slice(seg.start, seg.end) }
+  const sentenceStart = Math.max(text.lastIndexOf('.', index) + 1, text.lastIndexOf('\n', index) + 1)
+  const sentenceEnd = text.slice(index).search(/[.!?\n]/)
+  const respectively = /\brespectively\b/i.test(text.slice(sentenceStart, sentenceEnd < 0 ? text.length : index + sentenceEnd))
+  return { owner, named, carried, subject, pronoun, clause: text.slice(seg.start, seg.end), respectively }
 }
 
 export type Metric = 'total' | 'per_day' | 'share' | 'change' | 'weekend' | 'spike_day' | 'baseline' | 'spike_pct'
@@ -163,7 +173,11 @@ export function wordsOfFigure(text: string, index: number, end: number): { from:
   const before = text.slice(Math.max(0, index - 60), index)
   let cut = 0
   for (const m of before.matchAll(DELIMITER)) cut = (m.index ?? 0) + m[0].length
-  const from = Math.max(0, index - 60) + cut
+  let from = Math.max(0, index - 60) + cut
+  // "Per day: 26.5 million", "- Per day, 26.5 million": a short label that opens the line or sentence names the metric of what follows.
+  const lead = text.slice(Math.max(0, from - 40), from)
+  const opener = /(?:^|[\n.;])\s*(?:[-*•]\s*)?([^\n.;:,]{1,24})([:,])\s*$/.exec(lead)
+  if (opener && (opener[2] === ':' || /^(?:per|daily|total|share|weekend)\b/i.test(opener[1].trim()))) from = from - lead.length + (opener.index ?? 0) + (opener[0].length - opener[0].trimStart().length)
   const rest = text.slice(end, end + 80)
   const next = rest.search(new RegExp(DELIMITER.source, 'i'))
   return { from, to: next < 0 ? Math.min(text.length, end + 80) : end + next }

@@ -152,7 +152,7 @@ describe('counts of unusual days (app-09g D9 to D13)', () => {
   const spike = (text: string, p: string[], summary: Summary = C1) => outcome(text, summary, [claim(text.replace(/\.$/, ''), 'spike_count', p)])
 
   it.each([
-    ['of 3 total, 2 follow a release', 'Of the 3 unusual days, 2 followed a release.', 'matched'],
+    ['"N of the M" is not a plain count', 'Of the 3 unusual days, 2 followed a release.', 'unchecked'],
     ['a window length before the count', 'In the last 30 days, Vue had 2 unusual days.', 'matched'],
     ['an ISO date before the count', `Since ${C1.startDate}, Vue had two unusual days.`, 'matched'],
     ['a year before the count', 'In 2026 Vue had two unusual days.', 'matched'],
@@ -168,9 +168,9 @@ describe('counts of unusual days (app-09g D9 to D13)', () => {
 
   it('reads number words with or without a hyphen, and the true total', () => {
     const A3 = F.A3
-    expect(outcome('There are twenty eight unusual days.', A3)).toBe('matched')
-    expect(outcome('There are twenty-eight unusual days.', A3)).toBe('matched')
-    expect(outcome('There are twenty unusual days.', A3)).toBe('rejected')
+    expect(outcome('There are twenty eight unusual days in total.', A3)).toBe('matched')
+    expect(outcome('There are twenty-eight unusual days in total.', A3)).toBe('matched')
+    expect(outcome('There are twenty unusual days in total.', A3)).toBe('rejected')
   })
 
   it('scans counts no claim covers (N1 live: Next.js 5, Nuxt 4, Astro 3)', () => {
@@ -189,10 +189,10 @@ describe('counts of unusual days (app-09g D9 to D13)', () => {
     expect(spike('In total there were 13 unusual days.', [], Z1)).toBe('matched')
   })
 
-  it('accepts the number found or the number listed when the list is capped, and leaves a qualified count unchecked', () => {
+  it('judges against the number found, leaves the number listed unchecked when the list is capped, and leaves a qualified count unchecked', () => {
     const capped = C({ spikeCounts: { react: 0, vue: 2, svelte: 9 } }) // svelte had 9 found, 1 listed
     expect(outcome('There are 11 unusual days in total.', capped)).toBe('matched') // found: 0 + 2 + 9
-    expect(outcome('There are 3 unusual days in total.', capped)).toBe('matched') // listed: 2 + 1
+    expect(outcome('There are 3 unusual days in total.', capped)).toBe('unchecked') // listed: 2 + 1, what the page lists, not what was found
     expect(outcome('There are 5 unusual days in total.', capped)).toBe('rejected')
     expect(outcome('Svelte had 9 unusual days.', capped)).toBe('matched')
     expect(outcome('Svelte had 2 unusual days with a release.', capped)).toBe('unchecked') // cannot be told from a capped list
@@ -233,7 +233,9 @@ describe('sentences from the live runs stay matched', () => {
 describe('the package "next" in lists (app-09 live run, next/nuxt/astro)', () => {
   const N1 = F.N1
   it('names the package in "5 for next, 4 for nuxt", but not the word in "the next month"', () => {
-    expect(counts('The detector found 5 unusual days for next, 4 for nuxt and 3 for astro.', N1)).toMatchObject({ matched: 1, rejected: 0 }) // only the first has "unusual days" after it; the others have no noun to anchor on
+    // Three packages are named in the clause, so the count cannot be given to one of them: unchecked, never rejected.
+    expect(counts('The detector found 5 unusual days for next, 4 for nuxt and 3 for astro.', N1)).toMatchObject({ matched: 0, rejected: 0 })
+    expect(counts('Next.js had 5 unusual days; nuxt had 4.', N1)).toMatchObject({ rejected: 0 })
     expect(outcome('Over the next month nuxt is expected to hold 3.2% of the selection.', N1)).toBe('matched') // nuxt's share; "next" is not named
     expect(outcome('Over the next month nuxt is expected to hold 88.7% of the selection.', N1)).toBe('unchecked') // next's share
   })
