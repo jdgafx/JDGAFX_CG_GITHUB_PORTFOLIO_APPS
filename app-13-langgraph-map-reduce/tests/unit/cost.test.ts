@@ -3,8 +3,8 @@ import { estimateCost, readCost } from '../../netlify/shared/cost'
 import { CHECK_MODEL, EXTRACT_MODEL, SYNTH_MODEL } from '../../netlify/shared/models'
 
 describe('estimateCost', () => {
-  it('prices 1000 prompt and 200 completion tokens on gpt-oss-20b at 0.000036 USD', () => {
-    expect(estimateCost(EXTRACT_MODEL, { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 })).toBe(0.000036)
+  it('prices 1000 prompt and 200 completion tokens on the extract model at 0.000066 USD', () => {
+    expect(estimateCost(EXTRACT_MODEL, { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 })).toBe(0.000066)
   })
 
   it('uses each model its own list price', () => {
@@ -30,7 +30,7 @@ describe('readCost', () => {
 
   it('falls back to a labelled estimate when no cost was reported', () => {
     expect(readCost(EXTRACT_MODEL, { prompt_tokens: 1000, completion_tokens: 200 }, null)).toEqual({
-      cost: 0.000036,
+      cost: 0.000066,
       source: 'estimated',
     })
   })

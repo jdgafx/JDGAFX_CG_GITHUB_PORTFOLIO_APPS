@@ -95,10 +95,10 @@ export interface RunResult extends Outcome {
   metrics: RunMetrics
 }
 
-/** Server-sent frames. node_start.ms is the offset from run start; node_end.ms is the node's own duration. */
+/** Server-sent frames. The split's edge carries the chunk count. node_start.ms is the offset from run start; node_end.ms is the node's own duration. */
 export type Frame =
   | { type: 'node_start'; node: NodeName; ms: number; detail: string; chunk?: number }
   | ({ type: 'node_end' } & TraceRow)
-  | { type: 'edge'; from: NodeName; to: NodeName; label: string }
+  | { type: 'edge'; from: NodeName; to: NodeName; label: string; count?: number }
   | { type: 'result'; result: RunResult }
   | { type: 'error'; message: string }

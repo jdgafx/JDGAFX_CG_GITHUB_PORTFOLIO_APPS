@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { BUDGET_MESSAGE, ProviderError } from '../../netlify/shared/errors'
-import { CHECK_MODEL, EXTRACT_MODEL, RETRY_PAUSE_MS, SYNTH_MODEL } from '../../netlify/shared/models'
+import { CHECK_MODEL, EXTRACT_MODEL, MIN_RETRY_BUDGET_MS, RETRY_PAUSE_MS, SYNTH_MODEL } from '../../netlify/shared/models'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { runPipeline } from '../../netlify/shared/pipeline'
 import type { Frame, RunResult } from '../../src/types/frames'
@@ -181,6 +181,121 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
 
     expect(results).toEqual([])
     expect(errors).toEqual(['The AI provider did not answer in time.'])
+  })
+})
+
+describe('the coverage retry needs enough budget', () => {
+  const NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
+
+  /** Chunk 2 fails on its first call only, so the first check finds it missing and wants a retry. */
+  function flaky(counts: { extract2: number }): ChatFn {
+    return async (request) => {
+      const user = lastMessage(request)
+      if (request.model === EXTRACT_MODEL) {
+        const id = chunkOf(user)
+        if (id === 2) {
+          counts.extract2 += 1
+          if (counts.extract2 === 1) throw new ProviderError('timeout')
+        }
+        return extractReply(id)
+      }
+      if (request.model === CHECK_MODEL) return noOmissions()
+      return synthReply('First pass summary.', citedIds(user))
+    }
+  }
+
+  it('skips the retry and keeps the first-pass summary with a plain notice when little budget remains', async () => {
+    const counts = { extract2: 0 }
+    const budget = new RunBudget(MIN_RETRY_BUDGET_MS - 1_000)
+
+    const { errors, results, frames } = await run(THREE, flaky(counts), budget)
+
+    expect(errors).toEqual([])
+    expect(counts.extract2).toBe(1)
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({
+      summary: { overview: 'First pass summary.' },
+      coverage: { covered: [1, 3], missing: [2] },
+      retries: 0,
+      notice: NOTICE,
+    })
+    expect(frames).toContainEqual({
+      type: 'edge',
+      from: 'check',
+      to: 'final',
+      label: '1 chunk still missing, retry skipped for time',
+    })
+  })
+
+  it('still runs the retry when enough budget remains', async () => {
+    const counts = { extract2: 0 }
+    const budget = new RunBudget(MIN_RETRY_BUDGET_MS + 20_000)
+
+    const { errors, results } = await run(THREE, flaky(counts), budget)
+
+    expect(errors).toEqual([])
+    expect(counts.extract2).toBe(2)
+    expect(results[0]).toMatchObject({ coverage: { covered: [1, 2, 3], missing: [] }, retries: 1, notice: null })
+  })
+
+  it('ends with the plain budget message when the budget runs out during the first pass', async () => {
+    const budget = new RunBudget(150)
+    const chat: ChatFn = (_request, signal) => untilAborted(signal)
+
+    const { errors, results } = await run(THREE, chat, budget)
+
+    expect(results).toEqual([])
+    expect(errors).toEqual([BUDGET_MESSAGE])
+  })
+})
+
+describe('chunks are announced as started only when a slot opens', () => {
+  it('never has more than four extract calls started and not yet ended, with nine chunks', async () => {
+    const chat: ChatFn = async (request) => {
+      const user = lastMessage(request)
+      if (request.model === EXTRACT_MODEL) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 8))
+        return extractReply(chunkOf(user))
+      }
+      if (request.model === CHECK_MODEL) return noOmissions()
+      // One point cites every chunk: a section holds at most six points, and nine chunks need none left out.
+      const all = citedIds(user)
+      const body = { overview: 'Summary.', sections: [{ heading: 'Terms', points: [{ text: 'All rules hold.', chunks: all }] }] }
+      return reply(JSON.stringify(body), SYNTH_MODEL)
+    }
+
+    const { frames, results, errors } = await run(document(9), chat)
+
+    let open = 0
+    let peak = 0
+    const started = new Set<number>()
+    for (const frame of frames) {
+      if (frame.type === 'node_start' && frame.node === 'extract' && frame.chunk !== undefined) {
+        started.add(frame.chunk)
+        open += 1
+        peak = Math.max(peak, open)
+      }
+      if (frame.type === 'node_end' && frame.node === 'extract') open -= 1
+      expect(open).toBeLessThanOrEqual(4)
+    }
+    expect(errors).toEqual([])
+    expect(results[0]).toMatchObject({ chunkCount: 9, coverage: { missing: [] } })
+    expect(peak).toBe(4)
+    expect(started.size).toBe(9)
+    expect(open).toBe(0)
+  })
+
+  it('tells the page how many chunks the split made, so waiting chunks can be shown', async () => {
+    const chat: ChatFn = async (request) => {
+      const user = lastMessage(request)
+      if (request.model === EXTRACT_MODEL) return extractReply(chunkOf(user))
+      if (request.model === CHECK_MODEL) return noOmissions()
+      return synthReply('Summary.', citedIds(user))
+    }
+
+    const { frames } = await run(THREE, chat)
+
+    expect(frames).toContainEqual({ type: 'edge', from: 'split', to: 'extract', label: 'fan out: 3 chunks', count: 3 })
   })
 })
 

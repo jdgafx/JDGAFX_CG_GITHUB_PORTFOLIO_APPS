@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Frame, TraceRow } from '../../src/types/frames'
-import { applyFrame, endView, failView, initialView } from '../../src/lib/view'
+import { applyFrame, endView, failView, initialView, stopView } from '../../src/lib/view'
 
 const row = (over: Partial<TraceRow> & Pick<TraceRow, 'node' | 'status'>): Frame => ({
   type: 'node_end',
@@ -71,6 +71,39 @@ describe('applyFrame', () => {
 
     expect(view.phase).toBe('done')
     expect(view.result?.coverage.covered).toEqual([1])
+  })
+})
+
+describe('chunks that wait for a slot', () => {
+  const fan: Frame = { type: 'edge', from: 'split', to: 'extract', label: 'fan out: 6 chunks', count: 6 }
+  const start = (chunk: number): Frame => ({ type: 'node_start', node: 'extract', ms: 1, detail: `chunk ${chunk} of 6`, chunk })
+  const running = { ...initialView(), phase: 'running' as const }
+
+  it('shows every chunk as waiting after the split and running only once it starts', () => {
+    const view = [fan, start(1), start(2), start(3), start(4)].reduce(applyFrame, running)
+
+    expect(view.branches.map((b) => b.status)).toEqual(['running', 'running', 'running', 'running', 'idle', 'idle'])
+    expect(view.branches.filter((b) => b.status === 'running')).toHaveLength(4)
+    expect(view.branches[4]).toMatchObject({ chunk: 5, attempts: 0 })
+  })
+
+  it('does not reset a chunk that has already started when the fan-out arrives late', () => {
+    const view = [start(2), fan].reduce(applyFrame, running)
+
+    expect(view.branches.find((b) => b.chunk === 2)?.status).toBe('running')
+    expect(view.branches).toHaveLength(6)
+  })
+
+  it('ends a waiting chunk as failed when the run fails', () => {
+    const view = failView([fan, start(1)].reduce(applyFrame, running), 'x')
+
+    expect(view.branches.map((b) => b.status)).toEqual(['failed', 'failed', 'failed', 'failed', 'failed', 'failed'])
+  })
+
+  it('ends a waiting chunk as stopped when the reader stops the run', () => {
+    const view = stopView([fan, start(1)].reduce(applyFrame, running))
+
+    expect(view.branches.map((b) => b.status)).toEqual(['stopped', 'stopped', 'stopped', 'stopped', 'stopped', 'stopped'])
   })
 })
 

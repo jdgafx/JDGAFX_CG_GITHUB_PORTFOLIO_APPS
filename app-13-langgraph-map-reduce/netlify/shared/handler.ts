@@ -5,9 +5,9 @@ import { allowedOrigins, clientKey, corsHeaders, rateLimit, readJsonBody, valida
 import { RUN_BUDGET_MS, runPipeline } from './pipeline'
 
 export interface HandlerOptions {
-  /** Whole-run budget in milliseconds. Defaults to 50 s. */
+  /** Whole-run budget in milliseconds. Defaults to 25 s. */
   budgetMs?: number
-  /** Per model call timeout in milliseconds. Defaults to 20 s. */
+  /** Per model call timeout in milliseconds. Defaults to 12 s. */
   callTimeoutMs?: number
 }
 

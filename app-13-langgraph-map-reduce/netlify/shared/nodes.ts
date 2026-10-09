@@ -7,7 +7,7 @@ import { readCost } from './cost'
 import { ProviderError, RunFailure, plainMessage } from './errors'
 import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
-import { CHECK, EXTRACT, MAX_RETRIES, RETRY_PAUSE_MS, SYNTH } from './models'
+import { CHECK, EXTRACT, MAX_RETRIES, MIN_RETRY_BUDGET_MS, RETRY_PAUSE_MS, SYNTH } from './models'
 import type { ChatFn, ChatReply } from './openrouter'
 import { parseExtraction, parseOmitted, parseSummary } from './parse'
 import { checkMessages, extractMessages, synthesizeMessages } from './prompts'
@@ -28,10 +28,16 @@ export interface ExtractInput {
 }
 
 type Emit = (frame: Frame) => void
+
+/** How one extract call ended: an update for the graph, or an error with its already-written failed row. */
+type Attempt = { update: Partial<GraphStateType> } | { error: unknown; row: TraceRow }
 type Update = Partial<GraphStateType>
 
 /** Shown in place of another call's message when a sibling's fatal error stopped this call. */
 const STOPPED_MESSAGE = 'Stopped because another call in this run failed.'
+
+/** The notice on a summary whose coverage retry was left out because little of the run budget remained. */
+export const RETRY_SKIPPED_NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
 
 function emitterFor(config: LangGraphRunnableConfig | undefined): Emit {
   const writer = config?.writer
@@ -96,68 +102,79 @@ export function makeNodes(deps: NodeDeps) {
       `${chunks.length} chunks of about ${CHUNK_TARGET.toLocaleString('en-US')} characters`,
     )
     emit({ type: 'node_end', ...done })
-    emit({ type: 'edge', from: 'split', to: 'extract', label: `fan out: ${chunks.length} chunks` })
+    emit({ type: 'edge', from: 'split', to: 'extract', label: `fan out: ${chunks.length} chunks`, count: chunks.length })
     return { chunks, trace: [done] }
   }
 
   /**
-   * One chunk. A rate limit, a timeout, a server error or a refused request costs this chunk only, and
-   * the coverage check may retry it once after a pause. A rejected key halts every parallel call.
+   * One chunk. It is announced as started when the limiter hands it a slot, and its row is written before
+   * the slot is given up, so a waiting chunk is never shown as running and at most EXTRACT_CONCURRENCY
+   * chunks are open at once. A rate limit, a timeout, a server error or a refused request costs this
+   * chunk only, and the coverage check may retry it once after a pause. A rejected key halts every
+   * parallel call.
    */
   const extract = async (input: ExtractInput, config?: LangGraphRunnableConfig): Promise<Update> => {
     const emit = emitterFor(config)
     const { chunk, total, pass } = input
     const label = pass === 2 ? `chunk ${chunk.id} of ${total} (retry)` : `chunk ${chunk.id} of ${total}`
-    emit({ type: 'node_start', node: 'extract', ms: budget.elapsed(), detail: label, chunk: chunk.id })
 
-    let reply: ChatReply
-    let callMs: number
-    let began = 0
-    try {
-      if (pass === 2) await pause(retryPause, budget.signal)
-      const timed = await limiter.run(async () => {
-        began = Date.now()
-        try {
-          const answer = await chat({ ...EXTRACT, messages: extractMessages(chunk, total) }, budget.signal)
-          return { answer, ms: Date.now() - began }
-        } catch (err) {
-          if (err instanceof ProviderError && err.fatal) budget.halt(err)
-          throw err
-        }
-      }, budget.signal)
-      reply = timed.answer
-      callMs = timed.ms
-    } catch (err) {
-      const spent = began > 0 ? Date.now() - began : 0
-      const failed = traceRow('extract', 'failed', spent, label, {
+    const fail = (err: unknown, spent: number): Attempt => {
+      const row = traceRow('extract', 'failed', spent, label, {
         chunk: chunk.id,
         model: EXTRACT.model,
         message: extractFailureText(err, budget),
       })
-      emit({ type: 'node_end', ...failed })
-      const chunkLevel = err instanceof ProviderError && !err.fatal && !budget.expired() && !budget.halted()
-      if (chunkLevel) return { trace: [failed] }
-      throw err
+      emit({ type: 'node_end', ...row })
+      return { error: err, row }
     }
 
-    const fields = callFields(EXTRACT.model, reply)
-    const parsed = parseExtraction(reply.text)
-    if (!parsed || parsed.points.length === 0) {
-      const message = 'The model reply had no key points.'
-      const failed = traceRow('extract', 'failed', callMs, label, { chunk: chunk.id, message, ...fields })
-      emit({ type: 'node_end', ...failed })
-      return { trace: [failed] }
+    const finish = (reply: ChatReply, callMs: number): Attempt => {
+      const fields = callFields(EXTRACT.model, reply)
+      const parsed = parseExtraction(reply.text)
+      if (!parsed || parsed.points.length === 0) {
+        const row = traceRow('extract', 'failed', callMs, label, {
+          chunk: chunk.id,
+          message: 'The model reply had no key points.',
+          ...fields,
+        })
+        emit({ type: 'node_end', ...row })
+        return { update: { trace: [row] } }
+      }
+      const finding: Finding = {
+        chunkId: chunk.id,
+        points: parsed.points,
+        entities: parsed.entities,
+        model: fields.model ?? EXTRACT.model,
+        usage: reply.usage,
+      }
+      const row = traceRow('extract', 'ok', callMs, label, { chunk: chunk.id, ...fields })
+      emit({ type: 'node_end', ...row })
+      return { update: { findings: [finding], trace: [row] } }
     }
-    const finding: Finding = {
-      chunkId: chunk.id,
-      points: parsed.points,
-      entities: parsed.entities,
-      model: fields.model ?? EXTRACT.model,
-      usage: reply.usage,
+
+    let attempt: Attempt
+    try {
+      if (pass === 2) await pause(retryPause, budget.signal)
+      attempt = await limiter.run(async () => {
+        const began = Date.now()
+        emit({ type: 'node_start', node: 'extract', ms: budget.elapsed(), detail: label, chunk: chunk.id })
+        try {
+          return finish(await chat({ ...EXTRACT, messages: extractMessages(chunk, total) }, budget.signal), Date.now() - began)
+        } catch (err) {
+          if (err instanceof ProviderError && err.fatal) budget.halt(err)
+          return fail(err, Date.now() - began)
+        }
+      }, budget.signal)
+    } catch (err) {
+      // The pause or the queue ended before this chunk's call began.
+      attempt = fail(err, 0)
     }
-    const done = traceRow('extract', 'ok', callMs, label, { chunk: chunk.id, ...fields })
-    emit({ type: 'node_end', ...done })
-    return { findings: [finding], trace: [done] }
+
+    if ('update' in attempt) return attempt.update
+    const err = attempt.error
+    const chunkLevel = err instanceof ProviderError && !err.fatal && !budget.expired() && !budget.halted()
+    if (chunkLevel) return { trace: [attempt.row] }
+    throw err
   }
 
   const reduce = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
@@ -245,7 +262,10 @@ export function makeNodes(deps: NodeDeps) {
     }
 
     const coverage = computeCoverage({ chunkIds, withPoints, cited, flagged })
-    const willRetry = coverage.missing.length > 0 && state.retries < MAX_RETRIES
+    const wantsRetry = coverage.missing.length > 0 && state.retries < MAX_RETRIES
+    const skipRetry = wantsRetry && budget.remaining() < MIN_RETRY_BUDGET_MS
+    const willRetry = wantsRetry && !skipRetry
+    const notice = skipRetry ? RETRY_SKIPPED_NOTICE : null
     emit({ type: 'node_end', ...done })
     if (willRetry) {
       emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing chunks` })
@@ -257,7 +277,9 @@ export function makeNodes(deps: NodeDeps) {
         label:
           coverage.missing.length === 0
             ? 'coverage complete'
-            : `${coverage.missing.length} ${coverage.missing.length === 1 ? 'chunk' : 'chunks'} still missing after the retry`,
+            : skipRetry
+              ? `${coverage.missing.length} ${coverage.missing.length === 1 ? 'chunk' : 'chunks'} still missing, retry skipped for time`
+              : `${coverage.missing.length} ${coverage.missing.length === 1 ? 'chunk' : 'chunks'} still missing after the retry`,
       })
     }
     const draft: Outcome = {
@@ -267,10 +289,11 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: chunkIds.length,
       findingCount: merged.findingCount,
-      notice: null,
+      notice,
     }
     return {
       coverage,
+      notice,
       decision: willRetry ? 'retry' : 'final',
       retries: willRetry ? state.retries + 1 : state.retries,
       draft,
@@ -297,7 +320,7 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: total,
       findingCount: merged.findingCount,
-      notice: null,
+      notice: state.notice,
     }
     const done = traceRow('final', 'ok', Date.now() - startedAt, detail)
     emit({ type: 'node_end', ...done })

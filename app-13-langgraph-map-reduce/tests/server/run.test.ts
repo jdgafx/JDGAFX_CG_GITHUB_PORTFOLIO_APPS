@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/run'
+import { BUDGET_MESSAGE } from '../../netlify/shared/errors'
 import { createRunHandler } from '../../netlify/shared/handler'
 import { CHECK_MODEL, EXTRACT_MODEL, SYNTH_MODEL } from '../../netlify/shared/models'
 
@@ -188,6 +189,18 @@ describe('POST /api/run', () => {
     expect(frames.at(-1)).toEqual({ type: 'error', message: 'The AI provider did not answer in time.' })
     expect(ended).toBe(true)
     expect(stub).toHaveBeenCalled()
+  })
+
+  it('ends a run that outlives its budget with the plain budget message, then [DONE]', async () => {
+    const stub = providerFetch({ [EXTRACT_MODEL]: { hang: true } })
+    vi.stubGlobal('fetch', stub)
+
+    const response = await createRunHandler({ budgetMs: 300 })(runRequest({ text: THREE_CHUNKS }))
+    const { frames, ended } = readStream(await response.text())
+
+    expect(frames.at(-1)).toEqual({ type: 'error', message: BUDGET_MESSAGE })
+    expect(frames.filter((f) => f.type === 'result')).toEqual([])
+    expect(ended).toBe(true)
   })
 
   it('answers 503 before any provider call when no key is configured', async () => {

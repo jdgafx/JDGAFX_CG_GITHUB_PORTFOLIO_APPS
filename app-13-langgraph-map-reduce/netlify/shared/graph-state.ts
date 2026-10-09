@@ -43,6 +43,11 @@ export const GraphState = Annotation.Root({
     reducer: (_old, next) => next,
     default: () => 'final',
   }),
+  /** Written by check when it skips the retry for lack of time. The final outcome carries it as its notice. */
+  notice: Annotation<string | null>({
+    reducer: (_old, next) => next,
+    default: () => null,
+  }),
   /** Named outcome, not final: LangGraph does not allow a state key and a node with the same name. */
   outcome: Annotation<Outcome | null>({
     reducer: (_old, next) => next,

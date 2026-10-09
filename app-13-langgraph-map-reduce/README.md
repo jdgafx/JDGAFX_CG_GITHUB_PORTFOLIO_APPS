@@ -38,29 +38,29 @@ Conditional edges:
 
 Cycles and limits:
 
-- One cycle only. The retry runs at most once, after a 1.5 s pause, and only for chunks that are missing.
+- One cycle only. The retry runs at most once, after a 1.5 s pause, and only for chunks that are missing. It starts only if at least 10 s of the run budget remain. Otherwise the first-pass summary is kept and a notice says the retry was skipped to stay inside the time limit.
 - At most 12 chunks. A long text gets larger chunks, not more of them.
 - At most 4 extract calls run at once. The rest wait inside the request.
-- Each model call times out after 20 s. The whole run has a 50 s budget.
+- Each model call times out after 12 s. The whole run has a 25 s budget, so the server always ends the stream itself, with a result or an error message and then [DONE], before the platform closes the function. The live Netlify site was seen closing it at about 30 s, although the documented limit is 60 s.
 
 Which node uses which model, and why. Prices are OpenRouter list prices per 1M tokens, checked 2026-10-08.
 
 | Node | Model | Max output tokens | Price in / out per 1M | Why this model |
 | --- | --- | --- | --- | --- |
-| extract (one call per chunk) | openai/gpt-oss-20b | 400 | $0.018 / $0.09 | Many calls, so the lowest per-call price of the three |
+| extract (one call per chunk) | meta-llama/llama-3.1-8b-instruct | 400 | $0.05 / $0.08 | Many calls, so it must be cheap and fast. It does not reason, so the whole 400 tokens go to the answer. openai/gpt-oss-20b was rejected: its reasoning cannot be turned off, it spent nearly all 400 tokens on hidden reasoning and returned no JSON |
 | check (one call per run) | xiaomi/mimo-v2.6-flash | 300 | $0.14 / $0.28 | Short review of the summary, cheap |
 | synthesize (one call per pass) | ~anthropic/claude-haiku-latest | 900 | $0.10 / $0.50 | The one stronger call, for the cited summary |
 
 Every call sets `usage: { include: true }`, so OpenRouter reports its cost. When a call reports no cost, the app estimates it from the list prices above and labels the figure "estimated".
 
-Extract and check send no JSON-mode, reasoning or provider option. Their replies are read tolerantly: the first complete JSON object in the reply is used, whether it sits in a code fence, after prose, or both. Synthesis asks for a JSON object, turns reasoning off and routes only to providers that accept every parameter it sends.
+Extract sends no JSON-mode, reasoning or provider option. Check turns reasoning off and sends no JSON-mode or provider option. Their replies are read tolerantly: the first complete JSON object in the reply is used, whether it sits in a code fence, after prose, or both. Synthesis asks for a JSON object, turns reasoning off and routes only to providers that accept every parameter it sends. It sets no temperature, because Anthropic Haiku 5.5 does not accept one when every parameter must be honoured, and OpenRouter would then quietly serve an older, dearer model.
 
 ## What the UI shows
 
 - **Controls.** A document text area with a character counter, a "Load the sample" button that fills the text area with the Declaration, an "Analyze document" button that runs the analysis on the text in the box, and a "Stop the run" button. Analyze and Load the sample stay disabled while a run is in progress. Stop is enabled only during a run, and it stops the run in this tab.
 - **Status.** A badge in the header and a status line above the graph use the same words as the buttons: Ready, Analyzing, Finished, Failed, or Stopped.
-- **Graph.** The split node fans out to one node per chunk. Each chunk node shows its state as a dot and a word, and a retried chunk shows as Retried. The fan converges into reduce, then synthesize, check and final. Taken paths stay in the accent colour after the run. The check node has a labelled loop back to the fan: "Retry N missing chunks" when a retry ran, or "Coverage complete" when none did.
-- **Readout.** Total time, total tokens, total cost, the cheap calls' cost against the synthesis call's cost, and the models used with the number of calls each role made.
+- **Graph.** The split node fans out to one node per chunk. Each chunk node shows its state as a dot and a word: Waiting until a slot opens, then Running, and a retried chunk shows as Retried. The fan converges into reduce, then synthesize, check and final. Taken paths stay in the accent colour after the run. The check node has a labelled loop back to the fan: "Retry N missing chunks" when a retry ran, or "Coverage complete" when none did.
+- **Readout.** Total time, total tokens, total cost, the cheap calls' cost, with the count of those same calls, against the synthesis call's cost, and the models used with the number of calls each role made.
 - **Summary.** Each point shows a "Chunk n" badge for every chunk it came from. A point without a valid citation shows no badge. The entities found across the document follow.
 - **Coverage.** A line such as "9 of 9 chunks covered", and any chunk still missing after the retry. If the retry pass does not finish, the first-pass summary is shown with a notice that says why.
 - **Trace.** One numbered row for each finished step, with its milliseconds, the served model, tokens and cost. Each extract chunk has its own row. Steps still running appear at the end of the list.
@@ -105,7 +105,7 @@ https://jdgafx-app-13-langgraph-map-reduce.netlify.app
 
 ## Known limits
 
-- The model layer is tested with mocked replies only. No live provider run has been made. Extract and check send no reasoning or JSON-mode option, so their replies depend on the prompt and on tolerant parsing, and that behaviour is unverified.
+- The tests use mocked model replies only. Extract sends no reasoning or JSON-mode option and check only turns reasoning off, so their replies depend on the prompt and on tolerant parsing.
 - Extract output is capped at 400 tokens. A reply that is cut short, or that holds no readable JSON object, counts as a missed chunk and is retried once.
 - The check call is a second opinion. If it fails for any reason, coverage falls back to chunk citations, the trace says so, and the summary is kept.
 - The rate limit is in memory. Each warm function instance counts separately, so the real limit scales with the number of instances.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { metricsFor } from '../../src/lib/metrics'
 import type { TraceRow } from '../../src/types/frames'
 
-const EXTRACT_MODEL = 'openai/gpt-oss-20b'
+const EXTRACT_MODEL = 'meta-llama/llama-3.1-8b-instruct'
 
 const rows: TraceRow[] = [
   {
@@ -59,8 +59,23 @@ const rows: TraceRow[] = [
 ]
 
 describe('metricsFor', () => {
-  it('counts only the cheap calls that finished ok', () => {
+  it('counts the cheap calls that were costed, the same ones the cheap cost adds up', () => {
     expect(metricsFor(rows, 99).cheapCalls).toBe(3)
+  })
+
+  it('pairs the cost of every costed extract call with a count of the same calls, failed ones included', () => {
+    const nine: TraceRow[] = Array.from({ length: 9 }, (_, i) => ({
+      ...rows[0],
+      status: i < 1 ? ('ok' as const) : ('failed' as const),
+      chunk: i + 1,
+      cost: 0.000069,
+      costSource: 'usage' as const,
+    }))
+
+    const metrics = metricsFor(nine, 1)
+
+    expect(metrics.cheapCalls).toBe(9)
+    expect(metrics.cheapCost).toBeCloseTo(0.000621, 9)
   })
 
   it('sums tokens and cost, labels an estimate, and keeps the cheap and synthesis costs apart', () => {
@@ -74,12 +89,12 @@ describe('metricsFor', () => {
     expect(metrics.synthesisCost).toBeCloseTo(0.5, 9)
   })
 
-  it('adds a failed call that reported a cost to the cost, but does not count it as a cheap call', () => {
+  it('counts a failed call that reported a cost, because its cost is in the total', () => {
     const billed: TraceRow = { ...rows[1], cost: 0.05, costSource: 'usage' }
 
     const metrics = metricsFor([billed], 1)
 
-    expect(metrics.cheapCalls).toBe(0)
+    expect(metrics.cheapCalls).toBe(1)
     expect(metrics.cheapCost).toBeCloseTo(0.05, 9)
   })
 

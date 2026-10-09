@@ -5,7 +5,7 @@ import { ProviderError, RunBudgetError, type ProviderKind } from './errors'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 /** Each model call times out after this long. The run budget is the outer limit. */
-export const CALL_TIMEOUT_MS = 20_000
+export const CALL_TIMEOUT_MS = 12_000
 
 export interface ChatMessage {
   role: 'system' | 'user'
@@ -16,7 +16,8 @@ export interface ChatRequest {
   model: string
   messages: ChatMessage[]
   maxTokens: number
-  temperature: number
+  /** Sent only when set. */
+  temperature?: number
   /** Ask for a JSON object. Off for extract and check, whose replies are read tolerantly. */
   jsonMode: boolean
   /** Sent as the reply's reasoning option, only when set. */
@@ -93,9 +94,9 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
     model: request.model,
     messages: request.messages,
     max_tokens: request.maxTokens,
-    temperature: request.temperature,
     usage: { include: true },
   }
+  if (request.temperature !== undefined) body.temperature = request.temperature
   if (request.reasoning) body.reasoning = request.reasoning
   if (request.requireParameters) body.provider = { require_parameters: true }
   if (request.jsonMode) body.response_format = { type: 'json_object' }

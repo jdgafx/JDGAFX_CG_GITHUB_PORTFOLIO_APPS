@@ -7,14 +7,17 @@ import { buildGraph } from './graph'
 import { EXTRACT_CONCURRENCY, RETRY_PAUSE_MS } from './models'
 import { CALL_TIMEOUT_MS, chat, type ChatFn } from './openrouter'
 
-/** One run's budget. Netlify's synchronous limit is 60 s, so the run stops well before it. */
-export const RUN_BUDGET_MS = 50_000
+/**
+ * One run's budget. The live Netlify site closed the function at about 30 s, not at the documented 60 s,
+ * so the run ends itself at 25 s and always has time to write an error frame or the result, then [DONE].
+ */
+export const RUN_BUDGET_MS = 25_000
 
 export interface PipelineOptions {
   text: string
   budget: RunBudget
   sink: (frame: Frame) => void
-  /** Timeout for each model call. Defaults to 20 s. */
+  /** Timeout for each model call. Defaults to 12 s. */
   callTimeoutMs?: number
   /** Replaces the provider call. Tests use it to script the model layer. */
   chat?: ChatFn

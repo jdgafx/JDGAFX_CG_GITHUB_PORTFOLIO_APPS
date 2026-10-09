@@ -89,6 +89,14 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
     }
     case 'edge': {
       const edges = [...view.edges, frame.label]
+      if (frame.from === 'split' && frame.to === 'extract' && frame.count !== undefined) {
+        // Every chunk is waiting until the limiter admits it, so the graph shows them all from the split on.
+        const waiting = Array.from({ length: frame.count }, (_, i) => i + 1).reduce(
+          (list, chunk) => (list.some((b) => b.chunk === chunk) ? list : upsertBranch(list, chunk, {})),
+          view.branches,
+        )
+        return { ...view, edges, branches: waiting, live: frame.label }
+      }
       const retry = frame.from === 'check' && frame.to === 'extract' ? frame.label : view.retryLabel
       return { ...view, edges, retryLabel: retry, live: frame.label }
     }
@@ -113,7 +121,7 @@ export function failView(view: RunView, message: string): RunView {
   for (const name of Object.keys(stages) as StageName[]) {
     if (stages[name] === 'running') stages[name] = 'failed'
   }
-  const branches = view.branches.map((b) => (b.status === 'running' ? { ...b, status: 'failed' as Status } : b))
+  const branches = view.branches.map((b) => (b.status === 'running' || b.status === 'idle' ? { ...b, status: 'failed' as Status } : b))
   return { ...view, phase: 'error', stages, branches, error: message, live: message }
 }
 
@@ -130,6 +138,6 @@ export function stopView(view: RunView): RunView {
   for (const name of Object.keys(stages) as StageName[]) {
     if (stages[name] === 'running') stages[name] = 'stopped'
   }
-  const branches = view.branches.map((b) => (b.status === 'running' ? { ...b, status: 'stopped' as Status } : b))
+  const branches = view.branches.map((b) => (b.status === 'running' || b.status === 'idle' ? { ...b, status: 'stopped' as Status } : b))
   return { ...view, phase: 'stopped', stages, branches, live: 'Run stopped' }
 }

@@ -67,6 +67,17 @@ describe('RunBudget', () => {
     budget.dispose()
   })
 
+  it('reports the time left, counting down from the limit and never below zero', async () => {
+    const budget = new RunBudget(40)
+    expect(budget.remaining()).toBeGreaterThan(0)
+    expect(budget.remaining()).toBeLessThanOrEqual(40)
+
+    await tick(80)
+
+    expect(budget.remaining()).toBe(0)
+    budget.dispose()
+  })
+
   it('stays live until the limit, and can be cancelled early', () => {
     const budget = new RunBudget(60_000)
     expect(budget.expired()).toBe(false)

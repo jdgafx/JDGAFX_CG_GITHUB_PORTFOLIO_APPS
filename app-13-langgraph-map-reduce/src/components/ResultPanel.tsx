@@ -73,7 +73,7 @@ export function SummarySection({ result, phase }: { result: RunResult | null; ph
 }
 
 function coverageBadge(result: RunResult): { tone: string; text: string } {
-  if (result.notice) return { tone: 'ds-badge--warning', text: 'Retry did not finish' }
+  if (result.notice) return { tone: 'ds-badge--warning', text: 'Retry not completed' }
   if (result.retries > 0) return { tone: 'ds-badge--success', text: '1 retry used' }
   return { tone: 'ds-badge--success', text: 'No retry needed' }
 }

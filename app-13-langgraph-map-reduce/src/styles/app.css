@@ -389,19 +389,13 @@
   line-height: 1.25;
 }
 
-/* Trace: the state dot and word, and the meta column wraps when a model name is long */
+/* Trace: the state dot and word. The meta column keeps each figure on one line (tokens.css) and wraps only on phones */
 .trace-state {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--ds-text-muted);
   white-space: nowrap;
-}
-
-.ds-trace__meta {
-  white-space: normal;
-  max-width: 44%;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {
@@ -411,9 +405,5 @@
 
   .graph-scroll-hint {
     display: block;
-  }
-
-  .ds-trace__meta {
-    max-width: none;
   }
 }

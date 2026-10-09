@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProviderError, RunBudgetError } from '../../netlify/shared/errors'
+import { CHECK, EXTRACT, SYNTH } from '../../netlify/shared/models'
 import { CALL_TIMEOUT_MS, chat, kindForStatus, parseReply, type ChatRequest } from '../../netlify/shared/openrouter'
 
 const KEY = 'test-only-placeholder'
 const request: ChatRequest = {
-  model: 'openai/gpt-oss-20b',
+  model: 'meta-llama/llama-3.1-8b-instruct',
   messages: [{ role: 'user', content: 'hello' }],
   maxTokens: 400,
   temperature: 0.2,
@@ -27,7 +28,7 @@ afterEach(() => {
 })
 
 const okBody = {
-  model: 'openai/gpt-oss-20b-served',
+  model: 'meta-llama/llama-3.1-8b-instruct-served',
   choices: [{ message: { content: ' {"points": ["A rule."]} ' }, finish_reason: 'stop' }],
   usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.00004 },
 }
@@ -55,7 +56,7 @@ describe('parseReply', () => {
     expect(reply).toEqual({
       text: '{"points": ["A rule."]}',
       finishReason: 'stop',
-      servedModel: 'openai/gpt-oss-20b-served',
+      servedModel: 'meta-llama/llama-3.1-8b-instruct-served',
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
       cost: 0.00004,
     })
@@ -105,7 +106,7 @@ describe('chat', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`)
     const body = sentBody(fetchMock)
     expect(body).toMatchObject({
-      model: 'openai/gpt-oss-20b',
+      model: 'meta-llama/llama-3.1-8b-instruct',
       max_tokens: 400,
       temperature: 0.2,
       usage: { include: true },
@@ -138,6 +139,45 @@ describe('chat', () => {
       provider: { require_parameters: true },
       response_format: { type: 'json_object' },
     })
+  })
+
+  it('sends reasoning off for the check call, with no provider option, JSON mode or require_parameters', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await chat({ ...CHECK, messages: [{ role: 'user', content: 'review' }] }, noAbort())
+
+    const body = sentBody(fetchMock)
+    expect(body).toMatchObject({ model: CHECK.model, reasoning: { enabled: false }, temperature: 0 })
+    expect(body).not.toHaveProperty('provider')
+    expect(body).not.toHaveProperty('response_format')
+  })
+
+  it('sends no reasoning, JSON-mode or provider option for the extract call', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await chat({ ...EXTRACT, messages: [{ role: 'user', content: 'chunk' }] }, noAbort())
+
+    const body = sentBody(fetchMock)
+    expect(body).toMatchObject({ model: 'meta-llama/llama-3.1-8b-instruct', max_tokens: 400, temperature: 0.2 })
+    for (const key of ['reasoning', 'provider', 'response_format']) expect(body).not.toHaveProperty(key)
+  })
+
+  it('sends the synthesis request with require_parameters and no temperature field', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await chat({ ...SYNTH, messages: [{ role: 'user', content: 'write' }] }, noAbort())
+
+    const body = sentBody(fetchMock)
+    expect(body).toMatchObject({
+      model: '~anthropic/claude-haiku-latest',
+      reasoning: { enabled: false },
+      provider: { require_parameters: true },
+      response_format: { type: 'json_object' },
+    })
+    expect(body).not.toHaveProperty('temperature')
   })
 
   it('sends the reasoning option a role asks for', async () => {
@@ -199,7 +239,7 @@ describe('chat', () => {
     expect(error.message).toBe('Could not reach the AI provider.')
   })
 
-  it('gives up after 20 seconds with a non-fatal timeout', async () => {
+  it('gives up after 12 seconds with a non-fatal timeout', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
 
@@ -207,7 +247,7 @@ describe('chat', () => {
     await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)
     const error = (await pending) as ProviderError
 
-    expect(CALL_TIMEOUT_MS).toBe(20_000)
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
   })

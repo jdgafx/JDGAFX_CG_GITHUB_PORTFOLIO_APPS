@@ -38,12 +38,14 @@ export class RunBudget {
   private readonly deadline = new AbortController()
   private readonly halts = new AbortController()
   private readonly started = Date.now()
+  private readonly limitMs: number
   private readonly timer: ReturnType<typeof setTimeout>
   private cause: { error: unknown } | null = null
   /** Aborts on the deadline, on a cancel, or on a halt. */
   readonly signal: AbortSignal
 
   constructor(limitMs: number) {
+    this.limitMs = limitMs
     this.signal = anySignal(this.deadline.signal, this.halts.signal)
     this.timer = setTimeout(() => this.deadline.abort(new RunBudgetError()), limitMs)
   }
@@ -51,6 +53,11 @@ export class RunBudget {
   /** Milliseconds since the run started. */
   elapsed(): number {
     return Date.now() - this.started
+  }
+
+  /** Milliseconds left before the time limit, never below zero. */
+  remaining(): number {
+    return Math.max(0, this.limitMs - this.elapsed())
   }
 
   /** True only when the time limit has passed or the run was cancelled. A halt does not count. */
