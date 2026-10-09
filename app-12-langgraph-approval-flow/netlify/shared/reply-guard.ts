@@ -35,6 +35,9 @@ const UNEARNED_CLAIMS: readonly RegExp[] = [
   /\bfixed\s+in\s+(?:v?\d|the\s+(?:latest|next)\b)/i,
   // "We've noted this on the issue" claims an action on GitHub. Nothing is posted there.
   /\b(?:we|i)(?:'ve|\s+have)?\s+noted\b[^.!?\n]{0,60}\bon\s+(?:the|this)\s+issue\b/i,
+  // Nobody has recorded, confirmed or reproduced anything: a maintainer has only accepted labels.
+  /\b(?:we|i)(?:'ve|\s+have)?\s+(?:already\s+)?(?:recorded|logged|confirmed|reproduced|verified)\b/i,
+  /\bhelped\s+us\s+(?:to\s+)?(?:confirm|reproduce|verify)\b/i,
 ]
 
 export function claimsUnearnedWork(text: string): boolean {

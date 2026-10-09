@@ -72,6 +72,10 @@ export interface Classification {
   unclear: boolean
   duplicateLikely: boolean
   possibleSecurity: boolean
+  /** True when the issue text speaks to an AI or tries to steer the triage or the reply. */
+  addressedToAssistant: boolean
+  /** The words that do, copied from the issue text. Empty when the flag is false. */
+  assistantEvidence: string
   /** 0 to 1. */
   confidence: number
   summary: string

@@ -68,7 +68,7 @@ export default async (req: Request): Promise<Response> => {
     resuming.add(threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
-      resumeRun(deps, { threadId, entry, answer, budget: signal, send }).finally(() => resuming.delete(threadId)),
+      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => resuming.delete(threadId)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)

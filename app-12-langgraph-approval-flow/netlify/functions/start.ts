@@ -34,7 +34,7 @@ export default async (req: Request): Promise<Response> => {
     return streamResponse(budget, (send, signal) =>
       startRun(
         { store, storage: kind, chat, now: () => new Date() },
-        { issue: issue.value, threadId, budget: signal, send },
+        { issue: issue.value, threadId, budget: signal, remainingMs: () => budget.remainingMs(), send },
       ),
     )
   } catch (err) {

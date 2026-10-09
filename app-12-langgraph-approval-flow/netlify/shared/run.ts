@@ -4,7 +4,7 @@ import { GraphGateSaver } from './blobs-saver'
 import { buildGraph, type GraphInstance } from './graph'
 import type { StreamEvent } from './events'
 import { FrameMapper } from './mapper'
-import { ProviderError, type ChatFn } from './openrouter'
+import { CALL_TIMEOUT_MS, ProviderError, type ChatFn } from './openrouter'
 import type { GraphValues } from './state'
 import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from './store'
 import { RUN_BUDGET_MS } from './budget'
@@ -29,8 +29,8 @@ type GraphInput = Parameters<GraphInstance['stream']>[0]
 const NO_MODEL: ChatFn = () => Promise.reject(new Error('This read does not call the model.'))
 
 /** The graph, with its checkpoints behind the store, bounded by `signal` and by the per-call limit. */
-function graphFor(deps: RunDeps, chat: ChatFn, signal?: AbortSignal): GraphInstance {
-  return buildGraph({ chat, now: deps.now, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
+function graphFor(deps: RunDeps, chat: ChatFn, signal?: AbortSignal, remainingMs: () => number = () => RUN_BUDGET_MS): GraphInstance {
+  return buildGraph({ chat, now: deps.now, remainingMs, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
 }
 
 const SAVED = 'Finished steps are saved, so you can retry the thread.'
@@ -53,7 +53,10 @@ function userMessage(err: unknown, node: NodeName | null): string {
   for (const candidate of [err, cause]) {
     if (!(candidate instanceof ProviderError)) continue
     if (candidate.kind === 'budget') return budgetMessage(node)
-    if (candidate.kind === 'timeout') return `${candidate.message.replace(/\.$/, '')} ${during(node)}. ${SAVED}`
+    if (candidate.kind === 'timeout') {
+      const twice = candidate.retried ? ', even after one automatic retry' : ''
+      return `The AI provider did not answer within ${CALL_TIMEOUT_MS / 1000} seconds ${during(node)}${twice}. ${SAVED}`
+    }
     return candidate.message
   }
   return storeTimeoutOf(err)?.message ?? GENERIC_RUN_FAILURE
@@ -87,6 +90,8 @@ interface Attempt {
   failedPriority: Priority | null
   input: GraphInput
   budget: AbortSignal
+  /** Milliseconds left in the request budget. Defaults to a full budget. */
+  remainingMs?: () => number
   send: Send
 }
 
@@ -96,7 +101,7 @@ interface Attempt {
  * each. The caller always sends [DONE] after this returns.
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
-  const graph = graphFor(deps, deps.chat, attempt.budget)
+  const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs)
   const mapper = new FrameMapper(attempt.threadId, attempt.send)
   attempt.send({ type: 'thread', threadId: attempt.threadId })
   try {
@@ -130,7 +135,7 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
 /** Starts a new thread for one issue and runs it until the review pause or the end. */
 export function startRun(
   deps: RunDeps,
-  args: { issue: IssueInput; threadId: string; budget: AbortSignal; send: Send },
+  args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; send: Send },
 ): Promise<void> {
   return drive(deps, {
     threadId: args.threadId,
@@ -138,6 +143,7 @@ export function startRun(
     failedPriority: null,
     input: { issue: args.issue },
     budget: args.budget,
+    remainingMs: args.remainingMs,
     send: args.send,
   })
 }
@@ -145,7 +151,7 @@ export function startRun(
 /** Continues a paused thread from its checkpoint with the maintainer's answer. */
 export function resumeRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; send: Send },
+  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; remainingMs?: () => number; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -154,6 +160,7 @@ export function resumeRun(
     failedPriority: priority,
     input: new Command({ resume: args.answer }),
     budget: args.budget,
+    remainingMs: args.remainingMs,
     send: args.send,
   })
 }
@@ -161,7 +168,7 @@ export function resumeRun(
 /** Continues a failed thread from its last checkpoint: the steps that finished are not run again. */
 export function retryRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; send: Send },
+  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; remainingMs?: () => number; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -170,6 +177,7 @@ export function retryRun(
     failedPriority: priority,
     input: null,
     budget: args.budget,
+    remainingMs: args.remainingMs,
     send: args.send,
   })
 }

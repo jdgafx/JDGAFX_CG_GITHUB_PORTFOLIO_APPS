@@ -1,7 +1,11 @@
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
-/** One model call gets at most this long. The run budget is shared by every call in a run. */
-export const CALL_TIMEOUT_MS = 12_000
+/**
+ * One model call gets at most this long. The run budget is shared by every call in a run. Measured calls
+ * take about 3 s at p95, so a call past 8 s is a hang and not a slow answer. Chosen so that a hung call and
+ * its one automatic retry still leave room for the rest of a request inside the 25 s budget.
+ */
+export const CALL_TIMEOUT_MS = 8_000
 
 // User-facing copy. Provider bodies, keys and raw errors never leave the server.
 export const PROVIDER_NOT_CONFIGURED = 'The AI provider is not configured.'
@@ -23,6 +27,8 @@ export class ProviderError extends Error {
     readonly status: number,
     message: string,
     readonly kind?: 'timeout' | 'budget',
+    /** True when this is the failure of a second attempt, after one automatic retry. */
+    readonly retried = false,
   ) {
     super(message)
     this.name = 'ProviderError'
@@ -137,7 +143,7 @@ async function exchange(request: ChatRequest, apiKey: string, signal: AbortSigna
 }
 
 /**
- * One chat completion. Two deadlines apply: the call's own 12 s, and the run's signal. Both are timers
+ * One chat completion. Two deadlines apply: the call's own 8 s, and the run's signal. Both are timers
  * that settle a race with the whole exchange, the body read included, so a reply whose body never
  * finishes is cut at the limit even if the fetch ignores its abort signal. The fetch is aborted too, to
  * free the connection. The error says which deadline ended the call.

@@ -10,7 +10,7 @@
  */
 export const MODEL = 'anthropic/claude-haiku-5.5'
 
-export const CLASSIFY_MAX_TOKENS = 300
+export const CLASSIFY_MAX_TOKENS = 400
 export const REPLY_MAX_TOKENS = 500
 
 interface Price {

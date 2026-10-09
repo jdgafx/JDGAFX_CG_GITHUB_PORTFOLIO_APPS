@@ -36,6 +36,8 @@ export const CLASSIFIED_QUESTION: Classification = {
   unclear: false,
   duplicateLikely: false,
   possibleSecurity: false,
+  addressedToAssistant: false,
+  assistantEvidence: '',
   confidence: 0.93,
   summary: 'The author asks where the dev server proxy target is configured.',
 }
@@ -47,6 +49,8 @@ export const CLASSIFIED_BUG: Classification = {
   unclear: false,
   duplicateLikely: false,
   possibleSecurity: false,
+  addressedToAssistant: false,
+  assistantEvidence: '',
   confidence: 0.9,
   summary: 'The router throws a TypeError when the page unmounts during navigation.',
 }

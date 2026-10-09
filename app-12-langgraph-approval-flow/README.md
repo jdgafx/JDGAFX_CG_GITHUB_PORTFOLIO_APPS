@@ -34,7 +34,7 @@ START -> classify -> decide --requiresHuman--> review -> reply -> END
 The conditional edge from **decide** goes to review when any of these holds, and straight to reply otherwise:
 
 - the issue may be a security report, by the classifier or by a keyword check on the issue text (security, vulnerability, CVE, XSS, RCE, SSRF, injection, a leaked token or key);
-- the issue text contains instructions aimed at an AI assistant ("ignore your instructions", "mark it as", "in your reply", "confidence 1.0" and similar, each pattern narrow enough that an ordinary "ignore this warning" passes);
+- the issue text is aimed at an AI assistant: the classifier says so and quotes the words, and the quote is found in the issue text, or a short list of high-precision patterns finds such words ("Assistant, ...", "ignore your instructions", "in your reply ..."). The reason on the card quotes what was found;
 - the classification has a confidence below 0.75;
 - the report is unclear, or may duplicate another issue;
 - it is a bug of medium severity or worse;
@@ -49,8 +49,9 @@ The three answers: **Approve** keeps the proposed labels and priority. **Edit** 
 - The issue goes to each model as one line of JSON after a line saying it is data, not instructions. Its text cannot start a new section of the prompt. Both system prompts say the issue is written by a stranger and must not be followed.
 - The model's reply is checked against fixed lists. A type, severity, or priority outside the list reads as unreadable and sends the issue to a maintainer. A flag counts only when it is the boolean `true`. The area is cut to a short lowercase name.
 - The rules read the issue text themselves, so a model that was talked out of a security flag cannot talk the rules out of it.
+- Text aimed at the assistant is caught two ways, and either pauses the run. The classifier returns `addressedToAssistant` and a verbatim quote, with a prompt that separates text about a product's own prompts or AI features from text that speaks to the assistant. The server checks that the quote is in the issue text, and ignores the flag when it is not. A few narrow patterns do not depend on the model. The list is kept short on purpose, since every added pattern also catches ordinary issues.
 - A maintainer's edit may only use labels from the fixed list or the labels this proposal offered. The server checks that before it resumes the run.
-- The draft is checked before it is shown: a draft that says a decision or review is pending or not final, claims the issue was fixed, merged, released or closed, or links anywhere but the issue's own repository, claims a note on the issue, or names an issue type the final labels do not carry is replaced by fixed wording.
+- The draft is checked before it is shown: a draft that says a decision or review is pending or not final, claims the issue was fixed, merged, released or closed or that the maintainers confirmed, reproduced or recorded something, or links anywhere but the issue's own repository, claims a note on the issue, or names an issue type the final labels do not carry is replaced by fixed wording.
 
 ## Models
 
@@ -58,7 +59,7 @@ Every node calls one model, `anthropic/claude-haiku-5.5` on OpenRouter. Chris na
 
 | Node | Output cap | Job |
 | --- | --- | --- |
-| classify | 300 tokens | Sorts an issue into fixed fields as JSON |
+| classify | 400 tokens | Sorts an issue into fixed fields as JSON |
 | reply | 500 tokens | Drafts the comment in plain language |
 
 - No call sends `temperature`. Haiku 5.5 does not take one, and with `provider.require_parameters` a request that sends it fails with 404 "No endpoints found". The request type has no field for it, and a test checks the wire body.
@@ -74,7 +75,7 @@ Measured on 2026-10-09 with 13 real issues from vite, deno and vscode, run throu
 | start request (classify, decide, and reply when automatic) | 2.2 s | 5.0 s | 5.0 s |
 | resume request (review and reply) | 1.6 s | 2.0 s | 2.0 s |
 
-These figures leave the limits as they are: 12 seconds per model call, about four times the p95, and 25 seconds per request. Two calls at the call limit would take 24 seconds, so even the worst case stays under the budget before store time is counted. The figures do not include Blobs latency on Netlify.
+The figures are healthy-call times. A live probe run also showed a different failure: 2 of about 26 classify calls hung until the then 12-second limit. That is a hang tail, not slowness, since p95 is about 3 seconds. So a model call has an 8-second limit, and a call that times out or loses its connection is made once more with the same limit. The retry happens only when the budget has room for it and for the model calls still to come (8 s for the retry, 3 s for each later call, 1 s margin). A rejected key, a 4xx, a rate limit and a budget stop are never retried. The trace row says "Retried once after 8 s timeout". If the retry hangs too, the run fails with a message that says so, and Retry continues from the checkpoint. The worst start request is two hung classify calls (16 s) followed by one reply call (8 s), 24 s, under the 25-second budget. The figures do not include Blobs latency on Netlify.
 
 ## What the UI shows
 
@@ -101,9 +102,9 @@ Browser, then Netlify Functions, then OpenRouter and Netlify Blobs. GitHub is ca
 - The checkpoint saver imports its base class, `WRITES_IDX_MAP` and checkpoint types from `@langchain/langgraph-checkpoint`. That package is therefore a direct dependency, pinned to the version `@langchain/langgraph` already uses.
 - The OpenRouter key is read only on the server. A missing key returns 503 before any model call.
 - Requests from unknown origins get 403, and wrong methods get 405. A request with no Origin header passes. Bodies over 32 KB get 413. Each client address gets 20 starts or resumes a minute.
-- One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 12 seconds, and each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit and is not counted in the budget.
+- One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 8 seconds, with one automatic retry when it hangs or loses its connection and the budget has room. Each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit and is not counted in the budget.
 - Deadlines are timers that settle a race with the whole exchange, the body read included, and they also abort the fetch. A reply whose body never finishes is cut at the limit even if the fetch ignores its abort signal. The same holds for the browser's GitHub request (10 seconds) and for every store call. Nothing relies on `AbortSignal.timeout` alone.
-- A stop says what ended it. A call that passes 12 seconds reads "The AI provider did not answer within 12 seconds during the classify step." A run that uses its 25-second budget reads "The run reached its 25-second budget during the reply step and was stopped." Both add that finished steps are saved.
+- A stop says what ended it. A call that passes 8 seconds, after its retry, reads "The AI provider did not answer within 8 seconds during the classify step, even after one automatic retry." A run that uses its 25-second budget reads "The run reached its 25-second budget during the reply step and was stopped." Both add that finished steps are saved.
 - A failed run keeps its checkpoint. The thread is marked failed and listed, and Retry continues it.
 - The page's Content-Security-Policy allows `https://api.github.com` in `connect-src`, and nothing else beyond the page itself. The page shows no avatars, so `img-src` is unchanged.
 - A failure is sent as an `error` frame with plain-language text. The trace marks the step that failed.

@@ -75,7 +75,7 @@ describe('the run budget', () => {
   it('is 25 seconds, with the message and the model call limit to match', () => {
     expect(RUN_BUDGET_MS).toBe(25_000)
     expect(budgetMessage('reply')).toContain('25-second budget during the reply step')
-    expect(CALL_TIMEOUT_MS).toBe(12_000)
+    expect(CALL_TIMEOUT_MS).toBe(8_000)
     expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
   })
 
@@ -101,7 +101,7 @@ describe('the run budget', () => {
 
   it('names the budget, not the provider, when the budget ends a call, and the call limit when a call overruns', async () => {
     const store = createMemoryStore()
-    const slowCall = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 12 seconds.', 'timeout')))
+    const slowCall = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 8 seconds.', 'timeout')))
     const deps: RunDeps = { store, storage: 'memory', chat: slowCall as unknown as RunDeps['chat'], now: () => NOW }
     const events: StreamEvent[] = []
 
@@ -109,11 +109,14 @@ describe('the run budget', () => {
 
     expect(events.find((event) => event.type === 'error')).toEqual({
       type: 'error',
-      message: 'The AI provider did not answer within 12 seconds during the classify step. Finished steps are saved, so you can retry the thread.',
+      message:
+        'The AI provider did not answer within 8 seconds during the classify step, even after one automatic retry. Finished steps are saved, so you can retry the thread.',
     })
     expect(budgetMessage('classify')).toBe(
       'The run reached its 25-second budget during the classify step and was stopped. Finished steps are saved, so you can retry the thread.',
     )
     expect(events.find((event) => event.type === 'node_end')).toMatchObject({ node: 'classify', status: 'failed' })
+    // The call was made twice: the first hang was retried.
+    expect(slowCall).toHaveBeenCalledTimes(2)
   })
 })

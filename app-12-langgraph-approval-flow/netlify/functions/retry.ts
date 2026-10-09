@@ -47,7 +47,7 @@ export default async (req: Request): Promise<Response> => {
     retrying.add(threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
-      retryRun(deps, { threadId, entry, budget: signal, send }).finally(() => retrying.delete(threadId)),
+      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => retrying.delete(threadId)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)

@@ -176,7 +176,7 @@ describe('chat', () => {
     })
     await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)
     await assertion
-    expect(PROVIDER_TIMEOUT).toBe('The AI provider did not answer within 12 seconds.')
+    expect(PROVIDER_TIMEOUT).toBe('The AI provider did not answer within 8 seconds.')
   })
 
   it('cuts a reply whose body never finishes at the call limit', async () => {

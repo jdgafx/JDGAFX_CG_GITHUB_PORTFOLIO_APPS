@@ -8,9 +8,16 @@ export const RUN_BUDGET_MS = 25_000
 export class RunBudget {
   private readonly controller = new AbortController()
   private readonly timer: ReturnType<typeof setTimeout>
+  private readonly endsAt: number
 
   constructor(ms: number = RUN_BUDGET_MS) {
+    this.endsAt = Date.now() + ms
     this.timer = setTimeout(() => this.controller.abort(), ms)
+  }
+
+  /** Milliseconds left in the budget, never below zero. */
+  remainingMs(): number {
+    return Math.max(0, this.endsAt - Date.now())
   }
 
   get signal(): AbortSignal {
