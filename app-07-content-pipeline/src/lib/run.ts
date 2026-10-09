@@ -1,10 +1,13 @@
-import { STAGE_IDS, STAGE_LABELS, type CallRecord, type StageId, type StageOutputs, type TraceRow, type Usage } from './api'
+import { STAGE_IDS, STAGE_LABELS, wordCount, type StageId, type StageOutputs, type Usage } from '../../netlify/shared/contract'
+import { parseSourcePack } from '../../netlify/shared/sourcepack'
+import type { CallRecord } from './api'
 
-export type TraceStatus = TraceRow['status'] | 'skipped' | 'running'
+export type TraceStatus = 'ok' | 'failed' | 'skipped' | 'running'
 
 export interface TraceLine {
   key: string
   index: number
+  stage: StageId
   name: string
   status: TraceStatus
   ms: number
@@ -21,6 +24,7 @@ export type RunEnd = { kind: 'stopped' | 'failed'; stage: StageId } | null
 
 interface Row {
   key: string
+  stage: StageId
   name: string
   status: TraceStatus
   ms: number
@@ -34,6 +38,7 @@ interface Row {
 export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunEnd): TraceLine[] {
   const rows: Row[] = calls.map((call, i) => ({
     key: `call-${i}`,
+    stage: call.stage,
     ...call.row,
     model: call.model ?? undefined,
   }))
@@ -44,6 +49,7 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
       const stopped = end.kind === 'stopped' && end.stage === stage
       rows.push({
         key: `skip-${stage}`,
+        stage,
         name: STAGE_LABELS[stage],
         status: 'skipped',
         ms: 0,
@@ -62,6 +68,8 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
 
 export interface RunTotals {
   calls: number
+  // Calls to a model. The Sources lookup is a call, but it has no tokens or cost to report.
+  modelCalls: number
   ms: number
   usageCalls: number
   promptTokens: number | null
@@ -82,6 +90,7 @@ export function summarize(calls: CallRecord[]): RunTotals {
 
   return {
     calls: calls.length,
+    modelCalls: calls.filter(call => call.stage !== 'sources').length,
     ms: calls.reduce((total, call) => total + call.row.ms, 0),
     usageCalls: reported.length,
     promptTokens: sum(usage => usage.prompt_tokens),
@@ -93,37 +102,28 @@ export function summarize(calls: CallRecord[]): RunTotals {
   }
 }
 
-// The key a run is saved under. A resumed run reuses finished stages only under the same key.
-export function runKeyFor(topic: string, contentType: string): string {
-  return `${topic}\n${contentType}`
-}
-
-export function keepsFinishedStages(previousKey: string, runKey: string, resume: boolean): boolean {
-  return resume && previousKey === runKey
-}
-
 export type StageState = 'waiting' | 'running' | 'done' | 'failed' | 'skipped'
 
 export interface StageView {
   stage: StageId
   state: StageState
-  words: number
+  // Words written, or for the Sources stage the number of sources found.
+  amount: number
+  unit: 'words' | 'sources'
 }
 
 // The state of each stage on the pipeline. Once a run has ended, every stage it did not reach is
 // skipped, the same way the trace marks it, so the pipeline and the trace always agree.
 export function stageViews(outputs: StageOutputs, runningStage: StageId | null, end: RunEnd): StageView[] {
   return STAGE_IDS.map((stage): StageView => {
+    const unit = stage === 'sources' ? 'sources' : 'words'
     const text = outputs[stage]
-    if (text !== undefined) return { stage, state: 'done', words: wordCount(text) }
-    if (stage === runningStage) return { stage, state: 'running', words: 0 }
-    if (end && end.stage === stage) return { stage, state: end.kind === 'failed' ? 'failed' : 'skipped', words: 0 }
-    return { stage, state: end ? 'skipped' : 'waiting', words: 0 }
+    const view = (state: StageState, amount = 0): StageView => ({ stage, state, amount, unit })
+    if (text !== undefined) return view('done', unit === 'sources' ? parseSourcePack(text).sources.length : wordCount(text))
+    if (stage === runningStage) return view('running')
+    if (end && end.stage === stage) return view(end.kind === 'failed' ? 'failed' : 'skipped')
+    return view(end ? 'skipped' : 'waiting')
   })
-}
-
-export function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length
 }
 
 export function formatMs(ms: number): string {

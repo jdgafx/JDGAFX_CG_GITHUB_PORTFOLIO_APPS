@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { STAGE_IDS, runPipeline, type CallRecord, type StageId, type StageOutputs } from '../../src/lib/api'
+import { STAGE_IDS, type StageId, type StageOutputs } from '../../netlify/shared/contract'
+import { runPipeline, type CallRecord } from '../../src/lib/api'
 
 const LABEL = 'The AI provider answered with a safety label instead of text, so this stage was discarded.'
 const EMPTY = 'The AI provider returned no text for this stage.'
@@ -9,6 +10,8 @@ const SLOW = 'The AI provider did not answer in time.'
 const NETWORK = 'Could not reach the server. Check your connection and try again.'
 const USAGE = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 }
 const MODEL = 'anthropic/claude-haiku-4.5'
+// A run whose Sources stage already finished, so a test can start at the first model stage.
+const SOURCES_DONE = { sources: 'sources text' }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -87,21 +90,32 @@ function request(context: StageOutputs = {}, signal: AbortSignal = new AbortCont
 }
 
 describe('runPipeline sequencing', () => {
-  it('runs the five stages in order, one call each, and records usage and model', async () => {
+  it('runs the Sources lookup first, then the five writing stages, one call each, and records usage and model', async () => {
     const sent = serve(STAGE_IDS.map(id => () => stageOk(`${id} text`)))
     const h = harness()
+    const order = ['sources', 'research', 'outline', 'draft', 'edit', 'polish']
 
     expect(await runPipeline(request(), h.callbacks)).toEqual({ kind: 'complete' })
-    expect(h.starts).toEqual(['research', 'outline', 'draft', 'edit', 'polish'])
-    expect(h.finished).toEqual(['research', 'outline', 'draft', 'edit', 'polish'])
-    expect(h.calls.map(call => call.row.name)).toEqual(['Research', 'Outline', 'Draft', 'Edit', 'Polish'])
-    expect(h.calls[0].usage).toEqual(USAGE)
-    expect(h.calls[0].model).toBe(MODEL)
-    expect(sent.map(call => call.body.stage)).toEqual(['research', 'outline', 'draft', 'edit', 'polish'])
-    expect(sent[1].body.context).toEqual({ research: 'research text' })
-    expect(sent[4].body.context).toEqual({
-      research: 'research text', outline: 'outline text', draft: 'draft text', edit: 'edit text',
+    expect(h.starts).toEqual(order)
+    expect(h.finished).toEqual(order)
+    expect(h.calls.map(call => call.row.name)).toEqual(['Sources', 'Research', 'Outline', 'Draft', 'Edit', 'Polish'])
+    expect(h.calls.map(call => call.stage)).toEqual(order)
+    expect(h.calls[1].usage).toEqual(USAGE)
+    expect(h.calls[1].model).toBe(MODEL)
+    expect(sent.map(call => call.body.stage)).toEqual(order)
+    expect(sent[0].body.context).toEqual({})
+    expect(sent[2].body.context).toEqual({ sources: 'sources text', research: 'research text' })
+    expect(sent[5].body.context).toEqual({
+      sources: 'sources text', research: 'research text', outline: 'outline text', draft: 'draft text', edit: 'edit text',
     })
+  })
+
+  it('stops the run at Sources when the lookup request itself fails', async () => {
+    const sent = serve([() => stageFailed(429, 'Rate limited, try again in a minute.', false)])
+    expect(await runPipeline(request(), harness().callbacks)).toEqual({
+      kind: 'failed', stage: 'sources', message: 'Rate limited, try again in a minute.',
+    })
+    expect(sent).toHaveLength(1)
   })
 
   it('sends only the topic, the format, the stage and the outputs, never a model name', async () => {
@@ -115,12 +129,12 @@ describe('runPipeline sequencing', () => {
     const sent = serve([() => stageOk('d'), () => stageOk('e'), () => stageOk('p')])
     const h = harness()
 
-    expect(await runPipeline(request({ research: 'research text', outline: 'outline text' }), h.callbacks)).toEqual({
+    expect(await runPipeline(request({ ...SOURCES_DONE, research: 'research text', outline: 'outline text' }), h.callbacks)).toEqual({
       kind: 'complete',
     })
     expect(h.starts).toEqual(['draft', 'edit', 'polish'])
     expect(sent).toHaveLength(3)
-    expect(sent[0].body.context).toEqual({ research: 'research text', outline: 'outline text' })
+    expect(sent[0].body.context).toEqual({ sources: 'sources text', research: 'research text', outline: 'outline text' })
   })
 })
 
@@ -136,7 +150,7 @@ describe('runPipeline retries and failures', () => {
     ])
     const h = harness()
 
-    expect(await runPipeline(request(), h.callbacks)).toEqual({ kind: 'complete' })
+    expect(await runPipeline(request(SOURCES_DONE), h.callbacks)).toEqual({ kind: 'complete' })
     expect(sent).toHaveLength(6)
     expect(h.calls.slice(0, 2).map(call => [call.row.name, call.row.status])).toEqual([
       ['Research', 'failed'],
@@ -148,34 +162,34 @@ describe('runPipeline retries and failures', () => {
     const sent = serve([() => stageFailed(502, CUT_OFF, true), () => stageFailed(502, CUT_OFF, true)])
     const h = harness()
 
-    expect(await runPipeline(request(), h.callbacks)).toEqual({ kind: 'failed', stage: 'research', message: CUT_OFF })
+    expect(await runPipeline(request(SOURCES_DONE), h.callbacks)).toEqual({ kind: 'failed', stage: 'research', message: CUT_OFF })
     expect(sent).toHaveLength(2)
     expect(h.calls.map(call => call.row.name)).toEqual(['Research', 'Research (retry)'])
   })
 
   it('does not retry a moderation label, and keeps its plain message', async () => {
     const sent = serve([() => stageFailed(502, LABEL, false)])
-    expect(await runPipeline(request(), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: LABEL })
+    expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: LABEL })
     expect(sent).toHaveLength(1)
   })
 
   it('does not retry a rejected key or missing credit', async () => {
     const sent = serve([() => stageFailed(502, KEY, false)])
     const h = harness()
-    expect(await runPipeline(request(), h.callbacks)).toEqual({ kind: 'failed', stage: 'research', message: KEY })
+    expect(await runPipeline(request(SOURCES_DONE), h.callbacks)).toEqual({ kind: 'failed', stage: 'research', message: KEY })
     expect(sent).toHaveLength(1)
     expect(h.calls[0].usage).toBeNull()
   })
 
   it('does not retry a timeout', async () => {
     const sent = serve([() => stageFailed(504, SLOW, false)])
-    expect(await runPipeline(request(), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: SLOW })
+    expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: SLOW })
     expect(sent).toHaveLength(1)
   })
 
   it('does not retry a network failure, and says so in plain words', async () => {
     const sent = serve([() => { throw new TypeError('Failed to fetch') }])
-    expect(await runPipeline(request(), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: NETWORK })
+    expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message: NETWORK })
     expect(sent).toHaveLength(1)
   })
 
@@ -185,21 +199,21 @@ describe('runPipeline retries and failures', () => {
     [400, 'The request could not be completed. Please retry.'],
   ])('shows a plain message for HTTP %i with no JSON body', async (status, message) => {
     const sent = serve([() => new Response('<html>gateway</html>', { status })])
-    expect(await runPipeline(request(), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message })
+    expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message })
     expect(sent).toHaveLength(1)
   })
 
   it('keeps the usage and model of a billed failure on its trace line', async () => {
     serve([() => stageFailed(502, LABEL, false, { usage: USAGE, model: 'nvidia/nemotron-content-safety' })])
     const h = harness()
-    await runPipeline(request(), h.callbacks)
+    await runPipeline(request(SOURCES_DONE), h.callbacks)
     expect(h.calls[0].usage).toEqual(USAGE)
     expect(h.calls[0].model).toBe('nvidia/nemotron-content-safety')
   })
 
   it('treats a reply with no trace as an unexpected failure and does not retry it', async () => {
     const sent = serve([() => json(200, { result: 'some text' })])
-    expect(await runPipeline(request(), harness().callbacks)).toEqual({
+    expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({
       kind: 'failed',
       stage: 'research',
       message: 'Something went wrong. Please retry.',
@@ -216,7 +230,7 @@ describe('runPipeline retries and failures', () => {
     const controller = new AbortController()
     const h = harness()
 
-    const pending = runPipeline(request({}, controller.signal), h.callbacks)
+    const pending = runPipeline(request(SOURCES_DONE, controller.signal), h.callbacks)
     controller.abort()
     expect(await pending).toEqual({ kind: 'stopped', stage: 'research' })
     expect(h.calls).toHaveLength(0)

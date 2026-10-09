@@ -1,110 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/ai'
-import { CONTENT_TYPES } from '../../netlify/shared/stages'
-import { SITE_URL } from '../../netlify/shared/provider'
+import { CONTENT_TYPES } from '../../netlify/shared/contract'
+import {
+  ARTICLE, CUT_OFF_MESSAGE, EMPTY_MESSAGE, KEY_MESSAGE, LABEL_MESSAGE, NOTES, PLACEHOLDER, RATE_MESSAGE, SHORT_MESSAGE, SLOW_MESSAGE, SOURCES, TOPIC,
+  completion, providerWill, request, stageBody, installFunctionHarness, words, type ErrorBody, type StageBody,
+} from './harness'
 
-const PLACEHOLDER = 'test-only-placeholder'
-const TOPIC = 'Why unit tests matter for small teams'
-const ARTICLE = 'Unit tests give a small team fast feedback. '.repeat(20)
-const NOTES = 'Notes on feedback loops and maintenance cost.'
-const KEY_MESSAGE = 'The AI provider rejected the key or is out of credit.'
-const SLOW_MESSAGE = 'The AI provider did not answer in time.'
-const LABEL_MESSAGE = 'The AI provider answered with a safety label instead of text, so this stage was discarded.'
-const EMPTY_MESSAGE = 'The AI provider returned no text for this stage.'
-const CUT_OFF_MESSAGE = 'This stage ran out of room before it finished.'
-const SHORT_MESSAGE = 'This stage returned far less text than the Edit stage it was given, so it was discarded.'
-const RATE_MESSAGE = 'Rate limited, try again in a minute.'
-
-interface Sent {
-  url: string
-  init: RequestInit | undefined
-  body: Record<string, unknown>
-}
-
-interface StageBody {
-  result: string
-  model: string
-  usage: { total_tokens: number; cost?: number } | null
-  trace: Array<Record<string, unknown>>
-  totalMs: number
-}
-
-interface ErrorBody {
-  error: string
-  retryable: boolean
-  trace?: Array<Record<string, unknown>>
-}
-
-let savedKey: string | undefined
-let clientCount = 0
-
-beforeEach(() => {
-  savedKey = process.env.OPENROUTER_API_KEY
-  process.env.OPENROUTER_API_KEY = PLACEHOLDER
-  // A provider call that a test does not stub fails the test, so nothing reaches the network.
-  vi.stubGlobal('fetch', vi.fn(async () => {
-    throw new Error('The provider was called without a test stub')
-  }))
-})
-
-afterEach(() => {
-  if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY
-  else process.env.OPENROUTER_API_KEY = savedKey
-  vi.unstubAllGlobals()
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-})
-
-interface RequestOptions {
-  method?: string
-  origin?: string | null
-  rawBody?: string
-  headers?: Record<string, string>
-}
-
-// Each request gets its own client address, so the per-client limit never carries between tests.
-function request(body: unknown, options: RequestOptions = {}): Request {
-  const method = options.method ?? 'POST'
-  clientCount += 1
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-    'x-nf-client-connection-ip': `203.0.113.${clientCount}`,
-    ...options.headers,
-  }
-  if (options.origin !== null) headers.origin = options.origin ?? SITE_URL
-  if (method === 'GET') return new Request('https://example.test/api/ai', { method, headers })
-  const payload = options.rawBody ?? JSON.stringify(body)
-  return new Request('https://example.test/api/ai', { method, headers, body: payload })
-}
-
-function stageBody(stage: string, context: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { topic: TOPIC, contentType: 'Blog Post', stage, context, ...extra }
-}
-
-// Every provider call goes through this stub. Each call is recorded for the assertions.
-function providerWill(respond: (sent: Sent) => Response | Promise<Response>): Sent[] {
-  const sent: Sent[] = []
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const record: Sent = { url: String(input), init, body: JSON.parse(String(init?.body)) as Record<string, unknown> }
-    sent.push(record)
-    return respond(record)
-  }))
-  return sent
-}
-
-function completion(content: string, overrides: Record<string, unknown> = {}): Response {
-  const payload = {
-    model: 'anthropic/claude-haiku-4.5',
-    choices: [{ message: { content }, finish_reason: 'stop' }],
-    usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-    ...overrides,
-  }
-  return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
-}
-
-function words(count: number): string {
-  return Array.from({ length: count }, () => 'word').join(' ')
-}
+installFunctionHarness()
 
 describe('happy path', () => {
   it('returns the stage text, the served model, the usage and one Research trace row', async () => {
@@ -141,6 +43,8 @@ describe('happy path', () => {
     const messages = sent[0].body.messages as Array<{ role: string; content: string }>
     expect(messages[0].content).toContain('Current step: DRAFT.')
     expect(messages[0].content).toContain('roughly 160 words')
+    expect(messages[0].content).toContain('put its number in square brackets')
+    expect(messages[1].content).toContain(`## Sources\n${SOURCES}`)
     expect(messages[1].content).toContain(`## Research\n${NOTES}`)
     expect(messages[1].content).toContain('## Outline\n- Why tests pay off')
     expect(messages[1].content).toMatch(/draft the Blog Post about: Why unit tests matter for small teams$/)
@@ -183,8 +87,9 @@ describe('request validation', () => {
     ['a missing content type', { topic: TOPIC, stage: 'research', context: {} }, 'Choose a content type from the list.'],
     ['an empty topic', stageBody('research', {}, { topic: '   ' }), 'Enter a topic first.'],
     ['a topic over 400 characters', stageBody('research', {}, { topic: 'a'.repeat(401) }), 'Keep the topic to 400 characters or fewer.'],
-    ['an unknown stage', stageBody('publish'), 'Unknown stage. Expected one of: research, outline, draft, edit, polish.'],
+    ['an unknown stage', stageBody('publish'), 'Unknown stage. Expected one of: sources, research, outline, draft, edit, polish.'],
     ['a draft with no outline', stageBody('draft', { research: NOTES }), 'The Draft stage needs the Outline output first.'],
+    ['research with no sources', stageBody('research', { sources: '  ' }), 'The Research stage needs the Sources output first.'],
     ['a stage output that is not text', stageBody('outline', { research: 42 }), 'The Research output is not valid.'],
     ['a stage output over 8,000 characters', stageBody('outline', { research: 'x'.repeat(8_001) }), 'The Research output is not valid.'],
     ['stage outputs that are not an object', { ...stageBody('research'), context: 'notes' }, 'The stage outputs must be a JSON object.'],
@@ -332,7 +237,8 @@ describe('output checks', () => {
     providerWill(() => completion(words(60)))
     const res = await handler(request(stageBody('polish', { edit: words(100) })))
     expect(res.status).toBe(200)
-    expect(((await res.json()) as StageBody).result).toBe(words(60))
+    const { result } = (await res.json()) as StageBody
+    expect(result.startsWith(words(60))).toBe(true)
   })
 
   it('rejects an Edit that is less than half the length of the Draft', async () => {

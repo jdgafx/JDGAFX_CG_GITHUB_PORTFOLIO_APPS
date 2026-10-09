@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  CONTENT_TYPES, STAGE_IDS, STAGE_LABELS, runPipeline,
-  type CallRecord, type ContentType, type PipelineOutcome, type StageId, type StageOutputs,
-} from './lib/api'
-import { buildTrace, keepsFinishedStages, runKeyFor, stageViews, summarize, type RunEnd, type TraceLine } from './lib/run'
+import { useEffect, useRef, useState } from 'react'
+import { CONTENT_TYPES, STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs } from '../netlify/shared/contract'
+import { UNEXPECTED_MESSAGE, runPipeline, type CallRecord, type PipelineOutcome } from './lib/api'
+import { buildTrace, stageViews, summarize, type RunEnd, type TraceLine } from './lib/run'
 import Brief, { type Notice } from './components/Brief'
 import Pipeline from './components/Pipeline'
 import Stages from './components/Stages'
@@ -11,17 +9,16 @@ import RunSummary from './components/RunSummary'
 import RunTrace from './components/RunTrace'
 
 const COPY_NOTE_MS = 2000
-const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
-// Loaded so a reviewer can press Generate at once. The field stays editable.
-const SAMPLE_TOPIC = 'Why unit tests matter for small teams'
+// Loaded so a reviewer can press Generate at once. Wikipedia and Hacker News both cover it.
+const SAMPLE_TOPIC = 'The Rust programming language and memory safety'
 
 function statusText(topic: string, running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null): string {
   if (running) {
     if (!runningStage) return 'Starting the run.'
-    return `Running ${STAGE_LABELS[runningStage]}, stage ${STAGE_IDS.indexOf(runningStage) + 1} of ${STAGE_IDS.length}.`
+    return `Running ${STAGE_LABELS[runningStage]}, step ${STAGE_IDS.indexOf(runningStage) + 1} of ${STAGE_IDS.length}.`
   }
-  if (!outcome) return topic.trim() ? 'Press Generate to run all five stages.' : 'Enter a topic to start.'
-  if (outcome.kind === 'complete') return 'All five stages finished. Copy the final piece from Stage outputs.'
+  if (!outcome) return topic.trim() ? 'Press Generate to look up sources and write the piece.' : 'Enter a topic to start.'
+  if (outcome.kind === 'complete') return 'All steps finished. Copy the final piece from Stage outputs.'
   if (outcome.kind === 'stopped') return `Stopped at ${STAGE_LABELS[outcome.stage]}. Press Resume to continue there.`
   return `Press Retry to run ${STAGE_LABELS[outcome.stage]} again.`
 }
@@ -60,13 +57,13 @@ export default function App() {
     if (noteTimer.current) clearTimeout(noteTimer.current)
   }, [])
 
-  const start = useCallback(async (resume: boolean) => {
+  async function start(resume: boolean) {
     const trimmed = topic.trim()
     if (!trimmed || running) return
 
     // Finished stages are reused only when a resume continues the same topic and format.
-    const runKey = runKeyFor(trimmed, contentType)
-    if (!keepsFinishedStages(runKeyRef.current, runKey, resume)) {
+    const runKey = `${trimmed}\n${contentType}`
+    if (!(resume && runKeyRef.current === runKey)) {
       runKeyRef.current = runKey
       outputsRef.current = {}
       setOutputs({})
@@ -107,17 +104,17 @@ export default function App() {
       setRunning(false)
     }
     setOutcome(result)
-  }, [topic, contentType, running])
+  }
 
-  const stop = useCallback(() => abortRef.current?.abort(), [])
+  const stop = () => abortRef.current?.abort()
 
-  const note = useCallback((text: string) => {
+  function note(text: string) {
     setCopyNote(text)
     if (noteTimer.current) clearTimeout(noteTimer.current)
     noteTimer.current = setTimeout(() => setCopyNote(''), COPY_NOTE_MS)
-  }, [])
+  }
 
-  const copy = useCallback((label: string, text: string) => {
+  function copy(label: string, text: string) {
     if (!navigator.clipboard) {
       note(`${label} could not be copied in this browser.`)
       return
@@ -126,7 +123,7 @@ export default function App() {
       () => note(`${label} copied.`),
       () => note(`${label} could not be copied.`),
     )
-  }, [note])
+  }
 
   const end: RunEnd = !running && outcome && outcome.kind !== 'complete'
     ? { kind: outcome.kind, stage: outcome.stage }
@@ -138,10 +135,11 @@ export default function App() {
     ? [{
         key: 'live',
         index: finished.length + 1,
+        stage: runningStage,
         name: STAGE_LABELS[runningStage],
         status: 'running',
         ms: 0,
-        detail: 'Waiting for the model to reply.',
+        detail: runningStage === 'sources' ? 'Looking up Wikipedia and Hacker News.' : 'Waiting for the model to reply.',
         share: 0,
       }]
     : []
@@ -154,11 +152,11 @@ export default function App() {
         <div className="ds-header__inner">
           <div>
             <h1 className="ds-title">ContentForge</h1>
-            <p className="ds-subtitle">Five AI stages turn a topic into a finished piece.</p>
+            <p className="ds-subtitle">A live source lookup and five AI stages turn a topic into a cited piece.</p>
           </div>
           <span className={`ds-badge ${badge.tone}`}>{badge.text}</span>
           <p className="ds-showcase">
-            <strong>What this showcases:</strong> a resumable five-stage pipeline where each stage is one bounded model call with its own trace, tokens and cost.
+            <strong>What this showcases:</strong> a resumable pipeline that first fetches live Wikipedia and Hacker News sources, then runs five bounded model calls that cite them, each with its own trace, tokens and cost.
           </p>
         </div>
       </header>

@@ -18,12 +18,12 @@ export default function RunTrace({ lines }: RunTraceProps) {
       <div className="ds-section__head">
         <h2 className="ds-section__title" id="trace-title">Run trace</h2>
         <p className="ds-section__sub">
-          One numbered line per model call. Retries are labelled, and stages that did not run are marked skipped.
+          One numbered line per call: the live source lookup, then each model call. Retries are labelled, and stages that did not run are marked skipped.
         </p>
       </div>
 
       {lines.length === 0 ? (
-        <div className="ds-empty">Each model call appears here as it finishes. Press Generate to make the first one.</div>
+        <div className="ds-empty">Each call appears here as it finishes. Press Generate to make the first one.</div>
       ) : (
         <ol className="ds-trace" aria-label="Run trace">
           {lines.map(line => (
@@ -41,9 +41,15 @@ export default function RunTrace({ lines }: RunTraceProps) {
                 {line.status !== 'skipped' && line.status !== 'running' && (
                   <>
                     <div>{formatMs(line.ms)}</div>
-                    <div>{line.tokens === undefined ? 'tokens not reported' : `${formatCount(line.tokens)} tokens`}</div>
-                    <div>{line.cost === undefined ? 'cost not reported' : formatUsd(line.cost)}</div>
-                    <div className="ds-mono trace-model">{line.model ?? 'model not reported'}</div>
+                    {line.stage === 'sources' ? (
+                      <div>live lookup, no model</div>
+                    ) : (
+                      <>
+                        <div>{line.tokens === undefined ? 'tokens not reported' : `${formatCount(line.tokens)} tokens`}</div>
+                        <div>{line.cost === undefined ? 'cost not reported' : formatUsd(line.cost)}</div>
+                        <div className="ds-mono trace-model">{line.model ?? 'model not reported'}</div>
+                      </>
+                    )}
                   </>
                 )}
               </div>

@@ -1,3 +1,5 @@
+import type { Usage } from './contract'
+
 // The one chat model for every text call in this app. Clients cannot pick it,
 // and no environment variable overrides it.
 export const MODEL = '~anthropic/claude-haiku-latest'
@@ -6,12 +8,6 @@ export const SITE_URL = process.env.URL || 'https://jdgafx-app-07-content-pipeli
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-export interface Usage {
-  prompt_tokens: number
-  completion_tokens: number
-  total_tokens: number
-  cost?: number
-}
 
 export interface ChatReply {
   content: string

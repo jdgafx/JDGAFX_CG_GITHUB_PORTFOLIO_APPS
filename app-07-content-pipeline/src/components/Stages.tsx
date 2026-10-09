@@ -1,11 +1,13 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { STAGE_LABELS, type StageId, type StageOutputs } from '../lib/api'
+import { STAGE_LABELS, type StageId, type StageOutputs } from '../../netlify/shared/contract'
 import type { StageView } from '../lib/run'
+import SourceList from './SourceList'
 import StateMark from './StateMark'
 
 const STAGE_HINTS: Record<StageId, string> = {
-  research: 'Facts, figures and background on the topic',
+  sources: 'Live Wikipedia articles and Hacker News stories, numbered for citation',
+  research: 'Notes drawn from the numbered sources',
   outline: 'Section headings with bullet points under each',
   draft: 'The first full version, built from the research and outline',
   edit: 'Grammar, flow and argument in the draft',
@@ -29,7 +31,7 @@ export default function Stages({ outputs, views, idle, copyNote, onCopy }: Stage
       <div className="ds-section__head ds-section__head--row">
         <div className="section-title-block">
           <h2 className="ds-section__title" id="stages-title">Stage outputs</h2>
-          <p className="ds-section__sub">What each stage wrote, as it finishes. Copy one stage, or the final piece.</p>
+          <p className="ds-section__sub">What each stage produced, as it finishes. The final piece ends with its Sources list. Copy one stage, or the final piece.</p>
         </div>
         <button
           type="button"
@@ -64,10 +66,14 @@ export default function Stages({ outputs, views, idle, copyNote, onCopy }: Stage
                 {text !== undefined && (
                   <>
                     <details open>
-                      <summary>Output, {view.words} words</summary>
-                      <div className="stage-output">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-                      </div>
+                      <summary>Output, {view.amount} {view.unit}</summary>
+                      {view.stage === 'sources' ? (
+                        <SourceList text={text} />
+                      ) : (
+                        <div className="stage-output">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                        </div>
+                      )}
                     </details>
                     <div className="ds-row">
                       <button

@@ -1,4 +1,4 @@
-import { CONTENT_TYPES, type ContentType } from '../lib/api'
+import { CONTENT_TYPES, type ContentType } from '../../netlify/shared/contract'
 
 export type Notice =
   | { kind: 'failed'; label: string; message: string }
@@ -26,7 +26,7 @@ export default function Brief({
     <section className="ds-section" aria-labelledby="brief-title">
       <div className="ds-section__head">
         <h2 className="ds-section__title" id="brief-title">Brief</h2>
-        <p className="ds-section__sub">Describe the piece. The five stages then write it in order.</p>
+        <p className="ds-section__sub">Describe the piece. It is looked up on Wikipedia and Hacker News first, then written in five stages.</p>
       </div>
 
       <form
@@ -45,12 +45,12 @@ export default function Brief({
             value={topic}
             maxLength={400}
             autoComplete="off"
-            placeholder="For example: why unit tests matter for small teams"
+            placeholder="For example: the James Webb Space Telescope"
             aria-describedby="topic-help"
             disabled={running}
             onChange={event => onTopic(event.target.value)}
           />
-          <p className="ds-help" id="topic-help">What the piece is about. Every stage writes toward this topic.</p>
+          <p className="ds-help" id="topic-help">What the piece is about. Pick a topic Wikipedia covers, such as a technology, place, event or field; the facts come from those articles.</p>
         </div>
 
         <div className="ds-field">
@@ -67,7 +67,7 @@ export default function Brief({
               <option key={type} value={type}>{type}</option>
             ))}
           </select>
-          <p className="ds-help" id="content-type-help">Sets the voice and format. Each stage still keeps to its own word budget.</p>
+          <p className="ds-help" id="content-type-help">Sets the voice, format and citation style (a social thread gets short links). Each stage keeps to its own word budget.</p>
         </div>
 
         <div className="brief-actions">
@@ -83,7 +83,7 @@ export default function Brief({
             <button type="button" className="ds-button" onClick={onStop}>Stop</button>
           )}
         </div>
-        <p className="ds-help" id="run-help">Generate runs all five stages in order. A stopped run resumes where it stopped.</p>
+        <p className="ds-help" id="run-help">Generate looks up sources, then runs the five writing stages in order. A stopped run resumes where it stopped.</p>
       </form>
 
       <p className="status-line" aria-live="polite">{statusText}</p>

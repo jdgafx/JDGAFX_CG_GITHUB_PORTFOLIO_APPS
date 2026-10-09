@@ -1,34 +1,6 @@
-export const STAGE_IDS = ['research', 'outline', 'draft', 'edit', 'polish'] as const
-export type StageId = (typeof STAGE_IDS)[number]
-
-export const STAGE_LABELS: Record<StageId, string> = {
-  research: 'Research',
-  outline: 'Outline',
-  draft: 'Draft',
-  edit: 'Edit',
-  polish: 'Polish',
-}
-
-export const CONTENT_TYPES = ['Blog Post', 'Technical Article', 'Marketing Copy', 'Newsletter', 'Social Thread'] as const
-export type ContentType = (typeof CONTENT_TYPES)[number]
-
-export type StageOutputs = Partial<Record<StageId, string>>
-
-export interface Usage {
-  prompt_tokens: number
-  completion_tokens: number
-  total_tokens: number
-  cost?: number
-}
-
-export interface TraceRow {
-  name: string
-  status: 'ok' | 'failed'
-  ms: number
-  detail: string
-  tokens?: number
-  cost?: number
-}
+import {
+  STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs, type TraceRow, type Usage,
+} from '../../netlify/shared/contract'
 
 // One call to the server, with the usage and model the provider reported for it.
 export interface CallRecord {
@@ -61,11 +33,7 @@ const API_PATH = '/api/ai'
 const RETRY_LIMIT = 1
 
 const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
-const BUSY_MESSAGE = 'Rate limited, try again in a minute.'
-const SLOW_MESSAGE = 'The AI provider did not answer in time.'
-const GENERIC_MESSAGE = 'The request could not be completed. Please retry.'
-const NO_TEXT_MESSAGE = 'The stage returned no usable text. Please retry.'
-const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
+export const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
 
 // A failed call. The record is its trace line, and `retryable` says whether a second call may succeed.
 class StageFailure extends Error {
@@ -74,19 +42,14 @@ class StageFailure extends Error {
   }
 }
 
-interface Attempt {
-  usage: Usage | null
-  model: string | null
-}
-
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
 function friendlyHttpError(status: number): string {
-  if (status === 429) return BUSY_MESSAGE
-  if (status >= 500) return SLOW_MESSAGE
-  return GENERIC_MESSAGE
+  if (status === 429) return 'Rate limited, try again in a minute.'
+  if (status >= 500) return 'The AI provider did not answer in time.'
+  return 'The request could not be completed. Please retry.'
 }
 
 function readUsage(value: unknown): Usage | null {
@@ -154,7 +117,7 @@ async function postStage(
 
   const body = await readBody(response)
   const serverRow = readRow(body?.trace)
-  const attempt: Attempt = { usage: readUsage(body?.usage), model: typeof body?.model === 'string' ? body.model : null }
+  const attempt: Pick<CallRecord, 'usage' | 'model'> = { usage: readUsage(body?.usage), model: typeof body?.model === 'string' ? body.model : null }
 
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : friendlyHttpError(response.status)
@@ -173,7 +136,7 @@ async function postStage(
   }
   const content = typeof body?.result === 'string' ? body.result : ''
   if (!content.trim()) {
-    throw new StageFailure(NO_TEXT_MESSAGE, true, {
+    throw new StageFailure('The stage returned no usable text. Please retry.', true, {
       stage,
       ...attempt,
       row: { name, status: 'failed', ms: elapsed(), detail: 'The response had no usable text.' },
