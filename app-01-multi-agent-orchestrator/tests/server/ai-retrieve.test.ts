@@ -114,4 +114,42 @@ describe('ai function: retrieval', () => {
     expect(providerCalls(fetchMock)).toHaveLength(0)
     expect(fetchMock.mock.calls.every(call => call[1]?.signal?.aborted)).toBe(true)
   })
+
+  it('strips citation markers the model wrote when nothing was retrieved, from every stage and the result', async () => {
+    const down = () => new Response('unavailable', { status: 503 })
+    plan(
+      {
+        researcher: reply('No sources retrieved: working from model memory, unverified.\n- SSE is one-way [n].', 0.1, 10, 10),
+        analyst: reply('- One-way push fits [1] output [number].', 0.1, 10, 10),
+        critic: reply('- Nothing is cited [2].', 0.1, 10, 10),
+        synthesizer: reply('SSE is one-way [1][n]. WebSockets are two-way [3].', 0.1, 10, 10),
+      },
+      { wikipedia: down, hn: down },
+    )
+
+    const events = await frames(await handler(request(VALID_BODY)))
+
+    const chunks = events.filter(event => event.type === 'agent_chunk').map(event => event.content)
+    expect(chunks.slice(0, 3)).toEqual([
+      'No sources retrieved: working from model memory, unverified.\n- SSE is one-way.',
+      '- One-way push fits output.',
+      '- Nothing is cited.',
+    ])
+    expect(chunks[3]).toMatch(/^SSE is one-way\. WebSockets are two-way\.\n\n### Sources/)
+    expect(JSON.stringify(events.at(-1))).not.toMatch(/\[(?:\d|n|number)\]/)
+  })
+
+  it('drops a marker that points past the retrieved list and keeps the valid ones', async () => {
+    plan({
+      researcher: reply('- A [1]. B [9].', 0.1, 10, 10),
+      analyst: reply('- C [2, 8].', 0.1, 10, 10),
+      critic: reply('- D [3].', 0.1, 10, 10),
+      synthesizer: reply('E [1][5].', 0.1, 10, 10),
+    })
+    const events = await frames(await handler(request(VALID_BODY)))
+    const chunks = events.filter(event => event.type === 'agent_chunk').map(event => event.content)
+    // The fixture retrieves three sources (two Wikipedia, one Hacker News).
+    expect(chunks.slice(0, 3)).toEqual(['- A [1]. B.', '- C [2].', '- D [3].'])
+    expect(chunks[3]).toMatch(/^E \[1\]\.\n\n### Sources/)
+  })
 })

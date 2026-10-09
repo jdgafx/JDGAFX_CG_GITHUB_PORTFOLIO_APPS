@@ -1,5 +1,5 @@
 import { isCutOff } from '../../src/lib/finish'
-import { withSources } from '../../src/lib/sources'
+import { stripBadCitations, withSources } from '../../src/lib/sources'
 import { sumUsage } from '../../src/lib/usage'
 import type { StageUsage, StreamEvent, TraceStep } from '../../src/types'
 import { AGENTS, MIN_STAGE_MS, RUN_BUDGET_MS, keyLine, type AgentConfig, type AgentContext } from '../shared/agents'
@@ -112,9 +112,11 @@ async function runPipeline(
 
     if (outcome.ok) {
       const { stage } = outcome
-      const detail = keyLine(stage.content)
+      // A marker that points at no retrieved source never reaches the page, whatever the model wrote.
+      const cleaned = stripBadCitations(stage.content, found.sources.length)
+      const detail = keyLine(cleaned)
       // The Sources list is built from what was retrieved, never from model text.
-      const content = agent.role === 'synthesizer' ? withSources(stage.content, found.sources) : stage.content
+      const content = agent.role === 'synthesizer' ? withSources(cleaned, found.sources) : cleaned
       context[agent.role] = content
       const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
       records.push({ name: agent.name, status, ms, detail, usage: stage.usage, servedModel: stage.servedModel })

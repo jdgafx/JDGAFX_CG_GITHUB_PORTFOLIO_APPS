@@ -117,7 +117,7 @@ export function traceMeta(agent: AgentState): string[] {
   const tokens = agent.usage?.completion_tokens
   const cost = agent.usage?.cost
   return [
-    tokens !== undefined ? `${tokens.toLocaleString('en-US')} tokens` : 'tokens not reported',
+    tokens !== undefined ? `${tokens.toLocaleString('en-US')} output tokens` : 'output tokens not reported',
     cost !== undefined ? formatUsd(cost) : 'cost not reported',
   ]
 }

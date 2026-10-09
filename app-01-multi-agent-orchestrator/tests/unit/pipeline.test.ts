@@ -70,8 +70,8 @@ describe('retriever status and trace', () => {
     expect(traceMeta(one)).toEqual(['1 source'])
     expect(traceMeta({ ...one, sources: [] })).toEqual(['0 sources'])
     const done = { ...agents.analyst, status: 'complete' as const, usage: { completion_tokens: 1234, cost: 0.0005 } }
-    expect(traceMeta(done)).toEqual(['1,234 tokens', '$0.000500'])
-    expect(traceMeta({ ...done, usage: {} })).toEqual(['tokens not reported', 'cost not reported'])
+    expect(traceMeta(done)).toEqual(['1,234 output tokens', '$0.000500'])
+    expect(traceMeta({ ...done, usage: {} })).toEqual(['output tokens not reported', 'cost not reported'])
   })
 
   it('uses the sentence the server sent as the Retrieve trace detail', () => {

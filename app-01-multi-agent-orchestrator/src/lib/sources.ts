@@ -33,3 +33,20 @@ export function hasSourcesSection(text: string): boolean {
 export function withSources(content: string, sources: Source[]): string {
   return `${content.trimEnd()}\n\n${sourcesMarkdown(sources)}\n`
 }
+
+/** A bracketed marker of numbers such as [2] or [1, 3], or a placeholder the model copied from its prompt such as [n]. */
+const MARKER = /([ \t]*)\[(\d{1,3}(?:\s*[,;]\s*\d{1,3})*|n|N|number|source n)\](?!\()/g
+
+/**
+ * Keeps only citation markers that point at a retrieved source. With no sources every marker goes.
+ * With N sources a number outside 1..N is dropped from its marker, and a marker left empty goes
+ * (so a placeholder like [n] never reaches the page). Markdown links are left alone.
+ */
+export function stripBadCitations(text: string, sourceCount: number): string {
+  return text.replace(MARKER, (_match, space: string, inner: string) => {
+    const kept = /^\d/.test(inner)
+      ? inner.split(/\s*[,;]\s*/).filter(value => Number(value) >= 1 && Number(value) <= sourceCount)
+      : []
+    return kept.length > 0 ? `${space}[${kept.join(', ')}]` : ''
+  })
+}

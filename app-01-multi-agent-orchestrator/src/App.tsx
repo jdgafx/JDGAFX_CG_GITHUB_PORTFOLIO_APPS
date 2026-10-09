@@ -166,10 +166,14 @@ export default function App() {
       const controller = new AbortController()
       abortRef.current = controller
 
+      let failure: string | null = null
       try {
         await startResearch(text, handleEvent, controller.signal)
       } catch (err) {
-        if (!isAbortError(err)) setPipelineError(runErrorMessage(err))
+        if (!isAbortError(err)) {
+          failure = runErrorMessage(err)
+          setPipelineError(failure)
+        }
       } finally {
         setIsRunning(false)
         if (timerRef.current) {
@@ -178,7 +182,7 @@ export default function App() {
         }
         setWasStopped(stoppedRef.current)
         setAgents(prev => settleAgents(prev, stoppedRef.current))
-        setAnnouncement(stoppedRef.current ? 'Research stopped.' : 'Research finished.')
+        setAnnouncement(stoppedRef.current ? 'Research stopped.' : failure ? `Research failed. ${failure}` : 'Research finished.')
       }
     },
     [isRunning, handleEvent],

@@ -19,19 +19,19 @@ describe('stage definitions', () => {
   it('builds each stage message from the query and the earlier outputs', () => {
     const [researcher, analyst, critic, synthesizer] = AGENTS
     expect(researcher?.buildUserMessage('Q', {})).toBe(
-      'Research: Q\n\nSources: none were retrieved.\n\n3-5 bullet points only, each cited like [1]. Be extremely concise.',
+      'Research: Q\n\nSources: none were retrieved.\n\n3-5 bullet points only, with no citation markers. Be extremely concise.',
     )
     const sources: Source[] = [{ n: 1, title: 'T', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/T', snippet: 'Fact.' }]
     expect(researcher?.buildUserMessage('Q', { sources })).toBe(
       'Research: Q\n\nSources:\n[1] Wikipedia: T\nFact.\n\n3-5 bullet points only, each cited like [1]. Be extremely concise.',
     )
-    expect(analyst?.buildUserMessage('Q', { researcher: 'Facts' })).toBe(
+    expect(analyst?.buildUserMessage('Q', { researcher: 'Facts', sources })).toBe(
       'Analyze:\nFacts\n\n2-3 key patterns only. Extremely concise.',
     )
-    expect(critic?.buildUserMessage('Q', {})).toBe(
+    expect(critic?.buildUserMessage('Q', { sources })).toBe(
       'Review:\n(no output from the previous agent)\n\n2-3 gaps only. Very brief.',
     )
-    expect(synthesizer?.buildUserMessage('Q', { researcher: 'R', analyst: 'A', critic: 'C' })).toBe(
+    expect(synthesizer?.buildUserMessage('Q', { researcher: 'R', analyst: 'A', critic: 'C', sources })).toBe(
       'Final report on "Q".\n\nResearch:\nR\n\nAnalysis:\nA\n\nGaps:\nC',
     )
   })
@@ -52,10 +52,29 @@ describe('stage definitions', () => {
   })
 
   it('keeps the citations through the later stages and leaves the Sources list to the app', () => {
-    expect(AGENTS[1]?.systemPrompt).toContain('Keep the [n] citation on every fact you use.')
+    expect(AGENTS[1]?.systemPrompt).toContain('Keep the [n] citation on every fact you use')
     expect(AGENTS[2]?.systemPrompt).toContain('no [n] citation')
     expect(AGENTS[3]?.systemPrompt).toContain('Keep the [n] citations from the research')
     expect(AGENTS[3]?.systemPrompt).toContain('Do not write a Sources list: the app adds it.')
+  })
+
+  it('tells the Analyst, Critic and Synthesizer when there is nothing to cite, and says nothing when there is', () => {
+    const [, analyst, critic, synthesizer] = AGENTS
+    const note = 'No sources were retrieved, so write no [n] or [number] citation markers at all.'
+    const sources: Source[] = [{ n: 1, title: 'T', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/T', snippet: 'Fact.' }]
+    for (const agent of [analyst, critic, synthesizer]) {
+      expect(agent?.buildUserMessage('Q', {})).toContain(note)
+      expect(agent?.buildUserMessage('Q', { sources: [] })).toContain(note)
+      expect(agent?.buildUserMessage('Q', { sources })).not.toContain(note)
+    }
+    expect(analyst?.systemPrompt).toContain('never write a literal [n]')
+    expect(critic?.systemPrompt).toContain('Never write a literal [n]')
+  })
+
+  it('gives the Synthesizer no licence to cite the critique as if it were a source', () => {
+    expect(AGENTS[3]?.systemPrompt).toContain(
+      'A claim that comes from the analysis or the critique rather than from a cited research fact gets no citation.',
+    )
   })
 
   it('gives the research 1,500 characters of room in the Analyst and Synthesizer messages', () => {
