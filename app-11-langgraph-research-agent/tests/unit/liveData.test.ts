@@ -33,6 +33,23 @@ describe('the live-data indicator', () => {
   })
 })
 
+describe('a re-run whose own reads fail', () => {
+  const tools = (view: ReturnType<typeof startRun>) =>
+    applyFrame(view, { type: 'node_end', node: 'tools', visit: 1, ms: 300, status: 'ok', detail: 'No new source. Wikipedia did not answer in time.' })
+
+  it('keeps the original time while it runs, then reads failed once it ended', () => {
+    const running = tools(startRun())
+    expect(liveData(running, 123)).toEqual({ state: 'live', at: 123 })
+    expect(liveData(failRun(running, 'x'), 123)).toEqual({ state: 'failed', at: null })
+  })
+
+  it('a base run that read a page and then failed keeps its fetched time', () => {
+    let view = applyFrame(startRun(), { type: 'node_end', node: 'tools', visit: 1, ms: 300, status: 'ok', detail: "New sources: [1] Expo '98." })
+    view = failRun(view, 'model error')
+    expect(liveData(view).state).toBe('live')
+  })
+})
+
 describe('nothing canned is bundled', () => {
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {

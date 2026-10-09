@@ -224,9 +224,11 @@ export type LiveState = 'idle' | 'live' | 'failed'
  * time, used while a re-run shows pages that were read earlier and fetches none of its own.
  */
 export function liveData(view: RunView, earlier: number | null = null): { state: LiveState; at: number | null } {
-  const at = view.liveAt ?? earlier
-  if (at !== null) return { state: 'live', at }
-  const toolsRan = view.trace.some((entry) => entry.node === 'tools' && !entry.reused && entry.status !== 'running')
+  if (view.liveAt !== null) return { state: 'live', at: view.liveAt }
   const ended = view.phase === 'done' || view.phase === 'failed' || view.phase === 'stopped'
-  return { state: toolsRan && ended ? 'failed' : 'idle', at: null }
+  const toolsRan = view.trace.some((entry) => entry.node === 'tools' && !entry.reused && entry.status !== 'running')
+  // A re-run that fetched for itself and got no page is a failed fetch, whatever the original run read.
+  if (ended && toolsRan) return { state: 'failed', at: null }
+  if (earlier !== null) return { state: 'live', at: earlier }
+  return { state: 'idle', at: null }
 }
