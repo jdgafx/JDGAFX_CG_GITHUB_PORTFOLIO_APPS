@@ -3,31 +3,20 @@ import handler from '../../netlify/functions/execute'
 import { ExecutionError } from '../../netlify/shared/browser'
 import type { BotStep } from '../../src/types'
 
-// The browser module, the Browserbase SDK and Playwright are all mocked. No session can open.
+// The browser module, @sparticuz/chromium and Playwright are all mocked. No browser can start.
 const mocks = vi.hoisted(() => ({
-  BrowserbaseCtor: vi.fn(),
-  sessionsCreate: vi.fn(),
-  sessionsUpdate: vi.fn(),
-  connectOverCDP: vi.fn(),
+  executablePath: vi.fn(),
+  launch: vi.fn(),
   browserClose: vi.fn(),
+  contextRoute: vi.fn(),
   runStep: vi.fn(),
   pageSnapshot: vi.fn(),
 }))
 
-vi.mock('@browserbasehq/sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@browserbasehq/sdk')>()
-  class FakeBrowserbase {
-    readonly sessions = { create: mocks.sessionsCreate, update: mocks.sessionsUpdate }
-
-    constructor(options: unknown) {
-      mocks.BrowserbaseCtor(options)
-    }
-  }
-  return { ...actual, default: FakeBrowserbase }
-})
+vi.mock('@sparticuz/chromium', () => ({ default: { args: ['--test-arg'], executablePath: mocks.executablePath } }))
 
 vi.mock('playwright-core', () => ({
-  chromium: { connectOverCDP: mocks.connectOverCDP },
+  chromium: { launch: mocks.launch },
 }))
 
 vi.mock('../../netlify/shared/browser', async (importOriginal) => {
@@ -36,26 +25,34 @@ vi.mock('../../netlify/shared/browser', async (importOriginal) => {
 })
 
 const ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
-const PLACEHOLDER = 'test-only-placeholder'
 const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com'
-const SESSION = 'sess_test_1'
-const SESSION_CAP = 120
+const VERSION = '153.0.8010.0'
 const NAVIGATE = { action: 'navigate', target: 'Google home page', thought: 'Open the Google home page.', url: 'https://www.google.com/' }
 const EXTRACT = { action: 'extract', target: 'page title', thought: 'Read the title the browser sees.', value: 'The page title' }
 const SEARCH = { action: 'verify', target: 'results', thought: 'Check the results.', value: 'Results' }
 const CLICK: BotStep = { action: 'click', target: 'Search button', thought: 'Submit the search.' }
 const OBSERVED = { url: 'https://www.google.com/', title: 'Google', excerpt: 'Google Search' }
-const CURATED_UNAVAILABLE = 'The browser run failed before it finished. Try again in a moment.'
 const BLOCKED = 'The run stopped. The page moved to example.com, which is outside the allowed sites.'
-const RELEASE_ROW = 'Release browser session'
-const RELEASED = 'Browser session released.'
-const RELEASE_FAILED = 'The browser session could not be released. It may run until Browserbase ends it on its own timeout.'
+const RELEASE_ROW = 'Close browser'
+const RELEASED = 'Browser closed.'
+const RELEASE_FAILED = 'The browser did not close in time. It ends when this function does.'
 
 const fetchMock = vi.fn<typeof fetch>()
-const originals = { key: process.env.BROWSERBASE_API_KEY, project: process.env.BROWSERBASE_PROJECT_ID }
+/** The fake CDP session behind every page: it answers layout metrics and screenshots. */
+const cdp = { send: vi.fn(), detach: vi.fn() }
 /** The address the fake browser's only page shows. A test moves it to stand in for a click or a redirect. */
 const pageState = { url: 'https://www.google.com/' }
 let nextClient = 1
+
+const JPEG = Buffer.alloc(28_042, 7)
+
+/** Every screenshot is a 28,042-byte JPEG, from a live Hacker News run. `changing` makes each one different, like a page that changes after each step. */
+function withPictures(changing: boolean): void {
+  let shots = 0
+  cdp.send.mockImplementation(async (method: string) => (method === 'Page.getLayoutMetrics'
+    ? { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
+    : { data: (changing ? Buffer.alloc(28_042, ++shots) : JPEG).toString('base64') }))
+}
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
@@ -65,28 +62,22 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   // The handler logs failures on purpose. The logs are silenced here and checked where it matters.
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
-  vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
-  process.env.BROWSERBASE_API_KEY = PLACEHOLDER
-  process.env.BROWSERBASE_PROJECT_ID = PLACEHOLDER
+  vi.stubEnv('ALLOWED_DOMAINS', '')
 
   pageState.url = 'https://www.google.com/'
-  const page = { url: () => pageState.url }
-  mocks.sessionsCreate.mockResolvedValue({ id: SESSION, connectUrl: 'wss://connect.example/session' })
-  mocks.sessionsUpdate.mockResolvedValue({})
+  const context = { route: mocks.contextRoute, newPage: async () => page }
+  const page = { url: () => pageState.url, context: () => ({ newCDPSession: async () => cdp }) }
+  mocks.executablePath.mockResolvedValue('/tmp/chromium')
+  mocks.launch.mockResolvedValue({ version: () => VERSION, newContext: async () => context, close: mocks.browserClose })
   mocks.browserClose.mockResolvedValue(undefined)
-  mocks.connectOverCDP.mockResolvedValue({
-    contexts: () => [{ pages: () => [page], newPage: vi.fn() }],
-    close: mocks.browserClose,
-  })
+  mocks.contextRoute.mockResolvedValue(undefined)
+  cdp.detach.mockResolvedValue(undefined)
+  withPictures(true)
   mocks.runStep.mockResolvedValue('Opened www.google.com.')
   mocks.pageSnapshot.mockResolvedValue(OBSERVED)
 })
 
 afterEach(() => {
-  if (originals.key === undefined) delete process.env.BROWSERBASE_API_KEY
-  else process.env.BROWSERBASE_API_KEY = originals.key
-  if (originals.project === undefined) delete process.env.BROWSERBASE_PROJECT_ID
-  else process.env.BROWSERBASE_PROJECT_ID = originals.project
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -134,17 +125,15 @@ function releaseOf(frames: Frame[]): Frame | undefined {
   return frames.find((frame) => frame.type === 'stage' && frame.name === RELEASE_ROW)
 }
 
-/** Asserts that no browser module, SDK client, session or provider call was made. */
+/** Asserts that no browser was started and no provider was called. */
 function expectNoSession(): void {
-  expect(mocks.BrowserbaseCtor).not.toHaveBeenCalled()
-  expect(mocks.sessionsCreate).not.toHaveBeenCalled()
-  expect(mocks.connectOverCDP).not.toHaveBeenCalled()
+  expect(mocks.launch).not.toHaveBeenCalled()
   expect(mocks.runStep).not.toHaveBeenCalled()
   expect(mocks.pageSnapshot).not.toHaveBeenCalled()
   expect(fetchMock).not.toHaveBeenCalled()
 }
 
-describe('execute function: refusals before any session opens', () => {
+describe('execute function: refusals before any browser starts', () => {
   it('answers 405 with a JSON message to a GET', async () => {
     const response = await handler(runRequest(undefined, { method: 'GET' }))
     expect(response.status).toBe(405)
@@ -157,20 +146,6 @@ describe('execute function: refusals before any session opens', () => {
     expect(response.status).toBe(403)
     expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
     expect(await errorOf(response)).toBe('This page is not allowed to start browser runs.')
-    expectNoSession()
-  })
-
-  it('answers 503 with the configuration copy when the Browserbase key or project is blank', async () => {
-    process.env.BROWSERBASE_API_KEY = ''
-    const noKey = await handler(runRequest({ steps: [EXTRACT] }))
-    expect(noKey.status).toBe(503)
-    expect(await errorOf(noKey)).toBe('The external browser service is not configured yet. Please try again later.')
-
-    process.env.BROWSERBASE_API_KEY = PLACEHOLDER
-    process.env.BROWSERBASE_PROJECT_ID = ''
-    const noProject = await handler(runRequest({ steps: [EXTRACT] }))
-    expect(noProject.status).toBe(503)
-    expect(await errorOf(noProject)).toBe('The external browser service is not configured yet. Please try again later.')
     expectNoSession()
   })
 
@@ -201,7 +176,7 @@ describe('execute function: refusals before any session opens', () => {
     expectNoSession()
   })
 
-  it('refuses a plan that opens a site outside the allowlist before any session opens', async () => {
+  it('refuses a plan that opens a site outside the allowlist before any browser starts', async () => {
     const response = await handler(runRequest({
       steps: [{ action: 'navigate', target: 'Example', thought: 'Open it.', url: 'https://example.com/' }],
     }))
@@ -232,7 +207,7 @@ describe('execute function: refusals before any session opens', () => {
 })
 
 describe('execute function: a run', () => {
-  it('streams session, stage, step and result frames in order, then releases the session before done', async () => {
+  it('streams browser, stage, step and result frames in order, then closes the browser before done', async () => {
     mocks.runStep
       .mockResolvedValueOnce('Opened www.google.com.')
       .mockResolvedValueOnce('Observed the page for page title.')
@@ -243,27 +218,34 @@ describe('execute function: a run', () => {
 
     const frames = await framesOf(response)
     expect(frames.map((frame) => frame.type)).toEqual([
-      'session', 'stage', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'result', 'stage', 'done',
+      'browser', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'result', 'stage', 'done',
     ])
-    expect(frames[0]).toEqual({ type: 'session', sessionId: SESSION })
-    expect(frames[1]).toMatchObject({ type: 'stage', name: 'Open browser session', status: 'ok', detail: 'Browser session started.' })
-    expect(frames[2]).toMatchObject({ type: 'stage', name: 'Connect browser', status: 'ok', detail: 'Connected to the browser.' })
-    expect(frames[3]).toEqual({ type: 'step_start', index: 0, name: 'Navigate: Google home page' })
-    expect(frames[4]).toMatchObject({ type: 'step_complete', index: 0, status: 'ok', detail: 'Opened www.google.com.', observed: OBSERVED })
-    expect(frames[5]).toEqual({ type: 'step_start', index: 1, name: 'Extract: page title' })
-    expect(frames[6]).toMatchObject({ type: 'step_complete', index: 1, status: 'ok', detail: 'Observed the page for page title.' })
-    expect(frames[7]).toMatchObject({ type: 'result', observed: OBSERVED })
-    expect(frames[8]).toMatchObject({ type: 'stage', name: RELEASE_ROW, status: 'ok', detail: RELEASED })
-    expect(frames[9]).toMatchObject({ type: 'done' })
+    expect(frames[0]).toEqual({ type: 'browser', version: VERSION })
+    expect(frames[1]).toMatchObject({ type: 'stage', name: 'Launch browser', status: 'ok', detail: `Headless Chromium ${VERSION} started in this function.` })
+    expect(frames[2]).toEqual({ type: 'step_start', index: 0, name: 'Navigate: Google home page' })
+    expect(frames[3]).toMatchObject({ type: 'step_complete', index: 0, status: 'ok', detail: 'Opened www.google.com.', observed: OBSERVED })
+    expect(frames[4]).toEqual({ type: 'step_start', index: 1, name: 'Extract: page title' })
+    expect(frames[5]).toMatchObject({ type: 'step_complete', index: 1, status: 'ok', detail: 'Observed the page for page title.' })
+    expect(frames[6]).toMatchObject({ type: 'result', observed: OBSERVED })
+    expect(frames[7]).toMatchObject({ type: 'stage', name: RELEASE_ROW, status: 'ok', detail: RELEASED })
+    expect(frames[8]).toMatchObject({ type: 'done' })
 
-    expect(mocks.BrowserbaseCtor).toHaveBeenCalledWith(expect.objectContaining({ apiKey: PLACEHOLDER, maxRetries: 0 }))
-    expect(mocks.sessionsCreate).toHaveBeenCalledWith({ projectId: PLACEHOLDER, api_timeout: SESSION_CAP })
+    expect(mocks.launch).toHaveBeenCalledWith({ executablePath: '/tmp/chromium', args: ['--test-arg'], headless: true })
     expect(mocks.runStep.mock.calls[0][1]).toEqual(NAVIGATE)
     expect(mocks.pageSnapshot).toHaveBeenCalledTimes(3)
     expect(mocks.browserClose).toHaveBeenCalledTimes(1)
-    expect(mocks.sessionsUpdate).toHaveBeenCalledTimes(1)
-    expect(mocks.sessionsUpdate).toHaveBeenCalledWith(SESSION, { status: 'REQUEST_RELEASE', projectId: PLACEHOLDER })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('says when Chromium had to be unpacked, which is the cold-start cost', async () => {
+    let now = 1_700_000_000_000
+    mocks.executablePath.mockImplementation(async () => {
+      now += 2_700
+      return '/tmp/chromium'
+    })
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
+    expect(frames.find((frame) => frame.name === 'Launch browser')?.detail).toMatch(/Unpacked in [\d,]+ ms\.$/)
   })
 
   it('reads the planned region on an extract step and on the final page, and says when nothing matched', async () => {
@@ -277,62 +259,48 @@ describe('execute function: a run', () => {
 
     const frames = await framesOf(await handler(runRequest({ steps: [HN, TITLES] })))
 
-    expect(frames[6]).toMatchObject({
+    expect(frames[5]).toMatchObject({
       type: 'step_complete', index: 1, status: 'ok', observed: region,
       detail: 'Observed the page for story titles. Read the text of .titleline > a.',
     })
-    expect(frames[7]).toMatchObject({ type: 'result', observed: region })
+    expect(frames[6]).toMatchObject({ type: 'result', observed: region })
     expect(mocks.pageSnapshot.mock.calls.map((call) => call[1])).toEqual([undefined, '.titleline > a', '.titleline > a'])
 
     mocks.runStep.mockResolvedValueOnce('Opened news.ycombinator.com.').mockResolvedValueOnce('Observed the page for story titles.')
     mocks.pageSnapshot.mockReset().mockResolvedValue(whole)
     const missed = await framesOf(await handler(runRequest({ steps: [HN, TITLES] })))
-    expect(missed[6]).toMatchObject({
+    expect(missed[5]).toMatchObject({
       status: 'ok', observed: whole,
       detail: 'Observed the page for story titles. Nothing matched .titleline > a, so the page text is shown.',
     })
   })
 
-  it('marks the failing step, skips the rest with the curated message, then releases the session', async () => {
+  it('marks the failing step, skips the rest with the curated message, then closes the browser', async () => {
     mocks.runStep
       .mockResolvedValueOnce('Opened www.google.com.')
       .mockRejectedValueOnce(new ExecutionError('The target was not found: page title.'))
     const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT, SEARCH] })))
 
     expect(frames.map((frame) => frame.type)).toEqual([
-      'session', 'stage', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'step_complete', 'stage', 'error',
+      'browser', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'step_complete', 'stage', 'error',
     ])
-    expect(frames[6]).toMatchObject({ type: 'step_complete', index: 1, status: 'failed', detail: 'The target was not found: page title.' })
-    expect(frames[7]).toMatchObject({ type: 'step_complete', index: 2, status: 'skipped', detail: 'Not run: an earlier stage failed.' })
+    expect(frames[5]).toMatchObject({ type: 'step_complete', index: 1, status: 'failed', detail: 'The target was not found: page title.' })
+    expect(frames[6]).toMatchObject({ type: 'step_complete', index: 2, status: 'skipped', detail: 'Not run: an earlier stage failed.' })
     expect(releaseOf(frames)).toMatchObject({ status: 'ok', detail: RELEASED })
-    expect(frames[9]).toEqual({ type: 'error', message: 'The target was not found: page title.', index: 1 })
+    expect(frames[8]).toEqual({ type: 'error', message: 'The target was not found: page title.', index: 1 })
     expect(mocks.browserClose).toHaveBeenCalledTimes(1)
-    expect(mocks.sessionsUpdate).toHaveBeenCalledWith(SESSION, { status: 'REQUEST_RELEASE', projectId: PLACEHOLDER })
   })
 
-  it('releases the session when the browser cannot be reached, and keeps the provider text out of the stream', async () => {
-    mocks.connectOverCDP.mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.9.8.7:9222'))
+  it('reports a browser that cannot start in plain words, with no close row, and keeps internal text out of the stream', async () => {
+    mocks.launch.mockRejectedValueOnce(new Error('spawn /tmp/chromium ENOENT libnss3.so'))
     const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
 
-    expect(frames.map((frame) => frame.type)).toEqual(['session', 'stage', 'stage', 'step_complete', 'step_complete', 'stage', 'error'])
-    expect(frames[2]).toMatchObject({ name: 'Connect browser', status: 'failed', detail: CURATED_UNAVAILABLE })
-    expect(frames[3]).toMatchObject({ type: 'step_complete', index: 0, status: 'skipped' })
-    expect(releaseOf(frames)).toMatchObject({ status: 'ok', detail: RELEASED })
-    expect(frames[6]).toEqual({ type: 'error', message: CURATED_UNAVAILABLE, index: null })
-    expect(JSON.stringify(frames)).not.toContain('ECONNREFUSED')
-    expect(console.error).toHaveBeenCalledWith('Browser run failed:', 'Error')
-    expect(mocks.browserClose).not.toHaveBeenCalled()
-    expect(mocks.sessionsUpdate).toHaveBeenCalledWith(SESSION, { status: 'REQUEST_RELEASE', projectId: PLACEHOLDER })
-  })
-
-  it('does not release a session that was never created', async () => {
-    mocks.sessionsCreate.mockRejectedValueOnce(new Error('network'))
-    const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
-
-    expect(frames.map((frame) => frame.type)).toEqual(['stage', 'step_complete', 'error'])
-    expect(frames[0]).toMatchObject({ name: 'Open browser session', status: 'failed', detail: CURATED_UNAVAILABLE })
-    expect(mocks.connectOverCDP).not.toHaveBeenCalled()
-    expect(mocks.sessionsUpdate).not.toHaveBeenCalled()
+    expect(frames.map((frame) => frame.type)).toEqual(['stage', 'step_complete', 'step_complete', 'error'])
+    expect(frames[0]).toMatchObject({ name: 'Launch browser', status: 'failed', detail: 'The browser could not start. Try again in a moment.' })
+    expect(frames[1]).toMatchObject({ type: 'step_complete', index: 0, status: 'skipped' })
+    expect(frames[3]).toEqual({ type: 'error', message: 'The browser could not start. Try again in a moment.', index: null })
+    expect(JSON.stringify(frames)).not.toContain('libnss3')
+    expect(releaseOf(frames)).toBeUndefined()
   })
 
   it('stops the run when a click lands on a host outside the allowlist, and reads nothing from that page', async () => {
@@ -344,16 +312,15 @@ describe('execute function: a run', () => {
     const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, CLICK, EXTRACT] })))
 
     expect(frames.map((frame) => frame.type)).toEqual([
-      'session', 'stage', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'step_complete', 'stage', 'error',
+      'browser', 'stage', 'step_start', 'step_complete', 'step_start', 'step_complete', 'step_complete', 'stage', 'error',
     ])
-    expect(frames[6]).toMatchObject({ type: 'step_complete', index: 1, name: 'Click: Search button', status: 'failed', detail: BLOCKED })
-    expect(frames[6]).not.toHaveProperty('observed')
-    expect(frames[7]).toMatchObject({ type: 'step_complete', index: 2, status: 'skipped' })
-    expect(frames[9]).toEqual({ type: 'error', message: BLOCKED, index: 1 })
+    expect(frames[5]).toMatchObject({ type: 'step_complete', index: 1, name: 'Click: Search button', status: 'failed', detail: BLOCKED })
+    expect(frames[5]).not.toHaveProperty('observed')
+    expect(frames[6]).toMatchObject({ type: 'step_complete', index: 2, status: 'skipped' })
+    expect(frames[8]).toEqual({ type: 'error', message: BLOCKED, index: 1 })
     expect(mocks.runStep).toHaveBeenCalledTimes(2)
     expect(mocks.pageSnapshot).toHaveBeenCalledTimes(1)
     expect(mocks.browserClose).toHaveBeenCalledTimes(1)
-    expect(mocks.sessionsUpdate).toHaveBeenCalledWith(SESSION, { status: 'REQUEST_RELEASE', projectId: PLACEHOLDER })
   })
 
   it('stops the run when a navigate step is redirected off the allowlist, before the page is read', async () => {
@@ -365,74 +332,58 @@ describe('execute function: a run', () => {
 
     expect(mocks.runStep).toHaveBeenCalledTimes(1)
     expect(mocks.pageSnapshot).not.toHaveBeenCalled()
-    expect(frames[4]).toMatchObject({ type: 'step_complete', index: 0, status: 'failed', detail: BLOCKED })
+    expect(frames[3]).toMatchObject({ type: 'step_complete', index: 0, status: 'failed', detail: BLOCKED })
     expect(frames.at(-1)).toEqual({ type: 'error', message: BLOCKED, index: 0 })
   })
 
-  it('retries a failed release once, and reports the release as ok when the retry works', async () => {
-    mocks.sessionsUpdate.mockRejectedValueOnce(new Error('transient')).mockResolvedValueOnce({})
-    const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
-
-    expect(mocks.sessionsUpdate).toHaveBeenCalledTimes(2)
-    expect(releaseOf(frames)).toMatchObject({ status: 'ok', detail: RELEASED })
-    expect(frames.at(-1)).toMatchObject({ type: 'done' })
+  it('refuses a navigation to another site before any request leaves the browser, and says which site', async () => {
+    let route: (r: unknown) => unknown = () => undefined
+    mocks.contextRoute.mockImplementation(async (_pattern: string, handlerFn: (r: unknown) => unknown) => { route = handlerFn })
+    mocks.runStep.mockImplementation(async () => {
+      const abort = vi.fn()
+      const cont = vi.fn()
+      const request = (url: string, navigation: boolean) => ({ request: () => ({ url: () => url, isNavigationRequest: () => navigation }), abort, continue: cont })
+      route(request('https://example.com/landing', true))
+      route(request('https://upload.wikimedia.org/logo.png', false))
+      expect(abort).toHaveBeenCalledWith('blockedbyclient')
+      expect(cont).toHaveBeenCalledTimes(1)
+      throw new ExecutionError('The page could not be loaded.')
+    })
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
+    expect(frames[3]).toMatchObject({ status: 'failed', detail: BLOCKED })
   })
 
-  it('reports a release that fails twice, keeps the session id out of the stream, and logs it on the server', async () => {
-    mocks.sessionsUpdate.mockRejectedValue(new Error('refused'))
+  it('reports a browser that does not close in time, and still finishes the run', async () => {
+    mocks.browserClose.mockRejectedValue(new Error('refused'))
     const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
 
-    expect(mocks.sessionsUpdate).toHaveBeenCalledTimes(2)
     expect(releaseOf(frames)).toMatchObject({ status: 'failed', detail: RELEASE_FAILED })
-    expect(JSON.stringify(releaseOf(frames))).not.toContain(SESSION)
-    expect(console.error).toHaveBeenCalledWith(`Browserbase session ${SESSION} could not be released`)
     expect(frames.at(-1)).toMatchObject({ type: 'done' })
   })
 
-  it('closes a browser that connects after the time limit, as soon as it arrives', async () => {
+  it('closes a browser that starts after the time limit, as soon as it arrives', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    let finishConnect: (browser: unknown) => void = () => undefined
-    mocks.connectOverCDP.mockReturnValueOnce(new Promise((resolve) => { finishConnect = resolve }))
+    let finishLaunch: (browser: unknown) => void = () => undefined
+    mocks.launch.mockReturnValueOnce(new Promise((resolve) => { finishLaunch = resolve }))
 
     const response = await handler(runRequest({ steps: [EXTRACT] }))
     await settle()
-    vi.advanceTimersByTime(7_000)
+    vi.advanceTimersByTime(12_000)
     const frames = await framesOf(response)
-    expect(frames.find((frame) => frame.name === 'Connect browser')).toMatchObject({
+    expect(frames.find((frame) => frame.name === 'Launch browser')).toMatchObject({
       status: 'failed',
-      detail: 'The browser did not connect in time.',
+      detail: 'The browser did not start in time.',
     })
 
-    const late = { close: vi.fn(async () => undefined) }
-    finishConnect(late)
+    const late = { version: () => VERSION, close: vi.fn(async () => undefined) }
+    finishLaunch(late)
     await settle()
     expect(late.close).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('execute function: step pictures', () => {
-  // A JPEG size taken from a live Hacker News run: 28,042 bytes at 640 x 366.
-  const JPEG = Buffer.alloc(28_042, 7)
-  const send = vi.fn()
-  const detach = vi.fn()
-
-  /** `changing` gives every capture different bytes, like a page that changes after each step. */
-  function withCdpPage(changing = true): void {
-    let shots = 0
-    const page = {
-      url: () => pageState.url,
-      setViewportSize: vi.fn().mockResolvedValue(undefined),
-      context: () => ({ newCDPSession: async () => ({ send, detach }) }),
-    }
-    mocks.connectOverCDP.mockResolvedValue({ contexts: () => [{ pages: () => [page], newPage: vi.fn() }], close: mocks.browserClose })
-    send.mockImplementation(async (method: string) => (method === 'Page.getLayoutMetrics'
-      ? { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
-      : { data: (changing ? Buffer.alloc(28_042, ++shots) : JPEG).toString('base64') }))
-    detach.mockResolvedValue(undefined)
-  }
-
   it('sends one 640 px picture with each finished step, taken after the page was read', async () => {
-    withCdpPage()
     const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
     const done = frames.filter((frame) => frame.type === 'step_complete')
     expect(done).toHaveLength(2)
@@ -440,15 +391,15 @@ describe('execute function: step pictures', () => {
       expect(step.frame).toMatchObject({ width: 640, height: 366, bytes: 28_042 })
       expect(step).not.toHaveProperty('frameNote')
     }
-    const shot = send.mock.calls.find(([method]) => method === 'Page.captureScreenshot')?.[1] as { format: string; quality: number; clip: { scale: number; width: number } }
+    const shot = cdp.send.mock.calls.find(([method]) => method === 'Page.captureScreenshot')?.[1] as { format: string; quality: number; clip: { scale: number; width: number } }
     expect(shot.format).toBe('jpeg')
     expect(shot.clip.width).toBe(960)
     expect(shot.clip.scale).toBeCloseTo(640 / 960)
-    expect(detach).toHaveBeenCalledTimes(1)
+    expect(cdp.detach).toHaveBeenCalledTimes(1)
   })
 
   it('sends an unchanged page once and names the earlier step for the repeat', async () => {
-    withCdpPage(false)
+    withPictures(false)
     const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
     const done = frames.filter((frame) => frame.type === 'step_complete')
     expect(done[0].frame).toMatchObject({ bytes: 28_042 })
@@ -457,7 +408,6 @@ describe('execute function: step pictures', () => {
   })
 
   it('keeps the page picture on a failed step, with its observed text', async () => {
-    withCdpPage()
     mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
       if (step.action === 'click') throw new ExecutionError('The target was not found: Buy tickets.')
       return 'Opened www.google.com.'
@@ -468,7 +418,6 @@ describe('execute function: step pictures', () => {
   })
 
   it('gives a failed step on a disallowed host no picture at all', async () => {
-    withCdpPage()
     mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
       if (step.action === 'click') pageState.url = 'https://example.com/landing'
       return 'Done.'
@@ -477,12 +426,11 @@ describe('execute function: step pictures', () => {
     const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
     expect(failed).not.toHaveProperty('frame')
     expect(failed).not.toHaveProperty('frameNote')
-    expect(send.mock.calls.filter(([method]) => method === 'Page.captureScreenshot')).toHaveLength(1)
+    expect(cdp.send.mock.calls.filter(([method]) => method === 'Page.captureScreenshot')).toHaveLength(1)
   })
 
   it('says why a step has no picture when the capture fails, and the run still finishes', async () => {
-    withCdpPage()
-    send.mockRejectedValue(new Error('target closed'))
+    cdp.send.mockRejectedValue(new Error('target closed'))
     const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
     expect(frames.find((frame) => frame.type === 'step_complete')).toMatchObject({
       status: 'ok',

@@ -3,7 +3,7 @@ export const MAX_TASK_CHARS = 500
 /**
  * The default allowlist, shown on the page with a line on what each site is good for. The hosts
  * mirror the default in netlify/shared/domains.ts, and a test keeps the two equal. When
- * BROWSERBASE_ALLOWED_DOMAINS is set, the server enforces that list instead, and the page does not show it.
+ * ALLOWED_DOMAINS is set, the server enforces that list instead, and the page does not show it.
  */
 export const ALLOWED_SITE_NOTES = [
   { host: 'google.com', note: 'Search home page' },

@@ -20,12 +20,12 @@ describe('validateSteps', () => {
   it('keeps a valid plan and normalises its navigate address', () => {
     const steps = validateSteps([
       { action: 'navigate', target: 'Google home page', thought: 'Open the home page.', url: 'https://www.google.com/' },
-      { action: 'type', target: 'search input', thought: 'Type the query.', value: 'Browserbase' },
+      { action: 'type', target: 'search input', thought: 'Type the query.', value: 'Chromium' },
       { action: 'extract', target: 'page title', thought: 'Read the title.', value: 'The page title' },
     ], DEFAULTS)
     expect(steps).toEqual([
       { action: 'navigate', target: 'Google home page', thought: 'Open the home page.', url: 'https://www.google.com/' },
-      { action: 'type', target: 'search input', thought: 'Type the query.', value: 'Browserbase' },
+      { action: 'type', target: 'search input', thought: 'Type the query.', value: 'Chromium' },
       { action: 'extract', target: 'page title', thought: 'Read the title.', value: 'The page title' },
     ])
   })

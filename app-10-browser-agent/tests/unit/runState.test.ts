@@ -69,15 +69,15 @@ describe('running', () => {
     expect(done.observed).toEqual(observed)
   })
 
-  it('records the session id, stage rows and the final page', () => {
+  it('records the browser version, stage rows and the final page', () => {
     const session = run(running,
-      { type: 'event', event: { type: 'session', sessionId: 'sess_1' } },
-      { type: 'event', event: { type: 'stage', name: 'Connect browser', status: 'ok', ms: 30, detail: 'Connected to the browser.' } },
+      { type: 'event', event: { type: 'browser', version: '153.0.8010.0' } },
+      { type: 'event', event: { type: 'stage', name: 'Launch browser', status: 'ok', ms: 30, detail: 'Connected to the browser.' } },
       { type: 'event', event: { type: 'result', ms: 12, observed } },
     )
-    expect(session.sessionId).toBe('sess_1')
+    expect(session.browser).toBe('153.0.8010.0')
     expect(session.rows.map((row) => [row.index, row.name])).toEqual([
-      [null, 'Connect browser'],
+      [null, 'Launch browser'],
       [null, 'Read final page'],
     ])
     expect(session.rows[1].detail).toBe('Final page: Google.')
@@ -137,14 +137,14 @@ describe('running', () => {
     expect(stopped.rows[0]).toMatchObject({ status: 'skipped', detail: 'Stopped before this step finished.' })
   })
 
-  it('records that the session release is not reported after a stop', () => {
+  it('records that the browser close is not reported after a stop', () => {
     const stopped = run(running, { type: 'stopped' })
     expect(stopped.rows.at(-1)).toEqual({
       index: null,
-      name: 'Release browser session',
+      name: 'Close browser',
       status: 'skipped',
       ms: 0,
-      detail: 'Stop ends the stream. The server releases the session when its current step ends, or Browserbase ends it at the 120 s cap. The result is not reported to this page.',
+      detail: 'Stop ends the stream. The server closes the browser when its current step ends. The result is not reported to this page.',
     })  })
 
   it('returns to the empty state on reset', () => {

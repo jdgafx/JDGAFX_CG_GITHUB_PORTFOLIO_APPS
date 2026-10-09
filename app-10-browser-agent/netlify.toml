@@ -6,6 +6,12 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
+# Chromium ships as compressed files next to its package. They are not bundled, so the package stays external and its
+# files are included. Only the run function needs them: the planner function stays small.
+[functions.execute]
+  external_node_modules = ["@sparticuz/chromium"]
+  included_files = ["node_modules/@sparticuz/chromium/bin/**"]
+
 [[headers]]
   for = "/*"
   [headers.values]

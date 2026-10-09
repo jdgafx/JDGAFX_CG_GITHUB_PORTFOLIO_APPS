@@ -10,7 +10,7 @@ export const FRAME_MAX_BYTES = 70_000
 export const RUN_FRAME_MAX_BYTES = 450_000
 /** JPEG quality tried in turn until a frame fits. */
 export const QUALITIES = [60, 42, 28, 18]
-const CAPTURE_MS = 2_500
+const CAPTURE_MS = 4_000
 
 /** Why a step has no frame. Shown to the visitor, so it is plain copy. */
 export const NO_FRAME = {

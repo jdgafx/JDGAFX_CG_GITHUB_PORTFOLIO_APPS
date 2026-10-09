@@ -124,7 +124,7 @@ export default function ResultCard({ state, onPlan, onRunAgain, onEditTask }: Re
             </div>
           </div>
         ) : null}
-        <Replay items={items} phase={phase} runId={state.runId} sessionId={state.sessionId} />
+        <Replay items={items} phase={phase} runId={state.runId} browser={state.browser} />
         <p className="ds-lead__foot">
           {ended
             ? `${totals.count > 0 ? 'Each picture was captured just after the text was read, so the two can differ if the page changed in between. ' : ''}BrowseBot shows what the browser observed and does not judge whether it answers the task.`

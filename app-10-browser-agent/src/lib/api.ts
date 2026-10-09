@@ -3,13 +3,13 @@ import { cleanFrame } from './replay'
 import { isAction, usageOf } from './shared'
 
 const TRACE_STATUSES: TraceStatus[] = ['ok', 'failed', 'skipped']
-const EVENT_TYPES: RunEvent['type'][] = ['session', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
+const EVENT_TYPES: RunEvent['type'][] = ['browser', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
 const MAX_ERROR_CHARS = 300
 const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
 /** No byte from the run stream for this long means it has stalled. The server sends an event at least every few seconds. */
 export const IDLE_LIMIT_MS = 30_000
-/** The whole run stream. The server stops starting steps at 15 s and each close and release waits up to 7 s, so 60 s is a generous margin. */
-export const OVERALL_LIMIT_MS = 60_000
+/** The whole run stream. The server stops starting steps 30 s after the browser is ready and a streamed function ends at 60 s, so 70 s is a margin. */
+export const OVERALL_LIMIT_MS = 70_000
 /** Time allowed for a response to begin, for the planner and for the run. */
 export const START_LIMIT_MS = 30_000
 const STALLED_COPY = 'The browser run stopped sending updates. Run the plan again.'

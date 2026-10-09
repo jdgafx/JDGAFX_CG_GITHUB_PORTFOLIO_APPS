@@ -3,9 +3,9 @@ import type { BotStep, ObservedPage, PlanResponse, RunEvent, StepFrame, TraceEnt
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
 const ENDED_EARLY = 'The run ended before it reported a result.'
-const RELEASE_ROW = 'Release browser session'
+const RELEASE_ROW = 'Close browser'
 /** Stop ends the stream, so the server's release result never arrives. The row says what happens instead. */
-const RELEASE_AFTER_STOP = 'Stop ends the stream. The server releases the session when its current step ends, or Browserbase ends it at the 120 s cap. The result is not reported to this page.'
+const RELEASE_AFTER_STOP = 'Stop ends the stream. The server closes the browser when its current step ends. The result is not reported to this page.'
 
 /** One row of the browser run: a stage, or a planned step. `running` is a display state only. */
 interface RunRow {
@@ -33,7 +33,10 @@ export interface RunState {
   planMs: number | null
   rows: RunRow[]
   runMs: number | null
-  sessionId: string | null
+  /** The Chromium version the server reported, such as 153.0.8010.0. */
+  browser: string | null
+  /** Clock reading when the first real page was read, which lights the live-data indicator. Null until then. */
+  liveAt: number | null
   observed: ObservedPage | null
   error: { message: string; index: number | null } | null
 }
@@ -49,7 +52,8 @@ export const initialRunState: RunState = {
   planMs: null,
   rows: [],
   runMs: null,
-  sessionId: null,
+  browser: null,
+  liveAt: null,
   observed: null,
   error: null,
 }
@@ -59,7 +63,7 @@ export type RunAction =
   | { type: 'planned'; plan: PlanResponse }
   | { type: 'planFailed'; message: string; trace: TraceEntry[] }
   | { type: 'running'; replay: boolean; at?: number }
-  | { type: 'event'; event: RunEvent }
+  | { type: 'event'; event: RunEvent; at?: number }
   | { type: 'runFailed'; message: string }
   | { type: 'streamEnded' }
   | { type: 'stopped' }
@@ -91,10 +95,10 @@ function withFailedEntry(trace: TraceEntry[], message: string): TraceEntry[] {
   return [...trace, { name: 'Planner request', status: 'failed', ms: 0, detail: message }]
 }
 
-function applyEvent(state: RunState, event: RunEvent): RunState {
+function applyEvent(state: RunState, event: RunEvent, at: number | null): RunState {
   switch (event.type) {
-    case 'session':
-      return { ...state, sessionId: event.sessionId }
+    case 'browser':
+      return { ...state, browser: event.version }
     case 'stage':
       return {
         ...state,
@@ -120,6 +124,8 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
           frameSameAs: event.frameSameAs,
         }),
         observed: event.observed ?? state.observed,
+        // The first page the browser really read lights the live-data indicator.
+        liveAt: state.liveAt ?? (event.status === 'ok' && event.observed ? at : null),
       }
     case 'result':
       return {
@@ -177,12 +183,13 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         planMs: action.replay ? null : state.planMs,
         rows: [],
         runMs: null,
-        sessionId: null,
+        browser: null,
+        liveAt: null,
         observed: null,
         error: null,
       }
     case 'event':
-      return applyEvent(state, action.event)
+      return applyEvent(state, action.event, action.at ?? null)
     case 'runFailed':
       return {
         ...state,

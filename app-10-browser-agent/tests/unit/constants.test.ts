@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe('example tasks', () => {
   it('name only allowlisted sites, and each one names at least one', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
+    vi.stubEnv('ALLOWED_DOMAINS', '')
     const domains = allowedDomains()
     for (const preset of PRESETS) {
       const hosts = preset.toLowerCase().match(/[a-z0-9-]+(?:\.[a-z0-9-]+)+/g) ?? []
@@ -30,7 +30,7 @@ describe('example tasks', () => {
 
 describe('allowed sites shown on the page', () => {
   it('match the default allowlist the server enforces when no override is set', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
+    vi.stubEnv('ALLOWED_DOMAINS', '')
     expect(ALLOWED_SITES).toEqual(allowedDomains())
   })
 
@@ -40,7 +40,7 @@ describe('allowed sites shown on the page', () => {
   })
 
   it('refuse a lookalike of a newly allowed host', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
+    vi.stubEnv('ALLOWED_DOMAINS', '')
     const domains = allowedDomains()
     expect(isAllowedHost('news.ycombinator.com.evil.example', domains)).toBe(false)
     expect(isAllowedHost('notwikipedia.org', domains)).toBe(false)

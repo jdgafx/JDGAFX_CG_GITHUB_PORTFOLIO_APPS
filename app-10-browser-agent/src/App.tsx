@@ -38,7 +38,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={FOCUS_PHASE[state.phase] === 'running' ? 'running' : FOCUS_PHASE[state.phase]}>
-      <Header phase={state.phase} />
+      <Header state={state} />
 
       <main className="ds-main">
         <div className="ds-bench">

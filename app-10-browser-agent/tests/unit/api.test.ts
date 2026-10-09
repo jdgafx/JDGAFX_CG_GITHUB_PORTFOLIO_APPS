@@ -153,15 +153,15 @@ describe('planTask', () => {
 describe('streamRun', () => {
   it('parses events across chunk boundaries, skips comments, and delivers a final record with no blank line', async () => {
     fetchMock.mockResolvedValueOnce(sse([
-      'data: {"type":"session","sessionId":"sess_1"}\n\n: ping\n\ndata: {"type":"stage",',
-      '"name":"Open browser session","status":"ok","ms":12,"detail":"Browser session started."}\n\n',
+      'data: {"type":"browser","version":"153.0.1"}\n\n: ping\n\ndata: {"type":"stage",',
+      '"name":"Launch browser","status":"ok","ms":12,"detail":"Chromium started."}\n\n',
       'data: {"type":"done","totalMs":88}',
     ]))
     const events: RunEvent[] = []
     await streamRun(steps, (event) => events.push(event), signal())
     expect(events).toEqual([
-      { type: 'session', sessionId: 'sess_1' },
-      { type: 'stage', name: 'Open browser session', status: 'ok', ms: 12, detail: 'Browser session started.' },
+      { type: 'browser', version: '153.0.1' },
+      { type: 'stage', name: 'Launch browser', status: 'ok', ms: 12, detail: 'Chromium started.' },
       { type: 'done', totalMs: 88 },
     ])
   })
@@ -183,10 +183,10 @@ describe('streamRun', () => {
   })
 
   it('delivers the events before a malformed frame, then fails in plain words', async () => {
-    fetchMock.mockResolvedValueOnce(sse(['data: {"type":"session","sessionId":"sess_2"}\n\ndata: {not json}\n\n']))
+    fetchMock.mockResolvedValueOnce(sse(['data: {"type":"browser","version":"153.0.2"}\n\ndata: {not json}\n\n']))
     const events: RunEvent[] = []
     await expect(streamRun(steps, (event) => events.push(event), signal())).rejects.toMatchObject({ message: UNREADABLE })
-    expect(events).toEqual([{ type: 'session', sessionId: 'sess_2' }])
+    expect(events).toEqual([{ type: 'browser', version: '153.0.2' }])
   })
 
   it('rejects an event type the page does not know', async () => {
@@ -195,17 +195,17 @@ describe('streamRun', () => {
   })
 
   it('treats a record cut off by the end of the stream as an early end, not as unreadable', async () => {
-    fetchMock.mockResolvedValueOnce(sse(['data: {"type":"session","sessionId":"sess_3"}\n\ndata: {"type":"stage","na']))
+    fetchMock.mockResolvedValueOnce(sse(['data: {"type":"browser","version":"153.0.3"}\n\ndata: {"type":"stage","na']))
     const events: RunEvent[] = []
     await expect(streamRun(steps, (event) => events.push(event), signal())).resolves.toBeUndefined()
-    expect(events).toEqual([{ type: 'session', sessionId: 'sess_3' }])
+    expect(events).toEqual([{ type: 'browser', version: '153.0.3' }])
   })
 
   it('cancels the body when a listener throws, so the connection is not left open', async () => {
     let cancelled = false
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"type":"session","sessionId":"sess_4"}\n\n'))
+        controller.enqueue(new TextEncoder().encode('data: {"type":"browser","version":"153.0.4"}\n\n'))
       },
       cancel() {
         cancelled = true

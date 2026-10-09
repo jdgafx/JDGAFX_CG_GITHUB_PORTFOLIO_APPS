@@ -73,14 +73,15 @@ interface ReplayProps {
   items: ReplayItem[]
   phase: Phase
   runId: number
-  sessionId: string | null
+  /** The Chromium version that ran the steps. */
+  browser: string | null
 }
 
 /**
  * The visual replay: the chosen step as a browser window with its picture, beside what the browser read. A filmstrip
  * under both shows every step. Arrow keys move between steps, and play steps through a finished run.
  */
-export default function Replay({ items, phase, runId, sessionId }: ReplayProps) {
+export default function Replay({ items, phase, runId, browser }: ReplayProps) {
   const [chosen, setChosen] = useState<{ runId: number; index: number } | null>(null)
   const [playFor, setPlayFor] = useState<number | null>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
@@ -214,7 +215,7 @@ export default function Replay({ items, phase, runId, sessionId }: ReplayProps) 
       </div>
       <p className="ds-help">
         {totals.count === 0 ? 'No pictures yet.' : `${totals.count} ${totals.count === 1 ? 'picture' : 'pictures'}, ${formatBytes(totals.bytes)}.`}
-        {sessionId ? <> Session <span className="ds-mono" title={sessionId}>{sessionId.slice(0, 8)}</span></> : ''}
+        {browser ? <> Chromium <span className="ds-mono">{browser}</span></> : ''}
       </p>
     </div>
   )

@@ -8,8 +8,6 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     env: {
       OPENROUTER_API_KEY: '',
-      BROWSERBASE_API_KEY: '',
-      BROWSERBASE_PROJECT_ID: '',
     },
   },
 })

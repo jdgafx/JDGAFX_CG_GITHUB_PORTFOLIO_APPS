@@ -66,8 +66,8 @@ export function buildTraceRows(state: RunState): TraceRow[] {
         planned: step.thought,
       }]))
 
-  // The session release closes the run, so it stays last even when steps that never ran follow it.
-  const releaseLast = runRows[runRows.length - 1]?.name === 'Release browser session'
+  // The browser close ends the run, so it stays last even when steps that never ran follow it.
+  const releaseLast = runRows[runRows.length - 1]?.name === 'Close browser'
   return releaseLast
     ? [...planRows, ...runRows.slice(0, -1), ...pending, ...runRows.slice(-1)]
     : [...planRows, ...runRows, ...pending]
@@ -108,7 +108,7 @@ export function statusSummary(state: RunState): string {
       const live = state.rows.find((row) => row.status === 'running')
       return live && live.index !== null
         ? `Running step ${live.index + 1} of ${total}: ${live.name}.`
-        : 'Starting the browser session.'
+        : 'Starting the browser.'
     }
     case 'complete':
       return `All ${total} steps finished. Check the observed page against your task.`

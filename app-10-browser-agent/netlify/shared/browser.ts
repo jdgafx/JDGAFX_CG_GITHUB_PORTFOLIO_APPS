@@ -1,9 +1,10 @@
-import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from '@browserbasehq/sdk'
 import type { Locator, Page } from 'playwright-core'
 import type { BotStep, ObservedPage } from '../../src/types'
 
 /** Longest one browser action may take. A step that runs longer fails with a curated message. */
 const MAX_STEP_MS = 3_000
+/** Longest a page load may take. A page opened from a cold browser can need a few seconds. */
+const NAVIGATE_MS = 8_000
 const MAX_EXCERPT = 4_000
 /** A region read returns the text of this many matching elements at most, and takes at most REGION_MS. */
 const MAX_REGION_ITEMS = 10
@@ -22,10 +23,10 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
 }
 
 /** Acts on the page under the step time limit. Any failure becomes one curated message. */
-async function acting(action: Promise<unknown>, failure: string): Promise<void> {
+async function acting(action: Promise<unknown>, failure: string, limitMs = MAX_STEP_MS): Promise<void> {
   const slow = `${failure} It took too long.`
   try {
-    await withTimeout(action, MAX_STEP_MS, slow)
+    await withTimeout(action, limitMs, slow)
   } catch (error) {
     throw error instanceof ExecutionError && error.message === slow ? error : new ExecutionError(failure)
   }
@@ -104,7 +105,7 @@ function targetLocator(page: Page, target: string) {
 export async function runStep(page: Page, step: BotStep): Promise<string> {
   switch (step.action) {
     case 'navigate': {
-      await acting(page.goto(step.url ?? '', { waitUntil: 'domcontentloaded' }), 'The page could not be loaded.')
+      await acting(page.goto(step.url ?? '', { waitUntil: 'domcontentloaded' }), 'The page could not be loaded.', NAVIGATE_MS)
       const host = currentHost(page)
       if (host === null) throw new ExecutionError('The browser did not reach a web page.')
       return `Opened ${host}.`
@@ -142,20 +143,9 @@ export async function runStep(page: Page, step: BotStep): Promise<string> {
   }
 }
 
-/** The message the browser may see for a failure. Provider bodies, URLs and stack traces stay in the log. */
+/** The message the browser may see for a failure. Stack traces and internal text stay in the log. */
 export function browserMessage(error: unknown): string {
   if (error instanceof ExecutionError) return error.message
-  if (error instanceof APIUserAbortError || error instanceof APIConnectionTimeoutError) {
-    return 'The browser provider did not answer in time. Try again in a moment.'
-  }
-  if (error instanceof APIConnectionError) return 'Could not reach the browser provider. Try again in a moment.'
-  if (error instanceof APIError) {
-    if (error.status === 402) return 'The browser provider is out of credit, so no session was started.'
-    if (error.status === 429) return 'The browser provider is rate limiting sessions. Try again shortly.'
-    if (error.status !== undefined && error.status >= 500) return 'The browser provider failed. Try again in a moment.'
-    console.error(`Browserbase rejected a request with HTTP ${error.status ?? 'unknown'}`)
-    return 'The browser provider rejected the session request.'
-  }
   console.error('Browser run failed:', error instanceof Error ? error.name : 'unknown error')
   return 'The browser run failed before it finished. Try again in a moment.'
 }

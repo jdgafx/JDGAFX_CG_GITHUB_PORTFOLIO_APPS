@@ -10,11 +10,11 @@ function parseDomains(raw: string): string[] {
 }
 
 /**
- * Hostnames the browser may visit. BROWSERBASE_ALLOWED_DOMAINS replaces the default list when it
+ * Hostnames the browser may visit. ALLOWED_DOMAINS replaces the default list when it
  * names at least one host. A blank value keeps the default, so the list is never empty.
  */
 export function allowedDomains(): string[] {
-  const configured = parseDomains(process.env.BROWSERBASE_ALLOWED_DOMAINS ?? '')
+  const configured = parseDomains(process.env.ALLOWED_DOMAINS ?? '')
   return configured.length > 0 ? configured : [...DEFAULT_ALLOWED_DOMAINS]
 }
 

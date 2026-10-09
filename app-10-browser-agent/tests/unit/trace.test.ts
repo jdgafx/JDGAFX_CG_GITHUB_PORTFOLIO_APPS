@@ -136,7 +136,7 @@ describe('buildTraceRows', () => {
       steps: [navigate, click, extract],
       rows: [
         { index: 0, name: 'Navigate: Google home page', status: 'ok', ms: 900, detail: 'Opened www.google.com.' },
-        { index: null, name: 'Release browser session', status: 'skipped', ms: 0, detail: 'Released when the current step ends.' },
+        { index: null, name: 'Close browser', status: 'skipped', ms: 0, detail: 'Released when the current step ends.' },
       ],
     }))
     expect(afterRelease.map((row) => row.key)).toEqual(['run-0', 'pending-1', 'pending-2', 'run-1'])
@@ -155,7 +155,7 @@ describe('statusSummary', () => {
   it('describes each phase in one line', () => {
     expect(statusSummary(stateWith({ phase: 'idle' }))).toBe('No run yet.')
     expect(statusSummary(stateWith({ phase: 'planning' }))).toBe('Planning the steps.')
-    expect(statusSummary(stateWith({ phase: 'running', steps: [navigate], rows: [] }))).toBe('Starting the browser session.')
+    expect(statusSummary(stateWith({ phase: 'running', steps: [navigate], rows: [] }))).toBe('Starting the browser.')
     expect(statusSummary(stateWith({ phase: 'complete', steps }))).toBe('All 3 steps finished. Check the observed page against your task.')
   })
 

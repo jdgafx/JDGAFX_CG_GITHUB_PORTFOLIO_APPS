@@ -9,17 +9,17 @@ afterEach(() => {
 
 describe('allowedDomains', () => {
   it('returns the default list when the override is blank', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
+    vi.stubEnv('ALLOWED_DOMAINS', '')
     expect(allowedDomains()).toEqual(DEFAULTS)
   })
 
   it('reads the override, trimmed and lowercased, without empty entries', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', ' Example.com , ,docs.Example.org ')
+    vi.stubEnv('ALLOWED_DOMAINS', ' Example.com , ,docs.Example.org ')
     expect(allowedDomains()).toEqual(['example.com', 'docs.example.org'])
   })
 
   it('keeps the default list when the override names no host', () => {
-    vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', ' , ')
+    vi.stubEnv('ALLOWED_DOMAINS', ' , ')
     expect(allowedDomains()).toEqual(DEFAULTS)
   })
 })

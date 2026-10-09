@@ -1,4 +1,7 @@
-import type { Phase } from '../lib/runState'
+import { liveDataOf } from '../lib/liveData'
+import type { RunState } from '../lib/runState'
+
+type Phase = RunState['phase']
 
 const BADGE: Record<Phase, { label: string; tone: string; dot: string }> = {
   idle: { label: 'Idle', tone: '', dot: 'ds-dot' },
@@ -9,8 +12,9 @@ const BADGE: Record<Phase, { label: string; tone: string; dot: string }> = {
   stopped: { label: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot ds-dot--skipped' },
 }
 
-export default function Header({ phase }: { phase: Phase }) {
-  const badge = BADGE[phase]
+export default function Header({ state }: { state: RunState }) {
+  const badge = BADGE[state.phase]
+  const live = liveDataOf(state)
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -24,11 +28,15 @@ export default function Header({ phase }: { phase: Phase }) {
             </span>
           </div>
           <p className="ds-subtitle">
-            A model plans browser steps. A cloud browser runs them on allowed sites, and you replay each step as a picture of the real page.
+            A model plans browser steps. A headless Chromium runs them on allowed sites, and you replay each step as a picture of the real page.
+          </p>
+          <p className="live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className="ds-dot" aria-hidden="true" />
+            {live.text}
           </p>
         </div>
         <p className="ds-showcase">
-          <strong>What this showcases:</strong> a planner that acts on the live web inside a bounded, allowlisted browser session.
+          <strong>What this showcases:</strong> a planner that acts on the live web inside a bounded, allowlisted browser.
           After every step the server captures the page, so the replay shows what the browser saw, beside the text it read, and a failed step shows the page it failed on.
         </p>
       </div>

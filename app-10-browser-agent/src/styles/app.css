@@ -1,6 +1,50 @@
 /* BrowseBot only. Tokens, states, the readout, the trace and the lead card come from tokens.css and components.css.
    What is here is local: the allowed-sites list and the visual replay (picture, step detail, transport, filmstrip). */
 
+.live-data {
+  display: flex;
+  width: fit-content;
+  justify-self: start;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  background: transparent;
+  border: 1px solid var(--ds-border-strong);
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+
+.live-data .ds-dot {
+  background: transparent;
+  border: 1.5px solid currentColor;
+}
+
+.live-data[data-state="live"] {
+  color: var(--ds-success);
+  background: var(--ds-success-soft);
+  border-color: var(--ds-success);
+}
+
+.live-data[data-state="live"] .ds-dot {
+  background: currentColor;
+  border-color: currentColor;
+}
+
+.live-data[data-state="failed"] {
+  color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+  border-color: var(--ds-danger);
+}
+
+.live-data[data-state="failed"] .ds-dot {
+  background: currentColor;
+}
+
 .bb-secondary {
   display: flex;
   flex-wrap: wrap;
@@ -331,6 +375,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+}
+
+.bb-transport .ds-button {
+  white-space: nowrap;
 }
 
 .bb-scrub {

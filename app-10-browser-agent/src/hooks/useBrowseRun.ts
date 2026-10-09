@@ -22,7 +22,7 @@ export function useBrowseRun() {
     dispatch({ type: 'running', replay, at: Date.now() })
     try {
       await streamRun(steps, (event) => {
-        if (!controller.signal.aborted) dispatch({ type: 'event', event })
+        if (!controller.signal.aborted) dispatch({ type: 'event', event, at: Date.now() })
       }, controller.signal)
       if (!controller.signal.aborted) dispatch({ type: 'streamEnded' })
     } catch (error) {

@@ -57,7 +57,7 @@ export interface PlanResponse {
 
 /** Events streamed from /api/execute, in the order the run produces them. */
 export type RunEvent =
-  | { type: 'session'; sessionId: string }
+  | { type: 'browser'; version: string }
   | { type: 'stage'; name: string; status: 'ok' | 'failed'; ms: number; detail: string }
   | { type: 'step_start'; index: number; name: string }
   | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage; frame?: StepFrame; frameNote?: string; frameSameAs?: number }
