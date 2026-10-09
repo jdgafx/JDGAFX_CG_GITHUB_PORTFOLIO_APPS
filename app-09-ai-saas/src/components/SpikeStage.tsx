@@ -116,7 +116,7 @@ export default function SpikeStage({ span, colorIndex, spikes, log, onLogChange,
   const { smooth, split } = chartLayout(span)
   const daily = dailyRows(span)
   const caption = smooth
-    ? 'Solid line: 7-day average. Faint line: each day. A break is a day npm did not report.'
+    ? 'Solid line: 7-day average. Faint line: each day. Markers sit on the day\'s own count, with a thin stem to the average. A break is a day npm did not report.'
     : 'One line per package. A break is a day npm did not report.'
   const logSwitch = split ? null : (
     <label className="hub-log">

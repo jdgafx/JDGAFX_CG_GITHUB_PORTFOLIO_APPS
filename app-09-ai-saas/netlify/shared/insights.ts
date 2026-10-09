@@ -141,19 +141,52 @@ interface Quoted {
   sign: Sign
 }
 
-/** The whole sentence a figure sits in, split the way signOf reads the part before it. */
-function sentenceAround(text: string, index: number): string {
-  const boundary = /[;:!?\n]|\.(?=\s|$)/
-  const before = text.slice(0, index).split(new RegExp(boundary, 'g')).pop() ?? ''
-  const after = text.slice(index).split(boundary)[0] ?? ''
-  return before + after
+/** The sentences of `text` as character spans, split the way signOf reads the part before a figure. */
+function sentenceSpans(text: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = []
+  let start = 0
+  for (const match of text.matchAll(/[;:!?\n]|\.(?=\s|$)/g)) {
+    spans.push({ start, end: match.index ?? 0 })
+    start = (match.index ?? 0) + 1
+  }
+  spans.push({ start, end: text.length })
+  return spans
 }
+
+/** A sentence that starts with one of these is about the package the sentence before it was about. */
+const PRONOUN_START = /^\W*(?:it|its|this|that|the (?:package|library))\b/i
+/** How many sentences back a pronoun's package is looked for. */
+const PRONOUN_REACH = 3
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** The packages whose names appear in `sentence`. A name inside a longer one (react in react-dom) does not count. */
-function namedIn(sentence: string, names: string[]): Set<string> {
-  return new Set(names.filter((name) => new RegExp(`(?<![\\w@/.-])${escapeRegExp(name)}(?![\\w/-])`, 'i').test(sentence)))
+/** The packages named in `sentence`, in the order they appear. */
+function namedInOrder(sentence: string, names: string[]): string[] {
+  return names
+    .map((name) => ({ name, at: sentence.search(new RegExp(`(?<![\\w@/.-])${escapeRegExp(name)}(?![\\w/-])`, 'i')) }))
+    .filter((hit) => hit.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map((hit) => hit.name)
+}
+
+/**
+ * The packages the sentence around `index` is about: those it names, plus, when it opens with a pronoun ("It is
+ * 1.4 times react's total"), the first package named in the nearest earlier sentence that names one.
+ */
+function packagesForFigure(text: string, index: number, names: string[]): Set<string> {
+  const spans = sentenceSpans(text)
+  const at = Math.max(0, spans.findIndex((span) => index >= span.start && index <= span.end))
+  const named = new Set(namedInOrder(text.slice(spans[at].start, spans[at].end), names))
+  if (PRONOUN_START.test(text.slice(spans[at].start, spans[at].end))) {
+    for (let back = at - 1; back >= Math.max(0, at - PRONOUN_REACH); back--) {
+      const subject = namedInOrder(text.slice(spans[back].start, spans[back].end), names)[0]
+      if (subject !== undefined) {
+        named.add(subject)
+        break
+      }
+    }
+  }
+  return named
 }
 
 /**
@@ -204,7 +237,7 @@ export function checkFigures(text: string, s: Summary): FigureCheck {
       scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
       sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
     }
-    const named = unit === 'times' ? namedIn(sentenceAround(text, match.index ?? 0), names) : new Set<string>()
+    const named = unit === 'times' ? packagesForFigure(text, match.index ?? 0, names) : new Set<string>()
     const verdict = judge(quoted, pool, named)
     result.checked += 1
     if (verdict.matched) result.matched += 1

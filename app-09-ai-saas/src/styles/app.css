@@ -60,6 +60,7 @@
 .hub-rows .hub-plot + .hub-plot { border-top: 1px solid var(--ds-border); }
 .hub-rowlabel { font-size: 13px; }
 .hub-legend { margin-top: -2px; }
+.hub-stem { stroke-width: 1; opacity: 0.55; }
 .hub-pill { fill: var(--ds-surface); stroke: var(--ds-border-strong); stroke-width: 1; }
 .hub-pill__text { fill: var(--ds-text); font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
 .hub-keys { gap: 4px 20px; }
@@ -104,7 +105,7 @@
 }
 .hub-card { display: grid; gap: 12px; align-content: start; padding: 16px; }
 .hub-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.hub-card__name { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.hub-card__name { font-size: 15px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-card__total { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
 .hub-card__unit { font-family: var(--ds-font); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--ds-text-muted); }
 .hub-card__rows { display: grid; gap: 8px; margin: 0; }

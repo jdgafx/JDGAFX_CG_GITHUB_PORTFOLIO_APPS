@@ -107,7 +107,9 @@ export default function LineChart({ title, caption, headRight, span, rows, under
     const si = span.series.findIndex((s) => s.name === spike.name)
     const i = span.dates.indexOf(spike.date)
     const y = si < 0 || i < 0 || markColumns[si][i] === null ? null : axis.y(markColumns[si][i] as number)
-    return y === null ? [] : [{ spike, si, x: xs[i], y }]
+    // With a smoothed line, a thin stem joins the marker on the day's own count to the average line under or over it.
+    const ay = dayColumns && columns[si][i] !== null ? axis.y(columns[si][i] as number) : null
+    return y === null ? [] : [{ spike, si, x: xs[i], y, ay }]
   })
   const active = marks.find((m) => spikeKey(m.spike) === activeKey)
 
@@ -183,6 +185,11 @@ export default function LineChart({ title, caption, headRight, span, rows, under
 
         <rect x={LEFT} y={TOP} width={plotW} height={bottom - TOP} fill="transparent" onPointerMove={move} onPointerLeave={() => setHover(null)} />
 
+        {marks.map(({ spike, si, x, y, ay }) =>
+          ay !== null && Math.abs(ay - y) > 6 ? (
+            <line key={`stem-${spikeKey(spike)}`} className="hub-stem" style={{ stroke: seriesColor(colorIndex[si]) }} x1={x} x2={x} y1={y} y2={ay} />
+          ) : null,
+        )}
         {marks.map(({ spike, si, x, y }) => {
           const key = spikeKey(spike)
           const matched = spike.releases.length > 0

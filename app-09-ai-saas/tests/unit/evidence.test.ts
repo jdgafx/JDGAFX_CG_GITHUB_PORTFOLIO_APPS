@@ -163,3 +163,46 @@ describe('parseInsightRequest with spikes', () => {
     expect(parseInsightRequest(body({})).ok).toBe(false)
   })
 })
+
+describe('checkFigures: a sentence that starts with a pronoun is about the previous sentence\'s package', () => {
+  // The live case: zod 7.854 billion, react 5.7 billion, @anthropic-ai/sdk 834.9 million. zod / react = 1.378, zod / sdk = 9.407.
+  const zodSummary: Summary = {
+    startDate: '2025-10-08',
+    endDate: '2026-10-07',
+    windowDays: 365,
+    observedDays: 358,
+    packages: [
+      { name: 'zod', total: 7_854_000_000, avgPerDay: 21_937_500, changePct: 189.9, weekendPct: 53.9, sharePct: 40.1 },
+      { name: 'react', total: 5_700_000_000, avgPerDay: 15_921_788, changePct: 122.5, weekendPct: 55.8, sharePct: 29.1 },
+      { name: '@anthropic-ai/sdk', total: 834_900_000, avgPerDay: 2_332_000, changePct: 459.8, weekendPct: 60.6, sharePct: 4.3 },
+    ],
+  }
+  const LEAD = 'Zod leads with 7.85 billion downloads. '
+
+  it.each([
+    ['the live sentence', `${LEAD}It is roughly 1.4 times react's total and about 9 times @anthropic-ai/sdk's.`, 2, 2],
+    ['Its as the opening word', `${LEAD}Its total is 1.4 times react's.`, 1, 1],
+    ['The package', `${LEAD}The package is 9 times @anthropic-ai/sdk's size.`, 1, 1],
+    ['a list number before the pronoun', `1. Zod leads with 7.85 billion downloads.\n2. It is about 1.4 times react's total.`, 1, 1],
+    ['a pronoun reaching back past a sentence with no package', `${LEAD}That is a big lead. It is 1.4 times react's total.`, 1, 1],
+  ])('accepts a right multiple: %s', (_label, text, checked, matched) => {
+    const check = checkFigures(text, zodSummary)
+    expect({ checked: check.checked - 1, matched: check.matched - 1 }).toEqual({ checked, matched }) // 7.85 billion is the lead's own figure
+  })
+
+  it.each([
+    ['1.5 is not zod over react', `${LEAD}It is roughly 1.5 times react's total.`, '1.5 times'],
+    ['9 is zod over sdk, not zod over react', `${LEAD}It is about 9 times react's total.`, '9 times'],
+    ['react over sdk is 6.8, not a multiple of the subject', `${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, '6.8 times'],
+    ['no pronoun, so the subject is not borrowed: both named packages are react and sdk', `${LEAD}React is 1.4 times @anthropic-ai/sdk's total.`, '1.4 times'],
+  ])('still rejects a wrong multiple: %s', (_label, text, rejected) => {
+    expect(checkFigures(text, zodSummary).unmatched).toEqual([rejected])
+  })
+
+  it('does not borrow a package from more than three sentences back', () => {
+    // With zod borrowed the pair would have to be zod and sdk (9.4), so 6.8 (react / sdk) would be rejected.
+    // Out of reach, only sdk is named and 6.8 is a multiple that involves it.
+    expect(checkFigures(`${LEAD}A. B. C. It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual([])
+    expect(checkFigures(`${LEAD}A. B. It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual(['6.8 times'])
+  })
+})
