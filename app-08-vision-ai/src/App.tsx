@@ -1,48 +1,56 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatSeconds } from './lib/format'
-import { MODE_LABELS } from './lib/modes'
+import { scopeOf } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
+import { useResultFocus, type RunPhase } from './lib/useResultFocus'
 import type { TraceStep } from './lib/api'
-import AnalysisPanel from './components/AnalysisPanel'
+import ActionDock from './components/ActionDock'
+import AskPanel from './components/AskPanel'
+import Header from './components/Header'
+import Hero from './components/Hero'
 import HistoryStrip from './components/HistoryStrip'
 import ImagePicker from './components/ImagePicker'
-import ModeChoice from './components/ModeChoice'
-import PicturePanel from './components/PicturePanel'
+import type { Picture } from './components/PictureStage'
 import ReadoutStrip from './components/ReadoutStrip'
-import ResultPanel from './components/ResultPanel'
+import RegionList from './components/RegionList'
 import RunTrace from './components/RunTrace'
 import ZoomOverlay from './components/ZoomOverlay'
 
-// The dot repeats the badge's state as a mark, so the status never relies on colour alone.
-const STATUS_DISPLAY: Record<RunStatus, { label: string; badge: string; dot: string }> = {
-  idle: { label: 'Ready', badge: '', dot: '' },
-  running: { label: 'Analyzing', badge: 'ds-badge--accent', dot: 'ds-dot--running' },
-  complete: { label: 'Complete', badge: 'ds-badge--success', dot: 'ds-dot--ok' },
-  failed: { label: 'Failed', badge: 'ds-badge--danger', dot: 'ds-dot--failed' },
-  cancelled: { label: 'Cancelled', badge: 'ds-badge--warning', dot: '' },
+const PHASE: Record<RunStatus, RunPhase> = {
+  idle: 'idle',
+  running: 'running',
+  complete: 'done',
+  failed: 'failed',
+  cancelled: 'stopped',
 }
 
 function statusLine(status: RunStatus, steps: TraceStep[], totalMs: number | undefined, hasImage: boolean): string {
   if (status === 'running') {
     const current = steps.find(step => step.status === 'running')
-    return current ? `Analyzing: ${current.name}` : 'Analyzing: sending the image'
+    return current ? `Working: ${current.name}` : 'Working: sending the request'
   }
   if (status === 'complete') {
     return totalMs === undefined ? 'Response complete' : `Response complete in ${formatSeconds(totalMs)}`
   }
-  if (status === 'failed') return 'The analysis failed. The reason is shown with the answer.'
-  if (status === 'cancelled') return 'The analysis was cancelled.'
-  return hasImage ? 'Ready to analyze.' : 'Choose an image to begin.'
+  if (status === 'failed') return 'The analysis failed. The answer panel says why.'
+  if (status === 'cancelled') return 'The analysis was stopped.'
+  return hasImage ? 'Ready.' : 'Choose an image to begin.'
 }
 
 export default function App() {
   const vision = useAnalysis()
   const { chooseFile } = vision
-  const [zoomed, setZoomed] = useState(false)
-  const closeZoom = useCallback(() => setZoomed(false), [])
+  const [zoomed, setZoomed] = useState<'a' | 'b' | null>(null)
+  const closeZoom = useCallback(() => setZoomed(null), [])
+  const { mode, status } = vision
+  const scope = scopeOf(mode)
+  const comparing = scope === 'compare'
+  const hasB = vision.imageUrlB !== ''
 
-  // Pasting a screenshot anywhere on the page loads it as the image.
+  useResultFocus(PHASE[status])
+
+  // Pasting a screenshot anywhere on the page loads it as the image. While comparing it fills the empty slot.
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
       const items = event.clipboardData?.items
@@ -52,93 +60,92 @@ export default function App() {
         ?.getAsFile()
       if (!file) return
       event.preventDefault()
-      chooseFile(file)
+      chooseFile(file, null, comparing && vision.file && !hasB ? 'b' : 'a')
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [chooseFile])
+  }, [chooseFile, comparing, hasB, vision.file])
 
-  const running = vision.status === 'running'
+  const running = status === 'running'
   const hasImage = vision.imageUrl !== ''
-  const fileName = vision.file?.name ?? ''
-  const display = STATUS_DISPLAY[vision.status]
+  const a: Picture | null = hasImage
+    ? { url: vision.imageUrl, name: vision.file?.name ?? '', credit: vision.source }
+    : null
+  const b: Picture | null = hasB ? { url: vision.imageUrlB, name: vision.fileB?.name ?? '', credit: vision.sourceB } : null
+  const activeRegion = vision.regions.find(entry => entry.id === vision.activeRegionId) ?? null
+
+  let reason = ''
+  if (!hasImage) reason = 'Choose an image first.'
+  else if (mode === 'region' && !vision.box) reason = 'Draw a box on the picture first.'
+  else if (mode === 'region' && !vision.question.trim()) reason = 'Type a question about the box.'
+  else if (mode === 'qa' && !vision.question.trim()) reason = 'Type a question first.'
+  else if (comparing && !hasB) reason = 'Choose a second image to compare.'
 
   return (
-    <div className="ds-app">
-      <header className="ds-header">
-        <div className="ds-header__inner">
-          <div>
-            <h1 className="ds-title">VisionLab</h1>
-            <p className="ds-subtitle">Choose one image, pick a mode, and read the answer as it streams in.</p>
-          </div>
-          <span className={`ds-badge ${display.badge}`}>
-            <span className={`ds-dot ${display.dot}`} aria-hidden="true" />
-            {display.label}
-          </span>
-          <p className="ds-showcase">
-            <strong>What this showcases:</strong> a multimodal call, one image and one prompt in, a streamed answer out,
-            with the reply checked for completeness before it is marked done.
-          </p>
-        </div>
-      </header>
+    <div className="ds-app" data-run={PHASE[status]}>
+      <Header status={status} />
 
       <main className="ds-main">
         <div className="ds-bench">
           <div className="ds-controls">
             <ImagePicker
-              imageUrl={vision.imageUrl}
-              fileName={fileName}
+              comparing={comparing}
+              a={a && { name: a.name, url: a.url }}
+              b={b && { name: b.name, url: b.url }}
               disabled={running}
               uploadError={vision.uploadError}
-              onFile={vision.chooseFile}
+              onFile={chooseFile}
               onRemove={vision.removeImage}
             />
-            <ModeChoice
-              mode={vision.mode}
+            <AskPanel
+              mode={mode}
+              lastWhole={vision.lastWhole}
               question={vision.question}
               questionError={vision.questionError}
               running={running}
+              box={vision.box}
+              regionCount={vision.regions.length}
               onModeChange={vision.changeMode}
               onQuestionChange={vision.updateQuestion}
               onRun={vision.run}
             />
-            <AnalysisPanel
+            <ActionDock
+              mode={mode}
               running={running}
-              canRun={hasImage}
-              statusText={statusLine(vision.status, vision.steps, vision.summary?.totalMs, hasImage)}
+              canRun={reason === ''}
+              reason={reason}
+              statusText={statusLine(status, vision.steps, vision.summary?.totalMs, hasImage)}
               onRun={vision.run}
               onCancel={vision.cancel}
             />
           </div>
 
           <div className="ds-run">
-            {/* The hero: the picture beside the reply that streams in for it. The mode's name leads. */}
-            <section className="ds-section" aria-labelledby="answer-title">
-              <div className="ds-section__head">
-                <h2 id="answer-title" className="answer-title">
-                  {MODE_LABELS[vision.mode]}
-                </h2>
-                <p className="ds-section__sub">The picture and the reply, which streams in as the model writes it.</p>
-              </div>
-
-              <div className="answer-stage">
-                <PicturePanel
-                  imageUrl={vision.imageUrl}
-                  fileName={fileName}
-                  credit={vision.source}
-                  disabled={running}
-                  onFile={vision.chooseFile}
-                  onZoom={() => setZoomed(true)}
-                />
-                <ResultPanel
-                  result={vision.result}
-                  status={vision.status}
-                  truncated={vision.truncated}
-                  notice={vision.notice}
-                />
-              </div>
-            </section>
-            <ReadoutStrip summary={vision.summary} />
+            <Hero
+              mode={mode}
+              status={status}
+              a={a}
+              b={b}
+              regions={vision.regions}
+              activeRegion={activeRegion}
+              draft={vision.box}
+              result={vision.result}
+              truncated={vision.truncated}
+              notice={vision.notice}
+              onDraft={vision.drawBox}
+              onStart={vision.startBox}
+              onZoom={setZoomed}
+              onRetry={vision.run}
+            />
+            <ReadoutStrip status={status} steps={vision.steps} summary={vision.summary} />
+            {scope === 'region' && (
+              <RegionList
+                regions={vision.regions}
+                activeId={vision.activeRegionId}
+                disabled={running}
+                onSelect={vision.selectRegion}
+              />
+            )}
             <RunTrace steps={vision.steps} summary={vision.summary} />
             <HistoryStrip
               items={vision.gallery}
@@ -155,8 +162,12 @@ export default function App() {
         <div className="ds-footer__inner">Christopher Gentile</div>
       </footer>
 
-      {zoomed && hasImage && (
-        <ZoomOverlay src={vision.imageUrl} label={fileName || 'image'} onClose={closeZoom} />
+      {zoomed && (
+        <ZoomOverlay
+          src={zoomed === 'a' ? vision.imageUrl : vision.imageUrlB}
+          label={(zoomed === 'a' ? vision.file?.name : vision.fileB?.name) || 'image'}
+          onClose={closeZoom}
+        />
       )}
     </div>
   )

@@ -68,6 +68,7 @@ async function respond(req: Request, startedAt: number): Promise<Response> {
     maxTokens: maxTokensFor(request.mode),
     startedAt,
     checked: checkedStep,
+    mode: request.mode,
   })
 }
 

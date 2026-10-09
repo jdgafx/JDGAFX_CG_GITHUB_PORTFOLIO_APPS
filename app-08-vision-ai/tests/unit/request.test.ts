@@ -9,7 +9,8 @@ import {
 
 const PNG_BASE64 = 'aGVsbG8=' // base64 of "hello"
 const valid = { image: PNG_BASE64, mediaType: 'image/png', mode: 'describe' }
-const MODE_LIST = 'Unsupported mode. Use one of: describe, analyze, qa, extract.'
+const MODE_LIST = 'Unsupported mode. Use one of: describe, analyze, qa, extract, region, compare.'
+
 
 function rejection(input: unknown): string {
   const result = checkBody(input)
@@ -131,5 +132,74 @@ describe('checkedDetail', () => {
   it('names the mode, media type and approximate size of the image', () => {
     const request: AnalysisRequest = { image: 'a'.repeat(4096), mediaType: 'image/jpeg', mode: 'extract', question: '' }
     expect(checkedDetail(request)).toBe('Extract, image/jpeg, about 3 KB')
+  })
+})
+
+describe('region requests', () => {
+  const region = { sourceWidth: 1280, sourceHeight: 853, x: 180, y: 96, width: 412, height: 260 }
+  const regionBody = { ...valid, mode: 'region', question: ' What does the sign say? ', region }
+
+  it('accepts a region with its question and its place in the source picture', () => {
+    const result = checkBody(regionBody)
+    expect(result.ok && result.value).toMatchObject({ mode: 'region', question: 'What does the sign say?', region })
+  })
+
+  it.each([
+    ['no question', { ...regionBody, question: '' }, 'A question is required for the Region mode.'],
+    ['no region', { ...regionBody, region: undefined }, 'The region needs the size of the picture and of the cut-out part.'],
+    ['a zero-width region', { ...regionBody, region: { ...region, width: 0 } }, 'The region needs the size of the picture and of the cut-out part.'],
+    ['a fractional pixel', { ...regionBody, region: { ...region, x: 1.5 } }, 'The region needs the size of the picture and of the cut-out part.'],
+  ])('rejects %s', (_label, input, message) => {
+    expect(rejection(input)).toBe(message)
+  })
+
+  it('tells the model the image is a crop, with its size and position, and gives it a 2048 token budget', () => {
+    const checked = checkBody(regionBody)
+    if (!checked.ok) throw new Error('expected a valid request')
+    const [system, user] = buildMessages(checked.value)
+    expect(system.content).toContain('a crop, 412 by 260 pixels')
+    expect(system.content).toContain('larger picture of 1280 by 853 pixels')
+    expect(system.content).toContain('top-left corner was at 180, 96')
+    expect(user.role === 'user' && user.content).toHaveLength(2)
+    expect(maxTokensFor('region')).toBe(2048)
+  })
+})
+
+describe('compare requests', () => {
+  const body = { ...valid, mode: 'compare', image2: PNG_BASE64, mediaType2: 'image/jpeg', question: 'Which is sharper?' }
+
+  it('accepts two images and sends both, labelled A and B, with the question for the verdict', () => {
+    const checked = checkBody(body)
+    if (!checked.ok) throw new Error('expected a valid request')
+    expect(checkedDetail(checked.value)).toBe('Compare, two images, about 0 KB and 0 KB')
+    const [system, user] = buildMessages(checked.value)
+    expect(system.content).toContain('## Similarities')
+    expect(system.content).toContain('## Verdict')
+    if (user.role !== 'user') throw new Error('expected a user message')
+    expect(user.content.map(part => (part.type === 'text' ? part.text : part.image_url.url.slice(0, 22)))).toEqual([
+      'Image A:',
+      'data:image/png;base64,',
+      'Image B:',
+      'data:image/jpeg;base64',
+      'Question to answer in the verdict: Which is sharper?',
+    ])
+    expect(maxTokensFor('compare')).toBe(3072)
+  })
+
+  it('allows a comparison without a question', () => {
+    expect(checkBody({ ...body, question: undefined }).ok).toBe(true)
+  })
+
+  it('rejects a missing, malformed or wrongly typed second image', () => {
+    expect(rejection({ ...body, image2: undefined })).toBe('Comparing needs a second image.')
+    expect(rejection({ ...body, image2: 'not base64!' })).toBe('The second image data is not valid base64.')
+    expect(rejection({ ...body, mediaType2: 'image/bmp' })).toBe('The second image must be JPG, PNG, WebP, or GIF.')
+  })
+
+  it('limits each image to 2 MB so that both fit one 6 MB request body', () => {
+    const max = Math.ceil((2 * 1024 * 1024) / 3) * 4
+    expect(checkBody({ ...body, image: 'A'.repeat(max), image2: 'A'.repeat(max) }).ok).toBe(true)
+    expect(rejection({ ...body, image: 'A'.repeat(max + 4) })).toBe('Image is too large. Please use an image under 4MB.')
+    expect(rejection({ ...body, image2: 'A'.repeat(max + 4) })).toBe('Image is too large. Please use an image under 4MB.')
   })
 })

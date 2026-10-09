@@ -9,7 +9,7 @@
 .commons__summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px;
+  gap: 2px 8px;
   padding: 12px 16px;
   cursor: pointer;
   list-style: none;
@@ -55,8 +55,8 @@
 
 .commons__body {
   display: grid;
-  gap: 14px;
-  padding: 14px 16px 16px;
+  gap: 12px;
+  padding: 12px 16px 16px;
   border-top: 1px solid var(--ds-border);
 }
 
@@ -67,20 +67,20 @@
 
 .commons__preset {
   display: grid;
-  gap: 1px;
-  padding: 9px 12px;
+  gap: 2px;
+  padding: 8px 12px;
   font: inherit;
   color: var(--ds-text);
   text-align: left;
   cursor: pointer;
   background: var(--ds-surface-2);
   border: 1px solid var(--ds-border);
-  border-left: 3px solid var(--ds-accent);
   border-radius: var(--ds-radius-sm);
 }
 
 .commons__preset:hover:not(:disabled) {
   background: var(--ds-accent-soft);
+  border-color: var(--ds-accent-dim);
 }
 
 .commons__preset:disabled,
@@ -101,7 +101,7 @@
 
 .commons__search {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .commons__field {
@@ -123,7 +123,7 @@
 .commons__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 10px;
+  gap: 12px 8px;
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
@@ -164,22 +164,6 @@
   outline-offset: 2px;
 }
 
-.commons__card--placeholder {
-  animation: commons-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes commons-pulse {
-  50% {
-    opacity: 0.5;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .commons__card--placeholder {
-    animation: none;
-  }
-}
-
 .commons__card-title {
   display: -webkit-box;
   overflow: hidden;
@@ -192,14 +176,14 @@
 }
 
 .commons__card-licence {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ds-text-muted);
 }
 
-/* The controls column sticks from 1000px, so the result grid scrolls inside itself to keep the column short */
+/* The rail scrolls inside itself from 1000px, so the result grid keeps its own short height */
 @media (min-width: 1000px) {
   .commons__grid {
-    max-height: 340px;
+    max-height: 320px;
     padding-right: 4px;
     overflow-y: auto;
   }

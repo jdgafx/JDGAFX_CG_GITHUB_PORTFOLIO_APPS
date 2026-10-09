@@ -16,3 +16,8 @@ export function formatCount(value: number | undefined): string {
 export function formatUsd(value: number | undefined): string {
   return typeof value === 'number' ? `$${value.toFixed(6)}` : NOT_REPORTED
 }
+
+/** The short form of a model id for a chip: the vendor prefix goes, the full id stays in the title. */
+export function shortModel(id: string): string {
+  return id.replace(/^[^/]+\//, '')
+}

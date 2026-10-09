@@ -11,8 +11,8 @@ interface HistoryStripProps {
 
 export default function HistoryStrip({ items, activeId, disabled, onSelect, onClear }: HistoryStripProps) {
   return (
-    <section className="ds-section" aria-labelledby="history-title">
-      <div className="ds-section__head ds-section__head--row">
+    <section className="ds-section vl-history" aria-labelledby="history-title">
+      <div className="ds-section__head ds-section__head--bare vl-history__head">
         <div>
           <h2 id="history-title" className="ds-section__title">
             Recent analyses
@@ -25,7 +25,11 @@ export default function HistoryStrip({ items, activeId, disabled, onSelect, onCl
       </div>
 
       {items.length === 0 ? (
-        <div className="ds-empty">Completed analyses appear here. Select one to reopen it with its answer.</div>
+        <div className="ds-state ds-state--empty">
+          <span className="ds-state__mark" aria-hidden="true" />
+          <p className="ds-state__title">Nothing here yet</p>
+          <p className="ds-state__body">Completed analyses appear here. Select one to reopen it with its answer.</p>
+        </div>
       ) : (
         <ul className="history__list">
           {items.map(item => (

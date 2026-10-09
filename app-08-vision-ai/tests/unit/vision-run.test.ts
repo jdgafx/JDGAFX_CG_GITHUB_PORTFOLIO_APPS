@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { UPSTREAM_BUDGET_MS, streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
+import { FIRST_TEXT_LIMIT_MS, UPSTREAM_BUDGET_MS, streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
 
 type Provider = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -283,8 +283,13 @@ describe('streamVisionRun deadline', () => {
     const provider = stubFetch(
       () =>
         new Promise<Response>(resolve => {
-          // The provider accepts the connection after 20 seconds, then never sends a byte.
-          setTimeout(() => resolve(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })), 20_000)
+          // The provider accepts the connection after 5 seconds, sends one word, then goes quiet.
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Part"}}]}\n\n'))
+            },
+          })
+          setTimeout(() => resolve(new Response(body, { status: 200 })), 5_000)
         }),
     )
 
@@ -301,6 +306,7 @@ describe('streamVisionRun deadline', () => {
 
     expect(provider).toHaveBeenCalledTimes(1)
     expect(UPSTREAM_BUDGET_MS).toBe(25_000)
+    expect(frames).toContainEqual({ text: 'Part' })
     expect(frames.at(-3)).toMatchObject({
       stage: 'step',
       step: { name: 'Model call', status: 'failed', detail: 'Stopped at the 25-second limit; partial output kept' },
@@ -321,11 +327,124 @@ describe('streamVisionRun deadline', () => {
     await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
     const frames = await done
 
-    expect(provider).toHaveBeenCalledTimes(1)
+    // One try at the 9-second hang limit, one retry that runs into the shared 25-second deadline.
+    expect(provider).toHaveBeenCalledTimes(2)
     expect(frames.at(-3)).toMatchObject({
       stage: 'step',
       step: { name: 'Model call', status: 'failed', detail: 'No response from the AI provider within the time limit' },
     })
     expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.', truncated: false })
+  })
+})
+
+describe('streamVisionRun hang retry', () => {
+  const ok = () =>
+    sseReply([
+      { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'A sign.' }, finish_reason: 'stop' }] },
+      { choices: [], usage: { total_tokens: 10 } },
+    ])
+
+  it('retries once when the first call says nothing for 9 seconds, and shows it in the trace', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    const provider = stubFetch(() => (++calls === 1 ? new Promise<Response>(() => {}) : Promise.resolve(ok())))
+
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(FIRST_TEXT_LIMIT_MS + 100)
+    const frames = await done
+
+    expect(provider).toHaveBeenCalledTimes(2)
+    expect(frames).toContainEqual({
+      stage: 'step',
+      step: { name: 'Model call', status: 'running', detail: 'No answer within 9 seconds. Retried once' },
+    })
+    expect(frames).toContainEqual({ text: 'A sign.' })
+    expect(frames.at(-3)).toMatchObject({
+      step: { name: 'Model call', status: 'ok', detail: 'anthropic/claude-haiku-5.5, 1 text chunks, retried once' },
+    })
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A sign.' })
+  })
+
+  it('retries a connection failure once, and gives up with the could-not-reach message after the second', async () => {
+    const provider = stubFetch(async () => {
+      throw new TypeError('fetch failed')
+    })
+
+    const frames = await framesOf(streamVisionRun(makeRun()))
+
+    expect(provider).toHaveBeenCalledTimes(2)
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'Could not reach the AI provider. Try again in a moment.' })
+  })
+
+  it.each([402, 429, 500])('never retries an HTTP %i from the provider', async status => {
+    const provider = stubFetch(async () => new Response('{"error":"no"}', { status }))
+    await framesOf(streamVisionRun(makeRun()))
+    expect(provider).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry once words have arrived', async () => {
+    vi.useFakeTimers()
+    const provider = stubFetch(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'))
+            },
+          }),
+          { status: 200 },
+        ),
+    )
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    await done
+    expect(provider).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry when the budget left is too small for a second try', async () => {
+    vi.useFakeTimers()
+    const provider = stubFetch(() => new Promise<Response>(() => {}))
+    const done = framesOf(streamVisionRun(makeRun({ startedAt: Date.now() - 10_000 })))
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    await done
+    expect(provider).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry when the visitor stops the run', async () => {
+    const provider = stubFetch(() => new Promise<Response>(() => {}))
+    const response = streamVisionRun(makeRun())
+    const reader = response.body!.getReader()
+    await reader.read()
+    await reader.cancel()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(provider).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('streamVisionRun comparison check', () => {
+  const reply = (text: string) => sseReply([{ choices: [{ delta: { content: text }, finish_reason: 'stop' }] }])
+
+  it('completes a comparison that has all three parts', async () => {
+    stubFetch(async () => reply('## Similarities\n- Both are red\n## Differences\n- One is bigger\n## Verdict\nB wins.'))
+    const frames = await framesOf(streamVisionRun(makeRun({ mode: 'compare' })))
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete' })
+  })
+
+  it('fails a comparison that has no verdict, and names what is missing', async () => {
+    stubFetch(async () => reply('## Similarities\n- Both are red\n## Differences\n- One is bigger'))
+    const frames = await framesOf(streamVisionRun(makeRun({ mode: 'compare' })))
+    expect(frames.at(-2)).toMatchObject({
+      step: { name: 'Parse and validate', status: 'failed', detail: 'The reply has no verdict' },
+    })
+    expect(frames.at(-1)).toMatchObject({
+      stage: 'failed',
+      error: 'The comparison came back without all three parts. Please run it again.',
+    })
+  })
+
+  it('does not apply the three-part check to other modes', async () => {
+    stubFetch(async () => reply('Just a sentence.'))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete' })
   })
 })

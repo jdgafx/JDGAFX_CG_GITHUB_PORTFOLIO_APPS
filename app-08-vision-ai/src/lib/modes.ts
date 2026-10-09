@@ -8,4 +8,21 @@ export const MODES: Array<{ id: AnalysisMode; label: string; hint: string }> = [
   { id: 'extract', label: 'Extract', hint: 'Asks for text, numbers and tables, as laid out.' },
 ]
 
-export const MODE_LABELS = Object.fromEntries(MODES.map(mode => [mode.id, mode.label])) as Record<AnalysisMode, string>
+export const MODE_LABELS: Record<AnalysisMode, string> = {
+  ...(Object.fromEntries(MODES.map(mode => [mode.id, mode.label])) as Record<'describe' | 'analyze' | 'qa' | 'extract', string>),
+  region: 'Region',
+  compare: 'Compare',
+}
+
+// The three things a visitor can ask about: the whole picture, a box drawn on it, or two pictures side by side.
+export type Scope = 'whole' | 'region' | 'compare'
+
+export const SCOPES: Array<{ id: Scope; label: string; hint: string }> = [
+  { id: 'whole', label: 'Whole image', hint: 'Describe, analyze, ask or extract.' },
+  { id: 'region', label: 'Region', hint: 'Draw a box and ask about that part.' },
+  { id: 'compare', label: 'Compare', hint: 'Two images, side by side.' },
+]
+
+export function scopeOf(mode: AnalysisMode): Scope {
+  return mode === 'region' ? 'region' : mode === 'compare' ? 'compare' : 'whole'
+}

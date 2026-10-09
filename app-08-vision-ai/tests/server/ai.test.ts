@@ -147,7 +147,7 @@ describe('POST /api/ai request checks', () => {
     [
       'an unknown mode',
       { image: PNG, mediaType: 'image/png', mode: 'translate' },
-      'Unsupported mode. Use one of: describe, analyze, qa, extract.',
+      'Unsupported mode. Use one of: describe, analyze, qa, extract, region, compare.',
     ],
     [
       'Question mode without a question',

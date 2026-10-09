@@ -1,379 +1,142 @@
-/* App-specific rules only. Colors, type and the shared components come from tokens.css. */
+/* App layer for VisionLab. Colour, type, states, readout, trace, the annotated frame (ds-frame, ds-box), the dropzone
+   (ds-drop) and the segmented control (ds-seg) come from tokens.css and components.css. Spacing follows the shared scale. */
 
-/* Image picker: a drop zone until a picture is chosen, then a compact row */
-.dropzone {
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 4px;
-  width: 100%;
-  min-height: 120px;
-  padding: 20px 16px;
-  font: inherit;
-  color: var(--ds-text);
-  text-align: center;
-  background: var(--ds-surface-2);
-  border: 2px dashed var(--ds-text-muted);
-  border-radius: var(--ds-radius);
-  cursor: pointer;
+/* Run column order: the hero (pictures with their boxes, and the answer) always leads; the region list sits under the readout. */
+.ds-run .ds-run__result.vl-hero { order: -3; }
+.vl-regions { order: 1; }
+.vl-history { order: 5; }
+
+/* Rail: images, then what to ask */
+.vl-label { display: block; margin: 0 0 8px; }
+.vl-slots { display: grid; gap: 12px; }
+.vl-picked { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px 12px; align-items: center; padding: 12px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.vl-picked.is-dragging { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.vl-picked__thumb { width: 56px; height: 56px; object-fit: cover; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.vl-picked__text { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.vl-picked__name { font-weight: 650; overflow-wrap: anywhere; }
+.vl-picked .ds-row { grid-column: 1 / -1; }
+.vl-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.vl-scope { display: flex; width: 100%; }
+.vl-scope > button { flex: 1 1 auto; padding: 0 4px; white-space: nowrap; }
+.vl-scope > button:disabled { cursor: not-allowed; opacity: 0.55; }
+.ds-seg > button:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.vl-status { margin: 0; font-size: 15px; color: var(--ds-text-muted); }
+
+.mode-list { display: grid; gap: 4px; min-width: 0; margin-top: 8px; }
+.mode-option { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 12px; border: 1px solid transparent; border-radius: var(--ds-radius-sm); cursor: pointer; }
+.mode-option.is-selected { background: var(--ds-accent-soft); border-color: var(--ds-accent-dim); }
+.mode-option input { width: 20px; height: 20px; margin: 0; accent-color: var(--ds-accent); }
+.mode-option__body { display: grid; gap: 2px; min-width: 0; }
+.mode-option__label { font-size: 15px; font-weight: 650; }
+
+/* The hero: pictures left, answer right once the block is wide enough; stacked on a phone. Comparing always stacks. */
+.vl-hero { display: grid; gap: 16px; min-width: 0; container-type: inline-size; }
+.vl-hero__title { font-size: 22px; font-weight: 760; line-height: 1.2; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.vl-hero__title:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 4px; border-radius: var(--ds-radius-sm); }
+.vl-hero__grid { display: grid; gap: 20px; min-width: 0; }
+@container (min-width: 720px) {
+  .vl-hero__grid:not(.vl-hero__grid--pair) { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; gap: 24px; }
 }
 
-.dropzone.is-dragging,
-.picked.is-dragging {
-  background: var(--ds-accent-soft);
-  border-color: var(--ds-accent);
-  border-style: solid;
-}
+.vl-pictures { display: grid; gap: 16px; min-width: 0; }
+.vl-pictures--pair { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.vl-figure { display: grid; gap: 8px; margin: 0; min-width: 0; align-content: start; }
+.vl-figure__label { justify-self: start; }
+.vl-figure-empty { min-height: 160px; align-content: center; }
+.picture__name { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+.picture__credit { display: grid; gap: 2px; margin: 0; padding-top: 8px; font-size: 13px; color: var(--ds-text-muted); border-top: 1px solid var(--ds-border); overflow-wrap: anywhere; }
+.picture__credit a { font-weight: 650; color: var(--ds-accent); }
 
-.dropzone__title {
-  font-size: 15px;
-  font-weight: 650;
-}
+/* Annotated frame: the picture is the coordinate system. The inner box shrinks to the rendered picture, so the
+   percent-placed boxes land on the same part of it at any size. */
+.vl-frame { display: grid; place-items: center; padding: 8px; }
+.vl-frame__inner { position: relative; width: fit-content; max-width: 100%; line-height: 0; }
+.vl-frame__inner img { display: block; width: auto; max-width: 100%; height: auto; max-height: min(56vh, 440px); user-select: none; -webkit-user-drag: none; }
+.vl-frame__inner.is-editable { cursor: crosshair; touch-action: none; outline-offset: 4px; }
+.vl-frame__inner.is-editable:focus-visible { outline: 2px solid var(--ds-focus); }
+.vl-box { pointer-events: none; }
+.vl-box .ds-box__tag { line-height: 1.5; }
+.vl-box--active { border-width: 3px; background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
+.vl-box--draft { border-style: dashed; background: color-mix(in srgb, var(--ds-accent) 16%, transparent); }
+.vl-box--draft .ds-box__tag { color: var(--ds-accent); background: var(--ds-surface); border: 1px dashed var(--ds-accent); border-bottom: 0; }
 
-.dropzone__prompt {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
+/* Answer */
+.vl-answer { display: grid; gap: 16px; min-width: 0; align-content: start; }
+.vl-lead { padding: 20px 24px; }
+.vl-prose { max-width: 66ch; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+.vl-prose > * + * { margin-top: 12px; }
+.vl-prose > p:first-child { font-size: 18px; line-height: 1.55; }
+.vl-prose h3, .vl-prose h4 { font-size: 18px; font-weight: 650; line-height: 1.3; }
+.vl-prose h4 { font-size: 16px; }
+.vl-prose ul, .vl-prose ol { padding-left: 24px; }
+.vl-prose li + li { margin-top: 4px; }
+.vl-prose blockquote { padding: 4px 12px; color: var(--ds-text-muted); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.vl-prose code { padding: 0 4px; font-family: var(--ds-mono); font-size: 14px; background: var(--ds-surface-2); border-radius: 4px; }
+.vl-pre { padding: 12px 16px; white-space: pre; }
+.vl-prose.is-streaming > :last-child::after { content: ''; display: inline-block; width: 8px; height: 1em; margin-left: 4px; vertical-align: text-bottom; background: var(--ds-accent); }
+.vl-table { overflow-x: auto; border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.vl-table:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.vl-table table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.vl-table th, .vl-table td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ds-border); }
+.vl-table tr:last-child td { border-bottom: 0; }
+.vl-table th { font-weight: 650; background: var(--ds-surface-2); }
+.vl-skeleton { grid-column: auto; }
 
-.picked {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 14px 16px;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius);
-}
+/* Region head: the crop next to its question, above the answer */
+.vl-regionhead { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.vl-regionhead__crop { display: block; width: 96px; height: 72px; object-fit: contain; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.vl-regionhead__crop--pending { background: var(--ds-surface); }
+.vl-regionhead__text { display: grid; gap: 4px; min-width: 0; }
+.vl-regionhead__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--ds-text-muted); }
+.vl-regionhead__q { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
 
-.picked__name {
-  font-weight: 650;
-  overflow-wrap: anywhere;
+/* Compare: similarities and differences side by side, the verdict across both */
+.vl-compare { display: grid; gap: 16px; }
+.vl-compare__cols { display: grid; gap: 16px; }
+@container (min-width: 560px) {
+  .vl-compare__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.vl-col { display: grid; gap: 12px; align-content: start; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); min-width: 0; }
+.vl-col__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 18px; font-weight: 650; }
+.vl-col ul { display: grid; gap: 8px; padding-left: 20px; }
+.vl-col li { overflow-wrap: anywhere; }
+.vl-verdict { padding: 16px 20px; }
+.vl-verdict__text { max-width: 62ch; font-size: 18px; line-height: 1.55; }
 
-/* Mode options: one radio per mode, each with the line that says what it asks for */
-.mode-list {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
+/* Regions asked */
+.vl-regions__list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.vl-region { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; width: 100%; padding: 8px; font: inherit; color: var(--ds-text); text-align: left; cursor: pointer; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.vl-region:hover:not(:disabled) { border-color: var(--ds-accent-dim); }
+.vl-region[aria-current='true'] { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.vl-region:disabled { cursor: not-allowed; opacity: 0.55; }
+.vl-region:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.vl-region__crop { display: block; width: 72px; height: 56px; object-fit: contain; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.vl-region__text { display: grid; gap: 4px; min-width: 0; align-content: center; }
+.vl-region__top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; color: var(--ds-text-muted); }
+.vl-region__state { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; }
+.vl-region__q { overflow-wrap: anywhere; }
 
-.mode-option {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 8px 12px;
-  border-radius: var(--ds-radius-sm);
-  cursor: pointer;
-}
+/* Recent analyses */
+.vl-history__head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 16px; }
+.history__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.history__item { display: grid; gap: 4px; width: 100%; padding: 0; font: inherit; font-size: 13px; color: var(--ds-text-muted); text-align: left; cursor: pointer; background: none; border: 0; }
+.history__item img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--ds-surface-2); border-radius: var(--ds-radius-sm); }
+.history__item[aria-current='true'] img { outline: 2px solid var(--ds-accent); outline-offset: 2px; }
+.history__item:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+.history__item:disabled { cursor: not-allowed; opacity: 0.55; }
+.history__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ds-text); }
 
-.mode-option.is-selected {
-  background: var(--ds-accent-soft);
-}
+/* Full-size view: a native modal dialog, so the browser traps focus and handles Escape */
+dialog.zoom { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 48px 16px 16px; color: inherit; background: transparent; border: 0; }
+dialog.zoom[open] { display: grid; place-items: center; }
+dialog.zoom::backdrop { background: color-mix(in srgb, var(--ds-text) 90%, transparent); }
+.zoom img { max-width: 100%; max-height: calc(100vh - 64px); object-fit: contain; border-radius: var(--ds-radius-sm); }
+.zoom__close { position: fixed; top: 12px; right: 12px; }
 
-.mode-option input {
-  width: 18px;
-  height: 18px;
-  margin: 3px 0 0;
-  accent-color: var(--ds-accent);
+@media (max-width: 720px) {
+  .vl-regionhead { grid-template-columns: 72px minmax(0, 1fr); }
+  .vl-regionhead__crop { width: 72px; height: 56px; }
+  .vl-lead { padding: 16px; }
 }
-
-.mode-option__body {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.mode-option__label {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-/* The answer stage: the mode leads, the picture sits beside the streamed reply */
-.answer-title {
-  font-size: 22px;
-  font-weight: 750;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
-}
-
-.answer-stage {
-  display: grid;
-  gap: 20px;
-  min-width: 0;
-}
-
-.answer-column {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.picture {
-  min-width: 0;
-}
-
-.picture__frame {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-}
-
-.picture__frame img {
-  display: block;
-  width: 100%;
-  max-height: 340px;
-  object-fit: contain;
-  background: var(--ds-surface);
-  border-radius: var(--ds-radius-sm);
-}
-
-.picture__name {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.picture__credit {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding-top: 8px;
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  border-top: 1px solid var(--ds-border);
-  overflow-wrap: anywhere;
-}
-
-.picture__credit a {
-  font-weight: 650;
-  color: var(--ds-accent);
-}
-
-.picture.is-dragging .ds-panel,
-.picture.is-dragging .ds-empty {
-  border-color: var(--ds-accent);
-}
-
-@media (min-width: 720px) {
-  .answer-stage {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-    align-items: start;
-    gap: 24px;
-  }
-}
-
-.result-body {
-  min-width: 0;
-}
-
-.result-text {
-  max-width: 72ch;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.result-text > * + * {
-  margin-top: 12px;
-}
-
-.result-text h1,
-.result-text h2,
-.result-text h3,
-.result-text h4 {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.result-text ul,
-.result-text ol,
-.result-text blockquote,
-.result-text pre,
-.table-wrap {
-  margin: 0;
-}
-
-.result-text ul,
-.result-text ol {
-  padding-left: 22px;
-}
-
-.result-text li + li {
-  margin-top: 4px;
-}
-
-.result-text blockquote {
-  padding-left: 12px;
-  color: var(--ds-text-muted);
-  border-left: 3px solid var(--ds-border);
-}
-
-.result-text a {
-  color: var(--ds-accent);
-}
-
-.result-text code {
-  padding: 1px 4px;
-  font-family: var(--ds-mono);
-  font-size: 13px;
-  background: var(--ds-surface-2);
-  border-radius: 4px;
-}
-
-.result-text pre {
-  padding: 12px;
-  overflow-x: auto;
-  background: var(--ds-surface-2);
-  border-radius: var(--ds-radius-sm);
-}
-
-.result-text pre code {
-  padding: 0;
-  background: none;
-}
-
-/* Wide tables scroll inside their own box instead of widening the page */
-.table-wrap {
-  overflow-x: auto;
-}
-
-.result-text table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.result-text th,
-.result-text td {
-  padding: 8px 10px;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--ds-border);
-}
-
-.result-text th {
-  font-weight: 650;
-  background: var(--ds-surface-2);
-}
-
-/* The one moving element: a caret while the answer streams in. */
-.result-text.is-streaming > :last-child::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: var(--ds-accent);
-  animation: caret 1s steps(2, start) infinite;
-}
-
-@keyframes caret {
-  50% {
-    opacity: 0;
-  }
-}
-
-/* A figure the provider did not send: quieter than a value */
-.readout-missing {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--ds-text-muted);
-}
-
-/* Recent analyses: thumbnails, with the open one marked by an outline */
-.history__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.history__item {
-  display: grid;
-  gap: 6px;
-  width: 104px;
-  padding: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  text-align: left;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.history__item img {
-  display: block;
-  width: 104px;
-  height: 78px;
-  object-fit: cover;
-  background: var(--ds-surface-2);
-  border-radius: var(--ds-radius-sm);
-}
-
-.history__item[aria-current='true'] img {
-  outline: 2px solid var(--ds-accent);
-  outline-offset: 2px;
-}
-
-.history__item:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.history__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ds-text);
-}
-
-.history__mode {
-  color: var(--ds-text-muted);
-}
-
-/* Full-size view of the picture: a native modal dialog, so the browser traps focus and handles Escape */
-dialog.zoom {
-  width: 100%;
-  max-width: none;
-  height: 100%;
-  max-height: none;
-  margin: 0;
-  padding: 56px 16px 16px;
-  color: inherit;
-  background: transparent;
-  border: 0;
-}
-
-dialog.zoom[open] {
-  display: grid;
-  place-items: center;
-}
-
-dialog.zoom::backdrop {
-  background: rgba(8, 10, 16, 0.92);
-}
-
-.zoom img {
-  max-width: 100%;
-  max-height: calc(100vh - 72px);
-  object-fit: contain;
-  border-radius: var(--ds-radius-sm);
-}
-
-.zoom__close {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-}
-
-.run-status {
-  min-height: 1.5em;
-  margin: 0;
-  font-size: 14px;
-  color: var(--ds-text-muted);
-}
+.vl-box--top .ds-box__tag { top: 0; bottom: auto; border-radius: 0 0 3px 0; }
+.vl-question { resize: vertical; min-height: 96px; }

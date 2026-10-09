@@ -6,7 +6,10 @@ import { useCommonsSearch } from '../lib/useCommonsSearch'
 
 interface CommonsPickerProps {
   disabled: boolean
-  hasImage: boolean
+  /** How many image slots are still empty. The list stays open while more than one is. */
+  slotsLeft: number
+  /** Names the slot a pick goes into, when there is more than one. */
+  label: string
   onPick: (file: File, image: CommonsImage) => void
 }
 
@@ -15,15 +18,16 @@ const PICK_FAILED = 'The image could not be loaded. Try again or pick another.'
 
 // "Pick a public image": search Wikimedia Commons, choose a result, and the thumbnail is downloaded
 // in the browser and handed to the same pipeline as an upload.
-export default function CommonsPicker({ disabled, hasImage, onPick }: CommonsPickerProps) {
+export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: CommonsPickerProps) {
   const { state, search } = useCommonsSearch()
   const [text, setText] = useState('')
-  const [open, setOpen] = useState(!hasImage)
+  const [open, setOpen] = useState(slotsLeft > 0)
   const [picking, setPicking] = useState<CommonsImage | null>(null)
   const [pickError, setPickError] = useState('')
   const pickAbort = useRef<AbortController | null>(null)
 
   useEffect(() => () => pickAbort.current?.abort(), [])
+
 
   const runSearch = (query: string) => {
     setText(query)
@@ -46,7 +50,7 @@ export default function CommonsPicker({ disabled, hasImage, onPick }: CommonsPic
       const file = await fetchCommonsFile(image, controller.signal)
       if (controller.signal.aborted) return
       setPicking(null)
-      setOpen(false)
+      setOpen(slotsLeft > 1)
       onPick(file, image)
     } catch (err) {
       if (controller.signal.aborted) return
@@ -56,12 +60,15 @@ export default function CommonsPicker({ disabled, hasImage, onPick }: CommonsPic
   }
 
   const busy = disabled || picking !== null
+  // Starting a run closes the list, so the result is what the page shows.
 
   return (
-    <details className="commons" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+        <details className="commons" open={open && !disabled} onToggle={event => !disabled && setOpen(event.currentTarget.open)}>
       <summary className="commons__summary">
         <span className="commons__title">Pick a public image</span>
-        <span className="commons__sub">Search Wikimedia Commons instead of uploading.</span>
+        <span className="commons__sub">
+          {label ? `Search Wikimedia Commons for ${label}.` : 'Search Wikimedia Commons instead of uploading.'}
+        </span>
       </summary>
 
       <div className="commons__body">
@@ -126,8 +133,10 @@ export default function CommonsPicker({ disabled, hasImage, onPick }: CommonsPic
             </div>
           )}
           {state.status === 'ready' && state.images.length === 0 && (
-            <div className="ds-empty">
-              No JPEG, PNG, WebP or GIF images matched “{state.query}”. Try other words.
+            <div className="ds-state ds-state--empty">
+              <span className="ds-state__mark" aria-hidden="true" />
+              <p className="ds-state__title">No usable images</p>
+              <p className="ds-state__body">No JPEG, PNG, WebP or GIF images matched “{state.query}”. Try other words.</p>
             </div>
           )}
           {state.status === 'ready' && state.images.length > 0 && (
