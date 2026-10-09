@@ -1,7 +1,7 @@
 import { chat, MODEL, ProviderStatusError, type Usage } from '../shared/provider'
 import {
   CONTENT_TYPES, MAX_STAGE_TEXT_CHARS, STAGE_IDS, STAGE_INPUTS, STAGE_LABELS, buildSystemPrompt, buildUserMessage,
-  rejectOutput, wordCount, type StageId,
+  plainPreview, rejectOutput, wordCount, type StageId,
 } from '../shared/stages'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
@@ -90,9 +90,7 @@ function providerFailure(stage: StageId, err: ProviderStatusError, startedAt: nu
 // Plain-text preview of the output, so the trace shows what the stage produced.
 function detailFor(content: string): string {
   const words = wordCount(content)
-  const preview = content.replace(/\s+/g, ' ')
-  const shown = preview.length > 90 ? `${preview.slice(0, 90)}…` : preview
-  return `${words} ${words === 1 ? 'word' : 'words'}: ${shown}`
+  return `${words} ${words === 1 ? 'word' : 'words'}: ${plainPreview(content, 90)}`
 }
 
 function parseRunRequest(body: unknown): RunRequest | string {

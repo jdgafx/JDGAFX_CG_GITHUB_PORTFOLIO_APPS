@@ -139,3 +139,26 @@ describe('stage constants', () => {
     expect(wordCount('   ')).toBe(0)
   })
 })
+
+import { plainPreview } from '../../netlify/shared/stages'
+
+describe('plainPreview', () => {
+  it('removes Markdown markers and collapses whitespace', () => {
+    expect(plainPreview('# Why Unit Tests Matter\n\n**1. The Problem** - No QA\n- Regressions slip', 200)).toBe(
+      'Why Unit Tests Matter 1. The Problem - No QA Regressions slip',
+    )
+  })
+
+  it('cuts at a word boundary and ends with an ellipsis', () => {
+    const text = Array.from({ length: 30 }, (_, i) => `word${i}`).join(' ')
+    const cut = plainPreview(text, 60)
+    expect(cut.endsWith('\u2026')).toBe(true)
+    expect(cut.length).toBeLessThanOrEqual(61)
+    expect(text.startsWith(cut.slice(0, -1))).toBe(true)
+    expect(cut.slice(0, -1).endsWith(' ')).toBe(false)
+  })
+
+  it('leaves short plain text as it is', () => {
+    expect(plainPreview('Unit tests: fast checks.', 90)).toBe('Unit tests: fast checks.')
+  })
+})

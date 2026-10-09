@@ -134,3 +134,20 @@ export function rejectOutput(
   }
   return null
 }
+
+/**
+ * A plain-text preview of model output for the trace: Markdown headings, list and emphasis markers removed,
+ * whitespace collapsed, cut at the last word boundary before the limit and ended with an ellipsis.
+ */
+export function plainPreview(content: string, limit: number): string {
+  const plain = content
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*(?:[-*\u2022]|\d+\.)\s+/gm, '')
+    .replace(/\*\*|__|`|\*|_/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (plain.length <= limit) return plain
+  const head = plain.slice(0, limit)
+  const lastSpace = head.lastIndexOf(' ')
+  return `${(lastSpace > limit / 2 ? head.slice(0, lastSpace) : head).trimEnd()}\u2026`
+}
