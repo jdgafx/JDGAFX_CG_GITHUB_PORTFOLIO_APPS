@@ -19,6 +19,12 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
   const length = Array.from(question.trim()).length
   const valid = length >= 1 && length <= QUESTION_MAX_CHARS
 
+  // On a phone the open examples list would push the answer off screen, so starting a run closes it.
+  const start = () => {
+    if (!window.matchMedia('(min-width: 1000px)').matches) setExamplesOpen(false)
+    onSubmit()
+  }
+
   return (
     <>
       <section className="ds-section" aria-label="Question">
@@ -27,7 +33,7 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
           className="ds-stack"
           onSubmit={(event) => {
             event.preventDefault()
-            if (valid && !running) onSubmit()
+            if (valid && !running) start()
           }}
         >
           <div className="ds-field">
@@ -45,7 +51,7 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && valid && !running) {
                   event.preventDefault()
-                  onSubmit()
+                  start()
                 }
               }}
             />
@@ -68,7 +74,7 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
           Start research
         </button>
         {running && (
-          <button type="button" className="ds-button" onClick={onCancel}>
+          <button type="button" className="ds-button" onClick={onCancel} autoFocus>
             Stop
           </button>
         )}

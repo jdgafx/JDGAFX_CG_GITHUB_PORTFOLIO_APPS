@@ -168,7 +168,7 @@ export function researchStatus(view: RunView): string {
     if (ending.kind === 'partial') return 'Research stopped early. The answer is the last draft, labelled below.'
     return sources.length === 0 ? 'Research finished. The answer cites no source.' : 'Research finished. The cited answer is ready.'
   }
-  if (view.phase === 'failed') return 'Research failed. The message above says why.'
+  if (view.phase === 'failed') return 'Research failed. The answer panel says why.'
   if (view.phase === 'stopped') return 'Research stopped. Steps that finished are still in the trace.'
   return 'Ready. Start research when the question is set.'
 }

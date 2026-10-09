@@ -37,7 +37,27 @@ export default function App() {
   const [question, setQuestion] = useState('')
   const [view, dispatch] = useReducer(reducer, undefined, emptyRun)
   const abortRef = useRef<AbortController | null>(null)
+  const startScrollRef = useRef(0)
+  const previousPhase = useRef(view.phase)
   const running = view.phase === 'running'
+
+  // When a run ends, bring the result into view on a narrow screen (unless the visitor scrolled during the run)
+  // and move focus to its heading, so a screen reader reads the outcome and the next Tab reaches its actions.
+  useEffect(() => {
+    const was = previousPhase.current
+    previousPhase.current = view.phase
+    if (was !== 'running' || view.phase === 'running') return
+    const target = document.querySelector<HTMLElement>('[data-result-focus]')
+    if (!target) return
+    const narrow = !window.matchMedia('(min-width: 1000px)').matches
+    const scrolled = Math.abs(window.scrollY - startScrollRef.current) > 40
+    if (narrow && !scrolled) {
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      target.closest('.ds-run__result')?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
+    }
+    const active = document.activeElement
+    if (!active || active === document.body) target.focus({ preventScroll: true })
+  }, [view.phase])
 
   // Leaving the page ends the run, so no request keeps billing after the visitor is gone.
   useEffect(() => {
@@ -47,6 +67,7 @@ export default function App() {
   const submit = async () => {
     const text = question.trim()
     if (text === '' || running) return
+    startScrollRef.current = window.scrollY
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -107,7 +128,13 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <AnswerCard result={view.result} phase={view.phase} error={view.error} onRetry={() => void submit()} />
+            <AnswerCard
+              result={view.result}
+              phase={view.phase}
+              error={view.error}
+              hasSteps={view.trace.length > 0}
+              onRetry={() => void submit()}
+            />
             <ReadoutStrip view={view} />
             <GraphView view={view} />
             <RunTrace view={view} />
