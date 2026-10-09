@@ -112,6 +112,19 @@ describe('contextAround', () => {
     expect(`${passage}${c.joinAfter ? '' : ' '}${c.after}`).toContain('xidation of water')
   })
 
+  it('joins with no space when the cut sits next to punctuation', () => {
+    const show = (prev: string, passage: string) => {
+      const c = contextAround(prev, passage, undefined)
+      // As HTML renders it: runs of white space collapse to one.
+      return `${c.before}${c.joinBefore ? '' : ' '}${passage}`.replace(/\s+/g, ' ')
+    }
+    expect(show('the cycle is non-cyclic and', "-cyclic and then")).toContain('non-cyclic and')
+    expect(show("during Aldrin's attempts", "'s attempts to land")).toContain("Aldrin's attempts")
+    expect(show('in C4 plants, including maize', ', including maize and')).toContain('C4 plants, including')
+    // A real space at the cut stays.
+    expect(show('the light reactions start', ' reactions start here')).toContain('light reactions start')
+  })
+
   it('cuts the words each neighbour shares with the passage, so nothing is shown twice', () => {
     const before = 'The first part ends with the shared words here'
     const passage = 'with the shared words here and the middle part ends with the next shared tail'
@@ -193,6 +206,13 @@ describe('splitSentences: PDF spacing inside numbers', () => {
 })
 
 describe('supporting sentence: the opening fragment', () => {
+  it('wins when it ties on shared words but its words are rarer in the passage (live arXiv 1706.03762 passage 51)', () => {
+    const passage = 'odel achieves a BLEU score of   41 . 0 , outperforming all of the previously published single models, at less than   1 / 4   the training cost of the previous state-of-the-art model. The Transformer (big) model trained for English-to-French used dropout rate   P drop   = 0 . 1 , instead of   0 . 3 . For the base models, we used a single model obtained by averaging the last 5 checkpoints, which were written at 10-minute intervals. For the big models, we averaged the last 20 checkpoints. We used beam search with a beam size of   4   and length penalty   α   = 0 .'
+    const found = supportingSentences(passage, ['The big Transformer model achieved a BLEU score of 41.0 on the English-to-French translation task [50][51].'])
+    expect(found.map(s => s.sentence.start)).toEqual([0])
+  })
+
+
   it('is used when it shares more words than any whole sentence (the cited text starts the passage)', () => {
     const passage = 'odel achieves a BLEU score of 41 . 0 , outperforming all single models. The Transformer big model trained for French used dropout.'
     const found = supportingSentences(passage, ['The model achieves a BLEU score of 41.0.'])

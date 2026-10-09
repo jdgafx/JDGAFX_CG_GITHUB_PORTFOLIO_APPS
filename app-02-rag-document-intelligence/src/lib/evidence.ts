@@ -122,7 +122,7 @@ function bestFor(sentences: PassageSentence[], answerSentence: string): Support 
   // A passage that starts inside a sentence opens with the tail of the one before it.
   const fragment = (s: PassageSentence) => s.start === 0 && /^\p{Ll}/u.test(s.text)
   const rarity = (words: Map<string, string>) => [...words.keys()].reduce((sum, stem) => sum + 1 / (spread.get(stem) ?? 1), 0)
-  const pick = (rows: typeof found): Support | null => {
+  const pick = (rows: typeof found): { support: Support; rare: number } | null => {
     let best: { support: Support; rare: number } | null = null
     for (const { sentence, words } of rows) {
       if (words.size === 0) continue
@@ -131,12 +131,15 @@ function bestFor(sentences: PassageSentence[], answerSentence: string): Support 
         best = { support: { sentence, shared: [...words.values()] }, rare }
       }
     }
-    return best?.support ?? null
+    return best
   }
   const whole = pick(found.filter(row => !fragment(row.sentence)))
   const opening = pick(found.filter(row => fragment(row.sentence)))
-  // The opening fragment is used when it shares more words than any whole sentence; on a tie the whole sentence is the claim.
-  return opening && (!whole || opening.shared.length > whole.shared.length) ? opening : whole
+  // The opening fragment is used when it shares more words than any whole sentence, or as many but rarer ones; on a full
+  // tie the whole sentence is the claim.
+  const wins = opening && (!whole || opening.support.shared.length > whole.support.shared.length
+    || (opening.support.shared.length === whole.support.shared.length && opening.rare > whole.rare))
+  return (wins ? opening : whole)?.support ?? null
 }
 
 /**
@@ -182,8 +185,6 @@ function overlap(a: string, b: string, min = 8): number {
   return 0
 }
 
-const WORD_CHAR = /[\p{L}\p{N}]/u
-
 export interface Context {
   before: string
   after: string
@@ -196,7 +197,7 @@ export interface Context {
 /**
  * The text on each side of a passage, for the source panel. Neighbouring passages overlap by a few words, so the
  * stretch already inside the passage is cut from each side. Passages start and end at arbitrary characters, so the
- * cut can fall inside a word; both halves are kept, and the flags say the two sides join with no space. Each side is
+ * cut can fall inside a word or next to punctuation; both sides are kept, and the flags say the two sides join with no space. Each side is
  * cut to at most `max` characters at a word.
  */
 export function contextAround(prev: string | undefined, passage: string, next: string | undefined, max = 220): Context {
@@ -204,8 +205,9 @@ export function contextAround(prev: string | undefined, passage: string, next: s
   const cutAfter = next === undefined ? 0 : overlap(passage, next)
   let before = prev === undefined ? '' : prev.slice(0, prev.length - cutBefore)
   let after = next === undefined ? '' : next.slice(cutAfter)
-  const joinBefore = cutBefore > 0 && WORD_CHAR.test(before.slice(-1)) && WORD_CHAR.test(passage.slice(0, 1))
-  const joinAfter = cutAfter > 0 && WORD_CHAR.test(after.slice(0, 1)) && WORD_CHAR.test(passage.slice(-1))
+  // With an overlap the context and passage are contiguous text, so any space that belongs at the cut is already on one side.
+  const joinBefore = cutBefore > 0 && before !== '' && !/\s/.test(before.slice(-1)) && !/\s/.test(passage.slice(0, 1))
+  const joinAfter = cutAfter > 0 && after !== '' && !/\s/.test(after.slice(0, 1)) && !/\s/.test(passage.slice(-1))
   if (before.length > max) {
     before = before.slice(-max)
     before = before.slice(before.indexOf(' ') + 1)
