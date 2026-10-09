@@ -27,7 +27,8 @@ export default function ObservedPage({ observed, sessionId, expectation }: Obser
             <div>
               <dt className="bb-sr-only">Page text</dt>
               <dd>
-                <pre className="bb-pre">{observed.excerpt || 'The page returned no readable text.'}</pre>
+                {/* The text can be longer than its box, so the box takes focus and a keyboard user can scroll it. */}
+                <pre className="bb-pre" role="region" aria-label="Page text" tabIndex={0}>{observed.excerpt || 'The page returned no readable text.'}</pre>
               </dd>
             </div>
           </dl>
