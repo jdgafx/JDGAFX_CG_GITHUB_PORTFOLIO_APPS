@@ -82,6 +82,11 @@ export function isCallTimeout(err: unknown): boolean {
   return err instanceof ProviderError && err.status === 504 && err.message === SLOW_MESSAGE
 }
 
+/** True for a call worth trying once more: it hit its own time limit, or the connection failed. */
+export function isRetryable(err: unknown): boolean {
+  return isCallTimeout(err) || (err instanceof ProviderError && err.status === 502 && err.message === UNREACHABLE_MESSAGE)
+}
+
 /** Plain text for an HTTP status. The provider's own body is never shown or logged. */
 export function messageForStatus(status: number): string {
   if (status === 401 || status === 402 || status === 403) {

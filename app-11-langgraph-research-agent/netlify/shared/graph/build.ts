@@ -45,7 +45,7 @@ export interface FailedChunk {
 export type CustomChunk = StartChunk | FailedChunk
 
 function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult): TraceRow {
-  const detail = result.call?.retried ? `${result.detail} The first call timed out, so it was tried once more.` : result.detail
+  const detail = result.call?.retried ? `${result.detail} The first call timed out or could not connect, so it was tried once more.` : result.detail
   const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail }
   if (result.route) row.next = result.route.label
   if (result.call) {

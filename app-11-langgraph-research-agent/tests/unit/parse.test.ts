@@ -67,6 +67,13 @@ describe('parseCritic', () => {
     expect(parseCritic('{"verdict": "revise", "issues": ["  "]}')?.issues).toEqual([])
   })
 
+  it('drops an issue that has a quote but no fix, so no note ends in a dangling quote', () => {
+    const verdict = parseCritic('{"verdict": "revise", "issues": [{"quote": "45 years", "fix": ""}, {"quote": "1887", "fix": "Say 1889."}]}')
+    expect(verdict?.issues).toEqual([{ quote: '1887', fix: 'Say 1889.' }])
+    expect(verdict?.notes).toBe('"1887": Say 1889.')
+    expect(parseCritic('{"verdict": "revise", "issues": [{"quote": "45 years", "fix": ""}]}')?.notes).toBe('')
+  })
+
   it('keeps at most five issues', () => {
     const issues = Array.from({ length: 8 }, (_, i) => ({ quote: `Quote ${i + 1}`, fix: 'Fix.' }))
     expect(parseCritic(JSON.stringify({ verdict: 'revise', issues }))?.issues).toEqual(issues.slice(0, 5))

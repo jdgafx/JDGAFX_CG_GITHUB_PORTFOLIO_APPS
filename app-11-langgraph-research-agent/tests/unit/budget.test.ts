@@ -5,6 +5,7 @@ import {
   BUDGET_MESSAGE,
   ProviderError,
   SLOW_MESSAGE,
+  UNREACHABLE_MESSAGE,
   type ChatFn,
   type ChatReply,
 } from '../../netlify/shared/openrouter'
@@ -215,14 +216,77 @@ describe('the critic verdict routes on its issues', () => {
   })
 })
 
+describe('the answer never talks about the review', () => {
+  const LEAKY = `${DRAFT} The reviewer's concern is accurate on both counts. Its theme was The Oceans [1].`
+
+  it('removes review talk from a revised answer, and says so in the final row', async () => {
+    const out = await run({
+      script: { draft: [DRAFT, LEAKY], critic: [revise(QUOTE, 'Add the theme.'), '{"verdict": "accept", "issues": []}'] },
+      toolsOnAgentCall: [1],
+    })
+    expect(out.result?.answer).toBe(`${DRAFT} Its theme was The Oceans [1].`)
+    expect(out.ends.find((end) => end.node === 'final')?.detail).toBe(
+      '1 cited source(s). Removed 1 sentence(s) that talked about the review.',
+    )
+  })
+
+  it('leaves a first draft alone, since it has not seen the review', async () => {
+    const out = await run({ script: { draft: ["Lisbon hosted Expo '98 in 1998 [1]. The critic Harold Bloom was not involved."] }, toolsOnAgentCall: [1] })
+    expect(out.result?.answer).toContain('The critic Harold Bloom')
+    expect(out.ends.find((end) => end.node === 'final')?.detail).toBe('1 cited source(s).')
+  })
+
+  it('removes it from the last draft of a run that stops, too', async () => {
+    const out = await run({
+      script: { draft: [DRAFT, LEAKY], critic: [revise(QUOTE, 'Add the theme.')] },
+      toolsOnAgentCall: [1],
+      failOn: { critic: { call: 2, error: new ProviderError(504, SLOW_MESSAGE) } },
+    })
+    expect(out.last).toMatchObject({ type: 'result', answer: `${DRAFT} Its theme was The Oceans [1].` })
+  })
+})
+
+describe('an honest "the sources do not say" draft', () => {
+  const HONEST = 'The sources do not say who the mayor was. The page read, Lisbon, Ohio [1], has nothing on a pet.'
+
+  it('passes the critic and goes out in one draft', async () => {
+    const out = await run({ script: { draft: [HONEST] }, toolsOnAgentCall: [1] })
+    expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (no more searches)', 'final (accepted)'])
+    expect(out.counts.draft).toBe(1)
+    expect(out.result).toMatchObject({ answer: HONEST, critic: { verdict: 'accept', reviewed: true } })
+  })
+
+  it('is not sent back on an issue that has a quote but no fix', async () => {
+    const quoted = JSON.stringify({ verdict: 'revise', issues: [{ quote: 'The sources do not say who the mayor was', fix: '' }] })
+    const out = await run({ script: { draft: [HONEST], critic: [quoted] }, toolsOnAgentCall: [1] })
+    expect(out.edges.at(-1)).toBe('final (accepted)')
+    expect(out.counts.draft).toBe(1)
+  })
+})
+
 describe('retrying a call that timed out', () => {
   const timeout = new ProviderError(504, SLOW_MESSAGE)
 
   it('tries the plan call once more when the first times out and the time left allows it', async () => {
     const out = await run({ script: {}, failOn: { plan: { call: 1, error: timeout, times: 1 } }, deadline: 60_000 })
     expect(out.counts.plan).toBe(2)
-    expect(out.ends.find((end) => end.node === 'plan')?.detail).toContain('The first call timed out, so it was tried once more.')
+    expect(out.ends.find((end) => end.node === 'plan')?.detail).toContain('The first call timed out or could not connect, so it was tried once more.')
     expect(out.result?.ending.kind).toBe('complete')
+  })
+
+  it('tries the plan call once more when the connection failed', async () => {
+    const out = await run({
+      script: {},
+      failOn: { plan: { call: 1, error: new ProviderError(502, UNREACHABLE_MESSAGE), times: 1 } },
+      deadline: 60_000,
+    })
+    expect(out.counts.plan).toBe(2)
+    expect(out.result?.ending.kind).toBe('complete')
+  })
+
+  it('does not retry a rejected key', async () => {
+    const out = await run({ script: {}, failOn: { plan: { call: 1, error: new ProviderError(402, 'x'), times: 1 } }, deadline: 60_000 })
+    expect(out.counts.plan).toBe(1)
   })
 
   it('does not retry when the time left cannot cover the step again and what must follow', async () => {

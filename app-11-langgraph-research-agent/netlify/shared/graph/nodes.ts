@@ -1,9 +1,9 @@
-import { citedNumbers, sanitizeCitations, sourcesFor } from '../citations'
+import { citedNumbers, removeReviewTalk, sanitizeCitations, sourcesFor } from '../citations'
 import type { EndingView, NodeStatus } from '../events'
 import { PlainError } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
 import {
-  isCallTimeout,
+  isRetryable,
   type AssistantToolCall,
   type ChatFn,
   type ChatMessage,
@@ -90,7 +90,7 @@ async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCa
   try {
     return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: false }
   } catch (err) {
-    if (!isCallTimeout(err) || timeLeft(ctx) < options.retryNeedsMs) throw err
+    if (!isRetryable(err) || timeLeft(ctx) < options.retryNeedsMs) throw err
     return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: true }
   }
 }
@@ -332,13 +332,17 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
 
 /** Drops citation markers that name no source and lists the sources the answer cites. No model call. */
 export function finalStep(state: ResearchValues): NodeResult {
-  const answer = sanitizeCitations(state.draftText, state.evidence)
+  // Only a revised draft has seen the reviewer's issues, so only it can speak about them.
+  const cleaned = state.revisions > 0 ? removeReviewTalk(state.draftText) : { text: state.draftText, removed: 0 }
+  const answer = sanitizeCitations(cleaned.text, state.evidence)
   const sources = sourcesFor(answer, state.evidence)
   const unreviewed = state.critique !== null && !state.critique.reviewed
   const ending: EndingView =
     state.ending ?? (unreviewed ? { kind: 'partial', message: state.critique?.notes ?? '' } : { kind: 'complete', message: '' })
   return {
     update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending } },
-    detail: sources.length > 0 ? `${sources.length} cited source(s).` : 'No source is cited.',
+    detail:
+      (sources.length > 0 ? `${sources.length} cited source(s).` : 'No source is cited.') +
+      (cleaned.removed > 0 ? ` Removed ${cleaned.removed} sentence(s) that talked about the review.` : ''),
   }
 }

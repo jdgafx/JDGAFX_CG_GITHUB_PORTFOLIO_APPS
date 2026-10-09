@@ -91,7 +91,7 @@ export function parseCritic(text: string): CriticVerdict | null {
   if (!parsed.success) return null
   const issues = (parsed.data.issues ?? [])
     .map((issue): CriticIssue => (typeof issue === 'string' ? { quote: '', fix: squash(issue) } : { quote: squash(issue.quote ?? ''), fix: squash(issue.fix ?? '') }))
-    .filter((issue) => issue.quote !== '' || issue.fix !== '')
+    .filter((issue) => issue.fix !== '')
     .slice(0, ISSUES_MAX)
   const notes = issues.length > 0 ? issueNotes(issues) : clipText(squash(parsed.data.notes ?? ''), NOTES_MAX_CHARS)
   return { verdict: parsed.data.verdict, issues, notes }
