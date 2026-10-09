@@ -282,13 +282,60 @@ describe('runStage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('maps a provider timeout to a timeout result and does not retry it', async () => {
+  it('maps a provider timeout to a timeout result after one retry', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
     })
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ content: '', finish: 'timeout', retried: 'timeout' })
+  })
+
+  it('retries a call that hung before any answer, and says so on the result', async () => {
+    const fetchMock = stubFetch(
+      () => {
+        throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+      },
+      () => upstreamReply('Second try worked.'),
+    )
+
+    const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ content: 'Second try worked.', finish: 'stop', retried: 'timeout' })
+  })
+
+  it('retries a dropped connection once', async () => {
+    const fetchMock = stubFetch(
+      () => {
+        throw new TypeError('fetch failed')
+      },
+      () => upstreamReply('Back again.'),
+    )
+
+    const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ content: 'Back again.', retried: 'connection' })
+  })
+
+  it('does not retry a rejected request (4xx)', async () => {
+    const fetchMock = stubFetch(() => new Response('no', { status: 400 }), () => upstreamReply('never reached'))
+
+    await expect(runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)).rejects.toBeInstanceOf(UpstreamError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry a timeout when less than the minimum retry time is left', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 1_500, LIVE)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ content: '', finish: 'timeout' })

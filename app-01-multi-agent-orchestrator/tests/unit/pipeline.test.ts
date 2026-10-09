@@ -1,57 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { createAgents, foundNoSources, statusView } from '../../src/lib/agents'
-import { buildEdges, buildNodes, derivePhase, edgeHandles, nodePosition, settleAgents, traceDetail, traceMeta } from '../../src/lib/pipeline'
+import { derivePhase, retryLine, settleAgents, traceDetail, traceMeta } from '../../src/lib/pipeline'
 
-describe('nodePosition', () => {
-  it('snakes five steps three to a row: right, right, down, then back left', () => {
-    expect([0, 1, 2, 3, 4].map(i => nodePosition(i, 'cols3'))).toEqual([
-      { x: 0, y: 0 },
-      { x: 208, y: 0 },
-      { x: 416, y: 0 },
-      { x: 416, y: 168 },
-      { x: 208, y: 168 },
-    ])
+describe('retryLine', () => {
+  it('names why a stage was tried a second time, and says nothing when it ran once', () => {
+    expect(retryLine('timeout')).toEqual(['Retried once after a timeout'])
+    expect(retryLine('connection')).toEqual(['Retried once after a dropped connection'])
+    expect(retryLine('reply')).toEqual(['Retried once after an empty or cut-off reply'])
+    expect(retryLine(undefined)).toEqual([])
   })
 
-  it('snakes five steps two to a row on phones', () => {
-    expect([0, 1, 2, 3, 4].map(i => nodePosition(i, 'cols2'))).toEqual([
-      { x: 0, y: 0 },
-      { x: 208, y: 0 },
-      { x: 208, y: 168 },
-      { x: 0, y: 168 },
-      { x: 0, y: 336 },
-    ])
-  })
-})
-
-describe('edges', () => {
-  it('joins the sides that face each other', () => {
-    expect(edgeHandles({ x: 0, y: 0 }, { x: 208, y: 0 })).toEqual({ sourceHandle: 'source-right', targetHandle: 'target-left' })
-    expect(edgeHandles({ x: 416, y: 168 }, { x: 208, y: 168 })).toEqual({ sourceHandle: 'source-left', targetHandle: 'target-right' })
-    expect(edgeHandles({ x: 416, y: 0 }, { x: 416, y: 168 })).toEqual({ sourceHandle: 'source-bottom', targetHandle: 'target-top' })
-  })
-
-  it('draws four labelled edges from Retrieve to the Synthesizer and marks one taken once its target starts', () => {
-    const agents = createAgents()
-    agents.researcher.status = 'working'
-    const edges = buildEdges(agents, 'cols3')
-    expect(edges.map(edge => [edge.source, edge.target, edge.label, edge.sourceHandle])).toEqual([
-      ['retriever', 'researcher', 'Sources', 'source-right'],
-      ['researcher', 'analyst', 'Research', 'source-right'],
-      ['analyst', 'critic', 'Analysis', 'source-bottom'],
-      ['critic', 'synthesizer', 'Gaps', 'source-left'],
-    ])
-    expect(edges.map(edge => edge.className)).toEqual([
-      'pipeline-edge pipeline-edge--taken',
-      'pipeline-edge',
-      'pipeline-edge',
-      'pipeline-edge',
-    ])
-    expect(buildEdges(agents, 'cols2').map(edge => edge.sourceHandle)).toEqual(['source-right', 'source-bottom', 'source-left', 'source-bottom'])
-  })
-
-  it('builds one node per step, Retrieve first', () => {
-    expect(buildNodes(createAgents(), 'cols3').map(node => node.id)).toEqual(['retriever', 'researcher', 'analyst', 'critic', 'synthesizer'])
+  it('leads the figures on a finished model line', () => {
+    const done = { ...createAgents().analyst, status: 'complete' as const, retried: 'timeout', usage: { completion_tokens: 12, cost: 0.00001 } }
+    expect(traceMeta(done)).toEqual(['Retried once after a timeout', '12 output tokens', '$0.000010'])
   })
 })
 

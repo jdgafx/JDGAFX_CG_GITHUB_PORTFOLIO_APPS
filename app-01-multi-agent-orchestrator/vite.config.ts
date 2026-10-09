@@ -3,17 +3,6 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  build: {
-    rollupOptions: {
-      output: {
-        // The export libraries are already lazy-loaded; splitting the graph
-        // renderer keeps the entry chunk down to the shell plus React.
-        manualChunks: {
-          reactflow: ['@xyflow/react'],
-        },
-      },
-    },
-  },
   server: {
     proxy: {
       '/.netlify/functions': {

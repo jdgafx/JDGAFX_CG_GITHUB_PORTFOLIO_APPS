@@ -1,0 +1,144 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { AuditSummary } from '../../src/components/AuditSummary'
+import { Markdown } from '../../src/components/Markdown'
+import { ReportCard } from '../../src/components/ReportCard'
+import { SourcePanel } from '../../src/components/SourcePanel'
+import { createAgents } from '../../src/lib/agents'
+import { settleClaim, summarize } from '../../src/lib/audit'
+import { IDLE_AUDIT, giveUp, pendingClaims, type AuditView } from '../../src/lib/auditState'
+import type { AuditClaim, Source } from '../../src/types'
+
+const JWST = 'The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy. It launched on 25 December 2021.'
+const SOURCES: Source[] = [{ n: 1, title: 'James Webb Space Telescope', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/James_Webb_Space_Telescope', snippet: JWST }]
+const REPORT = ['## Findings', 'JWST is designed for infrared astronomy [1]. This is not cited. It launched on 25 December 2021 [1].', '', '### Sources', '', '1. [JWST](https://x.test) - Wikipedia'].join('\n')
+
+const html = (element: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(element)
+
+function settled(): AuditClaim[] {
+  const pending = pendingClaims(REPORT, SOURCES)
+  return pending.map((claim, i) =>
+    settleClaim(claim, claim.pre, SOURCES, {
+      id: claim.id,
+      verdict: i === 0 ? 'supported' : 'unsupported',
+      source: 1,
+      ...(i === 0 ? { quote: 'designed to conduct infrared astronomy' } : {}),
+      reason: i === 0 ? 'Stated.' : 'Not stated.',
+    }),
+  )
+}
+
+function viewOf(claims: AuditClaim[], phase: AuditView['phase'] = 'done'): AuditView {
+  return { phase, claims, summary: summarize(claims) }
+}
+
+describe('report with claims', () => {
+  it('badges each cited sentence with its verdict and leaves the uncited sentence plain', () => {
+    const claims = settled()
+    const out = html(createElement(Markdown, { text: 'JWST is designed for infrared astronomy [1]. This is not cited. It launched on 25 December 2021 [1].', sources: SOURCES, audit: { claims: claims.map(c => ({ ...c, block: 0, piece: c.id - 1 })).map((c, i) => (i === 1 ? { ...c, piece: 2 } : c)), selected: null, onSelect: () => undefined } }))
+    expect(out.match(/class="claim"/g)).toHaveLength(2)
+    expect(out).toContain('data-verdict="supported"')
+    expect(out).toContain('data-verdict="unsupported"')
+    expect(out).toContain('>Supported<')
+    expect(out).toContain('>Not supported<')
+    expect(out).toContain('This is not cited.')
+    expect(out).toContain('role="button"')
+    expect(out).toContain('aria-pressed="false"')
+  })
+
+  it('marks the selected claim', () => {
+    const claims = pendingClaims(REPORT, SOURCES).map(claim => ({ ...claim, block: 0, piece: 0 })).slice(0, 1)
+    const out = html(createElement(Markdown, { text: 'JWST is designed for infrared astronomy [1].', audit: { claims, selected: claims[0]?.id ?? null, onSelect: () => undefined } }))
+    expect(out).toContain('data-selected="true"')
+    expect(out).toContain('aria-pressed="true"')
+    expect(out).toContain('>Checking<')
+  })
+
+  it('links a [n] marker to its source outside the audit, and as plain text inside a claim', () => {
+    expect(html(createElement(Markdown, { text: 'Fact [1].', sources: SOURCES }))).toContain('href="https://en.wikipedia.org/wiki/James_Webb_Space_Telescope"')
+    const claims = pendingClaims('Fact about the telescope [1].', SOURCES)
+    const inside = html(createElement(Markdown, { text: 'Fact about the telescope [1].', sources: SOURCES, audit: { claims, selected: null, onSelect: () => undefined } }))
+    expect(inside).not.toContain('<a ')
+  })
+})
+
+describe('AuditSummary states', () => {
+  const noop = () => undefined
+  it('renders nothing before a report, and a note when there is nothing to check', () => {
+    expect(html(createElement(AuditSummary, { view: IDLE_AUDIT, onRetry: noop }))).toBe('')
+    expect(html(createElement(AuditSummary, { view: { ...IDLE_AUDIT, phase: 'none', note: 'The report cites no source, so there is nothing to check.' }, onRetry: noop }))).toContain('nothing to check')
+  })
+
+  it('says "Auditing N cited claims" while the request is out', () => {
+    const out = html(createElement(AuditSummary, { view: viewOf(pendingClaims(REPORT, SOURCES), 'running'), onRetry: noop }))
+    expect(out).toContain('Auditing 2')
+    expect(out).toContain('audit-bar--pending')
+  })
+
+  it('shows the headline, the bar and the legend with counts when done', () => {
+    const out = html(createElement(AuditSummary, { view: viewOf(settled()), onRetry: noop }))
+    expect(out).toContain('1 of 2 cited claims supported')
+    expect(out).toContain('1 not supported.')
+    expect(out).toContain('aria-label="Audit result: 1 supported, 1 not supported"')
+    expect(out).toContain('data-zero="true"')
+    expect(out).toContain('<span class="ds-num">1</span> supported')
+  })
+
+  it('names a failed audit, keeps the sentences listed as not checked, and offers a retry', () => {
+    const failed = giveUp(viewOf(pendingClaims(REPORT, SOURCES), 'running'), 'failed', 'The AI provider did not answer in time.')
+    expect(failed.claims.every(claim => claim.verdict === 'unchecked')).toBe(true)
+    const out = html(createElement(AuditSummary, { view: failed, onRetry: () => undefined }))
+    expect(out).toContain('Audit did not finish')
+    expect(out).toContain('The AI provider did not answer in time.')
+    expect(out).toContain('2 cited sentences are listed as not checked')
+    expect(out).toContain('Try the audit again')
+    expect(html(createElement(AuditSummary, { view: giveUp(failed, 'stopped'), onRetry: noop }))).toContain('Audit stopped')
+  })
+})
+
+describe('SourcePanel', () => {
+  it('marks the verified quote in the cited source', () => {
+    const [first] = settled()
+    const out = html(createElement(SourcePanel, { claim: first ?? null, sources: SOURCES }))
+    expect(out).toContain('<mark class="quote">designed to conduct infrared astronomy</mark>')
+    expect(out).toContain('Supported')
+    expect(out).toContain('Words shared')
+  })
+
+  it('says no sentence backs an unsupported claim and shows the extract unmarked', () => {
+    const second = settled()[1]
+    const out = html(createElement(SourcePanel, { claim: second ?? null, sources: SOURCES }))
+    expect(out).toContain('No sentence of the cited source backs this claim')
+    expect(out).not.toContain('<mark')
+  })
+
+  it('invites a selection when nothing is selected', () => {
+    expect(html(createElement(SourcePanel, { claim: null, sources: SOURCES }))).toContain('Select a claim in the report')
+  })
+})
+
+describe('ReportCard states', () => {
+  const base = { sources: SOURCES, error: null, hasSteps: false, audit: IDLE_AUDIT, onRetryRun: () => undefined, onRetryAudit: () => undefined }
+  const agent = createAgents().synthesizer
+  const card = (phase: 'ready' | 'running' | 'failed' | 'stopped' | 'complete', extra: Record<string, unknown> = {}) =>
+    html(createElement(ReportCard, { ...base, phase, synthesizer: agent, ...extra }))
+
+  it('shows an empty, a loading, a failed and a stopped state before there is a report', () => {
+    expect(card('ready')).toContain('ds-state--empty')
+    expect(card('running')).toContain('ds-state--loading')
+    expect(card('failed', { error: 'The AI provider did not answer in time.' })).toContain('Try again')
+    const stopped = card('stopped', { hasSteps: true })
+    expect(stopped).toContain('ds-state--stopped')
+    expect(stopped).toContain('Start again')
+  })
+
+  it('puts the result heading where the focus hook looks for it', () => {
+    const claims = settled()
+    const out = card('complete', { synthesizer: { ...agent, output: REPORT, status: 'complete' }, audit: { ...viewOf(claims), result: { claims, summary: summarize(claims), overLimit: 0, usage: {}, ms: 3200, model: 'anthropic/claude-haiku-5.5' } } })
+    expect(out).toContain('data-result-focus')
+    expect(out).toContain('1 of 2 cited claims supported')
+    expect(out).toContain('Audited by claude-haiku-5.5 in 3,200 ms')
+    expect(out).not.toContain('### Sources')
+  })
+})

@@ -137,7 +137,7 @@ describe('ai function: provider failures', () => {
     expect(providerCalls(fetchMock)).toHaveLength(8)
   }, 20_000)
 
-  it('maps a provider timeout (an AbortError) to its message and does not retry it', async () => {
+  it('maps a provider timeout (an AbortError) to its message after one retry per stage', async () => {
     const fetchMock = stubFetch(() => {
       throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
     })
@@ -145,7 +145,7 @@ describe('ai function: provider failures', () => {
     const events = await frames(await handler(request(VALID_BODY)))
 
     expect(errorsOf(events)).toEqual([PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT, PROVIDER_TIMEOUT])
-    expect(providerCalls(fetchMock)).toHaveLength(4)
+    expect(providerCalls(fetchMock)).toHaveLength(8)
   })
 })
 

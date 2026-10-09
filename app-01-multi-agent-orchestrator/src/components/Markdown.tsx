@@ -1,67 +1,117 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import { parseBlocks, parseInline, type Block } from '../lib/markdown'
-import type { Source } from '../types'
+import { sentencePieces } from '../lib/audit'
+import { parseBlocks, type Block } from '../lib/blocks'
+import { parseInline } from '../lib/markdown'
+import { VERDICT_VIEW } from '../lib/verdict'
+import type { AuditClaim, Source } from '../types'
+import { VerdictBadge } from './VerdictMark'
 
-/** The run's sources, so a [n] marker in the text links to source n. */
+/** The run's sources, so a [n] marker in a stage's text links to source n. */
 const SourcesContext = createContext<Source[]>([])
 
-const CITATION = /(\[\d{1,2}\])/
+/** The report's audit: claims by where they sit, and which one is selected. */
+interface ClaimsValue {
+  byPlace: Map<string, AuditClaim>
+  selected: number | null
+  onSelect: (id: number) => void
+}
+const ClaimsContext = createContext<ClaimsValue | null>(null)
 
-/** Plain text in which a [n] that matches a retrieved source becomes a link to it. */
-function CitedText({ text }: { text: string }) {
+const CITATION = /(\[\d{1,3}\])/
+
+/** Plain text in which a [n] that matches a retrieved source becomes a link to it (outside a claim, where links are allowed). */
+function CitedText({ text, link }: { text: string; link: boolean }) {
   const sources = useContext(SourcesContext)
-  if (sources.length === 0) return <>{text}</>
   return (
     <>
       {text.split(CITATION).map((piece, i) => {
-        const source = CITATION.test(piece) ? sources.find(candidate => `[${candidate.n}]` === piece) : undefined
-        return source ? (
+        if (!CITATION.test(piece)) return piece
+        const source = sources.find(candidate => `[${candidate.n}]` === piece)
+        if (!source) return piece
+        return link ? (
           <a key={i} className="md-cite" href={source.url} target="_blank" rel="noreferrer noopener" title={`${source.site}: ${source.title}`}>
             {piece}
           </a>
         ) : (
-          piece
+          <span key={i} className="md-cite" title={`${source.site}: ${source.title}`}>
+            {piece}
+          </span>
         )
       })}
     </>
   )
 }
 
-/** Only web links become links. Anything else the model writes shows as plain text. */
-const WEB_LINK = /^https?:\/\//i
-
-function InlineText({ text }: { text: string }) {
+/** Model prose through the shared parser: strong, emphasis and code become elements, nothing else is interpreted. */
+function InlineText({ text, link = true }: { text: string; link?: boolean }) {
   return (
     <>
       {parseInline(text).map((part, i) => {
-        switch (part.kind) {
-          case 'bold':
-            return <strong key={i}>{part.text}</strong>
-          case 'italic':
-            return <em key={i}>{part.text}</em>
-          case 'code':
-            return <code key={i}>{part.text}</code>
-          case 'link':
-            return WEB_LINK.test(part.href) ? (
-              <a key={i} href={part.href} target="_blank" rel="noreferrer noopener">
-                {part.text}
-              </a>
-            ) : (
-              <span key={i}>{part.text}</span>
-            )
-          default:
-            return (
-              <span key={i}>
-                <CitedText text={part.text} />
-              </span>
-            )
-        }
+        if (part.kind === 'strong') return <strong key={i}>{part.text}</strong>
+        if (part.kind === 'em') return <em key={i}>{part.text}</em>
+        if (part.kind === 'code') return <code key={i}>{part.text}</code>
+        return <CitedText key={i} text={part.text} link={link} />
       })}
     </>
   )
 }
 
-function BlockView({ block }: { block: Block }) {
+function Claim({ claim, text }: { claim: AuditClaim; text: string }) {
+  const value = useContext(ClaimsContext)
+  const selected = value?.selected === claim.id
+  const select = () => value?.onSelect(claim.id)
+  const trimmed = text.trim()
+  const cut = trimmed.lastIndexOf(' ') + 1
+  const head = trimmed.slice(0, cut)
+  const tail = trimmed.slice(cut)
+  return (
+    <span
+      className="claim"
+      data-verdict={claim.verdict}
+      data-selected={selected ? 'true' : undefined}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Claim ${claim.id}, ${VERDICT_VIEW[claim.verdict].word}. ${text.replace(/\[\d+(?:\s*[,;]\s*\d+)*\]/g, '').trim()} Opens its source.`}
+      onClick={select}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          select()
+        }
+      }}
+    >
+      <InlineText text={head} link={false} />
+      {/* The last word and the badge never break apart, so a badge is not left alone at the start of a line. */}
+      <span className="claim__tail">
+        <InlineText text={tail} link={false} />
+        <VerdictBadge verdict={claim.verdict} short />
+      </span>
+    </span>
+  )
+}
+
+/** A block's text cut into sentences, each shown as a claim when the audit has one for that place. */
+function Sentences({ text, block }: { text: string; block: number }) {
+  const value = useContext(ClaimsContext)
+  if (!value) return <InlineText text={text} />
+  return (
+    <>
+      {sentencePieces(text).map((piece, i) => {
+        const claim = value.byPlace.get(`${block}:${i}`)
+        return claim ? (
+          <span key={i}>
+            <Claim claim={claim} text={piece} />{' '}
+          </span>
+        ) : (
+          <InlineText key={i} text={piece} />
+        )
+      })}
+    </>
+  )
+}
+
+function BlockView({ block, index }: { block: Block; index: number }) {
   switch (block.kind) {
     case 'heading': {
       const Tag = block.level === 1 ? 'h3' : block.level === 2 ? 'h4' : 'h5'
@@ -74,7 +124,7 @@ function BlockView({ block }: { block: Block }) {
     case 'quote':
       return (
         <blockquote>
-          <InlineText text={block.text} />
+          <Sentences text={block.text} block={index} />
         </blockquote>
       )
     case 'code':
@@ -115,7 +165,7 @@ function BlockView({ block }: { block: Block }) {
     case 'paragraph':
       return (
         <p>
-          <InlineText text={block.text} />
+          <Sentences text={block.text} block={index} />
         </p>
       )
     default:
@@ -142,25 +192,37 @@ function Blocks({ blocks }: { blocks: Block[] }) {
       listKind = block.kind
       items.push(
         <li key={i}>
-          <InlineText text={block.text} />
+          <Sentences text={block.text} block={i} />
         </li>,
       )
       return
     }
     flush()
-    out.push(<BlockView key={i} block={block} />)
+    out.push(<BlockView key={i} block={block} index={i} />)
   })
   flush()
 
   return <>{out}</>
 }
 
-export function Markdown({ text, sources = [] }: { text: string; sources?: Source[] }) {
+interface MarkdownProps {
+  text: string
+  sources?: Source[]
+  /** With claims, each cited sentence is a button carrying its verdict. The text must be the report body the claims were read from. */
+  audit?: { claims: AuditClaim[]; selected: number | null; onSelect: (id: number) => void }
+}
+
+export function Markdown({ text, sources = [], audit }: MarkdownProps) {
+  const claims: ClaimsValue | null = audit
+    ? { byPlace: new Map(audit.claims.map(claim => [`${claim.block}:${claim.piece}`, claim])), selected: audit.selected, onSelect: audit.onSelect }
+    : null
   return (
     <SourcesContext.Provider value={sources}>
-      <div className="md">
-        <Blocks blocks={parseBlocks(text)} />
-      </div>
+      <ClaimsContext.Provider value={claims}>
+        <div className="md">
+          <Blocks blocks={parseBlocks(text)} />
+        </div>
+      </ClaimsContext.Provider>
     </SourcesContext.Provider>
   )
 }

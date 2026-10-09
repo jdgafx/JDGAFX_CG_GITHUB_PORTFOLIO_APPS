@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@xyflow/react": "^12.6.0",
     "docx": "^9.5.3",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.469.0",

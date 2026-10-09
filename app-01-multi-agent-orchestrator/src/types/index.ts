@@ -61,6 +61,8 @@ export interface AgentState {
   reasoningTokens: number
   usage?: StageUsage
   servedModel?: string
+  /** Why this stage was tried a second time, when it was. */
+  retried?: string
   /** Set on the retriever only: what it found. An empty list means it found nothing. */
   sources?: Source[]
 }
@@ -80,7 +82,66 @@ export type StreamEvent =
       reasoningTokens: number
       servedModel?: string
       usage: StageUsage
+      /** Why the stage was tried a second time, when it was: 'timeout', 'connection' or 'reply'. */
+      retried?: string
     }
   | { type: 'agent_skipped'; agent: ModelRole; detail: string }
   | { type: 'agent_error'; agent: ModelRole | 'system'; ms?: number; error: string }
   | ({ type: 'session_complete'; agent: 'synthesizer' } & RunSummary)
+
+/** The audit's verdict on one cited claim. 'unchecked' means no verdict was reached; it is never hidden. 'checking' exists only in the browser, while the request is out. */
+export type Verdict = 'supported' | 'partly' | 'unsupported' | 'unchecked' | 'checking'
+
+/** The deterministic pre-pass for one claim, computed against the text of the sources it cites. */
+export interface PreCheck {
+  /** Share of the claim's content words found in the cited source text, 0 to 1. */
+  overlap: number
+  /** The cited source that shares the most content words, or null when the claim cites none that exist. */
+  best: number | null
+  /** Numbers in the claim that appear in none of the cited sources. */
+  missingNumbers: string[]
+  /** Capitalised names in the claim that appear in none of the cited sources. */
+  missingNames: string[]
+  level: 'ok' | 'weak' | 'fail'
+}
+
+/** A quote the model gave, found word for word in the source. start and end are offsets into the source snippet. */
+export interface AuditQuote {
+  n: number
+  start: number
+  end: number
+  text: string
+}
+
+/** One sentence of the report that carries [n] markers, with its verdict. block and piece say where it sits in the report. */
+export interface AuditClaim {
+  id: number
+  block: number
+  piece: number
+  text: string
+  cites: number[]
+  pre: PreCheck
+  verdict: Verdict
+  reason: string
+  quote?: AuditQuote
+}
+
+export interface AuditSummary {
+  total: number
+  supported: number
+  partly: number
+  unsupported: number
+  unchecked: number
+}
+
+export interface AuditResult {
+  claims: AuditClaim[]
+  summary: AuditSummary
+  /** Cited sentences past the audit's limit; they are listed as not checked. */
+  overLimit: number
+  model?: string
+  usage: StageUsage
+  ms: number
+  /** Why the model call was tried a second time, when it was. */
+  retried?: string
+}

@@ -1,92 +1,21 @@
-import type { Edge, Node } from '@xyflow/react'
 import type { AgentRole, AgentState } from '../types'
 import { AGENT_ORDER, MODEL_ORDER, hasUsefulOutput, wasTruncated } from './agents'
 import { formatUsd } from './usage'
 
 export type RunPhase = 'ready' | 'running' | 'complete' | 'partial' | 'stopped' | 'failed'
 export type AgentMap = Record<AgentRole, AgentState>
-/** Steps snake across the graph: three per row, or two per row on phones. */
-export type GraphLayout = 'cols3' | 'cols2'
 
-const COLUMNS: Record<GraphLayout, number> = { cols3: 3, cols2: 2 }
-
-/** Node size and spacing in pixels. app.css sets the same node size. */
-const NODE_WIDTH = 136
-const NODE_HEIGHT = 128
-const GAP_X = 72
-const GAP_Y = 40
-
-/** What each hand-off passes on: the Researcher reads the sources, the Analyst reads research, the Critic reads analysis, the Synthesizer reads gaps. */
-const EDGE_LABELS = ['Sources', 'Research', 'Analysis', 'Gaps']
-
-/** Rows alternate direction, so each hand-off is a short step right, left or down. */
-export function nodePosition(index: number, layout: GraphLayout): { x: number; y: number } {
-  const columns = COLUMNS[layout]
-  const row = Math.floor(index / columns)
-  const offset = index % columns
-  const column = row % 2 === 0 ? offset : columns - 1 - offset
-  return { x: column * (NODE_WIDTH + GAP_X), y: row * (NODE_HEIGHT + GAP_Y) }
+/** The words for why a stage was tried a second time. */
+const RETRY_WORDS: Record<string, string> = {
+  timeout: 'a timeout',
+  connection: 'a dropped connection',
+  provider: 'a provider error',
+  reply: 'an empty or cut-off reply',
 }
 
-export function buildNodes(agents: AgentMap, layout: GraphLayout): Node[] {
-  return AGENT_ORDER.map((role, i) => ({
-    id: role,
-    type: 'agent',
-    position: nodePosition(i, layout),
-    draggable: false,
-    selectable: false,
-    connectable: false,
-    data: agents[role] as unknown as Record<string, unknown>,
-  }))
-}
-
-/**
- * Brings the nodes in line with the agent state and the layout. A node keeps its object when its
- * state and place are unchanged, so a streamed chunk re-renders only the stage it belongs to. A
- * changed node keeps the size React Flow measured for it, so its edges stay drawn.
- */
-export function refreshNodes(prev: Node[], agents: AgentMap, layout: GraphLayout): Node[] {
-  const next = buildNodes(agents, layout)
-  let changed = prev.length !== next.length
-  const merged = next.map((node, i) => {
-    const old = prev[i]
-    if (!old || old.id !== node.id) {
-      changed = true
-      return node
-    }
-    if (old.data === node.data && old.position.x === node.position.x && old.position.y === node.position.y) return old
-    changed = true
-    return { ...old, data: node.data, position: node.position }
-  })
-  return changed ? merged : prev
-}
-
-/** Which sides of two nodes an edge joins: across a row, or down to the next one. */
-export function edgeHandles(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-): { sourceHandle: string; targetHandle: string } {
-  if (to.y > from.y) return { sourceHandle: 'source-bottom', targetHandle: 'target-top' }
-  if (to.x < from.x) return { sourceHandle: 'source-left', targetHandle: 'target-right' }
-  return { sourceHandle: 'source-right', targetHandle: 'target-left' }
-}
-
-/** An edge is taken once the stage it points to has started. Taken edges are drawn in the signal colour. */
-export function buildEdges(agents: AgentMap, layout: GraphLayout): Edge[] {
-  return AGENT_ORDER.slice(0, -1).map((source, i) => {
-    const target = AGENT_ORDER[i + 1] ?? source
-    const { status } = agents[target]
-    const taken = status !== 'idle' && status !== 'skipped'
-    return {
-      id: `e-${source}`,
-      source,
-      target,
-      ...edgeHandles(nodePosition(i, layout), nodePosition(i + 1, layout)),
-      label: EDGE_LABELS[i],
-      className: taken ? 'pipeline-edge pipeline-edge--taken' : 'pipeline-edge',
-      selectable: false,
-    }
-  })
+/** "Retried once after a timeout", or nothing when the stage ran once. */
+export function retryLine(reason: string | undefined): string[] {
+  return reason ? [`Retried once after ${RETRY_WORDS[reason] ?? 'a failed attempt'}`] : []
 }
 
 /** One line in the run trace for a stage. */
@@ -117,6 +46,7 @@ export function traceMeta(agent: AgentState): string[] {
   const tokens = agent.usage?.completion_tokens
   const cost = agent.usage?.cost
   return [
+    ...retryLine(agent.retried),
     tokens !== undefined ? `${tokens.toLocaleString('en-US')} output tokens` : 'output tokens not reported',
     cost !== undefined ? formatUsd(cost) : 'cost not reported',
   ]

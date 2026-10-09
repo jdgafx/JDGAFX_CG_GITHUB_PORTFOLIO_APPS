@@ -102,23 +102,27 @@ export function sseEvent(event: object): string {
   return `data: ${JSON.stringify(event)}\n\n`
 }
 
+/** Reads a JSON body of at most `maxBytes`. Every rejection is a 400 with a plain-language message. */
+export async function readJsonBody(req: Request, maxBytes: number): Promise<unknown> {
+  const declared = Number(req.headers.get('content-length') ?? '0')
+  if (declared > maxBytes) throw new RequestError(400, TOO_LARGE)
+
+  const raw = await req.text()
+  if (Buffer.byteLength(raw) > maxBytes) throw new RequestError(400, TOO_LARGE)
+
+  try {
+    return JSON.parse(raw)
+  } catch {
+    throw new RequestError(400, 'Invalid JSON.')
+  }
+}
+
 /**
  * Reads and validates the body. Only `query` is read; any model field the client sends is
  * ignored. Every rejection is a 400 with a plain-language message.
  */
 export async function readQuery(req: Request): Promise<string> {
-  const declared = Number(req.headers.get('content-length') ?? '0')
-  if (declared > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
-
-  const raw = await req.text()
-  if (Buffer.byteLength(raw) > MAX_BODY_BYTES) throw new RequestError(400, TOO_LARGE)
-
-  let body: unknown
-  try {
-    body = JSON.parse(raw)
-  } catch {
-    throw new RequestError(400, 'Invalid JSON.')
-  }
+  const body = await readJsonBody(req, MAX_BODY_BYTES)
   if (!body || typeof body !== 'object' || !('query' in body)) throw new RequestError(400, 'Missing query.')
   if (typeof body.query !== 'string') throw new RequestError(400, 'Query must be text.')
 

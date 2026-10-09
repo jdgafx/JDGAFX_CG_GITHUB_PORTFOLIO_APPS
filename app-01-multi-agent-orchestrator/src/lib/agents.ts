@@ -22,12 +22,21 @@ export const AGENT_LABELS: Record<ModelRole, string> = {
   synthesizer: 'Final Synthesis',
 }
 
-/** Questions that Wikipedia and Hacker News can ground, so the Researcher has sources to cite. */
-export const EXAMPLE_QUERIES = [
-  'What did the James Webb Space Telescope find in early galaxies?',
-  'How does CRISPR gene editing work and where is it used?',
-  'Why are developers adopting Rust for systems programming?',
+/** An example the rail offers: a short name, the question, and where its sources come from. */
+export interface Example {
+  label: string
+  question: string
+  sources: string
+}
+
+/** Questions that Wikipedia and Hacker News can ground, so the Researcher has sources to cite and the audit has text to check. */
+export const EXAMPLES: Example[] = [
+  { label: 'Space telescope', question: 'What did the James Webb Space Telescope find in early galaxies?', sources: 'Wikipedia articles and Hacker News stories' },
+  { label: 'Gene editing', question: 'How does CRISPR gene editing work and where is it used?', sources: 'Wikipedia articles and Hacker News stories' },
+  { label: 'Systems languages', question: 'Why are developers adopting Rust for systems programming?', sources: 'Wikipedia articles and Hacker News stories' },
 ]
+
+export const EXAMPLE_QUERIES = EXAMPLES.map(example => example.question)
 
 /** A stage needs at least this much text before its output counts as usable. */
 const MIN_USEFUL_CHARS = 40

@@ -130,6 +130,7 @@ async function runPipeline(
         reasoningTokens: stage.reasoningTokens,
         servedModel: stage.servedModel,
         usage: stage.usage,
+        ...(stage.retried ? { retried: stage.retried } : {}),
       })
     } else {
       context[agent.role] = ''

@@ -1,0 +1,251 @@
+/* Shared design system v3 components (round 2). Copy verbatim to src/styles/components.css, imported after tokens.css.
+   Order of this file: states, readout, trace, path and legend, graph, the cited result, then the family components
+   that more than one app needs (segmented control, toast, dialog, key-value list, code block, chart frame, approval
+   card, media capture, annotated frame, dropzone). */
+
+/* Run column order. Before a run: the graph leads. While it runs: the live readout, then the graph. Once it has ended the
+   result (answer, error or stopped block) comes first, then the readout, then the graph and trace. Give the children
+   .ds-run__result, .ds-run__readout, .ds-run__stage and .ds-run__trace; keep the DOM in the order of the ended state. */
+.ds-run { display: grid; }
+.ds-run__stage { order: 1; }
+.ds-run__readout { order: 2; }
+.ds-run__result { order: 3; }
+.ds-run__trace { order: 4; }
+[data-run="running"] .ds-run__readout { order: 0; }
+[data-run="done"] .ds-run__result, [data-run="failed"] .ds-run__result, [data-run="stopped"] .ds-run__result { order: -2; }
+[data-run="done"] .ds-run__readout, [data-run="failed"] .ds-run__readout, [data-run="stopped"] .ds-run__readout { order: -1; }
+
+/* States: empty, loading, error, stopped, partial. A mark, a title, one sentence on what happened, then the way out */
+.ds-state { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 2px 12px; align-items: start; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.ds-state__mark { grid-row: 1 / span 3; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ds-text-muted); border: 1.5px solid currentColor; border-radius: 50%; }
+.ds-state__mark::before { content: ""; width: 10px; height: 10px; border: 1.5px solid currentColor; border-radius: 50%; }
+.ds-state__title { font-size: 15px; font-weight: 650; line-height: 1.4; padding-top: 4px; }
+.ds-state__body { font-size: 15px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+.ds-state__actions { grid-column: 2; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.ds-state--empty, .ds-empty { background: transparent; border-style: dashed; }
+.ds-empty { padding: 24px 16px; color: var(--ds-text-muted); max-width: none; border: 1px dashed var(--ds-border); border-radius: var(--ds-radius); }
+.ds-state--loading .ds-state__mark { color: var(--ds-accent); }
+.ds-state--loading .ds-state__mark::before { background: currentColor; border: 0; }
+.ds-state--error { background: var(--ds-danger-soft); border-color: var(--ds-danger); }
+.ds-state--error .ds-state__mark, .ds-state--error .ds-state__title { color: var(--ds-danger); }
+.ds-state--error .ds-state__mark::before { content: "!"; width: auto; height: auto; border: 0; border-radius: 0; font-size: 17px; font-weight: 800; line-height: 1; }
+.ds-state--stopped, .ds-state--partial { background: var(--ds-warning-soft); border-color: var(--ds-warning); }
+.ds-state--stopped .ds-state__mark, .ds-state--stopped .ds-state__title, .ds-state--partial .ds-state__mark, .ds-state--partial .ds-state__title { color: var(--ds-warning); }
+.ds-state--stopped .ds-state__mark::before { background: currentColor; border: 0; border-radius: 2px; }
+.ds-state--partial .ds-state__mark::before { background: conic-gradient(currentColor 0 50%, transparent 0); }
+.ds-state--stopped .ds-state__body, .ds-state--partial .ds-state__body, .ds-state--error .ds-state__body { color: var(--ds-text); }
+.ds-skeleton { grid-column: 2; display: grid; gap: 8px; margin-top: 12px; }
+.ds-skeleton > span { display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--ds-surface-2) 0 35%, var(--ds-border) 50%, var(--ds-surface-2) 65% 100%) 0 0 / 300% 100%; animation: ds-shimmer 1.8s linear infinite; }
+[data-run="running"] .ds-skeleton > span { animation: none; }
+.ds-skeleton > span:nth-child(2) { width: 86%; }
+.ds-skeleton > span:nth-child(3) { width: 58%; }
+@keyframes ds-shimmer { to { background-position: -300% 0; } }
+
+/* Readout: the run's figures as ruled cells. It ticks while a run is live (--live) and shows dashes before one (--pending) */
+.ds-strip, .ds-metrics { display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--ds-border); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); overflow: hidden; }
+.ds-strip__item, .ds-metric { display: grid; align-content: start; gap: 2px; min-width: 0; padding: 12px 16px; background: var(--ds-surface); }
+.ds-strip__label, .ds-metric__label { font-size: 13px; color: var(--ds-text-muted); }
+.ds-strip__value, .ds-metric__value { font-family: var(--ds-mono); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ds-strip__hint, .ds-metric__hint { font-size: 13px; color: var(--ds-text-muted); }
+.ds-strip--pending .ds-strip__value { color: var(--ds-text-muted); font-weight: 400; }
+.ds-strip--live { border-color: var(--ds-accent-dim); }
+.ds-strip--live .ds-strip__value { color: var(--ds-accent); }
+.ds-strip--live .ds-strip__item { background: color-mix(in srgb, var(--ds-accent) 5%, var(--ds-surface)); }
+.ds-chips { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.ds-chip { display: inline-flex; align-items: center; gap: 8px; padding: 1px 8px; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px; }
+.ds-chip--muted { color: var(--ds-text-muted); font-weight: 400; }
+.ds-chip--add, .ds-chip--change, .ds-chip--remove { font-weight: 600; background: var(--ds-surface); }
+.ds-chip--add::before, .ds-chip--change::before, .ds-chip--remove::before { font-weight: 800; }
+.ds-chip--add { color: var(--ds-success); border-color: var(--ds-success); }
+.ds-chip--add::before { content: "+"; }
+.ds-chip--change { color: var(--ds-warning); border-color: var(--ds-warning); }
+.ds-chip--change::before { content: "~"; }
+.ds-chip--remove { color: var(--ds-danger); border-color: var(--ds-danger); }
+.ds-chip--remove::before { content: "-"; }
+.ds-chip--live { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
+
+/* Step trace: rows in order with a waterfall lane; a state sets the row tint and the bar down its left edge */
+.ds-trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--ds-border); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); overflow: hidden; }
+.ds-trace__step { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 8px; align-items: start; padding: 12px 12px; background: var(--ds-surface); }
+.ds-trace__step--running { background: var(--ds-accent-soft); }
+.ds-trace__step--failed { background: var(--ds-danger-soft); }
+.ds-trace__step--stopped { background: var(--ds-warning-soft); }
+.ds-trace__index { padding-top: 2px; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
+.ds-trace__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.ds-trace__name { font-size: 15px; font-weight: 650; }
+.ds-trace__state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--ds-text-muted); }
+.ds-trace__state--running { color: var(--ds-accent); }
+.ds-trace__state--ok { color: var(--ds-success); }
+.ds-trace__state--failed { color: var(--ds-danger); }
+.ds-trace__state--stopped { color: var(--ds-warning); }
+.ds-trace__detail { margin-top: 2px; font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+.ds-trace__meta { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 12px; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ds-trace__lane { position: relative; grid-column: 2 / -1; height: 6px; margin-top: 8px; border-radius: 3px; background: repeating-linear-gradient(90deg, var(--ds-border) 0 1px, transparent 1px 25%), var(--ds-surface-2); }
+.ds-trace__bar { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 3px; background: var(--ds-accent); }
+.ds-trace__bar--live { background: repeating-linear-gradient(135deg, var(--ds-accent) 0 6px, var(--ds-accent-dim) 6px 12px) 0 0 / 17px 100%; animation: ds-march 0.9s linear infinite; }
+.ds-trace__step--failed .ds-trace__bar { background: var(--ds-danger); }
+.ds-trace__step--stopped .ds-trace__bar { background: var(--ds-warning); }
+@keyframes ds-march { to { background-position: 17px 0; } }
+
+/* Path (the steps a run took) and legend */
+.ds-path { display: flex; flex-wrap: wrap; gap: 2px 0; margin: 0; padding: 0; list-style: none; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); }
+.ds-path li:not(:last-child)::after { content: "/"; margin: 0 8px; color: var(--ds-border-strong); }
+.ds-path__now { color: var(--ds-accent); font-weight: 600; }
+.ds-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--ds-text-muted); }
+.ds-legend li { display: inline-flex; align-items: center; gap: 8px; }
+.ds-legend__edge { width: 18px; height: 0; border-top: 2.5px solid var(--ds-accent); }
+
+/* Graphs: a dot-grid stage with nodes, edges and states. Done is quiet, active takes the signal, paused and stopped
+   are dashed amber, failed is red. The taken path is the only accent-coloured line. Labels carry a halo so they stay
+   legible over lines and the grid. */
+.ds-stage { padding: 12px; min-width: 0; border: 1px solid var(--ds-border); border-radius: var(--ds-radius); display: grid; gap: 12px;
+  background: radial-gradient(circle, var(--ds-border) 1px, transparent 1.5px) 0 0 / 18px 18px, var(--ds-surface-2); }
+.ds-g-node { fill: var(--ds-surface); stroke: var(--ds-border-strong); stroke-width: 1.5; }
+.ds-g-node--active { fill: var(--ds-accent-soft); stroke: var(--ds-accent); stroke-width: 2.5; }
+.ds-g-node--done { stroke: var(--ds-text-muted); }
+.ds-g-node--failed { fill: var(--ds-danger-soft); stroke: var(--ds-danger); stroke-width: 2; }
+.ds-g-node--paused, .ds-g-node--stopped { fill: var(--ds-warning-soft); stroke: var(--ds-warning); stroke-width: 2; stroke-dasharray: 5 4; }
+.ds-g-node--skipped { stroke-dasharray: 5 4; }
+.ds-g-halo { fill: none; stroke: var(--ds-accent); stroke-width: 2; animation: ds-halo 1.6s ease-in-out infinite; }
+@keyframes ds-halo { 0%, 100% { opacity: 0.85; } 50% { opacity: 0.15; } }
+.ds-g-title { fill: var(--ds-text); font-family: var(--ds-font); font-size: 18px; font-weight: 650; }
+.ds-g-sub, .ds-g-label { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; }
+.ds-g-label { paint-order: stroke; stroke: var(--ds-surface-2); stroke-width: 6px; stroke-linejoin: round; }
+.ds-g-state { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
+.ds-g-state--active, .ds-g-label--taken { fill: var(--ds-accent); }
+.ds-g-label--taken { font-weight: 650; }
+.ds-g-dot--idle, .ds-g-dot--skipped { fill: none; stroke: var(--ds-text-muted); stroke-width: 1.5; }
+.ds-g-dot--active { fill: var(--ds-accent); }
+.ds-g-dot--done { fill: var(--ds-success); }
+.ds-g-dot--failed { fill: var(--ds-danger); }
+.ds-g-dot--paused, .ds-g-dot--stopped { fill: var(--ds-warning); }
+.ds-g-edge { fill: none; stroke: var(--ds-text-muted); stroke-width: 1.5; }
+.ds-g-edge--loop { stroke-dasharray: 6 4; }
+.ds-g-edge--skipped { stroke-dasharray: 3 4; opacity: 0.7; }
+.ds-g-edge--taken { stroke: var(--ds-accent); stroke-width: 2.5; }
+.ds-g-arrow { fill: var(--ds-text-muted); }
+.ds-g-arrow--taken { fill: var(--ds-accent); }
+
+/* The cited result: the one editorial block on the page. A lead paragraph, numbered citations, one footnote line */
+.ds-lead { display: grid; gap: 16px; padding: 24px 24px; background: var(--ds-surface); border: 1px solid var(--ds-accent-dim); border-radius: var(--ds-radius); min-width: 0; }
+.ds-lead__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ds-lead__text { display: grid; gap: 12px; max-width: 62ch; font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; }
+.ds-lead__text > p:first-child { font-size: 22px; line-height: 1.45; letter-spacing: -0.01em; }
+.ds-lead__foot { font-size: 13px; color: var(--ds-text-muted); }
+.ds-cite { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ds-border); }
+.ds-cite li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--ds-border); }
+.ds-cite__n { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; color: var(--ds-accent); font-variant-numeric: tabular-nums; }
+.ds-cite__title { color: var(--ds-text); font-weight: 650; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--ds-border-strong); text-underline-offset: 3px; }
+.ds-cite__title:hover { text-decoration-color: var(--ds-accent); }
+.ds-cite__url { grid-column: 2; font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+
+/* Family components. Segmented control and tabs */
+.ds-seg { display: inline-flex; gap: 2px; padding: 4px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.ds-seg > button { min-height: 40px; padding: 0 16px; font: inherit; font-weight: 650; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
+.ds-seg > button[aria-selected="true"], .ds-seg > button[aria-pressed="true"] { color: var(--ds-text); background: var(--ds-surface); box-shadow: 0 0 0 1px var(--ds-border), inset 0 -3px 0 var(--ds-accent); }
+/* Toast and dialog */
+.ds-toast { display: flex; align-items: center; gap: 12px; max-width: 420px; padding: 12px 16px; color: var(--ds-bg); background: var(--ds-text); border-radius: var(--ds-radius); }
+.ds-toast::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ds-accent-dim); }
+.ds-toast--error::before { background: var(--ds-danger); }
+.ds-dialog { display: grid; gap: 12px; max-width: 440px; padding: 24px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 12px; box-shadow: 0 18px 48px -18px color-mix(in srgb, var(--ds-text) 45%, transparent); }
+.ds-dialog__title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.ds-dialog__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+/* Key-value list */
+.ds-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 20px; margin: 0; }
+.ds-kv dt { font-size: 13px; color: var(--ds-text-muted); padding-top: 2px; }
+.ds-kv dd { font-family: var(--ds-mono); font-size: 14px; overflow-wrap: anywhere; }
+/* Code and diff block with a severity gutter. Markup: <div class="ds-code-wrap"><pre class="ds-code" tabindex="0" role="region" aria-label="Code, scrolls sideways">; the wrapper adds a right-edge fade, the tabindex lets a keyboard user scroll it */
+.ds-code-wrap { position: relative; }
+.ds-code-wrap::after { content: ""; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 32px; pointer-events: none; background: linear-gradient(270deg, var(--ds-surface-2), transparent); border-radius: 0 var(--ds-radius) var(--ds-radius) 0; }
+.ds-code { margin: 0; padding: 12px 0; overflow-x: auto; font-size: 13px; line-height: 1.7; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); counter-reset: ds-line; }
+.ds-code__line { display: block; position: relative; padding: 0 16px 0 80px; white-space: pre; counter-increment: ds-line; }
+.ds-code__line::before { content: counter(ds-line); position: absolute; left: 0; width: 40px; text-align: right; color: var(--ds-text-muted); }
+.ds-code__line--add { background: var(--ds-success-soft); color: var(--ds-success); }
+.ds-code__line--del { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.ds-code__line--warn { background: var(--ds-warning-soft); color: var(--ds-warning); }
+.ds-code__line--error { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.ds-code__line--add::after, .ds-code__line--del::after, .ds-code__line--warn::after, .ds-code__line--error::after { position: absolute; left: 54px; font-weight: 700; }
+.ds-code__line--add::after { content: "+"; }
+.ds-code__line--del::after { content: "-"; }
+.ds-code__line--warn::after { content: "!"; }
+.ds-code__line--error::after { content: "x"; }
+/* A review comment on a line: sits under the line it is about, in the severity colour */
+.ds-code__comment { display: block; margin: 4px 16px 8px 80px; padding: 8px 12px; font-family: var(--ds-font); font-size: 13px; line-height: 1.5; white-space: normal; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-warning); border-radius: var(--ds-radius-sm); }
+.ds-code__comment b { font-weight: 650; }
+/* Chart frame: series 1 is the app accent, then graphite, then the two fixed series colours; label series directly at the
+   line ends, right-aligned and 6px above the line. Collision rule: end labels are at least 14px apart vertically; when two
+   end values are closer, nudge the lower label down and join it to its line with a 1px leader. */
+.ds-chart { display: grid; gap: 8px; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); min-width: 0; }
+.ds-chart__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.ds-chart svg { display: block; width: 100%; height: auto; }
+.ds-c-grid { stroke: var(--ds-border); stroke-width: 1; }
+.ds-c-axis { stroke: var(--ds-border-strong); stroke-width: 1.5; }
+.ds-c-tick { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ds-c-s1 { stroke: var(--ds-accent); fill: var(--ds-accent); }
+.ds-c-s2 { stroke: var(--ds-series-2); fill: var(--ds-series-2); }
+.ds-c-s3 { stroke: var(--ds-series-3); fill: var(--ds-series-3); }
+.ds-c-s4 { stroke: var(--ds-series-4); fill: var(--ds-series-4); }
+.ds-c-label { stroke: var(--ds-surface); stroke-width: 4px; paint-order: stroke; font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
+.ds-c-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+/* Horizontal bar chart for many categories (more than about 8; scrolls past 20): one row per category, sorted by value,
+   label left, bar and value right. Set the bar length with --w (0 to 100 percent); bars are series 1, the accent. */
+.ds-hbar { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.ds-hbar--scroll { max-height: 480px; overflow-y: auto; padding-right: 8px; }
+.ds-hbar li { display: grid; grid-template-columns: minmax(96px, 168px) minmax(0, 1fr) 56px; align-items: center; gap: 12px; min-height: 28px; }
+.ds-hbar__label { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-hbar__track { height: 12px; background: var(--ds-surface-2); border-radius: 2px; }
+.ds-hbar__bar { display: block; width: var(--w, 0%); height: 100%; background: var(--ds-accent); border-radius: 2px; }
+.ds-hbar__value { font-family: var(--ds-mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Approval card: the paused state of a graph, with the decision in front of the person */
+.ds-approval { display: grid; gap: 12px; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-warning); border-radius: var(--ds-radius); }
+.ds-approval__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.ds-approval__actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--ds-border); }
+.ds-approval__actions .ds-button--danger { margin-left: auto; }
+/* Media capture: the record control, a level meter, and the transcript below */
+.ds-media { display: grid; gap: 12px; padding: 16px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.ds-rec { display: grid; place-items: center; flex: none; width: 56px; height: 56px; padding: 0; background: var(--ds-surface); border: 2px solid var(--ds-border-strong); border-radius: 50%; cursor: pointer; }
+.ds-rec::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--ds-danger); transition: border-radius 120ms var(--ds-ease); }
+.ds-rec[aria-pressed="true"] { border-color: var(--ds-danger); }
+.ds-rec[aria-pressed="true"]::before { border-radius: 4px; }
+.ds-meter { display: flex; align-items: center; gap: 4px; height: 40px; flex: 1; min-width: 0; }
+.ds-meter > span { flex: 1; max-width: 6px; min-height: 3px; border-radius: 2px; background: var(--ds-accent); opacity: 0.85; }
+/* Annotated frame: an image with boxes and tags laid over it in percent units */
+.ds-frame { position: relative; overflow: hidden; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.ds-frame > img, .ds-frame > svg { display: block; width: 100%; height: auto; }
+.ds-box { position: absolute; border: 2px solid var(--ds-accent); border-radius: 3px; box-shadow: 0 0 0 1px var(--ds-surface); }
+.ds-box__tag { position: absolute; left: -2px; bottom: 100%; padding: 0 8px; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ds-accent-text); background: var(--ds-accent); border-radius: 3px 3px 0 0; }
+/* Dropzone */
+.ds-drop { display: grid; gap: 4px; justify-items: center; padding: 24px 16px; text-align: center; background: var(--ds-surface-2); border: 1.5px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.ds-drop--over { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+
+/* v3.2 danger rule for the warm accents (apps 04, 05, 06): a pink or crimson accent must never read as an error, so every
+   "running" and "changed" signal is graphite there. The accent still marks identity (plate, buttons, selection, taken path). */
+[data-app="4"] .ds-badge--accent, [data-app="5"] .ds-badge--accent, [data-app="6"] .ds-badge--accent { color: var(--ds-text); background: var(--ds-surface-2); border-color: var(--ds-border); }
+[data-app="4"] .ds-dot--running, [data-app="5"] .ds-dot--running, [data-app="6"] .ds-dot--running { background: var(--ds-text); }
+[data-app="4"] .ds-chip--live, [data-app="5"] .ds-chip--live, [data-app="6"] .ds-chip--live { color: var(--ds-text); background: var(--ds-surface-2); border-color: var(--ds-border); }
+[data-app="4"] .ds-strip--live, [data-app="5"] .ds-strip--live, [data-app="6"] .ds-strip--live { border-color: var(--ds-border); }
+[data-app="4"] .ds-strip--live .ds-strip__value, [data-app="5"] .ds-strip--live .ds-strip__value, [data-app="6"] .ds-strip--live .ds-strip__value { color: var(--ds-text); }
+[data-app="4"] .ds-strip--live .ds-strip__item, [data-app="5"] .ds-strip--live .ds-strip__item, [data-app="6"] .ds-strip--live .ds-strip__item { background: var(--ds-surface); }
+[data-app="4"] .ds-trace__step--running, [data-app="5"] .ds-trace__step--running, [data-app="6"] .ds-trace__step--running { background: var(--ds-surface-2); }
+[data-app="4"] .ds-trace__state--running, [data-app="5"] .ds-trace__state--running, [data-app="6"] .ds-trace__state--running { color: var(--ds-text-muted); }
+[data-app="4"] .ds-trace__bar--live, [data-app="5"] .ds-trace__bar--live, [data-app="6"] .ds-trace__bar--live { background: repeating-linear-gradient(135deg, var(--ds-text-muted) 0 6px, var(--ds-border-strong) 6px 12px) 0 0 / 17px 100%; }
+[data-app="4"] .ds-state--loading .ds-state__mark, [data-app="5"] .ds-state--loading .ds-state__mark, [data-app="6"] .ds-state--loading .ds-state__mark { color: var(--ds-text-muted); }
+[data-app="4"] .ds-g-node--active, [data-app="5"] .ds-g-node--active, [data-app="6"] .ds-g-node--active { fill: var(--ds-surface-2); stroke: var(--ds-text); }
+[data-app="4"] .ds-g-halo, [data-app="5"] .ds-g-halo, [data-app="6"] .ds-g-halo { stroke: var(--ds-text-muted); }
+[data-app="4"] .ds-g-dot--active, [data-app="5"] .ds-g-dot--active, [data-app="6"] .ds-g-dot--active { fill: var(--ds-text); }
+[data-app="4"] .ds-g-state--active, [data-app="5"] .ds-g-state--active, [data-app="6"] .ds-g-state--active { fill: var(--ds-text); }
+[data-app="4"] .ds-chip--change, [data-app="5"] .ds-chip--change, [data-app="6"] .ds-chip--change { color: var(--ds-text-muted); border-color: var(--ds-border-strong); }
+
+@media (max-width: 720px) {
+  .ds-trace__step { grid-template-columns: 24px minmax(0, 1fr); }
+  .ds-trace__meta { grid-column: 2; justify-content: flex-start; white-space: normal; }
+  .ds-strip, .ds-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ds-stage { padding: 12px; }
+  .ds-lead { padding: 16px 16px; }
+  .ds-lead__text > p:first-child { font-size: 18px; }
+  .ds-seg > button { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

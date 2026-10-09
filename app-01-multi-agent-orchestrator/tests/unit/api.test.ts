@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ResearchError, isAbortError, processSSELines, runErrorMessage, startResearch } from '../../src/lib/api'
+import { OVERALL_TIMEOUT_MS, ResearchError, isAbortError, processSSELines, runErrorMessage, startResearch } from '../../src/lib/api'
 import type { StreamEvent } from '../../src/types'
 
 const encoder = new TextEncoder()
@@ -191,7 +191,7 @@ describe('startResearch', () => {
     )
 
     const run = failureOf(startResearch('q', () => undefined))
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(30_000)
     const failure = await run
 
     expect(runErrorMessage(failure)).toBe('The server stopped sending data. Try again.')
@@ -212,5 +212,29 @@ describe('error messages', () => {
   it('recognises the abort that a Stop press causes', () => {
     expect(isAbortError(new DOMException('aborted', 'AbortError'))).toBe(true)
     expect(isAbortError(new Error('boom'))).toBe(false)
+  })
+
+  it('ends a run that keeps sending but never finishes, at the overall cap', async () => {
+    vi.useFakeTimers()
+    const cancelled = vi.fn()
+    let timer: ReturnType<typeof setInterval> | undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // A byte every 20 s keeps the 30 s silence timer quiet, so only the overall cap can end this run.
+        timer = setInterval(() => controller.enqueue(new TextEncoder().encode('data: {"type":"retrieve_start"}\n\n')), 20_000)
+      },
+      cancel() {
+        clearInterval(timer)
+        cancelled()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })))
+
+    const run = failureOf(startResearch('q', () => undefined))
+    await vi.advanceTimersByTimeAsync(OVERALL_TIMEOUT_MS)
+    const failure = await run
+
+    expect(runErrorMessage(failure)).toBe('The run took longer than expected and was ended. Try again.')
+    expect(cancelled).toHaveBeenCalledTimes(1)
   })
 })

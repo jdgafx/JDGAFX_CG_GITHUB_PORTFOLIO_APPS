@@ -42,6 +42,8 @@ export interface StageResult {
   servedModel?: string
   reasoningTokens: number
   usage: StageUsage
+  /** Why a second attempt was made, when it was: 'timeout', 'connection', 'provider' or 'reply'. */
+  retried?: string
 }
 
 /** Maps a provider status to words a visitor can act on. Raw provider bodies never leave the server. */
@@ -87,6 +89,11 @@ function isAbortLike(err: unknown): boolean {
 /** Only a rate limit or a server error is retried. */
 function isRetryable(err: unknown): err is UpstreamError {
   return err instanceof UpstreamError && (err.status === 429 || err.status >= 500)
+}
+
+/** The request never got an answer: the connection failed before any response (not a status, not our timer). */
+function isConnectionError(err: unknown): boolean {
+  return err instanceof TypeError || (err instanceof Error && /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket|fetch failed/i.test(err.message))
 }
 
 /** A reply is retried when it has no text, or when it stopped before its finish reason. */
@@ -212,13 +219,14 @@ async function readAttempt(stream: OpenStream): Promise<StageResult> {
  * because a retry is billed too. As in usage.ts, the total is reported only when every attempt
  * reported usage, so an attempt that was cut off before its usage arrived leaves it not reported.
  */
-function combineAttempts(attempts: StageResult[]): StageResult {
+function combineAttempts(attempts: StageResult[], retried: string | undefined): StageResult {
   let best = attempts[0]
   for (const attempt of attempts) {
     if (best && attempt.content.trim().length >= best.content.trim().length) best = attempt
   }
-  if (!best) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {} }
+  if (!best) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {}, ...(retried ? { retried } : {}) }
   return {
+    ...(retried ? { retried } : {}),
     content: best.content,
     finish: best.finish,
     servedModel: best.servedModel ?? attempts.map(attempt => attempt.servedModel).find(Boolean),
@@ -244,12 +252,18 @@ export async function runStage(
 ): Promise<StageResult> {
   const attempts: StageResult[] = []
   let providerError: UpstreamError | undefined
+  /** Why the next attempt is a retry; it becomes `retried` once that attempt really starts. */
+  let pending: string | undefined
+  let retried: string | undefined
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (runSignal.aborted) throw new RunCancelledError()
-    if (attempt > 0 && deadline - Date.now() < MIN_RETRY_MS) {
-      if (attempts.length === 0 && providerError) throw providerError
-      break
+    if (attempt > 0) {
+      if (deadline - Date.now() < MIN_RETRY_MS) {
+        if (attempts.length === 0 && providerError) throw providerError
+        break
+      }
+      retried = pending
     }
 
     let stream: OpenStream
@@ -257,9 +271,16 @@ export async function runStage(
       stream = await openStream(agent, userMessage, provider, Math.min(agent.timeoutMs, deadline - Date.now()), runSignal)
     } catch (err) {
       if (err instanceof RunCancelledError) throw err
-      if (attempts.length > 0 || err instanceof AgentTimeoutError) break
-      if (attempt === 0 && isRetryable(err)) {
-        providerError = err
+      if (attempts.length > 0) break
+      if (attempt === 0 && err instanceof AgentTimeoutError) {
+        // The call hung before any answer: one more try, with no wait, if the budget allows.
+        pending = 'timeout'
+        continue
+      }
+      if (err instanceof AgentTimeoutError) break
+      if (attempt === 0 && (isRetryable(err) || isConnectionError(err))) {
+        if (isRetryable(err)) providerError = err
+        pending = isRetryable(err) ? 'provider' : 'connection'
         await delay(RETRY_DELAY_MS)
         continue
       }
@@ -270,7 +291,8 @@ export async function runStage(
     if (runSignal.aborted) throw new RunCancelledError()
     attempts.push(result)
     if (!needsRetry(result)) break
+    pending = 'reply'
   }
 
-  return combineAttempts(attempts)
+  return combineAttempts(attempts, retried)
 }
