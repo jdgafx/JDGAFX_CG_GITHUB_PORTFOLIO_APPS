@@ -209,3 +209,41 @@ describe('checkFigures: a sentence that starts with a pronoun is about the previ
     expect(checkFigures(`${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual([])
   })
 })
+
+describe('checkFigures: a value belongs to one package', () => {
+  const V: Summary = {
+    startDate: '2026-09-08',
+    endDate: '2026-10-07',
+    windowDays: 30,
+    observedDays: 28,
+    packages: [
+      { name: 'react', total: 820_000_000, avgPerDay: 29_300_000, changePct: 13.3, weekendPct: 59.2, sharePct: 70.1 },
+      { name: 'vue', total: 75_600_000, avgPerDay: 2_700_000, changePct: 12.4, weekendPct: 55, sharePct: 8.1 },
+      { name: 'svelte', total: 22_000_000, avgPerDay: 980_000, changePct: 9, weekendPct: 50.1, sharePct: 3 },
+    ],
+  }
+
+  it.each([
+    ['another package\'s daily average', 'Svelte averages 2.7 million downloads per day.', '2.7 million'],
+    ["another package's share", "Svelte's share is 8.1%.", '8.1%'],
+    ["another package's weekend level", 'Svelte weekend days run at 59.2% of weekday downloads.', '59.2%'],
+    ["another package's value through the hedge rounding", 'Svelte averages about 30,000,000 downloads per day.', '30,000,000'],
+  ])('does not match %s', (_label, text, figure) => {
+    const check = checkFigures(text, V)
+    expect(check).toMatchObject({ checked: 1, matched: 0 })
+    expect(check.unmatched).toEqual([figure])
+  })
+
+  it('still matches a value in a sentence that names its owner, hedged or not', () => {
+    expect(checkFigures('Vue averages 2.7 million downloads per day.', V).matched).toBe(1)
+    expect(checkFigures("Vue's share is 8.1%.", V).matched).toBe(1)
+    expect(checkFigures('React averages about 30,000,000 downloads per day.', V).matched).toBe(1)
+    expect(checkFigures('Svelte averages 0.98 million downloads per day.', V).matched).toBe(1)
+  })
+
+  it('reads a sentence that opens with a pronoun as about the package before it, and a sentence naming nobody as unconstrained', () => {
+    expect(checkFigures('Vue is steady. It averages 2.7 million downloads per day.', V).matched).toBe(1)
+    expect(checkFigures('Svelte is small. It averages 2.7 million downloads per day.', V).matched).toBe(1) // own reading names none: both readings are tried
+    expect(checkFigures('The daily average is 2.7 million downloads.', V).matched).toBe(1)
+  })
+})

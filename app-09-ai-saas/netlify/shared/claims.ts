@@ -13,7 +13,7 @@ import { checkFigures, directionAgrees, figureOccurrences, matchesQuoted, PRONOU
 
 export const CLAIMS_MARKER = '===CLAIMS==='
 
-export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'difference', 'spike_downloads', 'spike_baseline', 'spike_pct', 'date', 'version'] as const
+export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'difference', 'spike_downloads', 'spike_baseline', 'spike_pct', 'spike_count', 'date', 'version'] as const
 export type ClaimKind = (typeof CLAIM_KINDS)[number]
 
 export interface Claim {
@@ -37,7 +37,7 @@ export function claimsPrompt(): string {
 After the explanation, write a new line containing exactly ${CLAIMS_MARKER} and then a JSON array and nothing else (no code fence). Write one object for each number, percentage, multiple, date or version you wrote in the explanation:
 {"q": words copied exactly from the explanation that contain the figure, at most 8 words, "k": what the figure is, "p": an array of the package names from the list above it is about, "m": "total" or "per_day" (multiples and differences), "d": the spike's date as YYYY-MM-DD (spike kinds only; leave the key out otherwise)}
 For example: [{"q":"9.4 times","k":"multiple","p":["zod","@anthropic-ai/sdk"],"m":"total"},{"q":"40.1%","k":"share_pct","p":["zod"]}]
-"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the one the sentence is about and names first, then the other), difference (the gap between two packages' downloads: "p" has both, "m" says total or per_day), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), date, version.`
+"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the one the sentence is about and names first, then the other), difference (the gap between two packages' downloads: "p" has both, "m" says total or per_day), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), spike_count (how many unusual days: "p" is one package, or empty for all of them; say "with a release" or "no release" in the quote when the count is only of those), date, version.`
 }
 
 /** Passes text through until the claims marker, holding back just enough to see a marker split across chunks. */
@@ -241,6 +241,25 @@ function attributed(text: string, claim: Claim, quoteEnd: number, figureEnd: num
   return claim.p.every((name) => mention(name, from, to) >= 0)
 }
 
+const NUMBER_WORDS: Record<string, number> = Object.fromEntries(
+  ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'].map((word, i) => [word, i]),
+)
+const TENS: Record<string, number> = { thirty: 30, forty: 40, fifty: 50 }
+
+/** The first small whole number in `quote`, written as digits or as words ("eight", "twenty-five"), with where it starts. */
+export function readSmallCount(quote: string): { value: number; text: string; index: number } | null {
+  const words = Object.keys({ ...NUMBER_WORDS, ...TENS }).join('|')
+  const found = new RegExp(`(?<![\\d.,-])(\\d{1,3})(?![\\d.,]\\d)|\\b(${words})(?:-(one|two|three|four|five|six|seven|eight|nine))?\\b`, 'i').exec(quote)
+  if (!found) return null
+  if (found[1] !== undefined) return { value: Number(found[1]), text: found[1], index: found.index }
+  const base = found[2].toLowerCase()
+  const value = (TENS[base] ?? NUMBER_WORDS[base]) + (found[3] ? NUMBER_WORDS[found[3].toLowerCase()] : 0)
+  return { value, text: found[0], index: found.index }
+}
+
+/** A count of spikes that is not a count of all of a package's, such as "the other 10" or "the remaining 8", is not one the evidence lists. */
+const PARTIAL_COUNT = /\b(remaining|others?|rest|more|further|additional|else|besides|beyond)\b/i
+
 /** Counts a claim of a count kind could be mistaken for when it names a single package: gaps between packages and combined figures. */
 function derivedCounts(packages: PackageFigures[]): number[] {
   const values = [packages.reduce((sum, pkg) => sum + pkg.total, 0), packages.reduce((sum, pkg) => sum + pkg.avgPerDay, 0)]
@@ -290,6 +309,28 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       result.checked += 1
       if (writtenIsKnown(item, s, resolved.p[0])) result.matched += 1
       else reject(item.text, claim.q, start)
+      continue
+    }
+
+    if (claim.k === 'spike_count') {
+      const count = readSmallCount(claim.q)
+      if (!count) {
+        result.ignored += 1
+        continue
+      }
+      const start = at + count.index
+      if (PARTIAL_COUNT.test(claim.q) || !attributed(text, resolved, at + claim.q.length, start + count.text.length, names, claim.p)) {
+        leaveUnchecked(count.text, start)
+        continue
+      }
+      const mine = (s.spikes ?? []).filter((spike) => claim.p.length === 0 || spike.name === resolved.p[0])
+      const withRelease = /\bwith (?:a |an |at least one )?(?:stable )?release|\bfollow(?:ed|s)? (?:a |an )?(?:stable )?release|\bhad (?:a |an )?(?:stable )?release/i.test(claim.q)
+      const noRelease = /\bno (?:stable )?release|\bwithout (?:a |any )?(?:stable )?release/i.test(claim.q)
+      const expected = noRelease ? mine.filter((spike) => spike.releasesKnown && spike.releases.length === 0) : withRelease ? mine.filter((spike) => spike.releases.length > 0) : mine
+      covered.push({ start, end: start + count.text.length })
+      result.checked += 1
+      if (expected.length === count.value) result.matched += 1
+      else reject(count.text, claim.q, start)
       continue
     }
 

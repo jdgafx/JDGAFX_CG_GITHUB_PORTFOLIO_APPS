@@ -80,17 +80,19 @@ interface SummaryFigure {
   trend: boolean
   /** For a multiple: the two packages it compares, so it only matches in a sentence that names them. */
   pair?: [string, string]
+  /** The package this value belongs to. Absent for a selection-wide value. A figure is only read as this value when its sentence names the package. */
+  owner?: string
 }
 
 /** Every number the prompt states, plus the derived ones it spells out. */
 function summaryFigures(s: Summary): SummaryFigure[] {
   const figures: SummaryFigure[] = [{ unit: 'count', value: s.packages.reduce((sum, p) => sum + p.total, 0), trend: false }]
   for (const p of s.packages) {
-    figures.push({ unit: 'count', value: p.total, trend: false }, { unit: 'count', value: p.avgPerDay, trend: false })
-    figures.push({ unit: '%', value: p.sharePct, trend: false })
-    if (p.changePct !== null) figures.push({ unit: '%', value: p.changePct, trend: true })
+    figures.push({ unit: 'count', value: p.total, trend: false, owner: p.name }, { unit: 'count', value: p.avgPerDay, trend: false, owner: p.name })
+    figures.push({ unit: '%', value: p.sharePct, trend: false, owner: p.name })
+    if (p.changePct !== null) figures.push({ unit: '%', value: p.changePct, trend: true, owner: p.name })
     if (p.weekendPct !== null) {
-      figures.push({ unit: '%', value: p.weekendPct, trend: false }, { unit: '%', value: weekendGap(p.weekendPct), trend: false })
+      figures.push({ unit: '%', value: p.weekendPct, trend: false, owner: p.name }, { unit: '%', value: weekendGap(p.weekendPct), trend: false, owner: p.name })
     }
   }
   // Multiples between packages, by total and by per-day average, in both directions.
@@ -105,9 +107,9 @@ function summaryFigures(s: Summary): SummaryFigure[] {
   // A spike is stated as a day's count, the weekday's usual count and the percentage between them.
   for (const spike of s.spikes ?? []) {
     figures.push(
-      { unit: 'count', value: spike.downloads, trend: false },
-      { unit: 'count', value: spike.baseline, trend: false },
-      { unit: '%', value: spike.sizePct, trend: true },
+      { unit: 'count', value: spike.downloads, trend: false, owner: spike.name },
+      { unit: 'count', value: spike.baseline, trend: false, owner: spike.name },
+      { unit: '%', value: spike.sizePct, trend: true, owner: spike.name },
     )
   }
   return figures
@@ -173,10 +175,25 @@ const PRONOUN_REACH = 3
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** The packages named in `sentence`, in the order they appear. */
+/**
+ * The words that name a package in prose: its full name, the name after its scope ("sdk" for @anthropic-ai/sdk), and
+ * any word of it of four letters or more that no other selected package shares ("anthropic").
+ */
+function aliasesOf(name: string, names: string[]): string[] {
+  const words = (value: string) => value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
+  const others = new Set(names.filter((other) => other !== name).flatMap(words))
+  return [name, name.split('/').pop() ?? name, ...words(name).filter((word) => !others.has(word))]
+}
+
+/** The packages named in `sentence`, in the order they appear. A package is named by any of its aliases. */
 function namedInOrder(sentence: string, names: string[]): string[] {
   return names
-    .map((name) => ({ name, at: sentence.search(new RegExp(`(?<![\\w@/.-])${escapeRegExp(name)}(?![\\w/-])`, 'i')) }))
+    .map((name) => {
+      const hits = aliasesOf(name, names)
+        .map((alias) => sentence.search(new RegExp(`(?<![\\w@/.-])${escapeRegExp(alias)}(?![\\w/-])`, 'i')))
+        .filter((at) => at >= 0)
+      return { name, at: hits.length > 0 ? Math.min(...hits) : -1 }
+    })
     .filter((hit) => hit.at >= 0)
     .sort((a, b) => a.at - b.at)
     .map((hit) => hit.name)
@@ -219,10 +236,15 @@ function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean 
  * scale and rounded to the figure's own decimals. A trend must also carry the sign the text gives it.
  * wrongDirection is set when a trend matches in size only.
  */
-function judge(q: Quoted, pool: SummaryFigure[], named: ReadonlySet<string>): { matched: boolean; wrongDirection: boolean } {
+function judge(q: Quoted, pool: SummaryFigure[], named: ReadonlySet<string>, ownerAware = true): { matched: boolean; wrongDirection: boolean } {
   let sizeMatched = false
   for (const figure of pool) {
-    if (figure.unit !== q.unit || !matchesQuoted(q, figure.value)) continue
+    if (figure.unit !== q.unit) continue
+    // A value that belongs to one package is only read as that package's when the sentence names it. A sentence that
+    // names a package must name this one; the hedge rounding is allowed only for a value whose owner is named.
+    const ownerNamed = figure.owner !== undefined && named.has(figure.owner)
+    if (ownerAware && figure.owner !== undefined && named.size > 0 && !ownerNamed) continue
+    if (!matchesQuoted(q, figure.value, !ownerAware || ownerNamed)) continue
     if (figure.pair && !pairNamed(figure.pair, named)) continue
     sizeMatched = true
     const signMatches = !figure.trend || q.sign === 0 || (q.sign < 0 ? figure.value <= 0 : figure.value >= 0)
@@ -260,11 +282,11 @@ export function figureOccurrences(text: string): Occurrence[] {
 }
 
 /** Whether `value`, divided by the figure's own scale and rounded to its own decimals, is what the figure says. */
-export function matchesQuoted(q: Quoted, value: number): boolean {
+export function matchesQuoted(q: Quoted, value: number, allowHedge = true): boolean {
   if (roundTo(Math.abs(value) / q.scale, q.decimals) === q.value) return true
   // A count written out in full is exact, unless the text hedges it ("roughly 99,000"): then it may be the true value
   // rounded to the significant figures it is written with.
-  if (q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
+  if (allowHedge && q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
     const significant = String(q.value).replace(/0+$/, '').length
     return Number(Math.abs(value).toPrecision(significant)) === q.value
   }
@@ -282,15 +304,15 @@ export function directionAgrees(q: Quoted, value: number): boolean {
  * "1.1 billion" does not. A multiple such as "4.3 times" matches the ratio of two packages' totals or per-day averages. A trend figure also needs the direction the text gives it. This shows which
  * numbers come from the data. It does not judge the conclusion drawn from them.
  */
-export function checkFigures(text: string, s: Summary, covered: (index: number) => boolean = () => false): FigureCheck {
+export function checkFigures(text: string, s: Summary, covered: (index: number) => boolean = () => false, ownerAware = true): FigureCheck {
   const pool = summaryFigures(s)
   const names = s.packages.map((p) => p.name)
   const result: FigureCheck = { checked: 0, matched: 0, unmatched: [] }
   for (const { index, whole, quoted } of figureOccurrences(text)) {
     if (covered(index)) continue
     // A multiple can be read with the packages its sentence names, or with the subject a leading "It" points to.
-    const sets = quoted.unit === 'times' ? packagesForFigure(text, index, names) : [new Set<string>()]
-    const verdicts = sets.map((named) => judge(quoted, pool, named))
+    const sets = packagesForFigure(text, index, names)
+    const verdicts = sets.map((named) => judge(quoted, pool, named, ownerAware))
     const verdict = verdicts.find((v) => v.matched) ?? verdicts[0]
     result.checked += 1
     if (verdict.matched) result.matched += 1

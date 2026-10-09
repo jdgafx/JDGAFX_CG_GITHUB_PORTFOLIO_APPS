@@ -168,8 +168,9 @@ describe('checkClaims', () => {
   it('does not let one claim cover a second figure in the same quote', () => {
     const text = "Zod leads. It is 1.4 times react's and 9.4 times the SDK's."
     const check = checkClaims(text, [claim("1.4 times react's and 9.4 times", 'multiple', ['zod', 'react'])], S)
-    // The first figure is claimed. The second is not covered, and its sentence names only react, so it is unchecked.
-    expect(check).toMatchObject({ checked: 1, matched: 1, rejected: [], unchecked: ['9.4 times'] })
+    // The first figure is claimed. The second is not covered: the sentence names the SDK, and with the subject carried
+    // from the sentence before it, zod / sdk is 9.4, so the sentence check matches it.
+    expect(check).toMatchObject({ checked: 2, matched: 2, rejected: [], unchecked: [] })
   })
 })
 
@@ -292,5 +293,48 @@ describe('hedged figures', () => {
     expect(run('1.5 times')).toBe(1)
     expect(checkClaims("Zod is about 9 times the SDK's total.", [claim('9 times', 'multiple', ['zod', 'sdk'], { m: 'total' })], S).rejected).toEqual([])
     expect(checkClaims("Zod is about 10 times the SDK's total.", [claim('10 times', 'multiple', ['zod', 'sdk'], { m: 'total' })], S).rejected).toHaveLength(1)
+  })
+})
+
+describe('spike_count claims', () => {
+  const sp = (name: string, date: string, releases: number) => ({
+    name,
+    date,
+    downloads: 1000,
+    baseline: 500,
+    sizePct: 100,
+    releases: Array.from({ length: releases }, (_, i) => ({ version: `1.0.${i + 1}`, date, kind: 'patch' as const })),
+    moreReleases: 0,
+    releasesKnown: true,
+  })
+  const C: Summary = { ...S, spikes: [sp('@anthropic-ai/sdk', '2026-01-31', 1), sp('@anthropic-ai/sdk', '2026-02-02', 0), sp('zod', '2026-03-26', 0)] }
+  const run = (text: string, c: Claim) => checkClaims(text, [c], C)
+
+  it('checks the total, in digits or words', () => {
+    expect(run('There are 3 unusual days in all.', claim('3 unusual days', 'spike_count', []))).toMatchObject({ matched: 1, rejected: [] })
+    expect(run('There are three unusual days in all.', claim('three unusual days', 'spike_count', []))).toMatchObject({ matched: 1, rejected: [] })
+    const wrong = run('There are 8 unusual days in all.', claim('8 unusual days', 'spike_count', []))
+    expect(wrong.rejected).toEqual([{ figure: '8', quote: '8 unusual days', start: 10, end: 11 }])
+  })
+
+  it('checks a package, only when the text names it', () => {
+    expect(run('The SDK has two spike days.', claim('two spike days', 'spike_count', ['sdk']))).toMatchObject({ matched: 1, rejected: [] })
+    expect(run('The SDK has three spike days.', claim('three spike days', 'spike_count', ['sdk'])).rejected).toHaveLength(1)
+    expect(run('Seven spike days are listed.', claim('Seven spike days', 'spike_count', ['sdk']))).toMatchObject({ matched: 0, rejected: [], unchecked: ['Seven'] })
+  })
+
+  it('counts only the spikes with a release, or with none, when the quote says so', () => {
+    expect(run('One of the SDK spikes follows a release.', claim('One of the SDK spikes follows a release', 'spike_count', ['sdk'])).matched).toBe(1)
+    expect(run('Two SDK spikes follow a release.', claim('Two SDK spikes follow a release', 'spike_count', ['sdk'])).rejected).toHaveLength(1)
+    expect(run('Two spikes have no release nearby.', claim('Two spikes have no release', 'spike_count', [])).matched).toBe(1)
+  })
+
+  it('leaves a partial count such as "the other 10" or "the remaining 8" unchecked', () => {
+    for (const quote of ['the remaining 8 spikes', 'the other 10 unusual days', '8 more spikes']) {
+      const check = run(`There are ${quote}.`, claim(quote, 'spike_count', []))
+      expect(check.rejected).toEqual([])
+      expect(check.matched).toBe(0)
+      expect(check.unchecked).toHaveLength(1)
+    }
   })
 })
