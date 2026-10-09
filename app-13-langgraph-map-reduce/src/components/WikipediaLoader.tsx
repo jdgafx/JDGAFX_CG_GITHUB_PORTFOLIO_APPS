@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchedNow, type WikiFetch } from '../lib/liveData'
+import { fetchedNow, type WikiEvent } from '../lib/liveData'
 import { formatTokens } from '../lib/format'
 import { LOADER_MAX_CHARS } from '../lib/limits'
 import { SUGGESTED_TITLES, WikiError, type Article } from '../lib/wikipedia'
@@ -20,7 +20,7 @@ interface WikipediaLoaderProps {
   disabled: boolean
   onLoad: (text: string) => void
   /** What the last fetch did, for the live-data chip. */
-  onFetch: (fetched: WikiFetch) => void
+  onFetch: (fetched: WikiEvent) => void
   /** Changes when a run completes on a narrow screen: the suggestion list folds away so the result is not pushed down. */
   collapseKey: number
 }

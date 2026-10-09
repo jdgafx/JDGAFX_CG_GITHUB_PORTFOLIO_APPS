@@ -270,3 +270,4 @@
 /* Live-data chip in the masthead: lit by a Wikipedia article, or "Your text" for pasted text. */
 .live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
 .live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
+.live-data .ds-dot { flex: none; }

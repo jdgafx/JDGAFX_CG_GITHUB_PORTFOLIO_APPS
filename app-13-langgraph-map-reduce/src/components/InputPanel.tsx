@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { formatTokens } from '../lib/format'
 import { MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../lib/limits'
-import type { WikiFetch } from '../lib/liveData'
+import type { WikiEvent } from '../lib/liveData'
 import { WikipediaLoader } from './WikipediaLoader'
 
 interface InputPanelProps {
@@ -9,7 +9,7 @@ interface InputPanelProps {
   running: boolean
   valid: boolean
   onChange: (text: string) => void
-  onFetch: (fetched: WikiFetch) => void
+  onFetch: (fetched: WikiEvent) => void
   onRun: () => void
   onStop: () => void
   collapseKey: number

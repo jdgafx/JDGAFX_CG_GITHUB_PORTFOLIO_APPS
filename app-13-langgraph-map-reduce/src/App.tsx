@@ -6,7 +6,7 @@ import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
-import { liveIndicator, type WikiFetch } from './lib/liveData'
+import { applyFetch, liveIndicator, NO_FETCH, type WikiEvent } from './lib/liveData'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { statusLine } from './lib/status'
 import { useResultFocus } from './lib/useResultFocus'
@@ -47,7 +47,7 @@ export default function App() {
   const [view, dispatch] = useReducer(reduce, undefined, initialView)
   /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
   const [analyzed, setAnalyzed] = useState('')
-  const [fetched, setFetched] = useState<WikiFetch | null>(null)
+  const [fetched, setFetched] = useState(NO_FETCH)
   const [collapseKey, setCollapseKey] = useState(0)
   const [railScrolled, setRailScrolled] = useState(false)
   const busy = useRef(false)
@@ -97,7 +97,7 @@ export default function App() {
               running={running}
               valid={valid}
               onChange={setText}
-              onFetch={setFetched}
+              onFetch={(event: WikiEvent) => setFetched((prev) => applyFetch(prev, event))}
               onRun={() => void analyze(text)}
               onStop={() => controller.current?.abort()}
               collapseKey={collapseKey}
