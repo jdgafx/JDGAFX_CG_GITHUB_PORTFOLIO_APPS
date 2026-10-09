@@ -82,26 +82,45 @@ describe('sentencesCiting', () => {
 })
 
 describe('contextAround', () => {
-  it('drops a word the overlap cut in half instead of joining it with a space', () => {
+  it('keeps both halves of a word the overlap cut and joins them with no space', () => {
     // The passage starts inside "that" and ends inside "light-dependent".
     const prev = 'archaeal cyanobacteria preceding that of cyanobacteria (see Purple Earth hypothesis).'
     const passage = 'at of cyanobacteria (see Purple Earth hypothesis). While the details differ. In these li'
     const next = 'In these light-dependent reactions, some energy is used'
-    expect(contextAround(prev, passage, next)).toEqual({
-      before: 'archaeal cyanobacteria preceding',
-      after: 'reactions, some energy is used',
+    const c = contextAround(prev, passage, next)
+    expect(c).toEqual({
+      before: 'archaeal cyanobacteria preceding th',
+      after: 'ght-dependent reactions, some energy is used',
+      joinBefore: true,
+      joinAfter: true,
     })
+    // As the panel renders it: before + passage + after, with no space at a join.
+    const shown = `${c.before}${c.joinBefore ? '' : ' '}${passage}${c.joinAfter ? '' : ' '}${c.after}`
+    expect(shown).toContain('preceding that of')
+    expect(shown).toContain('light-dependent reactions')
+  })
+
+  it('rejoins "model" and "oxidation" cut at a passage edge', () => {
+    const a = contextAround('and the big mo', 'odel achieves a score of 41.0, outperforming', undefined)
+    expect(a.before).toBe('and the big mo')
+    expect(a.joinBefore).toBe(false) // no overlap in this pair, so nothing is joined
+    const prev = 'The big model achieves'
+    const passage = 'odel achieves a BLEU of 41.0 and the x'
+    const next = 'and the xidation of water'
+    const c = contextAround(prev, passage, next)
+    expect(`${c.before}${c.joinBefore ? '' : ' '}${passage}`).toContain('big model achieves')
+    expect(`${passage}${c.joinAfter ? '' : ' '}${c.after}`).toContain('xidation of water')
   })
 
   it('cuts the words each neighbour shares with the passage, so nothing is shown twice', () => {
     const before = 'The first part ends with the shared words here'
     const passage = 'with the shared words here and the middle part ends with the next shared tail'
     const after = 'the next shared tail and then the last part'
-    expect(contextAround(before, passage, after)).toEqual({ before: 'The first part ends', after: 'and then the last part' })
+    expect(contextAround(before, passage, after)).toMatchObject({ before: 'The first part ends', after: 'and then the last part' })
   })
 
   it('gives empty context at the ends of the document and cuts long context at a word', () => {
-    expect(contextAround(undefined, 'only passage', undefined)).toEqual({ before: '', after: '' })
+    expect(contextAround(undefined, 'only passage', undefined)).toMatchObject({ before: '', after: '' })
     const long = 'word '.repeat(100)
     const { before, after } = contextAround(long, 'unrelated passage text', long, 20)
     expect(before).toBe('word word word')
@@ -170,5 +189,13 @@ describe('splitSentences: PDF spacing inside numbers', () => {
       'The big model achieves a BLEU score of 41 . 0 , outperforming all.',
       'Next one follows.',
     ])
+  })
+})
+
+describe('supporting sentence: the opening fragment', () => {
+  it('is used when it shares more words than any whole sentence (the cited text starts the passage)', () => {
+    const passage = 'odel achieves a BLEU score of 41 . 0 , outperforming all single models. The Transformer big model trained for French used dropout.'
+    const found = supportingSentences(passage, ['The model achieves a BLEU score of 41.0.'])
+    expect(found.map(s => s.sentence.start)).toEqual([0])
   })
 })

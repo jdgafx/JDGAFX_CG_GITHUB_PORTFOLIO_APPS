@@ -119,7 +119,7 @@ function bestFor(sentences: PassageSentence[], answerSentence: string): Support 
     for (const stem of words.keys()) spread.set(stem, (spread.get(stem) ?? 0) + 1)
     return { sentence, words }
   })
-  // A passage that starts inside a sentence opens with the tail of the one before it. It is only used when nothing else matches.
+  // A passage that starts inside a sentence opens with the tail of the one before it.
   const fragment = (s: PassageSentence) => s.start === 0 && /^\p{Ll}/u.test(s.text)
   const rarity = (words: Map<string, string>) => [...words.keys()].reduce((sum, stem) => sum + 1 / (spread.get(stem) ?? 1), 0)
   const pick = (rows: typeof found): Support | null => {
@@ -133,7 +133,10 @@ function bestFor(sentences: PassageSentence[], answerSentence: string): Support 
     }
     return best?.support ?? null
   }
-  return pick(found.filter(row => !fragment(row.sentence))) ?? pick(found)
+  const whole = pick(found.filter(row => !fragment(row.sentence)))
+  const opening = pick(found.filter(row => fragment(row.sentence)))
+  // The opening fragment is used when it shares more words than any whole sentence; on a tie the whole sentence is the claim.
+  return opening && (!whole || opening.shared.length > whole.shared.length) ? opening : whole
 }
 
 /**
@@ -181,21 +184,28 @@ function overlap(a: string, b: string, min = 8): number {
 
 const WORD_CHAR = /[\p{L}\p{N}]/u
 
+export interface Context {
+  before: string
+  after: string
+  /** True when the passage starts inside a word, so `before` ends on the first half of it and joins with no space. */
+  joinBefore: boolean
+  /** True when the passage ends inside a word, so `after` begins with the rest of it and joins with no space. */
+  joinAfter: boolean
+}
+
 /**
  * The text on each side of a passage, for the source panel. Neighbouring passages overlap by a few words, so the
  * stretch already inside the passage is cut from each side. Passages start and end at arbitrary characters, so the
- * cut can fall inside a word; the partial word is dropped from the context, never joined to a space. What is left is
+ * cut can fall inside a word; both halves are kept, and the flags say the two sides join with no space. Each side is
  * cut to at most `max` characters at a word.
  */
-export function contextAround(prev: string | undefined, passage: string, next: string | undefined, max = 220): { before: string; after: string } {
+export function contextAround(prev: string | undefined, passage: string, next: string | undefined, max = 220): Context {
   const cutBefore = prev === undefined ? 0 : overlap(prev, passage)
   const cutAfter = next === undefined ? 0 : overlap(passage, next)
   let before = prev === undefined ? '' : prev.slice(0, prev.length - cutBefore)
   let after = next === undefined ? '' : next.slice(cutAfter)
-  // The passage starts inside a word: the context ends on the first half of it. Drop that half.
-  if (cutBefore > 0 && WORD_CHAR.test(before.slice(-1)) && WORD_CHAR.test(passage.slice(0, 1))) before = before.slice(0, Math.max(0, before.search(/\S*$/)))
-  // The passage ends inside a word: the context begins with the second half of it.
-  if (cutAfter > 0 && WORD_CHAR.test(after.slice(0, 1)) && WORD_CHAR.test(passage.slice(-1))) after = after.slice(Math.max(0, after.search(/\s/)))
+  const joinBefore = cutBefore > 0 && WORD_CHAR.test(before.slice(-1)) && WORD_CHAR.test(passage.slice(0, 1))
+  const joinAfter = cutAfter > 0 && WORD_CHAR.test(after.slice(0, 1)) && WORD_CHAR.test(passage.slice(-1))
   if (before.length > max) {
     before = before.slice(-max)
     before = before.slice(before.indexOf(' ') + 1)
@@ -204,5 +214,5 @@ export function contextAround(prev: string | undefined, passage: string, next: s
     after = after.slice(0, max)
     after = after.slice(0, after.lastIndexOf(' '))
   }
-  return { before: before.trim(), after: after.trim() }
+  return { before: before.trim(), after: after.trim(), joinBefore, joinAfter }
 }

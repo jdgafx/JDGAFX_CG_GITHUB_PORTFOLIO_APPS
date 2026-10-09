@@ -37,7 +37,7 @@ export function SourcePanel({ doc, index, parsed, retrieval, mode, onClose }: So
   const heading = useRef<HTMLHeadingElement>(null)
   const passage = doc.chunks[index] ?? ''
   const place = doc.chunkPages[index]
-  const { before, after } = contextAround(doc.chunks[index - 1], passage, doc.chunks[index + 1])
+  const { before, after, joinBefore, joinAfter } = contextAround(doc.chunks[index - 1], passage, doc.chunks[index + 1])
   const citing = mode === 'cited' ? sentencesCiting(parsed, index) : []
   const supports = supportingSentences(passage, citing)
   const rank = retrieval.ranked.findIndex(r => r.index === index)
@@ -60,9 +60,9 @@ export function SourcePanel({ doc, index, parsed, retrieval, mode, onClose }: So
       </div>
 
       <p className="docmind-source__text">
-        {before !== '' && <span className="docmind-source__ctx">{`…${before} `}</span>}
+        {before !== '' && <span className="docmind-source__ctx">{`…${before}${joinBefore ? '' : ' '}`}</span>}
         {marked(passage, supports)}
-        {after !== '' && <span className="docmind-source__ctx">{` ${after}…`}</span>}
+        {after !== '' && <span className="docmind-source__ctx">{`${joinAfter ? '' : ' '}${after}…`}</span>}
       </p>
 
       <p className="ds-help">

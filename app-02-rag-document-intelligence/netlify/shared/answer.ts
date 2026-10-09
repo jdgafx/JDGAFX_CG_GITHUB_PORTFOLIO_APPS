@@ -82,7 +82,7 @@ Rules:
 - Answer using ONLY information explicitly found in the provided chunks
 - If the chunks don't contain enough information to answer, clearly say so
 - Never fabricate or infer information beyond what is in the chunks
-- Be precise and clear. Write as an informed reader would: never say "the chunks" or "the provided text" in the answer; the [Chunk N] markers are the only reference to them
+- Be precise and clear. Write as an informed reader would: never say "the chunks" or "the provided text" in the answer (if you must name them, call them passages); the [Chunk N] markers are the only reference to them
 - Cite as you write: put the label of the chunk that supports a claim right after it, like [Chunk 4], or [Chunk 4, Chunk 9] when two support it. Cite only chunks you used. Put the marker after the sentence's last word, before its full stop
 - If the chunks do not contain the answer, say plainly that the passages provided do not state it (never claim the document as a whole does not say it, because only some passages were provided), and return an empty source_chunk_indices list
 
