@@ -1,4 +1,5 @@
 import type { RunPhase } from '../types'
+import type { LiveData } from '../lib/livedata'
 import type { VerdictCounts } from '../lib/verdicts'
 
 export interface StatusBadge {
@@ -24,7 +25,7 @@ export function statusBadge(phase: RunPhase, verified: boolean, counts: VerdictC
   return { text: 'Ready', tone: '', dot: '' }
 }
 
-export function Header({ badge }: { badge: StatusBadge }) {
+export function Header({ badge, live }: { badge: StatusBadge; live: LiveData }) {
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -41,6 +42,10 @@ export function Header({ badge }: { badge: StatusBadge }) {
           </div>
           <p className="ds-subtitle">
             Review a source file or a public GitHub pull request. A second model pass checks every comment against the code.
+          </p>
+          <p className="live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.text}
           </p>
         </div>
         <p className="ds-showcase">

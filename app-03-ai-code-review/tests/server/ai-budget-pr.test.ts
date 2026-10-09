@@ -39,14 +39,14 @@ describe('ai function: the time budget', () => {
     expect((await pending).status).toBe(504)
   })
 
-  it('ends two hung reads at 12.0 s, retries each once while the budget allows, and then shows the comments as not confirmed', async () => {
+  it('ends two hung reads at 14.1 s, retries each once while the budget allows, and then shows the comments as not confirmed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     fetchStub.mockImplementation(hang)
     const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(12_000)
+    await vi.advanceTimersByTimeAsync(14_100)
     expect(fetchStub).toHaveBeenCalledTimes(5)
-    await vi.advanceTimersByTimeAsync(12_000)
+    await vi.advanceTimersByTimeAsync(14_100)
     const res = await pending
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
@@ -91,7 +91,7 @@ describe('ai function: a pull request review', () => {
     const lineOf = (needle: string) => PATCH.split('\n').findIndex((l) => l.includes(needle)) + 2
     const added = lineOf('+            loc =')
     twoPasses(
-      [{ line: added, quote: 'os.path.expanduser(f)', severity: 'warning', message: 'expanduser can raise KeyError when HOME is undefined.', suggestion: 'Catch KeyError and return None.', issue: true }],
+      [{ line: added, quote: 'os.path.expanduser(f)', severity: 'warning', message: 'The new line calls expanduser with no guard around it.', suggestion: 'Catch KeyError and return None.', issue: true }],
       [keep(1, added, 'loc = os.path.expanduser(f)', 'The new line calls os.path.expanduser(f) with no handler.')],
     )
     const payload = await readPayload(await handler(post(PR_BODY)))

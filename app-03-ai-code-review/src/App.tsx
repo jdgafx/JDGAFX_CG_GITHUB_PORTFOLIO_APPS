@@ -12,6 +12,7 @@ import { RunTrace } from './components/RunTrace'
 import { LINE_HEIGHT, SEVERITY_CONFIG, SEVERITY_ORDER, getFileExt } from './constants'
 import { ReviewError, reviewCode, reviewErrorMessage, reviewPullRequest } from './lib/api'
 import { count } from './lib/format'
+import { liveData } from './lib/livedata'
 import type { GitHubFile } from './lib/github'
 import { MAX_CODE_LENGTH } from './lib/limits'
 import { diffContext, fileContext, type ContextLine } from './lib/context'
@@ -51,6 +52,10 @@ export default function App() {
   /** The comment the reader jumped to the editor from, and where the page was, so Back returns to the same place. */
   const [jump, setJump] = useState<ReviewComment | null>(null)
   const jumpScroll = useRef(0)
+  /** When the file or pull request now loaded was fetched, and whether the last fetch failed: the live-data indicator. */
+  const [fileFetchedAt, setFileFetchedAt] = useState<Date | null>(null)
+  const [prFetchedAt, setPrFetchedAt] = useState<Date | null>(null)
+  const [fetchFailed, setFetchFailed] = useState(false)
   const [collapseKey, setCollapseKey] = useState(0)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -70,6 +75,12 @@ export default function App() {
   const inputKey = mode === 'file' ? `file:${code}` : `pr:${pr?.number ?? 0}:${[...selected].sort().join('|')}`
   const stale = result !== null && reviewedInput !== null && inputKey !== reviewedInput
   const counts = result ? countVerdicts(result.comments) : null
+  const live = liveData({
+    mode,
+    fetchedAt: mode === 'file' ? (source ? fileFetchedAt : null) : pr ? prFetchedAt : null,
+    failed: fetchFailed,
+    ownCode: mode === 'file' && code.trim() !== '' && (source === null || code !== source.text),
+  })
   const badge = statusBadge(phase, result?.verified ?? false, counts)
   const reviewedLines = useMemo(() => (reviewedCode === null ? null : reviewedCode.split('\n')), [reviewedCode])
   const reviewedUnits = useMemo(() => (reviewedFiles === null ? null : buildDiff(reviewedFiles).units), [reviewedFiles])
@@ -213,6 +224,8 @@ export default function App() {
     if (detected) setLanguage(detected)
     setCode(file.text)
     setSource(file)
+    setFileFetchedAt(new Date())
+    setFetchFailed(false)
     clearResults()
     textareaRef.current?.scrollTo(0, 0)
     lineNumbersRef.current?.scrollTo(0, 0)
@@ -220,6 +233,8 @@ export default function App() {
 
   const handlePrLoaded = (loaded: PullRequest) => {
     setPr(loaded)
+    setPrFetchedAt(new Date())
+    setFetchFailed(false)
     setSelected(initialSelection(loaded))
     clearResults()
   }
@@ -324,7 +339,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={phase}>
-      <Header badge={badge} />
+      <Header badge={badge} live={live} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -334,6 +349,7 @@ export default function App() {
               disabled={running}
               onChange={(next) => {
                 setMode(next)
+                setFetchFailed(false)
                 clearResults()
               }}
             />
@@ -346,13 +362,14 @@ export default function App() {
                   edited={source !== null && code !== source.text}
                   disabled={running}
                   collapseKey={collapseKey}
+                  onFailure={() => setFetchFailed(true)}
                   onLanguageChange={setLanguage}
                   onLoaded={handleFileLoaded}
                 >
                   {dock}
                 </FileSource>
               ) : (
-                <PrSource pr={pr} disabled={running} collapseKey={collapseKey} onLoaded={handlePrLoaded}>
+                <PrSource pr={pr} disabled={running} collapseKey={collapseKey} onFailure={() => setFetchFailed(true)} onLoaded={handlePrLoaded}>
                   {dock}
                 </PrSource>
               )}

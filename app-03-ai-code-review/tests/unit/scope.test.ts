@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { enclosingScope, opensScope, scopeListing, MAX_SCOPE_LINES } from '../../netlify/shared/scope'
+import { definitionListing, enclosingScope, opensScope, scopeListing, MAX_SCOPE_LINES } from '../../netlify/shared/scope'
 
 // gorilla/mux v1.8.1 mux.go lines 375 to 399 (the walk method), copied verbatim; line 1 here is line 375 there.
 const WALK = `func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
@@ -110,5 +110,32 @@ describe('scopeListing', () => {
     expect(listing[0]).toBe('1\t| func big() {')
     expect(listing[1]).toBe('...')
     expect(listing).toContain('100\t|' + ' \tstep99()')
+  })
+})
+
+describe('definitionListing: the functions the scope calls', () => {
+  // click 8.1.7 LazyFile: __iter__ calls self.open(), and the comment (L191) never names open.
+  const code = [
+    'class LazyFile:',
+    '    def open(self):',
+    '        if self._f is not None:',
+    '            return self._f',
+    '        self._f = open_stream(self.name)',
+    '        return self._f',
+    '',
+    '    def __iter__(self):',
+    '        self.open()',
+    '        return iter(self._f)  # type: ignore',
+  ]
+
+  it('includes def open, which the scope of line 10 calls, though the message does not name it', () => {
+    const text = definitionListing(code, code, 'If _f is still None, iter() raises TypeError; the type ignore hides it.', 10)
+    expect(text).toContain('2\t|     def open(self):')
+    expect(text).toContain('5\t|         self._f = open_stream(self.name)')
+  })
+
+  it('leaves out definitions that sit inside the scope itself, and common built-ins', () => {
+    const text = definitionListing(code, code, 'iter raises', 3)
+    expect(text).not.toContain('8\t|     def __iter__')
   })
 })

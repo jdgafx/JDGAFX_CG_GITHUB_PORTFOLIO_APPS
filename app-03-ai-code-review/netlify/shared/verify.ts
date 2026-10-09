@@ -1,4 +1,5 @@
 import type { Decider, ReviewComment, Verdict } from '../../src/types'
+import { importedNames, noneWithoutSource, unconfirmable } from './claims'
 import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
 
@@ -138,6 +139,13 @@ export interface Settled {
 /** A line that opens a function, class or type: a comment about its body belongs on a line of the body. */
 const DECLARATION = /^\s*(?:func|def|async\s+def|function|class|type|interface|export)\b/
 
+const importCache = new WeakMap<Doc, Set<string>>()
+const importsOf = (doc: Doc): Set<string> => {
+  let names = importCache.get(doc)
+  if (!names) importCache.set(doc, (names = importedNames(doc.texts)))
+  return names
+}
+
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
 function unconfirmed(candidate: Candidate, reason: string): Settled {
@@ -174,6 +182,9 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // A move keeps the comment's subject: it never leaves the line that declares a name the message is about (the live
     // shadowing comment moved from `path := req.URL.Path` to a later use), and never crosses from an added line to a removed one.
     // Moving back to the line the first pass cited is always allowed: it undoes a wrong move by the checks.
+    if (doc.files && doc.files[target - 1] !== doc.files[candidate.line - 1]) {
+      return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, which is in another file.`)
+    }
     if (target !== candidate.line && target !== candidate.fromLine) {
       const declared = ABOUT_A_NAME.test(candidate.message) ? declaredNames(doc.texts[candidate.line - 1]) : new Set<string>()
       const subject = [...declared].find((name) => messageWords(candidate.message).has(name))
@@ -203,12 +214,18 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
         return unconfirmed(candidate, `Not confirmed: the second pass's reason points at line ${pointedAt}, but the comment sits on line ${at}.`)
       }
     }
+    // A claim about how another library behaves, where a link points or which version is supported cannot be confirmed from
+    // this file: its support would have to be a definition of that name here, and an import has none.
+    const outside = unconfirmable(candidate.message, doc.texts[at - 1], importsOf(doc))
+    if (outside !== null) return unconfirmed(candidate, outside)
     // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
     // point at code for is not confirmed, however real the cited line is.
     const supportShown = clip(collapse(raw.support), 80)
     if (collapse(raw.support).length < MIN_QUOTE_CHARS) {
       return unconfirmed(candidate, 'Not confirmed: the second pass could not quote the code that shows the claim is true.')
     }
+    const noSource = noneWithoutSource(candidate.message, raw.support)
+    if (noSource !== null) return unconfirmed(candidate, noSource)
     const supportAt = findEvidence(doc, raw.support, at, doc.texts.length)
     if (supportAt === null) {
       return unconfirmed(candidate, `Not confirmed: the second pass gave "${supportShown}" as the code that shows the claim, which is not in the code.`)

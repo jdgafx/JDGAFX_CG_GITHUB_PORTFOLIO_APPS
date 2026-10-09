@@ -14,13 +14,15 @@ interface PrSourceProps {
   disabled: boolean
   onLoaded: (pr: PullRequest) => void
   collapseKey: number
+  onFailure: () => void
   children: ReactNode
 }
 
-export function PrSource({ pr, disabled, onLoaded, collapseKey, children }: PrSourceProps) {
+export function PrSource({ pr, disabled, onLoaded, collapseKey, onFailure, children }: PrSourceProps) {
   return (
     <SourceLoader
       collapseKey={collapseKey}
+      onFailure={onFailure}
       id="pr"
       label="Public pull request"
       placeholder="github.com/owner/repo/pull/123"

@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { SEVERITY_CONFIG } from '../constants'
 import type { ContextLine } from '../lib/context'
-import { splitAtQuote } from '../lib/quote'
+import { dedent, markSegments } from '../lib/quote'
 import { VERDICT_WORD, verdictLabel } from '../lib/verdicts'
 import type { ReviewComment } from '../types'
 import { Inline } from './Inline'
@@ -21,15 +21,21 @@ function lineClass(kind: ContextLine['kind'] | 'cited-file', c: ReviewComment, c
   return c.severity === 'warning' ? 'ds-code__line ds-code__line--warn' : 'ds-code__line'
 }
 
-/** The code the second pass relied on, drawn inside the cited line: an underline in the verdict's own style. */
-function QuotedLine({ text, evidence, verdict }: { text: string; evidence: string | null; verdict: ReviewComment['verdict'] }) {
-  const parts = splitAtQuote(text, evidence)
+/** The code the second pass relied on, drawn inside the cited line: evidence and supporting code each underlined in the verdict's style. */
+function QuotedLine({ text, comment: c }: { text: string; comment: ReviewComment }) {
+  const parts = markSegments(text, c.evidence, c.support)
   if (!parts) return <>{text}</>
   return (
     <>
-      {parts.before}
-      <mark className={`finding__quote finding__quote--${verdict}`}>{parts.quote}</mark>
-      {parts.after}
+      {parts.map((p, i) =>
+        p.mark === null ? (
+          p.text
+        ) : (
+          <mark key={i} className={`finding__quote finding__quote--${c.verdict}${p.mark === 'support' ? ' finding__quote--backing' : ''}`}>
+            {p.text}
+          </mark>
+        ),
+      )}
     </>
   )
 }
@@ -46,16 +52,18 @@ export function CitedCode({ comment: c, context }: CitedCodeProps) {
   const own = c.where && /^[+\- ]/.test(c.code) ? c.code.slice(1) : c.code
   const kind: ContextLine['kind'] = c.where ? (c.code.startsWith('+') ? 'add' : c.code.startsWith('-') ? 'del' : 'ctx') : 'code'
   const lines: ContextLine[] = context ?? [{ text: own, n: c.where ? (c.where.line > 0 ? String(c.where.line) : '') : String(c.line), kind, cited: true }]
-  const quoteOnLine = lines.some((l) => l.cited && splitAtQuote(l.text.trimStart(), c.evidence))
+  // Only the indent every shown line shares is removed, so a block keeps its structure.
+  const shown = dedent(lines.map((l) => l.text))
+  const evidenceOnLine = lines.some((l, i) => l.cited && markSegments(shown[i], c.evidence, null))
   return (
     <div className="ds-code-wrap">
       <pre className="ds-code finding__code" tabIndex={0} role="region" aria-label={`Code at ${placeOf(c)}, scrolls sideways`}>
         {lines.map((l, i) => (
           <span key={i} className={lineClass(l.kind, c, l.cited)} data-n={l.n} data-cited={l.cited ? 'true' : undefined}>
-            {l.cited && blank ? '(blank line)' : l.cited ? <QuotedLine text={l.text.trimStart()} evidence={c.evidence} verdict={c.verdict} /> : l.text.trimStart() || ' '}
+            {l.cited && blank ? '(blank line)' : l.cited ? <QuotedLine text={shown[i]} comment={c} /> : shown[i] || ' '}
           </span>
         ))}
-        {c.evidence && !quoteOnLine && (
+        {c.evidence && !evidenceOnLine && (
           <span className="ds-code__line finding__evline" data-n="" title="Quoted by the second pass">
             {c.evidence}
           </span>
@@ -127,9 +135,9 @@ export function Finding({ comment: c, active, contextOf, href, onShowLine }: Fin
         <CitedCode comment={c} context={context} />
       </div>
       <VerdictLine comment={c} />
-      {c.support && c.supportLine !== null && (
+      {c.support && c.supportLine !== null && c.supportLine !== (c.where ? c.where.line : c.line) && (
         <p className="finding__support">
-          <span className="finding__label">{`Evidence, line ${c.supportLine}: `}</span>
+          <span className="finding__label">{`Backed by line ${c.supportLine}: `}</span>
           <code>{c.support}</code>
         </p>
       )}

@@ -379,3 +379,23 @@ describe('buildVerifyUser', () => {
     expect(buildVerifyUser('', [candidate()], WALK)).not.toContain('firstPassLine')
   })
 })
+
+describe('a move never leaves its file (flask#5928: a changelog comment moved into docs/appcontext.rst)', () => {
+  const d = diffDoc([
+    { text: '', kind: 'meta', file: 'CHANGES.rst' },
+    { text: '- Teardown errors are raised together.', kind: 'add', file: 'CHANGES.rst' },
+    { text: '', kind: 'meta', file: 'docs/appcontext.rst' },
+    { text: 'The context raises the errors it collected.', kind: 'add', file: 'docs/appcontext.rst' },
+  ])
+  const c = candidate({ line: 2, fromLine: 2, quote: '', message: 'The changelog entry does not mention ExceptionGroup.' })
+
+  it('refuses the second pass moving a comment to a line of another file', () => {
+    const s = settle(c, verdict({ verdict: 'move', line: 4, evidence: 'The context raises the errors it collected.', support: 'The context raises the errors it collected.' }), d)
+    expect(s).toMatchObject({ verdict: 'unverified', line: 2 })
+    expect(s.reason).toBe('Not confirmed: the second pass moved it to line 4, which is in another file.')
+  })
+
+  it('does not let the checks pull a comment to a line of another file by name', () => {
+    expect(anchorLine(d, 2, '', 'The ExceptionGroup context raises errors it collected.')).toEqual({ line: 2, movedBy: null })
+  })
+})

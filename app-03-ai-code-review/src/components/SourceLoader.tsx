@@ -34,11 +34,13 @@ interface SourceLoaderProps<Ref, Loaded> {
   loaded?: ReactNode
   /** Changes when a run starts on a narrow screen: the examples fold away so the result is not pushed down. */
   collapseKey: number
+  /** Called when a GitHub fetch failed, so the page can say its live data is unavailable. */
+  onFailure?: () => void
 }
 
 /** A link field, an action dock, a list of real examples and the facts of what is loaded. Used for files and pull requests. */
 export function SourceLoader<Ref, Loaded>(props: SourceLoaderProps<Ref, Loaded>) {
-  const { id, label, placeholder, help, action, examplesLabel, parse, load, onLoaded, suggestions, disabled, scope, fields, children, loaded, collapseKey } = props
+  const { id, label, placeholder, help, action, examplesLabel, parse, load, onLoaded, suggestions, disabled, scope, fields, children, loaded, collapseKey, onFailure } = props
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ message: string; scope: unknown } | null>(null)
@@ -73,6 +75,7 @@ export function SourceLoader<Ref, Loaded>(props: SourceLoaderProps<Ref, Loaded>)
       if (result === null) return
       if (!result.ok) {
         setFailure({ message: result.error, scope })
+        onFailure?.()
         return
       }
       setNote(onLoaded(result.value))

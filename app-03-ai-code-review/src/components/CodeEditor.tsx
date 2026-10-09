@@ -1,4 +1,5 @@
 import type { KeyboardEvent, RefObject, UIEvent } from 'react'
+import { editorKey } from '../lib/editorkeys'
 import { count } from '../lib/format'
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../lib/limits'
 import type { ReviewComment } from '../types'
@@ -32,8 +33,11 @@ export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, runnin
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Shift+Tab is left alone so keyboard users can always step back out of the field.
-    if (e.key === 'Tab' && !e.shiftKey) {
+    const action = editorKey(e.key, e.shiftKey, jump !== null)
+    if (action === 'back') {
+      e.preventDefault()
+      onBack()
+    } else if (action === 'indent') {
       e.preventDefault()
       const el = e.currentTarget
       const { selectionStart, selectionEnd } = el
@@ -52,6 +56,16 @@ export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, runnin
         </h2>
         <span className="ds-hint">{`${fileLabel}, ${count(lineCount)} ${lineCount === 1 ? 'line' : 'lines'}`}</span>
       </div>
+      {jump && (
+        <div className="editor__jump" role="status">
+          <p>
+            <strong>{`${placeOf(jump)}: ${jump.severity}.`}</strong> {jump.message}
+          </p>
+          <button type="button" className="ds-button" onClick={onBack}>
+            Back to comment
+          </button>
+        </div>
+      )}
       <div className="editor">
         <div className="editor__gutter" ref={lineNumbersRef} role="group" aria-label="Line numbers. A marked number has a review comment.">
           {Array.from({ length: lineCount }, (_, i) => {
@@ -85,16 +99,6 @@ export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, runnin
           aria-describedby="code-help"
         />
       </div>
-      {jump && (
-        <div className="editor__jump" role="status">
-          <p>
-            <strong>{`${placeOf(jump)}: ${jump.severity}.`}</strong> {jump.message}
-          </p>
-          <button type="button" className="ds-button" onClick={onBack}>
-            Back to comment
-          </button>
-        </div>
-      )}
       <p id="code-help" className={overBy > 0 ? 'ds-help ds-help--error' : 'ds-help'}>
         {overBy > 0
           ? `${OVER_LIMIT_MESSAGE}. Remove ${count(overBy)} character${overBy === 1 ? '' : 's'} to review it.`

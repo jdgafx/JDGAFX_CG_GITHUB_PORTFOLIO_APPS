@@ -76,6 +76,8 @@ export interface Doc {
   why: Array<'blank' | 'context' | null>
   /** In a diff, whether each line was added or removed. Absent for a file. */
   sides?: Array<'add' | 'del' | null>
+  /** In a diff, the file each line belongs to. A comment never moves to a line of another file. */
+  files?: string[]
 }
 
 /** A pasted or loaded file: every non-blank line can carry a comment. */
@@ -84,9 +86,10 @@ export function fileDoc(lines: string[]): Doc {
 }
 
 /** A pull request diff: only added and removed lines can carry a comment. Context and header lines cannot. */
-export function diffDoc(units: Array<{ text: string; kind: 'meta' | 'ctx' | 'add' | 'del' }>): Doc {
+export function diffDoc(units: Array<{ text: string; kind: 'meta' | 'ctx' | 'add' | 'del'; file?: string }>): Doc {
   return {
     texts: units.map((u) => u.text),
+    files: units.map((u) => u.file ?? ''),
     sides: units.map((u) => (u.kind === 'add' || u.kind === 'del' ? u.kind : null)),
     why: units.map((u) => {
       if (u.kind === 'ctx') return 'context'
@@ -116,6 +119,9 @@ export type Anchor = { line: number; movedBy: 'quote' | 'name' | null } | { drop
 
 const holdsQuote = (doc: Doc, n: number, fragment: string) => doc.why[n - 1] === null && collapse(doc.texts[n - 1]).includes(fragment)
 
+/** True when line `n` is in the same file as `line` (always, for a pasted or loaded file). */
+export const sameFile = (doc: Doc, n: number, line: number): boolean => !doc.files || doc.files[n - 1] === doc.files[line - 1]
+
 /**
  * Where a comment should sit, in two steps.
  * 1. The quote, the code fragment the comment is about. If the cited line holds it, the comment stays. Otherwise it
@@ -131,7 +137,7 @@ export function anchorLine(doc: Doc, line: number, quote: unknown, message: stri
   let at: number | null = line
   let byName = false
   if (fragment.length >= MIN_QUOTE_CHARS) {
-    const holds = (n: number) => holdsQuote(doc, n, fragment)
+    const holds = (n: number) => sameFile(doc, n, line) && holdsQuote(doc, n, fragment)
     at = null
     if (holds(line)) at = line
     for (let distance = 1; at === null && distance <= QUOTE_WINDOW; distance += 1) {
@@ -149,7 +155,7 @@ export function anchorLine(doc: Doc, line: number, quote: unknown, message: stri
   }
 
   const names = codeNames(message)
-  const has = (n: number) => doc.why[n - 1] === null && names.some((name) => doc.texts[n - 1].includes(name))
+  const has = (n: number) => sameFile(doc, n, line) && doc.why[n - 1] === null && names.some((name) => doc.texts[n - 1].includes(name))
   // A line that declares a name the message is about is where the comment belongs: a later use of the name never pulls it away
   // (the live `path := req.URL.Path` shadowing comment, pulled to `cleanPath(path)` five lines below).
   const words = messageWords(message)

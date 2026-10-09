@@ -2,7 +2,7 @@
 // reads this so it can follow a name to where it is defined (the live `open()` on line 148 for a claim made on line 191).
 
 /** Longest scope sent for one comment. A longer function is cut around the cited line, keeping its signature. */
-export const MAX_SCOPE_LINES = 60
+export const MAX_SCOPE_LINES = 40
 /** The window used when no enclosing declaration can be found (top-level code). */
 const FALLBACK_RADIUS = 20
 const LOOKBACK = 400
@@ -129,7 +129,7 @@ export function scopeListing(shown: readonly string[], code: readonly string[], 
 }
 
 const MAX_DEFINITIONS = 3
-const DEFINITION_LINES = 25
+const DEFINITION_LINES = 18
 
 /**
  * The definitions of the functions and classes a comment talks about, found by name: the comment says "open()" or "_f", the
@@ -139,7 +139,13 @@ const DEFINITION_LINES = 25
  */
 export function definitionListing(shown: readonly string[], code: readonly string[], text: string, line: number): string {
   const own = enclosingScope(code, line)
-  const words = new Set((text.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).filter((w) => !STOP.has(w.toLowerCase())))
+  const named = (text.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).filter((w) => !STOP.has(w.toLowerCase()))
+  // Then the functions the scope itself calls (`self.open()` calls `def open`), nearest the cited line first.
+  const calls: string[] = []
+  for (let n = own.to; n >= own.from; n -= 1) {
+    for (const m of (code[n - 1] ?? '').matchAll(/\b([A-Za-z_]\w{2,})\s*\(/g)) if (!STOP.has(m[1].toLowerCase()) && !CALL_STOP.has(m[1])) calls.push(m[1])
+  }
+  const words = new Set([...named, ...calls])
   const seen = new Set<number>()
   const rows: string[] = []
   for (const word of words) {
@@ -152,5 +158,7 @@ export function definitionListing(shown: readonly string[], code: readonly strin
   }
   return rows.join('\n')
 }
+
+const CALL_STOP = new Set(['for', 'while', 'print', 'len', 'range', 'str', 'int', 'list', 'dict', 'set', 'tuple', 'isinstance', 'super', 'getattr', 'setattr', 'hasattr', 'not', 'and', 'min', 'max', 'sum', 'map', 'filter', 'make', 'append', 'panic', 'new', 'cast', 'type', 'bool', 'bytes', 'open_text', 'format'])
 
 const STOP = new Set(['the', 'and', 'that', 'this', 'with', 'for', 'not', 'are', 'was', 'from', 'when', 'which', 'into', 'than', 'then', 'also', 'but', 'only', 'any', 'has', 'have', 'can', 'may', 'will', 'its', 'use', 'instead', 'should', 'call', 'calls', 'line', 'code', 'value', 'values', 'function', 'class', 'type', 'string', 'none', 'null', 'true', 'false', 'return', 'returns'])

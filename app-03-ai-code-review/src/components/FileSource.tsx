@@ -24,13 +24,15 @@ interface FileSourceProps {
   /** `detected` is the review language taken from the file name, or null when it is not recognised. */
   onLoaded: (file: GitHubFile, detected: string | null) => void
   collapseKey: number
+  onFailure: () => void
   children: ReactNode
 }
 
-export function FileSource({ language, code, source, edited, disabled, onLanguageChange, onLoaded, collapseKey, children }: FileSourceProps) {
+export function FileSource({ language, code, source, edited, disabled, onLanguageChange, onLoaded, collapseKey, onFailure, children }: FileSourceProps) {
   return (
     <SourceLoader
       collapseKey={collapseKey}
+      onFailure={onFailure}
       id="file"
       label="Public GitHub file"
       placeholder="owner/repo/path or a file link"

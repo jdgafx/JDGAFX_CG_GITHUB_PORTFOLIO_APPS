@@ -2,8 +2,9 @@
 // so both passes share one deadline. Healthy latencies were measured live on anthropic/claude-haiku-5.5 (2026-10-09, 39
 // complete runs on mux.go, auth.py, createStore.ts, express response.js, click utils.py and five pull requests):
 //   pass 1 (review, ~2,000 tokens out): p50 9.3 s, p95 11.1 s, max 13.7 s (the limit below keeps the earlier 11.6 s p95)
-//   pass 2 (two reads side by side; each ~1,000 tokens out): per read p50 5.7 s, p95 8.0 s, max 9.0 s
-//   both together: p50 15.8 s, p95 19.2 s, max 19.9 s
+//   pass 2 (two reads side by side; each ~1,000 tokens out): per read p50 6.3 s, p95 9.4 s, max 9.8 s (the largest file, express
+//   response.js at 1,179 lines, needs ~9 s a read and, after a 12 s pass 1, is held to what is left of the run)
+//   both together: p50 17.6 s, p95 24.3 s, max 24.5 s on that file; typical files 15 to 21 s
 // A call may take 1.5 times its healthy p95 before it counts as a provider hang.
 
 /** What one run may use in all, from the first byte of the request to the reply. */
@@ -19,7 +20,7 @@ interface Pass {
 }
 
 export const PASS1: Pass = { p50: 9_400, p95: 11_600, limitMs: 17_400 }
-export const PASS2: Pass = { p50: 5_700, p95: 8_000, limitMs: 12_000 }
+export const PASS2: Pass = { p50: 6_300, p95: 9_400, limitMs: 14_100 }
 
 /**
  * The limit for the next call, or null when it cannot be a useful attempt.

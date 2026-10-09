@@ -114,7 +114,7 @@ describe('ai function: a verified review', () => {
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
     expect(payload.result?.comments[0].reason).toBe('The second pass did not finish, so only the deterministic checks ran on this comment.')
     expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify (read 1):failed', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
-    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 12.0 s)')
+    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 14.1 s)')
   })
 
   it('retries a read whose reply is not a list of verdicts once, and then calls that read failed', async () => {

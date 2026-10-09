@@ -1,5 +1,6 @@
 import type { Severity } from '../../src/types'
 import { anchorLine, endsWithNoChangeVerdict, lastSentence, suggestionLeavesCode, type Doc } from './anchor'
+import { contradictedByScope } from './claims'
 
 export { codeNames, endsWithNoChangeVerdict, suggestionLeavesCode } from './anchor'
 
@@ -249,6 +250,12 @@ export function precheck(raw: unknown, doc: Doc, budget: number): Prechecked {
     }
     if (suggestionLeavesCode(suggestion)) {
       drop(`Proposes no change: "${short(suggestion, 90)}"`)
+      return
+    }
+    // A comment that says a call is missing ("never closed") is false when the scope of its line makes the call.
+    const contradiction = contradictedByScope(message, suggestion, doc.texts, cited, (n) => doc.sides?.[n - 1] === 'del')
+    if (contradiction) {
+      drop(`The comment says it is never ${contradiction.what === 'close' ? 'closed' : contradiction.what === 'release' ? 'released' : 'awaited'}, but the code in its scope does: "${short(contradiction.text, 70)}" (line ${contradiction.at}).`)
       return
     }
     const quote = typeof c.quote === 'string' ? c.quote.trim() : ''
