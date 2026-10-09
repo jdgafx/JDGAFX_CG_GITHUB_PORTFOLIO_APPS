@@ -28,18 +28,39 @@ function count(value: number): string {
   return Math.round(value).toLocaleString('en-US')
 }
 
-/** Compares two growth rates in words, so the model cannot get the direction wrong. */
+/** The relative change of a ratio whose numerator grew by `top` percent and denominator by `bottom` percent. */
+function ratioChange(top: number, bottom: number): number {
+  return ((1 + top / 100) / (1 + bottom / 100) - 1) * 100
+}
+
+/** "slightly", "moderately" or "sharply", by the size of a percentage change. */
+function adverbFor(change: number): string {
+  const size = Math.abs(change)
+  return size < 2 ? 'slightly' : size < 10 ? 'moderately' : 'sharply'
+}
+
+/** Compares two growth rates in words and gives the derived change, so the model cannot get direction or size wrong. */
 function compareGrowth(a: string, aTrend: number, b: string, bTrend: number, ratio: string): string {
+  const change = ratioChange(aTrend, bTrend)
   if (aTrend === bTrend) return `${a} and ${b} grew at the same rate, so ${ratio} is unchanged.`
   const faster = aTrend > bTrend ? a : b
   const slower = aTrend > bTrend ? b : a
-  const direction = aTrend > bTrend ? 'rose' : 'fell'
-  return `${faster} grew faster than ${slower}, so ${ratio} ${direction} slightly.`
+  const direction = change > 0 ? 'rose' : 'fell'
+  return `${faster} grew faster than ${slower}, so ${ratio} ${direction} ${adverbFor(change)} (about ${Math.abs(change).toFixed(1)}%).`
+}
+
+/** The derived ratio changes the prompt states, so a quoted derived percentage counts as a snapshot figure. */
+export function derivedTrends(m: Metrics): number[] {
+  return [
+    ratioChange(m.tokensTrend, m.apiCallsTrend),
+    ratioChange(m.costTrend, m.tokensTrend),
+    ratioChange(m.costTrend, m.apiCallsTrend),
+  ]
 }
 
 /**
- * Per-call figures now and before, and which rate grew faster. Counts only: the figure check reads
- * percentages, milliseconds and dollars, and these lines add none.
+ * Per-call figures now and before, and which rate grew faster, with the derived change in percent. The derived
+ * percentages are part of the snapshot pool, so the figure check accepts them when the model quotes them.
  */
 export function derivedNotes(m: Metrics): string {
   const callsBefore = m.totalApiCalls / (1 + m.apiCallsTrend / 100)
@@ -66,7 +87,7 @@ Metrics:
 - Error Rate: ${m.avgErrorRate}% of requests (${signed(m.errorRateTrend)} ${vs})
 - Total Cost: $${m.totalCost} (${signed(m.costTrend)} ${vs})
 
-Derived comparisons (already worked out from the figures above; state them exactly like this and do not quote them as new percentages):
+Derived comparisons (already worked out from the figures above; when you mention one, use its direction, its size word and its percentage exactly as given):
 ${derivedNotes(m)}
 
 Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights, using only the figures listed above. Do not invent percentages, rankings, or per-endpoint or per-customer numbers. When you compare two growth rates, say which one is larger using the derived comparisons. Be direct and actionable. Format as numbered insights with brief explanations.
@@ -112,6 +133,7 @@ function snapshotFigures(m: Metrics): SnapshotFigure[] {
     { unit: '%', value: m.responseTimeTrend, trend: true },
     { unit: '%', value: m.costTrend, trend: true },
     { unit: '%', value: m.errorRateTrend, trend: true },
+    ...derivedTrends(m).map((value) => ({ unit: '%' as const, value, trend: true })),
     { unit: 'ms', value: m.avgResponseTime, trend: false },
     { unit: '$', value: m.totalCost, trend: false },
   ]

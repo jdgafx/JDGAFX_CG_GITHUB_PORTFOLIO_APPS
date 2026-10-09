@@ -193,7 +193,7 @@ describe('netlify/functions/ai: streamed run', () => {
   it('marks the figure check failed, and still completes, when a figure is not in the snapshot', async () => {
     stubFetch(async () =>
       sse([
-        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'The top 10% of endpoints drive most calls. ' } }] }),
+        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'The top 12% of endpoints drive most calls. ' } }] }),
         frame({ choices: [{ delta: { content: 'API calls rose 30.9%.' }, finish_reason: 'stop' }] }),
         DONE,
       ]),
@@ -202,10 +202,10 @@ describe('netlify/functions/ai: streamed run', () => {
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
     expect(check).toMatchObject({
       status: 'failed',
-      detail: '1 of 2 figures match the snapshot. Not in the snapshot: 10%',
+      detail: '1 of 2 figures match the snapshot. Not in the snapshot: 12%',
     })
     expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(
-      'The top 10% of endpoints drive most calls. API calls rose 30.9%.',
+      'The top 12% of endpoints drive most calls. API calls rose 30.9%.',
     )
   })
 

@@ -53,10 +53,10 @@ describe('checkFigures', () => {
   })
 
   it('names each figure that is not in the snapshot', () => {
-    expect(checkFigures('Latency is 250 ms. The top 10% of endpoints drive 60% of calls.', SNAPSHOT)).toEqual({
+    expect(checkFigures('Latency is 250 ms. The top 12% of endpoints drive 7% of calls.', SNAPSHOT)).toEqual({
       checked: 3,
       matched: 0,
-      unmatched: ['250 ms', '10%', '60%'],
+      unmatched: ['250 ms', '12%', '7%'],
     })
   })
 
@@ -192,8 +192,14 @@ describe('derivedNotes', () => {
   it('says which rate grew faster and gives tokens per call as counts', () => {
     const notes = derivedNotes(metrics)
     expect(notes).toContain('Tokens per call: about 1,720 now, about 1,737 before.')
-    expect(notes).toContain('API calls grew faster than Tokens, so tokens per call fell slightly.')
-    expect(notes).toContain('tokens grew faster than Cost, so cost per token fell slightly.')
-    expect(notes).not.toMatch(/\d%|\$\d|\d ms/)
+    expect(notes).toContain('API calls grew faster than Tokens, so tokens per call fell slightly (about 1.0%).')
+    expect(notes).toContain('tokens grew faster than Cost, so cost per token fell sharply (about 18.0%).')
+    expect(notes).toContain('API calls grew faster than Cost, so cost per call fell sharply (about 18.8%).')
+  })
+
+  it('adds the derived changes to the snapshot pool so a quoted derived percentage matches', () => {
+    const check = checkFigures('Cost per token fell about 18% while tokens per call dropped 1.0%.', metrics)
+    expect(check.matched).toBe(2)
+    expect(check.unmatched).toEqual([])
   })
 })
