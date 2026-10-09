@@ -25,7 +25,7 @@
 
 /* Rail */
 .hub-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.hub-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hub-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .hub-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 0 4px 0 12px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px; }
 .hub-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .hub-chip__remove { display: grid; place-items: center; width: 32px; height: 32px; font: inherit; font-size: 18px; line-height: 1; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
@@ -40,8 +40,8 @@
 .hub-plot svg { touch-action: pan-y; }
 .hub-log { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 650; cursor: pointer; }
 .hub-log input { width: 18px; height: 18px; accent-color: var(--ds-accent); }
-.hub-tip { position: absolute; top: 8px; z-index: 2; display: grid; gap: 2px; padding: 8px 10px; font-size: 13px; white-space: nowrap; pointer-events: none; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
-.hub-tip > span { display: flex; align-items: center; gap: 6px; }
+.hub-tip { position: absolute; top: 8px; z-index: 2; display: grid; gap: 2px; padding: 8px 12px; font-size: 13px; white-space: nowrap; pointer-events: none; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
+.hub-tip > span { display: flex; align-items: center; gap: 8px; }
 .hub-guide { stroke: var(--ds-text); stroke-width: 1; }
 .hub-tag .ds-c-label { fill: var(--ds-text); stroke: var(--ds-surface); stroke-width: 5px; }
 .hub-spike { cursor: pointer; outline: none; }
@@ -53,57 +53,74 @@
 .hub-spike--active .hub-spike__dot { stroke: var(--ds-text); stroke-width: 3; }
 .hub-spike--active .hub-spike__dot--open { fill: var(--ds-surface); stroke: var(--ds-text); }
 
-/* The hero: the chart, with the unusual days listed beside it once there is room */
-.hub-stage { display: grid; gap: 16px; min-width: 0; }
-.hub-stage__aside { display: grid; gap: 10px; align-content: start; min-width: 0; }
-@container (min-width: 760px) {
-  .hub-stage { grid-template-columns: minmax(0, 1fr) 290px; align-items: start; }
-}
-.hub-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.hub-keys__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ds-text); box-shadow: 0 0 0 2px var(--ds-surface); }
-.hub-keys__dot--open { margin-left: 8px; width: 11px; height: 11px; border-radius: 1px; transform: rotate(45deg); background: var(--ds-surface); box-shadow: inset 0 0 0 2.5px var(--ds-text); }
+/* The hero: the chart takes the whole run column, the marker key and the unusual days sit under it */
+.hub-stage { display: grid; gap: 12px; min-width: 0; }
+.hub-faint { fill: none; stroke-width: 1; opacity: 0.3; stroke-linejoin: round; }
+.hub-rows { display: grid; gap: 0; min-width: 0; }
+.hub-rows .hub-plot + .hub-plot { border-top: 1px solid var(--ds-border); }
+.hub-rowlabel { font-size: 13px; }
+.hub-legend { margin-top: -2px; }
+.hub-pill { fill: var(--ds-surface); stroke: var(--ds-border-strong); stroke-width: 1; }
+.hub-pill__text { fill: var(--ds-text); font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
+.hub-keys { gap: 4px 20px; }
+.hub-keys li { gap: 8px; }
+.hub-keys__dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--ds-text); box-shadow: 0 0 0 2px var(--ds-surface); }
+.hub-keys__dot--open { width: 10px; height: 10px; border-radius: 1px; transform: rotate(45deg); background: var(--ds-surface); box-shadow: inset 0 0 0 2.5px var(--ds-text); }
 .hub-spikes { display: grid; gap: 8px; min-width: 0; }
 .hub-spikes__head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
-.hub-spikes__list { display: grid; gap: 6px; margin: 0; padding: 0 2px 0 0; list-style: none; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.hub-spike-row { display: grid; gap: 4px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.hub-spikes__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin: 0; padding: 0 2px 0 0; list-style: none; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.hub-spike-row { display: grid; gap: 4px; width: 100%; height: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
 .hub-spike-row:hover { border-color: var(--ds-accent); }
-.hub-spike-row--active { background: var(--ds-accent-soft); border-color: var(--ds-accent); box-shadow: inset 3px 0 0 var(--ds-accent); }
+.hub-spike-row--active { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
 .hub-spike-row__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .hub-spike-row__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .hub-spike-row__size { font-family: var(--ds-mono); font-weight: 600; }
 .hub-spike-row__size .ds-help { font-family: var(--ds-font); font-weight: 400; margin-left: 4px; }
 .hub-spike-row__none { font-size: 13px; color: var(--ds-text-muted); }
-.hub-kind { padding: 0 6px; font-family: var(--ds-font); font-size: 12px; font-weight: 650; border-radius: 4px; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); }
+.hub-kind { padding: 0 8px; font-family: var(--ds-font); font-size: 12px; font-weight: 650; border-radius: 4px; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); }
 .hub-kind--major { color: var(--ds-surface); background: var(--ds-text); border-color: var(--ds-text); }
-.hub-kind--minor { border-style: solid; }
 .hub-kind--patch { border-style: dashed; color: var(--ds-text-muted); }
 .hub-result-title { font-size: 15px; font-weight: 650; margin-right: 4px; }
 .hub-result-title:focus-visible { outline-offset: 4px; border-radius: 2px; }
 .ds-lead__text code { font-family: var(--ds-mono); font-size: 0.9em; padding: 0 4px; background: var(--ds-surface-2); border-radius: 3px; }
+.hub-unmatched { color: inherit; background: var(--ds-warning-soft); text-decoration: underline wavy var(--ds-warning); text-underline-offset: 4px; border-radius: 2px; }
 .hub-release-notice { display: grid; gap: 8px; justify-items: start; }
-.hub-missing { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.hub-missing { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
 
-/* Package cards */
-.hub-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-.hub-card { display: grid; gap: 10px; align-content: start; padding: 16px; }
+/* Package cards: the grid is chosen by how many packages there are and how wide the run column is, so no card is left alone on a row */
+.hub-figures { container-type: inline-size; }
+.hub-cards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+@container (min-width: 480px) { .hub-cards--n2, .hub-cards--n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 640px) { .hub-cards--n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 760px) { .hub-cards--n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 640px) {
+  .hub-cards--n5 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .hub-cards--n5 > :nth-child(-n + 3) { grid-column: span 2; }
+  .hub-cards--n5 > :nth-child(n + 4) { grid-column: span 3; }
+}
+@container (min-width: 1000px) {
+  .hub-cards--n5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .hub-cards--n5 > :nth-child(n) { grid-column: auto; }
+}
+.hub-card { display: grid; gap: 12px; align-content: start; padding: 16px; }
 .hub-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .hub-card__name { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
 .hub-card__total { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
 .hub-card__unit { font-family: var(--ds-font); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--ds-text-muted); }
-.hub-card__rows { display: grid; gap: 6px; margin: 0; }
-.hub-card__rows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--ds-border); }
+.hub-card__rows { display: grid; gap: 8px; margin: 0; }
+.hub-card__rows > div { display: grid; gap: 0; padding-bottom: 8px; border-bottom: 1px solid var(--ds-border); }
 .hub-card__rows dt { font-size: 13px; color: var(--ds-text-muted); }
-.hub-card__rows dd { text-align: right; font-size: 14px; font-weight: 600; }
+.hub-card__rows dd { font-size: 14px; font-weight: 600; }
 .hub-share__bar { height: 6px; overflow: hidden; background: var(--ds-surface-2); border-radius: 3px; }
 .hub-share__bar > span { display: block; height: 100%; }
 .hub-share__text { margin-top: 4px; font-size: 13px; color: var(--ds-text-muted); }
 
 /* Secondary charts */
 .hub-more { gap: 16px; }
-.hub-stack { display: flex; height: 18px; overflow: hidden; border-radius: 4px; gap: 2px; }
+.hub-stack { display: flex; height: 20px; overflow: hidden; border-radius: 4px; gap: 2px; }
 .hub-stack > span { min-width: 3px; }
-.hub-share-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.hub-share-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; }
+.hub-share-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.hub-share-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 64px; align-items: center; gap: 12px; }
 .hub-share-list__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-share-list .ds-help { text-align: right; }
 

@@ -42,15 +42,20 @@ export default function RunTrace({ steps, status, partialAnswer }: RunTraceProps
         <p className="ds-section__sub">Bars show when each step ran. Every step is timed on the server.</p>
       </div>
       <ol className="ds-trace">
-        {rows.map((row, i) => (
-          <li key={row.name} className={row.state === 'running' || row.state === 'failed' || row.state === 'stopped' ? `ds-trace__step ds-trace__step--${row.state}` : 'ds-trace__step'}>
+        {rows.map((row, i) => {
+          // A failed check or a cut-off answer on a finished run warns about the text; it is not a failed run, so it is amber.
+          const soft = status === 'done' && row.state === 'failed' && (row.name === 'Check figures' || row.name === 'Validate output')
+          const shown: RowState = soft ? 'stopped' : row.state
+          const word = soft ? (row.name === 'Check figures' ? 'Check failed' : 'Cut off') : WORD[row.state]
+          return (
+          <li key={row.name} className={shown === 'running' || shown === 'failed' || shown === 'stopped' ? `ds-trace__step ds-trace__step--${shown}` : 'ds-trace__step'}>
             <span className="ds-trace__index">{i + 1}</span>
             <div>
               <div className="ds-trace__head">
                 <span className="ds-trace__name">{row.name}</span>
-                <span className={`ds-trace__state ds-trace__state--${row.state}`}>
-                  <span className={`ds-dot ${DOT[row.state]}`} aria-hidden="true" />
-                  {WORD[row.state]}
+                <span className={`ds-trace__state ds-trace__state--${shown}`}>
+                  <span className={`ds-dot ${DOT[shown]}`} aria-hidden="true" />
+                  {word}
                 </span>
               </div>
               <p className="ds-trace__detail">{row.detail}</p>
@@ -65,7 +70,8 @@ export default function RunTrace({ steps, status, partialAnswer }: RunTraceProps
               </div>
             )}
           </li>
-        ))}
+          )
+        })}
       </ol>
     </section>
   )

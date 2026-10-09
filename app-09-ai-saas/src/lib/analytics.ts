@@ -34,6 +34,8 @@ export interface DownloadWindow {
 const GAP_MEDIAN_THRESHOLD = 100
 /** Days in the moving average. */
 export const AVERAGE_SPAN = 7
+/** From this many days in the window, the daily chart draws the moving average as its main line. */
+export const SMOOTH_FROM_DAYS = 60
 
 /** Rounds to a number of decimal places, halves up. */
 export function roundTo(value: number, decimals: number): number {

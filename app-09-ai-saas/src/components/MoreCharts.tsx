@@ -1,29 +1,16 @@
 import type { PackageFigures } from '../../netlify/shared/contract'
-import { AVERAGE_SPAN, averageRows, type DownloadWindow } from '../lib/analytics'
 import { compact, seriesColor } from '../lib/format'
-import LineChart from './LineChart'
 
 interface MoreChartsProps {
-  span: DownloadWindow
   packages: PackageFigures[]
   colorIndex: number[]
-  log: boolean
 }
 
-/** The 7-day moving average, which removes the weekly cycle, and each package's share of the selection. */
-export default function MoreCharts({ span, packages, colorIndex, log }: MoreChartsProps) {
+/** Each package's share of the selection's downloads. */
+export default function MoreCharts({ packages, colorIndex }: MoreChartsProps) {
   const ranked = [...packages.keys()].sort((a, b) => packages[b].total - packages[a].total)
   return (
-    <section className="ds-section hub-more" aria-label="More charts">
-      <LineChart
-        title={`${AVERAGE_SPAN}-day moving average`}
-        caption={`Each point averages the last ${AVERAGE_SPAN} days, which removes the weekly cycle. It starts on day ${AVERAGE_SPAN}.`}
-        span={span}
-        rows={averageRows(span)}
-        colorIndex={colorIndex}
-        log={log}
-        height={240}
-      />
+    <section className="ds-section hub-more" aria-label="Share of downloads">
       <figure className="ds-chart hub-share-chart">
         <figcaption className="ds-chart__head">
           <b>Share of downloads</b> <span className="ds-help">Each package's part of the selection's downloads over the window.</span>

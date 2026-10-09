@@ -27,7 +27,7 @@ export default function PackageCards({ packages, colorIndex, windowDays }: Packa
   const half = halfWindow(windowDays)
   return (
     <section className="ds-section" aria-label="Figures per package">
-      <div className="hub-cards">
+      <div className={`hub-cards hub-cards--n${Math.min(packages.length, 5)}`}>
         {packages.map((p, i) => (
           <article key={p.name} className="ds-card hub-card" aria-label={p.name}>
             <header className="hub-card__head">

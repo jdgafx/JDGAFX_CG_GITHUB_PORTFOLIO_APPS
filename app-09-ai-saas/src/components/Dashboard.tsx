@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Summary } from '../../netlify/shared/contract'
 import { TRACE_STAGES } from '../lib/api'
 import { buildWindow, observedDays, summarize, totalOf, type Series } from '../lib/analytics'
@@ -9,6 +9,7 @@ import { DEFAULT_NAMES, DEFAULT_WINDOW } from '../lib/presets'
 import type { Release } from '../lib/releases'
 import { buildSpikeEvidence } from '../lib/spikes'
 import { useDownloads } from '../lib/useDownloads'
+import { useResultFocus } from '../lib/useResultFocus'
 import { useReleases } from '../lib/useReleases'
 import AnswerCard from './AnswerCard'
 import Header from './Header'
@@ -86,25 +87,8 @@ export default function Dashboard() {
   }
   const selectionTotal = span ? span.series.reduce((sum, s) => sum + totalOf(s.values), 0) : 0
 
-  // When a run ends, bring the result into view on a narrow screen (unless the visitor scrolled during the run) and
-  // move focus to its heading, so a screen reader reads the outcome and the next Tab reaches its actions.
-  const startScroll = useRef(0)
-  const previous = useRef<RunStatus>(run.status)
-  useEffect(() => {
-    const was = previous.current
-    previous.current = run.status
-    if (run.status === 'running' && was !== 'running') startScroll.current = window.scrollY
-    if (was !== 'running' || run.status === 'running') return
-    const target = document.querySelector<HTMLElement>('[data-result-focus]')
-    if (!target) return
-    const narrow = !window.matchMedia('(min-width: 1000px)').matches
-    if (narrow && Math.abs(window.scrollY - startScroll.current) <= 40) {
-      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      target.closest('.ds-run__result')?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
-    }
-    const active = document.activeElement
-    if (!active || active === document.body || active.tagName === 'BUTTON') target.focus({ preventScroll: true })
-  }, [run.status])
+  // On a narrow screen a finished run scrolls its result into view and focuses its heading (shared hook).
+  useResultFocus(run.status)
 
   const openIndex = TRACE_STAGES.findIndex((stage) => !run.steps.some((step) => step.name === stage.name))
   const checkFailed = run.steps.some((step) => step.name === 'Check figures' && step.status === 'failed')
@@ -209,7 +193,7 @@ export default function Dashboard() {
             <AnswerCard run={run} ready={ready} onStart={start} />
             <ReadoutStrip run={run} />
             <RunTrace steps={run.steps} status={run.status} partialAnswer={run.answer !== ''} />
-            {span && summary && <MoreCharts span={span} packages={summary.packages} colorIndex={colorIndex} log={log} />}
+            {span && summary && <MoreCharts packages={summary.packages} colorIndex={colorIndex} />}
           </div>
         </div>
       </main>

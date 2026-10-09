@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { InsightRun } from '../lib/insightRun'
 
 interface InsightControlsProps {
@@ -10,6 +11,11 @@ interface InsightControlsProps {
 /** The dock: the action that starts a run, and Stop while a run streams. */
 export default function InsightControls({ run, ready, onStart }: InsightControlsProps) {
   const running = run.status === 'running'
+  const stop = useRef<HTMLButtonElement | null>(null)
+  // Stop takes focus when a run starts, without scrolling, so Enter or Space ends it and the page does not move.
+  useEffect(() => {
+    if (running) stop.current?.focus({ preventScroll: true })
+  }, [running])
   const label = running ? 'Explaining…' : run.answer ? 'Explain again' : 'Explain spikes'
   return (
     <div className="ds-actions">
@@ -17,7 +23,7 @@ export default function InsightControls({ run, ready, onStart }: InsightControls
         {label}
       </button>
       {running && (
-        <button type="button" className="ds-button" onClick={() => run.stop()}>
+        <button ref={stop} type="button" className="ds-button" onClick={() => run.stop()}>
           Stop
         </button>
       )}

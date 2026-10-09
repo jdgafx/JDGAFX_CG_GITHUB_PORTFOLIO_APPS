@@ -2,6 +2,7 @@
   "extends": "./tsconfig.netlify.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "lib": ["ES2023", "DOM"],
     "types": ["node", "vite/client"]
   },
   "include": ["tests"]

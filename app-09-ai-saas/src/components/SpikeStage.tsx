@@ -1,6 +1,7 @@
 import type { SpikeEvidence } from '../../netlify/shared/contract'
 import { RELEASE_LAG_DAYS } from '../../netlify/shared/contract'
-import { dailyRows, type DownloadWindow } from '../lib/analytics'
+import { averageRows, dailyRows, type DownloadWindow } from '../lib/analytics'
+import { chartLayout } from '../lib/chartLayout'
 import { compact, seriesColor, shortDate } from '../lib/format'
 import LineChart, { spikeKey } from './LineChart'
 
@@ -90,46 +91,90 @@ interface SpikeStageProps {
   releasesLoading: boolean
 }
 
-/** The hero: the daily chart with a marker on every unusual day, and the list of what was found beside it. */
+/** The two marker shapes, each glyph before its own label. */
+function MarkerKey() {
+  return (
+    <ul className="ds-legend hub-keys" aria-label="Marker key">
+      <li>
+        <span className="hub-keys__dot" aria-hidden="true" />
+        Release in the {RELEASE_LAG_DAYS} days before
+      </li>
+      <li>
+        <span className="hub-keys__dot hub-keys__dot--open" aria-hidden="true" />
+        No release nearby
+      </li>
+    </ul>
+  )
+}
+
+/**
+ * The hero: the daily chart with a marker on every unusual day, full width, and the list of what was found below it.
+ * From 90 days the 7-day average is the solid line over a faint daily line. When one package is far larger than another
+ * each gets its own row, so the small one's release-matched spikes are not flat on the floor.
+ */
 export default function SpikeStage({ span, colorIndex, spikes, log, onLogChange, activeKey, onActive, releasesLoading }: SpikeStageProps) {
+  const { smooth, split } = chartLayout(span)
+  const daily = dailyRows(span)
+  const caption = smooth
+    ? 'Solid line: 7-day average. Faint line: each day. A break is a day npm did not report.'
+    : 'One line per package. A break is a day npm did not report.'
+  const logSwitch = split ? null : (
+    <label className="hub-log">
+      <input type="checkbox" checked={log} onChange={(event) => onLogChange(event.target.checked)} />
+      <span>Log scale</span>
+    </label>
+  )
   return (
     <section className="ds-run__stage hub-stage" aria-label="Daily downloads and unusual days">
-      <LineChart
-        title="Daily downloads"
-        caption="One line per package. A broken line is a day npm did not report."
-        headRight={
-          <label className="hub-log">
-            <input type="checkbox" checked={log} onChange={(event) => onLogChange(event.target.checked)} />
-            <span>Log scale</span>
-          </label>
-        }
-        span={span}
-        rows={dailyRows(span)}
-        colorIndex={colorIndex}
-        log={log}
-        height={320}
-        spikes={spikes}
-        activeKey={activeKey}
-        onActive={onActive}
-      />
-      <div className="hub-stage__aside">
-        <p className="ds-help hub-keys">
-          <span className="hub-keys__dot" aria-hidden="true" /> Release in the {RELEASE_LAG_DAYS} days before
-          <span className="hub-keys__dot hub-keys__dot--open" aria-hidden="true" /> No release nearby
-        </p>
-        <SpikeList
-          spikes={spikes}
+      {split ? (
+        <figure className="ds-chart hub-chart">
+          <div className="ds-chart__head">
+            <figcaption>
+              <b>Daily downloads</b> <span className="ds-help">{caption} Each package has its own scale because they differ by more than 8 times.</span>
+            </figcaption>
+          </div>
+          <div className="hub-rows">
+            {span.series.map((s, i) => (
+              <LineChart
+                key={s.key}
+                bare
+                showX={i === span.series.length - 1}
+                height={i === span.series.length - 1 ? 124 : 100}
+                span={{ ...span, series: [s] }}
+                rows={smooth ? averageRows({ ...span, series: [s] }) : daily}
+                underlay={smooth ? daily : undefined}
+                colorIndex={[colorIndex[i]]}
+                log={false}
+                spikes={spikes.filter((spike) => spike.name === s.name)}
+                activeKey={activeKey}
+                onActive={onActive}
+              />
+            ))}
+          </div>
+        </figure>
+      ) : (
+        <LineChart
+          title="Daily downloads"
+          caption={caption}
+          headRight={logSwitch}
           span={span}
+          rows={smooth ? averageRows(span) : daily}
+          underlay={smooth ? daily : undefined}
           colorIndex={colorIndex}
+          log={log}
+          height={340}
+          spikes={spikes}
           activeKey={activeKey}
           onActive={onActive}
-          releasesLoading={releasesLoading}
         />
-        <p className="ds-help">
-          Log scale spaces the vertical axis by ratio, so a small package is not flattened beside a large one. It cannot
-          draw zero, so a day with zero downloads shows as a gap.
-        </p>
-      </div>
+      )}
+      <MarkerKey />
+      <SpikeList spikes={spikes} span={span} colorIndex={colorIndex} activeKey={activeKey} onActive={onActive} releasesLoading={releasesLoading} />
+      <p className="ds-help">
+        {split
+          ? 'Each row has its own vertical scale, so compare shapes, not heights.'
+          : 'Log scale spaces the vertical axis by ratio, so a small package is not flattened beside a large one. It cannot draw zero, so a day with zero downloads shows as a gap.'}
+      </p>
     </section>
   )
 }

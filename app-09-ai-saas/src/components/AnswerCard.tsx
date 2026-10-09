@@ -1,6 +1,7 @@
 import type { TraceStep } from '../lib/api'
 import type { InsightRun } from '../lib/insightRun'
 import { parseInline } from '../lib/markdown'
+import { markFigures } from '../lib/markFigures'
 
 // The server's own wording, for example "2 of 3 figures match the summary" or "1 of 1 figure matches the summary and spike evidence".
 const COUNT_LINE = /^(\d+) of (\d+) figures? match(?:es)? the summary(?: and spike evidence)?(?:\. Not in the summary: ([\s\S]*))?$/
@@ -39,11 +40,22 @@ function AnswerState({ tone, title, body, action }: StateProps) {
 }
 
 /** One line of model text: emphasis, strong and code become elements; nothing else is interpreted, so no markers or markup show. */
-function Inline({ line }: { line: string }) {
+function Inline({ line, missing }: { line: string; missing: string[] }) {
+  // A figure the check rejected is underlined where it is written, with the reason in its title.
+  const flag = (text: string) =>
+    markFigures(text, missing).map((part, i) =>
+      part.flagged ? (
+        <mark key={i} className="hub-unmatched" title="Not in the evidence">
+          {part.text}
+        </mark>
+      ) : (
+        part.text
+      ),
+    )
   return (
     <>
       {parseInline(line).map((piece, i) =>
-        piece.kind === 'text' ? piece.text : piece.kind === 'strong' ? <strong key={i}>{piece.text}</strong> : piece.kind === 'em' ? <em key={i}>{piece.text}</em> : <code key={i}>{piece.text}</code>,
+        piece.kind === 'text' ? <span key={i}>{flag(piece.text)}</span> : piece.kind === 'strong' ? <strong key={i}>{flag(piece.text)}</strong> : piece.kind === 'em' ? <em key={i}>{flag(piece.text)}</em> : <code key={i}>{piece.text}</code>,
       )}
     </>
   )
@@ -91,6 +103,7 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
   const { status, answer, steps, errorMessage } = run
   const check = steps.find((step) => step.name === 'Check figures')
   const retry = onStart
+  const missing = (check && check.status !== 'skipped' ? COUNT_LINE.exec(check.detail)?.[3]?.split(', ') : undefined) ?? []
 
   const card = (live: boolean) => (
     <article className="ds-lead" aria-live="polite" aria-busy={live}>
@@ -110,7 +123,7 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
       <div className="ds-lead__text">
         {paragraphs(answer).map((part, i) => (
           <p key={i}>
-            <Inline line={part} />
+            <Inline line={part} missing={missing} />
           </p>
         ))}
       </div>
