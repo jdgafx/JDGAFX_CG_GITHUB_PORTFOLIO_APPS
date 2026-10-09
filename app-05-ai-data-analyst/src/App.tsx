@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react'
 import { headlineFor } from './lib/answer'
 import { parseCSV } from './lib/dataEngine'
 import { CITIES, DATASET_CHOICES, DEFAULT_CITY, DEFAULT_DATASET } from './lib/liveData/catalog'
+import { indicatorFor } from './lib/liveData/indicator'
 import { MAX_ROWS } from './lib/limits'
 import { plainText } from './lib/prose'
 import { useResultFocus } from './lib/useResultFocus'
@@ -165,7 +166,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={phase}>
-      <AppHeader status={phase} />
+      <AppHeader status={phase} live={indicatorFor(datasetState, choice?.id ?? null)} />
 
       <main className="ds-main">
         <Banners

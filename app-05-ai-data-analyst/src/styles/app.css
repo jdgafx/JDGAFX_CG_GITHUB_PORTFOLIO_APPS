@@ -347,3 +347,7 @@
 
 /* The disclosures under a step share the card's left edge with the chart's. */
 .app-step__body > .app-details { margin-left: -40px; }
+
+/* Live-data chip in the masthead: lit by a real fetch, or by the visitor's own file. */
+.live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
+.live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }

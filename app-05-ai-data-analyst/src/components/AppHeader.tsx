@@ -1,3 +1,5 @@
+import type { LiveIndicator } from '../lib/liveData/indicator'
+
 export type HeaderStatus = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
 
 const STATUS: Record<HeaderStatus, { label: string; tone: string; dot: string }> = {
@@ -8,7 +10,7 @@ const STATUS: Record<HeaderStatus, { label: string; tone: string; dot: string }>
   stopped: { label: 'Last run stopped', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' },
 }
 
-export default function AppHeader({ status }: { status: HeaderStatus }) {
+export default function AppHeader({ status, live }: { status: HeaderStatus; live: LiveIndicator }) {
   const { label, tone, dot } = STATUS[status]
   return (
     <header className="ds-header">
@@ -22,6 +24,10 @@ export default function AppHeader({ status }: { status: HeaderStatus }) {
               {label}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.label}
+          </p>
           <p className="ds-subtitle">
             Ask a question about live public data or your own CSV, then keep refining it with follow-ups.
           </p>
