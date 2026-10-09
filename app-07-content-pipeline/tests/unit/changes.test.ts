@@ -64,3 +64,33 @@ describe('notesDetail', () => {
     expect(notesDetail(0, 0, false)).toBe('No change notes came back.')
   })
 })
+
+describe('verifyNotes: a reason whose own claim is false is dropped', () => {
+  const OLD = 'The tool is free to the public. It runs fast. It is small.'
+  it('drops "removed" when the named words are still in the new text, keeps it when they are gone', () => {
+    const after = 'The tool is free to the public now. It runs fast. It is small.'
+    expect(verifyNotes(['- Removed the claim about the public :: free to the public'], OLD, after)).toEqual([])
+    const gone = 'The tool is free. It runs fast. It is small.'
+    expect(verifyNotes(['- Removed the claim about the public :: to the public'], OLD, gone)).toEqual([
+      { text: 'Removed the claim about the public', passage: 'to the public', side: 'old' },
+    ])
+  })
+
+  it('drops "removed" when the passage names words from the new side', () => {
+    const after = 'The tool is free to everyone. It runs fast. It is small.'
+    expect(verifyNotes(['- Cut the old wording of the claim :: free to everyone'], OLD, after)).toEqual([])
+  })
+
+  it('keeps "merged" only when the sentence count fell', () => {
+    const merged = 'The tool is free to the public and it runs fast. It is small.'
+    expect(verifyNotes(['- Merged two sentences into one :: and it runs fast'], OLD, merged)).toHaveLength(1)
+    const same = 'The tool is free to all. It runs fast. It is small.'
+    expect(verifyNotes(['- Merged two sentences into one :: free to all'], OLD, same)).toEqual([])
+  })
+
+  it('keeps "split" only when the sentence count rose', () => {
+    const split = 'The tool is free. It is for the public. It runs fast. It is small.'
+    expect(verifyNotes(['- Split a long sentence in two :: It is for the public'], OLD, split)).toHaveLength(1)
+    expect(verifyNotes(['- Split a long sentence in two :: free to all'], OLD, 'The tool is free to all. It runs fast. It is small.')).toEqual([])
+  })
+})

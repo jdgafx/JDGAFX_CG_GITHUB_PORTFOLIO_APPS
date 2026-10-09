@@ -7,7 +7,8 @@ import { buildTrace, stageViews, summarize, type Phase, type RunEnd, type TraceL
 import { useResultFocus } from './lib/useResultFocus'
 import Brief, { EXAMPLES } from './components/Brief'
 import Header from './components/Header'
-import Outputs from './components/Outputs'
+import { namesFor } from './lib/names'
+import { parseSourcePack } from '../netlify/shared/sourcepack'
 import Piece from './components/Piece'
 import Pipeline from './components/Pipeline'
 import Readout from './components/Readout'
@@ -190,6 +191,7 @@ export default function App() {
 
           <div className="ds-run">
             <Piece
+              topic={topic}
               outputs={outputs}
               notes={notes}
               running={running}
@@ -201,9 +203,8 @@ export default function App() {
               onContinue={() => void start(true)}
             />
             <Readout phase={phase} totals={totals} runningStage={runningStage} startedAt={startedAt} />
-            <div className="ds-run__stage ds-stack">
-              <Pipeline views={views} />
-              <Outputs outputs={outputs} views={views} onCopy={copy} />
+            <div className="ds-run__stage">
+              <Pipeline views={views} outputs={outputs} names={namesFor(topic, parseSourcePack(outputs.sources ?? ''))} onCopy={copy} />
             </div>
             <RunTrace lines={[...finished, ...live]} />
           </div>

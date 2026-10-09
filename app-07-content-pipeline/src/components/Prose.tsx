@@ -1,15 +1,17 @@
 import { parseBlocks } from '../lib/blocks'
+import { sentenceCase } from '../lib/titles'
 import Inline from './Inline'
 
 // A model-written piece as headings, paragraphs and lists. Nothing here is HTML from the model.
-export default function Prose({ text, className = 'prose' }: { text: string; className?: string }) {
+// Headings go to sentence case; `names` are the words that keep their capitals.
+export default function Prose({ text, className = 'prose', names = [] }: { text: string; className?: string; names?: string[] }) {
   return (
     <div className={className}>
       {parseBlocks(text).map((block, i) => {
         if (block.kind === 'rule') return <hr key={i} />
         if (block.kind === 'heading') {
           const Tag = (`h${block.level + 2}`) as 'h3' | 'h4' | 'h5' | 'h6'
-          return <Tag key={i}><Inline text={block.text} /></Tag>
+          return <Tag key={i}><Inline text={sentenceCase(block.text, names)} /></Tag>
         }
         if (block.kind === 'list') {
           const List = block.ordered ? 'ol' : 'ul'

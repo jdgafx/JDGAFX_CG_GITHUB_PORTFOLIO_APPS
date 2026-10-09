@@ -6,6 +6,7 @@ import type { ChangeNote } from '../../netlify/shared/changes'
 import type { PipelineOutcome } from '../lib/api'
 import DiffView from './DiffView'
 import Inline from './Inline'
+import { namesFor } from '../lib/names'
 import Prose from './Prose'
 import Readability from './Readability'
 import Seg from './Seg'
@@ -93,6 +94,7 @@ function NoteList({ notes, stage }: { notes: ChangeNote[]; stage: ChangeStage })
 }
 
 interface PieceProps {
+  topic: string
   outputs: StageOutputs
   notes: Partial<Record<ChangeStage, ChangeNote[]>>
   running: boolean
@@ -105,7 +107,7 @@ interface PieceProps {
 }
 
 /** The piece is the page's lead: the final text, or the tracked changes that got it there. */
-export default function Piece({ outputs, notes, running, runningStage, outcome, hasCalls, copyNote, onCopy, onContinue }: PieceProps) {
+export default function Piece({ topic, outputs, notes, running, runningStage, outcome, hasCalls, copyNote, onCopy, onContinue }: PieceProps) {
   const [view, setView] = useState<View>('final')
   const [changeStage, setChangeStage] = useState<ChangeStage>('polish')
   const best = bestStage(outputs)
@@ -136,6 +138,7 @@ export default function Piece({ outputs, notes, running, runningStage, outcome, 
   const text = outputs[best] as string
   const body = best === 'polish' ? bodyOf(text) : text
   const pack = parseSourcePack(outputs.sources ?? '')
+  const names = namesFor(topic, pack)
   const listed = best === 'polish' ? listedSources(text, pack) : { sources: [], cited: true }
   const noSources = best === 'polish' && pack.sources.length === 0
   const complete = outcome?.kind === 'complete'
@@ -177,7 +180,7 @@ export default function Piece({ outputs, notes, running, runningStage, outcome, 
             onChange={setView}
             options={[{ value: 'final', label: 'Final' }, { value: 'changes', label: 'Changes', disabled: !changeOptions.some(o => !o.disabled) }]}
           />
-          <button type="button" className="ds-button ds-button--quiet" onClick={() => onCopy(`${STAGE_LABELS[best]} text`, text)}>
+          <button type="button" className="ds-button ds-button--quiet" onClick={() => onCopy(complete ? 'Final piece' : `${STAGE_LABELS[best]} text`, text)}>
             Copy {complete ? 'final piece' : STAGE_LABELS[best].toLowerCase()}
           </button>
         </div>
@@ -185,7 +188,7 @@ export default function Piece({ outputs, notes, running, runningStage, outcome, 
         <div role="tabpanel" id="view-panel" aria-labelledby={`view-${activeView}`} className="ds-stack">
           {activeView === 'final' ? (
             <>
-              <Prose text={body} className="prose prose--lead" />
+              <Prose text={body} className="prose prose--lead" names={names} />
               {noSources && <p className="ds-help">No live source was found for this topic, so the facts above come from the model and are unchecked.</p>}
               {listed.sources.length > 0 && (
                 <>
@@ -197,14 +200,14 @@ export default function Piece({ outputs, notes, running, runningStage, outcome, 
           ) : shown && (
             <>
               <div className="piece-tools">
-                <Seg idPrefix="step" label="Which step to compare" value={stageForChanges} onChange={setChangeStage} options={changeOptions} />
+                <Seg small idPrefix="step" label="Which step to compare" value={stageForChanges} onChange={setChangeStage} options={changeOptions} />
                 <div className="ds-chips" aria-label={`Counts for ${FROM_LABEL[shown.stage]}`}>
                   <span className="ds-chip ds-chip--add">{plural(shown.stats.added, 'word')} added</span>
                   <span className="ds-chip ds-chip--remove">{plural(shown.stats.removed, 'word')} removed</span>
                   <span className="ds-chip ds-chip--change">{plural(shown.stats.sentencesRewritten, 'sentence')} rewritten</span>
                 </div>
               </div>
-              <DiffView segments={shown.segments} />
+              <DiffView segments={shown.segments} names={names} />
               <p className="ds-label">Why {STAGE_LABELS[shown.stage]} made its main changes</p>
               <NoteList notes={shown.notes} stage={shown.stage} />
               <Readability points={readabilityTrend(outputs)} />

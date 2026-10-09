@@ -3,6 +3,7 @@
 // it is about. The server keeps a note only if its passage sits in text that really changed. Pure.
 
 import { diffWords, sideWords, type DiffSegment } from './diff'
+import { readability } from './readability'
 
 export const CHANGES_DELIMITER = '---CHANGES---'
 export const MAX_NOTES = 5
@@ -57,13 +58,38 @@ function changedShare(words: string[], side: { word: string; changed: boolean }[
   return best
 }
 
+// What a reason says it did, read from its wording. Each claim has to hold in the text.
+const REMOVAL = /\b(?:remov|drop|cut\b|delet|omit|eliminat|took out|stripp?)/i
+const MERGE = /\b(?:merg|combin|join|fus)/i
+const SPLIT = /\b(?:split|broke|break)/i
+
+function sentencesIn(text: string): number {
+  return readability(text)?.sentences ?? 0
+}
+
+// True when the reason's own claim is contradicted by the two texts.
+function contradicted(reason: string, words: string[], side: 'new' | 'old', before: string, after: string, newSide: { word: string }[]): boolean {
+  // "Removed X" is false if X is still there, and its words must be the removed ones.
+  if (REMOVAL.test(reason)) {
+    const text = newSide.map(item => normalize(item.word))
+    const stillThere = words.length > 0 && text.some((_, i) => words.every((word, k) => text[i + k] === word))
+    if (side !== 'old' || stillThere) return true
+  }
+  // "Merged" or "combined" sentences needs fewer sentences after; "split" needs more.
+  if (MERGE.test(reason) && sentencesIn(after) >= sentencesIn(before)) return true
+  if (SPLIT.test(reason) && sentencesIn(after) <= sentencesIn(before)) return true
+  return false
+}
+
 const SEPARATOR = /\s::\s|\s\|\|\s/
 
 /**
  * Keeps the notes whose passage really is in the changed text. A passage must be found word for word
  * in the new text or in the old text (the deleted words), and at least a quarter of its words, and at
  * least one, must be inserted (new side) or deleted (old side) in the diff. Notes with fewer than
- * three words of reason, with no passage, or whose passage was already used are dropped.
+ * three words of reason, with no passage, or whose passage was already used are dropped. A reason is also
+ * dropped when its own claim is false: a removal whose words are still in the new text (or named on the new
+ * side), "merged" when the sentence count did not fall, "split" when it did not rise.
  */
 export function verifyNotes(noteLines: string[], before: string, after: string, segments: DiffSegment[] = diffWords(before, after)): ChangeNote[] {
   const newSide = sideWords(segments, 'new')
@@ -82,7 +108,7 @@ export function verifyNotes(noteLines: string[], before: string, after: string, 
     const inNew = changedShare(words, newSide)
     const inOld = changedShare(words, oldSide)
     const side = inNew >= need ? 'new' : inOld >= need ? 'old' : null
-    if (!side) continue
+    if (!side || contradicted(text, words, side, before, after, newSide)) continue
     const id = `${side}:${words.join(' ')}`
     if (used.has(id)) continue
     used.add(id)

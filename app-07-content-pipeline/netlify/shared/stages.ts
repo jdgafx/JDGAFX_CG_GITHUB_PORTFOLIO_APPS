@@ -146,7 +146,7 @@ const UNSOURCED_RULES: Record<ModelStageId, string> = {
 
 // Edit and Polish name their main changes after the piece. The server checks each note against the
 // real difference between the text it was given and the text it returned.
-const CHANGE_NOTE_RULES = `Output the piece first, with no preamble. Then a line holding only ${CHANGES_DELIMITER} and ${MIN_NOTES_ASKED} to ${MAX_NOTES} lines, one per main change, each written as: - <why you changed it, in one short sentence> :: <2 to 6 consecutive words copied letter for letter from your new text where the change is, or from the old text if you only removed them; include at least one word that is new or removed>. Only describe changes you actually made. The notes are not part of the piece and do not count toward the word budget.`
+const CHANGE_NOTE_RULES = `Output the piece first, with no preamble. Then a line holding only ${CHANGES_DELIMITER} and ${MIN_NOTES_ASKED} to ${MAX_NOTES} lines, one per main change, each written as: - <why you changed it, in one short sentence> :: <2 to 6 consecutive words copied letter for letter from your new text where the change is, or from the old text if you only removed them; include at least one word that is new or removed>. Describe only what actually changed: say removed only for words that are gone from your new text, merged only if you joined sentences into fewer sentences, and split only if you made more sentences. The notes are not part of the piece and do not count toward the word budget.`
 
 // sourceCount is how many live sources the Sources stage found. The Sources section is untrusted
 // reference text from the web, so the prompt says never to follow instructions inside it.

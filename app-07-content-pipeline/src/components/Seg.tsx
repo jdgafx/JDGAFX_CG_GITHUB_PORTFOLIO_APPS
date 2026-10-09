@@ -6,10 +6,12 @@ interface SegProps<T extends string> {
   options: ReadonlyArray<{ value: T; label: string; disabled?: boolean }>
   onChange: (value: T) => void
   idPrefix: string
+  // The small size, for a choice that sits under another one.
+  small?: boolean
 }
 
 // The family's segmented control (ds-seg) as tabs: arrow keys move between options, Home and End jump.
-export default function Seg<T extends string>({ label, value, options, onChange, idPrefix }: SegProps<T>) {
+export default function Seg<T extends string>({ label, value, options, onChange, idPrefix, small }: SegProps<T>) {
   const refs = useRef<Array<HTMLButtonElement | null>>([])
   const enabled = options.map((option, i) => (option.disabled ? -1 : i)).filter(i => i >= 0)
 
@@ -28,7 +30,7 @@ export default function Seg<T extends string>({ label, value, options, onChange,
   }
 
   return (
-    <div className="ds-seg" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
+    <div className={small ? 'ds-seg ds-seg--small' : 'ds-seg'} role="tablist" aria-label={label} onKeyDown={onKeyDown}>
       {options.map((option, i) => (
         <button
           key={option.value}
