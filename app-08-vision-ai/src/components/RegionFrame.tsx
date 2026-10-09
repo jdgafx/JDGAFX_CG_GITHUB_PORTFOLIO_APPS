@@ -52,6 +52,8 @@ export default function RegionFrame({ src, alt, regions, activeId, draft, editab
     if (next) onDraft(next)
   }
   const endDrag = () => {
+    // On a phone the question can sit below the fold once the box is drawn; bring it into view.
+    if (anchor.current && draft) document.getElementById('question')?.scrollIntoView({ block: 'nearest' })
     anchor.current = null
     setDrawing(false)
   }

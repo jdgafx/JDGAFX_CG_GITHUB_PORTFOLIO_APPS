@@ -53,9 +53,13 @@ export default function Hero(props: HeroProps) {
           <p className="ds-state__title">Choose a picture to begin</p>
           <p className="ds-state__body">Drop a file, paste a screenshot, or pick a public image from Wikimedia Commons.</p>
           <div className="ds-state__actions">
-            <label htmlFor="vl-file" className="ds-button ds-button--primary">
+            <button
+              type="button"
+              className="ds-button ds-button--primary"
+              onClick={() => document.getElementById('vl-file')?.click()}
+            >
               Choose file
-            </label>
+            </button>
           </div>
         </div>
       </section>

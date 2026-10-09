@@ -9,6 +9,8 @@ interface CommonsPickerProps {
   disabled: boolean
   /** How many image slots are still empty. The list stays open while more than one is. */
   slotsLeft: number
+  /** Identifies the pictures now loaded, so an error from an earlier pick stops showing once they change. */
+  loaded: string
   /** Names the slot a pick goes into, when there is more than one. */
   label: string
   onPick: (file: File, image: CommonsImage) => void
@@ -19,7 +21,7 @@ const PICK_FAILED = 'The image could not be loaded. Try again or pick another.'
 
 // "Pick a public image": search Wikimedia Commons, choose a result, and the thumbnail is downloaded
 // in the browser and handed to the same pipeline as an upload.
-export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: CommonsPickerProps) {
+export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPick }: CommonsPickerProps) {
   const { state, search } = useCommonsSearch()
   const [text, setText] = useState('')
   const [open, setOpen] = useState(slotsLeft > 0)
@@ -58,7 +60,7 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
     } catch (err) {
       if (controller.signal.aborted) return
       setPicking(null)
-      setPickError({ message: err instanceof CommonsError ? err.message : PICK_FAILED, slotsLeft })
+      setPickError({ message: err instanceof CommonsError ? err.message : PICK_FAILED, loaded })
     }
   }
 
@@ -178,9 +180,9 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
           )}
         </div>
 
-        {visibleError(pickError, slotsLeft) && (
+        {visibleError(pickError, loaded) && (
           <p className="ds-notice ds-notice--error" role="alert">
-            {visibleError(pickError, slotsLeft)}
+            {visibleError(pickError, loaded)}
           </p>
         )}
         <p className="ds-help">Each image keeps its own licence. The title, author and licence show beside the picture.</p>

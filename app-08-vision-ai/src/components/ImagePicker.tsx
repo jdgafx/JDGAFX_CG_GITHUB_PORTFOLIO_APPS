@@ -131,6 +131,7 @@ export default function ImagePicker({ comparing, a, b, disabled, uploadError, on
       <CommonsPicker
         key={comparing ? 'pair' : 'single'}
         disabled={disabled}
+        loaded={`${a?.url ?? ''}|${b?.url ?? ''}`}
         slotsLeft={(a ? 0 : 1) + (comparing && !b ? 1 : 0)}
         label={comparing ? `Image ${target.toUpperCase()}` : ''}
         onPick={(file, image) => {
