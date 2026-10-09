@@ -3,8 +3,10 @@
 /* Graph: drawn at 1:1 from 560 units, so its text keeps the scale's sizes. Below 720px it scrolls inside its panel. */
 .graph-panel { display: grid; gap: 14px; }
 .graph-svg { display: block; width: 560px; max-width: 100%; height: auto; margin: 0 auto; }
+.graph-hint { display: none; }
 @media (max-width: 719px) {
   .graph-svg { max-width: none; }
+  .graph-hint { display: block; }
 }
 
 .graph-node { fill: var(--ds-surface); stroke: var(--ds-border); stroke-width: 1.5; }
@@ -67,3 +69,16 @@
 .trace-state--ok { color: var(--ds-success); }
 .trace-state--failed { color: var(--ds-danger); }
 .trace-state--stopped { color: var(--ds-warning); }
+
+/* Example questions: each is a button that fills the field, with the path it is expected to take */
+.sample-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sample {
+  display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
+}
+.sample:hover:not(:disabled) { border-color: var(--ds-accent); }
+.sample--selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.sample:disabled { opacity: 0.5; cursor: not-allowed; }
+.sample__label { font-size: 15px; font-weight: 650; }
+.sample__question { font-size: 14px; overflow-wrap: anywhere; }
+.sample__path { margin-top: 2px; font-size: 13px; color: var(--ds-text-muted); }

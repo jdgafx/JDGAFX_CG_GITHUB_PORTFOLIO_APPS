@@ -49,62 +49,29 @@ export interface FinalAnswer {
   truncated: boolean
 }
 
+/** A field the latest update replaces. `initial` builds the starting value, so no run shares an array. */
+const last = <T>(initial: () => T) => Annotation<T>({ reducer: (_prev, next) => next, default: initial })
+
+/** A list field where each update appends. */
+const appended = <T>() => Annotation<T[]>({ reducer: (prev, next) => prev.concat(next), default: () => [] })
+
 export const ResearchState = Annotation.Root({
-  question: Annotation<string>({
-    reducer: (_prev, next) => next,
-    default: () => '',
-  }),
-  searchQueries: Annotation<string[]>({
-    reducer: (_prev, next) => next,
-    default: () => [],
-  }),
+  question: last(() => ''),
+  searchQueries: last<string[]>(() => []),
   /** The agent's conversation: its turns and the tool results, in order. Each update appends. */
-  messages: Annotation<ChatMessage[]>({
-    reducer: (prev, next) => prev.concat(next),
-    default: () => [],
-  }),
-  pendingCalls: Annotation<ToolCall[]>({
-    reducer: (_prev, next) => next,
-    default: () => [],
-  }),
-  toolRounds: Annotation<number>({
-    reducer: (_prev, next) => next,
-    default: () => 0,
-  }),
+  messages: appended<ChatMessage>(),
+  pendingCalls: last<ToolCall[]>(() => []),
+  toolRounds: last(() => 0),
   /** Pages the agent read, numbered in order. Each update appends the new pages only. */
-  evidence: Annotation<Evidence[]>({
-    reducer: (prev, next) => prev.concat(next),
-    default: () => [],
-  }),
-  draftText: Annotation<string>({
-    reducer: (_prev, next) => next,
-    default: () => '',
-  }),
+  evidence: appended<Evidence>(),
+  draftText: last(() => ''),
   /** Whether the latest draft hit its length limit. */
-  draftTruncated: Annotation<boolean>({
-    reducer: (_prev, next) => next,
-    default: () => false,
-  }),
-  critique: Annotation<Critique | null>({
-    reducer: (_prev, next) => next,
-    default: () => null,
-  }),
-  revisions: Annotation<number>({
-    reducer: (_prev, next) => next,
-    default: () => 0,
-  }),
-  route: Annotation<Route | null>({
-    reducer: (_prev, next) => next,
-    default: () => null,
-  }),
-  finalAnswer: Annotation<FinalAnswer | null>({
-    reducer: (_prev, next) => next,
-    default: () => null,
-  }),
-  trace: Annotation<TraceRow[]>({
-    reducer: (prev, next) => prev.concat(next),
-    default: () => [],
-  }),
+  draftTruncated: last(() => false),
+  critique: last<Critique | null>(() => null),
+  revisions: last(() => 0),
+  route: last<Route | null>(() => null),
+  finalAnswer: last<FinalAnswer | null>(() => null),
+  trace: appended<TraceRow>(),
 })
 
 export type ResearchValues = typeof ResearchState.State

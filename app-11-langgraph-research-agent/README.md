@@ -1,6 +1,6 @@
 # GraphScout
 
-GraphScout answers a factual question from Wikipedia and lists its sources. You type a question or use the sample. A planner writes search queries. An agent calls two Wikipedia tools in a loop, reads the pages it chooses, and stops when it has enough. A draft writes the answer with numbered citations. A critic accepts the draft or sends it back for up to two revisions. The final answer lists the sources it cites, as links.
+GraphScout answers a factual question from Wikipedia and lists its sources. You type a question or load one of three examples. A planner writes search queries. An agent calls two Wikipedia tools in a loop, reads the pages it chooses, and stops when it has enough. A draft writes the answer with numbered citations. A critic accepts the draft or sends it back for up to two revisions. The final answer lists the sources it cites, as links.
 
 **What this showcases:** a LangGraph agent whose tool loop and critic loop are real cycles in a state graph, each bounded and shown as it runs.
 
@@ -48,7 +48,8 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 
 ## What the page shows
 
-- **Controls**: the question field, the sample question, and the Start research and Stop buttons. The line under them says what the run is doing.
+- **Controls**: the question field, the Start research and Stop buttons, and three example questions that each fill the field. The line under them says what the run is doing.
+- **Examples**: a quick lookup (Lisbon's World Exposition), a question that follows a link from one page to the next (the novel behind Blade Runner), and one the critic often sends back (the Eiffel Tower against the Empire State Building). Each has an answer on English Wikipedia. The path a run takes is decided by the models at run time, so an example may take another path, and a slow provider can end a run at the 25-second budget.
 - **Graph**: each box shows its state as a dot and a word, and the running step pulses. Each arrow the run took turns signal colour. The two loops show their bounds before a run and their counts during it.
 - **Run totals**: total time, total tokens, total cost, and the models used.
 - **Cost**: a cost OpenRouter reports is shown as reported. Otherwise the cost is estimated from the list prices and labelled as estimated. A value that cannot be known shows as not reported. If some model calls have no price, the total is labelled partial and says how many.
@@ -62,7 +63,7 @@ The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/
 - **Key**: `OPENROUTER_API_KEY` is read only on the server. The browser never receives it, and no error message contains a provider body.
 - **Budget**: one 25-second budget covers every model and tool call in a run, so the run ends itself before the roughly 30-second cut-off seen on the live Netlify site. Each model call also has a 12-second timeout. Each Wikipedia call has a 6-second timeout.
 - **Errors**: each failure becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
-- **Checkpointer**: an in-memory checkpointer is created for each request. Nothing is saved between requests.
+- **Checkpointer**: an in-memory checkpointer is created for each request, and the final state is read back from it. Nothing is saved between requests.
 
 Source files live in `netlify/shared/graph/` (state, prompts, parsing, tools, nodes, graph assembly and the stream mapping) and `src/` (the page).
 

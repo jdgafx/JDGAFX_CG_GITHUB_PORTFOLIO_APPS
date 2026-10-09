@@ -1,4 +1,3 @@
-import { deadline } from './deadline'
 import { PlainError } from './errors'
 import { isAbortError, isRecord } from './json'
 
@@ -92,37 +91,34 @@ export async function chat(request: ChatRequest, signal: AbortSignal): Promise<C
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) throw new ProviderError(503, NOT_CONFIGURED_MESSAGE)
 
-  const guard = deadline(signal, MODEL_CALL_TIMEOUT_MS)
+  // The call ends when the run budget aborts or after the per-call limit, whichever comes first.
+  const callSignal = AbortSignal.any([signal, AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS)])
+  let response: Response
   try {
-    let response: Response
-    try {
-      response = await fetch(OPENROUTER_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, reasoning: REASONING_OFF, usage: { include: true } }),
-        signal: guard.signal,
-      })
-    } catch (err) {
-      throw transportError(err)
-    }
-    if (!response.ok) throw new ProviderError(response.status, messageForStatus(response.status))
-
-    let text: string
-    try {
-      text = await response.text()
-    } catch (err) {
-      throw transportError(err)
-    }
-    let json: unknown
-    try {
-      json = JSON.parse(text) as unknown
-    } catch {
-      throw new ProviderError(502, UNREADABLE_MESSAGE)
-    }
-    return parseReply(json)
-  } finally {
-    guard.done()
+    response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...request, reasoning: REASONING_OFF, usage: { include: true } }),
+      signal: callSignal,
+    })
+  } catch (err) {
+    throw transportError(err)
   }
+  if (!response.ok) throw new ProviderError(response.status, messageForStatus(response.status))
+
+  let text: string
+  try {
+    text = await response.text()
+  } catch (err) {
+    throw transportError(err)
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text) as unknown
+  } catch {
+    throw new ProviderError(502, UNREADABLE_MESSAGE)
+  }
+  return parseReply(json)
 }
 
 function transportError(err: unknown): ProviderError {

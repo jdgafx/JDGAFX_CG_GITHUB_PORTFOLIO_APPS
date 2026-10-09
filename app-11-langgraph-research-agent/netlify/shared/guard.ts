@@ -85,7 +85,8 @@ export async function readJsonBody(req: Request, maxBytes: number = MAX_BODY_BYT
   if (!req.body) return { ok: false, status: 400, message: NOT_JSON_MESSAGE }
 
   const reader = req.body.getReader()
-  const chunks: Uint8Array[] = []
+  const decoder = new TextDecoder()
+  let text = ''
   let size = 0
   for (;;) {
     const { done, value } = await reader.read()
@@ -95,17 +96,11 @@ export async function readJsonBody(req: Request, maxBytes: number = MAX_BODY_BYT
       await reader.cancel()
       return { ok: false, status: 413, message: TOO_LARGE_MESSAGE }
     }
-    chunks.push(value)
+    text += decoder.decode(value, { stream: true })
   }
 
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
   try {
-    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) as unknown }
+    return { ok: true, value: JSON.parse(text + decoder.decode()) as unknown }
   } catch {
     return { ok: false, status: 400, message: NOT_JSON_MESSAGE }
   }

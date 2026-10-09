@@ -1,4 +1,4 @@
-import { QUESTION_MAX_CHARS } from '../lib/constants'
+import { QUESTION_MAX_CHARS, SAMPLE_QUESTIONS } from '../lib/constants'
 import { count } from '../lib/format'
 
 interface QuestionFormProps {
@@ -7,7 +7,7 @@ interface QuestionFormProps {
   onChange: (value: string) => void
   onSubmit: () => void
   onCancel: () => void
-  onSample: () => void
+  onSample: (question: string) => void
 }
 
 export function QuestionForm({ question, running, onChange, onSubmit, onCancel, onSample }: QuestionFormProps) {
@@ -64,13 +64,30 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
               Stop
             </button>
           )}
-          <button type="button" className="ds-button" onClick={onSample} disabled={running}>
-            Use sample question
-          </button>
         </div>
-        <p className="ds-help">
-          Start research runs the agent once. Stop ends a run early. The sample fills the field with a question to try.
-        </p>
+        <p className="ds-help">Start research runs the agent once. Stop ends a run early.</p>
+        <div className="ds-field">
+          <span className="ds-label" id="samples-label">
+            Or try an example
+          </span>
+          <ul className="sample-list" aria-labelledby="samples-label">
+            {SAMPLE_QUESTIONS.map((sample) => (
+              <li key={sample.label}>
+                <button
+                  type="button"
+                  className={question === sample.question ? 'sample sample--selected' : 'sample'}
+                  disabled={running}
+                  onClick={() => onSample(sample.question)}
+                >
+                  <span className="sample__label">{sample.label}</span>
+                  <span className="sample__question">{sample.question}</span>
+                  <span className="sample__path">{sample.path}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="ds-help">Each example fills the field with a question that takes a different path through the graph.</p>
+        </div>
       </form>
     </section>
   )

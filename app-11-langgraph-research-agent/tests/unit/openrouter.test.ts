@@ -20,6 +20,12 @@ const REQUEST: ChatRequest = {
   temperature: 0.2,
 }
 
+/** A fetch that never answers and rejects with the signal's reason when it aborts, as the real fetch does. */
+const hangUntilAborted = (_url: string, init?: RequestInit) =>
+  new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason as unknown))
+  })
+
 const originalKey = process.env.OPENROUTER_API_KEY
 
 beforeEach(() => {
@@ -30,7 +36,7 @@ afterEach(() => {
   if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY
   else process.env.OPENROUTER_API_KEY = originalKey
   vi.unstubAllGlobals()
-  vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 const replyBody = (overrides: Record<string, unknown> = {}) => ({
@@ -200,33 +206,23 @@ describe('chat', () => {
     expect(error).toMatchObject({ status: 504, message: SLOW_MESSAGE })
   })
 
-  it('gives up after twenty seconds with the slow message', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: string, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-          }),
-      ),
-    )
-    const pending = chat(REQUEST, new AbortController().signal).catch((err: unknown) => err)
-    await vi.advanceTimersByTimeAsync(MODEL_CALL_TIMEOUT_MS)
-    expect(await pending).toMatchObject({ status: 504, message: SLOW_MESSAGE })
+  it('gives up after twelve seconds with the slow message', async () => {
+    // Fake timers do not drive AbortSignal.timeout, so the twelve-second limit is checked as the value
+    // asked for, and the timeout itself is shortened to 20 ms and fires for real with a TimeoutError.
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(20))
+    vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
+
+    const error: unknown = await chat(REQUEST, new AbortController().signal).catch((err: unknown) => err)
+
+    expect(error).toMatchObject({ status: 504, message: SLOW_MESSAGE })
+    expect(timeoutSpy).toHaveBeenCalledWith(MODEL_CALL_TIMEOUT_MS)
+    expect(MODEL_CALL_TIMEOUT_MS).toBe(12_000)
   })
 
   it('stops at once when the run budget signal aborts', async () => {
     const budget = new AbortController()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: string, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-          }),
-      ),
-    )
+    vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
     const pending = chat(REQUEST, budget.signal).catch((err: unknown) => err)
     budget.abort()
     expect(await pending).toMatchObject({ status: 504, message: SLOW_MESSAGE })

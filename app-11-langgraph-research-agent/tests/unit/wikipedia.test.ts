@@ -21,8 +21,14 @@ const fixture = (name: string): unknown =>
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+/** A fetch that never answers and rejects with the signal's reason when it aborts, as the real fetch does. */
+const hangUntilAborted = (_url: string, init?: RequestInit) =>
+  new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason as unknown))
+  })
+
 afterEach(() => {
-  vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -148,33 +154,22 @@ describe('Wikipedia calls', () => {
   })
 
   it('gives up after six seconds and reports the timeout', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: string, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-          }),
-      ),
+    // Fake timers do not drive AbortSignal.timeout, so the six-second limit is checked as the value
+    // asked for, and the timeout itself is shortened to 20 ms and fires for real with a TimeoutError.
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(20))
+    vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
+
+    await expect(searchWikipedia('Lisbon', new AbortController().signal)).rejects.toThrow(
+      'The Wikipedia search timed out.',
     )
-    const pending = searchWikipedia('Lisbon', new AbortController().signal)
-    const assertion = expect(pending).rejects.toThrow('The Wikipedia search timed out.')
-    await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MS)
-    await assertion
+    expect(timeoutSpy).toHaveBeenCalledWith(TOOL_TIMEOUT_MS)
+    expect(TOOL_TIMEOUT_MS).toBe(6_000)
   })
 
   it('stops when the run budget signal aborts, without waiting for the timer', async () => {
     const budget = new AbortController()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: string, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
-          }),
-      ),
-    )
+    vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
     const pending = searchWikipedia('Lisbon', budget.signal)
     budget.abort()
     await expect(pending).rejects.toBeInstanceOf(WikiError)

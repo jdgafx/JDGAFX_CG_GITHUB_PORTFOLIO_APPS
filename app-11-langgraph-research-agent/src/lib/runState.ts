@@ -61,20 +61,8 @@ export function startRun(): RunView {
 }
 
 function entryFor(frame: NodeEndFrame): TraceEntry {
-  const entry: TraceEntry = {
-    key: keyOf(frame.node, frame.visit),
-    node: frame.node,
-    visit: frame.visit,
-    status: frame.status,
-    ms: frame.ms,
-    detail: frame.detail,
-  }
-  if (frame.model !== undefined) entry.model = frame.model
-  if (frame.servedModel !== undefined) entry.servedModel = frame.servedModel
-  if (frame.usage !== undefined) entry.usage = frame.usage
-  if (frame.cost !== undefined) entry.cost = frame.cost
-  if (frame.costSource !== undefined) entry.costSource = frame.costSource
-  return entry
+  const { node, visit, status, ms, detail, model, servedModel, usage, cost, costSource } = frame
+  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, costSource }
 }
 
 function withEntry(trace: TraceEntry[], entry: TraceEntry): TraceEntry[] {
@@ -121,14 +109,7 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
       return { ...view, phase: 'done', active: null, result: frame, error: null }
     case 'error':
       // A visit still running when the error arrives will never finish, so it is shown as failed.
-      return {
-        ...view,
-        phase: 'failed',
-        active: null,
-        marks: view.active ? { ...view.marks, [view.active]: 'failed' } : view.marks,
-        trace: closeRunning(view.trace, 'failed', frame.message),
-        error: frame.message,
-      }
+      return failRun(view, frame.message)
   }
 }
 
@@ -156,16 +137,11 @@ export function failRun(view: RunView, message: string): RunView {
   }
 }
 
-/** True until the first step has begun. Between two steps the run is running, not starting. */
-function notStartedYet(view: RunView): boolean {
-  return view.trace.length === 0
-}
-
 /** The word for the header badge. */
 export function statusText(view: RunView): string {
   if (view.phase === 'running') {
     if (view.active) return `Running: ${view.active}`
-    return notStartedYet(view) ? 'Starting the run' : 'Running'
+    return view.trace.length === 0 ? 'Starting the run' : 'Running'
   }
   if (view.phase === 'done') return 'Answer ready'
   if (view.phase === 'failed') return 'Failed'
@@ -177,7 +153,7 @@ export function statusText(view: RunView): string {
 export function researchStatus(view: RunView): string {
   if (view.phase === 'running') {
     if (view.active) return `Research running. Current step: ${view.active}.`
-    return notStartedYet(view) ? 'Starting research.' : 'Research running.'
+    return view.trace.length === 0 ? 'Starting research.' : 'Research running.'
   }
   if (view.phase === 'done') return 'Research finished. The cited answer is ready.'
   if (view.phase === 'failed') return 'Research failed. The message above says why.'

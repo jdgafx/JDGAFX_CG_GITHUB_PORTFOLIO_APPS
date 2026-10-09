@@ -1,6 +1,5 @@
 import type { ResultFrame } from '../../netlify/shared/events'
 import { plural } from '../lib/format'
-import { answerNotice } from '../lib/notices'
 import type { Phase } from '../lib/runState'
 
 function criticBadge(result: ResultFrame): { text: string; tone: string } {
@@ -11,7 +10,7 @@ function criticBadge(result: ResultFrame): { text: string; tone: string } {
 
 function paragraphs(text: string): string[] {
   return text
-    .split(/\n\s*\n|\n/)
+    .split('\n')
     .map((part) => part.trim())
     .filter((part) => part !== '')
 }
@@ -41,7 +40,6 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
   }
 
   const badge = criticBadge(result)
-  const notice = answerNotice(result)
   return (
     <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
       <div className="ds-section__head">
@@ -55,7 +53,7 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
         </span>
       </div>
       <div className="ds-stack">
-        {notice && <p className="ds-notice">{notice}</p>}
+        {result.truncated && <p className="ds-notice">The answer was cut short at its length limit.</p>}
         <div className="answer-text">
           {paragraphs(result.answer).map((part, i) => (
             <p key={i}>{part}</p>

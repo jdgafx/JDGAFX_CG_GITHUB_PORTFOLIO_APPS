@@ -13,15 +13,8 @@ export const RUN_BUDGET_MS = 25_000
 
 const limiter = createRateLimiter()
 
-function jsonResponse(body: unknown, status: number, headers: Record<string, string>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...headers },
-  })
-}
-
 function fail(message: string, status: number, headers: Record<string, string>): Response {
-  return jsonResponse({ success: false, error: message }, status, headers)
+  return Response.json({ success: false, error: message }, { status, headers })
 }
 
 /** Starts the run and returns its SSE stream at once. Frames follow as the graph moves. */

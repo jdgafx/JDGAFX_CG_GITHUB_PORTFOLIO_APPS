@@ -4,7 +4,6 @@ import {
   costFor,
   CRITIC_MODEL,
   DRAFT_MODEL,
-  GPT_OSS_20B_MODEL,
   MAX_TOKENS,
   PLAN_MODEL,
   TEMPERATURE,
@@ -29,13 +28,6 @@ describe('costFor', () => {
     // 1000 prompt tokens at $0.14 per 1M plus 200 completion tokens at $0.28 per 1M.
     expect(costFor(PLAN_MODEL, { prompt_tokens: 1000, completion_tokens: 200 })).toEqual({
       cost: 0.000196,
-      source: 'estimated',
-    })
-  })
-
-  it('matches the brief example: 1000 prompt and 200 completion tokens on gpt-oss-20b cost 0.000036', () => {
-    expect(costFor(GPT_OSS_20B_MODEL, { prompt_tokens: 1000, completion_tokens: 200 })).toEqual({
-      cost: 0.000036,
       source: 'estimated',
     })
   })

@@ -79,7 +79,6 @@ function routeAfter(state: ResearchValues): Target {
  */
 export function buildGraph(deps: GraphDeps) {
   const origin = Date.now()
-  const ctx: NodeContext = { chat: deps.chat, wiki: deps.wiki, signal: deps.signal }
 
   const wrap =
     (name: NodeName, run: (state: ResearchValues, ctx: NodeContext) => NodeResult | Promise<NodeResult>) =>
@@ -89,7 +88,7 @@ export function buildGraph(deps: GraphDeps) {
       write({ kind: 'start', node: name, visit, ms: Date.now() - origin } satisfies StartChunk)
       const began = Date.now()
       try {
-        const result = await run(state, ctx)
+        const result = await run(state, deps)
         const row = rowFor(name, visit, Date.now() - began, result)
         return { ...result.update, route: result.route ?? null, trace: [row] }
       } catch (err) {

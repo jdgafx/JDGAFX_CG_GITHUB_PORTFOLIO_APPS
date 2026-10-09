@@ -1,4 +1,3 @@
-import { deadline } from './deadline'
 import { PlainError } from './errors'
 import { isAbortError, isRecord } from './json'
 
@@ -96,28 +95,20 @@ export function parsePage(json: unknown, requestedTitle: string): PageText {
 }
 
 async function getJson(url: string, signal: AbortSignal, action: string): Promise<unknown> {
-  const guard = deadline(signal, TOOL_TIMEOUT_MS)
+  // The call ends when the run budget aborts or after the per-call limit, whichever comes first.
+  const callSignal = AbortSignal.any([signal, AbortSignal.timeout(TOOL_TIMEOUT_MS)])
   const timedOut = () => new WikiError(504, `The ${action} timed out.`)
+  let response: Response
   try {
-    let response: Response
-    try {
-      response = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-        signal: guard.signal,
-      })
-    } catch (err) {
-      throw isAbortError(err) ? timedOut() : new WikiError(502, 'Could not reach Wikipedia.')
-    }
-    if (!response.ok) throw new WikiError(502, 'Wikipedia returned an error.')
-    try {
-      return (await response.json()) as unknown
-    } catch (err) {
-      throw isAbortError(err)
-        ? timedOut()
-        : new WikiError(502, 'Wikipedia sent a reply that could not be read.')
-    }
-  } finally {
-    guard.done()
+    response = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: callSignal })
+  } catch (err) {
+    throw isAbortError(err) ? timedOut() : new WikiError(502, 'Could not reach Wikipedia.')
+  }
+  if (!response.ok) throw new WikiError(502, 'Wikipedia returned an error.')
+  try {
+    return (await response.json()) as unknown
+  } catch (err) {
+    throw isAbortError(err) ? timedOut() : new WikiError(502, 'Wikipedia sent a reply that could not be read.')
   }
 }
 

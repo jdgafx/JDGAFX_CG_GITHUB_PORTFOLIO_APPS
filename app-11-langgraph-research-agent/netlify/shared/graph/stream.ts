@@ -1,5 +1,6 @@
 import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
 import type { Frame, NodeEndFrame, NodeName, ResultFrame, Totals } from '../events'
+import { round12 } from '../models'
 import { SLOW_MESSAGE } from '../openrouter'
 import { isRecord } from '../json'
 import { buildGraph, type CustomChunk, type GraphDeps } from './build'
@@ -7,29 +8,26 @@ import type { ResearchValues, TraceRow } from './state'
 
 export const GRAPH_RECURSION_LIMIT = 30
 
-const round12 = (value: number) => Math.round(value * 1e12) / 1e12
-
 function nodeEnd(row: TraceRow): NodeEndFrame {
-  const frame: NodeEndFrame = {
+  const { node, visit, ms, status, detail, model, servedModel, cost, costSource, usage } = row
+  // JSON drops the undefined fields, so a row without a model call sends none of them.
+  return {
     type: 'node_end',
-    node: row.node,
-    visit: row.visit,
-    ms: row.ms,
-    status: row.status,
-    detail: row.detail,
+    node,
+    visit,
+    ms,
+    status,
+    detail,
+    model,
+    servedModel,
+    cost,
+    costSource,
+    usage: usage && {
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      total_tokens: usage.total_tokens,
+    },
   }
-  if (row.model !== undefined) frame.model = row.model
-  if (row.servedModel !== undefined) frame.servedModel = row.servedModel
-  if (row.usage !== undefined) {
-    frame.usage = {
-      prompt_tokens: row.usage.prompt_tokens,
-      completion_tokens: row.usage.completion_tokens,
-      total_tokens: row.usage.total_tokens,
-    }
-  }
-  if (row.cost !== undefined) frame.cost = row.cost
-  if (row.costSource !== undefined) frame.costSource = row.costSource
-  return frame
 }
 
 /** Maps one custom chunk to a frame. Returns the failure text when a node failed. */

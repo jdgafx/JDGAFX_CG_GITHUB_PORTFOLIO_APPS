@@ -157,6 +157,7 @@ export function GraphView({ view }: GraphViewProps) {
             ))}
           </svg>
         </div>
+        <p className="ds-help graph-hint">Swipe sideways to see the tools loop on the right.</p>
         {decisions.length > 0 && (
           <ul className="edge-log" aria-label="Decisions taken">
             {decisions.map(([key, label]) => (

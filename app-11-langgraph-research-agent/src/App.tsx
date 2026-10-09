@@ -6,7 +6,6 @@ import { Header } from './components/Header'
 import { QuestionForm } from './components/QuestionForm'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
-import { SAMPLE_QUESTION } from './lib/constants'
 import { INTERRUPTED_MESSAGE, streamResearch } from './lib/research'
 import { applyFrame, emptyRun, failRun, researchStatus, startRun, stopRun, type RunView } from './lib/runState'
 
@@ -51,14 +50,14 @@ export default function App() {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
-    const settled = { terminal: false }
+    let terminal = false
     dispatch({ type: 'start' })
     try {
       await streamResearch(text, controller.signal, (frame) => {
-        if (frame.type === 'result' || frame.type === 'error') settled.terminal = true
+        if (frame.type === 'result' || frame.type === 'error') terminal = true
         dispatch({ type: 'frame', frame })
       })
-      if (!controller.signal.aborted && !settled.terminal) {
+      if (!controller.signal.aborted && !terminal) {
         dispatch({ type: 'fail', message: INTERRUPTED_MESSAGE })
       }
     } catch (err) {
@@ -76,8 +75,8 @@ export default function App() {
     dispatch({ type: 'cancel' })
   }
 
-  const loadSample = () => {
-    setQuestion(SAMPLE_QUESTION)
+  const loadSample = (sample: string) => {
+    setQuestion(sample)
     dispatch({ type: 'reset' })
   }
 
