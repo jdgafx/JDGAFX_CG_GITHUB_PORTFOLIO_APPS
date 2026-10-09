@@ -27,17 +27,30 @@ function values(overrides: Partial<GraphValues>): GraphValues {
 }
 
 describe('padTrace', () => {
-  it('lists every node in graph order, and marks the ones that did not run', () => {
+  it('lists every node in graph order, and marks the ones that have not run yet as pending on a waiting thread', () => {
     const rows = padTrace([intakeRow], 'awaiting_approval')
     expect(rows.map((row) => [row.node, row.status])).toEqual([
       ['intake', 'ok'],
-      ['policy', 'skipped'],
-      ['decide', 'skipped'],
-      ['review', 'skipped'],
-      ['reply', 'skipped'],
+      ['policy', 'pending'],
+      ['decide', 'pending'],
+      ['review', 'pending'],
+      ['reply', 'pending'],
     ])
     expect(rows[3].detail).toBe('Waiting for a person.')
     expect(rows[4].detail).toBe('Not run yet.')
+  })
+
+  it('marks a node that never ran as skipped on a finished or failed thread, never as pending', () => {
+    for (const status of ['completed', 'failed'] as const) {
+      const rows = padTrace([intakeRow], status)
+      expect(rows.map((row) => row.status)).toEqual(['ok', 'skipped', 'skipped', 'skipped', 'skipped'])
+    }
+  })
+
+  it('keeps the rows that ran, whatever the thread status', () => {
+    const rows = padTrace([intakeRow, decideRow], 'awaiting_approval')
+    expect(rows[0]).toBe(intakeRow)
+    expect(rows[2]).toBe(decideRow)
   })
 
   it('explains an automatic path and a failed thread in plain words', () => {
@@ -101,6 +114,14 @@ describe('threadViewOf', () => {
     const view = threadViewOf({ threadId: 'thread-3', entry, storage: 'memory', values: values({}), proposal })
     expect(view).toMatchObject({ status: 'awaiting_approval', storage: 'memory', result: null })
     expect(view.proposal).toEqual(proposal)
+    expect(view.trace.map((row) => row.status)).toEqual(['ok', 'pending', 'ok', 'pending', 'pending'])
+  })
+
+  it('returns the full ticket text, not the shortened title', () => {
+    const long = 'I was charged twice for ORD-1042. '.repeat(10).trim()
+    const view = threadViewOf({ threadId: 'thread-3', entry, storage: 'memory', values: values({ ticket: long }), proposal })
+    expect(view.ticket).toBe(long)
+    expect(view.title).toBe('Duplicate charge')
   })
 
   it('shows the result and no proposal once the thread is completed', () => {

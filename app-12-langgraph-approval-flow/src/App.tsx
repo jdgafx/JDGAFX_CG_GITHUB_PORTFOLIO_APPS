@@ -11,6 +11,7 @@ import { TraceCard } from './components/TraceCard'
 import { SAMPLE_TICKETS, type SampleTicket } from './constants'
 import { failureText, fetchThread, fetchThreads, isAbortError, resumeThread, startTicket } from './lib/api'
 import { ticketProblem } from './lib/limits'
+import { outcomeAfterFailure } from './lib/resume-failure'
 import { applyEvent, emptyRun, NODES, runFromView, type Phase, type RunView } from './lib/run-state'
 import type { HumanDecision, NodeName } from './types'
 
@@ -30,6 +31,7 @@ function statusLine(phase: Phase, run: RunView, current: NodeName | null): strin
   }
 }
 
+/** `resuming` marks a stream that continues a paused thread, so a lost connection can keep its approval card. */
 type Stream = (onEvent: (event: StreamEvent) => void, signal: AbortSignal) => Promise<void>
 
 export default function App() {
@@ -67,15 +69,18 @@ export default function App() {
   useEffect(() => () => streamRef.current?.abort(), [])
 
   /** Runs one stream (a new ticket or a resume) and folds its events into the page. */
-  const stream = async (open: Stream) => {
+  const stream = async (open: Stream, resuming = false) => {
     streamRef.current?.abort()
     const controller = new AbortController()
     streamRef.current = controller
+    const from = phase
+    let eventsArrived = false
     setRequestError(null)
     setPhase('running')
 
     const outcome: { phase: Phase | null } = { phase: null }
     const onEvent = (event: StreamEvent) => {
+      eventsArrived = true
       setRun((prev) => applyEvent(prev, event))
       if (event.type === 'interrupt') {
         outcome.phase = 'paused'
@@ -97,8 +102,9 @@ export default function App() {
       }
     } catch (err) {
       if (!isAbortError(err)) {
-        setRequestError(failureText(err))
-        setPhase('failed')
+        const after = outcomeAfterFailure({ from, eventsArrived, resuming, error: err })
+        setRequestError(after.message ?? failureText(err))
+        setPhase(after.phase)
       }
     } finally {
       if (streamRef.current === controller) streamRef.current = null
@@ -118,7 +124,7 @@ export default function App() {
       setRequestError('This thread has no id, so it cannot be resumed. Open it again from the list.')
       return
     }
-    void stream((onEvent, signal) => resumeThread(threadId, decision, onEvent, signal))
+    void stream((onEvent, signal) => resumeThread(threadId, decision, onEvent, signal), true)
   }
 
   const handleOpen = async (threadId: string) => {
@@ -126,6 +132,7 @@ export default function App() {
     try {
       const view = await fetchThread(threadId)
       setRun(runFromView(view))
+      setTicket(view.ticket)
       setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
     } catch (err) {
       if (!isAbortError(err)) setRequestError(failureText(err))

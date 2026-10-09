@@ -10,7 +10,7 @@ import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from
 import { buildResult, threadViewOf } from './thread-view'
 import { getThreadEntry, titleFor, upsertThread } from './thread-index'
 
-export const RUN_BUDGET_MESSAGE = 'The run took longer than 40 seconds and was stopped. The thread is marked failed.'
+export const RUN_BUDGET_MESSAGE = 'The run took longer than 25 seconds and was stopped. The thread is marked failed.'
 export const GENERIC_RUN_FAILURE = 'The run stopped before it finished. The thread is marked failed.'
 
 export type Send = (event: StreamEvent) => void
@@ -44,7 +44,7 @@ function userMessage(err: unknown): string {
 
 /**
  * Writes the thread's row. These calls have the per-call limit but not the run budget, so a run that
- * used its whole budget can still record how it ended. Two calls of 8 s each keep the request under 60 s.
+ * used its whole budget can still record how it ended. Each call stops after 8 s at most.
  */
 async function recordThread(
   deps: RunDeps,

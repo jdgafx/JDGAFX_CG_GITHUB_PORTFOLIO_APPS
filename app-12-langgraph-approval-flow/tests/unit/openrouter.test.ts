@@ -103,6 +103,12 @@ describe('requestBody', () => {
     })
   })
 
+  it('sends no temperature when the request has none, even with provider routing on', () => {
+    const body = requestBody({ model: REQUEST.model, maxTokens: 500, messages: REQUEST.messages })
+    expect(body).not.toHaveProperty('temperature')
+    expect(body).toMatchObject({ provider: { require_parameters: true } })
+  })
+
   it('adds tools with auto tool choice when tools are given', () => {
     const tools = [{ type: 'function' as const, function: { name: 'x', description: 'y', parameters: { type: 'object' } } }]
     expect(requestBody({ ...REQUEST, tools })).toMatchObject({ tools, tool_choice: 'auto' })

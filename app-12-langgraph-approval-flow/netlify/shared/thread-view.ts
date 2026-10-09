@@ -13,11 +13,15 @@ function missingDetail(node: NodeName, status: ThreadStatus): string {
   return node === 'review' ? NOT_NEEDED_DETAIL : 'Not run on this path.'
 }
 
-/** One row per node in graph order. A node that never ran shows as skipped, so the trace is always complete. */
+/**
+ * One row per node in graph order, so the trace is always complete. A node that never ran is
+ * pending while the thread still waits for a person (it will run), and skipped otherwise.
+ */
 export function padTrace(rows: readonly TraceRow[], status: ThreadStatus): TraceRow[] {
+  const missing = status === 'awaiting_approval' ? 'pending' : 'skipped'
   return NODE_ORDER.map((node) => {
     const row = rows.filter((candidate) => candidate.node === node).at(-1)
-    return row ?? { node, status: 'skipped', ms: 0, detail: missingDetail(node, status) }
+    return row ?? { node, status: missing, ms: 0, detail: missingDetail(node, status) }
   })
 }
 
@@ -60,6 +64,7 @@ export function threadViewOf(input: ThreadViewInput): ThreadView {
   return {
     threadId: input.threadId,
     title: entry.title,
+    ticket: values.ticket,
     status: entry.status,
     updatedAt: entry.updatedAt,
     storage: input.storage,

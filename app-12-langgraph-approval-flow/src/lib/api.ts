@@ -13,7 +13,16 @@ const GENERIC = 'The run stopped unexpectedly. Try again.'
 
 /** A failure whose message is written for the visitor. Only these messages are shown as they are. */
 export class RequestFailure extends Error {
-  constructor(message: string) {
+  /**
+   * `status` is the HTTP status when the server answered. `connection` is true when no answer
+   * came at all: the network failed or the server did not respond in time. A stream that breaks after
+   * the server answered is not a connection failure.
+   */
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly connection = false,
+  ) {
     super(message)
     this.name = 'RequestFailure'
   }
@@ -121,7 +130,7 @@ async function failureFrom(response: Response): Promise<RequestFailure> {
   const body: unknown = await response.json().catch(() => null)
   const fallback =
     response.status === 429 ? 'Rate limited, try again in a minute.' : 'The server could not start the run. Try again.'
-  return new RequestFailure(messageOf(body) ?? fallback)
+  return new RequestFailure(messageOf(body) ?? fallback, response.status)
 }
 
 /**
@@ -149,8 +158,8 @@ async function streamFrom(
     })
   } catch (err) {
     if (signal?.aborted) throw err
-    if (connect.signal.aborted) throw new RequestFailure('The server took too long to answer. Try again.')
-    throw new RequestFailure(UNREACHABLE)
+    if (connect.signal.aborted) throw new RequestFailure('The server took too long to answer. Try again.', undefined, true)
+    throw new RequestFailure(UNREACHABLE, undefined, true)
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', cancelConnect)
@@ -185,10 +194,10 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     response = await fetch(path, { headers: { Accept: 'application/json' }, signal })
   } catch (err) {
     if (isAbortError(err)) throw err
-    throw new RequestFailure(UNREACHABLE)
+    throw new RequestFailure(UNREACHABLE, undefined, true)
   }
   const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new RequestFailure(messageOf(body) ?? 'The server could not answer. Try again.')
+  if (!response.ok) throw new RequestFailure(messageOf(body) ?? 'The server could not answer. Try again.', response.status)
   return body as T
 }
 
@@ -196,6 +205,11 @@ export function fetchThreads(signal?: AbortSignal): Promise<ThreadsResponse> {
   return getJson<ThreadsResponse>('/api/threads', signal)
 }
 
-export function fetchThread(threadId: string, signal?: AbortSignal): Promise<ThreadResponse> {
-  return getJson<ThreadResponse>(`/api/thread?id=${encodeURIComponent(threadId)}`, signal)
+export async function fetchThread(threadId: string, signal?: AbortSignal): Promise<ThreadResponse> {
+  const view = await getJson<ThreadResponse>(`/api/thread?id=${encodeURIComponent(threadId)}`, signal)
+  // The ticket fills the form, so it is checked here instead of trusted.
+  if (typeof (view as { ticket?: unknown } | null)?.ticket !== 'string') {
+    throw new RequestFailure('The server sent a thread the page could not read. Try again.')
+  }
+  return view
 }

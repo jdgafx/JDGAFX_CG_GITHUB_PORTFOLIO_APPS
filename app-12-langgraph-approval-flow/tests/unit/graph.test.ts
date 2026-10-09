@@ -3,6 +3,7 @@ import { Command, type StateSnapshot } from '@langchain/langgraph'
 import { buildGraph } from '../../netlify/shared/graph'
 import { GraphGateSaver } from '../../netlify/shared/blobs-saver'
 import { DECIDE_MODEL, INTAKE_MODEL, REPLY_MODEL } from '../../netlify/shared/models'
+import { requestBody } from '../../netlify/shared/openrouter'
 import { createMemoryStore } from '../../netlify/shared/store'
 import type { TraceRow } from '../../src/types'
 import { fakeChat } from '../helpers/fake-chat'
@@ -104,6 +105,26 @@ describe('graph: small refund path', () => {
     const { values } = await graph.getState({ configurable: { thread_id: 'graph-small-2' } })
     const intake = values.trace.find((row: TraceRow) => row.node === 'intake')
     expect(intake).toMatchObject({ model: INTAKE_MODEL, usage: { total_tokens: 120 } })
+  })
+
+  it('sends no temperature on the decide and reply calls, so the current Haiku is not rejected', async () => {
+    const chat = fakeChat()
+    const { graph } = setup(chat)
+
+    await start(graph, 'graph-small-3', SMALL_TICKET)
+
+    const [intake, decide, reply] = chat.mock.calls.map(([request]) => request)
+    expect(intake).toMatchObject({ temperature: 0, json: true })
+    expect(decide).not.toHaveProperty('temperature')
+    expect(reply).not.toHaveProperty('temperature')
+    // The wire body: provider routing is on for decide and reply, and neither carries a temperature.
+    for (const request of [decide, reply]) {
+      const body = requestBody(request)
+      expect(body).not.toHaveProperty('temperature')
+      expect(body).toMatchObject({ provider: { require_parameters: true } })
+    }
+    expect(requestBody(intake)).toMatchObject({ temperature: 0 })
+    expect(requestBody(intake)).not.toHaveProperty('provider')
   })
 })
 

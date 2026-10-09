@@ -1,7 +1,7 @@
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 /** One model call gets at most this long. The run budget is shared by every call in a run. */
-export const CALL_TIMEOUT_MS = 20_000
+export const CALL_TIMEOUT_MS = 12_000
 
 // User-facing copy. Provider bodies, keys and raw errors never leave the server.
 export const PROVIDER_NOT_CONFIGURED = 'The AI provider is not configured.'
@@ -151,7 +151,7 @@ export function requestBody(request: ChatRequest): Record<string, unknown> {
 }
 
 /**
- * One chat completion. The run's signal cancels the call. The call's own 20 s timeout is added
+ * One chat completion. The run's signal cancels the call. The call's own 12 s timeout is added
  * on top, so a stalled provider cannot hold the run past its budget.
  */
 export async function chat(request: ChatRequest, signal: AbortSignal): Promise<ChatResult> {

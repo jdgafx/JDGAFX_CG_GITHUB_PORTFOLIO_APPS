@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RunBudget } from '../../netlify/shared/budget'
+import { RUN_BUDGET_MS, RunBudget } from '../../netlify/shared/budget'
 import type { StreamEvent } from '../../netlify/shared/events'
-import { startRun, type RunDeps } from '../../netlify/shared/run'
+import { CALL_TIMEOUT_MS } from '../../netlify/shared/openrouter'
+import { RUN_BUDGET_MESSAGE, startRun, type RunDeps } from '../../netlify/shared/run'
+import { streamResponse } from '../../netlify/shared/sse'
 import { createMemoryStore, STORE_SLOW, type KeyValueStore } from '../../netlify/shared/store'
 import { readThreadIndex } from '../../netlify/shared/thread-index'
 import { fakeChat } from '../helpers/fake-chat'
 import { untilSettled } from '../helpers/fake-time'
+import { parseFrames } from '../helpers/http'
 
 const NOW = new Date('2026-10-08T12:00:00Z')
 const TICKET = 'Order ORD-1077 arrived with a dead wheel on the mouse, please refund that item.'
@@ -56,4 +59,43 @@ describe('a run whose checkpoint store never answers', () => {
       expect(index).toEqual([expect.objectContaining({ id: `hang-${hang}`, status: 'failed' })])
     },
   )
+})
+
+describe('the run budget', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('is 25 seconds, with the message and the model call limit to match', () => {
+    expect(RUN_BUDGET_MS).toBe(25_000)
+    expect(RUN_BUDGET_MESSAGE).toContain('25 seconds')
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
+    expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
+  })
+
+  it('ends the stream with the budget error, a failed thread and [DONE] when a short budget runs out', async () => {
+    const store = createMemoryStore()
+    // A model call that never answers on its own and stops only when the run is aborted.
+    const stalled = vi.fn((_request: unknown, signal: AbortSignal) =>
+      new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')))
+      }),
+    )
+    const deps: RunDeps = { store, storage: 'memory', chat: stalled as unknown as RunDeps['chat'], now: () => NOW }
+
+    const response = streamResponse(new RunBudget(3_000), (send, signal) =>
+      startRun(deps, { ticket: TICKET, threadId: 'budget-short', budget: signal, send }),
+    )
+    const frames = parseFrames(await untilSettled(response.text()))
+
+    expect(frames.find((frame) => frame !== '[DONE]' && frame.type === 'error')).toEqual({ type: 'error', message: RUN_BUDGET_MESSAGE })
+    expect(frames.at(-1)).toBe('[DONE]')
+    expect(await readThreadIndex(store)).toEqual([expect.objectContaining({ id: 'budget-short', status: 'failed' })])
+  })
 })

@@ -29,6 +29,7 @@ export function emptyRun(threadId: string | null = null): RunView {
 }
 
 function statusOf(status: TraceStatus): NodeStatus {
+  if (status === 'pending') return 'idle'
   if (status === 'failed') return 'failed'
   if (status === 'skipped') return 'skipped'
   return 'done'
@@ -89,7 +90,7 @@ export function runFromView(view: ThreadView): RunView {
     threadId: view.threadId,
     nodes,
     taken,
-    trace: view.trace.filter((row) => row.status !== 'skipped'),
+    trace: view.trace.filter((row) => row.status !== 'skipped' && row.status !== 'pending'),
     proposal: view.proposal,
     result: view.result,
     error: view.status === 'failed' ? 'This thread stopped before it finished. Its steps are listed in the trace.' : null,

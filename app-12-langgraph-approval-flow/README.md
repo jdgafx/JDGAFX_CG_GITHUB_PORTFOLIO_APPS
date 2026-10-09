@@ -51,12 +51,12 @@ Browser, then Netlify Functions, then OpenRouter and Netlify Blobs.
 - `POST /api/start` takes `{ ticket }` (10 to 2,000 characters). It streams server-sent frames: `thread`, then `node_start`, `node_end`, `edge`, then `interrupt` or `result`, then `[DONE]`.
 - `POST /api/resume` takes `{ threadId, decision }`. It streams the rest of the run from the checkpoint. A thread that is not waiting gets 409.
 - `GET /api/threads` returns the thread index and where checkpoints are kept.
-- `GET /api/thread?id=` returns one thread's status, pending proposal and result.
+- `GET /api/thread?id=` returns one thread's status, full ticket text, pending proposal and result.
 - Checkpoints use the `graphgate-checkpoints` Blobs store, with keys under `thread/<id>/`. The thread index is one document at `threads/index`. It keeps 50 threads, and a thread awaiting approval is never dropped.
 - The checkpoint saver imports its base class, `WRITES_IDX_MAP` and checkpoint types from `@langchain/langgraph-checkpoint`. That package is therefore a direct dependency, pinned to the version `@langchain/langgraph` already uses.
 - The OpenRouter key is read only on the server. A missing key returns 503 before any model call.
 - Requests from unknown origins get 403, and wrong methods get 405. A request with no Origin header passes. Bodies over 16 KB get 413. Each client address gets 20 starts or resumes a minute.
-- One request has a 40-second budget. Each model call has 20 seconds, and each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call fails the run with a plain message, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit, so a request ends within about 56 seconds.
+- One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 12 seconds, and each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit and is not counted in the budget.
 - Reads of the thread list and of one thread use the 8-second limit only.
 - A failure is sent as an `error` frame with plain-language text. The trace marks the step that failed.
 

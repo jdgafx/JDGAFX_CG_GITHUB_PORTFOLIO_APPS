@@ -44,7 +44,8 @@ export type NodeName = 'intake' | 'policy' | 'decide' | 'review' | 'reply'
 
 export type RunStatus = 'running' | 'awaiting_approval' | 'completed'
 
-export type TraceStatus = 'ok' | 'failed' | 'skipped'
+/** pending marks a node that has not run yet on a thread that is still waiting. */
+export type TraceStatus = 'ok' | 'failed' | 'skipped' | 'pending'
 
 export interface TokenUsage {
   prompt_tokens?: number
@@ -110,6 +111,8 @@ export interface RunResult {
 export interface ThreadView {
   threadId: string
   title: string
+  /** The full ticket text, so opening a thread can fill the form to match. */
+  ticket: string
   status: ThreadStatus
   updatedAt: string
   storage: 'blobs' | 'memory'

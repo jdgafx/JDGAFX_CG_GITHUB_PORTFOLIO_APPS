@@ -5,7 +5,7 @@ import type { RunTotals, TraceRow } from '../types'
  * them, so a partial figure never appears as a whole one. Shared by the server and the browser.
  */
 export function totalsOf(rows: readonly TraceRow[]): RunTotals {
-  const ran = rows.filter((row) => row.status !== 'skipped')
+  const ran = rows.filter((row) => row.status !== 'skipped' && row.status !== 'pending')
   const modelRows = ran.filter((row) => row.model !== undefined)
   const nodeMs = ran.reduce((sum, row) => sum + row.ms, 0)
   const models = [...new Set(modelRows.map((row) => row.model ?? ''))].filter(Boolean)

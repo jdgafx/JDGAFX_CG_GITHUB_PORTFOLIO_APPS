@@ -46,14 +46,15 @@ describe('GET /api/thread', () => {
       storage: 'blobs',
       proposal: { proposal: { action: 'refund', amount: 129 }, orderTotal: 129 },
       result: null,
+      ticket: LARGE,
     })
     const trace = body.trace as Array<{ node: string; status: string }>
     expect(trace.map((row) => [row.node, row.status])).toEqual([
       ['intake', 'ok'],
       ['policy', 'ok'],
       ['decide', 'ok'],
-      ['review', 'skipped'],
-      ['reply', 'skipped'],
+      ['review', 'pending'],
+      ['reply', 'pending'],
     ])
   })
 

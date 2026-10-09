@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { processSSELines, RequestFailure, startTicket } from '../../src/lib/api'
+import { fetchThread, processSSELines, RequestFailure, resumeThread, startTicket } from '../../src/lib/api'
 import type { StreamEvent } from '../../netlify/shared/events'
 
 afterEach(() => {
@@ -78,5 +78,30 @@ describe('startTicket', () => {
     await expect(startTicket('Order ORD-1077 arrived damaged, please refund.', () => {})).rejects.toThrow(
       'Could not reach the server.',
     )
+  })
+
+  it('marks a lost connection and a server error on the failure, so the page can tell them from a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('network down'))))
+    const lost = await resumeThread('t-1', { action: 'approve' }, () => {}).catch((err: unknown) => err)
+    expect(lost).toMatchObject({ connection: true, status: undefined })
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: false, error: 'Busy.' }), { status: 503 })))
+    const busy = await resumeThread('t-1', { action: 'approve' }, () => {}).catch((err: unknown) => err)
+    expect(busy).toMatchObject({ connection: false, status: 503, message: 'Busy.' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: false, error: 'This thread is not awaiting approval.' }), { status: 409 })))
+    const refused = await resumeThread('t-1', { action: 'approve' }, () => {}).catch((err: unknown) => err)
+    expect(refused).toMatchObject({ connection: false, status: 409 })
+  })
+
+  it('reads the full ticket from a thread, and refuses a thread body without one', async () => {
+    const view = { success: true, threadId: 't-1', title: 'Order', ticket: 'Order ORD-1077 arrived damaged, please refund.', status: 'completed' }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(view), { status: 200 })))
+    await expect(fetchThread('t-1')).resolves.toMatchObject({ ticket: 'Order ORD-1077 arrived damaged, please refund.' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...view, ticket: 42 }), { status: 200 })))
+    await expect(fetchThread('t-1')).rejects.toThrow('could not read')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200 })))
+    await expect(fetchThread('t-1')).rejects.toThrow('could not read')
   })
 })

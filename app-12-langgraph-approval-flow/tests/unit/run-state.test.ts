@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { StreamEvent } from '../../netlify/shared/events'
 import { NOT_NEEDED_DETAIL } from '../../netlify/shared/events'
 import { applyEvent, emptyRun, runFromView } from '../../src/lib/run-state'
+import { padTrace } from '../../netlify/shared/thread-view'
 import { formatCost, formatMs, formatTokens } from '../../src/lib/format'
 import type { ThreadView } from '../../src/types'
 
@@ -78,6 +79,7 @@ describe('runFromView', () => {
     const view: ThreadView = {
       threadId: 't-4',
       title: 'Duplicate charge',
+      ticket: 'I was charged twice for ORD-1042.',
       status: 'awaiting_approval',
       updatedAt: '2026-10-08T12:00:00.000Z',
       storage: 'blobs',
@@ -86,23 +88,71 @@ describe('runFromView', () => {
         ['intake', 'ok'],
         ['policy', 'ok'],
         ['decide', 'ok'],
-        ['review', 'skipped'],
-        ['reply', 'skipped'],
+        ['review', 'pending'],
+        ['reply', 'pending'],
       ]),
       result: null,
     }
     const run = runFromView(view)
     expect(run.nodes.review).toBe('waiting')
-    expect(run.nodes.reply).toBe('skipped')
+    expect(run.nodes.reply).toBe('idle')
     expect(run.taken).toMatchObject({ 'decide>review': 'requiresHuman' })
     expect(run.proposal).toEqual(proposal)
     expect(run.trace.map((row) => row.node)).toEqual(['intake', 'policy', 'decide'])
+  })
+
+  it('shows a reloaded waiting thread exactly like the live paused run', () => {
+    const live = apply([
+      { type: 'thread', threadId: 't-6' },
+      { type: 'node_end', node: 'intake', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'node_end', node: 'policy', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'node_end', node: 'decide', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },
+      { type: 'node_start', node: 'review', ms: 1 },
+      { type: 'interrupt', node: 'review', threadId: 't-6', payload: proposal },
+    ])
+    const reloaded = runFromView({
+      threadId: 't-6',
+      title: 'Duplicate charge',
+      ticket: 'I was charged twice for ORD-1042.',
+      status: 'awaiting_approval',
+      updatedAt: '2026-10-08T12:00:00.000Z',
+      storage: 'blobs',
+      proposal,
+      trace: padTrace(live.trace, 'awaiting_approval'),
+      result: null,
+    })
+    expect(reloaded.nodes).toEqual({ intake: 'done', policy: 'done', decide: 'done', review: 'waiting', reply: 'idle' })
+    expect(reloaded.nodes).toEqual(live.nodes)
+    expect(reloaded.trace.map((row) => row.node)).toEqual(['intake', 'policy', 'decide'])
+  })
+
+  it('keeps review skipped on a finished automatic path', () => {
+    const view: ThreadView = {
+      threadId: 't-7',
+      title: 'Small refund',
+      ticket: 'Order ORD-1077 arrived damaged.',
+      status: 'completed',
+      updatedAt: '2026-10-08T12:00:00.000Z',
+      storage: 'blobs',
+      proposal: null,
+      trace: trace([
+        ['intake', 'ok'],
+        ['policy', 'ok'],
+        ['decide', 'ok'],
+        ['review', 'skipped'],
+        ['reply', 'ok'],
+      ]),
+      result: null,
+    }
+    expect(runFromView(view).nodes.review).toBe('skipped')
   })
 
   it('rebuilds a failed thread with its error text', () => {
     const view: ThreadView = {
       threadId: 't-5',
       title: 'Failed',
+      ticket: 'Order ORD-1077 arrived damaged.',
       status: 'failed',
       updatedAt: '2026-10-08T12:00:00.000Z',
       storage: 'memory',

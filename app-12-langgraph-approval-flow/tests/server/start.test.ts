@@ -144,7 +144,7 @@ describe('POST /api/start', () => {
     expect(typesOf(frames).at(-1)).toBe('[DONE]')
   })
 
-  it('maps a model call that never answers to the did-not-answer message after 20 seconds', async () => {
+  it('maps a model call that never answers to the did-not-answer message after the call limit', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.stubGlobal(
       'fetch',

@@ -205,13 +205,13 @@ async function runChat(
   deps: NodeDeps,
   model: string,
   maxTokens: number,
-  prompt: { system: string; user: string; temperature: number; json?: boolean; requireParameters?: boolean },
+  prompt: { system: string; user: string; temperature?: number; json?: boolean; requireParameters?: boolean },
   signal: AbortSignal,
 ): Promise<CallRecord> {
   const request: ChatRequest = {
     model,
     maxTokens,
-    temperature: prompt.temperature,
+    ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
     json: prompt.json,
     requireParameters: prompt.requireParameters,
     messages: [
@@ -286,7 +286,7 @@ export async function decideNode(
         `Policy verdict: ${policyResult.reason}`,
         `Outcome: ${outcomeText(action, amount)}`,
       ].join('\n'),
-      temperature: 0,
+      // No temperature: the current Haiku rejects it next to require_parameters, and OpenRouter then serves an older model.
       json: true,
     },
     signalOf(config),
@@ -349,7 +349,7 @@ export async function replyNode(
         `Reason: ${proposal.rationale}`,
         `Reviewer note: ${final.note ?? 'none'}`,
       ].join('\n'),
-      temperature: 0.3,
+      // No temperature, for the same reason as the decide call.
     },
     signalOf(config),
   )
