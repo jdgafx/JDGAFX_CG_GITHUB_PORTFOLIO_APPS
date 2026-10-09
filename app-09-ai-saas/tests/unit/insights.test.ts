@@ -50,7 +50,7 @@ describe('buildPrompt', () => {
 describe('checkFigures', () => {
   it('matches every percentage and count that comes from the summary', () => {
     const text =
-      'React averaged 32,583,774 downloads a day, 912.3 million in total, up 3.2%. Vue fell 4.1%. Svelte grew 12.8% and holds 9.4%. Weekends run at 54.1% of weekdays, 45.9% lower. Together 1.5 billion.'
+      'React averaged 32,583,774 downloads a day, 912.3 million in total, up 3.2%. Vue fell 4.1%. Svelte grew 12.8% and holds 9.4%. React weekends run at 54.1% of weekdays, 45.9% lower. Together 1.5 billion.'
     expect(checkFigures(text, SUMMARY)).toEqual({ checked: 9, matched: 9, unmatched: [] })
   })
 

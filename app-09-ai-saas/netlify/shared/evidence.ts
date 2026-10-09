@@ -99,6 +99,19 @@ export function parseSpikes(
   return { ok: true, value: spikes }
 }
 
+/** Checks the optional per-package count of unusual days found. Absent is valid. */
+export function parseSpikeCounts(raw: unknown, names: ReadonlySet<string>): Checked<Record<string, number> | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (!isRecord(raw)) return { ok: false, error: 'summary.spikeCounts must be an object' }
+  const counts: Record<string, number> = {}
+  for (const [name, value] of Object.entries(raw)) {
+    if (!names.has(name)) return { ok: false, error: 'summary.spikeCounts names a package that is not in the summary' }
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 400) return { ok: false, error: `summary.spikeCounts.${name} must be a whole number from 0 to 400` }
+    counts[name] = value
+  }
+  return { ok: true, value: counts }
+}
+
 function spikeLine(s: SpikeEvidence): string {
   const head = `- ${s.name} on ${s.date}: ${s.downloads.toLocaleString('en-US')} downloads, +${s.sizePct}% against the usual ${s.baseline.toLocaleString('en-US')} for that weekday`
   if (!s.releasesKnown) return `${head}; release history unavailable`
@@ -114,7 +127,11 @@ export function spikePrompt(s: Summary): string {
   if (s.spikes.length === 0) {
     return `\nUnusual days: none. No day in the window ran far above the usual level for its weekday. Add one sentence starting with "Spikes:" saying so.\n`
   }
-  return `\nUnusual days (a day far above the usual level for its weekday):\n${s.spikes.map(spikeLine).join('\n')}\n\n${rules}\n`
+  const found = s.spikeCounts
+  const capNote = found
+    ? `The detector found ${s.packages.map((p) => `${found[p.name] ?? 0} for ${p.name}`).join(', ')}. Each package's strongest ${MAX_SPIKES_PER_PACKAGE} are listed, so the lines below may be fewer than what was found: say "found" for the counts above and "listed" for the lines.\n`
+    : ''
+  return `\nUnusual days (a day far above the usual level for its weekday):\n${capNote}${s.spikes.map(spikeLine).join('\n')}\n\n${rules}\n`
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']

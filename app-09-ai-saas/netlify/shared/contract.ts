@@ -85,4 +85,6 @@ export interface Summary {
   packages: PackageFigures[]
   /** Unusual days with their matched releases. Absent in a request from a page that does not detect spikes. */
   spikes?: SpikeEvidence[]
+  /** How many unusual days the detector found for each package, before the list was cut to its strongest few. */
+  spikeCounts?: Record<string, number>
 }

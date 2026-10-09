@@ -41,7 +41,7 @@ function SpikeList({ spikes, span, colorIndex, activeKey, onActive, releasesLoad
       <div className="hub-spikes__head">
         <b>Unusual days</b>
         <span className="ds-help">
-          {spikes.length === 0 ? 'None found' : `${spikes.length} found, newest first`}
+          {spikes.length === 0 ? 'None found' : `${spikes.length} listed (top 8 per package), newest first`}
         </span>
       </div>
       {spikes.length === 0 ? (

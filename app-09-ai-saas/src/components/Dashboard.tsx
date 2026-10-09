@@ -7,7 +7,7 @@ import { useInsightRun, type RunStatus } from '../lib/insightRun'
 import { HISTORY_DAYS, type NpmError } from '../lib/npm'
 import { DEFAULT_NAMES, DEFAULT_WINDOW } from '../lib/presets'
 import type { Release } from '../lib/releases'
-import { buildSpikeEvidence } from '../lib/spikes'
+import { buildSpikeEvidence, countSpikes } from '../lib/spikes'
 import { useDownloads } from '../lib/useDownloads'
 import { useResultFocus } from '../lib/useResultFocus'
 import { useReleases } from '../lib/useReleases'
@@ -73,11 +73,13 @@ export default function Dashboard() {
     [span, history.outcomes, releaseLists],
   )
   const spikes = useMemo(() => (year && span ? buildSpikeEvidence(year, span.start, releaseLists) : []), [year, span, releaseLists])
+  const spikeCounts = useMemo(() => (year && span ? countSpikes(year, span.start) : {}), [year, span])
+  const spikesFound = Object.values(spikeCounts).reduce((sum, n) => sum + n, 0)
 
   // The model reads the figures and the evidence together, so the run waits until both have loaded.
   const evidenceSummary = useMemo<Summary | null>(
-    () => (summary && !loading && !history.loading ? { ...summary, spikes } : null),
-    [summary, loading, history.loading, spikes],
+    () => (summary && !loading && !history.loading ? { ...summary, spikes, spikeCounts } : null),
+    [summary, loading, history.loading, spikes, spikeCounts],
   )
   const run = useInsightRun(evidenceSummary)
   const ready = evidenceSummary !== null
@@ -179,8 +181,9 @@ export default function Dashboard() {
                     </div>
                     <div className="ds-strip__item">
                       <dt className="ds-strip__label">Unusual days</dt>
-                      <dd className="ds-strip__value">{spikes.length}</dd>
+                      <dd className="ds-strip__value">{spikesFound}</dd>
                       <dd className="ds-strip__hint">
+                        {spikesFound > spikes.length ? `${spikes.length} shown (top 8 per package), ` : ''}
                         {spikes.filter((s) => s.releases.length > 0).length} with a release just before
                       </dd>
                     </div>

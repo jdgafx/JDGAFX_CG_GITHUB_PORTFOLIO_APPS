@@ -128,3 +128,8 @@ export function buildSpikeEvidence(
   }
   return evidence.sort((a, b) => (a.date === b.date ? (a.name < b.name ? -1 : 1) : a.date < b.date ? -1 : 1))
 }
+
+/** How many unusual days the detector finds for each package inside the window, before the list is cut to the strongest few. */
+export function countSpikes(history: DownloadWindow, windowStart: string): Record<string, number> {
+  return Object.fromEntries(history.series.map((series) => [series.name, detectSpikes(history.dates, series.values).filter((spike) => spike.date >= windowStart).length]))
+}

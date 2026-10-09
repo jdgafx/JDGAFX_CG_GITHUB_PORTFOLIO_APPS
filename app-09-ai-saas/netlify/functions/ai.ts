@@ -1,6 +1,7 @@
 import { CHAT_URL, chatRequest } from '../shared/provider'
 import type { Summary } from '../shared/contract'
-import { checkClaims, ClaimSplitter, claimsPrompt, describeClaimCheck, parseClaims, splitAnswer, type ClaimCheck } from '../shared/claims'
+import { checkClaims, describeClaimCheck, type ClaimCheck } from '../shared/claimCheck'
+import { ClaimSplitter, claimsPrompt, parseClaims, splitAnswer } from '../shared/claims'
 import { buildPrompt, checkFigures, describeFigureCheck, parseInsightRequest } from '../shared/insights'
 import { DONE_FRAME, encodeFrame, readProviderStream, type Emit } from '../shared/stream'
 

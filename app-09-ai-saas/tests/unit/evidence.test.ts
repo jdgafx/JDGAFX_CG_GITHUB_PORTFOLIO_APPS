@@ -237,13 +237,15 @@ describe('checkFigures: a value belongs to one package', () => {
   it('still matches a value in a sentence that names its owner, hedged or not', () => {
     expect(checkFigures('Vue averages 2.7 million downloads per day.', V).matched).toBe(1)
     expect(checkFigures("Vue's share is 8.1%.", V).matched).toBe(1)
-    expect(checkFigures('React averages about 30,000,000 downloads per day.', V).matched).toBe(1)
+    expect(checkFigures('React averages about 29,000,000 downloads per day.', V).matched).toBe(1)
+    // One significant figure is too coarse for the hedge: 30,000,000 is not 29,300,000.
+    expect(checkFigures('React averages about 30,000,000 downloads per day.', V).matched).toBe(0)
     expect(checkFigures('Svelte averages 0.98 million downloads per day.', V).matched).toBe(1)
   })
 
-  it('reads a sentence that opens with a pronoun as about the package before it, and a sentence naming nobody as unconstrained', () => {
+  it('reads a sentence that opens with a pronoun as about the package before it, and a sentence naming nobody as owned by no one', () => {
     expect(checkFigures('Vue is steady. It averages 2.7 million downloads per day.', V).matched).toBe(1)
-    expect(checkFigures('Svelte is small. It averages 2.7 million downloads per day.', V).matched).toBe(1) // own reading names none: both readings are tried
-    expect(checkFigures('The daily average is 2.7 million downloads.', V).matched).toBe(1)
+    expect(checkFigures('Svelte is small. It averages 2.7 million downloads per day.', V).matched).toBe(0) // "It" is Svelte, and 2.7 million is Vue's
+    expect(checkFigures('The daily average is 2.7 million downloads.', V).matched).toBe(0) // no package to attribute it to
   })
 })
