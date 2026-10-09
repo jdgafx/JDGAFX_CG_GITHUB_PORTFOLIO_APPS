@@ -33,7 +33,7 @@ export function importedNames(texts: readonly string[]): Set<string> {
 /** Imported names that are also plain words in a message; they would match any sentence, so they never count on their own. */
 const PLAIN_WORDS = new Set(['path', 'http', 'type', 'types', 'errors', 'error', 'context', 'time', 'string', 'strings', 'file', 'files', 'url', 'text', 'data', 'name', 'join', 'key', 'sync', 'list', 'sort', 'bytes', 'math', 'json', 'copy', 'sys', 'log', 'flag', 'fmt', 'io', 'os'])
 
-const BEHAVIOUR = /\b(?:does not|doesn't|do not|will not|never|throws?|raises?|returns?|treats?|interprets?|parses?|converts?|encodes?|decodes?|handles?|accepts?|rejects?|ignores?|swallows?|fails?|behaves?|resolves?|supports?|requires?)\b/i
+const BEHAVIOUR = /\b(?:mutates?|modif(?:y|ies)|shares?|aliases|does not|doesn't|do not|will not|never|throws?|raises?|returns?|treats?|interprets?|parses?|converts?|encodes?|decodes?|handles?|accepts?|rejects?|ignores?|swallows?|fails?|behaves?|resolves?|supports?|requires?)\b/i
 const LINK_CLAIM = /\b(?:resolves?|resolve to|exists?|nonexistent|404|broken|disagrees?|does not match|different (?:location|path)|points? to)\b/i
 /** A failure that is only gestured at: no path to it is named, so there is nothing to confirm. */
 const HEDGE = /\b(?:unexpected (?:path|state|case|situation)|in theory|theoretical(?:ly)?|hypothetical(?:ly)?|some other path|unknown path|for some reason)\b/i

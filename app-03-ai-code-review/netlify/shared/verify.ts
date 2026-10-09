@@ -1,5 +1,7 @@
 import type { Decider, ReviewComment, Verdict } from '../../src/types'
 import { importedNames, noneWithoutSource, unconfirmable } from './claims'
+import { provenanceOf } from './provenance'
+import { seenLines } from './scope'
 import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
 
@@ -218,6 +220,12 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // this file: its support would have to be a definition of that name here, and an import has none.
     const outside = unconfirmable(candidate.message, doc.texts[at - 1], importsOf(doc))
     if (outside !== null) return unconfirmed(candidate, outside)
+    // The reason is held to the same rule: a reason that names an imported function's behaviour caps the comment.
+    const reasonOutside = unconfirmable(reason, doc.texts[at - 1], importsOf(doc))
+    if (reasonOutside !== null) return unconfirmed(candidate, reasonOutside)
+    // A claim about the caller's object is only as good as where that object came from.
+    const origin = provenanceOf(candidate.message, doc.texts, at, importsOf(doc))
+    if (origin.block !== null) return unconfirmed(candidate, origin.block)
     // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
     // point at code for is not confirmed, however real the cited line is.
     const supportShown = clip(collapse(raw.support), 80)
@@ -229,6 +237,14 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     const supportAt = findEvidence(doc, raw.support, at, doc.texts.length)
     if (supportAt === null) {
       return unconfirmed(candidate, `Not confirmed: the second pass gave "${supportShown}" as the code that shows the claim, which is not in the code.`)
+    }
+    // A warning or error stands only when the code behind it is inside what the reads were shown: the scope, the lines its
+    // variables came from, and the definitions of what it names. Info comments are unchanged.
+    if (candidate.severity !== 'info') {
+      const seen = seenLines(doc.texts, candidate.line, `${candidate.message} ${candidate.suggestion} ${candidate.quote}`)
+      if (!seen.has(at) || !seen.has(supportAt)) {
+        return unconfirmed(candidate, `Not confirmed: the code behind this ${candidate.severity === 'critical' ? 'error' : 'warning'} (line ${seen.has(at) ? supportAt : at}) is outside the code the reads were shown.`)
+      }
     }
     return { line: at, verdict: at === candidate.fromLine ? 'kept' : 'moved', decidedBy: 'verifier', reason, evidence: shown, support: supportShown, supportAt }
   }

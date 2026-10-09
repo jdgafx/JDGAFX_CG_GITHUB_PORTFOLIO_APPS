@@ -146,6 +146,12 @@ describe('normaliseSourceText', () => {
   })
 })
 
+describe('readContentsReply: a 200 whose body is not a contents reply', () => {
+  it.each([[{ message: 'ok' }], [{ type: 42, size: 1 }], [{ type: null }]])('says the reply could not be read for %j, never "That path is a undefined"', (body) => {
+    expect(readContentsReply(body, REF)).toEqual({ ok: false, error: 'GitHub sent a reply this page could not read.' })
+  })
+})
+
 describe('readContentsReply', () => {
   it('decodes UTF-8 text, names the source and maps lines one to one', () => {
     const source = 'def grüß(name):\r\n    return "héllo, 世界 " + name\r\n'

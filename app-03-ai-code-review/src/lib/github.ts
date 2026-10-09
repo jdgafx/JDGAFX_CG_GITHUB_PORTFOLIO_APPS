@@ -184,7 +184,8 @@ export function normaliseSourceText(text: string): string {
 export function readContentsReply(data: unknown, ref: GitHubRef): Parsed<GitHubFile> {
   if (Array.isArray(data)) return fail('That path is a folder. Pick a file.')
   if (!isRecord(data)) return fail('GitHub sent a reply this page could not read.')
-  if (data.type !== 'file') return fail(`That path is a ${String(data.type)}, not a file that can be reviewed.`)
+  if (typeof data.type !== 'string') return fail('GitHub sent a reply this page could not read.')
+  if (data.type !== 'file') return fail(`That path is a ${data.type}, not a file that can be reviewed.`)
   const { size, content, encoding, html_url: url, sha } = data
   if (typeof size !== 'number' || typeof url !== 'string' || typeof sha !== 'string') {
     return fail('GitHub sent a reply this page could not read.')

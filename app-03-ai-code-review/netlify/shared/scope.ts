@@ -1,3 +1,5 @@
+import { claimVariables, provenanceOf, traceOrigin } from './provenance'
+
 // The code a comment is about, not just the line it cites: the function or class that holds the line. The second pass
 // reads this so it can follow a name to where it is defined (the live `open()` on line 148 for a claim made on line 191).
 
@@ -115,15 +117,29 @@ export function enclosingScope(texts: readonly string[], line: number): Scope {
   return { from, to, signature: start, enclosing: true }
 }
 
+/** Lines that assign the variables the cited line and the claim share, up to three steps up: where the values came from. */
+export function provenanceLines(code: readonly string[], line: number, claim: string): number[] {
+  const lines = new Set<number>()
+  for (const name of claimVariables(claim, code[line - 1] ?? '')) for (const n of traceOrigin(code, name, line).lines) lines.add(n)
+  return [...lines].sort((x, y) => x - y)
+}
+
 /**
- * The scope as numbered lines (`N<TAB>| text`), the same form as the whole listing, with a gap marker when it was cut.
+ * The scope as numbered lines (`N<TAB>| text`), the same form as the whole listing, with a gap marker where it was cut.
  * `code` is the text of each numbered line without any diff sign (used to find the scope); `shown` is what is printed.
+ * When the scope is cut, the signature is kept and so are the lines that assign the variables the claim is about, so a
+ * claim about an object is read together with where the object came from.
  */
-export function scopeListing(shown: readonly string[], code: readonly string[], line: number): string {
+export function scopeListing(shown: readonly string[], code: readonly string[], line: number, claim = ''): string {
   const s = enclosingScope(code, line)
   const row = (n: number) => `${n}\t| ${shown[n - 1]}`
   const rows: string[] = []
+  const above = provenanceLines(code, line, claim).filter((n) => n < s.from && n !== s.signature)
   if (s.signature !== null) rows.push(row(s.signature), '...')
+  if (above.length > 0) {
+    for (const n of above) rows.push(row(n))
+    rows.push('...')
+  }
   for (let n = s.from; n <= s.to; n += 1) rows.push(row(n))
   return rows.join('\n')
 }
@@ -137,26 +153,45 @@ const DEFINITION_LINES = 18
  * only when a line of the file defines it (def, func, function or class, including a Go method receiver). Definitions that sit
  * inside the cited line's own scope are left out, they are already shown.
  */
-export function definitionListing(shown: readonly string[], code: readonly string[], text: string, line: number): string {
+export function definitionRanges(code: readonly string[], text: string, line: number): Array<[number, number]> {
   const own = enclosingScope(code, line)
+  const local = provenanceOf(text, code, line, new Set()).localCalls
   const named = (text.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).filter((w) => !STOP.has(w.toLowerCase()))
   // Then the functions the scope itself calls (`self.open()` calls `def open`), nearest the cited line first.
   const calls: string[] = []
   for (let n = own.to; n >= own.from; n -= 1) {
     for (const m of (code[n - 1] ?? '').matchAll(/\b([A-Za-z_]\w{2,})\s*\(/g)) if (!STOP.has(m[1].toLowerCase()) && !CALL_STOP.has(m[1])) calls.push(m[1])
   }
-  const words = new Set([...named, ...calls])
+  const words = new Set([...local, ...named, ...calls])
   const seen = new Set<number>()
-  const rows: string[] = []
+  const ranges: Array<[number, number]> = []
   for (const word of words) {
     const at = code.findIndex((l) => new RegExp(String.raw`^\s*(?:async\s+)?(?:def|function|class)\s+${word}\b|^\s*func\s+(?:\([^)]*\)\s*)?${word}\b`).test(l)) + 1
     if (at === 0 || seen.has(at) || (at >= own.from && at <= own.to) || seen.size >= MAX_DEFINITIONS) continue
     seen.add(at)
-    const end = Math.min(scopeEnd(code, at), at + DEFINITION_LINES - 1)
+    ranges.push([at, Math.min(scopeEnd(code, at), at + DEFINITION_LINES - 1)])
+  }
+  return ranges
+}
+
+export function definitionListing(shown: readonly string[], code: readonly string[], text: string, line: number): string {
+  const rows: string[] = []
+  for (const [from, to] of definitionRanges(code, text, line)) {
     if (rows.length > 0) rows.push('...')
-    for (let n = at; n <= end; n += 1) rows.push(`${n}\t| ${shown[n - 1]}`)
+    for (let n = from; n <= to; n += 1) rows.push(`${n}\t| ${shown[n - 1]}`)
   }
   return rows.join('\n')
+}
+
+/** Every line the reads are shown for a comment: its scope and signature, the lines its variables came from, the definitions. */
+export function seenLines(code: readonly string[], line: number, text: string): Set<number> {
+  const s = enclosingScope(code, line)
+  const seen = new Set<number>()
+  for (let n = s.from; n <= s.to; n += 1) seen.add(n)
+  if (s.signature !== null) seen.add(s.signature)
+  for (const n of provenanceLines(code, line, text)) seen.add(n)
+  for (const [from, to] of definitionRanges(code, text, line)) for (let n = from; n <= to; n += 1) seen.add(n)
+  return seen
 }
 
 const CALL_STOP = new Set(['for', 'while', 'print', 'len', 'range', 'str', 'int', 'list', 'dict', 'set', 'tuple', 'isinstance', 'super', 'getattr', 'setattr', 'hasattr', 'not', 'and', 'min', 'max', 'sum', 'map', 'filter', 'make', 'append', 'panic', 'new', 'cast', 'type', 'bool', 'bytes', 'open_text', 'format'])

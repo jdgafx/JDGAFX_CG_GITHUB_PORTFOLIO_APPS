@@ -47,12 +47,12 @@ export function buildVerifyUser(numbered: string, candidates: Candidate[], shown
     id: c.id,
     line: c.line,
     quote: c.quote,
-    scope: scopeListing(shown, code, c.line),
+    scope: scopeListing(shown, code, c.line, `${c.message} ${c.suggestion}`),
     // The functions the comment names, defined elsewhere in the file: what a claim about them must be checked against.
     ...definitionsOf(c, shown, code),
     // When an automatic check moved the comment, the second pass sees both places and decides which one is right.
     ...(c.fromLine !== c.line
-      ? { firstPassLine: c.fromLine, firstPassScope: scopeListing(shown, code, c.fromLine), note: `The first pass cited line ${c.fromLine}; an automatic check moved the comment to line ${c.line}. Answer with the line the comment is really about, which may be either.` }
+      ? { firstPassLine: c.fromLine, firstPassScope: scopeListing(shown, code, c.fromLine, `${c.message} ${c.suggestion}`), note: `The first pass cited line ${c.fromLine}; an automatic check moved the comment to line ${c.line}. Answer with the line the comment is really about, which may be either.` }
       : {}),
     severity: c.severity,
     message: c.message,
