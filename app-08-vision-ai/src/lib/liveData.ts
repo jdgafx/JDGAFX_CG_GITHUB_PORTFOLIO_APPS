@@ -33,10 +33,9 @@ export function liveIndicator({ loaded, at, commonsFailed }: LiveInput): LiveInd
       ? { state: 'failed', label: 'Live data unavailable: Wikimedia Commons', title: HOSTS }
       : { state: 'idle', label: 'Live data: Wikimedia Commons · or your own file', title: `${HOSTS}. A file you choose is read in your browser.` }
   }
-  const when = at === null ? '' : ` · ${clock(at)}`
   const commons = loaded.some(image => image !== null)
   const own = loaded.some(image => image === null)
-  if (commons && own) return { state: 'live', label: `Live data: Wikimedia Commons + your file${when}`, title: HOSTS }
+  if (commons && own) return { state: 'live', label: `Live data: Wikimedia Commons + your file${at === null ? '' : ` · fetched ${clock(at)}`}`, title: HOSTS }
   if (commons) return { state: 'live', label: `Live data: Wikimedia Commons${at === null ? '' : ` · fetched ${clock(at)}`}`, title: HOSTS }
   return { state: 'live', label: `Your file${at === null ? '' : ` · read ${clock(at)}`}`, title: OWN }
 }

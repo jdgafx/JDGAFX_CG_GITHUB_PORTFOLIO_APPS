@@ -30,7 +30,7 @@ describe('the live-data chip', () => {
   })
 
   it('names both when a comparison mixes a Commons pick and an upload', () => {
-    expect(liveIndicator({ loaded: [commons, null], at: AT, commonsFailed: false }).label).toBe(`Live data: Wikimedia Commons + your file · ${clock(AT)}`)
+    expect(liveIndicator({ loaded: [commons, null], at: AT, commonsFailed: false }).label).toBe(`Live data: Wikimedia Commons + your file · fetched ${clock(AT)}`)
   })
 
   it('reads failed when Commons failed and no picture is loaded, but not once a picture is', () => {
