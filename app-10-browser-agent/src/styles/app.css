@@ -71,6 +71,33 @@
   .bb-viewer {
     grid-template-columns: minmax(0, 1fr) minmax(272px, 32%);
     gap: 20px;
+    align-items: stretch;
+  }
+
+  /* The read box takes the rest of the row, so the column ends where the picture and transport end.
+     Its flex basis is 0, so the box never makes the row taller: it scrolls instead. */
+  .bb-viewer .bb-viewer__detail,
+  .bb-viewer .bb-detail,
+  .bb-viewer .bb-text,
+  .bb-viewer .bb-fade {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .bb-viewer .bb-detail {
+    flex: 1;
+  }
+
+  .bb-viewer .bb-text,
+  .bb-viewer .bb-fade {
+    flex: 1 1 0;
+  }
+
+  .bb-viewer .bb-pre {
+    flex: 1 1 0;
+    min-height: 120px;
+    max-height: none;
   }
 }
 
@@ -303,11 +330,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 8px 12px;
 }
 
 .bb-scrub {
-  flex: 1 1 160px;
+  flex: 1 1 120px;
   min-width: 0;
   height: 44px;
   margin: 0;
@@ -316,7 +343,7 @@
 }
 
 .bb-transport__count {
-  min-width: 48px;
+  min-width: 40px;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: var(--ds-text-muted);
@@ -467,6 +494,14 @@
 }
 
 @media (max-width: 720px) {
+  .bb-transport {
+    flex-wrap: nowrap;
+  }
+
+  .bb-scrub {
+    min-width: 64px;
+  }
+
   .bb-cell {
     flex-basis: 128px;
   }
