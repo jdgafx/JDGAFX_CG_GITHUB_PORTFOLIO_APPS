@@ -1,5 +1,4 @@
 import * as pdfjsLib from 'pdfjs-dist'
-import type { TextItem } from 'pdfjs-dist/types/src/display/api'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { pageMarkerPattern } from './chunk'
 
@@ -70,10 +69,7 @@ export async function extractText(file: File): Promise<ExtractResult> {
     try {
       const page = await pdf.getPage(i)
       const textContent = await page.getTextContent()
-      const pageText = textContent.items
-        .filter((item): item is TextItem => 'str' in item)
-        .map((item: TextItem) => item.str)
-        .join(' ')
+      const pageText = textContent.items.map(item => ('str' in item ? item.str : '')).join(' ')
       fullText += `--- Page ${i} ---\n${pageText}\n\n`
     } catch {
       // If a single page fails, skip it rather than crashing the whole extraction

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { callModel, estimateCost, getProvider, MODEL, type ChatMessage } from '../../netlify/shared/provider'
+import { callModel, estimateCost, type ChatMessage } from '../../netlify/shared/provider'
 
 const PLACEHOLDER = 'test-only-placeholder'
 const MESSAGES: ChatMessage[] = [{ role: 'user', content: 'Question: when?' }]
@@ -25,23 +25,10 @@ afterEach(() => {
   else process.env.OPENROUTER_API_KEY = previousKey
 })
 
-describe('getProvider', () => {
-  it('returns null when no key is configured', () => {
-    expect(getProvider(MODEL)).toBeNull()
-  })
-
-  it('pins the model it is given and never reads a model from the environment', () => {
-    process.env.OPENROUTER_API_KEY = PLACEHOLDER
-    expect(getProvider(MODEL)).toEqual({ apiKey: PLACEHOLDER, model: '~anthropic/claude-haiku-latest' })
-  })
-})
-
 describe('callModel', () => {
-  const provider = { apiKey: PLACEHOLDER, model: MODEL }
-
   it('sends the model, an explicit output cap and usage reporting on every call', async () => {
     const mock = fetchReturns(reply('{"answer":"ok"}'))
-    await callModel(provider, MESSAGES, FAR_FUTURE)
+    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
     expect(mock).toHaveBeenCalledTimes(1)
     const [url, init] = mock.mock.calls[0] ?? []
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
@@ -54,7 +41,7 @@ describe('callModel', () => {
 
   it('returns the content, the finish reason, the served model and the usage', async () => {
     fetchReturns(reply('{"answer":"ok"}'))
-    expect(await callModel(provider, MESSAGES, FAR_FUTURE)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)).toEqual({
       ok: true,
       content: '{"answer":"ok"}',
       finishReason: 'stop',
@@ -72,7 +59,7 @@ describe('callModel', () => {
     [400, 502, 'The AI provider rejected the request.'],
   ])('maps an upstream %i to status %i and a plain sentence, and never copies the provider body', async (code, status, message) => {
     fetchReturns(new Response('{"error":"acct_123 has no credit"}', { status: code }))
-    const result = await callModel(provider, MESSAGES, FAR_FUTURE)
+    const result = await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
     expect(result).toEqual({ ok: false, status, message })
     expect(JSON.stringify(result)).not.toContain('acct_123')
   })
@@ -81,7 +68,7 @@ describe('callModel', () => {
     const error = new Error('aborted')
     error.name = name
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(error)))
-    expect(await callModel(provider, MESSAGES, FAR_FUTURE)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)).toEqual({
       ok: false,
       status: 504,
       message: 'The AI provider did not answer in time.',
@@ -90,16 +77,33 @@ describe('callModel', () => {
 
   it('maps a network failure to a message about reaching the provider', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('fetch failed'))))
-    expect(await callModel(provider, MESSAGES, FAR_FUTURE)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)).toEqual({
       ok: false,
       status: 502,
       message: 'Could not reach the AI provider. Try again shortly.',
     })
   })
 
+  it('cancels the call when the caller aborts, and when the deadline passes', async () => {
+    const seen: AbortSignal[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.signal) seen.push(init.signal)
+      return reply('{"answer":"ok"}')
+    }))
+    const caller = new AbortController()
+    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE, caller.signal)
+    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
+    expect(seen[0]?.aborted).toBe(false)
+    caller.abort()
+    expect(seen[0]?.aborted).toBe(true)
+    // With no caller signal, the call still has the deadline signal.
+    expect(seen[1]).toBeInstanceOf(AbortSignal)
+    expect(seen[1]?.aborted).toBe(false)
+  })
+
   it('sends nothing once the shared deadline has passed', async () => {
     const mock = fetchReturns(reply('{"answer":"ok"}'))
-    expect(await callModel(provider, MESSAGES, Date.now() - 1)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, Date.now() - 1)).toEqual({
       ok: false,
       status: 504,
       message: 'The AI provider did not answer in time.',
@@ -109,7 +113,7 @@ describe('callModel', () => {
 
   it('reports a body that is not JSON as unreadable', async () => {
     fetchReturns(new Response('not json', { status: 200 }))
-    expect(await callModel(provider, MESSAGES, FAR_FUTURE)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)).toEqual({
       ok: false,
       status: 502,
       message: 'The AI provider returned an unreadable response.',
@@ -125,7 +129,7 @@ describe('callModel', () => {
       },
     })
     fetchReturns(new Response(body, { status: 200 }))
-    expect(await callModel(provider, MESSAGES, FAR_FUTURE)).toEqual({
+    expect(await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)).toEqual({
       ok: false,
       status: 504,
       message: 'The AI provider did not answer in time.',

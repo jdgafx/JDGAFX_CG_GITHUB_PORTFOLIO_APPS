@@ -31,18 +31,8 @@ function allowedOrigins(): string[] {
     .filter(Boolean)
 }
 
-export function corsHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    Vary: 'Origin',
-  }
-  if (origin) headers['Access-Control-Allow-Origin'] = origin
-  return headers
-}
-
 // Requests without an Origin header are not browser cross-site traffic (curl,
-// server-to-server), so they are allowed through without an echo header.
+// server-to-server), so they are allowed through.
 export function originAllowed(origin: string | null): boolean {
   if (!origin) return true
   return allowedOrigins().includes(origin.replace(/\/$/, ''))

@@ -1,9 +1,23 @@
+/** What the numbers in `DocumentState.chunkPages` count. */
+export type LocationUnit = 'page' | 'section'
+
+/** Where a document came from, shown under its title. `url` is null for a file the person chose. */
+export interface DocumentSource {
+  label: string
+  url: string | null
+}
+
 export interface DocumentState {
   title: string
+  source: DocumentSource
   chunks: string[]
-  /** Page number each chunk starts on, parallel to `chunks`. */
+  /** Page or section number each chunk starts on, parallel to `chunks`. */
   chunkPages: number[]
+  unit: LocationUnit
+  /** How many pages or sections the document has. */
   pages: number
+  /** Section titles, where entry n is section n + 1. Empty when the unit is 'page'. */
+  sectionTitles: string[]
   charCount: number
 }
 

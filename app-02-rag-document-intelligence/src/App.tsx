@@ -4,10 +4,8 @@ import { QuestionSection } from './components/QuestionSection'
 import { RetrievalPanel } from './components/RetrievalPanel'
 import { RunSection } from './components/RunReport'
 import { SiteFooter } from './components/SiteFooter'
+import { useDocumentLoader } from './hooks/useDocumentLoader'
 import { askQuestion, AskError } from './lib/api'
-import { chunkText, stripPageMarkers } from './lib/chunk'
-import { extractText } from './lib/pdf'
-import { SAMPLE_PAGES, SAMPLE_QUESTION, SAMPLE_TEXT, SAMPLE_TITLE } from './lib/sample'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
 const NO_MATCH_ANSWER =
@@ -20,8 +18,6 @@ function newId(): string {
 export default function App() {
   const [doc, setDoc] = useState<DocumentState | null>(null)
   const [docVersion, setDocVersion] = useState(0)
-  const [reading, setReading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
   const [question, setQuestion] = useState('')
   const [running, setRunning] = useState(false)
@@ -72,39 +68,9 @@ export default function App() {
     [clearConversation],
   )
 
-  const handleFileSelect = useCallback(
-    async (file: File) => {
-      cancelRun()
-      setUploadError(null)
-      setReading(true)
-      try {
-        const { text, pages } = await extractText(file)
-        const { chunks, chunkPages } = chunkText(text)
-        loadDocument({ title: file.name, chunks, chunkPages, pages, charCount: stripPageMarkers(text).length })
-      } catch (err) {
-        setUploadError(err instanceof Error ? err.message : 'Failed to extract text from this file.')
-        console.error('Extract error:', err)
-      } finally {
-        setReading(false)
-      }
-    },
-    [cancelRun, loadDocument],
-  )
-
-  /** Loads the built-in sample with its question filled in, so Ask is one click away. */
-  const handleSample = useCallback(() => {
-    cancelRun()
-    setUploadError(null)
-    const { chunks, chunkPages } = chunkText(SAMPLE_TEXT)
-    loadDocument({
-      title: SAMPLE_TITLE,
-      chunks,
-      chunkPages,
-      pages: SAMPLE_PAGES,
-      charCount: stripPageMarkers(SAMPLE_TEXT).length,
-    })
-    setQuestion(SAMPLE_QUESTION)
-  }, [cancelRun, loadDocument])
+  const loader = useDocumentLoader(loadDocument, cancelRun)
+  const reading = loader.loading
+  const clearLoadError = loader.clearError
 
   const runQuestion = useCallback(async () => {
     const text = question.trim()
@@ -202,8 +168,8 @@ export default function App() {
     setDoc(null)
     clearConversation()
     setQuestion('')
-    setUploadError(null)
-  }, [turns.length, cancelRun, clearConversation])
+    clearLoadError()
+  }, [turns.length, cancelRun, clearConversation, clearLoadError])
 
   const badge: { label: string; tone: string; mark: 'ok' | 'running' | 'skipped' } = reading
     ? { label: 'Reading document', tone: 'ds-badge--accent', mark: 'running' }
@@ -234,7 +200,7 @@ export default function App() {
         <div className="ds-header__inner">
           <div>
             <h1 className="ds-title">DocMind</h1>
-            <p className="ds-subtitle">Ask questions about a PDF or TXT. Each answer lists the passages it used.</p>
+            <p className="ds-subtitle">Ask questions about a Wikipedia article, an arXiv paper, or your own PDF or TXT. Each answer lists the passages it used.</p>
           </div>
           <span className={`ds-badge ${badge.tone}`}>
             <span className={`ds-dot ds-dot--${badge.mark}`} aria-hidden="true" />
@@ -253,14 +219,16 @@ export default function App() {
             <DocumentSection
               doc={doc}
               busy={reading || running}
-              error={uploadError}
-              onFileSelect={handleFileSelect}
-              onSample={handleSample}
-              onError={setUploadError}
+              activity={loader.activity}
+              error={loader.error}
+              canRetry={loader.canRetry}
+              onLoad={loader.load}
+              onRetry={loader.retry}
+              onError={loader.fail}
               onReset={handleReset}
             />
             <QuestionSection
-              documentReady={doc !== null}
+              doc={doc}
               question={question}
               running={running}
               pendingStep={pending}

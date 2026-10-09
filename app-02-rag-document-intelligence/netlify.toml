@@ -2,10 +2,6 @@
   command = "npm run build"
   publish = "dist"
 
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
-
 [[headers]]
   for = "/*"
   [headers.values]
@@ -13,9 +9,10 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     # Fonts come from Google Fonts only: its stylesheet and its font files. The
-    # PDF worker is bundled locally, and /api/ai is same-origin. Inline styles are
+    # PDF worker is bundled locally, and /api/ai and /api/arxiv are same-origin. The browser
+    # reads Wikipedia's public API directly, so that one host is allowed in connect-src. Inline styles are
     # required because the UI sets some element styles through React style props.
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://en.wikipedia.org; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 [[redirects]]
   from = "/*"

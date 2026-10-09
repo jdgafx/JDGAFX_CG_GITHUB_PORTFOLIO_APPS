@@ -1,8 +1,10 @@
-import { type FormEvent, type KeyboardEvent } from 'react'
+import { useMemo, useRef, type FormEvent, type KeyboardEvent } from 'react'
+import { questionStarters } from '../lib/location'
+import type { DocumentState } from '../types'
 import { ErrorBanner } from './ErrorBanner'
 
 interface QuestionSectionProps {
-  documentReady: boolean
+  doc: DocumentState | null
   question: string
   running: boolean
   /** The step now running, named in the status line while a question is in progress. */
@@ -17,7 +19,7 @@ interface QuestionSectionProps {
 
 /** The question field and the Ask action. Ask stays disabled until a document and a question exist. */
 export function QuestionSection({
-  documentReady,
+  doc,
   question,
   running,
   pendingStep,
@@ -27,6 +29,9 @@ export function QuestionSection({
   onAsk,
   onStop,
 }: QuestionSectionProps) {
+  const documentReady = doc !== null
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const starters = useMemo(() => questionStarters(doc?.sectionTitles ?? []), [doc])
   const canAsk = documentReady && !running && question.trim() !== ''
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -65,6 +70,7 @@ export function QuestionSection({
             Your question
           </label>
           <textarea
+            ref={inputRef}
             id="docmind-question"
             className="ds-textarea"
             rows={3}
@@ -79,6 +85,29 @@ export function QuestionSection({
             Passages that share words with this question go to the model. Enter asks.
           </p>
         </div>
+
+        {starters.length > 0 && question.trim() === '' && !running && (
+          <div className="ds-stack">
+            <p className="ds-label">Not sure what to ask? Start from a section</p>
+            <ul className="docmind-choices docmind-choices--chips" aria-label="Question starters from this document">
+              {starters.map(starter => (
+                <li key={starter}>
+                  <button
+                    type="button"
+                    className="docmind-choice"
+                    onClick={() => {
+                      onQuestionChange(starter)
+                      inputRef.current?.focus()
+                    }}
+                  >
+                    {starter}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="ds-help">Each one fills the box with a question built from this article&apos;s section titles. You press Ask.</p>
+          </div>
+        )}
 
         <div className="ds-row">
           <button type="submit" className="ds-button ds-button--primary" disabled={!canAsk} aria-busy={running}>

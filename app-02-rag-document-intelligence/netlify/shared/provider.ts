@@ -9,11 +9,6 @@ const MAX_OUTPUT_TOKENS = 4096
 
 export const TIMEOUT_MESSAGE = 'The AI provider did not answer in time.'
 
-export interface ProviderConfig {
-  apiKey: string
-  model: string
-}
-
 export interface ChatMessage {
   role: 'system' | 'user'
   content: string
@@ -28,13 +23,6 @@ export interface RawUsage {
 
 export type AttemptOk = { ok: true; content: string; finishReason: string | null; model: string | null; usage: RawUsage }
 type Attempt = AttemptOk | { ok: false; status: number; message: string }
-
-/** The provider for the given model, or null when no OpenRouter key is configured. */
-export function getProvider(model: string): ProviderConfig | null {
-  const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) return null
-  return { apiKey, model }
-}
 
 // Upstream error bodies carry account identifiers. The function log keeps them;
 // the browser gets one plain sentence per status.
@@ -83,26 +71,11 @@ function isTimeout(err: unknown): boolean {
 }
 
 /**
- * A signal that aborts when the deadline passes or the caller's signal aborts, whichever
- * comes first. Written out by hand, so the function does not need AbortSignal.any.
- */
-function deadlineSignal(remaining: number, caller: AbortSignal | undefined): AbortSignal {
-  const timeout = AbortSignal.timeout(remaining)
-  if (!caller) return timeout
-  const combined = new AbortController()
-  for (const source of [timeout, caller]) {
-    if (source.aborted) combined.abort(source.reason)
-    else source.addEventListener('abort', () => combined.abort(source.reason), { once: true })
-  }
-  return combined.signal
-}
-
-/**
  * One chat call. `deadline` is an epoch-millisecond time shared by every call in a
  * request, so a retry gets only the time the first call left over. `signal`, when
  * given, cancels the call as well, for example when the browser has gone away.
  */
-export async function callModel(provider: ProviderConfig, messages: ChatMessage[], deadline: number, signal?: AbortSignal): Promise<Attempt> {
+export async function callModel(apiKey: string, messages: ChatMessage[], deadline: number, signal?: AbortSignal): Promise<Attempt> {
   const remaining = deadline - Date.now()
   if (remaining <= 0) return { ok: false, status: 504, message: TIMEOUT_MESSAGE }
 
@@ -110,16 +83,16 @@ export async function callModel(provider: ProviderConfig, messages: ChatMessage[
   try {
     response = await fetch(CHAT_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: provider.model,
+        model: MODEL,
         messages,
         max_tokens: MAX_OUTPUT_TOKENS,
         reasoning: { enabled: false },
         response_format: { type: 'json_object' },
         usage: { include: true },
       }),
-      signal: deadlineSignal(remaining, signal),
+      signal: AbortSignal.any([AbortSignal.timeout(remaining), ...(signal ? [signal] : [])]),
     })
   } catch (err) {
     console.error('OpenRouter request failed:', err instanceof Error ? err.name : 'non-error')

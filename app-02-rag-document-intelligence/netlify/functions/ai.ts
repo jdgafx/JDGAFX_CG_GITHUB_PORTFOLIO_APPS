@@ -1,8 +1,6 @@
-import { getProvider, MODEL, type ProviderConfig } from '../shared/provider'
-import { runAnswer, type AnswerInput, type RunOutcome, type RunPayload, type TraceStep } from '../shared/answer'
+import { runAnswer, type AnswerInput, type RunPayload, type TraceStep } from '../shared/answer'
 import {
   clientKey,
-  corsHeaders,
   originAllowed,
   RATE_LIMIT_MESSAGE,
   rateLimited,
@@ -22,25 +20,15 @@ type StreamFrame =
   | { type: 'result'; run: RunPayload }
   | { type: 'error'; error: string; trace: TraceStep[]; totalMs: number }
 
-// The brief's response shape. The client reads exactly these five fields.
+/** The five fields the client reads from a finished run. */
 function runBody(run: RunPayload): RunPayload {
   return { result: run.result, trace: run.trace, usage: run.usage, model: run.model, totalMs: run.totalMs }
 }
 
-/** The Origin header, or null when the request's headers cannot be read. */
-function originOf(req: Request): string | null {
-  try {
-    return req.headers.get('origin')
-  } catch {
-    return null
-  }
-}
-
 function streamRun(
   input: AnswerInput,
-  provider: ProviderConfig,
+  apiKey: string,
   started: number,
-  headers: Record<string, string>,
   signal: AbortSignal,
 ): Response {
   const encoder = new TextEncoder()
@@ -58,7 +46,7 @@ function streamRun(
       try {
         const outcome = await runAnswer(
           input,
-          provider,
+          apiKey,
           started,
           {
             start: name => send({ type: 'start', name }),
@@ -81,28 +69,19 @@ function streamRun(
       }
     },
   })
-  return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } })
+  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } })
 }
 
-async function respond(req: Request, started: number): Promise<Response> {
-  const origin = req.headers.get('origin')
-  const headers = corsHeaders(origin)
-  const json = (status: number, payload: unknown, extra: Record<string, string> = {}) =>
-    new Response(JSON.stringify(payload), {
-      status,
-      headers: { ...headers, ...extra, 'Content-Type': 'application/json' },
-    })
+const json = (status: number, payload: unknown, extra: Record<string, string> = {}) =>
+  new Response(JSON.stringify(payload), { status, headers: { ...extra, 'Content-Type': 'application/json' } })
 
-  if (!originAllowed(origin)) {
+async function respond(req: Request, started: number): Promise<Response> {
+  if (!originAllowed(req.headers.get('origin'))) {
     return json(403, { error: 'Origin not allowed.' })
   }
 
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers })
-  }
-
   if (req.method !== 'POST') {
-    return json(405, { error: 'Method not allowed.' }, { Allow: 'POST, OPTIONS' })
+    return json(405, { error: 'Method not allowed.' }, { Allow: 'POST' })
   }
 
   if (rateLimited(clientKey(req))) {
@@ -119,26 +98,12 @@ async function respond(req: Request, started: number): Promise<Response> {
     return json(validated.status, { error: validated.message })
   }
 
-  const provider = getProvider(MODEL)
-  if (!provider) {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
     return json(500, { error: 'The document assistant is not configured on this deployment.' })
   }
 
-  if (req.headers.get('accept')?.includes('text/event-stream')) {
-    return streamRun(validated.value, provider, started, headers, req.signal)
-  }
-
-  let outcome: RunOutcome
-  try {
-    outcome = await runAnswer(validated.value, provider, started, { start: () => {}, step: () => {} }, req.signal)
-  } catch (err) {
-    console.error('DocMind run failed:', err)
-    return json(500, { error: FAILED_MESSAGE })
-  }
-  if (!outcome.ok) {
-    return json(outcome.status, { error: outcome.error, trace: outcome.trace, totalMs: outcome.totalMs })
-  }
-  return json(200, runBody(outcome))
+  return streamRun(validated.value, apiKey, started, req.signal)
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -147,9 +112,6 @@ export default async (req: Request): Promise<Response> => {
     return await respond(req, started)
   } catch (err) {
     console.error('DocMind request failed:', err)
-    return new Response(JSON.stringify({ error: FAILED_MESSAGE }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(originOf(req)) },
-    })
+    return json(500, { error: FAILED_MESSAGE })
   }
 }

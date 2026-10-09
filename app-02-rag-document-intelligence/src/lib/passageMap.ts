@@ -1,10 +1,9 @@
 import type { RunState } from '../types'
 
 /** 'passage' or 'passages', by count. */
-function noun(count: number): string {
+export function noun(count: number): string {
   return count === 1 ? 'passage' : 'passages'
 }
-
 
 /** Most cells the document map draws, so each stays wide enough to see. */
 export const MAP_CELLS = 64
@@ -60,6 +59,5 @@ export function sentSummary(total: number, sent: number[], cited: number[], stat
   }
   const sentLine = `The browser sent ${sent.length.toLocaleString('en-US')} of ${passages} ${noun(total)} to the model.`
   if (cited.length === 0) return sentLine
-  const word = cited.length === 1 ? 'passage' : 'passages'
-  return `${sentLine} The answer cites ${word} ${listNumbers(cited)}.`
+  return `${sentLine} The answer cites ${noun(cited.length)} ${listNumbers(cited)}.`
 }

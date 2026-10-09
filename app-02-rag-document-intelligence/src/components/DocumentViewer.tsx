@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { VIEWER_WINDOW } from '../lib/constants'
+import { locationLabel } from '../lib/location'
 import { PassageMap } from './PassageMap'
 import type { DocumentState, RunState } from '../types'
 
@@ -130,7 +131,7 @@ export function DocumentViewer({ document, sent, citedLatest, highlight, latestS
       <ul ref={listRef} className="docmind-passages" aria-label="Document passages">
         {document.chunks.slice(start, end).map((chunk, offset) => {
           const i = start + offset
-          const page = document.chunkPages[i]
+          const place = document.chunkPages[i]
           const cited = highlight.includes(i)
           const sentToModel = sent.includes(i)
           const tone = cited
@@ -150,7 +151,7 @@ export function DocumentViewer({ document, sent, citedLatest, highlight, latestS
               <p className="docmind-passage__meta">
                 <span>
                   Passage {i + 1}
-                  {page !== undefined && `, page ${page}`}
+                  {place !== undefined && `, ${locationLabel(document, place)}`}
                 </span>
                 {cited ? (
                   <span className="ds-badge ds-badge--accent">Cited</span>

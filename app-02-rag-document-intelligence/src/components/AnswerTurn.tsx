@@ -1,15 +1,17 @@
 import { AnswerText } from './AnswerText'
-import type { Turn } from '../types'
+import { locationLabel } from '../lib/location'
+import type { DocumentState, Turn } from '../types'
 
 interface AnswerTurnProps {
   turn: Turn
-  chunkPages: number[]
+  /** Where each passage sits, and what the numbers count: pages or sections. */
+  document: Pick<DocumentState, 'chunkPages' | 'unit' | 'sectionTitles'>
   /** Marks a source's passages in the list while it is under the pointer or focus. Null clears the mark. */
   onHighlight: (sources: number[] | null) => void
 }
 
 /** One question and its answer. Hovering or focusing the sources marks them in the passage list. */
-export function AnswerTurn({ turn, chunkPages, onHighlight }: AnswerTurnProps) {
+export function AnswerTurn({ turn, document, onHighlight }: AnswerTurnProps) {
   const sources = turn.sourceChunks
 
   return (
@@ -44,11 +46,11 @@ export function AnswerTurn({ turn, chunkPages, onHighlight }: AnswerTurnProps) {
               <summary>{sources.length === 1 ? 'Source: 1 passage' : `Sources: ${sources.length} passages`}</summary>
               <ul>
                 {sources.map(idx => {
-                  const page = chunkPages[idx]
+                  const place = document.chunkPages[idx]
                   return (
                     <li key={idx} className="ds-badge ds-badge--accent">
                       Passage {idx + 1}
-                      {page !== undefined && `, page ${page}`}
+                      {place !== undefined && `, ${locationLabel(document, place)}`}
                     </li>
                   )
                 })}

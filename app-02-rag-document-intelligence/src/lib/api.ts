@@ -1,11 +1,6 @@
 import { TOP_K } from './constants'
+import { noun } from './passageMap'
 import type { RunReport, TraceStep, Usage } from '../types'
-
-/** 'passage' or 'passages', by count. */
-function noun(count: number): string {
-  return count === 1 ? 'passage' : 'passages'
-}
-
 
 /**
  * Words carried by almost every question and almost every passage. Left in the
@@ -83,7 +78,7 @@ export function retrieve(question: string, chunks: string[], limit: number = TOP
   return scored.slice(0, limit).sort((a, b) => a.index - b.index)
 }
 
-// The step names the server records. Kept in step with netlify/shared/answer.ts.
+// The step names the server records.
 const RETRIEVE_STEP = 'Retrieve passages'
 const SERVER_STEPS = ['Accept request', 'Build prompt', 'Call model', 'Parse and validate']
 
@@ -267,47 +262,33 @@ export async function askQuestion(
     throw new AskError(message, runWith([retrieval, ...failure], totalMs))
   }
 
-  let run: ServerRun
-  if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
-    let end: StreamEnd | null
-    try {
-      end = await readStream(response.body, events)
-    } catch (err) {
-      if (signal?.aborted) throw err
-      console.error('DocMind response was not readable:', err)
-      throw new AskError(
-        'The document assistant returned an unreadable response. Please try again.',
-        runWith([retrieval, failedStep('Parse and validate', 'The response could not be read.')], null),
-      )
-    }
-    if (end?.kind === 'error') {
-      throw new AskError(end.message, runWith([retrieval, ...end.trace], end.totalMs))
-    }
-    if (end?.kind !== 'result') {
-      throw new AskError(
-        'The document assistant returned an unexpected response. Please try again.',
-        runWith([retrieval, failedStep('Parse and validate', 'The response ended before an answer.')], null),
-      )
-    }
-    run = end.run
-  } else {
-    let data: unknown
-    try {
-      data = await response.json()
-    } catch {
-      throw new AskError(
-        'The document assistant returned an unreadable response. Please try again.',
-        runWith([retrieval, failedStep('Parse and validate', 'The response was not JSON.')], null),
-      )
-    }
-    if (!isServerRun(data)) {
-      throw new AskError(
-        'The document assistant returned an unexpected response. Please try again.',
-        runWith([retrieval, failedStep('Parse and validate', 'The response had an unexpected shape.')], null),
-      )
-    }
-    run = data
+  if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body) {
+    throw new AskError(
+      'The document assistant returned an unexpected response. Please try again.',
+      runWith([retrieval, failedStep('Parse and validate', 'The response was not an event stream.')], null),
+    )
   }
+  let end: StreamEnd | null
+  try {
+    end = await readStream(response.body, events)
+  } catch (err) {
+    if (signal?.aborted) throw err
+    console.error('DocMind response was not readable:', err)
+    throw new AskError(
+      'The document assistant returned an unreadable response. Please try again.',
+      runWith([retrieval, failedStep('Parse and validate', 'The response could not be read.')], null),
+    )
+  }
+  if (end?.kind === 'error') {
+    throw new AskError(end.message, runWith([retrieval, ...end.trace], end.totalMs))
+  }
+  if (end?.kind !== 'result') {
+    throw new AskError(
+      'The document assistant returned an unexpected response. Please try again.',
+      runWith([retrieval, failedStep('Parse and validate', 'The response ended before an answer.')], null),
+    )
+  }
+  const run = end.run
 
   // The server keeps only citations that name a passage it was sent, so they are used as they are.
   return {

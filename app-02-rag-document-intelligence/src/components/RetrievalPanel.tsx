@@ -40,7 +40,7 @@ export function RetrievalPanel({
 
       {doc ? (
         <div className="docmind-hero__body">
-          <Answers turns={turns} chunkPages={doc.chunkPages} onHighlight={onHighlight} />
+          <Answers turns={turns} document={doc} onHighlight={onHighlight} />
           <DocumentViewer
             key={docVersion}
             document={doc}
@@ -65,12 +65,12 @@ export function RetrievalPanel({
 
 interface AnswersProps {
   turns: Turn[]
-  chunkPages: number[]
+  document: DocumentState
   onHighlight: (sources: number[] | null) => void
 }
 
 /** The conversation. The newest answer stays in view inside this column, not the page. */
-function Answers({ turns, chunkPages, onHighlight }: AnswersProps) {
+function Answers({ turns, document, onHighlight }: AnswersProps) {
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -82,7 +82,7 @@ function Answers({ turns, chunkPages, onHighlight }: AnswersProps) {
     return (
       <div className="ds-empty">
         <p className="ds-help">
-          No answer yet. Ask a question to see the answer, the passages it cites, and the page each one is on.
+          No answer yet. Ask a question to see the answer, the passages it cites, and the {document.unit} each one is in.
         </p>
       </div>
     )
@@ -91,7 +91,7 @@ function Answers({ turns, chunkPages, onHighlight }: AnswersProps) {
   return (
     <div ref={logRef} className="docmind-conversation" role="log" aria-label="Answers">
       {turns.map(turn => (
-        <AnswerTurn key={turn.id} turn={turn} chunkPages={chunkPages} onHighlight={onHighlight} />
+        <AnswerTurn key={turn.id} turn={turn} document={document} onHighlight={onHighlight} />
       ))}
     </div>
   )

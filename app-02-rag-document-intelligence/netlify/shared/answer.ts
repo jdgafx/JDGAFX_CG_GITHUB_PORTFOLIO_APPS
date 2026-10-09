@@ -1,10 +1,9 @@
-import { callModel, estimateCost, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type ProviderConfig, type RawUsage } from './provider'
+import { callModel, estimateCost, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type RawUsage } from './provider'
 
 /** 'passage' or 'passages', by count. */
 function noun(count: number): string {
   return count === 1 ? 'passage' : 'passages'
 }
-
 
 export interface AnswerInput {
   question: string
@@ -194,7 +193,7 @@ function costOf(attempt: AttemptOk): Pick<TraceStep, 'tokens' | 'cost'> {
  */
 export async function runAnswer(
   input: AnswerInput,
-  provider: ProviderConfig,
+  apiKey: string,
   started: number,
   events: RunEvents,
   signal: AbortSignal,
@@ -225,7 +224,7 @@ export async function runAnswer(
   const deadline = started + UPSTREAM_TIMEOUT_MS
   events.start(STEP_CALL)
   const called = Date.now()
-  const first = await callModel(provider, messages, deadline, signal)
+  const first = await callModel(apiKey, messages, deadline, signal)
   if (!first.ok) {
     record(STEP_CALL, called, 'failed', first.message)
     return fail(first.status, first.message, [STEP_PARSE])
@@ -242,7 +241,7 @@ export async function runAnswer(
     record(STEP_CALL, called, 'failed', 'Output was empty or cut off. Asking the model again.', costOf(first))
     events.start(STEP_RETRY)
     const retried = Date.now()
-    const second = await callModel(provider, messages, deadline, signal)
+    const second = await callModel(apiKey, messages, deadline, signal)
     if (!second.ok) {
       record(STEP_RETRY, retried, 'failed', second.message)
       return fail(second.status, second.message, [STEP_PARSE])
@@ -264,7 +263,7 @@ export async function runAnswer(
   const cited = parsed.result.source_chunk_indices.length
   const confidence = Math.round(parsed.result.confidence * 100)
   const estimateNote = usage.cost_source === 'estimated' ? ' Cost estimated from catalogue pricing.' : ''
-  record(STEP_PARSE, parsing, 'ok', `Answer cites ${cited} passage${cited === 1 ? '' : 's'}. Self-rated ${confidence}%.${estimateNote}`)
+  record(STEP_PARSE, parsing, 'ok', `Answer cites ${cited} ${noun(cited)}. Self-rated ${confidence}%.${estimateNote}`)
 
   return { ok: true, result: parsed.result, trace, usage, model, totalMs: Date.now() - started }
 }

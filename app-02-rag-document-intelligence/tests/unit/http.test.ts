@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { clientKey, corsHeaders, MAX_BODY_BYTES, originAllowed, rateLimited, readJsonBody, validate } from '../../netlify/shared/http'
+import { clientKey, MAX_BODY_BYTES, originAllowed, rateLimited, readJsonBody, validate } from '../../netlify/shared/http'
 
 const VALID = {
   question: 'In what year was the Harbor Station opened?',
@@ -104,7 +104,7 @@ describe('readJsonBody', () => {
   })
 })
 
-describe('originAllowed and corsHeaders', () => {
+describe('originAllowed', () => {
   const previous = process.env.ALLOWED_ORIGINS
 
   afterEach(() => {
@@ -125,16 +125,6 @@ describe('originAllowed and corsHeaders', () => {
   it('allows an origin named in ALLOWED_ORIGINS, with or without a trailing slash', () => {
     process.env.ALLOWED_ORIGINS = 'https://docmind.example.com/'
     expect(originAllowed('https://docmind.example.com')).toBe(true)
-  })
-
-  it('echoes an allowed origin in the CORS header, and omits it when there is no origin', () => {
-    expect(corsHeaders('https://docmind.example.com')).toEqual({
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      Vary: 'Origin',
-      'Access-Control-Allow-Origin': 'https://docmind.example.com',
-    })
-    expect(corsHeaders(null)).not.toHaveProperty('Access-Control-Allow-Origin')
   })
 })
 
