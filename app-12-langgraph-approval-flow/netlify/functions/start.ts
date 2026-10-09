@@ -5,6 +5,7 @@ import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
 import { startRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
 import { activeStore } from '../shared/store'
+import { newThreadId } from '../shared/thread-index'
 
 /** POST /api/start: triages one GitHub issue and streams its frames until the review pause or the result. */
 export default async (req: Request): Promise<Response> => {
@@ -29,7 +30,7 @@ export default async (req: Request): Promise<Response> => {
     if (!issue.ok) return fail(issue.message, 400)
 
     const { store, kind } = activeStore()
-    const threadId = crypto.randomUUID()
+    const threadId = newThreadId()
     streaming = true
     return streamResponse(budget, (send, signal) =>
       startRun(

@@ -11,20 +11,13 @@ import {
   threadIdFrom,
 } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
-import { pendingReview, resumeRun } from '../shared/run'
+import { inFlight, inspectThread, resumeRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
-import { activeStore, guardStore, storeTimeoutOf } from '../shared/store'
-import { getThreadEntry } from '../shared/thread-index'
+import { activeStore, storeTimeoutOf } from '../shared/store'
 import { labelsProblem } from '../shared/triage'
 
 const NOT_AWAITING = 'This thread is not awaiting approval.'
 const BUSY = 'This thread is already being resumed. Wait for that run to finish.'
-
-/**
- * Threads resumed by this function instance. A second answer for the same thread while the first
- * still runs is refused. This guards one instance only, not a race across instances.
- */
-const resuming = new Set<string>()
 
 /** POST /api/resume: continues a paused thread from its checkpoint with the maintainer's answer. */
 export default async (req: Request): Promise<Response> => {
@@ -51,12 +44,13 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = activeStore()
     const deps = { store, storage: kind, chat, now: () => new Date() }
-    if (resuming.has(threadId)) return fail(BUSY, 409)
-    // The reads before the stream share the request budget, so a hung store cannot hold the request.
-    const entry = await getThreadEntry(guardStore(store, budget.signal), threadId)
-    if (!entry || entry.status !== 'awaiting_approval') return fail(NOT_AWAITING, 409)
-    const review = await pendingReview(deps, threadId, budget.signal)
-    if (!review) return fail(NOT_AWAITING, 409)
+    if (inFlight.has(threadId)) return fail(BUSY, 409)
+    // The read before the stream shares the request budget, so a hung store cannot hold the request. The
+    // checkpoint decides whether the thread is waiting, whatever its summary says.
+    const info = await inspectThread(deps, threadId, budget.signal)
+    if (!info?.proposal) return fail(NOT_AWAITING, 409)
+    const review = info.proposal
+    const entry = info.entry
 
     const answer = decision.value
     // An edit may only use labels from the list the card offered, so a crafted request cannot invent one.
@@ -65,10 +59,10 @@ export default async (req: Request): Promise<Response> => {
       if (problem) return fail(problem, 400)
     }
 
-    resuming.add(threadId)
+    inFlight.add(threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
-      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => resuming.delete(threadId)),
+      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => inFlight.delete(threadId)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)

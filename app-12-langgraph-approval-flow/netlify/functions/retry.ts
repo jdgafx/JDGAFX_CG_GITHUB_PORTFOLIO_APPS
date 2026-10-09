@@ -1,17 +1,13 @@
 import { RunBudget } from '../shared/budget'
 import { checkRequest, clientKey, fail, isRecord, rateLimit, readJsonBody, SERVER_ERROR, threadIdFrom } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
-import { hasStepToRetry, retryRun } from '../shared/run'
+import { inFlight, inspectThread, retryRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
-import { activeStore, guardStore, storeTimeoutOf } from '../shared/store'
-import { getThreadEntry } from '../shared/thread-index'
+import { activeStore, storeTimeoutOf } from '../shared/store'
 
 const NOT_FAILED = 'This thread did not fail, so there is nothing to retry.'
 const NOTHING_SAVED = 'This thread has no saved step to continue from. Start the issue again.'
-const BUSY = 'This thread is already being retried. Wait for that run to finish.'
-
-/** Threads retried by this function instance. One instance only, like the resume guard. */
-const retrying = new Set<string>()
+const BUSY = 'This thread is already being run. Wait for that run to finish.'
 
 /**
  * POST /api/retry: continues a failed thread from its last checkpoint. Steps that finished, the
@@ -39,15 +35,17 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = activeStore()
     const deps = { store, storage: kind, chat, now: () => new Date() }
-    if (retrying.has(threadId)) return fail(BUSY, 409)
-    const entry = await getThreadEntry(guardStore(store, budget.signal), threadId)
-    if (!entry || entry.status !== 'failed') return fail(NOT_FAILED, 409)
-    if (!(await hasStepToRetry(deps, threadId, budget.signal))) return fail(NOTHING_SAVED, 409)
+    if (inFlight.has(threadId)) return fail(BUSY, 409)
+    // The checkpoint decides whether the thread failed, whatever its summary says.
+    const info = await inspectThread(deps, threadId, budget.signal)
+    if (!info || info.entry.status !== 'failed') return fail(NOT_FAILED, 409)
+    if (!info.hasNext) return fail(NOTHING_SAVED, 409)
+    const entry = info.entry
 
-    retrying.add(threadId)
+    inFlight.add(threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
-      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => retrying.delete(threadId)),
+      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => inFlight.delete(threadId)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)

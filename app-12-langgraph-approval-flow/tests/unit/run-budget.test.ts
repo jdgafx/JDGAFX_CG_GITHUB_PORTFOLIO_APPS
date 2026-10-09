@@ -5,13 +5,15 @@ import { CALL_TIMEOUT_MS, PROVIDER_SLOW, ProviderError } from '../../netlify/sha
 import { budgetMessage, startRun, type RunDeps } from '../../netlify/shared/run'
 import { streamResponse } from '../../netlify/shared/sse'
 import { createMemoryStore, STORE_SLOW, type KeyValueStore } from '../../netlify/shared/store'
-import { readThreadIndex } from '../../netlify/shared/thread-index'
+import { listThreads, newThreadId } from '../../netlify/shared/thread-index'
 import { fakeChat } from '../helpers/fake-chat'
 import { QUESTION } from '../helpers/issues'
 import { untilSettled } from '../helpers/fake-time'
 import { parseFrames } from '../helpers/http'
 
 const NOW = new Date('2026-10-08T12:00:00Z')
+const ids = { get: newThreadId(), set: newThreadId() }
+const BUDGET_ID = newThreadId()
 const NEVER = () => new Promise<never>(() => {})
 
 /** A store whose checkpoint reads, or writes, never resolve. The thread index still answers. */
@@ -46,7 +48,7 @@ describe('a run whose checkpoint store never answers', () => {
       await untilSettled(
         startRun(deps, {
           issue: QUESTION,
-          threadId: `hang-${hang}`,
+          threadId: ids[hang],
           budget: budget.signal,
           send: (event) => events.push(event),
         }),
@@ -55,8 +57,8 @@ describe('a run whose checkpoint store never answers', () => {
 
       expect(events.find((event) => event.type === 'error')).toEqual({ type: 'error', message: STORE_SLOW })
       expect(events.some((event) => event.type === 'result')).toBe(false)
-      const index = await readThreadIndex(store)
-      expect(index).toEqual([expect.objectContaining({ id: `hang-${hang}`, status: 'failed' })])
+      const index = await listThreads(store)
+      expect(index).toEqual([expect.objectContaining({ id: ids[hang], status: 'failed' })])
     },
   )
 })
@@ -90,13 +92,13 @@ describe('the run budget', () => {
     const deps: RunDeps = { store, storage: 'memory', chat: stalled as unknown as RunDeps['chat'], now: () => NOW }
 
     const response = streamResponse(new RunBudget(3_000), (send, signal) =>
-      startRun(deps, { issue: QUESTION, threadId: 'budget-short', budget: signal, send }),
+      startRun(deps, { issue: QUESTION, threadId: BUDGET_ID, budget: signal, send }),
     )
     const frames = parseFrames(await untilSettled(response.text()))
 
     expect(frames.find((frame) => frame !== '[DONE]' && frame.type === 'error')).toEqual({ type: 'error', message: budgetMessage('classify') })
     expect(frames.at(-1)).toBe('[DONE]')
-    expect(await readThreadIndex(store)).toEqual([expect.objectContaining({ id: 'budget-short', status: 'failed' })])
+    expect(await listThreads(store)).toEqual([expect.objectContaining({ id: BUDGET_ID, status: 'failed' })])
   })
 
   it('names the budget, not the provider, when the budget ends a call, and the call limit when a call overruns', async () => {

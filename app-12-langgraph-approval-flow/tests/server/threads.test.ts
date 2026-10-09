@@ -42,15 +42,15 @@ describe('GET /api/threads', () => {
     expect(Number.isNaN(Date.parse(row?.updatedAt ?? ''))).toBe(false)
   })
 
-  it('lists the new threads and skips a thread saved by the refund version, without failing', async () => {
-    const blobs = (await import('@netlify/blobs')) as unknown as { getStore: () => { get: (key: string) => Promise<string | null>; set: (key: string, value: string) => Promise<unknown> } }
-    const store = blobs.getStore()
-    const current = JSON.parse((await store.get('threads/index')) ?? '[]') as unknown[]
-    await store.set(
+  it('lists the new threads, adds a thread only the old index knows, and skips a thread saved by the refund version', async () => {
+    const blobs = (await import('@netlify/blobs')) as unknown as { getStore: () => { set: (key: string, value: string) => Promise<unknown> } }
+    const refund = '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b'
+    const earlier = '9d1c1d3a-0f4e-4c58-9a57-2f1d6b7e8a90'
+    await blobs.getStore().set(
       'threads/index',
       JSON.stringify([
-        { id: '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b', title: 'I was charged twice for ORD-1042', status: 'awaiting_approval', updatedAt: '2026-10-08T12:00:00.000Z', amount: 129 },
-        ...current,
+        { id: refund, title: 'I was charged twice for ORD-1042', status: 'awaiting_approval', updatedAt: '2026-10-08T12:00:00.000Z', amount: 129 },
+        { id: earlier, title: 'acme/widgets #5: earlier', repo: 'acme/widgets', number: 5, status: 'awaiting_approval', updatedAt: '2026-10-08T13:00:00.000Z', priority: 'low' },
       ]),
     )
 
@@ -58,8 +58,8 @@ describe('GET /api/threads', () => {
     const body = (await response.json()) as { threads: Array<{ id: string }> }
 
     expect(response.status).toBe(200)
-    expect(body.threads.length).toBeGreaterThan(0)
-    expect(body.threads.some((entry) => entry.id === '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b')).toBe(false)
+    expect(body.threads.some((entry) => entry.id === earlier)).toBe(true)
+    expect(body.threads.some((entry) => entry.id === refund)).toBe(false)
   })
 
   it('answers 405 to a POST', async () => {

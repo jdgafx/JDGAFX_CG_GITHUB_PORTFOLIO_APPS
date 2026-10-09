@@ -95,14 +95,17 @@ Browser, then Netlify Functions, then OpenRouter and Netlify Blobs. GitHub is ca
 - `POST /api/start` takes `{ issue }`. It streams server-sent frames: `thread`, then `node_start`, `node_end`, `edge`, then `interrupt` or `result`, then `[DONE]`. A bad issue gets 400 before any model call.
 - `POST /api/resume` takes `{ threadId, decision }`. It streams the rest of the run from the checkpoint. A thread that is not waiting gets 409. The classify call is not repeated: the resumed run reads it from the checkpoint.
 - `POST /api/retry` takes `{ threadId }`. It continues a failed thread from its last checkpoint and streams like resume. The classification and a maintainer's answer are read from the checkpoint and not run again. A thread that did not fail, or has no saved step, gets 409.
-- `GET /api/threads` returns the thread index and where checkpoints are kept.
+- `GET /api/threads` returns the thread list and where checkpoints are kept.
 - `GET /api/thread?id=` returns one thread's status, issue, pending proposal and result.
 - Validation of the issue: `repo` is `owner/name`; `number` is a positive integer; the title is 1 to 300 characters; the body is text of at most 6,000 characters; there are at most 30 labels of 50 characters; `authorAssociation` is one of GitHub's values; `createdAt` is a UTC ISO time; and the link must equal `https://github.com/{repo}/issues/{number}` exactly. Control characters are removed from text.
-- Checkpoints use the `graphgate-checkpoints` Blobs store, with keys under `thread/<id>/`. The thread index is one document at `threads/index`. It keeps 50 threads, and a thread awaiting a maintainer is never dropped.
+- Checkpoints use the `graphgate-checkpoints` Blobs store, with keys under `thread/<id>/`. They are the source of truth for a thread.
+- The thread list is one small summary blob per thread at `threads/<threadId>`, written only by the run that owns that thread. Nothing is read, changed and written back as a shared document, so runs at the same moment cannot overwrite each other. Thread ids are UUIDs that start with the creation time, so the keys sort by age. The list reads the newest 50 summaries.
+- A thread's status comes from its checkpoint: stopped at the interrupt means awaiting a maintainer, finished with a reply means completed, anything else means failed. The summary supplies the title and priority and speeds up the list. When a summary is missing or disagrees with the checkpoint, opening the thread rewrites it. A lost or late summary write therefore cannot strand a thread: resume and retry read the checkpoint, not the summary.
+- A summary write that fails is tried twice and logged with the thread id. The single `threads/index` document of earlier versions is read as a fallback for listing and opening threads saved before summaries existed, and is never written again.
 - The checkpoint saver imports its base class, `WRITES_IDX_MAP` and checkpoint types from `@langchain/langgraph-checkpoint`. That package is therefore a direct dependency, pinned to the version `@langchain/langgraph` already uses.
 - The OpenRouter key is read only on the server. A missing key returns 503 before any model call.
 - Requests from unknown origins get 403, and wrong methods get 405. A request with no Origin header passes. Bodies over 32 KB get 413. Each client address gets 20 starts or resumes a minute.
-- One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 8 seconds, with one automatic retry when it hangs or loses its connection and the budget has room. Each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit and is not counted in the budget.
+- One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 8 seconds, with one automatic retry when it hangs or loses its connection and the budget has room. Each checkpoint or summary call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final summary write has its own 8-second limit and is not counted in the budget.
 - Deadlines are timers that settle a race with the whole exchange, the body read included, and they also abort the fetch. A reply whose body never finishes is cut at the limit even if the fetch ignores its abort signal. The same holds for the browser's GitHub request (10 seconds) and for every store call. Nothing relies on `AbortSignal.timeout` alone.
 - A stop says what ended it. A call that passes 8 seconds, after its retry, reads "The AI provider did not answer within 8 seconds during the classify step, even after one automatic retry." A run that uses its 25-second budget reads "The run reached its 25-second budget during the reply step and was stopped." Both add that finished steps are saved.
 - A failed run keeps its checkpoint. The thread is marked failed and listed, and Retry continues it.
@@ -132,7 +135,7 @@ npm run typecheck
 npm run build
 ```
 
-The tests mock the model and the store. They cover the graph paths with a mocked model (auto-triage, pause then approve, edit, reject, and resume from a fresh checkpointer over the same store), the retry of a failed thread, the call and budget deadlines (including a reply whose body never finishes), the rules, the boundary validation of the issue and of the decision, the parsing of a recorded GitHub response, the draft guard, and the thread index. The recorded GitHub response exists only in the tests. The app fetches live.
+The tests mock the model and the store. They cover the graph paths with a mocked model (auto-triage, pause then approve, edit, reject, and resume from a fresh checkpointer over the same store), the retry of a failed thread, the call and budget deadlines (including a reply whose body never finishes), the rules, the boundary validation of the issue and of the decision, the parsing of a recorded GitHub response, the draft guard, the per-thread summaries (ten writes at the same moment all stay; a stale summary against a finished checkpoint shows the result), and the legacy index fallback. The recorded GitHub response exists only in the tests. The app fetches live.
 
 Live URL: https://jdgafx-app-12-langgraph-approval-flow.netlify.app
 
@@ -143,13 +146,11 @@ Live URL: https://jdgafx-app-12-langgraph-approval-flow.netlify.app
 - GitHub's anonymous limit is 60 requests an hour per visitor address. Loading a repo costs one request.
 - Pull requests are dropped after the fetch, so a repo with many open pull requests lists fewer than 25 issues.
 - The issue text is cut to 6,000 characters before it is sent. The reply call sees the first 1,500.
-- Threads saved by the earlier refund version of this app have a different shape. The thread list skips them, so they cannot be opened or resumed. The next write to the index drops them.
+- Threads saved by the earlier refund version of this app have a different shape. The thread list skips them, so they cannot be opened or resumed.
 - The rate limit and the resume guard count per function instance, so the real limits depend on how many instances run.
 - Requests with no Origin header pass the origin check.
-- The thread index is read, changed and written as one document. Two writes at the same moment can drop a row. Checkpoints are not affected.
-- If the index write fails after a pause, the paused thread is not listed, so its review cannot be reached from the page.
-- If the index write fails after a resume completes, the thread stays listed as awaiting a maintainer with no proposal. Resuming it then answers 409.
-- Waiting threads are never dropped, so the index can grow past 50 when many reviews are left waiting.
+- The list shows the 50 newest threads. An older thread that is still waiting is not listed, but it can be opened by its id and resumed. If a summary write fails twice, that thread is missing from the list until it is opened. Opening it by id repairs that.
+- Summaries are never deleted, so the keys grow without bound. Only the newest 50 are read.
 - Two answers for one thread are refused only inside one instance. Across instances they could both run.
 - A run that fails is marked failed. Retry continues it from the checkpoint, unless it failed before any step was saved. A retry after a platform stop mid-call may repeat that call and bill it twice.
 - A failed thread, reopened later, shows the steps that finished. The failing step's message appears only in the live run.
