@@ -112,40 +112,49 @@ const FILLER = new Set([
   'even', 'still', 'often', 'every', 'because', 'between', 'through', 'after', 'before',
 ])
 
-// A token is a word, or a name such as "asm.js", "node.js" or "c++". It is compared by its first
-// four letters, so plurals and endings match; a name with a dot or plus is compared whole.
-function stemOf(token: string): string {
-  return /[.+]/.test(token) ? token : token.slice(0, 4)
+// A token is a word, a number or a year, or a name such as "asm.js", "c++", "c#" or ".net".
+// Filler words never count as a shared word.
+function claimTokens(text: string): string[] {
+  const tokens = text.toLowerCase().match(/[\p{L}\p{N}]+(?:\.[\p{L}\p{N}]+)*[+#]*/gu) ?? []
+  return tokens.filter(token => !FILLER.has(token) && (token.length >= 3 || /[\d+#]/.test(token)))
 }
 
-// Three letters or more, no filler. A claim word is "rare" when it is a name with a dot, plus or
-// digit, or a long word: one shared rare word is enough to back a claim, otherwise two are needed.
-function claimWords(text: string): Map<string, boolean> {
-  const words = new Map<string, boolean>()
-  for (const token of text.toLowerCase().match(/[\p{L}\p{N}]+(?:\.[\p{L}\p{N}]+)*\+*/gu) ?? []) {
-    if (token.length < 3 || FILLER.has(token)) continue
-    words.set(stemOf(token), /[.+\d]/.test(token) || token.length >= 9)
-  }
-  return words
+// Two tokens are related when they are equal, or when both are at least four letters and one
+// starts with the other's first four letters, or when one of at least five letters sits inside
+// the other ("painting" in "repainting"). Short tokens such as "c#" and "lhc" must match exactly.
+function related(a: string, b: string): boolean {
+  if (a === b) return true
+  const shortest = Math.min(a.length, b.length)
+  if (shortest < 4 || /[.+#\d]/.test(a + b)) return false
+  return a.slice(0, 4) === b.slice(0, 4) || (shortest >= 5 && (a.includes(b) || b.includes(a)))
 }
 
+// Strips the emoji, symbols and punctuation that trail a sentence before the marker, then returns
+// the sentence they ended, so "...on the Moon. \u{1F315} [1]" is judged on "...on the Moon".
 function sentenceBefore(text: string, index: number): string {
-  const head = text.slice(0, index).replace(/(?: ?\[\d{1,2}\])+$/, '')
+  const head = text.slice(0, index)
+    .replace(/(?: ?\[\d{1,2}\])+$/, '')
+    .replace(/(?:[\s\p{P}\p{S}\p{Extended_Pictographic}]|\u200D|\uFE0F)+$/u, '')
   const cut = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf('\n'))
   return head.slice(cut + 1)
 }
 
-// True when the sentence shares two claim words with the source's title or extract, or one rare
-// one. The topic's own words are left out: every sentence about the topic has them.
-function backs(source: Source, sentence: string, ignore: ReadonlySet<string>): boolean {
-  const have = claimWords(`${source.title} ${source.summary}`)
-  let shared = 0
-  for (const [stem, rare] of claimWords(sentence)) {
-    if (ignore.has(stem) || !have.has(stem)) continue
-    if (rare) return true
-    shared += 1
+// The words in a story's link ("margaret-hamilton-apollo-11-tribute") say what it is about when
+// its headline does not name the subject.
+function linkWords(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname).replace(/[/_-]+/g, ' ')
+  } catch {
+    return ''
   }
-  return shared >= 2
+}
+
+// A marker is kept unless there is clearly no connection: the sentence shares no word, number or
+// name with the source's title, extract or (for Hacker News) year and link words. Topic words count too.
+function backs(source: Source, sentence: string): boolean {
+  const own = `${source.title} ${source.summary} ${source.date ?? ''}`
+  const have = claimTokens(source.kind === 'hackernews' ? `${own} ${linkWords(source.url)}` : own)
+  return claimTokens(sentence).some(token => have.some(other => related(token, other)))
 }
 
 function escapeMarkdown(text: string): string {
@@ -180,11 +189,10 @@ function listEntry(source: Source, contentType: string): string {
 
 /**
  * Ends the finished piece with its Sources list. Markers that point at no real source are removed,
- * and so is a marker whose sentence shares too few claim words with its source (the sentence stays, uncited).
+ * and so is a marker whose sentence shares no word at all with its source (the sentence stays, uncited).
  * The list is built from the lookup, never from model text. With no sources the piece says so.
- * `topicTerms` are the topic's words, which do not count as a match.
  */
-export function withSources(piece: string, pack: SourcePack, contentType: string, topicTerms: readonly string[] = []): string {
+export function withSources(piece: string, pack: SourcePack, contentType: string): string {
   const body = stripSourcesSection(piece).trimEnd()
   if (pack.sources.length === 0) {
     const unmarked = body.replace(CITATION, '')
@@ -192,14 +200,13 @@ export function withSources(piece: string, pack: SourcePack, contentType: string
   }
 
   const bySource = new Map(pack.sources.map(source => [source.n, source]))
-  const ignore = new Set(topicTerms.map(stemOf))
   const cited = new Set<number>()
   // A run such as "[1][2]" is judged marker by marker, and the markers that hold stay together.
   const cleaned = body.replace(CITATION, (match, run: string, offset: number) => {
     const sentence = sentenceBefore(body, offset)
     const kept = [...run.matchAll(/\[(\d+)\]/g)].flatMap(([marker, digits]) => {
       const source = bySource.get(Number(digits))
-      if (!source || !backs(source, sentence, ignore)) return []
+      if (!source || !backs(source, sentence)) return []
       cited.add(source.n)
       return [marker]
     })

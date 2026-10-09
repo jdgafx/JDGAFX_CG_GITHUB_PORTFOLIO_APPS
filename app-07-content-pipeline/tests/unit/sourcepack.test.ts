@@ -114,50 +114,90 @@ describe('withSources', () => {
     expect(withSources(long, PACK, 'Blog Post')).toContain('## Sources of friction')
   })
 
-  it('removes a marker whose sentence shares no claim word with its source, and keeps the sentence', () => {
+  it('removes a marker whose sentence shares no word with its source, and keeps the sentence', () => {
     const text = withSources('Light from early galaxies is stretched to longer wavelengths [1]. Rust is a general-purpose language [1].', PACK, 'Blog Post')
     expect(text.startsWith('Light from early galaxies is stretched to longer wavelengths. Rust is a general-purpose language [1].')).toBe(true)
   })
 
-  it('does not let the topic words alone make a citation fit', () => {
-    const pack: SourcePack = { sources: [{ ...WIKI, title: 'James E. Webb', summary: 'James Webb led NASA from 1961 to 1968.' }], notes: [] }
-    const redshift = 'The James Webb telescope measures redshift in early galaxies [1].'
-    // Counting the topic's own words, the sentence looks backed by a page about the man.
-    expect(withSources(redshift, pack, 'Blog Post').startsWith(redshift)).toBe(true)
-    // Ignoring them, as the function does, nothing is shared and the marker goes.
-    expect(withSources(redshift, pack, 'Blog Post', ['james', 'webb', 'telescope']).startsWith('The James Webb telescope measures redshift in early galaxies.')).toBe(true)
-    expect(withSources('James Webb led NASA in 1961 [1].', pack, 'Blog Post', ['james', 'webb']).startsWith('James Webb led NASA in 1961 [1].')).toBe(true)
-  })
-
-  describe('how many claim words back a marker', () => {
+  describe('a marker stays unless there is clearly no connection', () => {
     const ASM: SourcePack = {
       sources: [{ n: 3, kind: 'hackernews', title: 'From Asm.js to WebAssembly', url: 'https://brendaneich.com/2015/06/from-asm-js-to-webassembly/', summary: '', points: 120, date: '2015-06-17' }],
       notes: [],
     }
-    const WASM = ['webassembly']
+    const keeps = (text: string, pack: SourcePack, marker = '[1]') => withSources(text, pack, 'Blog Post').startsWith(text) && text.includes(marker)
 
-    it('keeps a marker on a sentence that quotes a title built on a name such as "Asm.js", with the topic word ignored', () => {
-      const text = withSources('The story is told in "From Asm.js to WebAssembly" [3].', ASM, 'Newsletter', WASM)
+    it('counts the topic words: one shared word, such as the subject itself, is enough', () => {
+      const pack: SourcePack = { sources: [{ ...WIKI, title: 'James E. Webb', summary: 'James Webb led NASA from 1961 to 1968.' }], notes: [] }
+      expect(keeps('The James Webb telescope measures redshift in early galaxies [1].', pack)).toBe(true)
+    })
+
+    it('keeps a marker on a sentence that quotes a title built on a name such as "Asm.js"', () => {
+      const text = withSources('The story is told in "From Asm.js to WebAssembly" [3].', ASM, 'Newsletter')
       expect(text.startsWith('The story is told in "From Asm.js to WebAssembly" [3].')).toBe(true)
       expect(text).toContain('- [3] [From Asm.js to WebAssembly]')
     })
 
-    it('keeps a marker on one shared rare word, such as a name with a dot, a number or a long word', () => {
-      expect(withSources('It grew out of asm.js [3].', ASM, 'Blog Post', WASM).startsWith('It grew out of asm.js [3].')).toBe(true)
-      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider began operating in 2008 at CERN.' }], notes: [] }
-      expect(withSources('Operations began in 2008 [1].', lhc, 'Blog Post').startsWith('Operations began in 2008 [1].')).toBe(true)
-      expect(withSources('The accelerator needs superconducting magnets [1].', { sources: [{ ...WIKI, summary: 'It uses superconducting magnets.' }], notes: [] }, 'Blog Post').startsWith('The accelerator needs superconducting magnets [1].')).toBe(true)
+    it('keeps a marker on a name such as C# or C++, which are shorter than three letters', () => {
+      const csharp: SourcePack = { sources: [{ ...HN, n: 1, title: "A comparison of Rust's borrow checker to the one in C#" }], notes: [] }
+      expect(keeps("A widely discussed post contrasts Rust's borrowing model with the reference-safety rules in C# [1].", csharp)).toBe(true)
+      expect(keeps('Pointers are manual in C++ and managed in Java [1].', { sources: [{ ...HN, n: 1, title: 'Why C++ pointers hurt' }], notes: [] })).toBe(true)
     })
 
-    it('removes a marker that rests on one shared ordinary word', () => {
-      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider is operated by CERN near Geneva.' }], notes: [] }
-      // "operated" is the only word they share.
-      expect(withSources('Staff operated the control room all night [1].', lhc, 'Blog Post').startsWith('Staff operated the control room all night.')).toBe(true)
+    it('matches the year of a Hacker News story, which is in its date and not in its title', () => {
+      const four: SourcePack = { sources: [{ ...HN, n: 2, title: 'Four limitations of Rust\'s borrow checker', date: '2024-12-22' }], notes: [] }
+      expect(keeps('A December 2024 analysis lays out the shortcomings of the model [2].', four, '[2]')).toBe(true)
+      expect(withSources('A March 2019 analysis lays out the shortcomings of the model [2].', four, 'Blog Post').startsWith('A March 2019 analysis lays out the shortcomings of the model.')).toBe(true)
     })
 
-    it('keeps a marker on two shared ordinary words', () => {
-      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider is operated by CERN near Geneva.' }], notes: [] }
-      expect(withSources('CERN operated it near Geneva [1].', lhc, 'Blog Post').startsWith('CERN operated it near Geneva [1].')).toBe(true)
+    it('matches the words in a Hacker News link when the headline does not name the subject', () => {
+      const tribute: SourcePack = { sources: [{ ...HN, n: 4, title: 'A moonlit tribute to a moon landing icon', url: 'https://blog.google/products/maps/margaret-hamilton-apollo-11-tribute/' }], notes: [] }
+      expect(keeps("Margaret Hamilton, an Apollo-era figure, has been honored for her work [4].", tribute, '[4]')).toBe(true)
+    })
+
+    it('matches a word inside a longer one, such as "painting" in "repainting"', () => {
+      const paint: SourcePack = { sources: [{ ...HN, n: 5, title: 'Painting the Eiffel Tower' }], notes: [] }
+      expect(keeps('Its repainting has drawn attention in its own right [5].', paint, '[5]')).toBe(true)
+    })
+
+    it('matches endings of the same word, such as tests and testing', () => {
+      const pack: SourcePack = { sources: [{ ...HN, n: 1, title: 'Unit testing at scale' }], notes: [] }
+      expect(keeps('Small teams that write tests ship calmer [1].', pack)).toBe(true)
+    })
+
+    it('does not match on a short word by accident', () => {
+      const pack: SourcePack = { sources: [{ ...HN, n: 1, title: 'The LHC and CERN' }], notes: [] }
+      expect(withSources('Lunch was served at noon [1].', pack, 'Blog Post').startsWith('Lunch was served at noon.')).toBe(true)
+    })
+  })
+
+  describe('the sentence a marker belongs to', () => {
+    const MOON: SourcePack = {
+      sources: [{ n: 1, kind: 'wikipedia', title: 'Apollo 11', url: 'https://en.wikipedia.org/wiki/Apollo_11', summary: 'Apollo 11 was the first spaceflight to land humans on the Moon, from July 16 to 24, 1969.' }],
+      notes: [],
+    }
+
+    it('judges "Moon. \u{1F315} [1]" on the sentence before the emoji, so the marker stays', () => {
+      const thread = '1/ Apollo 11 carried the first humans to land on the Moon. \u{1F315} [1]'
+      expect(withSources(thread, MOON, 'Social Thread').startsWith(thread)).toBe(true)
+    })
+
+    it('does the same for other symbols, a variation selector and a few emoji in a row', () => {
+      for (const tail of ['\u{1F680} [1]', '\u{1F6F0}\uFE0F [1]', '\u{1F4BB}\u{1F50D} [1]', '\u2728 [1]']) {
+        const thread = `Apollo 11 landed on the Moon. ${tail}`
+        expect(withSources(thread, MOON, 'Social Thread').startsWith(thread)).toBe(true)
+      }
+    })
+
+    it('still drops it when the sentence before the emoji has nothing to do with the source', () => {
+      const text = withSources('Bananas ripen quickly. \u{1F34C} [1]', MOON, 'Social Thread')
+      expect(text.startsWith('Bananas ripen quickly. \u{1F34C}')).toBe(true)
+      expect(text).not.toContain('\u{1F34C} [1]')
+    })
+
+    it('does not borrow the sentence before it: a marker on a new sentence with an emoji is judged there', () => {
+      const text = withSources('Apollo 11 landed on the Moon. Bananas ripen quickly. \u{1F34C} [1]', MOON, 'Social Thread')
+      expect(text.startsWith('Apollo 11 landed on the Moon. Bananas ripen quickly. \u{1F34C}')).toBe(true)
+      expect(text).not.toContain('\u{1F34C} [1]')
     })
   })
 

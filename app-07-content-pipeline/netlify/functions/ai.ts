@@ -4,7 +4,7 @@ import {
   MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../shared/stages'
 import { withDeadline } from '../shared/deadline'
-import { gatherSources, searchTerms } from '../shared/sources'
+import { gatherSources } from '../shared/sources'
 import { formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
@@ -183,7 +183,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
 
     // The last stage ends the piece with its Sources list, built from the lookup and not from model text.
     const text = reply.content.trim()
-    const content = stage === 'polish' ? withSources(text, sources, run.contentType, searchTerms(run.topic)) : text
+    const content = stage === 'polish' ? withSources(text, sources, run.contentType) : text
     const row: TraceRow = {
       name: STAGE_LABELS[stage],
       status: 'ok',
