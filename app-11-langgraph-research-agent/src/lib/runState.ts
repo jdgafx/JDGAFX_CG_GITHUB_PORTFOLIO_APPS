@@ -39,6 +39,8 @@ export interface RunView {
   trace: TraceEntry[]
   result: ResultFrame | null
   error: string | null
+  /** The id the server gave this run, for a report to quote. */
+  runId: string | null
 }
 
 const keyOf = (node: NodeName, visit: number) => `${node}-${visit}`
@@ -53,7 +55,7 @@ const idleMarks = (): Record<NodeName, NodeMark> => ({
 })
 
 export function emptyRun(): RunView {
-  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null }
+  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null }
 }
 
 export function startRun(): RunView {
@@ -79,6 +81,8 @@ function closeRunning(trace: TraceEntry[], status: 'failed' | 'stopped', detail:
 /** Folds one frame into the run view. Pure, so the page and the tests share it. */
 export function applyFrame(view: RunView, frame: Frame): RunView {
   switch (frame.type) {
+    case 'run_start':
+      return { ...view, runId: frame.runId }
     case 'node_start': {
       const running: TraceEntry = {
         key: keyOf(frame.node, frame.visit),

@@ -1,5 +1,5 @@
 import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
-import { removeReviewTalk, sanitizeCitations, sourcesFor } from '../citations'
+import { cleanRevisedAnswer, sanitizeCitations, sourcesFor } from '../citations'
 import type { EndingView, Frame, NodeEndFrame, NodeName, ResultFrame, SourceView, Totals } from '../events'
 import { round12 } from '../models'
 import { BUDGET_MESSAGE, SLOW_MESSAGE } from '../openrouter'
@@ -143,7 +143,7 @@ function causeOf(message: string): string {
 export function partialResult(values: ResearchValues, ms: number, message: string): ResultFrame | null {
   const cause = causeOf(message)
   if (values.draftText !== '') {
-    const draft = values.revisions > 0 ? removeReviewTalk(values.draftText).text : values.draftText
+    const draft = values.revisions > 0 ? cleanRevisedAnswer(values.draftText, values.evidence, values.question).text : values.draftText
     const answer = sanitizeCitations(draft, values.evidence)
     const sources = sourcesFor(answer, values.evidence)
     const reviewed = values.draftReviewed && values.critique !== null

@@ -80,6 +80,13 @@ describe('run view', () => {
     ...overrides,
   })
 
+  it('keeps the run id from the first frame, and clears it for the next run', () => {
+    const view = applyFrame(startRun(), { type: 'run_start', runId: 'a1b2c3d4' })
+    expect(view).toMatchObject({ runId: 'a1b2c3d4', phase: 'running' })
+    expect(applyFrame(view, { type: 'node_start', node: 'plan', visit: 1, ms: 0 }).runId).toBe('a1b2c3d4')
+    expect(startRun().runId).toBeNull()
+  })
+
   it('stores the result and marks the run done', () => {
     const result = resultFrame()
     const view = applyFrame(startRun(), result)

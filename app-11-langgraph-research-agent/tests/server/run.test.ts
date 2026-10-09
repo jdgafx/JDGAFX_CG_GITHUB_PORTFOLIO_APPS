@@ -117,7 +117,8 @@ function stubUpstreams(
 
 async function readStream(response: Response): Promise<{ frames: Frame[]; lastRecord: string }> {
   const text = await response.text()
-  const records = text.split('\n\n').filter((record) => record !== '')
+  // A record that starts with a colon is a heartbeat comment, not a frame.
+  const records = text.split('\n\n').filter((record) => record !== '' && !record.startsWith(':'))
   const frames = records
     .filter((record) => record !== 'data: [DONE]')
     .map((record) => JSON.parse(record.slice('data: '.length)) as Frame)
@@ -240,6 +241,7 @@ describe('POST /api/run', () => {
     const { frames, lastRecord } = await readStream(response)
     expect(lastRecord).toBe('data: [DONE]')
     expect(frames).toEqual([
+      { type: 'run_start', runId: expect.stringMatching(/^[0-9a-f]{8}$/) },
       { type: 'node_start', node: 'plan', visit: 1, ms: expect.any(Number) },
       {
         type: 'node_end',

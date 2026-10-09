@@ -32,7 +32,7 @@ flowchart TD
 - **critic to draft** runs when the critic says revise, names at least one issue that quotes words really found in the draft or the question, fewer than 2 revisions have been used, and the time left covers a draft and a review. The issues go to the next draft. A revise verdict with no such issue is accepted, and the trace says why.
 - **Year gap check in code**: when the question asks how many years apart two events are, the critic step first checks the answer's gap in code (`netlify/shared/graph/yearcheck.ts`, no model call). The number must equal the difference of the two years the sentence names, each year must be in the sources, and a year taken from the start of a range the sources give ("between 1930 and 1931") is sent back to the draft as a revision with the sentence quoted. If the wrong gap is still there after the revisions or for lack of time, the answer is labelled "The year gap is not confirmed by the sources."
 - An honest "the sources do not say" draft that cites what was read passes the critic. An issue with no fix text is dropped.
-- The draft prompt forbids talk about the review. As a check behind it, the final step removes sentences of a revised answer that name the reviewer, the critic, the notes or the previous draft, and the trace row says how many.
+- The draft prompt forbids talk about the review, and the critic is told never to supply a fact: an issue may only point at missing or wrong content, and its fix must come from the sources. As a check behind both, the final step cleans a revised answer. It removes sentences that name the reviewer, the critic, the notes or the previous draft, and uncited sentences that hold a name or a number found in no source and not in the question. The trace row says how many sentences went and why. A first draft is not cleaned. A claim built only from words in the question is not caught.
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
 - **out of time** edges (agent to draft, critic to final) are taken when the time left is below what the next step needs. The node detail says how many seconds were left, for example "Time left 6 s: no more searches. Drafting with what has been read." A skipped review leaves the answer labelled "Unreviewed: the time limit ended the review."
 
@@ -75,6 +75,7 @@ The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/
 - **Errors**: each failure that leaves nothing to show becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
 - **Checkpointer**: an in-memory checkpointer is created for each request. Its saved state is read back for the result and for a stopped run. Nothing is saved between requests.
 
+- **Heartbeat and run log**: the stream starts with a `run_start` frame holding an 8-character run id, and sends a comment line (`: ping`) every 5 seconds until it closes, which keeps proxies from idling it. The page ignores the comment for display but counts it as a byte. The function logs one line when a run starts and one when it ends (`GraphScout: run end {runId, outcome, totalMs, frames}`, outcome being `result:complete`, `result:partial`, `result:no_answer`, `error`, `hard-stop` or `cancelled`), with no question text. The page shows the run id above the trace, so a report can quote it and a log can tell a frozen function from a held stream.
 - **Page watchdog**: if the server sends no byte for 30 seconds, or a run lasts more than 40 seconds, the page stops waiting and says "The server stopped responding." with the retry line. Pressing Stop stays silent.
 
 Source files live in `netlify/shared/graph/` (state, prompts, parsing, tools, nodes, graph assembly and the stream mapping) and `src/` (the page).
@@ -101,6 +102,7 @@ https://jdgafx-app-11-langgraph-research-agent.netlify.app
 
 `POST /api/run` with the JSON body `{ "question": "..." }`. A success is a `text/event-stream` of frames, one JSON object per `data:` line:
 
+- `run_start`: `runId`, the first frame of every run.
 - `node_start`: `node`, `visit`, `ms` (offset from the start of the run).
 - `node_end`: `node`, `visit`, `ms` (duration), `status` (`ok`, `failed` or `skipped`), `detail`, and when a model was called, `model`, `servedModel`, `usage`, `cost`, `costSource`.
 - `edge`: `from`, `to`, `label`.

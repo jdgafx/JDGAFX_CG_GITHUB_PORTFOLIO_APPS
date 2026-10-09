@@ -79,6 +79,8 @@ export interface ResultFrame {
 }
 
 export type Frame =
+  /** The first frame of every run. The id is also in the server log, so a report can quote it. */
+  | { type: 'run_start'; runId: string }
   /** `ms` is the offset from the start of the run, not a duration. */
   | { type: 'node_start'; node: NodeName; visit: number; ms: number }
   | NodeEndFrame
@@ -87,6 +89,9 @@ export type Frame =
   | { type: 'error'; message: string }
 
 export const DONE_FRAME = 'data: [DONE]\n\n'
+
+/** An SSE comment sent every few seconds. It keeps the stream and any proxy awake, and carries no data. */
+export const HEARTBEAT = ': ping\n\n'
 
 /** JSON.stringify escapes newlines, so one frame is always exactly one `data:` line. */
 export function encodeFrame(frame: Frame): string {

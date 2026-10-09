@@ -103,6 +103,26 @@ describe('streamResearch watchdog', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('counts a heartbeat comment as a byte but shows nothing for it', async () => {
+    vi.useFakeTimers()
+    const stream = openStream()
+    vi.stubGlobal('fetch', vi.fn(async () => stream.response))
+    const frames: Frame[] = []
+    const result = streamResearch('Q?', new AbortController().signal, (f) => frames.push(f))
+
+    // 25 s of silence is inside the 30 s limit, then a ping resets it, so 35 s with no frame is not a stall.
+    await vi.advanceTimersByTimeAsync(25_000)
+    stream.push(': ping\n\n')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(frames).toEqual([])
+    stream.push(START)
+    stream.push('data: [DONE]\n\n')
+    stream.close()
+
+    await expect(result).resolves.toBeUndefined()
+    expect(frames).toHaveLength(1)
+  })
+
   it('still reports a stream that ends without [DONE] as interrupted, not as stalled', async () => {
     vi.stubGlobal(
       'fetch',

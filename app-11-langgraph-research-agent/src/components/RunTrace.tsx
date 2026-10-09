@@ -84,6 +84,11 @@ export function RunTrace({ view }: RunTraceProps) {
           Run trace
         </h2>
         <p className="ds-section__sub">One row per step, in order. Times are in milliseconds.</p>
+        {view.runId && (
+          <p className="ds-help">
+            Run id <span className="ds-mono">{view.runId}</span>. Quote it when you report a problem.
+          </p>
+        )}
       </div>
       {view.trace.length === 0 ? (
         <div className="ds-empty">

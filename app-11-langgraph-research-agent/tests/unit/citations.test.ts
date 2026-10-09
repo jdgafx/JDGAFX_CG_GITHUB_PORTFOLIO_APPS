@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { citedNumbers, removeReviewTalk, sanitizeCitations, sourcesFor, type Evidence } from '../../netlify/shared/citations'
+import {
+  citedNumbers,
+  cleanRevisedAnswer,
+  removeReviewTalk,
+  removeUncitedFacts,
+  sanitizeCitations,
+  sourcesFor,
+  type Evidence,
+} from '../../netlify/shared/citations'
 
 const EVIDENCE: Evidence[] = [
   { n: 1, title: 'Expo 98', url: 'https://en.wikipedia.org/wiki/Expo_98', extract: 'Held in 1998.' },
@@ -77,5 +85,47 @@ describe('removeReviewTalk', () => {
   it('keeps an answer whole when every sentence is review talk, and still counts them', () => {
     const answer = "The reviewer's concern is accurate. The critic is right."
     expect(removeReviewTalk(answer)).toEqual({ text: answer, removed: 2 })
+  })
+})
+
+describe('removeUncitedFacts', () => {
+  const EVIDENCE: Evidence[] = [
+    { n: 1, title: 'Vltava', url: 'https://en.wikipedia.org/wiki/Vltava', extract: 'The Vltava flows through Prague, the capital of the Czech Republic.' },
+  ]
+  const QUESTION = 'Which river flows through the capital of the country where Bedřich Smetana was born?'
+
+  it('removes an uncited sentence that brings in a name no source or question has', () => {
+    const answer = 'The Vltava flows through Prague [1]. Smetana was born in Litomyšl.'
+    expect(removeUncitedFacts(answer, EVIDENCE, QUESTION)).toEqual({ text: 'The Vltava flows through Prague [1].', removed: 1 })
+  })
+
+  it('keeps an uncited sentence whose names and numbers are in a source or in the question', () => {
+    const answer = 'The Vltava flows through Prague [1]. The sources do not say where Bedřich Smetana was born. Prague is the capital of the Czech Republic.'
+    expect(removeUncitedFacts(answer, EVIDENCE, QUESTION)).toEqual({ text: answer, removed: 0 })
+  })
+
+  it('does not touch a sentence that carries a citation, and flags an uncited year no source has', () => {
+    expect(removeUncitedFacts('Smetana was born in Litomyšl [1].', EVIDENCE, QUESTION).removed).toBe(0)
+    const kept = removeUncitedFacts('The Vltava flows through Prague [1]. It was dammed in 1953.', EVIDENCE, QUESTION)
+    expect(kept).toEqual({ text: 'The Vltava flows through Prague [1].', removed: 1 })
+  })
+
+  it('keeps the answer whole when nothing in it would remain', () => {
+    expect(removeUncitedFacts('Smetana was born in Litomyšl.', EVIDENCE, QUESTION)).toEqual({
+      text: 'Smetana was born in Litomyšl.',
+      removed: 0,
+    })
+  })
+})
+
+describe('cleanRevisedAnswer', () => {
+  it('removes review talk and then uncited facts, and counts each', () => {
+    const evidence: Evidence[] = [{ n: 1, title: 'Prague', url: 'https://en.wikipedia.org/wiki/Prague', extract: 'Prague is the capital of Czechia.' }]
+    const draft = 'Prague is the capital [1]. The reviewer is right that more was needed. It lies on the Vltava.'
+    expect(cleanRevisedAnswer(draft, evidence, 'What is the capital?')).toEqual({
+      text: 'Prague is the capital [1].',
+      reviewRemoved: 1,
+      factsRemoved: 1,
+    })
   })
 })

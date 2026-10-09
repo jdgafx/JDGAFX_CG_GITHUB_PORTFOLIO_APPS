@@ -292,6 +292,27 @@ describe('the answer never talks about the review', () => {
   })
 })
 
+describe('a revised answer carries no fact that no source gives', () => {
+  it('removes an uncited sentence with a new name, says so, and keeps the cited ones', async () => {
+    const out = await run({
+      script: {
+        draft: [DRAFT, `${DRAFT} The pavilion architect was Siza.`],
+        critic: [revise(QUOTE, 'Add the architect.'), '{"verdict": "accept", "issues": []}'],
+      },
+      toolsOnAgentCall: [1],
+    })
+    expect(out.result?.answer).toBe(DRAFT)
+    expect(out.ends.find((end) => end.node === 'final')?.detail).toBe(
+      '1 cited source(s). Removed 1 uncited sentence(s) with a fact no source gives.',
+    )
+  })
+
+  it('leaves a first draft alone', async () => {
+    const out = await run({ script: { draft: [`${DRAFT} The pavilion architect was Siza.`] }, toolsOnAgentCall: [1] })
+    expect(out.result?.answer).toContain('Siza')
+  })
+})
+
 describe('an honest "the sources do not say" draft', () => {
   const HONEST = 'The sources do not say who the mayor was. The page read, Lisbon, Ohio [1], has nothing on a pet.'
 
@@ -392,13 +413,13 @@ describe('a run that stops keeps what it has', () => {
 
   it('shows the revised draft as unreviewed when the second review times out', async () => {
     const out = await run({
-      script: { draft: [DRAFT, `${DRAFT} The theme was The Oceans.`], critic: [revise(QUOTE, 'Cite the theme.')] },
+      script: { draft: [DRAFT, `${DRAFT} The fair was held in Lisbon.`], critic: [revise(QUOTE, 'Cite the theme.')] },
       toolsOnAgentCall: [1],
       failOn: { critic: { call: 2, error: timeout } },
     })
     expect(out.last).toMatchObject({
       type: 'result',
-      answer: `${DRAFT} The theme was The Oceans.`,
+      answer: `${DRAFT} The fair was held in Lisbon.`,
       critic: { reviewed: false },
       ending: {
         kind: 'partial',

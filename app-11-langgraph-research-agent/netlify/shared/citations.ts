@@ -53,3 +53,42 @@ export function removeReviewTalk(answer: string): { text: string; removed: numbe
   const text = kept.filter((line) => line.trim() !== '').join('\n')
   return text === '' ? { text: answer, removed } : { text, removed }
 }
+
+/**
+ * Removes the uncited sentences of a revised answer that state something no source gives: a sentence with no
+ * [n] marker that holds a number of three digits or more, or a capitalised word not at its start, which is in
+ * no source and not in the question. A revision can pull in a fact the reviewer hinted at, and without
+ * a citation nothing shows where it came from. An answer left empty by this is kept whole.
+ */
+export function removeUncitedFacts(
+  answer: string,
+  evidence: Evidence[],
+  question: string,
+): { text: string; removed: number } {
+  const known = `${evidence.map((item) => item.extract).join(' ')} ${question}`.toLowerCase()
+  let removed = 0
+  const kept = answer.split('\n').map((line) => {
+    const sentences = line.split(/(?<=[.!?])\s+/)
+    const clean = sentences.filter((sentence) => {
+      if (/\[\d{1,3}\]/.test(sentence)) return true
+      const words = sentence.match(/[\p{L}\p{N}'’-]+/gu) ?? []
+      const claims = words.filter((word, index) => (index > 0 && /^\p{Lu}/u.test(word)) || /^\d{3,}$/.test(word))
+      return claims.every((claim) => known.includes(claim.toLowerCase()))
+    })
+    removed += sentences.length - clean.length
+    return clean.join(' ')
+  })
+  const text = kept.filter((line) => line.trim() !== '').join('\n')
+  return text === '' ? { text: answer, removed: 0 } : { text, removed }
+}
+
+/** What a revised answer is cleaned of before it goes out: talk about the review, and uncited facts no source gives. */
+export function cleanRevisedAnswer(
+  draft: string,
+  evidence: Evidence[],
+  question: string,
+): { text: string; reviewRemoved: number; factsRemoved: number } {
+  const noReviewTalk = removeReviewTalk(draft)
+  const noFacts = removeUncitedFacts(noReviewTalk.text, evidence, question)
+  return { text: noFacts.text, reviewRemoved: noReviewTalk.removed, factsRemoved: noFacts.removed }
+}

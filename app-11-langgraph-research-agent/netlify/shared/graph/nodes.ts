@@ -1,4 +1,4 @@
-import { citedNumbers, removeReviewTalk, sanitizeCitations, sourcesFor } from '../citations'
+import { citedNumbers, cleanRevisedAnswer, sanitizeCitations, sourcesFor } from '../citations'
 import type { EndingView, NodeStatus } from '../events'
 import { PlainError } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
@@ -345,7 +345,10 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
 /** Drops citation markers that name no source and lists the sources the answer cites. No model call. */
 export function finalStep(state: ResearchValues): NodeResult {
   // Only a revised draft has seen the reviewer's issues, so only it can speak about them.
-  const cleaned = state.revisions > 0 ? removeReviewTalk(state.draftText) : { text: state.draftText, removed: 0 }
+  const cleaned =
+    state.revisions > 0
+      ? cleanRevisedAnswer(state.draftText, state.evidence, state.question)
+      : { text: state.draftText, reviewRemoved: 0, factsRemoved: 0 }
   const answer = sanitizeCitations(cleaned.text, state.evidence)
   const sources = sourcesFor(answer, state.evidence)
   const unreviewed = state.critique !== null && !state.critique.reviewed
@@ -362,6 +365,7 @@ export function finalStep(state: ResearchValues): NodeResult {
     update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending } },
     detail:
       (sources.length > 0 ? `${sources.length} cited source(s).` : 'No source is cited.') +
-      (cleaned.removed > 0 ? ` Removed ${cleaned.removed} sentence(s) that talked about the review.` : ''),
+      (cleaned.reviewRemoved > 0 ? ` Removed ${cleaned.reviewRemoved} sentence(s) that talked about the review.` : '') +
+      (cleaned.factsRemoved > 0 ? ` Removed ${cleaned.factsRemoved} uncited sentence(s) with a fact no source gives.` : ''),
   }
 }
