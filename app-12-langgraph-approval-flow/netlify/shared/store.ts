@@ -99,36 +99,62 @@ export function createMemoryStore(): KeyValueStore {
   }
 }
 
-/** Netlify Blobs behind the same four operations. Strong consistency reads after writes. */
+/** True for the error a Blobs call raises when the token of the invocation that created the store has expired. */
+export function isTokenExpired(err: unknown): boolean {
+  for (let current: unknown = err, depth = 0; current !== undefined && depth < 4; depth += 1) {
+    if (current instanceof Error && /token expired/i.test(current.message)) return true
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return false
+}
+
+/**
+ * Netlify Blobs behind the same operations. Strong consistency reads after writes. The token that getStore
+ * reads from the environment belongs to one invocation and expires, so a store kept by a warm instance goes
+ * bad. Every request therefore builds its own store. As a second line, a call that fails because the token
+ * expired builds a new store and tries once more.
+ */
 function blobsStore(): KeyValueStore {
-  const blobs = getStore({ name: CHECKPOINT_STORE_NAME, consistency: 'strong' })
+  const open = () => getStore({ name: CHECKPOINT_STORE_NAME, consistency: 'strong' })
+  let blobs = open()
+  const call = async <T>(operation: (store: ReturnType<typeof open>) => Promise<T>): Promise<T> => {
+    try {
+      return await operation(blobs)
+    } catch (err) {
+      if (!isTokenExpired(err)) throw err
+      blobs = open()
+      return operation(blobs)
+    }
+  }
   return {
     async get(key) {
-      const value: string | null = await blobs.get(key, { type: 'text' })
+      const value: string | null = await call((store) => store.get(key, { type: 'text' }))
       return value ?? undefined
     },
     async set(key, value) {
-      await blobs.set(key, value)
+      await call((store) => store.set(key, value))
     },
     async delete(key) {
-      await blobs.delete(key)
+      await call((store) => store.delete(key))
     },
     async list(prefix) {
-      const keys: string[] = []
-      for await (const page of blobs.list({ prefix, paginate: true })) {
-        for (const blob of page.blobs) keys.push(blob.key)
-      }
-      return keys
+      return call(async (store) => {
+        const keys: string[] = []
+        for await (const page of store.list({ prefix, paginate: true })) {
+          for (const blob of page.blobs) keys.push(blob.key)
+        }
+        return keys
+      })
     },
     async setIfNew(key, value) {
-      return (await blobs.set(key, value, { onlyIfNew: true })).modified
+      return (await call((store) => store.set(key, value, { onlyIfNew: true }))).modified
     },
     async getTagged(key) {
-      const found = await blobs.getWithMetadata(key, { type: 'text' })
+      const found = await call((store) => store.getWithMetadata(key, { type: 'text' }))
       return found && found.etag ? { value: found.data, etag: found.etag } : undefined
     },
     async setIfMatch(key, value, etag) {
-      return (await blobs.set(key, value, { onlyIfMatch: etag })).modified
+      return (await call((store) => store.set(key, value, { onlyIfMatch: etag }))).modified
     },
   }
 }
@@ -141,16 +167,24 @@ export function createStore(): OpenStore {
   try {
     return { store: blobsStore(), kind: 'blobs' }
   } catch {
-    return { store: createMemoryStore(), kind: 'memory' }
+    return { store: memoryStore(), kind: 'memory' }
   }
 }
 
-let active: OpenStore | undefined
+let memory: KeyValueStore | undefined
 
-/** The store for this process. It is chosen once, on first use. */
+/** The in-memory store is the one thing kept for the life of the process: it holds the data it stands in for. */
+function memoryStore(): KeyValueStore {
+  memory ??= createMemoryStore()
+  return memory
+}
+
+/**
+ * The store for one request. Call it once per request and do not keep the result: a Blobs store carries
+ * a token that expires, so a new one is made every time. The memory fallback is shared, so its data stays.
+ */
 export function activeStore(): OpenStore {
-  active ??= createStore()
-  return active
+  return createStore()
 }
 
 /**

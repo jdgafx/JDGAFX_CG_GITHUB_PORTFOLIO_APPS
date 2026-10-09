@@ -50,12 +50,16 @@ export async function isClaimed(store: KeyValueStore, threadId: string, nowMs: n
 export async function claimThread(store: KeyValueStore, threadId: string, nowMs: number = Date.now()): Promise<Claim | null> {
   const owner = crypto.randomUUID()
   const value = JSON.stringify({ owner, at: nowMs } satisfies ClaimValue)
-  if (await store.setIfNew(keyFor(threadId), value)) return { threadId, owner }
-  const current = await store.getTagged(keyFor(threadId))
-  if (!current) return claimThread(store, threadId, nowMs)
-  const held = parse(current.value)
-  if (held !== null && nowMs - held.at < CLAIM_TTL_MS) return null
-  return (await store.setIfMatch(keyFor(threadId), value, current.etag)) ? { threadId, owner } : null
+  // A claim released between the two reads below makes the first write succeed on the next round. Three rounds are plenty.
+  for (let round = 0; round < 3; round += 1) {
+    if (await store.setIfNew(keyFor(threadId), value)) return { threadId, owner }
+    const current = await store.getTagged(keyFor(threadId))
+    if (!current) continue
+    const held = parse(current.value)
+    if (held !== null && nowMs - held.at < CLAIM_TTL_MS) return null
+    return (await store.setIfMatch(keyFor(threadId), value, current.etag)) ? { threadId, owner } : null
+  }
+  return null
 }
 
 /** Gives the claim up. A claim that was taken over meanwhile is left alone. Never throws: the TTL ends a stuck one. */

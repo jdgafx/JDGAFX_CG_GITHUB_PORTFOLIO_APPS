@@ -396,3 +396,77 @@ describe('describeError', () => {
     expect(describeError(new StoreTimeoutError())).toContain('StoreTimeoutError')
   })
 })
+
+
+describe('summaries an earlier version wrote at a plain key for a random id', () => {
+  const RANDOM_ID = '3fba3d5e-61c2-4a55-9d3f-8b1e2f4a6c70'
+  const plainKey = `threads/${RANDOM_ID}`
+  const stale = { ...row(RANDOM_ID, 'completed'), updatedAt: '2026-10-09T08:00:00.000Z', priority: 'medium' as const }
+
+  it('are read by id, but left out of the list, which uses the legacy index row for that thread instead', async () => {
+    const store = createMemoryStore()
+    await store.set(plainKey, JSON.stringify(stale))
+    await store.set(LEGACY_INDEX_KEY, JSON.stringify([{ ...stale, priority: null }]))
+
+    expect(await getThreadEntry(store, RANDOM_ID)).toEqual(stale)
+    expect(await listThreads(store)).toEqual([{ ...stale, priority: null }])
+  })
+
+  it('are moved to a time-ordered key on the next write, so the thread is listed once', async () => {
+    const store = createMemoryStore()
+    await store.set(plainKey, JSON.stringify(stale))
+    await store.set(LEGACY_INDEX_KEY, JSON.stringify([stale]))
+
+    await writeThread(store, { ...row(RANDOM_ID, 'completed'), priority: null }, new Date('2026-10-09T12:00:00Z'))
+
+    expect(await store.get(plainKey)).toBeUndefined()
+    const listed = await listThreads(store)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ id: RANDOM_ID, priority: null, updatedAt: '2026-10-09T12:00:00.000Z' })
+    expect((await getThreadEntry(store, RANDOM_ID))?.priority).toBeNull()
+  })
+
+  it('do not take list slots: 25 of them and 40 new threads list all 40 new ones', async () => {
+    const store = createMemoryStore()
+    const old = Array.from({ length: 25 }, (_, i) => `${(0xb7 + i).toString(16)}15c0de-2f4b-4e11-8a90-0c3d5e7f9a${i.toString(16).padStart(2, '0')}`)
+    for (const [i, id] of old.entries()) {
+      await store.set(`threads/${id}`, JSON.stringify({ ...row(id), updatedAt: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString() }))
+    }
+    const fresh = Array.from({ length: 40 }, (_, i) => newThreadId(at(i)))
+    for (const [i, id] of fresh.entries()) await writeThread(store, row(id), at(i))
+
+    const listed = await listThreads(store)
+
+    expect(listed).toHaveLength(40)
+    for (const id of fresh) expect(listed.some((entry) => entry.id === id)).toBe(true)
+  })
+})
+
+describe('one row per thread, ordered by update time before the cap', () => {
+  it('lists a thread once when the legacy index and a summary both know it, keeping the newer copy', async () => {
+    const store = createMemoryStore()
+    const id = newThreadId(at(0))
+    await writeThread(store, row(id, 'completed'), new Date('2026-10-09T12:00:00Z'))
+    await store.set(LEGACY_INDEX_KEY, JSON.stringify([{ ...row(id, 'awaiting_approval'), updatedAt: '2026-10-09T09:00:00.000Z', priority: null }]))
+    const listed = await listThreads(store)
+    expect(listed).toHaveLength(1)
+    expect(listed[0].status).toBe('completed')
+  })
+
+  it('does not let 50 old legacy rows crowd out newer threads', async () => {
+    const store = createMemoryStore()
+    const legacy = Array.from({ length: 50 }, (_, i) => ({
+      ...row(`${(0x10 + i).toString(16)}aaaaaa-1111-4222-8333-444444444444`),
+      updatedAt: new Date(Date.UTC(2026, 7, 1, 0, i)).toISOString(),
+    }))
+    await store.set(LEGACY_INDEX_KEY, JSON.stringify(legacy))
+    const fresh = Array.from({ length: 30 }, (_, i) => newThreadId(at(i)))
+    for (const [i, id] of fresh.entries()) await writeThread(store, row(id), at(i))
+
+    const listed = await listThreads(store)
+
+    expect(listed).toHaveLength(50)
+    for (const id of fresh) expect(listed.some((entry) => entry.id === id)).toBe(true)
+    expect(listed.filter((entry) => entry.updatedAt.startsWith('2026-08'))).toHaveLength(20)
+  })
+})

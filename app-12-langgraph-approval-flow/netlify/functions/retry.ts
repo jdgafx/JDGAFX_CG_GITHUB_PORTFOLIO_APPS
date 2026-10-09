@@ -17,7 +17,8 @@ export default async (req: Request): Promise<Response> => {
   const budget = new RunBudget()
   let streaming = false
   let claim: Claim | null = null
-  const { store: rawStore } = activeStore()
+  // One store for the whole request, made when the request arrives (see activeStore).
+  const opened = activeStore()
   try {
     const refused = checkRequest(req, 'POST')
     if (refused) return refused
@@ -35,7 +36,7 @@ export default async (req: Request): Promise<Response> => {
     const threadId = threadIdFrom(isRecord(body.value) ? body.value.threadId : undefined)
     if (!threadId) return fail('The thread id is not valid.', 400)
 
-    const { store, kind } = activeStore()
+    const { store, kind } = opened
     const deps = { store, storage: kind, chat, now: () => new Date() }
     // One run at a time per thread, across function instances. A thread being resumed holds the claim too.
     claim = await claimThread(guardStore(store, budget.signal), threadId)
@@ -49,7 +50,7 @@ export default async (req: Request): Promise<Response> => {
     streaming = true
     const held = claim
     return streamResponse(budget, (send, signal) =>
-      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), send }).finally(() => releaseClaim(guardStore(store), held)),
+      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), release: () => releaseClaim(guardStore(store), held), send }).finally(() => releaseClaim(guardStore(store), held)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)
@@ -59,7 +60,7 @@ export default async (req: Request): Promise<Response> => {
   } finally {
     if (!streaming) {
       budget.dispose()
-      if (claim) await releaseClaim(guardStore(rawStore), claim)
+      if (claim) await releaseClaim(guardStore(opened.store), claim)
     }
   }
 }

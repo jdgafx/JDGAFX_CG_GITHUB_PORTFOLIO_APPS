@@ -64,7 +64,9 @@ describe('FrameMapper', () => {
     ])
     expect(mapper.paused).toBe(true)
     expect(mapper.proposalPriority).toBe('high')
-    expect(events[events.length - 1]).toEqual({ type: 'interrupt', node: 'review', threadId: 't-2', payload: PROPOSAL })
+    // The interrupt frame is held back: the run sends it last, after the thread is saved and released.
+    expect(events.some((event) => event.type === 'interrupt')).toBe(false)
+    expect(mapper.interruptEvent).toEqual({ type: 'interrupt', node: 'review', threadId: 't-2', payload: PROPOSAL })
   })
 
   it('takes the otherwise edge to reply and reports review as skipped on an automatic triage', () => {
@@ -84,6 +86,7 @@ describe('FrameMapper', () => {
     mapper.onUpdates({ __interrupt__: [{ value: { ...PROPOSAL, triage: { ...PROPOSAL.triage, priority: 'p0' } } }] })
     mapper.onUpdates({ __interrupt__: 'nope' })
     expect(mapper.paused).toBe(false)
+    expect(mapper.interruptEvent).toBeNull()
     expect(events).toEqual([])
   })
 

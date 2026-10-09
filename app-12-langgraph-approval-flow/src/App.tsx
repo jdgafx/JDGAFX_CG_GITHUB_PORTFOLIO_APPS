@@ -75,6 +75,8 @@ export default function App() {
   const issuesRef = useRef<AbortController | null>(null)
   const runRef = useRef<HTMLDivElement | null>(null)
   const [opened, setOpened] = useState(0)
+  // The thread id of the run on the page, readable inside stream() whatever render it was created in.
+  const threadOf = useRef<string | null>(null)
 
   const loadThreads = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -164,8 +166,13 @@ export default function App() {
     } catch (err) {
       if (!isAbortError(err)) {
         const after = outcomeAfterFailure({ from, eventsArrived, resuming, error: err })
-        setRequestError(after.message ?? failureText(err))
-        setPhase(after.phase)
+        if (after.reopen && threadOf.current) {
+          // Another maintainer got there first. Show the thread as it really is, with their result.
+          await handleOpen(threadOf.current, `${failureText(err)} This is the thread as it is now.`)
+        } else {
+          setRequestError(after.message ?? failureText(err))
+          setPhase(after.phase)
+        }
       }
     } finally {
       if (streamRef.current === controller) {
@@ -199,7 +206,7 @@ export default function App() {
     void stream((onEvent, signal) => retryThread(threadId, onEvent, signal))
   }
 
-  const handleOpen = async (threadId: string) => {
+  const handleOpen = async (threadId: string, note: string | null = null) => {
     setRequestError(null)
     try {
       const view = await fetchThread(threadId)
@@ -210,6 +217,7 @@ export default function App() {
         setRequestError('This thread is being handled right now. Refresh the list in a moment to see the result.')
       } else {
         setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
+        setRequestError(note)
       }
       setOpened((count) => count + 1)
     } catch (err) {
@@ -221,6 +229,8 @@ export default function App() {
     setThreads((prev) => ({ ...prev, loading: true }))
     void loadThreads()
   }
+
+  threadOf.current = run.threadId
 
   const busy = phase === 'running'
   const current = phase === 'running' ? (NODES.find((node) => run.nodes[node] === 'running') ?? null) : null

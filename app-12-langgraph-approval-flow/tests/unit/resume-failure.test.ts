@@ -17,11 +17,24 @@ describe('outcomeAfterFailure', () => {
     }
   })
 
-  it('fails the run when the thread is not waiting or the request was refused', () => {
-    for (const status of [400, 404, 409]) {
-      const error = new RequestFailure('This thread is not awaiting approval.', status)
+  it('fails the run when the request was refused as invalid or the thread was not found', () => {
+    for (const status of [400, 404]) {
+      const error = new RequestFailure('The thread id is not valid.', status)
       expect(outcomeAfterFailure({ ...resume, error })).toEqual({ phase: 'failed', message: null })
     }
+  })
+
+  it('does not call it a failed run when another maintainer holds or already answered the thread: it reopens the thread', () => {
+    for (const message of ['Another maintainer is handling this thread. Refresh to see the result.', 'This thread is not awaiting approval.']) {
+      const error = new RequestFailure(message, 409)
+      expect(outcomeAfterFailure({ ...resume, error })).toEqual({ phase: 'idle', message: null, reopen: true })
+    }
+  })
+
+  it('reopens on a 409 from a retry too, but a 409 after events arrived is a failed run', () => {
+    const error = new RequestFailure('Another maintainer is handling this thread. Refresh to see the result.', 409)
+    expect(outcomeAfterFailure({ from: 'failed', eventsArrived: false, resuming: false, error })).toEqual({ phase: 'idle', message: null, reopen: true })
+    expect(outcomeAfterFailure({ ...resume, eventsArrived: true, error })).toEqual({ phase: 'failed', message: null })
   })
 
   it('keeps a waiting thread paused when the server rate-limited the resume, and shows its own message', () => {

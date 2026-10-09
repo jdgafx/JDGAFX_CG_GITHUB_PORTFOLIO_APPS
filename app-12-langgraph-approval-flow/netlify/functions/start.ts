@@ -38,7 +38,14 @@ export default async (req: Request): Promise<Response> => {
     return streamResponse(budget, (send, signal) =>
       startRun(
         { store, storage: kind, chat, now: () => new Date() },
-        { issue: issue.value, threadId, budget: signal, remainingMs: () => budget.remainingMs(), send },
+        {
+          issue: issue.value,
+          threadId,
+          budget: signal,
+          remainingMs: () => budget.remainingMs(),
+          release: () => (claim ? releaseClaim(guardStore(store), claim) : Promise.resolve()),
+          send,
+        },
       ).finally(() => (claim ? releaseClaim(guardStore(store), claim) : undefined)),
     )
   } catch (err) {

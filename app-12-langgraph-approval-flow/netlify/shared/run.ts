@@ -98,13 +98,17 @@ interface Attempt {
   budget: AbortSignal
   /** Milliseconds left in the request budget. Defaults to a full budget. */
   remainingMs?: () => number
+  /** Frees the claim on the thread. Called once the summary is written, before the closing frame is sent. */
+  release?: () => Promise<void>
   send: Send
 }
 
 /**
  * Streams one graph run to the client. It ends in one of three ways: paused at the review
- * interrupt, completed with a result, or failed with an error. The thread index is updated for
- * each. The caller always sends [DONE] after this returns.
+ * interrupt, completed with a result, or failed with an error. The thread's summary is written for
+ * each, then the claim on the thread is released, and only then is the closing frame (interrupt, result
+ * or error) sent. The browser enables its next action on that frame, so the thread must be free by then.
+ * The caller always sends [DONE] after this returns.
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs)
@@ -118,6 +122,7 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   const logTiming = () =>
     console.info('GraphGate: run timing', { threadId: attempt.threadId, firstNodeMs, totalMs: Date.now() - began })
   attempt.send({ type: 'thread', threadId: attempt.threadId })
+  let closing: StreamEvent | undefined
   try {
     const stream = await graph.stream(attempt.input, {
       streamMode: ['updates', 'custom'],
@@ -129,29 +134,31 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
       else mapper.onUpdates(chunk)
     }
     if (mapper.paused) {
+      closing = mapper.interruptEvent ?? undefined
       await recordThread(deps, attempt.threadId, attempt.meta, 'awaiting_approval', mapper.proposalPriority)
-      logTiming()
-      return
+    } else {
+      const snapshot = await graph.getState({ configurable: { thread_id: attempt.threadId } })
+      const result = buildResult(attempt.threadId, snapshot.values as GraphValues)
+      closing = { type: 'result', result }
+      await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority)
     }
-    const snapshot = await graph.getState({ configurable: { thread_id: attempt.threadId } })
-    const result = buildResult(attempt.threadId, snapshot.values as GraphValues)
-    attempt.send({ type: 'result', result })
-    await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority)
     logTiming()
   } catch (err) {
     console.error('GraphGate: run failed', err)
     const node = mapper.currentNode
     const message = attempt.budget.aborted ? budgetMessage(node) : userMessage(err, node)
     mapper.failCurrent(message)
-    attempt.send({ type: 'error', message })
+    closing = { type: 'error', message }
     await recordThread(deps, attempt.threadId, attempt.meta, 'failed', attempt.failedPriority)
   }
+  await attempt.release?.()
+  if (closing) attempt.send(closing)
 }
 
 /** Starts a new thread for one issue and runs it until the review pause or the end. */
 export function startRun(
   deps: RunDeps,
-  args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; send: Send },
+  args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
 ): Promise<void> {
   return drive(deps, {
     threadId: args.threadId,
@@ -160,6 +167,7 @@ export function startRun(
     input: { issue: args.issue },
     budget: args.budget,
     remainingMs: args.remainingMs,
+    release: args.release,
     send: args.send,
   })
 }
@@ -167,7 +175,7 @@ export function startRun(
 /** Continues a paused thread from its checkpoint with the maintainer's answer. */
 export function resumeRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; remainingMs?: () => number; send: Send },
+  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -177,6 +185,7 @@ export function resumeRun(
     input: new Command({ resume: args.answer }),
     budget: args.budget,
     remainingMs: args.remainingMs,
+    release: args.release,
     send: args.send,
   })
 }
@@ -184,7 +193,7 @@ export function resumeRun(
 /** Continues a failed thread from its last checkpoint: the steps that finished are not run again. */
 export function retryRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; remainingMs?: () => number; send: Send },
+  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -194,6 +203,7 @@ export function retryRun(
     input: null,
     budget: args.budget,
     remainingMs: args.remainingMs,
+    release: args.release,
     send: args.send,
   })
 }

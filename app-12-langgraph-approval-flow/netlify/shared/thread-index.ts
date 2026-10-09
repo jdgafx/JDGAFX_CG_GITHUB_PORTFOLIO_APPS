@@ -43,12 +43,21 @@ export function newThreadId(now: Date = new Date()): string {
   return `${time.slice(0, 8)}-${time.slice(8)}-7${hex.slice(0, 3)}-${variant}${hex.slice(3, 6)}-${hex.slice(6, 18)}`
 }
 
-/** The thread id a summary key stands for, or null when the key is not a summary (the legacy index, for one). */
+/**
+ * The thread id a summary key stands for, or null when the key is not one the list uses: the legacy index
+ * document, or a plain `threads/<id>` of a thread whose random id carries no time. An earlier version wrote
+ * such plain keys. They cannot be ordered by key, so the list ignores them, and a write migrates them.
+ */
 function idOfKey(key: string): string | null {
-  return ID_KEY.exec(key)?.[1] ?? ALIASED_KEY.exec(key)?.[1] ?? null
+  const plain = ID_KEY.exec(key)?.[1]
+  if (plain !== undefined) return startsWithTime(plain) ? plain : null
+  return ALIASED_KEY.exec(key)?.[1] ?? null
 }
 
-/** The key where a thread's summary is, or would be written. A thread with a random id is found by its key listing. */
+/**
+ * The key where a thread's summary is, or would be written. A thread with a random id is found by its key
+ * listing; one that has none yet gets a key that starts with the time of this first write.
+ */
 async function keyFor(store: KeyValueStore, id: string, now: Date = new Date()): Promise<string> {
   if (startsWithTime(id)) return `${SUMMARY_PREFIX}${id}`
   const found = (await store.list(SUMMARY_PREFIX)).find((key) => ALIASED_KEY.exec(key)?.[1] === id)
@@ -103,6 +112,15 @@ export async function writeThread(
 ): Promise<ThreadEntry> {
   const entry: ThreadEntry = { ...change, updatedAt: now.toISOString() }
   await store.set(await keyFor(store, change.id, now), JSON.stringify(entry))
+  // A plain `threads/<id>` of a random id was written by an earlier version. The summary now lives at its
+  // time-ordered key, so the old copy goes, and the thread is listed once.
+  if (!startsWithTime(change.id)) {
+    try {
+      await store.delete(`${SUMMARY_PREFIX}${change.id}`)
+    } catch (err) {
+      console.error(`GraphGate: could not remove the old summary of thread ${change.id}: ${describeError(err)}`)
+    }
+  }
   try {
     if (change.status === 'awaiting_approval') await store.set(`${WAITING_PREFIX}${change.id}`, '1')
     else await store.delete(`${WAITING_PREFIX}${change.id}`)
@@ -127,7 +145,11 @@ async function readLegacyIndex(store: KeyValueStore): Promise<ThreadEntry[]> {
 /** One thread's summary, or undefined. Falls back to the legacy index for a thread saved before summaries existed. */
 export async function getThreadEntry(store: KeyValueStore, id: string): Promise<ThreadEntry | undefined> {
   const key = await keyFor(store, id)
-  return parseEntry(await store.get(key)) ?? (await readLegacyIndex(store)).find((entry) => entry.id === id)
+  const own = parseEntry(await store.get(key))
+  if (own) return own
+  // A random id may still have its summary at the plain key an earlier version used.
+  const plain = startsWithTime(id) ? undefined : parseEntry(await store.get(`${SUMMARY_PREFIX}${id}`))
+  return plain ?? (await readLegacyIndex(store)).find((entry) => entry.id === id)
 }
 
 /** Runs `work` over `items`, at most `limit` at a time, and starts no new item after `deadline`. */
@@ -202,7 +224,14 @@ export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> 
   } catch (err) {
     console.error(`GraphGate: could not read the legacy thread index: ${describeError(err)}`)
   }
-  return [...rows, ...legacy].sort(byWaitingThenNewest).slice(0, MAX_LISTED_THREADS)
+  // One row per thread, the newest copy winning, and then waiting first, newest first, at most 50. The cap
+  // comes after the sort by update time, so old legacy rows cannot crowd out newer threads.
+  const newest = new Map<string, ThreadEntry>()
+  for (const row of [...rows, ...legacy]) {
+    const seen = newest.get(row.id)
+    if (!seen || row.updatedAt > seen.updatedAt) newest.set(row.id, row)
+  }
+  return [...newest.values()].sort(byWaitingThenNewest).slice(0, MAX_LISTED_THREADS)
 }
 
 /** A short list title: the repo, the issue number and the title, cut to 70 characters. */

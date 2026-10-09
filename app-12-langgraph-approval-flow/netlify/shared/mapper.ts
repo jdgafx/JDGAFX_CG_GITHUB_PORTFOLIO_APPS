@@ -49,6 +49,8 @@ export class FrameMapper {
   paused = false
   /** The priority proposed at the pause, recorded in the thread index. */
   proposalPriority: Priority | null = null
+  /** The interrupt frame, held back so the caller can send it last, after the thread is saved and released. */
+  interruptEvent: StreamEvent | null = null
   private current: { node: NodeName; startedAt: number } | null = null
   private requiresHuman = false
 
@@ -140,7 +142,7 @@ export class FrameMapper {
     if (!isReviewPayload(payload)) return
     this.paused = true
     this.proposalPriority = payload.triage.priority
-    this.send({ type: 'interrupt', node: 'review', threadId: this.threadId, payload })
+    this.interruptEvent = { type: 'interrupt', node: 'review', threadId: this.threadId, payload }
   }
 
   private edge(from: NodeName, to: NodeName, label?: EdgeLabel): void {

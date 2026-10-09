@@ -261,6 +261,27 @@ describe('two people on one thread (the claim works across function instances)',
     expect(after).toMatchObject({ status: 'awaiting_approval', retryable: false })
   })
 
+  it('accepts an answer sent the moment the interrupt frame arrives, before the stream has closed', async () => {
+    const response = await start(postJson('/api/start', { issue: issue({ number: 5500, title: BUG.title, body: BUG.body, labels: BUG.labels }) }, 'ip-cons-o'))
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+    const decoder = new TextDecoder()
+    let text = ''
+    while (!text.includes('"type":"interrupt"')) {
+      const chunk = await reader.read()
+      if (chunk.done) throw new Error('the stream ended without an interrupt frame')
+      text += decoder.decode(chunk.value)
+    }
+    const id = (JSON.parse(text.split('\n\n')[0].slice(6)) as { threadId: string }).threadId
+    vi.stubGlobal('fetch', providerFetch())
+
+    // The browser enables Approve on this frame. The thread must already be free.
+    const answered = await resume(postJson('/api/resume', { threadId: id, decision: { action: 'approve' } }, 'ip-cons-o'))
+
+    expect(answered.status).toBe(200)
+    expect(find(await readFrames(answered), 'result')?.result).toMatchObject({ outcome: 'approved' })
+    for (;;) if ((await reader.read()).done) break
+  })
+
   it('takes over a claim left by a run that crashed, once it is older than a minute', async () => {
     const id = await startOne(5300, 'ip-cons-m')
     const store = await rawStore()
