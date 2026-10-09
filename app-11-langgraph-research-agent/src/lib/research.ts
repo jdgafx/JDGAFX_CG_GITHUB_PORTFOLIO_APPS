@@ -24,14 +24,16 @@ async function refusalMessage(response: Response): Promise<string> {
   return `The server could not start the run (HTTP ${response.status}).`
 }
 
-/**
- * Posts one question and passes each frame to `onFrame` as it arrives. Resolves when the
- * stream ends. Rejects with a plain message when the request is refused or breaks off.
- */
-export async function streamResearch(
+/** How long the page waits on the server: for the next byte, and for the whole run. The server's own budget is 25 s. */
+export const WATCHDOG = { idleMs: 30_000, totalMs: 40_000 }
+/** The page adds "Press Start research to try again." under every error, so the message does not repeat it. */
+export const STALLED_MESSAGE = 'The server stopped responding.'
+
+async function readRun(
   question: string,
   signal: AbortSignal,
   onFrame: (frame: Frame) => void,
+  onBytes: () => void,
 ): Promise<void> {
   let response: Response
   try {
@@ -45,6 +47,7 @@ export async function streamResearch(
     if (signal.aborted) return
     throw new Error(NETWORK_MESSAGE)
   }
+  onBytes()
   if (!response.ok) throw new Error(await refusalMessage(response))
   if (!response.body) throw new Error(INTERRUPTED_MESSAGE)
 
@@ -63,6 +66,7 @@ export async function streamResearch(
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
+      onBytes()
       parser.push(decoder.decode(value, { stream: true }))
     }
     parser.push(decoder.decode())
@@ -72,4 +76,49 @@ export async function streamResearch(
     throw new Error(INTERRUPTED_MESSAGE)
   }
   if (!sawDone && !signal.aborted) throw new Error(INTERRUPTED_MESSAGE)
+}
+
+/**
+ * Posts one question and passes each frame to `onFrame` as it arrives. Resolves when the
+ * stream ends. Rejects with a plain message when the request is refused or breaks off.
+ * A watchdog ends a request that sends no byte for `idleMs`, or runs past `totalMs`, with a message
+ * that says the server stopped responding. A stop by the visitor ends it quietly.
+ */
+export async function streamResearch(
+  question: string,
+  signal: AbortSignal,
+  onFrame: (frame: Frame) => void,
+  limits: { idleMs: number; totalMs: number } = WATCHDOG,
+): Promise<void> {
+  const watched = new AbortController()
+  let giveUp: () => void = () => undefined
+  let stopQuietly: () => void = () => undefined
+  // Settles the wait even if a fetch or a read ignores its signal: with the message on a stall, with nothing on a Stop.
+  const cutOff = new Promise<void>((resolve, reject) => {
+    stopQuietly = resolve
+    giveUp = () => {
+      watched.abort()
+      if (!signal.aborted) reject(new Error(STALLED_MESSAGE))
+    }
+  })
+  const onVisitorStop = () => {
+    watched.abort()
+    stopQuietly()
+  }
+  if (signal.aborted) watched.abort()
+  else signal.addEventListener('abort', onVisitorStop, { once: true })
+
+  let idle = setTimeout(giveUp, limits.idleMs)
+  const total = setTimeout(giveUp, limits.totalMs)
+  const onBytes = () => {
+    clearTimeout(idle)
+    idle = setTimeout(giveUp, limits.idleMs)
+  }
+  try {
+    await Promise.race([readRun(question, watched.signal, onFrame, onBytes), cutOff])
+  } finally {
+    clearTimeout(idle)
+    clearTimeout(total)
+    signal.removeEventListener('abort', onVisitorStop)
+  }
 }

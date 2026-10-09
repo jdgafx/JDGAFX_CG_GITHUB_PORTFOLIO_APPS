@@ -24,10 +24,10 @@ const PAGE: PageText = {
 }
 const DRAFT = "Lisbon hosted Expo '98 in 1998 [1]."
 
-const wiki: WikiTools = {
-  search: async () => [{ title: PAGE.title, snippet: 'World fair' }],
-  page: async () => PAGE,
-}
+const wikiFor = (page: PageText): WikiTools => ({
+  search: async () => [{ title: page.title, snippet: 'Search hit' }],
+  page: async () => page,
+})
 
 /** A critic reply asking for a revision, quoting the words of the draft that are wrong. */
 const revise = (quote: string, fix: string) => JSON.stringify({ verdict: 'revise', issues: [{ quote, fix }] })
@@ -43,6 +43,9 @@ interface Harness {
   /** Milliseconds the clock moves on every model call. */
   step?: number
   deadline?: number
+  /** The question and the one page the fake Wikipedia holds. */
+  question?: string
+  page?: PageText
   /** Throws this from the nth call of a role on, for `times` calls in a row (default: every call after). */
   failOn?: Partial<Record<Role, { call: number; error: unknown; times?: number }>>
 }
@@ -78,10 +81,10 @@ async function run(harness: Harness) {
   }
   const frames: Frame[] = []
   await runResearch(
-    QUESTION,
+    harness.question ?? QUESTION,
     {
       chat,
-      wiki,
+      wiki: wikiFor(harness.page ?? PAGE),
       signal: new AbortController().signal,
       deadline: harness.deadline === undefined ? undefined : clock.now + harness.deadline,
       now: () => clock.now,
@@ -213,6 +216,49 @@ describe('the critic verdict routes on its issues', () => {
     const out = await run({ script: { critic: ['{"verdict": "accept", "issues": ["Minor wording."]}'] } })
     expect(out.edges).toEqual(['draft (no more searches)', 'final (accepted)'])
     expect(out.result?.critic).toMatchObject({ verdict: 'accept', reviewed: true, notes: 'Minor wording.' })
+  })
+})
+
+describe('the year gap is checked in code', () => {
+  const GAP_QUESTION = 'Which was completed first, the Eiffel Tower or the Empire State Building, and how many years apart?'
+  const GAP_PAGE: PageText = {
+    title: 'Empire State Building',
+    url: 'https://en.wikipedia.org/wiki/Empire_State_Building',
+    extract: 'The Eiffel Tower was completed in 1889. The Empire State Building was constructed between 1930 and 1931.',
+  }
+  const WRONG = 'The Eiffel Tower was completed first [1]. The gap is 41 years (1930 minus 1889) [1].'
+  const RIGHT = 'The Eiffel Tower was completed first [1]. The gap is 42 years (1931 minus 1889) [1].'
+
+  it('sends a gap worked out from the start of a range back without a model call, and the next draft fixes it', async () => {
+    const out = await run({ question: GAP_QUESTION, page: GAP_PAGE, toolsOnAgentCall: [1], script: { draft: [WRONG, RIGHT] } })
+    expect(out.path).toEqual(['plan', 'agent', 'tools', 'agent', 'draft', 'critic', 'draft', 'critic', 'final'])
+    expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (no more searches)', 'revise (1 of 2)', 'final (accepted)'])
+    // The first review was the code check: no critic model call, and its row carries no model.
+    expect(out.counts.critic).toBe(1)
+    const [first] = out.ends.filter((end) => end.node === 'critic')
+    expect(first?.model).toBeUndefined()
+    expect(first?.detail).toBe(
+      'Checked the year gap against the sources. "The gap is 41 years (1930 minus 1889) [1].": The sources give 1930 to 1931, so 1930 is when it began. Use 1931, when it was completed, and work the gap out again.',
+    )
+    expect(out.result).toMatchObject({ answer: RIGHT, revisions: 1, ending: { kind: 'complete' } })
+  })
+
+  it('says so in the answer when the wrong gap is still there after the revisions', async () => {
+    const out = await run({
+      question: GAP_QUESTION,
+      page: GAP_PAGE,
+      toolsOnAgentCall: [1],
+      script: { draft: [WRONG, WRONG, WRONG] },
+    })
+    expect(out.counts.draft).toBe(3)
+    expect(out.result?.ending.kind).toBe('partial')
+    expect(out.result?.ending.message).toContain('The year gap is not confirmed by the sources.')
+    expect(out.result?.ending.message).toContain('Use 1931')
+  })
+
+  it('does not run for a question that asks for no gap', async () => {
+    const out = await run({ toolsOnAgentCall: [1], script: { draft: ['Lisbon hosted Expo 98 [1]. A gap of 41 years (1930 minus 1889).'] } })
+    expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (no more searches)', 'final (accepted)'])
   })
 })
 

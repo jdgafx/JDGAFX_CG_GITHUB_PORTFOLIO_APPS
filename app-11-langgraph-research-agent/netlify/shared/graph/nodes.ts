@@ -13,6 +13,7 @@ import {
 } from '../openrouter'
 import type { WikiTools } from '../wikipedia'
 import { groundedIssues, issueNotes, parseCritic, parseQueries } from './parse'
+import { yearGapIssues } from './yearcheck'
 import {
   agentSystem,
   CRITIC_SYSTEM,
@@ -255,6 +256,17 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
       route: { to: 'final', label: `final (${OUT_OF_TIME})` },
     }
   }
+  // A check in code first: a year gap worked out from the wrong year of a range goes back without a model call.
+  const gapIssues = yearGapIssues(state.question, state.draftText, state.evidence)
+  if (gapIssues.length > 0 && state.revisions < MAX_REVISIONS && timeLeft(ctx) >= NEEDS.draft + NEEDS.critic) {
+    const notes = issueNotes(gapIssues)
+    const revisions = state.revisions + 1
+    return {
+      update: { critique: { verdict: 'revise', notes, reviewed: true }, revisions, draftReviewed: true },
+      detail: `Checked the year gap against the sources. ${notes}`,
+      route: { to: 'draft', label: `revise (${revisions} of ${MAX_REVISIONS})` },
+    }
+  }
   const call = await callModel(ctx, {
     maxTokens: MAX_TOKENS.critic,
     retryNeedsMs: NEEDS.critic,
@@ -337,8 +349,15 @@ export function finalStep(state: ResearchValues): NodeResult {
   const answer = sanitizeCitations(cleaned.text, state.evidence)
   const sources = sourcesFor(answer, state.evidence)
   const unreviewed = state.critique !== null && !state.critique.reviewed
+  // A year gap the sources do not bear out, left after the revisions or for lack of time, is said, not hidden.
+  const gapIssues = yearGapIssues(state.question, answer, state.evidence)
   const ending: EndingView =
-    state.ending ?? (unreviewed ? { kind: 'partial', message: state.critique?.notes ?? '' } : { kind: 'complete', message: '' })
+    state.ending ??
+    (unreviewed
+      ? { kind: 'partial', message: state.critique?.notes ?? '' }
+      : gapIssues.length > 0
+        ? { kind: 'partial', message: `The year gap is not confirmed by the sources. ${issueNotes(gapIssues)}` }
+        : { kind: 'complete', message: '' })
   return {
     update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending } },
     detail:

@@ -30,6 +30,7 @@ flowchart TD
 - **agent to draft** runs when the model asked for no tools, or when the 4-round budget is spent. In the second case the agent visit is marked skipped and makes no model call.
 - **critic to final** runs when the critic accepts, or when the draft has already been sent back twice.
 - **critic to draft** runs when the critic says revise, names at least one issue that quotes words really found in the draft or the question, fewer than 2 revisions have been used, and the time left covers a draft and a review. The issues go to the next draft. A revise verdict with no such issue is accepted, and the trace says why.
+- **Year gap check in code**: when the question asks how many years apart two events are, the critic step first checks the answer's gap in code (`netlify/shared/graph/yearcheck.ts`, no model call). The number must equal the difference of the two years the sentence names, each year must be in the sources, and a year taken from the start of a range the sources give ("between 1930 and 1931") is sent back to the draft as a revision with the sentence quoted. If the wrong gap is still there after the revisions or for lack of time, the answer is labelled "The year gap is not confirmed by the sources."
 - An honest "the sources do not say" draft that cites what was read passes the critic. An issue with no fix text is dropped.
 - The draft prompt forbids talk about the review. As a check behind it, the final step removes sentences of a revised answer that name the reviewer, the critic, the notes or the previous draft, and the trace row says how many.
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
@@ -74,6 +75,8 @@ The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/
 - **Errors**: each failure that leaves nothing to show becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
 - **Checkpointer**: an in-memory checkpointer is created for each request. Its saved state is read back for the result and for a stopped run. Nothing is saved between requests.
 
+- **Page watchdog**: if the server sends no byte for 30 seconds, or a run lasts more than 40 seconds, the page stops waiting and says "The server stopped responding." with the retry line. Pressing Stop stays silent.
+
 Source files live in `netlify/shared/graph/` (state, prompts, parsing, tools, nodes, graph assembly and the stream mapping) and `src/` (the page).
 
 ## Run locally
@@ -110,7 +113,7 @@ The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "s
 
 - Only English Wikipedia is searched. The agent reads the first 2,500 characters of a page, so a fact further down the article is not seen.
 - The critic is a model. It can miss an unsupported claim, and an accepted answer is not proof of correctness.
-- The agent must call a tool until it has read one page, but it can read a page that does not hold the fact. The draft prompt asks the model to say when the sources do not answer, but the model may not.
+- The agent must call a tool until it has read one page, and is told to read a page for each person, place or work the question names. It can still read a page that does not hold the fact: the first 2,500 characters of Bedřich Smetana's page say "Czech composer" but not where he was born, so a two-hop question about his country's capital river ends with an honest "the sources do not state where he was born" rather than a guess. A critic issue does not send the run back to the agent, because the same pages would be read again. The draft prompt asks the model to say when the sources do not answer, but the model may not.
 - Every request turns reasoning off. A model can still return an empty reply, and then the run falls back, accepts the draft unreviewed, or reports a plain error.
 - The rate limit is kept per warm function instance, so it is not a quota.
 - The run budget is 25 seconds. A slow provider can make the graph skip steps, and a run that cannot draft in time ends with the pages read and no answer. Time left decides, so the same question can take different paths on different days.
