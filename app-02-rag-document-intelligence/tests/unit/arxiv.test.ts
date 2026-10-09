@@ -191,6 +191,31 @@ describe('fetchArxivFile', () => {
     expect(await outcome).toBe('arXiv stopped sending the paper. Try again.')
   })
 
+  it('lets a download that keeps receiving bytes run past 90 seconds, since only a stall ends it', async () => {
+    vi.useFakeTimers()
+    let enqueue: (chunk: Uint8Array) => void = () => undefined
+    let close: () => void = () => undefined
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          enqueue = chunk => controller.enqueue(chunk)
+          close = () => controller.close()
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason))
+        },
+      })
+      return pdfResponse(body)
+    }))
+    const outcome = fetchArxivFile('1706.03762')
+    await vi.advanceTimersByTimeAsync(0)
+    // 12 chunks, 10 s apart: 120 s in all, and never a quiet spell as long as the stall limit.
+    for (let i = 0; i < 12; i++) {
+      await vi.advanceTimersByTimeAsync(10_000)
+      enqueue(new Uint8Array(100))
+    }
+    close()
+    expect((await outcome).size).toBe(1200)
+  })
+
   it('rethrows the caller abort as it is, so a cancelled load shows no error', async () => {
     const caller = new AbortController()
     stub(async () => {

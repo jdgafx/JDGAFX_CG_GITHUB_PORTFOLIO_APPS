@@ -6,9 +6,6 @@ export const MAX_PDF_BYTES = 5 * 1024 * 1024
 /** The download is abandoned when nothing arrives for this long, before the reply or between chunks. */
 export const STALL_MS = 15_000
 
-/** Ceiling for the whole download, so a slow trickle cannot run on forever. */
-const TOTAL_MS = 90_000
-
 /** A paper that could not be fetched, with a sentence safe to show. */
 export class ArxivError extends Error {
   constructor(message: string) {
@@ -27,6 +24,7 @@ class NetworkFailure extends Error {}
 /**
  * One attempt. The browser asks arxiv.org directly, which allows cross-origin reads of its PDFs.
  * The watchdog restarts at the reply and after every chunk, so only a stalled download is cut off.
+ * A slow download that keeps receiving bytes is left to finish. The 5 MB cap bounds its size.
  */
 async function download(id: string, signal: AbortSignal | undefined): Promise<Blob> {
   const watchdog = new AbortController()
@@ -36,12 +34,10 @@ async function download(id: string, signal: AbortSignal | undefined): Promise<Bl
     clearTimeout(timer)
     timer = setTimeout(stalled, STALL_MS)
   }
-  const limits = [watchdog.signal, AbortSignal.timeout(TOTAL_MS)]
-
   try {
     let response: Response
     try {
-      response = await fetch(arxivPdfUrl(id), { signal: AbortSignal.any(signal ? [...limits, signal] : limits) })
+      response = await fetch(arxivPdfUrl(id), { signal: AbortSignal.any(signal ? [watchdog.signal, signal] : [watchdog.signal]) })
     } catch (err) {
       if (signal?.aborted) throw err
       if (watchdog.signal.aborted) throw new ArxivError('arXiv did not answer in time. Try again.')

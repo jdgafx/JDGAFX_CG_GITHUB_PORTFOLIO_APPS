@@ -1,10 +1,16 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { pageMarkerPattern } from './chunk'
+import { TimeoutError, withTimeout } from './timeout'
 
 // Bundled with the app rather than pulled from a CDN, so the page keeps working
 // offline and needs no third-party script origin in the CSP.
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+
+/** Longest wait for the PDF reader to open a file, or to read one page. */
+const READ_TIMEOUT_MS = 30_000
+
+const TOO_SLOW_MESSAGE = 'Reading this PDF took too long. Check your connection and try again.'
 
 interface ExtractResult {
   text: string
@@ -53,9 +59,14 @@ export async function extractText(file: File): Promise<ExtractResult> {
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
   let pdf: Awaited<typeof loadingTask.promise>
   try {
-    pdf = await loadingTask.promise
-  } catch {
-    throw new Error('Failed to parse PDF. The file may be corrupted, password-protected, or not a valid PDF.')
+    // The reader's worker script is fetched on first use, so a stalled network can hang here.
+    pdf = await withTimeout(loadingTask.promise, READ_TIMEOUT_MS, TOO_SLOW_MESSAGE)
+  } catch (err) {
+    void loadingTask.destroy()
+    // A TimeoutError already carries a sentence safe to show.
+    throw err instanceof TimeoutError
+      ? err
+      : new Error('Failed to parse PDF. The file may be corrupted, password-protected, or not a valid PDF.')
   }
 
   const numPages = pdf.numPages
@@ -67,11 +78,16 @@ export async function extractText(file: File): Promise<ExtractResult> {
 
   for (let i = 1; i <= numPages; i++) {
     try {
-      const page = await pdf.getPage(i)
-      const textContent = await page.getTextContent()
+      const page = await withTimeout(pdf.getPage(i), READ_TIMEOUT_MS, TOO_SLOW_MESSAGE)
+      const textContent = await withTimeout(page.getTextContent(), READ_TIMEOUT_MS, TOO_SLOW_MESSAGE)
       const pageText = textContent.items.map(item => ('str' in item ? item.str : '')).join(' ')
       fullText += `--- Page ${i} ---\n${pageText}\n\n`
-    } catch {
+    } catch (err) {
+      // A page that never answers means the reader is stuck, so that ends the read.
+      if (err instanceof TimeoutError) {
+        void pdf.destroy()
+        throw err
+      }
       // If a single page fails, skip it rather than crashing the whole extraction
       fullText += `--- Page ${i} ---\n[Could not extract text from this page]\n\n`
     }
