@@ -1,8 +1,15 @@
 # DocMind: document question answering with retrieval
 
-DocMind answers questions about one document. The document is a live Wikipedia article, an arXiv paper, or a PDF or TXT file you upload. You ask a question and get an answer with the passages it used and where each sits: a section for an article, a page for a PDF. The text is read in your browser. The browser picks the passages that share words with your question and sends only those to the model. Each answer shows the steps it ran, with timings, token counts, cost, and the model that served it.
+DocMind answers questions about one document. The document is a live Wikipedia article, an arXiv paper, or a PDF or TXT file you upload. You ask a question and get an answer with the passages it used and where each sits: a section for an article, a page for a PDF. The text is read in your browser. The browser ranks every passage with BM25 and sends only the best 20 to the model. Each answer shows the steps it ran, with timings, token counts, cost, and the model that served it.
 
-What this showcases: retrieval-augmented answering. The browser retrieves the passages, and the model cites only the passages it was given.
+What this showcases: retrieval you can check. The browser retrieves the passages and shows their BM25 scores with the matched words marked. The model cites only the passages it was given, and each citation in the answer is a button that opens the passage with the supporting sentence marked.
+
+## Evidence you can see
+
+- **Retrieval.** The Evidence panel lists the five best passages for the question with a bar for each BM25 score (scaled to the best one), the passage number and its page or section, and the question words marked in the text. The other 15 passages that were sent are listed below by score. A map shows where in the document the sent and cited passages sit.
+- **Clickable citations.** The model writes a marker such as `[Chunk 12]` after each claim. The page turns each marker into a numbered button (the passage number the panel uses, counted from 1). The sources list under the answer has the same buttons.
+- **Source panel.** A citation opens its passage with the text on each side. The supporting sentence is marked. It is chosen by a fixed rule: for each answer sentence that cites the passage, the passage sentence that shares the most distinct content words (after stemming) with it. A tie goes to the earlier sentence. A passage cited by two answer sentences can show two marks. When no sentence shares a word, nothing is marked.
+- **Not in the document.** When the model says the document does not answer and cites nothing, the answer is labelled "Not in the document" and lists the best-scoring passages it was given. Each one opens in the panel. When no passage shares a word with the question, the model is not called and the page says all passages were checked.
 
 ## Where documents come from
 
@@ -18,18 +25,18 @@ Live URL: https://jdgafx-app-02-rag-document-intelligence.netlify.app
 
 The steps below are the trace names the UI shows, in the order they run.
 
-1. **Retrieve passages** (browser). Ranks the document's passages by the share of distinct question words each contains. A small density bonus, always smaller than one word's share, orders passages that cover the same words. The top 20 go on to the server. If none shares a word with the question, the model is not called and the UI says so.
+1. **Retrieve passages** (browser). Scores every passage with BM25 (k1 1.2, b 0.75, idf `ln(1 + (N - n + 0.5) / (n + 0.5))`). Words are lower-cased, stop words and question verbs such as "take" and "place" are dropped, and a small suffix stripper joins plurals and -ed or -ing forms. The index is built once per document. The top 20 go on to the server, in document order. If none shares a word with the question, the model is not called and the UI says so.
 2. **Accept request** (server). Checks the question and the passage count. The step time includes the request checks made before it.
 3. **Build prompt** (server). Adds the system prompt and the labelled passages, then reports the character count sent.
-4. **Call model** (server). One chat call to the fixed model. The step reports which model served the reply.
-5. **Retry model call** (server). Runs only when the first reply was empty or cut off at the output cap, and at least 5 seconds of the request budget remain. At most one retry.
+4. **Call model** (server). One chat call to the fixed model, limited to 12 seconds. The step reports which model served the reply.
+5. **Retry model call** (server). Runs once when the first reply was empty or cut off at the output cap, or when the first call timed out or did not connect, and at least 5 seconds of the request budget remain. A provider error (a 4xx, 429 or 5xx reply) and a stop by the visitor are never retried. The trace says why it ran ("Retried once because ...").
 6. **Parse and validate** (server). Reads the JSON reply, keeps only citations that name a passage that was sent, and reports the cited count and the self-rated percentage.
 
 The Latest run section lists every step with its status, duration, and the tokens and cost of each model call. It also shows total latency, prompt, completion and total tokens, cost in USD, and the served model. A missing value reads "not reported". Cost is marked "estimated" when it comes from published catalogue prices rather than the provider's usage report.
 
-Each answer shows its self-rated confidence as "Self-rated N%", with a note that the model rated its own answer and the rating is not checked against the passages. It also shows "Served by" and the source passages. Hovering a source marks its passages in the Passages panel.
+Each answer shows its self-rated confidence as "Self-rated N%", with a note that the model rated its own answer and the rating is not checked against the passages. It also shows "Served by" and the source passages.
 
-The Passages panel is the retrieval view. Its map shows the whole document as a row of cells. Shaded cells hold passages the browser sent to the model, and solid cells hold passages the answer cites. The list beside the answer shows the same passages with their passage numbers and page numbers.
+The map in the Evidence panel shows the whole document as a row of cells. Shaded cells hold passages the browser sent to the model, and solid cells hold passages the answer cites. "Browse the passages" opens the document's passages in a list with the same shading.
 
 ## Architecture
 
@@ -38,7 +45,7 @@ browser (React, pdf.js)
   -> Wikipedia article text fetched from en.wikipedia.org (CORS), or a PDF fetched from arxiv.org (CORS),
      or an uploaded file
   -> PDF text read locally, passages chunked (500 characters, 50 overlap)
-  -> term-overlap retrieval picks up to 20 passages
+  -> BM25 retrieval picks up to 20 passages
   -> POST /api/ai  (Accept: text/event-stream)
        Netlify Function netlify/functions/ai.ts
          -> origin check, method check, rate limit, body size, validation
@@ -55,6 +62,7 @@ browser (React, pdf.js)
 - **Validation.** Non-POST methods get 405. Bad JSON gets 400. Bodies over 256 KB get 413. The question is at most 2000 characters, at most 20 passages are accepted, and each passage must start with its `[Chunk N]` label. Each passage is cut to 2000 characters and the title to 200.
 - **Rate limit.** 20 requests per minute per client address, kept in memory by each function instance. It is a cost guard, not a quota.
 - **Deadline.** One 25-second budget covers the first call, any retry, and the price lookup. The price lookup is skipped when less than a second remains.
+- **Browser watchdog.** The browser gives up on an answer when no byte arrives for 30 seconds, or after 90 seconds in all, and shows a plain sentence with Try again. Stop by the visitor stays silent.
 - **Errors.** Refusals before the model runs return a plain sentence in `{ error }` with a status: 400, 403, 405, 413, 429, or 500 when no key is set. Once the request is accepted, the function always answers with the event stream, and a failure is an `error` frame carrying the sentence and the steps that ran. That covers a provider rate limit, a provider failure, a timeout, and an unusable reply. Provider response bodies are logged on the server only. The UI shows an error banner and marks the failed step in the trace. A failed document load shows its own sentence and a **Try again** button.
 
 ## Run it locally
@@ -86,12 +94,13 @@ The tests blank every provider key. Every function test replaces `fetch` with a 
 
 ## Known limits
 
-- Retrieval matches words, not meaning. A question that uses different words from the document can find no passage, and then the model is not called.
+- Retrieval matches words, not meaning. A question that uses different words from the document can find no passage, and then the model is not called. BM25 also ranks by word counts, so a passage full of the question's general words can outrank the one with the answer. That is why 20 passages are sent, not 5.
 - The model sees only the passages that matched. Text that shares no word with the question is never sent.
+- The marked sentence is chosen by word overlap with the answer sentence, not by meaning. When the answer sentence mixes two passages' facts, a passage can show the sentence that shares the most words rather than the one with the fact. Numbers split by a PDF's spacing ("28 . 4") match poorly.
+- The model may skip a marker or cite a passage only in the source list. The panel then matches the passage against the whole answer.
 - The confidence figure is the model's own rating. It is not checked against the passages.
 - A passage is placed in the section or page where it starts. A passage that crosses a heading shows the earlier section.
 - Wikipedia text is read as plain text. Tables, lists of links and images are not included, and an article that has no prose is refused.
-- The model's answer text may name a passage as "Chunk N", counted from 0, while the panel numbers passages from 1. The cited list below the answer uses the panel numbers.
 - arXiv papers over 5 MB are refused. Download them and use Upload, up to 25 MB.
 - arXiv's error replies carry no CORS header, so the browser cannot tell a paper that does not exist from a dropped connection. Both show one sentence that says so, after one automatic retry.
 - Citations are checked against the passages that were sent. The answer text itself is not checked against them.
@@ -103,4 +112,4 @@ The tests blank every provider key. Every function test replaces `fetch` with a 
 - A PDF with no text layer, such as a scan, is rejected. There is no OCR.
 - Files up to 25 MB are read in the browser. Large documents take longer to read and to rank.
 - The server allows 25 seconds of model time per question. A slower reply, and a provider 5xx error, both end with "The AI provider did not answer in time."
-- There is no labelled evaluation set, so retrieval quality is not measured.
+- There is no labelled evaluation set, so retrieval quality is not measured. The six real questions in the checks were judged by hand.

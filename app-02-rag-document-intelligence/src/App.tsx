@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DocumentSection } from './components/DocumentSection'
+import { EvidencePanel } from './components/EvidencePanel'
+import { Header, type Badge } from './components/Header'
 import { QuestionSection } from './components/QuestionSection'
-import { RetrievalPanel } from './components/RetrievalPanel'
-import { RunSection } from './components/RunReport'
+import { ReadoutStrip } from './components/ReadoutStrip'
+import { ResultCard, type Phase, type Selection } from './components/ResultCard'
+import { RunTrace } from './components/RunTrace'
 import { SiteFooter } from './components/SiteFooter'
+import { citeKey } from './components/AnswerBody'
 import { useDocumentLoader } from './hooks/useDocumentLoader'
 import { askQuestion, AskError } from './lib/api'
+import type { Retrieval } from './lib/bm25'
+import { useResultFocus } from './lib/useResultFocus'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
 const NO_MATCH_ANSWER =
@@ -25,12 +31,11 @@ export default function App() {
   const [liveTrace, setLiveTrace] = useState<TraceStep[]>([])
   const [latest, setLatest] = useState<LatestRun | null>(null)
   const [askError, setAskError] = useState<string | null>(null)
-  // Passages the browser sent for the latest question, and the passages its answer cites.
-  const [sent, setSent] = useState<number[]>([])
+  // What the browser ranked for the latest question, and the passages its answer cites.
+  const [retrieval, setRetrieval] = useState<Retrieval | null>(null)
   const [citedLatest, setCitedLatest] = useState<number[]>([])
-  // A source under the pointer or focus. It replaces the cited passages in the list until it lets go.
-  const [hovered, setHovered] = useState<number[] | null>(null)
-  const [reveal, setReveal] = useState<{ index: number } | null>(null)
+  const [selection, setSelection] = useState<Selection | null>(null)
+  const lastQuestion = useRef('')
   const requestIdRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -45,15 +50,14 @@ export default function App() {
     setPending(null)
   }, [])
 
-  /** Clears the answers and the passage marks. The document itself is left alone. */
+  /** Clears the answers and the evidence. The document itself is left alone. */
   const clearConversation = useCallback(() => {
     setTurns([])
     setLatest(null)
     setLiveTrace([])
-    setSent([])
+    setRetrieval(null)
     setCitedLatest([])
-    setHovered(null)
-    setReveal(null)
+    setSelection(null)
     setAskError(null)
   }, [])
 
@@ -72,93 +76,100 @@ export default function App() {
   const reading = loader.loading
   const clearLoadError = loader.clearError
 
-  const runQuestion = useCallback(async () => {
-    const text = question.trim()
-    if (!doc || !text || running) return
+  const ask = useCallback(
+    async (text: string) => {
+      if (!doc || !text || running) return
 
-    const requestId = ++requestIdRef.current
-    const controller = new AbortController()
-    abortRef.current = controller
-    const isCurrent = () => requestId === requestIdRef.current
-    // Steps as they arrive, so a stopped run still shows what it did.
-    const steps: TraceStep[] = []
+      lastQuestion.current = text
+      const requestId = ++requestIdRef.current
+      const controller = new AbortController()
+      abortRef.current = controller
+      const isCurrent = () => requestId === requestIdRef.current
+      // Steps as they arrive, so a stopped run still shows what it did.
+      const steps: TraceStep[] = []
 
-    setQuestion('')
-    setAskError(null)
-    setHovered(null)
-    setSent([])
-    setCitedLatest([])
-    setRunning(true)
-    setPending(null)
-    setLiveTrace([])
+      setQuestion('')
+      setAskError(null)
+      setSelection(null)
+      setRetrieval(null)
+      setCitedLatest([])
+      setRunning(true)
+      setPending(null)
+      setLiveTrace([])
 
-    try {
-      const outcome = await askQuestion(text, doc.chunks, doc.title, controller.signal, {
-        onStart: name => {
-          if (isCurrent()) setPending(name)
-        },
-        onStep: step => {
-          steps.push(step)
-          if (isCurrent()) {
-            setLiveTrace([...steps])
-            setPending(null)
-          }
-        },
-        onRetrieved: indices => {
-          if (!isCurrent()) return
-          setSent(indices)
-          // The list opens on the first passage the model will read.
-          const first = indices[0]
-          if (first !== undefined) setReveal({ index: first })
-        },
-      })
-      if (!isCurrent()) return
-      setLatest({ report: outcome.run, state: outcome.status })
-      if (outcome.status === 'answered') setCitedLatest(outcome.sourceChunks)
-      const turn: Turn =
-        outcome.status === 'answered'
-          ? {
-              id: newId(),
-              question: text,
-              kind: 'answered',
-              answer: outcome.answer,
-              sourceChunks: outcome.sourceChunks,
-              selfRated: outcome.selfRated,
-              model: outcome.run.model,
+      try {
+        const outcome = await askQuestion(text, doc.chunks, doc.title, controller.signal, {
+          onStart: name => {
+            if (isCurrent()) setPending(name)
+          },
+          onStep: step => {
+            steps.push(step)
+            if (isCurrent()) {
+              setLiveTrace([...steps])
+              setPending(null)
             }
-          : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, model: null }
-      setTurns(prev => [...prev, turn])
-    } catch (err) {
-      if (!isCurrent()) return
-      if (controller.signal.aborted) {
-        setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'stopped' })
-      } else if (err instanceof AskError) {
-        setAskError(err.message)
-        setLatest({ report: err.run, state: 'failed' })
-      } else {
-        setAskError('Something went wrong while answering. Please try again.')
-        setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'failed' })
+          },
+          onRetrieved: ranked => {
+            if (isCurrent()) setRetrieval(ranked)
+          },
+        })
+        if (!isCurrent()) return
+        setLatest({ report: outcome.run, state: outcome.status })
+        if (outcome.status === 'answered') setCitedLatest(outcome.sourceChunks)
+        const turn: Turn =
+          outcome.status === 'answered'
+            ? {
+                id: newId(),
+                question: text,
+                kind: 'answered',
+                answer: outcome.answer,
+                sourceChunks: outcome.sourceChunks,
+                selfRated: outcome.selfRated,
+                model: outcome.run.model,
+                retrieval: outcome.retrieval,
+              }
+            : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, model: null, retrieval: outcome.retrieval }
+        setTurns(prev => [...prev, turn])
+      } catch (err) {
+        if (!isCurrent()) return
+        if (controller.signal.aborted) {
+          setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'stopped' })
+        } else if (err instanceof AskError) {
+          setAskError(err.message)
+          setLatest({ report: err.run, state: 'failed' })
+        } else {
+          setAskError('Something went wrong while answering. Please try again.')
+          setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'failed' })
+        }
+      } finally {
+        if (isCurrent()) {
+          setRunning(false)
+          setPending(null)
+          abortRef.current = null
+        }
       }
-    } finally {
-      if (isCurrent()) {
-        setRunning(false)
-        setPending(null)
-        abortRef.current = null
-      }
-    }
-  }, [doc, question, running])
+    },
+    [doc, running],
+  )
+
+  const runQuestion = useCallback(() => void ask(question.trim()), [ask, question])
+  const retry = useCallback(() => void ask(lastQuestion.current), [ask])
 
   // Stop only aborts. The request id is left alone, so the stopped state is kept.
   const stopRun = useCallback(() => {
     abortRef.current?.abort()
   }, [])
 
-  /** Marks a source's passages while the pointer or focus is on it, and opens the list on its first passage. */
-  const handleHighlight = useCallback((sources: number[] | null) => {
-    setHovered(sources)
-    const first = sources?.[0]
-    if (first !== undefined) setReveal({ index: first })
-  }, [])
+  /** Closing the panel returns focus to the citation that opened it. */
+  const closeSource = useCallback(() => {
+    const open = selection
+    setSelection(null)
+    if (open) {
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>(`[data-cite="${citeKey(open.turnId, open.index)}"]`)?.focus()
+      })
+    }
+  }, [selection])
 
   const handleReset = useCallback(() => {
     if (turns.length > 0 && !window.confirm('Start over with a new document? This conversation will be cleared.')) {
@@ -171,47 +182,54 @@ export default function App() {
     clearLoadError()
   }, [turns.length, cancelRun, clearConversation, clearLoadError])
 
-  const badge: { label: string; tone: string; mark: 'ok' | 'running' | 'skipped' } = reading
-    ? { label: 'Reading document', tone: 'ds-badge--accent', mark: 'running' }
+  const phase: Phase = running
+    ? 'running'
+    : !latest
+      ? 'idle'
+      : latest.state === 'failed'
+        ? 'failed'
+        : latest.state === 'stopped'
+          ? 'stopped'
+          : 'done'
+  useResultFocus(phase)
+
+  const lastTurn = turns[turns.length - 1]
+  const notFound = phase === 'done' && lastTurn !== undefined && lastTurn.sourceChunks.length === 0
+  const badge: Badge = reading
+    ? { label: 'Reading document', tone: 'ds-badge--accent', dot: 'ds-dot--running' }
     : running
-      ? { label: 'Asking', tone: 'ds-badge--accent', mark: 'running' }
-      : doc
-        ? { label: 'Document ready', tone: 'ds-badge--success', mark: 'ok' }
-        : { label: 'No document yet', tone: '', mark: 'skipped' }
+      ? { label: 'Asking', tone: 'ds-badge--accent', dot: 'ds-dot--running' }
+      : phase === 'failed'
+        ? { label: 'Failed', tone: 'ds-badge--danger', dot: 'ds-dot--failed' }
+        : phase === 'stopped'
+          ? { label: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+          : notFound
+            ? { label: 'Not in the document', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+            : phase === 'done'
+              ? { label: 'Answered', tone: 'ds-badge--success', dot: 'ds-dot--ok' }
+              : doc
+                ? { label: 'Document ready', tone: '', dot: 'ds-dot--ok' }
+                : { label: 'No document yet', tone: '', dot: 'ds-dot--skipped' }
 
   const settledStatus = !latest
     ? doc
       ? 'Ready for a question.'
       : null
     : latest.state === 'answered'
-      ? 'Answer ready.'
+      ? notFound
+        ? 'The document does not answer this. The panel shows what was checked.'
+        : 'Answer ready. Click a citation to read the sentence behind it.'
       : latest.state === 'no-matches'
         ? 'No passage matched. The model was not called.'
         : latest.state === 'stopped'
           ? 'Stopped. No answer came back.'
-          : 'The question did not get an answer.'
+          : 'The question did not get an answer. The answer panel says why.'
 
-  // The list marks a hovered source's passages while one is under the pointer or focus.
-  const highlight = hovered ?? citedLatest
+  const sent = retrieval ? retrieval.ranked.map(r => r.index) : []
 
   return (
-    <div className="ds-app">
-      <header className="ds-header">
-        <div className="ds-header__inner">
-          <div>
-            <h1 className="ds-title">DocMind</h1>
-            <p className="ds-subtitle">Ask questions about a Wikipedia article, an arXiv paper, or your own PDF or TXT. Each answer lists the passages it used.</p>
-          </div>
-          <span className={`ds-badge ${badge.tone}`}>
-            <span className={`ds-dot ds-dot--${badge.mark}`} aria-hidden="true" />
-            {badge.label}
-          </span>
-          <p className="ds-showcase">
-            <strong>What this showcases:</strong> retrieval-augmented answering. The browser retrieves the passages, and
-            the model cites only the passages it was given.
-          </p>
-        </div>
-      </header>
+    <div className="ds-app" data-run={phase}>
+      <Header badge={badge} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -241,18 +259,34 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <RetrievalPanel
+            <ResultCard
+              doc={doc}
+              phase={phase}
+              turns={turns}
+              error={askError}
+              hasSteps={(running ? liveTrace : (latest?.report.trace ?? [])).length > 0}
+              selection={selection}
+              onSelect={setSelection}
+              onClose={closeSource}
+              onRetry={retry}
+            />
+            <ReadoutStrip
+              running={running}
+              pending={pending}
+              liveTrace={liveTrace}
+              latest={latest}
+              sent={sent.length}
+              total={doc?.chunks.length ?? 0}
+            />
+            <EvidencePanel
               doc={doc}
               docVersion={docVersion}
-              turns={turns}
+              retrieval={retrieval}
               sent={sent}
-              citedLatest={citedLatest}
-              highlight={highlight}
-              latestState={latest?.state ?? null}
-              reveal={reveal}
-              onHighlight={handleHighlight}
+              cited={citedLatest}
+              state={latest?.state ?? null}
             />
-            <RunSection running={running} pending={pending} liveTrace={liveTrace} latest={latest} />
+            <RunTrace running={running} pending={pending} liveTrace={liveTrace} latest={latest} />
           </div>
         </div>
       </main>

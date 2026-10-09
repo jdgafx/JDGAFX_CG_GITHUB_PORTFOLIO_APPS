@@ -73,6 +73,7 @@ describe('callModel', () => {
       ok: false,
       status: 504,
       message: 'The AI provider did not answer in time.',
+      retryable: true,
     })
   })
 
@@ -82,6 +83,7 @@ describe('callModel', () => {
       ok: false,
       status: 502,
       message: 'Could not reach the AI provider. Try again shortly.',
+      retryable: true,
     })
   })
 
@@ -99,7 +101,8 @@ describe('callModel', () => {
     expect(seen[0]?.aborted).toBe(false)
     caller.abort()
     expect(seen[0]?.aborted).toBe(true)
-    expect(await first).toMatchObject({ ok: false, status: 504 })
+    // The caller went away, so a second call would be wasted.
+    expect(await first).toMatchObject({ ok: false, status: 504, retryable: false })
     // With no caller signal, the call still has the deadline signal.
     await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
     expect(seen[1]).toBeInstanceOf(AbortSignal)
@@ -138,6 +141,7 @@ describe('callModel', () => {
       ok: false,
       status: 504,
       message: 'The AI provider did not answer in time.',
+      retryable: true,
     })
   })
 })

@@ -1,51 +1,33 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { VIEWER_WINDOW } from '../lib/constants'
 import { locationLabel } from '../lib/location'
-import { PassageMap } from './PassageMap'
-import type { DocumentState, RunState } from '../types'
+import type { DocumentState } from '../types'
 
 interface DocumentViewerProps {
   document: DocumentState
   /** Passages the browser sent to the model for the latest question. */
   sent: number[]
   /** Passages the latest answer cites. */
-  citedLatest: number[]
-  /** Passages to mark as cited now: a hovered source, or else the latest answer's sources. */
-  highlight: number[]
-  latestState: RunState | null
-  /** A new object asks the list to scroll to that passage. */
-  reveal: { index: number } | null
+  cited: number[]
 }
 
 /** Passages kept in the DOM at once. A long PDF can produce tens of thousands of
  * passages, and rendering them all locks up the tab. */
 const WINDOW_SIZE = VIEWER_WINDOW * 2 + 1
 
-/** The passage column of the hero: the map, a window of passages, and the controls that move it. */
-export function DocumentViewer({ document, sent, citedLatest, highlight, latestState, reveal }: DocumentViewerProps) {
+/** A window of the document's passages, with the controls that move it. Sent passages are shaded and cited ones solid. */
+export function DocumentViewer({ document, sent, cited: citedLatest }: DocumentViewerProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const passageRefs = useRef(new Map<number, HTMLLIElement>())
   const [focusIndex, setFocusIndex] = useState(0)
   // A new object per request, so the scroll effect runs once for each request.
   const [scrollRequest, setScrollRequest] = useState<{ index: number } | null>(null)
   const [jumpValue, setJumpValue] = useState('')
-  const [seenReveal, setSeenReveal] = useState(reveal)
 
   const total = document.chunks.length
   const isWindowed = total > WINDOW_SIZE
   const start = isWindowed ? Math.max(0, Math.min(focusIndex - VIEWER_WINDOW, total - WINDOW_SIZE)) : 0
   const end = isWindowed ? start + WINDOW_SIZE : total
-
-  // A passage to reveal may sit outside the rendered window. A new reveal moves the
-  // window to it and asks for a scroll. Adjusting state during render, not in an
-  // effect, lets the window and the request land in one commit.
-  if (reveal !== seenReveal) {
-    setSeenReveal(reveal)
-    if (reveal) {
-      setFocusIndex(reveal.index)
-      setScrollRequest({ index: reveal.index })
-    }
-  }
 
   useEffect(() => {
     if (scrollRequest === null) return
@@ -80,15 +62,6 @@ export function DocumentViewer({ document, sent, citedLatest, highlight, latestS
 
   return (
     <div className="docmind-passage-col">
-      <PassageMap
-        total={total}
-        sent={sent}
-        citedLatest={citedLatest}
-        latestState={latestState}
-        start={start}
-        end={end}
-      />
-
       {isWindowed && (
         <div className="docmind-nav">
           <p className="ds-help">
@@ -132,7 +105,7 @@ export function DocumentViewer({ document, sent, citedLatest, highlight, latestS
         {document.chunks.slice(start, end).map((chunk, offset) => {
           const i = start + offset
           const place = document.chunkPages[i]
-          const cited = highlight.includes(i)
+          const cited = citedLatest.includes(i)
           const sentToModel = sent.includes(i)
           const tone = cited
             ? 'docmind-passage docmind-passage--cited'

@@ -23,7 +23,8 @@ export interface RawUsage {
 }
 
 export type AttemptOk = { ok: true; content: string; finishReason: string | null; model: string | null; usage: RawUsage }
-type Attempt = AttemptOk | { ok: false; status: number; message: string }
+/** `retryable` is true only when the call timed out or never connected, and the browser had not gone away. */
+type Attempt = AttemptOk | { ok: false; status: number; message: string; retryable?: boolean }
 
 // Upstream error bodies carry account identifiers. The function log keeps them;
 // the browser gets one plain sentence per status.
@@ -108,9 +109,10 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
     })
   } catch (err) {
     console.error('OpenRouter request failed:', err instanceof Error ? err.name : 'non-error')
+    const retryable = signal?.aborted !== true
     return isTimeout(err)
-      ? { ok: false, status: 504, message: TIMEOUT_MESSAGE }
-      : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.' }
+      ? { ok: false, status: 504, message: TIMEOUT_MESSAGE, retryable }
+      : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.', retryable }
   }
 
   if (!fetched.ok) {

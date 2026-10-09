@@ -43,14 +43,14 @@ export function SourcePicker({ busy, onLoad, onError }: SourcePickerProps) {
 
   return (
     <div className="ds-stack">
-      <div className="docmind-tabs" role="tablist" aria-label="Where the document comes from">
+      <div className="ds-seg docmind-seg" role="tablist" aria-label="Where the document comes from">
         {TABS.map(tab => (
           <button
             key={tab.mode}
             id={`docmind-tab-${tab.mode}`}
             type="button"
             role="tab"
-            className="docmind-tab"
+            
             aria-selected={mode === tab.mode}
             aria-controls="docmind-source-panel"
             tabIndex={mode === tab.mode ? 0 : -1}

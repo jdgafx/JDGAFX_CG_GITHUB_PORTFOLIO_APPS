@@ -18,3 +18,6 @@ export const VIEWER_WINDOW = 30
 
 /** Max upload size: 25 MB. */
 export const MAX_FILE_SIZE = 25 * 1024 * 1024
+
+/** Longest question the server accepts, in characters. Must match MAX_QUESTION_CHARS in netlify/shared/http.ts. */
+export const QUESTION_MAX_CHARS = 2000

@@ -62,6 +62,9 @@ interface RunEvents {
 const UPSTREAM_TIMEOUT_MS = 25_000
 // A retry is started only when at least this much of the deadline is left.
 const RETRY_MIN_MS = 5_000
+// One model call may take this long, about 1.5 times a healthy answer (4 to 8 seconds), so a stalled call leaves
+// room for the one retry inside the deadline.
+const CALL_LIMIT_MS = 12_000
 
 // The browser repeats these names for steps it skips when no passage matches,
 // so keep the two lists in step.
@@ -79,7 +82,9 @@ Rules:
 - Answer using ONLY information explicitly found in the provided chunks
 - If the chunks don't contain enough information to answer, clearly say so
 - Never fabricate or infer information beyond what is in the chunks
-- Be precise, clear, and cite which chunks contain the relevant information
+- Be precise and clear. Write as an informed reader would: never say "the chunks" or "the provided text" in the answer; the [Chunk N] markers are the only reference to them
+- Cite as you write: put the label of the chunk that supports a claim right after it, like [Chunk 4], or [Chunk 4, Chunk 9] when two support it. Cite only chunks you used. Put the marker after the sentence's last word, before its full stop
+- If the chunks do not contain the answer, say plainly that the document does not say, and return an empty source_chunk_indices list
 
 Confidence scoring:
 - 0.8-1.0: The chunks directly and clearly answer the question
@@ -87,7 +92,7 @@ Confidence scoring:
 - 0.0-0.49: Limited or no relevant information in the provided chunks
 
 You MUST respond with ONLY a valid JSON object in this exact format (no markdown, no extra text):
-{"answer":"your detailed answer here","source_chunk_indices":[0,2,5],"confidence":0.85}
+{"answer":"The station opened in 1987 [Chunk 2]. It handles freight [Chunk 0, Chunk 5].","source_chunk_indices":[0,2,5],"confidence":0.85}
 
 The source_chunk_indices must reference the exact [Chunk N] numbers from the provided text (0-based index N).`
 
@@ -222,34 +227,48 @@ export async function runAnswer(
   record(STEP_BUILD, built, 'ok', `System prompt and ${input.chunks.length} ${noun(input.chunks.length)}, ${characters} characters in total.`)
 
   const deadline = started + UPSTREAM_TIMEOUT_MS
+  const callLimit = () => Math.min(deadline, Date.now() + CALL_LIMIT_MS)
   events.start(STEP_CALL)
   const called = Date.now()
-  const first = await callModel(apiKey, messages, deadline, signal)
-  if (!first.ok) {
+  const first = await callModel(apiKey, messages, callLimit(), signal)
+
+  const usages: RawUsage[] = []
+  let attempt: AttemptOk | null = null
+  // Why a second call is made, or null when the first one is used as it is.
+  let reason: string | null = null
+  if (first.ok) {
+    usages.push(first.usage)
+    if (usable(first)) {
+      attempt = first
+      record(STEP_CALL, called, 'ok', servedBy(first), costOf(first))
+    } else if (deadline - Date.now() < RETRY_MIN_MS) {
+      record(STEP_CALL, called, 'failed', 'Output was empty or cut off, and there was no time to ask again.', costOf(first))
+      return fail(504, TIMEOUT_MESSAGE, [STEP_PARSE])
+    } else {
+      reason = 'the first reply was empty or cut off'
+      record(STEP_CALL, called, 'failed', 'Output was empty or cut off. Asking the model again.', costOf(first))
+    }
+  } else if (first.retryable && deadline - Date.now() >= RETRY_MIN_MS) {
+    reason = 'the first call timed out or did not connect'
+    record(STEP_CALL, called, 'failed', `${first.message} Asking the model once more.`)
+  } else {
     record(STEP_CALL, called, 'failed', first.message)
     return fail(first.status, first.message, [STEP_PARSE])
   }
 
-  const usages: RawUsage[] = [first.usage]
-  let attempt: AttemptOk = first
-  if (usable(first)) {
-    record(STEP_CALL, called, 'ok', servedBy(first), costOf(first))
-  } else if (deadline - Date.now() < RETRY_MIN_MS) {
-    record(STEP_CALL, called, 'failed', 'Output was empty or cut off, and there was no time to ask again.', costOf(first))
-    return fail(504, TIMEOUT_MESSAGE, [STEP_PARSE])
-  } else {
-    record(STEP_CALL, called, 'failed', 'Output was empty or cut off. Asking the model again.', costOf(first))
+  if (reason !== null) {
     events.start(STEP_RETRY)
     const retried = Date.now()
-    const second = await callModel(apiKey, messages, deadline, signal)
+    const second = await callModel(apiKey, messages, callLimit(), signal)
     if (!second.ok) {
       record(STEP_RETRY, retried, 'failed', second.message)
       return fail(second.status, second.message, [STEP_PARSE])
     }
     usages.push(second.usage)
     attempt = second
-    record(STEP_RETRY, retried, 'ok', servedBy(second), costOf(second))
+    record(STEP_RETRY, retried, 'ok', `Retried once because ${reason}. ${servedBy(second)}`, costOf(second))
   }
+  if (attempt === null) return fail(502, EMPTY_REPLY, [STEP_PARSE])
 
   events.start(STEP_PARSE)
   const parsing = Date.now()
@@ -258,7 +277,7 @@ export async function runAnswer(
     record(STEP_PARSE, parsing, 'failed', parsed.message)
     return fail(502, parsed.message, [])
   }
-  const model = attempt.model ?? first.model
+  const model = attempt.model ?? (first.ok ? first.model : null)
   const usage = await buildUsage(model, usages, deadline)
   const cited = parsed.result.source_chunk_indices.length
   const confidence = Math.round(parsed.result.confidence * 100)

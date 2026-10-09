@@ -1,90 +1,20 @@
-import { TOP_K } from './constants'
+import { retrieve, type Retrieval } from './bm25'
 import { noun } from './passageMap'
+import { startWatchdog, type WatchdogReason } from './watchdog'
 import type { RunReport, TraceStep, Usage } from '../types'
-
-/**
- * Words carried by almost every question and almost every passage. Left in the
- * term set they swamp the signal, so a question about "revenue" would rank on
- * "what" and "the" instead.
- */
-const STOP_WORDS = new Set([
-  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'any', 'can', 'her', 'was', 'one',
-  'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old',
-  'see', 'two', 'who', 'did', 'yes', 'she', 'they', 'them', 'this', 'that', 'these', 'those',
-  'with', 'from', 'have', 'been', 'were', 'what', 'when', 'where', 'which', 'while', 'does',
-  'doing', 'about', 'into', 'over', 'than', 'then', 'there', 'their', 'would', 'could',
-  'should', 'will', 'your', 'yours', 'been', 'being', 'here', 'more', 'most', 'some', 'such',
-  'only', 'very', 'much', 'many', 'each', 'other', 'also', 'just', 'like', 'tell', 'say',
-  'says', 'said', 'give', 'please', 'document', 'documents', 'text', 'file', 'page', 'pages',
-])
-
-function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/\b[a-z0-9]{3,}\b/g) ?? []
-}
-
-/** Distinct content words from the question, falling back to raw tokens if the
- * question is nothing but stop words ("what is this about?"). */
-export function questionTerms(question: string): Set<string> {
-  const all = tokenize(question)
-  const meaningful = all.filter(w => !STOP_WORDS.has(w))
-  return new Set(meaningful.length > 0 ? meaningful : all)
-}
-
-/**
- * Rank by how much of the question a passage actually covers -- the share of
- * distinct question terms it contains. Scoring by hit *rate* instead (hits per
- * word) let a five-word fragment mentioning one term outrank a paragraph that
- * answered the whole question.
- *
- * A sub-step density bonus breaks ties between equal-coverage passages. It is
- * scaled below one coverage step, so more distinct matches always wins.
- */
-export function scoreChunk(chunk: string, qSet: Set<string>): number {
-  if (qSet.size === 0) return 0
-  const words = tokenize(chunk)
-  if (words.length === 0) return 0
-
-  const matched = new Set<string>()
-  let hits = 0
-  for (const word of words) {
-    if (qSet.has(word)) {
-      matched.add(word)
-      hits++
-    }
-  }
-  if (matched.size === 0) return 0
-
-  const coverage = matched.size / qSet.size
-  const density = hits / Math.sqrt(words.length)
-  const step = 1 / qSet.size
-  return coverage + 0.4 * step * Math.min(density, 1)
-}
-
-interface RetrievedChunk {
-  chunk: string
-  index: number
-  score: number
-}
-
-/** Top-scoring passages, returned in document order so the model reads them
- * the way the author wrote them. */
-export function retrieve(question: string, chunks: string[], limit: number = TOP_K): RetrievedChunk[] {
-  const qSet = questionTerms(question)
-  const scored = chunks
-    .map((chunk, index) => ({ chunk, index, score: scoreChunk(chunk, qSet) }))
-    .filter(c => c.score > 0)
-
-  scored.sort((a, b) => b.score - a.score || a.index - b.index)
-  return scored.slice(0, limit).sort((a, b) => a.index - b.index)
-}
 
 // The step names the server records.
 const RETRIEVE_STEP = 'Retrieve passages'
 const SERVER_STEPS = ['Accept request', 'Build prompt', 'Call model', 'Parse and validate']
 
+/** No byte for this long means the stream has stalled. */
+export const STALL_MS = 30_000
+/** The server's budget is 25 s; the browser waits much longer than that before it gives up. */
+export const CAP_MS = 90_000
+
 type AskOutcome =
-  | { status: 'answered'; answer: string; sourceChunks: number[]; selfRated: number; run: RunReport }
-  | { status: 'no-matches'; run: RunReport }
+  | { status: 'answered'; answer: string; sourceChunks: number[]; selfRated: number; run: RunReport; retrieval: Retrieval }
+  | { status: 'no-matches'; run: RunReport; retrieval: Retrieval }
 
 /** A question that got no answer. `run` holds every step that ran, including the one that failed. */
 export class AskError extends Error {
@@ -102,7 +32,7 @@ interface AskEvents {
   onStart: (name: string) => void
   onStep: (step: TraceStep) => void
   /** Indices of the passages ranked for this question, before the server is called. */
-  onRetrieved: (indices: number[]) => void
+  onRetrieved: (retrieval: Retrieval) => void
 }
 
 interface ServerRun {
@@ -160,7 +90,7 @@ function isServerRun(data: unknown): data is ServerRun {
 }
 
 /** Reads the event stream frame by frame. Ends on the first result or error frame. */
-async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents): Promise<StreamEnd | null> {
+async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents, onBytes: () => void): Promise<StreamEnd | null> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -168,6 +98,7 @@ async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents): 
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
+    onBytes()
     buffer += decoder.decode(value, { stream: true })
     const frames = buffer.split('\n\n')
     buffer = frames.pop() ?? ''
@@ -210,93 +141,121 @@ export async function askQuestion(
   events: AskEvents,
 ): Promise<AskOutcome> {
   const began = performance.now()
-  const top = retrieve(question, chunks)
-  events.onRetrieved(top.map(t => t.index))
-  const retrieval: TraceStep = {
+  const retrieval = retrieve(question, chunks)
+  events.onRetrieved(retrieval)
+  const { ranked } = retrieval
+  const retrievalStep: TraceStep = {
     name: RETRIEVE_STEP,
     status: 'ok',
     ms: Math.round(performance.now() - began),
-    detail: top.length > 0
-      ? `Kept ${top.length} of ${chunks.length} ${noun(chunks.length)} by term overlap.`
+    detail: ranked.length > 0
+      ? `Scored ${chunks.length} ${noun(chunks.length)} with BM25. ${retrieval.matching} matched; the top ${ranked.length} go to the model.`
       : `None of the ${chunks.length} ${noun(chunks.length)} shares a word with the question.`,
   }
-  events.onStep(retrieval)
+  events.onStep(retrievalStep)
 
-  if (top.length === 0) {
+  if (ranked.length === 0) {
     const skipped = SERVER_STEPS.map(name => skippedStep(name, 'Not run. No passage matched, so the model was not called.'))
     for (const step of skipped) events.onStep(step)
-    return { status: 'no-matches', run: runWith([retrieval, ...skipped], retrieval.ms) }
+    return { status: 'no-matches', run: runWith([retrievalStep, ...skipped], retrievalStep.ms), retrieval }
   }
 
-  const labeledChunks = top.map(t => `[Chunk ${t.index}]:\n${t.chunk}`)
+  // The model reads the passages in the order the author wrote them.
+  const labeledChunks = [...ranked].sort((a, b) => a.index - b.index).map(r => `[Chunk ${r.index}]:\n${chunks[r.index] ?? ''}`)
 
-  let response: Response
+  const stop = new AbortController()
+  let stalled: WatchdogReason | null = null
+  const dog = startWatchdog(STALL_MS, CAP_MS, reason => {
+    stalled = reason
+    stop.abort()
+  })
+  const guard = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
+  const stallError = (): AskError => {
+    const idle = stalled === 'idle'
+    return new AskError(
+      idle ? 'The answer stopped arriving. Ask again, or try a narrower question.' : 'The answer took longer than expected. Ask again in a moment.',
+      runWith(
+        [retrievalStep, failedStep('Call model', idle ? `No data arrived for ${STALL_MS / 1000} seconds.` : `No answer after ${CAP_MS / 1000} seconds.`)],
+        null,
+      ),
+    )
+  }
+
   try {
-    response = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ question, chunks: labeledChunks, documentTitle }),
-      signal,
-    })
-  } catch (err) {
-    if (signal?.aborted) throw err
-    console.error('DocMind request failed:', err)
-    throw new AskError(
-      'Could not reach the server. Check your connection and try again.',
-      runWith([retrieval, failedStep('Call model', 'Could not reach the server.')], null),
-    )
-  }
+    let response: Response
+    try {
+      response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ question, chunks: labeledChunks, documentTitle }),
+        signal: guard,
+      })
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (stalled) throw stallError()
+      console.error('DocMind request failed:', err)
+      throw new AskError(
+        'Could not reach the server. Check your connection and try again.',
+        runWith([retrievalStep, failedStep('Call model', 'Could not reach the server.')], null),
+      )
+    }
+    dog.kick()
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    console.error(`DocMind API error ${response.status}:`, text || '(empty response body)')
-    const fields: Record<string, unknown> = parseBody(text) ?? {}
-    const { error: bodyError, trace: bodyTrace, totalMs: bodyTotalMs } = fields
-    const message = typeof bodyError === 'string' && bodyError.trim() !== '' ? bodyError : fallbackMessage(response.status)
-    const serverTrace = Array.isArray(bodyTrace) ? bodyTrace.filter(isStep) : []
-    // A rejected request never reached a model step, so a 4xx marks the first step.
-    const failure = serverTrace.length > 0
-      ? serverTrace
-      : [failedStep(response.status >= 500 ? 'Call model' : 'Accept request', message)]
-    const totalMs = typeof bodyTotalMs === 'number' ? bodyTotalMs : null
-    throw new AskError(message, runWith([retrieval, ...failure], totalMs))
-  }
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      console.error(`DocMind API error ${response.status}:`, text || '(empty response body)')
+      const fields: Record<string, unknown> = parseBody(text) ?? {}
+      const { error: bodyError, trace: bodyTrace, totalMs: bodyTotalMs } = fields
+      const message = typeof bodyError === 'string' && bodyError.trim() !== '' ? bodyError : fallbackMessage(response.status)
+      const serverTrace = Array.isArray(bodyTrace) ? bodyTrace.filter(isStep) : []
+      // A rejected request never reached a model step, so a 4xx marks the first step.
+      const failure = serverTrace.length > 0
+        ? serverTrace
+        : [failedStep(response.status >= 500 ? 'Call model' : 'Accept request', message)]
+      const totalMs = typeof bodyTotalMs === 'number' ? bodyTotalMs : null
+      throw new AskError(message, runWith([retrievalStep, ...failure], totalMs))
+    }
 
-  if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body) {
-    throw new AskError(
-      'The document assistant returned an unexpected response. Please try again.',
-      runWith([retrieval, failedStep('Parse and validate', 'The response was not an event stream.')], null),
-    )
-  }
-  let end: StreamEnd | null
-  try {
-    end = await readStream(response.body, events)
-  } catch (err) {
-    if (signal?.aborted) throw err
-    console.error('DocMind response was not readable:', err)
-    throw new AskError(
-      'The document assistant returned an unreadable response. Please try again.',
-      runWith([retrieval, failedStep('Parse and validate', 'The response could not be read.')], null),
-    )
-  }
-  if (end?.kind === 'error') {
-    throw new AskError(end.message, runWith([retrieval, ...end.trace], end.totalMs))
-  }
-  if (end?.kind !== 'result') {
-    throw new AskError(
-      'The document assistant returned an unexpected response. Please try again.',
-      runWith([retrieval, failedStep('Parse and validate', 'The response ended before an answer.')], null),
-    )
-  }
-  const run = end.run
+    if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body) {
+      throw new AskError(
+        'The document assistant returned an unexpected response. Please try again.',
+        runWith([retrievalStep, failedStep('Parse and validate', 'The response was not an event stream.')], null),
+      )
+    }
+    let end: StreamEnd | null
+    try {
+      end = await readStream(response.body, events, dog.kick)
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (stalled) throw stallError()
+      console.error('DocMind response was not readable:', err)
+      throw new AskError(
+        'The document assistant returned an unreadable response. Please try again.',
+        runWith([retrievalStep, failedStep('Parse and validate', 'The response could not be read.')], null),
+      )
+    }
+    if (end?.kind === 'error') {
+      throw new AskError(end.message, runWith([retrievalStep, ...end.trace], end.totalMs))
+    }
+    if (end?.kind !== 'result') {
+      throw new AskError(
+        'The document assistant returned an unexpected response. Please try again.',
+        runWith([retrievalStep, failedStep('Parse and validate', 'The response ended before an answer.')], null),
+      )
+    }
+    const run = end.run
 
-  // The server keeps only citations that name a passage it was sent, so they are used as they are.
-  return {
-    status: 'answered',
-    answer: run.result.answer,
-    sourceChunks: run.result.source_chunk_indices,
-    selfRated: Math.min(1, Math.max(0, run.result.confidence)),
-    run: { trace: [retrieval, ...run.trace], usage: run.usage, model: run.model, totalMs: run.totalMs },
+    // The server keeps only citations that name a passage it was sent, so they are used as they are.
+    return {
+      status: 'answered',
+      answer: run.result.answer,
+      sourceChunks: run.result.source_chunk_indices,
+      selfRated: Math.min(1, Math.max(0, run.result.confidence)),
+      run: { trace: [retrievalStep, ...run.trace], usage: run.usage, model: run.model, totalMs: run.totalMs },
+      retrieval,
+    }
+  } finally {
+    dog.stop()
   }
 }
 

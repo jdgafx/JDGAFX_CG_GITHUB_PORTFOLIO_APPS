@@ -67,8 +67,7 @@ export function UploadZone({ busy, onFileSelect, onError }: UploadZoneProps) {
   return (
     <div className="ds-stack docmind-upload">
       <div
-        className="ds-empty docmind-drop"
-        data-dragging={dragging}
+        className={dragging ? 'ds-drop ds-drop--over' : 'ds-drop'}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

@@ -145,6 +145,53 @@ describe('ai function: retries', () => {
   })
 })
 
+describe('ai function: retry after a timeout or a failed connection', () => {
+  const GOOD = '{"answer":"Opened in 1987 [Chunk 3].","source_chunk_indices":[3],"confidence":0.9}'
+
+  function failThenAnswer(error: Error) {
+    let calls = 0
+    const mock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => {
+      calls += 1
+      if (calls === 1) throw error
+      return jsonReply(chatBody(GOOD))
+    })
+    vi.stubGlobal('fetch', mock)
+    return mock
+  }
+
+  it('asks once more after a timed-out call, and says so in the trace', async () => {
+    const mock = failThenAnswer(Object.assign(new Error('timed out'), { name: 'TimeoutError' }))
+    const body = await runOf(await handler(request(VALID)))
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(body.result.source_chunk_indices).toEqual([3])
+    expect(body.trace.map(step => [step.name, step.status])).toEqual([
+      ['Accept request', 'ok'],
+      ['Build prompt', 'ok'],
+      ['Call model', 'failed'],
+      ['Retry model call', 'ok'],
+      ['Parse and validate', 'ok'],
+    ])
+    expect(body.trace[2]?.detail).toBe('The AI provider did not answer in time. Asking the model once more.')
+    expect(body.trace[3]?.detail).toBe(`Retried once because the first call timed out or did not connect. Response from ${SERVED}.`)
+  })
+
+  it('asks once more after a failed connection', async () => {
+    const mock = failThenAnswer(new TypeError('fetch failed'))
+    expect((await runOf(await handler(request(VALID)))).result.answer).toBe('Opened in 1987 [Chunk 3].')
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries only once when both calls fail', async () => {
+    const mock = vi.fn(async () => Promise.reject(new TypeError('fetch failed')))
+    vi.stubGlobal('fetch', mock)
+    expect(await finalFrame(await handler(request(VALID)))).toMatchObject({
+      type: 'error',
+      error: 'Could not reach the AI provider. Try again shortly.',
+    })
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('ai function: provider failures', () => {
   it('maps a provider 402 to its plain sentence and does not copy the provider body', async () => {
     stubProvider(() => jsonReply({ error: { message: 'Insufficient credits for acct_123' } }, 402))

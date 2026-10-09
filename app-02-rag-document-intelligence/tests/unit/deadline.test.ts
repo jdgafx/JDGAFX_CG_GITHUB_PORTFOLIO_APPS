@@ -54,6 +54,6 @@ describe('a stalled body ends at the limit with the existing timeout message', (
     const started = Date.now()
     const result = await callModel('test-only-placeholder', [{ role: 'user', content: 'Q' }], Date.now() + 80)
     expect(Date.now() - started).toBeLessThan(2_000)
-    expect(result).toEqual({ ok: false, status: 504, message: TIMEOUT_MESSAGE })
+    expect(result).toEqual({ ok: false, status: 504, message: TIMEOUT_MESSAGE, retryable: true })
   })
 })

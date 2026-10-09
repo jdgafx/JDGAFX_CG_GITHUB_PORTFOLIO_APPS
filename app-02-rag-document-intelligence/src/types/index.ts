@@ -1,3 +1,5 @@
+import type { Retrieval } from '../lib/bm25'
+
 /** What the numbers in `DocumentState.chunkPages` count. */
 export type LocationUnit = 'page' | 'section'
 
@@ -63,4 +65,6 @@ export interface Turn {
   sourceChunks: number[]
   selfRated: number | null
   model: string | null
+  /** What the browser ranked for this question: the terms, and the passages with their BM25 scores. */
+  retrieval: Retrieval
 }
