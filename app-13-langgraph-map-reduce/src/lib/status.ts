@@ -58,7 +58,7 @@ function runningStep(view: RunView): string {
   if (retried > 0) return `Retrying ${formatCount(retried, 'missing chunk')}.`
   if (view.branches.some((b) => b.status === 'running')) {
     const done = view.branches.filter((b) => b.status === 'ok').length
-    return `${done} of ${view.branches.length} chunks extracted.`
+    return `${done} of ${formatCount(view.branches.length, 'chunk')} extracted.`
   }
   if (view.stages.reduce === 'running') return 'Merging the findings.'
   if (view.stages.synthesize === 'running') return 'Writing the cited summary.'
@@ -74,7 +74,7 @@ export function statusLine(view: RunView, length: number, valid: boolean): strin
       return `Analyzing. ${runningStep(view)}`.trim()
     case 'done': {
       const { covered, missing } = view.result?.coverage ?? { covered: [], missing: [] }
-      return `Finished. ${covered.length} of ${covered.length + missing.length} chunks covered.`
+      return `Finished. ${covered.length} of ${formatCount(covered.length + missing.length, 'chunk')} covered.`
     }
     case 'error':
       return 'Failed. Read the message under the buttons, then change the text or try again.'

@@ -19,8 +19,9 @@ export async function pause(ms: number, signal: AbortSignal): Promise<void> {
  * branch: it stops the other branches at once, and the first cause is the one that gets reported.
  */
 export class RunBudget {
-  private readonly deadline = new AbortController()
-  private readonly halts = new AbortController()
+  /** One plain controller, aborted by the deadline timer, a cancel or a halt. The first reason is the one kept. */
+  private readonly stop = new AbortController()
+  private deadlinePassed = false
   private readonly started = Date.now()
   private readonly limitMs: number
   private readonly timer: ReturnType<typeof setTimeout>
@@ -30,8 +31,8 @@ export class RunBudget {
 
   constructor(limitMs: number) {
     this.limitMs = limitMs
-    this.signal = AbortSignal.any([this.deadline.signal, this.halts.signal])
-    this.timer = setTimeout(() => this.deadline.abort(new RunBudgetError()), limitMs)
+    this.signal = this.stop.signal
+    this.timer = setTimeout(() => this.cancel(), limitMs)
   }
 
   /** Milliseconds since the run started. */
@@ -46,18 +47,19 @@ export class RunBudget {
 
   /** True only when the time limit has passed or the run was cancelled. A halt does not count. */
   expired(): boolean {
-    return this.deadline.signal.aborted
+    return this.deadlinePassed
   }
 
   /** Stops the run now, for example when the client disconnects. */
   cancel(): void {
-    this.deadline.abort(new RunBudgetError())
+    this.deadlinePassed = true
+    this.stop.abort(new RunBudgetError())
   }
 
   /** Stops every other call in the run at once. The first cause is kept, so it is the one reported. */
   halt(error: unknown): void {
     if (this.cause === null) this.cause = { error }
-    this.halts.abort(error)
+    this.stop.abort(error)
   }
 
   halted(): boolean {

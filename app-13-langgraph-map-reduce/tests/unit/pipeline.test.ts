@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
-import { BUDGET_MESSAGE, ProviderError } from '../../netlify/shared/errors'
-import { CHECK_MODEL, EXTRACT_MODEL, MIN_RETRY_BUDGET_MS, RETRY_PAUSE_MS, SYNTH_MODEL } from '../../netlify/shared/models'
+import { BUDGET_MESSAGE, LONG_TEXT_HINT, ProviderError } from '../../netlify/shared/errors'
+import { MIN_RETRY_BUDGET_MS, MODEL, RETRY_PAUSE_MS } from '../../netlify/shared/models'
+import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
-import { runPipeline } from '../../netlify/shared/pipeline'
+import { BUDGET_GRACE_MS, LONG_TEXT_CHARS, runPipeline } from '../../netlify/shared/pipeline'
 import type { Frame, RunResult } from '../../src/types/frames'
 
 /** One paragraph of about 1,000 characters. Two cannot share a 1,200 character chunk, so N paragraphs make N chunks. */
@@ -34,7 +35,7 @@ const chunkOf = (user: string): number => Number(/^Chunk (\d+) of/.exec(user)?.[
 const citedIds = (user: string): number[] => [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
 
 const extractReply = (id: number): ChatReply =>
-  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), EXTRACT_MODEL)
+  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), MODEL)
 
 const synthReply = (overview: string, ids: number[]): ChatReply =>
   reply(
@@ -42,10 +43,10 @@ const synthReply = (overview: string, ids: number[]): ChatReply =>
       overview,
       sections: [{ heading: 'Terms', points: ids.map((id) => ({ text: `Rule ${id} holds.`, chunks: [id] })) }],
     }),
-    SYNTH_MODEL,
+    MODEL,
   )
 
-const noOmissions = (): ChatReply => reply(JSON.stringify({ omitted: [] }), CHECK_MODEL)
+const noOmissions = (): ChatReply => reply(JSON.stringify({ omitted: [] }), MODEL)
 
 /** Never answers on its own. It rejects with the run's reason as soon as the run stops. */
 function untilAborted(signal: AbortSignal): Promise<never> {
@@ -96,13 +97,13 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
     let synthCalls = 0
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         attempts.set(id, (attempts.get(id) ?? 0) + 1)
         if (id === 2 && attempts.get(2) === 1) throw new ProviderError('timeout')
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       synthCalls += 1
       if (synthCalls === 1) return synthReply('First pass summary.', citedIds(user))
       throw new ProviderError('timeout')
@@ -125,14 +126,14 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
     const attempts = new Map<number, number>()
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         attempts.set(id, (attempts.get(id) ?? 0) + 1)
         if (id === 2 && attempts.get(2) === 1) throw new ProviderError('timeout')
         if (id === 2) throw new ProviderError('rejected')
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       return synthReply('First pass summary.', citedIds(user))
     }
 
@@ -152,7 +153,7 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
     const attempts = new Map<number, number>()
     const chat: ChatFn = async (request, signal) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         attempts.set(id, (attempts.get(id) ?? 0) + 1)
         if (id === 2 && attempts.get(2) === 1) throw new ProviderError('timeout')
@@ -162,7 +163,7 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
         }
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       return synthReply('First pass summary.', citedIds(user))
     }
 
@@ -178,8 +179,8 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
 
   it('ends with an error frame when the first pass has no summary to keep', async () => {
     const chat: ChatFn = async (request) => {
-      if (request.model === EXTRACT_MODEL) return extractReply(chunkOf(lastMessage(request)))
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isExtract(request)) return extractReply(chunkOf(lastMessage(request)))
+      if (isCheck(request)) return noOmissions()
       throw new ProviderError('timeout')
     }
 
@@ -197,7 +198,7 @@ describe('the coverage retry needs enough budget', () => {
   function flaky(counts: { extract2: number }): ChatFn {
     return async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         if (id === 2) {
           counts.extract2 += 1
@@ -205,7 +206,7 @@ describe('the coverage retry needs enough budget', () => {
         }
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       return synthReply('First pass summary.', citedIds(user))
     }
   }
@@ -253,21 +254,51 @@ describe('the coverage retry needs enough budget', () => {
     expect(results).toEqual([])
     expect(errors).toEqual([BUDGET_MESSAGE])
   })
+
+  it('does not tell a short text to be shorter when the run ran out of time', async () => {
+    expect(THREE.length).toBeLessThan(LONG_TEXT_CHARS)
+    const { errors } = await run(THREE, (_request, signal) => untilAborted(signal), new RunBudget(150))
+
+    expect(errors[0]).not.toContain('shorter')
+  })
+
+  it('adds the shorter-text hint only for a text above 10,000 characters', async () => {
+    const long = document(12)
+    expect(long.length).toBeGreaterThan(LONG_TEXT_CHARS)
+
+    const { errors } = await run(long, (_request, signal) => untilAborted(signal), new RunBudget(150))
+
+    expect(errors).toEqual([BUDGET_MESSAGE + LONG_TEXT_HINT])
+  })
+
+  it('ends the run one grace period after the budget even when a model call never stops or settles', async () => {
+    const budget = new RunBudget(150)
+    const chat: ChatFn = () => new Promise<ChatReply>(() => undefined)
+    const started = Date.now()
+
+    const { errors, results } = await run(THREE, chat, budget)
+
+    expect(results).toEqual([])
+    expect(errors).toEqual([BUDGET_MESSAGE])
+    expect(BUDGET_GRACE_MS).toBe(1_000)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150 + BUDGET_GRACE_MS - 50)
+    expect(Date.now() - started).toBeLessThan(150 + BUDGET_GRACE_MS + 1_500)
+  })
 })
 
 describe('chunks are announced as started only when a slot opens', () => {
   it('never has more than four extract calls started and not yet ended when the limit is four, with nine chunks', async () => {
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         await new Promise<void>((resolve) => setTimeout(resolve, 8))
         return extractReply(chunkOf(user))
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       // One point cites every chunk: a section holds at most six points, and nine chunks need none left out.
       const all = citedIds(user)
       const body = { overview: 'Summary.', sections: [{ heading: 'Terms', points: [{ text: 'All rules hold.', chunks: all }] }] }
-      return reply(JSON.stringify(body), SYNTH_MODEL)
+      return reply(JSON.stringify(body), MODEL)
     }
 
     const { frames, results, errors } = await run(document(9), chat)
@@ -296,17 +327,17 @@ describe('chunks are announced as started only when a slot opens', () => {
     let peak = 0
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         inFlight += 1
         peak = Math.max(peak, inFlight)
         await new Promise<void>((resolve) => setTimeout(resolve, 20))
         inFlight -= 1
         return extractReply(chunkOf(user))
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       const all = citedIds(user)
       const body = { overview: 'Summary.', sections: [{ heading: 'Terms', points: [{ text: 'All rules hold.', chunks: all }] }] }
-      return reply(JSON.stringify(body), SYNTH_MODEL)
+      return reply(JSON.stringify(body), MODEL)
     }
 
     const { frames, errors } = await run(document(9), chat, undefined, {})
@@ -326,8 +357,8 @@ describe('chunks are announced as started only when a slot opens', () => {
   it('tells the page how many chunks the split made, so waiting chunks can be shown', async () => {
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) return extractReply(chunkOf(user))
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isExtract(request)) return extractReply(chunkOf(user))
+      if (isCheck(request)) return noOmissions()
       return synthReply('Summary.', citedIds(user))
     }
 
@@ -367,13 +398,13 @@ describe('a rate limit on one chunk costs that chunk only', () => {
     const attempts = new Map<number, number>()
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         attempts.set(id, (attempts.get(id) ?? 0) + 1)
         if (id === 2 && attempts.get(2) === 1) throw new ProviderError('rate_limited')
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       return synthReply('Summary.', citedIds(user))
     }
 
@@ -394,8 +425,8 @@ describe('a rate limit on one chunk costs that chunk only', () => {
 
   it('ends the run with the plain message when the synthesis call is rate limited', async () => {
     const chat: ChatFn = async (request) => {
-      if (request.model === EXTRACT_MODEL) return extractReply(chunkOf(lastMessage(request)))
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isExtract(request)) return extractReply(chunkOf(lastMessage(request)))
+      if (isCheck(request)) return noOmissions()
       throw new ProviderError('rate_limited')
     }
 
@@ -414,12 +445,12 @@ describe('a refused request on one chunk costs that chunk only', () => {
   it('finishes the run with that chunk reported as missing', async () => {
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (request.model === EXTRACT_MODEL) {
+      if (isExtract(request)) {
         const id = chunkOf(user)
         if (id === 2) throw new ProviderError('bad_request')
         return extractReply(id)
       }
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isCheck(request)) return noOmissions()
       return synthReply('Summary.', citedIds(user))
     }
 
@@ -435,8 +466,8 @@ describe('a refused request on one chunk costs that chunk only', () => {
 
   it('reports the plain message when every chunk is refused and nothing can be summarized', async () => {
     const chat: ChatFn = async (request) => {
-      if (request.model === EXTRACT_MODEL) throw new ProviderError('bad_request')
-      if (request.model === CHECK_MODEL) return noOmissions()
+      if (isExtract(request)) throw new ProviderError('bad_request')
+      if (isCheck(request)) return noOmissions()
       throw new Error('synthesis must not run without key points')
     }
 

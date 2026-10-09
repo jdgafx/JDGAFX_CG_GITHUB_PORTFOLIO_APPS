@@ -9,6 +9,8 @@ import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
 import {
   CHECK,
+  CHECK_CALL_TIMEOUT_MS,
+  EXTRACT_CALL_TIMEOUT_MS,
   EXTRACT,
   MAX_RETRIES,
   MIN_RESYNTH_BUDGET_MS,
@@ -27,8 +29,12 @@ export interface NodeDeps {
   budget: RunBudget
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
+  /** Timeout for the first-pass extract calls. Defaults to EXTRACT_CALL_TIMEOUT_MS. */
+  extractCallTimeoutMs?: number
   /** Timeout for the retry pass's extract calls. Defaults to RETRY_CALL_TIMEOUT_MS. */
   retryCallTimeoutMs?: number
+  /** Timeout for the advisory review call. Defaults to CHECK_CALL_TIMEOUT_MS. */
+  checkCallTimeoutMs?: number
 }
 
 /** What a Send hands to extract: one chunk, the chunk count, and the pass (1 first, 2 for the retry). */
@@ -50,7 +56,8 @@ const STOPPED_MESSAGE = 'Stopped because another call in this run failed.'
 /** The notice on a summary whose coverage retry was left out because little of the run budget remained. */
 export const RETRY_SKIPPED_NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
 
-const chunkCount = (n: number): string => `${n} ${n === 1 ? 'chunk' : 'chunks'}`
+const chunkWord = (n: number): string => (n === 1 ? 'chunk' : 'chunks')
+const chunkCount = (n: number): string => `${n} ${chunkWord(n)}`
 
 function emitterFor(config: LangGraphRunnableConfig | undefined): Emit {
   const writer = config?.writer
@@ -101,7 +108,9 @@ function extractFailureText(err: unknown, budget: RunBudget): string {
 export function makeNodes(deps: NodeDeps) {
   const { chat, limiter, budget } = deps
   const retryPause = deps.retryPauseMs ?? RETRY_PAUSE_MS
+  const extractCallTimeout = deps.extractCallTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS
   const retryCallTimeout = deps.retryCallTimeoutMs ?? RETRY_CALL_TIMEOUT_MS
+  const checkCallTimeout = deps.checkCallTimeoutMs ?? CHECK_CALL_TIMEOUT_MS
 
   const split = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
     const emit = emitterFor(config)
@@ -113,10 +122,10 @@ export function makeNodes(deps: NodeDeps) {
       'split',
       'ok',
       Date.now() - startedAt,
-      `${chunks.length} chunks of about ${CHUNK_TARGET.toLocaleString('en-US')} characters`,
+      `${chunkCount(chunks.length)} of about ${CHUNK_TARGET.toLocaleString('en-US')} characters`,
     )
     emit({ type: 'node_end', ...done })
-    emit({ type: 'edge', from: 'split', to: 'extract', label: `fan out: ${chunks.length} chunks`, count: chunks.length })
+    emit({ type: 'edge', from: 'split', to: 'extract', label: `fan out: ${chunkCount(chunks.length)}`, count: chunks.length })
     return { chunks, trace: [done] }
   }
 
@@ -173,7 +182,7 @@ export function makeNodes(deps: NodeDeps) {
         const began = Date.now()
         emit({ type: 'node_start', node: 'extract', ms: budget.elapsed(), detail: label, chunk: chunk.id })
         try {
-          const request = { ...EXTRACT, messages: extractMessages(chunk, total), ...(pass === 2 ? { timeoutMs: retryCallTimeout } : {}) }
+          const request = { ...EXTRACT, messages: extractMessages(chunk, total), timeoutMs: pass === 2 ? retryCallTimeout : extractCallTimeout }
           return finish(await chat(request, budget.signal), Date.now() - began)
         } catch (err) {
           if (err instanceof ProviderError && err.fatal) budget.halt(err)
@@ -201,7 +210,7 @@ export function makeNodes(deps: NodeDeps) {
       'reduce',
       'ok',
       Date.now() - startedAt,
-      `Merged ${merged.findingCount} findings into ${merged.byChunk.length} chunks, ${merged.entities.length} unique entities`,
+      `Merged ${merged.findingCount} ${merged.findingCount === 1 ? 'finding' : 'findings'} into ${chunkCount(merged.byChunk.length)}, ${merged.entities.length} unique ${merged.entities.length === 1 ? 'entity' : 'entities'}`,
     )
     emit({ type: 'node_end', ...done })
     const update: Update = { merged, trace: [done] }
@@ -272,7 +281,7 @@ export function makeNodes(deps: NodeDeps) {
     let done: TraceRow
     const startedAt = Date.now()
     try {
-      const reply = await chat({ ...CHECK, messages: checkMessages(summary, merged) }, budget.signal)
+      const reply = await chat({ ...CHECK, timeoutMs: checkCallTimeout, messages: checkMessages(summary, merged) }, budget.signal)
       const ms = Date.now() - startedAt
       const fields = callFields(CHECK.model, reply)
       const omitted = parseOmitted(reply.text, chunkIds)
@@ -302,7 +311,7 @@ export function makeNodes(deps: NodeDeps) {
     const notice = skipRetry ? RETRY_SKIPPED_NOTICE : null
     emit({ type: 'node_end', ...done })
     if (willRetry) {
-      emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing ${coverage.missing.length === 1 ? 'chunk' : 'chunks'}` })
+      emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing ${chunkWord(coverage.missing.length)}` })
     } else {
       emit({
         type: 'edge',
@@ -312,8 +321,8 @@ export function makeNodes(deps: NodeDeps) {
           coverage.missing.length === 0
             ? 'coverage complete'
             : skipRetry
-              ? `${coverage.missing.length} ${coverage.missing.length === 1 ? 'chunk' : 'chunks'} still missing, retry skipped for time`
-              : `${coverage.missing.length} ${coverage.missing.length === 1 ? 'chunk' : 'chunks'} still missing after the retry`,
+              ? `${chunkCount(coverage.missing.length)} still missing, retry skipped for time`
+              : `${chunkCount(coverage.missing.length)} still missing after the retry`,
       })
     }
     const draft: Outcome = {
@@ -347,8 +356,8 @@ export function makeNodes(deps: NodeDeps) {
     const missing = state.coverage.missing
     const detail =
       missing.length === 0
-        ? `${total} of ${total} chunks covered`
-        : `${state.coverage.covered.length} of ${total} chunks covered. Still missing: chunk ${missing.join(', ')}`
+        ? `${total} of ${chunkCount(total)} covered`
+        : `${state.coverage.covered.length} of ${chunkCount(total)} covered. Still missing: chunk ${missing.join(', ')}`
     const outcome: Outcome = {
       summary: state.summary,
       coverage: state.coverage,

@@ -39,6 +39,28 @@ describe('the running status line', () => {
   })
 })
 
+describe('chunk counts that follow the number', () => {
+  it('says 1 chunk, not 1 chunks, while extracting and when finished', () => {
+    const extracting = [
+      { type: 'node_start', node: 'split', ms: 1, detail: 'Splitting' } as Frame,
+      end({ node: 'split' }),
+      { type: 'edge', from: 'split', to: 'extract', label: 'fan out: 1 chunk', count: 1 } as Frame,
+      { type: 'node_start', node: 'extract', ms: 2, detail: 'chunk 1 of 1', chunk: 1 } as Frame,
+    ].reduce(applyFrame, running())
+    expect(statusLine(extracting, 0, true)).toBe('Analyzing. 0 of 1 chunk extracted.')
+
+    const finished: RunView = {
+      ...initialView(),
+      phase: 'done',
+      result: { coverage: { covered: [1], missing: [], noPoints: [] } } as unknown as RunView['result'],
+    }
+    expect(statusLine(finished, 0, true)).toBe('Finished. 1 of 1 chunk covered.')
+    expect(statusLine({ ...finished, result: { coverage: { covered: [1], missing: [2], noPoints: [] } } as unknown as RunView['result'] }, 0, true)).toBe(
+      'Finished. 1 of 2 chunks covered.',
+    )
+  })
+})
+
 describe('a step that never started', () => {
   it('reads Waiting during the run and Not run once the run is over', () => {
     expect(stageWord('idle', false)).toBe('Waiting')

@@ -1,3 +1,4 @@
+import { formatCount } from '../lib/format'
 import { missingItems, reviewNote } from '../lib/coverage-text'
 import type { Phase } from '../lib/view'
 import type { RunResult } from '../types/frames'
@@ -88,7 +89,7 @@ function CoverageBody({ result }: { result: RunResult }) {
     <div className="ds-stack">
       <div className="ds-row">
         <p className="coverage-count ds-num">
-          {covered.length} of {total} chunks covered
+          {covered.length} of {formatCount(total, 'chunk')} covered
         </p>
         <span className={`ds-badge ${badge.tone}`}>{badge.text}</span>
       </div>

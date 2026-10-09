@@ -16,11 +16,9 @@ export interface ChatRequest {
   model: string
   messages: ChatMessage[]
   maxTokens: number
-  /** Sent only when set. */
-  temperature?: number
   /** Ask for a JSON object. Off for extract and check, whose replies are read tolerantly. */
   jsonMode: boolean
-  /** Sent as the reply's reasoning option, only when set. */
+  /** Sent as the reply's reasoning option, only when set. Haiku 5.5 reasons by default, so every role turns it off. */
   reasoning?: Record<string, unknown>
   /** Route only to providers that accept every parameter in the request. Set for synthesis only. */
   requireParameters?: boolean
@@ -98,7 +96,6 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
     max_tokens: request.maxTokens,
     usage: { include: true },
   }
-  if (request.temperature !== undefined) body.temperature = request.temperature
   if (request.reasoning) body.reasoning = request.reasoning
   if (request.requireParameters) body.provider = { require_parameters: true }
   if (request.jsonMode) body.response_format = { type: 'json_object' }
@@ -106,9 +103,12 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
 }
 
 /**
- * One chat call. The key is read here and nowhere else. The run's signal aborts the call when the
- * budget runs out or another call halts the run, and a per-call timeout ends it after the request's own
- * timeoutMs, or the default. The provider body is never read into an error, logged or returned.
+ * One chat call. The key is read here and nowhere else. The call has a deadline that does not depend on how
+ * fetch handles an abort: a plain timer, held until the call settles, aborts the request and also rejects a
+ * promise that the whole call (the request and the reading of its body) is raced against. A hung request, a
+ * body that never finishes, or a fetch that ignores its signal is therefore cut at the limit, and a slow
+ * reply that arrives after the limit is dropped. The run's signal ends the call the same way when the budget
+ * runs out or another call halts the run. The provider body is never read into an error, logged or returned.
  */
 export async function chat(
   request: ChatRequest,
@@ -119,23 +119,41 @@ export async function chat(
   if (!apiKey) throw new ProviderError('rejected')
   if (signal.aborted) throw new RunBudgetError()
 
-  const timeout = AbortSignal.timeout(request.timeoutMs ?? timeoutMs)
+  const call = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let forward: (() => void) | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      call.abort()
+      reject(new ProviderError('timeout'))
+    }, request.timeoutMs ?? timeoutMs)
+    forward = () => {
+      call.abort()
+      reject(new RunBudgetError())
+    }
+    signal.addEventListener('abort', forward, { once: true })
+  })
 
-  try {
+  const send = async (): Promise<ChatReply> => {
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
-      signal: AbortSignal.any([signal, timeout]),
+      signal: call.signal,
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody(request)),
     })
     if (!response.ok) throw new ProviderError(kindForStatus(response.status))
     return parseReply(await response.json())
+  }
+
+  try {
+    return await Promise.race([send(), deadline])
   } catch (err) {
-    // A halt aborts the run signal with its ProviderError as the reason, so that error is not a response failure.
-    if (err instanceof ProviderError && err !== signal.reason) throw err
+    if (err instanceof ProviderError || err instanceof RunBudgetError) throw err
     if (signal.aborted) throw new RunBudgetError()
-    if (timeout.aborted) throw new ProviderError('timeout')
     if (err instanceof SyntaxError) throw new ProviderError('unavailable')
     throw new ProviderError('network')
+  } finally {
+    clearTimeout(timer)
+    if (forward) signal.removeEventListener('abort', forward)
   }
 }

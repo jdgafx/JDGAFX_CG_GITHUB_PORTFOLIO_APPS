@@ -29,7 +29,9 @@ export class ProviderError extends Error {
   }
 }
 
-export const BUDGET_MESSAGE = 'The run ran out of time before it finished. Try a shorter text.'
+export const BUDGET_MESSAGE = 'The run ran out of time before it finished. Please try again.'
+/** Added to the budget message only for a text long enough that its length may have been the cause. */
+export const LONG_TEXT_HINT = ' A shorter text also helps.'
 
 export class RunBudgetError extends Error {
   constructor() {

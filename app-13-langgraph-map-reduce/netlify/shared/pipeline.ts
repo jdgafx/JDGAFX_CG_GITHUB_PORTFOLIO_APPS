@@ -1,9 +1,9 @@
 import { metricsFor } from '../../src/lib/metrics'
 import type { Frame, NodeName, Outcome, RunResult, TraceRow } from '../../src/types/frames'
 import { createLimiter, type RunBudget } from './budget'
-import { plainMessage, ProviderError, reportedFailure, RunBudgetError, RunFailure } from './errors'
+import { BUDGET_MESSAGE, LONG_TEXT_HINT, plainMessage, ProviderError, reportedFailure, RunBudgetError, RunFailure } from './errors'
 import { buildGraph } from './graph'
-import { EXTRACT_CONCURRENCY, RETRY_CALL_TIMEOUT_MS, RETRY_PAUSE_MS } from './models'
+import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, EXTRACT_CONCURRENCY, RETRY_CALL_TIMEOUT_MS, RETRY_PAUSE_MS } from './models'
 import { CALL_TIMEOUT_MS, chat, type ChatFn } from './openrouter'
 
 /**
@@ -27,7 +27,16 @@ export interface PipelineOptions {
   extractConcurrency?: number
   /** Timeout for the retry pass's extract calls. Defaults to RETRY_CALL_TIMEOUT_MS, and never exceeds callTimeoutMs. */
   retryCallTimeoutMs?: number
+  /** Timeout for the first-pass extract calls. Defaults to EXTRACT_CALL_TIMEOUT_MS, and never exceeds callTimeoutMs. */
+  extractCallTimeoutMs?: number
+  /** Timeout for the advisory review call. Defaults to CHECK_CALL_TIMEOUT_MS, and never exceeds callTimeoutMs. */
+  checkCallTimeoutMs?: number
 }
+
+/** A text longer than the Wikipedia loader's limit gets the shorter-text hint when the run ran out of time. */
+export const LONG_TEXT_CHARS = 10_000
+/** After the budget ends, the run waits this long for its nodes to stop, then ends itself. */
+export const BUDGET_GRACE_MS = 1_000
 
 /** Shown on a step the time limit cut off. */
 export const CUT_OFF_MESSAGE = 'Cut off by the time limit'
@@ -71,6 +80,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
   const rows: TraceRow[] = []
   let outcome: Outcome | null = null
   let firstPass: Outcome | null = null
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
   /** Steps that have started and not ended, with the time they started. */
   const open = new Map<NodeName, number>()
 
@@ -80,13 +90,28 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
       limiter: createLimiter(options.extractConcurrency ?? EXTRACT_CONCURRENCY),
       budget,
       retryPauseMs: options.retryPauseMs ?? RETRY_PAUSE_MS,
+      extractCallTimeoutMs: options.extractCallTimeoutMs ?? Math.min(EXTRACT_CALL_TIMEOUT_MS, options.callTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS),
+      checkCallTimeoutMs: options.checkCallTimeoutMs ?? Math.min(CHECK_CALL_TIMEOUT_MS, options.callTimeoutMs ?? CHECK_CALL_TIMEOUT_MS),
       retryCallTimeoutMs: options.retryCallTimeoutMs ?? Math.min(RETRY_CALL_TIMEOUT_MS, options.callTimeoutMs ?? RETRY_CALL_TIMEOUT_MS),
     })
     const stream = await graph.stream(
       { text },
       { streamMode: ['custom', 'updates'] },
     )
-    for await (const [mode, payload] of stream) {
+    // A node that does not stop when the budget ends cannot keep the run open: BUDGET_GRACE_MS later it is abandoned.
+    const abandoned = new Promise<never>((_resolve, reject) => {
+      const arm = (): void => {
+        graceTimer = setTimeout(() => reject(new RunBudgetError()), BUDGET_GRACE_MS)
+      }
+      if (budget.signal.aborted) arm()
+      else budget.signal.addEventListener('abort', arm, { once: true })
+    })
+    abandoned.catch(() => undefined)
+    const updates = stream[Symbol.asyncIterator]()
+    for (;;) {
+      const next = await Promise.race([updates.next(), abandoned])
+      if (next.done) break
+      const [mode, payload] = next.value
       if (mode === 'custom') {
         const frame = payload as Frame
         if (frame.type === 'node_start' && frame.node !== 'extract') open.set(frame.node, Date.now())
@@ -107,7 +132,8 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
     sink({ type: 'result', result })
   } catch (err) {
     const cause = budget.haltCause() ?? reportedFailure(err)
-    const message = plainMessage(cause, budget.expired())
+    let message = plainMessage(cause, budget.expired())
+    if (message === BUDGET_MESSAGE && text.length > LONG_TEXT_CHARS) message += LONG_TEXT_HINT
     if (firstPass && !outcome) {
       const write = (row: TraceRow): void => {
         rows.push(row)
@@ -128,5 +154,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
     } else {
       sink({ type: 'error', message })
     }
+  } finally {
+    clearTimeout(graceTimer)
   }
 }

@@ -13,15 +13,15 @@ START
   |
 split ---- fan out: one Send per chunk (conditional edge) ----+
   |                                                           |
-  |        extract x N, parallel, all at once           <-----+
+  |        extract x N, parallel, all at once (claude-haiku-5.5)          <-----+
   |                                                           |
   +<----------------------------------------------------------+
   |
 reduce        merge findings, deduplicate entities (no model)
   |
-synthesize    one cited summary (claude-haiku-latest)
+synthesize    one cited summary (anthropic/claude-haiku-5.5)
   |
-check         chunk-id coverage, plus one advisory review call (mimo-v2.6-flash)
+check         chunk-id coverage, plus one advisory review call (anthropic/claude-haiku-5.5)
   |
   +-- missing chunks and retries < 1 --> Send extract for the missing chunks only
   |                                        |
@@ -40,22 +40,24 @@ Conditional edges:
 
 Cycles and limits:
 
-- One cycle only. The retry runs at most once, after a 0.5 s pause, and only for chunks that are missing. It starts only if at least 11 s of the run budget remain. Otherwise the first-pass summary is kept and a notice says the retry was skipped to stay inside the time limit. The retry's extract calls time out after 5 s. After them, the second synthesis and check run only if the retry added a key point (or a chunk with key points still lacks a citation) and at least 6 s remain. Otherwise the first-pass summary is kept, with a notice.
+- One cycle only. The retry runs at most once, after a 0.5 s pause, and only for chunks that are missing. It starts only if at least 11 s of the run budget remain. Otherwise the first-pass summary is kept and a notice says the retry was skipped to stay inside the time limit. The retry's extract calls time out after 5 s, the first pass's after 6 s, and the advisory review call after 5 s. After them, the second synthesis and check run only if the retry added a key point (or a chunk with key points still lacks a citation) and at least 6 s remain. Otherwise the first-pass summary is kept, with a notice.
 - At most 12 chunks. A long text gets larger chunks, not more of them.
 - Up to 12 extract calls run at once. 12 is also the chunk cap, so every chunk runs at the same time. A lower limit would make the rest wait inside the request.
-- Each model call times out after 10 s. The whole run has a 23 s budget, so the server always ends the stream itself, with a result or an error message and then [DONE], before the platform closes the function. The live Netlify site was seen closing it at about 30 s, although the documented limit is 60 s. The budget clock starts after about 3 s of start-up and network, so 23 s ends near 26 s as the browser sees it.
+- Each model call times out after 10 s unless it has a shorter limit, as above. The limit does not depend on how `fetch` handles an abort: the call is raced against a plain timer, so a request that hangs, a response body that never finishes, or a fetch that ignores its signal is cut at the limit, and a late reply is dropped. A call that times out costs its chunk only. If the budget itself ends while a node is still running, the run is ended one second later, whatever that node is doing. When a run does run out of time the message says so and asks the visitor to try again, and adds "A shorter text also helps." only for a text over 10,000 characters. The whole run has a 23 s budget, so the server always ends the stream itself, with a result or an error message and then [DONE], before the platform closes the function. The live Netlify site was seen closing it at about 30 s, although the documented limit is 60 s. The budget clock starts after about 3 s of start-up and network, so 23 s ends near 26 s as the browser sees it.
 
-Which node uses which model, and why. Prices are OpenRouter list prices per 1M tokens, checked 2026-10-08.
+Every node uses one model, `anthropic/claude-haiku-5.5` on OpenRouter, set once in `netlify/shared/models.ts`. It is pinned to that version on purpose, not to the family alias. The roles differ only by output cap and JSON mode. OpenRouter list price is $0.10 in and $0.50 out per 1M tokens, which matches the cost it reported for live calls (checked 2026-10-09).
 
-| Node | Model | Max output tokens | Price in / out per 1M | Why this model |
-| --- | --- | --- | --- | --- |
-| extract (one call per chunk) | meta-llama/llama-3.1-8b-instruct | 800 | $0.05 / $0.08 | Many calls, so it must be cheap and fast. It does not reason, so the whole token cap goes to the answer. 800 leaves room for a chunk full of names, which filled 400 live. openai/gpt-oss-20b was rejected: its reasoning cannot be turned off, it spent nearly all 400 tokens on hidden reasoning and returned no JSON |
-| check (one call per run) | xiaomi/mimo-v2.6-flash | 300 | $0.14 / $0.28 | Short advisory review of the summary, cheap |
-| synthesize (one call per pass) | ~anthropic/claude-haiku-latest | 1200 | $0.10 / $0.50 | The one stronger call, for the cited summary |
+| Node | Max output tokens | JSON mode | Why |
+| --- | --- | --- | --- |
+| extract (one call per chunk) | 800 | no | Live replies used 311 tokens at the median and 495 at most, so 800 never cut one off |
+| check (one call per run) | 300 | yes | The reply is `{"omitted": [...]}`, about 12 tokens. Without JSON mode Haiku wrote a chunk-by-chunk review in prose and hit the cap |
+| synthesize (one call per pass) | 1500 | yes | Live summaries used 875 to 1,209 tokens. At a 1200 cap one call in ten was cut off and the provider closed its JSON early, silently dropping the last points |
 
-Every call sets `usage: { include: true }`, so OpenRouter reports its cost. When a call reports no cost, the app estimates it from the list prices above and labels the figure "estimated".
+Every call sets `usage: { include: true }`, so OpenRouter reports its cost. When a call reports no cost, the app estimates it from the list price above and labels the figure "estimated".
 
-Extract sends no JSON-mode, reasoning or provider option. Check turns reasoning off and sends no JSON-mode or provider option. Their replies are read tolerantly: the first complete JSON object in the reply is used, whether it sits in a code fence, after prose, or both. Synthesis asks for a JSON object, turns reasoning off and routes only to providers that accept every parameter it sends. It sets no temperature, because Anthropic Haiku 5.5 does not accept one when every parameter must be honoured, and OpenRouter would then quietly serve an older, dearer model.
+No call sends a temperature. Haiku 5.5 does not accept one when every parameter must be honoured: a request with a temperature and `provider.require_parameters` gets a 404 "No endpoints found", and a test pins that no request body carries a temperature. Every call turns reasoning off (`reasoning: { enabled: false }`). Left on, Haiku spent 380 to 475 hidden tokens on a synthesis call, which cut the JSON off and made the call take 4 to 6 s instead of 3. Synthesis also routes only to providers that accept every parameter it sends. Extract and check replies are read tolerantly: the first complete JSON object in the reply is used, whether it sits in a code fence, after prose, or both.
+
+Measured against the live model on 2026-10-09 (84 extract calls and 10 full runs for the percentiles): extract p50 2.3 s, p95 3.9 s, max 4.6 s except one call that hung to the 10 s limit; check p50 1.1 s, p95 2.0 s; synthesis p50 4.1 s, p95 7.0 s. A nine-chunk run took 8 to 11 s without a retry. In a final set of ten runs with the limits above (five loaded articles, five pasted 12-chunk texts), seven covered every chunk on the first pass, the retry ran in three of them and finished in 17.7 to 20.6 s, and nine of ten ended with every chunk covered.
 
 ## What the UI shows
 
@@ -108,7 +110,7 @@ https://jdgafx-app-13-langgraph-map-reduce.netlify.app
 
 ## Known limits
 
-- The tests use mocked model replies only. Extract sends no reasoning or JSON-mode option and check only turns reasoning off, so their replies depend on the prompt and on tolerant parsing.
+- The tests use mocked model replies only. Extract sends no JSON-mode option, so its replies depend on the prompt and on tolerant parsing.
 - Extract output is capped at 800 tokens. A reply that is cut short, or that holds no readable JSON object, counts as a missed chunk and is retried once.
 - The check call is a second opinion and does not verify facts. Its flags only add a note. If it fails for any reason, the trace says so and the summary is kept, because coverage never depended on it.
 - The cheap extractor can misread who does what to whom. The prompts tell the models to keep each actor and object as the text gives them, but a small model can still swap them, and nothing in the run checks a statement against the source.

@@ -1,32 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { CHECK, EXTRACT, EXTRACT_CONCURRENCY, MIN_RETRY_BUDGET_MS, PRICES, RETRY_PAUSE_MS, SYNTH } from '../../netlify/shared/models'
+import { CHECK, EXTRACT, EXTRACT_CONCURRENCY, MIN_RETRY_BUDGET_MS, MODEL, PRICES, RETRY_PAUSE_MS, SYNTH } from '../../netlify/shared/models'
 import { CALL_TIMEOUT_MS } from '../../netlify/shared/openrouter'
 import { RUN_BUDGET_MS } from '../../netlify/shared/pipeline'
 
 describe('role settings', () => {
+  it('uses one pinned model for extract, check and synthesis, priced at $0.10 in and $0.50 out per 1M', () => {
+    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+    expect([EXTRACT.model, CHECK.model, SYNTH.model]).toEqual([MODEL, MODEL, MODEL])
+    expect(PRICES).toEqual({ [MODEL]: { inPerM: 0.1, outPerM: 0.5 } })
+  })
+
+  it('differs between roles only by output cap, JSON mode and require_parameters, and every role turns reasoning off', () => {
+    const off = { enabled: false }
+    expect(EXTRACT).toEqual({ model: MODEL, maxTokens: 800, jsonMode: false, reasoning: off })
+    expect(CHECK).toEqual({ model: MODEL, maxTokens: 300, jsonMode: true, reasoning: off })
+    expect(SYNTH).toEqual({ model: MODEL, maxTokens: 1_500, jsonMode: true, reasoning: off, requireParameters: true })
+  })
+
+  it('gives every role a different output cap, which the scripted tests use to tell the roles apart', () => {
+    expect(new Set([EXTRACT.maxTokens, CHECK.maxTokens, SYNTH.maxTokens]).size).toBe(3)
+  })
+
   it.each([
     ['extract', EXTRACT],
     ['check', CHECK],
     ['synthesis', SYNTH],
-  ])('%s never sets a temperature together with require_parameters', (_name, role) => {
-    expect(role.temperature !== undefined && role.requireParameters === true).toBe(false)
-  })
-
-  it('gives synthesis no temperature but keeps reasoning off, JSON mode and require_parameters', () => {
-    expect(SYNTH.temperature).toBeUndefined()
-    expect(SYNTH).toMatchObject({ jsonMode: true, reasoning: { enabled: false }, requireParameters: true })
-    expect(SYNTH.model).toBe('~anthropic/claude-haiku-latest')
-  })
-
-  it('extracts on a model that does not reason, with no JSON-mode, reasoning or provider option', () => {
-    expect(EXTRACT).toEqual({ model: 'meta-llama/llama-3.1-8b-instruct', maxTokens: 800, temperature: 0.2, jsonMode: false })
-    expect(PRICES[EXTRACT.model]).toEqual({ inPerM: 0.05, outPerM: 0.08 })
-  })
-
-  it('turns reasoning off on the check call and asks for nothing else', () => {
-    expect(CHECK.reasoning).toEqual({ enabled: false })
-    expect(CHECK.jsonMode).toBe(false)
-    expect(CHECK.requireParameters).toBeUndefined()
+  ])('%s sets no temperature', (_name, role) => {
+    expect(role).not.toHaveProperty('temperature')
   })
 })
 
@@ -41,8 +41,8 @@ describe('time limits', () => {
     expect(RETRY_PAUSE_MS).toBe(500)
   })
 
-  it('gives the synthesis call 1200 output tokens, above the 880 to 893 seen live', () => {
-    expect(SYNTH.maxTokens).toBe(1_200)
+  it('gives the synthesis call 1500 output tokens, above the 875 to 1,082 it used live, with one of ten calls hitting 1200', () => {
+    expect(SYNTH.maxTokens).toBe(1_500)
   })
 
   it('times a model call out after 10 s, inside the run budget', () => {

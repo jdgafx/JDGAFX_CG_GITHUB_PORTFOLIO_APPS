@@ -12,6 +12,13 @@ describe('faithfulness instruction', () => {
     expect(prompt).toContain('who is addressed or blamed')
   })
 
+  it('asks synthesis for a short overview and short points, so the summary fits its output cap', () => {
+    const prompt = system(synthesizeMessages({ byChunk: [], entities: [], findingCount: 0 }, [1], []))
+
+    expect(prompt).toContain('overview under 40 words')
+    expect(prompt).toContain('one sentence under 25 words')
+  })
+
   it('tells the synthesis prompt the same', () => {
     const prompt = system(synthesizeMessages({ byChunk: [], entities: [], findingCount: 0 }, [1], []))
 

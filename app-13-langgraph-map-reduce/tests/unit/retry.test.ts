@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { ProviderError } from '../../netlify/shared/errors'
-import { CHECK_MODEL, EXTRACT_MODEL, RETRY_CALL_TIMEOUT_MS, SYNTH_MODEL } from '../../netlify/shared/models'
+import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, MODEL, RETRY_CALL_TIMEOUT_MS } from '../../netlify/shared/models'
+import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { CUT_OFF_MESSAGE, KEPT_FIRST_PASS, runPipeline } from '../../netlify/shared/pipeline'
 import type { Frame, RunResult } from '../../src/types/frames'
@@ -22,16 +23,16 @@ const lastMessage = (request: ChatRequest): string => request.messages[request.m
 const chunkOf = (user: string): number => Number(/^Chunk (\d+) of/.exec(user)?.[1])
 const citedIds = (user: string): number[] => [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
 const extractReply = (id: number): ChatReply =>
-  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), EXTRACT_MODEL)
+  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), MODEL)
 const synthReply = (ids: number[]): ChatReply =>
   reply(
     JSON.stringify({
       overview: 'First pass summary.',
       sections: [{ heading: 'Terms', points: ids.map((id) => ({ text: `Rule ${id} holds.`, chunks: [id] })) }],
     }),
-    SYNTH_MODEL,
+    MODEL,
   )
-const review = (omitted: number[]): ChatReply => reply(JSON.stringify({ omitted }), CHECK_MODEL)
+const review = (omitted: number[]): ChatReply => reply(JSON.stringify({ omitted }), MODEL)
 
 interface Script {
   /** chunk id -> number of extract calls that time out before one succeeds */
@@ -48,21 +49,23 @@ interface Seen {
   extractRequests: Array<{ chunk: number; timeoutMs: number | undefined }>
   synthCalls: number
   checkCalls: number
+  checkTimeouts: Array<number | undefined>
 }
 
 function scripted(script: Script, seen: Seen): ChatFn {
   const attempts = new Map<number, number>()
   return async (request) => {
     const user = lastMessage(request)
-    if (request.model === EXTRACT_MODEL) {
+    if (isExtract(request)) {
       const id = chunkOf(user)
       seen.extractRequests.push({ chunk: id, timeoutMs: request.timeoutMs })
       attempts.set(id, (attempts.get(id) ?? 0) + 1)
       if ((attempts.get(id) ?? 0) <= (script.failExtract?.[id] ?? 0)) throw new ProviderError('timeout')
       return extractReply(id)
     }
-    if (request.model === CHECK_MODEL) {
+    if (isCheck(request)) {
       seen.checkCalls += 1
+      seen.checkTimeouts.push(request.timeoutMs)
       return review(script.flags ?? [])
     }
     seen.synthCalls += 1
@@ -72,7 +75,7 @@ function scripted(script: Script, seen: Seen): ChatFn {
 }
 
 async function run(source: string, script: Script, budget: RunBudget = new RunBudget(60_000)) {
-  const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0 }
+  const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
   const frames: Frame[] = []
   try {
     await runPipeline({ text: source, budget, chat: scripted(script, seen), retryPauseMs: 0, sink: (f) => frames.push(f) })
@@ -115,14 +118,23 @@ describe('the review is advisory', () => {
 })
 
 describe('the retry pass is held to a shorter call limit', () => {
-  it('gives only the retry pass extract calls the 5 s limit', async () => {
+  it('gives first-pass extract calls 6 s and the retry pass extract calls 5 s', async () => {
+    expect(EXTRACT_CALL_TIMEOUT_MS).toBe(6_000)
     expect(RETRY_CALL_TIMEOUT_MS).toBe(5_000)
 
     const { seen } = await run(THREE, { failExtract: { 2: 1 } })
 
     const second = seen.extractRequests.filter((r) => r.chunk === 2)
-    expect(second.map((r) => r.timeoutMs)).toEqual([undefined, 5_000])
-    expect(seen.extractRequests.filter((r) => r.chunk !== 2).every((r) => r.timeoutMs === undefined)).toBe(true)
+    expect(second.map((r) => r.timeoutMs)).toEqual([6_000, 5_000])
+    expect(seen.extractRequests.filter((r) => r.chunk !== 2).every((r) => r.timeoutMs === 6_000)).toBe(true)
+  })
+
+  it('holds the advisory review call to 5 s, and leaves the synthesis call to the 10 s default', async () => {
+    expect(CHECK_CALL_TIMEOUT_MS).toBe(5_000)
+
+    const { seen } = await run(THREE, {})
+
+    expect(seen.checkTimeouts).toEqual([5_000])
   })
 
   it('uses the singular in the loop label for one missing chunk and the plural for two', async () => {
@@ -161,7 +173,7 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
     const budget = new RunBudget(60_000)
     let retryStarted = false
     vi.spyOn(budget, 'remaining').mockImplementation(() => (retryStarted ? 5_000 : 20_000))
-    const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0 }
+    const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
     const inner = scripted({ failExtract: { 2: 1 } }, seen)
     const chat: ChatFn = async (request, signal) => {
       if (request.timeoutMs !== undefined) retryStarted = true

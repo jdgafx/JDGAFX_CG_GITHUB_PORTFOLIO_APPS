@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { metricsFor } from '../../src/lib/metrics'
 import type { TraceRow } from '../../src/types/frames'
 
-const EXTRACT_MODEL = 'meta-llama/llama-3.1-8b-instruct'
+const EXTRACT_MODEL = 'anthropic/claude-haiku-5.5'
 
 const rows: TraceRow[] = [
   {
@@ -41,7 +41,7 @@ const rows: TraceRow[] = [
     status: 'ok',
     ms: 5,
     detail: 'Review flagged 0 chunks as thin in the summary',
-    model: 'xiaomi/mimo-v2.6-flash',
+    model: 'anthropic/claude-haiku-5.5',
     usage: { total_tokens: 300 },
     cost: 0.01,
     costSource: 'usage',
@@ -51,7 +51,7 @@ const rows: TraceRow[] = [
     status: 'ok',
     ms: 20,
     detail: '2 sections, 4 points',
-    model: '~anthropic/claude-haiku-latest',
+    model: 'anthropic/claude-haiku-5.5',
     usage: { total_tokens: 700 },
     cost: 0.5,
     costSource: 'usage',

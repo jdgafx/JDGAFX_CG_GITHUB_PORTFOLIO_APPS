@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/run'
 import { BUDGET_MESSAGE } from '../../netlify/shared/errors'
 import { createRunHandler } from '../../netlify/shared/handler'
-import { CHECK_MODEL, EXTRACT_MODEL, SYNTH_MODEL } from '../../netlify/shared/models'
+import { MODEL } from '../../netlify/shared/models'
+import { roleOf, type Role } from '../helpers/roles'
 
 const KEY = 'test-only-placeholder'
 const URL_RUN = 'https://jdgafx-app-13-langgraph-map-reduce.netlify.app/api/run'
@@ -12,26 +13,27 @@ const THREE_CHUNKS = [1, 2, 3]
   .map((n) => Array.from({ length: 120 }, (_, i) => `term${n}w${i}`).join(' ') + '.')
   .join('\n')
 
-const COST = { [EXTRACT_MODEL]: 0.000036, [CHECK_MODEL]: 0.00005, [SYNTH_MODEL]: 0.0012 }
+const COST: Record<Role, number> = { extract: 0.000036, check: 0.00005, synthesize: 0.0012 }
 
 type Behaviour = { status?: number; hang?: boolean }
 
-function reply(model: string, content: string): Response {
+function reply(role: Role, content: string): Response {
   return new Response(
     JSON.stringify({
-      model,
+      model: MODEL,
       choices: [{ message: { content }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: COST[model as keyof typeof COST] },
+      usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: COST[role] },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
 }
 
-/** Answers each OpenRouter call from its request body, as the provider would. Overrides fail or hang one model. */
-function providerFetch(overrides: Partial<Record<string, Behaviour>> = {}) {
+/** Answers each OpenRouter call from its request body, as the provider would. Overrides fail or hang one role. */
+function providerFetch(overrides: Partial<Record<Role, Behaviour>> = {}) {
   return vi.fn(async (_url: string, init: RequestInit): Promise<Response> => {
-    const body = JSON.parse(String(init.body)) as { model: string; messages: Array<{ content: string }> }
-    const behaviour = overrides[body.model]
+    const body = JSON.parse(String(init.body)) as { max_tokens: number; messages: Array<{ content: string }> }
+    const role = roleOf(body)
+    const behaviour = overrides[role]
     if (behaviour?.hang) {
       return new Promise<Response>((_resolve, reject) => {
         init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
@@ -39,17 +41,17 @@ function providerFetch(overrides: Partial<Record<string, Behaviour>> = {}) {
     }
     if (behaviour?.status) return new Response('provider detail that must not reach the user', { status: behaviour.status })
     const user = body.messages[body.messages.length - 1]?.content ?? ''
-    if (body.model === EXTRACT_MODEL) {
+    if (role === 'extract') {
       const id = Number(/^Chunk (\d+) of/.exec(user)?.[1])
       return reply(
-        EXTRACT_MODEL,
+        'extract',
         JSON.stringify({ points: [`Chunk ${id} sets the rule.`], entities: ['The Lessor', `Party ${id}`] }),
       )
     }
-    if (body.model === CHECK_MODEL) return reply(CHECK_MODEL, JSON.stringify({ omitted: [] }))
+    if (role === 'check') return reply('check', JSON.stringify({ omitted: [] }))
     const ids = [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
     const points = ids.map((id) => ({ text: `Chunk ${id} rule is kept.`, chunks: [id] }))
-    return reply(SYNTH_MODEL, JSON.stringify({ overview: 'A lease.', sections: [{ heading: 'Terms', points }] }))
+    return reply('synthesize', JSON.stringify({ overview: 'A lease.', sections: [{ heading: 'Terms', points }] }))
   })
 }
 
@@ -109,7 +111,7 @@ describe('POST /api/run', () => {
 
     const extracts = nodeEnds.filter((f) => f.node === 'extract')
     expect(extracts.map((f) => f.detail).sort()).toEqual(['chunk 1 of 3', 'chunk 2 of 3', 'chunk 3 of 3'])
-    expect(extracts[0]).toMatchObject({ model: EXTRACT_MODEL, usage: { total_tokens: 1200 }, costSource: 'usage' })
+    expect(extracts[0]).toMatchObject({ model: MODEL, usage: { total_tokens: 1200 }, costSource: 'usage' })
 
     const result = frames.find((f) => f.type === 'result') as { result: Record<string, unknown> } | undefined
     expect(result?.result).toMatchObject({
@@ -152,7 +154,7 @@ describe('POST /api/run', () => {
   })
 
   it('reports a rejected or out-of-credit key as an error frame with the plain message', async () => {
-    const stub = providerFetch({ [EXTRACT_MODEL]: { status: 402 } })
+    const stub = providerFetch({ extract: { status: 402 } })
     vi.stubGlobal('fetch', stub)
 
     const response = await handler(runRequest({ text: THREE_CHUNKS }))
@@ -167,7 +169,7 @@ describe('POST /api/run', () => {
   })
 
   it('reports a provider server error during synthesis as an error frame, without the provider text', async () => {
-    vi.stubGlobal('fetch', providerFetch({ [SYNTH_MODEL]: { status: 500 } }))
+    vi.stubGlobal('fetch', providerFetch({ synthesize: { status: 500 } }))
 
     const response = await handler(runRequest({ text: THREE_CHUNKS }))
     const body = await response.text()
@@ -179,7 +181,7 @@ describe('POST /api/run', () => {
   })
 
   it('reports a timed-out synthesis call as an error frame with the plain timeout message', async () => {
-    const stub = providerFetch({ [SYNTH_MODEL]: { hang: true } })
+    const stub = providerFetch({ synthesize: { hang: true } })
     vi.stubGlobal('fetch', stub)
 
     // 500 ms keeps the healthy calls safe on a loaded machine. Only the hanging call should time out.
@@ -191,8 +193,28 @@ describe('POST /api/run', () => {
     expect(stub).toHaveBeenCalled()
   })
 
+  it('finishes with the chunks it has when one extract call never answers and ignores its abort signal', async () => {
+    const healthy = providerFetch()
+    const deafOnChunk2 = vi.fn(async (url: string, init: RequestInit): Promise<Response> => {
+      const user = (JSON.parse(String(init.body)) as { messages: Array<{ content: string }> }).messages.at(-1)?.content ?? ''
+      if (/^Chunk 2 of/.test(user)) return new Promise<Response>(() => undefined)
+      return healthy(url, init)
+    })
+    vi.stubGlobal('fetch', deafOnChunk2)
+
+    const started = Date.now()
+    const response = await createRunHandler({ callTimeoutMs: 400 })(runRequest({ text: THREE_CHUNKS }))
+    const { frames, ended } = readStream(await response.text())
+
+    expect(frames.filter((f) => f.type === 'error')).toEqual([])
+    const result = frames.find((f) => f.type === 'result') as { result: { coverage: Record<string, number[]>; notice: string | null } }
+    expect(result.result.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
+    expect(ended).toBe(true)
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
   it('ends a run that outlives its budget with the plain budget message, then [DONE]', async () => {
-    const stub = providerFetch({ [EXTRACT_MODEL]: { hang: true } })
+    const stub = providerFetch({ extract: { hang: true } })
     vi.stubGlobal('fetch', stub)
 
     const response = await createRunHandler({ budgetMs: 300 })(runRequest({ text: THREE_CHUNKS }))

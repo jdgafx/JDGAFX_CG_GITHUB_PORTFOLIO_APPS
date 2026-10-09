@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProviderError, RunBudgetError } from '../../netlify/shared/errors'
-import { CHECK, EXTRACT, SYNTH } from '../../netlify/shared/models'
+import { CHECK, EXTRACT, MODEL, SYNTH } from '../../netlify/shared/models'
 import { CALL_TIMEOUT_MS, chat, kindForStatus, parseReply, type ChatRequest } from '../../netlify/shared/openrouter'
 
 const KEY = 'test-only-placeholder'
 const request: ChatRequest = {
-  model: 'meta-llama/llama-3.1-8b-instruct',
+  model: MODEL,
   messages: [{ role: 'user', content: 'hello' }],
   maxTokens: 400,
-  temperature: 0.2,
   jsonMode: true,
 }
 const noAbort = (): AbortSignal => new AbortController().signal
@@ -29,7 +28,7 @@ afterEach(() => {
 })
 
 const okBody = {
-  model: 'meta-llama/llama-3.1-8b-instruct-served',
+  model: 'anthropic/claude-haiku-5.5-served',
   choices: [{ message: { content: ' {"points": ["A rule."]} ' }, finish_reason: 'stop' }],
   usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.00004 },
 }
@@ -39,7 +38,7 @@ function hangingFetch(): ReturnType<typeof vi.fn> {
   return vi.fn(
     (_url: string, init: RequestInit) =>
       new Promise((_resolve, reject) => {
-        init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
       }),
   )
 }
@@ -57,7 +56,7 @@ describe('parseReply', () => {
     expect(reply).toEqual({
       text: '{"points": ["A rule."]}',
       finishReason: 'stop',
-      servedModel: 'meta-llama/llama-3.1-8b-instruct-served',
+      servedModel: 'anthropic/claude-haiku-5.5-served',
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
       cost: 0.00004,
     })
@@ -94,7 +93,7 @@ describe('kindForStatus', () => {
 })
 
 describe('chat', () => {
-  it('sends the required body fields and the JSON-mode option, and no reasoning or provider option', async () => {
+  it('sends the required body fields and the JSON-mode option, and no temperature, reasoning or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -107,12 +106,12 @@ describe('chat', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`)
     const body = sentBody(fetchMock)
     expect(body).toMatchObject({
-      model: 'meta-llama/llama-3.1-8b-instruct',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 400,
-      temperature: 0.2,
       usage: { include: true },
       response_format: { type: 'json_object' },
     })
+    expect(body).not.toHaveProperty('temperature')
     expect(body).not.toHaveProperty('reasoning')
     expect(body).not.toHaveProperty('provider')
   })
@@ -129,43 +128,41 @@ describe('chat', () => {
     expect(body).not.toHaveProperty('provider')
   })
 
-  it('sends reasoning off and require_parameters for the synthesis call', async () => {
+  it('sends require_parameters for the synthesis call', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await chat({ ...request, reasoning: { enabled: false }, requireParameters: true }, noAbort())
+    await chat({ ...request, requireParameters: true }, noAbort())
 
     expect(sentBody(fetchMock)).toMatchObject({
-      reasoning: { enabled: false },
       provider: { require_parameters: true },
       response_format: { type: 'json_object' },
     })
   })
 
-  it('sends reasoning off for the check call, with no provider option, JSON mode or require_parameters', async () => {
+  it('sends the check call with JSON mode and reasoning off, and no temperature or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await chat({ ...CHECK, messages: [{ role: 'user', content: 'review' }] }, noAbort())
 
     const body = sentBody(fetchMock)
-    expect(body).toMatchObject({ model: CHECK.model, reasoning: { enabled: false }, temperature: 0 })
-    expect(body).not.toHaveProperty('provider')
-    expect(body).not.toHaveProperty('response_format')
+    expect(body).toMatchObject({ model: MODEL, max_tokens: 300, reasoning: { enabled: false }, response_format: { type: 'json_object' } })
+    for (const key of ['temperature', 'provider']) expect(body).not.toHaveProperty(key)
   })
 
-  it('sends no reasoning, JSON-mode or provider option for the extract call', async () => {
+  it('sends the extract call with reasoning off and no temperature, JSON-mode or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await chat({ ...EXTRACT, messages: [{ role: 'user', content: 'chunk' }] }, noAbort())
 
     const body = sentBody(fetchMock)
-    expect(body).toMatchObject({ model: 'meta-llama/llama-3.1-8b-instruct', max_tokens: 800, temperature: 0.2 })
-    for (const key of ['reasoning', 'provider', 'response_format']) expect(body).not.toHaveProperty(key)
+    expect(body).toMatchObject({ model: MODEL, max_tokens: 800, reasoning: { enabled: false } })
+    for (const key of ['temperature', 'provider', 'response_format']) expect(body).not.toHaveProperty(key)
   })
 
-  it('sends the synthesis request with require_parameters and no temperature field', async () => {
+  it('sends the synthesis request with reasoning off and require_parameters, and no temperature', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -173,7 +170,7 @@ describe('chat', () => {
 
     const body = sentBody(fetchMock)
     expect(body).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: MODEL,
       reasoning: { enabled: false },
       provider: { require_parameters: true },
       response_format: { type: 'json_object' },
@@ -240,40 +237,90 @@ describe('chat', () => {
     expect(error.message).toBe('Could not reach the AI provider.')
   })
 
-  /**
-   * Fake timers cannot move AbortSignal.timeout, so these tests record the delay chat asks for and
-   * swap in a signal that fires after 15 ms. The delay is what is pinned, the timeout path is what runs.
-   */
-  function shortenTimeouts(): number[] {
-    const asked: number[] = []
-    const real = AbortSignal.timeout.bind(AbortSignal)
-    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
-      asked.push(ms)
-      return real(15)
-    })
-    return asked
-  }
-
   it('gives up after 10 seconds with a non-fatal timeout', async () => {
+    vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
-    const asked = shortenTimeouts()
 
-    const error = (await chat(request, noAbort()).catch((e: unknown) => e)) as ProviderError
+    const pending = chat(request, noAbort()).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS - 1)
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    const error = (await pending) as ProviderError
 
     expect(CALL_TIMEOUT_MS).toBe(10_000)
-    expect(asked).toEqual([10_000])
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
   })
 
   it('lets a request carry its own, shorter timeout', async () => {
+    vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
-    const asked = shortenTimeouts()
 
-    const error = (await chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => e)) as ProviderError
+    const pending = chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(5_000)
+    const error = (await pending) as ProviderError
 
-    expect(asked).toEqual([5_000])
     expect(error.kind).toBe('timeout')
+  })
+
+  it('cuts a response whose body never finishes at the limit, even when the fetch ignores its abort signal', async () => {
+    vi.useFakeTimers()
+    const stalled = new ReadableStream<Uint8Array>({ pull: () => new Promise(() => undefined) })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stalled, { status: 200 })))
+
+    let settled: unknown = 'pending'
+    const pending = chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => {
+      settled = e
+    })
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(settled).toBe('pending')
+    await vi.advanceTimersByTimeAsync(1)
+    await pending
+
+    expect((settled as ProviderError).kind).toBe('timeout')
+  })
+
+  it('cuts a fetch that never settles and never listens to its signal at the 10 s default', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+
+    let settled: unknown = 'pending'
+    const pending = chat(request, noAbort()).catch((e: unknown) => {
+      settled = e
+    })
+    await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS - 1)
+    expect(settled).toBe('pending')
+    await vi.advanceTimersByTimeAsync(1)
+    await pending
+
+    expect((settled as ProviderError).kind).toBe('timeout')
+  })
+
+  it('drops a reply that arrives after the limit, without an unhandled rejection', async () => {
+    vi.useFakeTimers()
+    let answer: (r: Response) => void = () => undefined
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))))
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+
+    const pending = chat({ ...request, timeoutMs: 1_000 }, noAbort()).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(((await pending) as ProviderError).kind).toBe('timeout')
+    answer(new Response(JSON.stringify(okBody), { status: 200 }))
+    await vi.advanceTimersByTimeAsync(10)
+
+    process.off('unhandledRejection', unhandled)
+    expect(unhandled).not.toHaveBeenCalled()
+  })
+
+  it('cuts a fetch that ignores its signal when the run signal aborts', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+
+    const pending = chat(request, controller.signal).catch((e: unknown) => e)
+    controller.abort(new RunBudgetError())
+
+    expect(await pending).toBeInstanceOf(RunBudgetError)
   })
 
   it('times out for real after the request timeout, with no mocked clock', async () => {

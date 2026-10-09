@@ -3,7 +3,7 @@ import { mergeFindings, uniqueStrings } from '../../netlify/shared/merge'
 import type { Finding } from '../../src/types/frames'
 
 function finding(chunkId: number, points: string[], entities: string[]): Finding {
-  return { chunkId, points, entities, model: 'meta-llama/llama-3.1-8b-instruct', usage: null }
+  return { chunkId, points, entities, model: 'anthropic/claude-haiku-5.5', usage: null }
 }
 
 describe('uniqueStrings', () => {

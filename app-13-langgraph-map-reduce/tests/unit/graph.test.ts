@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createLimiter, RunBudget } from '../../netlify/shared/budget'
 import { ProviderError, type ProviderKind } from '../../netlify/shared/errors'
 import { buildGraph } from '../../netlify/shared/graph'
-import { CHECK_MODEL, EXTRACT_MODEL, SYNTH_MODEL } from '../../netlify/shared/models'
+import { MODEL } from '../../netlify/shared/models'
+import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import type { Frame, Outcome } from '../../src/types/frames'
 
@@ -39,7 +40,7 @@ function mockChat(script: Script = {}): ChatFn {
   let checks = 0
   return async (request: ChatRequest): Promise<ChatReply> => {
     const user = request.messages[request.messages.length - 1]?.content ?? ''
-    if (request.model === EXTRACT_MODEL) {
+    if (isExtract(request)) {
       const id = Number(/^Chunk (\d+) of/.exec(user)?.[1])
       const seen = (attempts.get(id) ?? 0) + 1
       attempts.set(id, seen)
@@ -50,21 +51,21 @@ function mockChat(script: Script = {}): ChatFn {
           points: [`Chunk ${id} states its main rule.`, `Chunk ${id} sets a deadline.`],
           entities: ['The Lessor', `Party ${id}`],
         }),
-        EXTRACT_MODEL,
+        MODEL,
       )
     }
-    if (request.model === CHECK_MODEL) {
+    if (isCheck(request)) {
       checks += 1
       if (script.reviewFailure) throw new ProviderError(script.reviewFailure)
       const omitted = checks === 1 ? (script.flagFirstCheck ?? []) : []
-      return answer(JSON.stringify({ omitted }), CHECK_MODEL)
+      return answer(JSON.stringify({ omitted }), MODEL)
     }
     // Synthesize cites every chunk that has key points, and only those.
     const ids = [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
     const points = ids.map((id) => ({ text: `Chunk ${id} rule is kept.`, chunks: [id] }))
     return answer(
       JSON.stringify({ overview: 'A lease between two parties.', sections: [{ heading: 'Terms', points }] }),
-      SYNTH_MODEL,
+      MODEL,
     )
   }
 }
@@ -124,6 +125,20 @@ describe('graph path and state', () => {
       'split -> extract: fan out: 3 chunks',
       'check -> final: coverage complete',
     ])
+  })
+
+  it('(a2) a one-chunk text says "1 chunk" and "1 finding" in every row and label', async () => {
+    const run = await runGraph('The Lessor shall repair the roof within thirty days of written notice from the Lessee.', mockChat())
+
+    const details = run.frames.flatMap((f) => (f.type === 'node_end' && f.node !== 'extract' ? [`${f.node}: ${f.detail}`] : []))
+    expect(details).toEqual([
+      'split: 1 chunk of about 1,200 characters',
+      'reduce: Merged 1 finding into 1 chunk, 2 unique entities',
+      expect.stringMatching(/^synthesize: /),
+      expect.stringMatching(/^check: /),
+      'final: 1 of 1 chunk covered',
+    ])
+    expect(edges(run.frames)).toEqual(['split -> extract: fan out: 1 chunk', 'check -> final: coverage complete'])
   })
 
   it('(b) one chunk times out on the first pass: only that chunk is re-run, once, then the run completes', async () => {

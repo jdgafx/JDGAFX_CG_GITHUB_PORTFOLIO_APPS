@@ -17,6 +17,7 @@ const SYNTH_SYSTEM =
   'You write a structured summary of a document from key points extracted chunk by chunk. Reply with a JSON ' +
   'object only: {"overview": "one or two sentences", "sections": [{"heading": "short title", "points": ' +
   '[{"text": "one sentence", "chunks": [chunk numbers]}]}]}. Use 3 to 5 sections with 2 to 4 points each. ' +
+  'Keep the overview under 40 words and every point to one sentence under 25 words. ' +
   'Every point lists the chunk numbers it draws on. Cite every chunk number at least once. Use only the key ' +
   'points given and add no facts.' +
   FAITHFULNESS
@@ -67,7 +68,7 @@ export function checkMessages(summary: Summary, merged: Merged): ChatMessage[] {
     { role: 'system', content: CHECK_SYSTEM },
     {
       role: 'user',
-      content: `Summary:\n${summaryText(summary)}\n\nKey points by chunk:\n${keyPointLines(merged)}`,
+      content: `Summary:\n${summaryText(summary)}\n\nKey points by chunk:\n${keyPointLines(merged)}\n\nReply with the JSON object only, no other text.`,
     },
   ]
 }
