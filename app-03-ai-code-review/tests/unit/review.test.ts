@@ -89,7 +89,7 @@ describe('validateComments', () => {
   })
 
   it('treats a non-array as an empty list', () => {
-    expect(validateComments({ comments: [] }, file(10), 15)).toEqual({ comments: [], dropped: 0, droppedBlank: 0, moved: 0 })
+    expect(validateComments({ comments: [] }, file(10), 15)).toEqual({ comments: [], dropped: 0, droppedNoIssue: 0, droppedBlank: 0, droppedUnfound: 0, moved: 0 })
   })
 
   it('drops a line that is zero, fractional or not a number', () => {
@@ -98,7 +98,7 @@ describe('validateComments', () => {
       { line: 1.5, severity: 'info', message: 'm', suggestion: 's' },
       { line: '2', severity: 'info', message: 'm', suggestion: 's' },
     ]
-    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 3, droppedBlank: 0, moved: 0 })
+    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 3, droppedNoIssue: 0, droppedBlank: 0, droppedUnfound: 0, moved: 0 })
   })
 
   it('drops a comment with an empty message or suggestion', () => {
@@ -106,7 +106,7 @@ describe('validateComments', () => {
       { line: 1, severity: 'warning', message: '   ', suggestion: 'fix' },
       { line: 1, severity: 'warning', message: 'problem', suggestion: '' },
     ]
-    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 2, droppedBlank: 0, moved: 0 })
+    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 2, droppedNoIssue: 0, droppedBlank: 0, droppedUnfound: 0, moved: 0 })
   })
 
   it('keeps no more comments than the budget', () => {
@@ -122,51 +122,81 @@ describe('validateComments', () => {
   })
 })
 
-describe('validateComments: blank and misplaced lines', () => {
+describe('validateComments: issue flag, blank lines and quoted code', () => {
   const lines = ['def f(x):', '    y = x.strip()', '', '    return eval(y)', '', '', '', 'print(f("1"))']
-  const comment = (line: number, quote?: string) => ({
+  const comment = (line: number, quote?: string, extra: Record<string, unknown> = {}) => ({
     line,
     ...(quote === undefined ? {} : { quote }),
     severity: 'warning',
     message: 'm',
     suggestion: 's',
+    ...extra,
+  })
+  const linesOf = (raw: unknown[], source = lines) => validateComments(raw, source, 15).comments.map((c) => c.line)
+
+  it('drops a comment the model marked issue: false, and counts it', () => {
+    const result = validateComments(
+      [comment(2, 'y = x.strip()', { issue: false, message: 'This is fine as written' }), comment(4, 'eval(y)', { issue: true })],
+      lines,
+      15,
+    )
+    expect(result.comments.map((c) => c.line)).toEqual([4])
+    expect(result).toMatchObject({ dropped: 1, droppedNoIssue: 1, droppedBlank: 0, droppedUnfound: 0 })
+  })
+
+  it('does not read a missing or non-boolean issue as "no issue"', () => {
+    expect(linesOf([comment(2), comment(4, undefined, { issue: 'no' })])).toEqual([2, 4])
   })
 
   it('drops a comment on a blank line when it has no quote', () => {
-    expect(validateComments([comment(3)], lines, 15)).toEqual({ comments: [], dropped: 1, droppedBlank: 1, moved: 0 })
+    expect(validateComments([comment(3)], lines, 15)).toMatchObject({ comments: [], dropped: 1, droppedBlank: 1 })
   })
 
-  it('drops a comment on a blank line when no nearby line holds its quote', () => {
-    const result = validateComments([comment(6, 'y = x.strip()')], lines, 15)
-    expect(result).toEqual({ comments: [], dropped: 1, droppedBlank: 1, moved: 0 })
-  })
-
-  it('moves a blank-line comment to the nearby line that holds its quote, ignoring spacing', () => {
+  it('moves a blank-line comment to the line that holds its quote, ignoring spacing', () => {
     const result = validateComments([comment(3, 'return   eval(y)')], lines, 15)
     expect(result.comments.map((c) => c.line)).toEqual([4])
     expect(result).toMatchObject({ dropped: 0, droppedBlank: 0, moved: 1 })
   })
 
-  it('looks only two lines either way', () => {
-    // Line 8 holds the quote and is three lines from the blank line 5.
-    expect(validateComments([comment(5, 'print(f("1"))')], lines, 15).comments).toEqual([])
-    expect(validateComments([comment(6, 'print(f("1"))')], lines, 15).comments.map((c) => c.line)).toEqual([8])
-  })
-
-  it('moves a comment off a code line when it quotes code that sits two lines away', () => {
-    const result = validateComments([comment(2, 'return eval(y)')], lines, 15)
-    expect(result.comments.map((c) => c.line)).toEqual([4])
+  it('moves a comment to the fragment it is about, up to ten lines away', () => {
+    const typo = Array.from({ length: 40 }, (_, i) => `// note ${i + 1}`)
+    typo[29] = '// see the the preceding paragraph'
+    // The model cited line 37 and quoted the typo itself, which sits on line 30.
+    const result = validateComments([comment(37, 'the the')], typo, 15)
+    expect(result.comments.map((c) => c.line)).toEqual([30])
     expect(result.moved).toBe(1)
   })
 
-  it('keeps a comment where it is when the quote matches, is missing or matches nothing near', () => {
-    const kept = validateComments([comment(2, 'y = x.strip()'), comment(4), comment(4, 'something else entirely')], lines, 15)
-    expect(kept.comments.map((c) => c.line)).toEqual([2, 4, 4])
-    expect(kept).toMatchObject({ dropped: 0, droppedBlank: 0, moved: 0 })
+  it('moves to the nearest match, and to the later line on a tie', () => {
+    const rows = Array.from({ length: 30 }, (_, i) => `row ${i + 1}`)
+    rows[9] = 'dup call()' // line 10, two lines before 12
+    rows[14] = 'dup call()' // line 15, three lines after 12
+    expect(linesOf([comment(12, 'dup call()')], rows)).toEqual([10])
+    rows[13] = 'dup call()' // line 14, two lines after 12: ties with line 10
+    expect(linesOf([comment(12, 'dup call()')], rows)).toEqual([14])
   })
 
-  it('does not treat a one or two character quote as a match', () => {
-    expect(validateComments([comment(3, '(')], lines, 15).comments).toEqual([])
+  it('finds a fragment that appears once in the file even when it is far away', () => {
+    const far = Array.from({ length: 60 }, (_, i) => `row ${i + 1}`)
+    far[49] = 'unique_marker = 1'
+    expect(linesOf([comment(5, 'unique_marker')], far)).toEqual([50])
+  })
+
+  it('drops a comment whose quote is nowhere near and not unique, or not in the file at all', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => `row ${i + 1}`)
+    rows[40] = 'twice()'
+    rows[50] = 'twice()'
+    const result = validateComments([comment(5, 'twice()'), comment(6, 'never written')], rows, 15)
+    expect(result.comments).toEqual([])
+    expect(result).toMatchObject({ dropped: 2, droppedUnfound: 2, droppedBlank: 0 })
+  })
+
+  it('counts a quote that is not found from a blank line as a blank-line drop', () => {
+    expect(validateComments([comment(5, 'never written')], lines, 15)).toMatchObject({ droppedBlank: 1, droppedUnfound: 0 })
+  })
+
+  it('keeps a comment where it is when its quote is on the cited line, or when it has no usable quote', () => {
+    expect(linesOf([comment(2, 'x.strip()'), comment(4), comment(4, 'ev')])).toEqual([2, 4, 4])
   })
 })
 
@@ -182,8 +212,14 @@ describe('buildSystemPrompt: severity and quoting', () => {
     expect(prompt).toContain('concludes the code is fine, safe or correct is not a finding')
   })
 
+  it('asks for an issue flag and says false discards the comment', () => {
+    expect(prompt).toContain('"issue": <true only if something should change')
+    expect(prompt).toContain('set "issue" to false and it is discarded')
+  })
+
   it('asks for the quoted code and says blank lines are never cited', () => {
     expect(prompt).toContain('"quote"')
     expect(prompt).toContain('never a blank line')
+    expect(prompt).toContain('the exact code fragment this comment is about')
   })
 })

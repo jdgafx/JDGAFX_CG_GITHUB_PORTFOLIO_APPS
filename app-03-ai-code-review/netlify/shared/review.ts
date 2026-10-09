@@ -53,10 +53,11 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
   "comments": [
     {
       "line": <integer between 1 and ${lineCount}>,
-      "quote": "<the exact code of that line, copied verbatim without the line number prefix>",
+      "quote": "<the exact code fragment this comment is about, copied verbatim from that line>",
       "severity": "critical" | "warning" | "info",
       "message": "<what is wrong, one or two sentences>",
-      "suggestion": "<the specific change to make>"
+      "suggestion": "<the specific change to make>",
+      "issue": <true only if something should change; false if, on reflection, the code is fine>
     }
   ]
 }
@@ -76,9 +77,11 @@ Coverage rules:
 - Sort the comments by line number, ascending. Never file two comments on the same line.
 - Only cite lines that exist, from 1 to ${lineCount}. A comment carrying any other line number is
   discarded before the user sees it.
-- Every comment is about code on the line it cites, never a blank line. Copy that line into "quote".
-  A comment whose line is blank, or does not hold the quoted code, is moved or discarded.
-- A comment that concludes the code is fine, safe or correct is not a finding. Leave it out.
+- Every comment is about code on the line it cites, never a blank line. "quote" is the few words or the
+  line the comment is about: for a typo or a name, that word or phrase itself, copied exactly. A comment
+  whose quoted code is not on or near its line is moved or discarded.
+- A comment that concludes the code is fine, safe or correct is not a finding. Leave it out. If you
+  notice while writing that there is nothing to change, set "issue" to false and it is discarded.
 - If the code has no real issues anywhere, return {"comments": []}.`
 }
 
@@ -105,49 +108,53 @@ export function parseReview(text: string): Record<string, unknown> | null {
 
 export interface ValidatedComments {
   comments: ReviewComment[]
-  /** Every candidate that was not kept: invalid, on a blank line, or over the budget. */
+  /** Every candidate that was not kept, for any reason. */
   dropped: number
-  /** Of those, the ones that cited a blank line the quote could not place. */
+  /** Of those, comments the model itself marked as finding nothing to change. */
+  droppedNoIssue: number
+  /** Of those, comments that cited a blank line the quote could not place. */
   droppedBlank: number
-  /** Kept comments moved to the nearby line that holds the code they quote. */
+  /** Of those, comments whose quoted code is not in the file. */
+  droppedUnfound: number
+  /** Kept comments moved to the line that holds the code they quote. */
   moved: number
 }
 
-const NEARBY_OFFSETS = [1, -1, 2, -2]
+/** How far from the cited line a quote is searched for. A quote found only once in the whole file also counts. */
+const QUOTE_WINDOW = 10
 const MIN_QUOTE_CHARS = 3
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
-/** True when the quote and the line hold the same code, ignoring spacing. Very short strings never match. */
-function holdsQuote(lineText: string, quote: unknown): boolean {
-  if (typeof quote !== 'string') return false
-  const a = collapse(lineText)
-  const b = collapse(quote)
-  return Math.min(a.length, b.length) >= MIN_QUOTE_CHARS && (a.includes(b) || b.includes(a))
-}
+type Anchor = { line: number } | { dropped: 'blank' | 'unfound' }
 
 /**
- * Where a comment should sit. A cited line that holds code stays unless the comment quotes other code that
- * sits within two lines, and then it moves there. A blank line is only replaced by a nearby line that holds
- * the quote, and is otherwise null, so a comment never points at nothing.
+ * Where a comment should sit. The quote is the code fragment the comment is about. If the cited line holds it, the
+ * comment stays. Otherwise it moves to the nearest line within ten that holds it, or to the only line in the file
+ * that does. A comment with no usable quote stays on a code line and is dropped on a blank one. A comment whose
+ * quote is nowhere to be found is dropped, so it never points at code it is not about.
  */
-function anchorLine(lines: string[], line: number, quote: unknown): number | null {
-  const cited = lines[line - 1]
-  const blank = cited.trim() === ''
-  if (!blank && (typeof quote !== 'string' || collapse(quote) === '' || holdsQuote(cited, quote))) return line
-  for (const offset of NEARBY_OFFSETS) {
-    const near = line + offset
-    if (near >= 1 && near <= lines.length && holdsQuote(lines[near - 1], quote)) return near
+function anchorLine(lines: string[], line: number, quote: unknown): Anchor {
+  const fragment = typeof quote === 'string' ? collapse(quote) : ''
+  const blank = lines[line - 1].trim() === ''
+  if (fragment.length < MIN_QUOTE_CHARS) return blank ? { dropped: 'blank' } : { line }
+  const holds = (n: number) => collapse(lines[n - 1]).includes(fragment)
+  if (holds(line)) return { line }
+  for (let distance = 1; distance <= QUOTE_WINDOW; distance += 1) {
+    for (const near of [line + distance, line - distance]) {
+      if (near >= 1 && near <= lines.length && holds(near)) return { line: near }
+    }
   }
-  return blank ? null : line
+  const hits = lines.flatMap((_, i) => (holds(i + 1) ? [i + 1] : []))
+  if (hits.length === 1) return { line: hits[0] }
+  return { dropped: blank ? 'blank' : 'unfound' }
 }
 
 /** Keeps only comments that cite a real line of `lines` and carry valid fields, at most `budget` of them. */
 export function validateComments(raw: unknown, lines: string[], budget: number): ValidatedComments {
   const lineCount = lines.length
   const list: unknown[] = Array.isArray(raw) ? raw : []
-  let droppedBlank = 0
-  let moved = 0
+  const counts = { noIssue: 0, blank: 0, unfound: 0, moved: 0 }
   const comments: ReviewComment[] = []
   for (const item of list) {
     if (!item || typeof item !== 'object') continue
@@ -165,19 +172,31 @@ export function validateComments(raw: unknown, lines: string[], budget: number):
       typeof c.suggestion === 'string' &&
       c.suggestion.trim().length > 0
     if (!valid) continue
-    const line = anchorLine(lines, c.line as number, c.quote)
-    if (line === null) {
-      droppedBlank += 1
+    // Only an explicit false is a verdict. A reply that leaves the field out is not read as "no issue".
+    if (c.issue === false) {
+      counts.noIssue += 1
       continue
     }
-    if (line !== c.line) moved += 1
+    const anchor = anchorLine(lines, c.line as number, c.quote)
+    if ('dropped' in anchor) {
+      counts[anchor.dropped] += 1
+      continue
+    }
+    if (anchor.line !== c.line) counts.moved += 1
     comments.push({
-      line,
+      line: anchor.line,
       severity: c.severity as Severity,
       message: (c.message as string).trim().slice(0, MAX_TEXT_CHARS),
       suggestion: (c.suggestion as string).trim().slice(0, MAX_TEXT_CHARS),
     })
   }
   const kept = comments.slice(0, budget)
-  return { comments: kept, dropped: list.length - kept.length, droppedBlank, moved }
+  return {
+    comments: kept,
+    dropped: list.length - kept.length,
+    droppedNoIssue: counts.noIssue,
+    droppedBlank: counts.blank,
+    droppedUnfound: counts.unfound,
+    moved: counts.moved,
+  }
 }

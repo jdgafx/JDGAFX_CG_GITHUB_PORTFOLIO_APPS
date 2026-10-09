@@ -264,16 +264,33 @@ describe('ai function: a completed review', () => {
     expect(payload.trace[5].detail).toBe('Kept 1 comment, dropped 2 (bad line, severity or text, or over the limit)')
   })
 
-  it('moves, drops and reports comments that cite blank or misplaced lines', async () => {
+  it('moves, drops and reports comments that cite blank lines, quote missing code or find no issue', async () => {
     const code = 'def f(x):\n    y = x.strip()\n\n    return eval(y)\n\n\n\n\nprint(f("1"))'
-    const make = (line: number, quote: string) => ({ line, quote, severity: 'warning', message: `m${line}`, suggestion: 's' })
+    const make = (line: number, quote: string, extra: Record<string, unknown> = {}) => ({
+      line,
+      quote,
+      severity: 'warning',
+      message: `m${line}`,
+      suggestion: 's',
+      ...extra,
+    })
     fetchStub.mockResolvedValueOnce(
-      providerReply(reviewJson([make(3, 'return eval(y)'), make(6, 'y = x.strip()'), make(2, 'y = x.strip()')])),
+      providerReply(
+        reviewJson([
+          make(3, 'return eval(y)'),
+          make(2, 'y = x.strip()'),
+          make(5, 'no such code'),
+          make(9, 'print(f', { issue: false, message: 'This is correct as written' }),
+          make(9, 'code that is not in the file'),
+        ]),
+      ),
     )
     const payload = await readPayload(await handler(post({ code, language: 'python' })))
     expect(payload.result?.comments.map((c) => c.line)).toEqual([4, 2])
-    expect(payload.trace[5].detail).toBe('Kept 2 comments, moved 1 to the line it quotes, dropped 1 that cited a blank line')
-    expect(sentBody().messages[0].content).toContain('"quote"')
+    expect(payload.trace[5].detail).toBe(
+      'Kept 2 comments, moved 1 to the line it quotes, dropped 1 that found no issue, dropped 1 that cited a blank line, dropped 1 whose quoted code was not found near their line',
+    )
+    expect(sentBody().messages[0].content).toContain('"issue"')
   })
 
   it('keeps no more comments than the budget for a two-line file', async () => {

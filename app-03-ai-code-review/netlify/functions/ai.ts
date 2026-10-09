@@ -366,7 +366,12 @@ async function runReview(
   record(run.trace, 'Parse reply', 'ok', parseAt, 'Read the JSON review')
 
   const validateAt = Date.now()
-  const { comments, dropped, droppedBlank, moved } = validateComments(parsed.comments, lines, maxComments)
+  const { comments, dropped, droppedNoIssue, droppedBlank, droppedUnfound, moved } = validateComments(
+    parsed.comments,
+    lines,
+    maxComments,
+  )
+  const droppedOther = dropped - droppedNoIssue - droppedBlank - droppedUnfound
   record(
     run.trace,
     'Validate comments',
@@ -375,8 +380,10 @@ async function runReview(
     [
       `Kept ${noun(comments.length, 'comment')}`,
       moved > 0 ? `moved ${moved} to the line it quotes` : '',
+      droppedNoIssue > 0 ? `dropped ${droppedNoIssue} that found no issue` : '',
       droppedBlank > 0 ? `dropped ${droppedBlank} that cited a blank line` : '',
-      dropped > droppedBlank ? `dropped ${dropped - droppedBlank} (bad line, severity or text, or over the limit)` : '',
+      droppedUnfound > 0 ? `dropped ${droppedUnfound} whose quoted code was not found near their line` : '',
+      droppedOther > 0 ? `dropped ${droppedOther} (bad line, severity or text, or over the limit)` : '',
     ]
       .filter(Boolean)
       .join(', '),
