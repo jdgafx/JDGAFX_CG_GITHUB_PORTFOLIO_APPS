@@ -2,12 +2,13 @@ import {
   CITIES,
   DATASET_CHOICES,
   earthquakeUrl,
-  lastTwelveMonths,
+  lastTwelveWholeMonths,
   weatherUrl,
   type LiveDatasetId,
 } from './catalog'
 import { DatasetFormatError, parseEarthquakeCsv, parseWeatherCsv } from './parse'
-import type { DataSourceInfo, LoadedDataset, ParsedData } from '../../types'
+import { EARTHQUAKE_VOCABULARY, WEATHER_VOCABULARY } from '../vocabulary'
+import type { DataSourceInfo, LoadedDataset, ParsedData, Vocabulary } from '../../types'
 
 const FETCH_TIMEOUT_MS = 25_000
 
@@ -55,6 +56,7 @@ interface Resolved {
   provider: string
   parse: (text: string) => ParsedData
   source: Omit<DataSourceInfo, 'kind' | 'url' | 'fetchedAt'>
+  vocab: Vocabulary
 }
 
 function resolve(request: LoadRequest, now: Date): Resolved {
@@ -64,7 +66,7 @@ function resolve(request: LoadRequest, now: Date): Resolved {
   if (request.id === 'weather') {
     const city = CITIES.find((item) => item.id === request.cityId) ?? CITIES[0]
     if (!city) throw new DatasetLoadError('That dataset is not available.')
-    const range = lastTwelveMonths(now)
+    const range = lastTwelveWholeMonths(now)
     return {
       url: weatherUrl(city, range),
       provider: 'Open-Meteo',
@@ -74,6 +76,7 @@ function resolve(request: LoadRequest, now: Date): Resolved {
         label: `Daily weather, ${city.label}`,
         detail: `${choice.summary} Covers ${range.start} to ${range.end}.`,
       },
+      vocab: WEATHER_VOCABULARY,
     }
   }
   return {
@@ -81,12 +84,13 @@ function resolve(request: LoadRequest, now: Date): Resolved {
     provider: 'USGS',
     parse: parseEarthquakeCsv,
     source: { provider: 'USGS Earthquake Hazards Program', label: choice.label, detail: choice.summary },
+    vocab: EARTHQUAKE_VOCABULARY,
   }
 }
 
 /** Fetches a live dataset from its public API and parses it. Every row is read in the browser. */
 export async function loadDataset(request: LoadRequest, options: LoadOptions = {}): Promise<LoadedDataset> {
-  const { url, provider, parse, source } = resolve(request, options.now ?? new Date())
+  const { url, provider, parse, source, vocab } = resolve(request, options.now ?? new Date())
   const text = await fetchCsv(url, provider, options.signal)
 
   let data: ParsedData
@@ -101,5 +105,5 @@ export async function loadDataset(request: LoadRequest, options: LoadOptions = {
     )
   }
 
-  return { data, source: { ...source, kind: 'live', url, fetchedAt: new Date() } }
+  return { data, vocab, source: { ...source, kind: 'live', url, fetchedAt: new Date() } }
 }

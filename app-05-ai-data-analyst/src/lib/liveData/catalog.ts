@@ -49,8 +49,8 @@ export const DATASET_CHOICES: DatasetChoice[] = [
   },
   {
     id: 'weather',
-    label: 'Daily weather, last 12 months',
-    summary: 'Daily highs, lows and rain from the Open-Meteo archive.',
+    label: 'Daily weather, last 12 whole months',
+    summary: 'Daily highs, lows and rain from the Open-Meteo archive, for 12 whole calendar months.',
     questions: [
       'Average max temperature by month',
       'Total rain by month',
@@ -83,17 +83,16 @@ function isoDate(date: Date): string {
 }
 
 /**
- * The 12 months ending yesterday, as ISO dates, read in UTC. For today = 2026-10-09 this is
- * 2025-10-09 to 2026-10-08.
+ * The 12 whole calendar months before the current one, as ISO dates, read in UTC. For today = 2026-10-09
+ * this is 2025-10-01 to 2026-09-30. Whole months mean no month in the data is a partial one, so months
+ * compare fairly and a total or a count for one is not short of days.
  */
-export function lastTwelveMonths(today: Date): { start: string; end: string } {
-  const [y, m, d] = [today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()]
-  const end = new Date(Date.UTC(y, m, d - 1))
-  // The same date a year earlier, clamped for 29 February, then one day on: 365 or 366 days.
-  const [ey, em, ed] = [end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()]
-  const lastDayThen = new Date(Date.UTC(ey - 1, em + 1, 0)).getUTCDate()
-  const start = new Date(Date.UTC(ey - 1, em, Math.min(ed, lastDayThen) + 1))
-  return { start: isoDate(start), end: isoDate(end) }
+export function lastTwelveWholeMonths(today: Date): { start: string; end: string } {
+  const [y, m] = [today.getUTCFullYear(), today.getUTCMonth()]
+  return {
+    start: isoDate(new Date(Date.UTC(y - 1, m, 1))),
+    end: isoDate(new Date(Date.UTC(y, m, 0))),
+  }
 }
 
 export function weatherUrl(city: City, range: { start: string; end: string }): string {

@@ -275,3 +275,47 @@ describe('executeQuery on small inputs', () => {
     expect(data.rows).toEqual([])
   })
 })
+
+describe('executeQuery with several row conditions and a group limit', () => {
+  const byRegion = (extra: Partial<QueryPlan> = {}): QueryPlan => ({
+    ...planWith('region', 'count', { sortBy: { field: 'count', dir: 'desc' } }),
+    aggregate: { field: 'id', fn: 'count' },
+    ...extra,
+  })
+
+  it('keeps only rows that pass every condition', () => {
+    const plan = byRegion({
+      filter: { field: 'region', op: 'eq', value: 'Alaska' },
+      moreFilters: [{ field: 'mag', op: 'gt', value: '1.85' }],
+    })
+    // Alaska has magnitudes 1.8, 1.9 and 0.3; only the 1.9 is over 1.85.
+    const result = executeQuery(quakes, plan)
+    expect(result.labels).toEqual(['Alaska'])
+    expect(result.datasets[0]?.values).toEqual([1])
+  })
+
+  it('keeps the first N groups after the sort and says how many were cut', () => {
+    const result = executeQuery(quakes, byRegion({ limit: 3 }))
+    expect(result.labels).toEqual(['Alaska', 'California', 'Hawaii'])
+    expect(result.datasets[0]?.values).toEqual([3, 3, 2])
+    expect(result.limited).toEqual({ total: 10, tiedBeyond: 1 })
+  })
+
+  it('reports no cut when the limit is not smaller than the groups', () => {
+    const result = executeQuery(quakes, byRegion({ limit: 10 }))
+    expect(result.labels).toHaveLength(10)
+    expect(result.limited).toBeUndefined()
+  })
+
+  it('applies the limit after a threshold on the groups', () => {
+    const result = executeQuery(quakes, byRegion({ having: { op: 'gte', value: 2 }, limit: 2 }))
+    expect(result.labels).toEqual(['Alaska', 'California'])
+    expect(result.limited).toEqual({ total: 4, tiedBeyond: 0 })
+  })
+
+  it('keeps the lowest groups when the sort is ascending', () => {
+    const result = executeQuery(quakes, byRegion({ sortBy: { field: 'count', dir: 'asc' }, limit: 2 }))
+    expect(result.datasets[0]?.values).toEqual([1, 1])
+    expect(result.limited?.tiedBeyond).toBe(4)
+  })
+})

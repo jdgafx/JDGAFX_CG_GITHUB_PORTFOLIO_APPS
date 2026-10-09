@@ -1,4 +1,4 @@
-import type { AnalysisResponse, ParsedData, RunStep, RunSummary } from '../types'
+import type { AnalysisResponse, ParsedData, QueryPlan, RunStep, RunSummary } from '../types'
 import { MAX_CELL_CHARS, MAX_SAMPLE_ROWS } from './limits'
 
 const REQUEST_TIMEOUT_MS = 30_000
@@ -12,6 +12,8 @@ interface AskDataRequest {
   headers: string[]
   sampleRows: Record<string, string>[]
   rowCount: number
+  /** Set on a follow-up: the question and plan it refines. The server checks the plan again. */
+  previous?: { question: string; plan: QueryPlan }
 }
 
 /** The sample sent to the model: the first rows, each cell cut to the server's limit. */

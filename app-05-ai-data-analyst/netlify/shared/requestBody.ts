@@ -6,7 +6,8 @@ import {
   MAX_ROWS,
   MAX_SAMPLE_ROWS,
 } from '../../src/lib/limits'
-import { isRecord } from '../../src/lib/queryPlan'
+import { isRecord, validateQueryPlan } from '../../src/lib/queryPlan'
+import type { QueryPlan } from '../../src/types'
 
 /** The browser's request after validation: every sample cell is text and every key is a column. */
 export interface AnalysisInput {
@@ -14,7 +15,12 @@ export interface AnalysisInput {
   headers: string[]
   sampleRows: Record<string, string>[]
   rowCount: number
+  /** Set on a follow-up: the question and the checked plan it refines. */
+  previous?: { question: string; plan: QueryPlan }
 }
+
+/** The previous plan's free text is cut before it enters a prompt. The plan itself is rebuilt by the plan check. */
+const MAX_PLAN_TEXT_CHARS = 200
 
 interface Rejection {
   ok: false
@@ -54,7 +60,7 @@ export async function readJsonBody(req: Request): Promise<Checked<unknown>> {
 /** Checks every field of the request. Returns the typed input, or the 400 to send back. */
 export function checkAnalysisBody(body: unknown): Checked<AnalysisInput> {
   if (!isRecord(body)) return reject(400, 'Request body must be a JSON object.')
-  const { question, headers, sampleRows, rowCount } = body
+  const { question, headers, sampleRows, rowCount, previous } = body
 
   if (typeof question !== 'string' || question.trim() === '') return reject(400, 'A question is required.')
   const asked = question.trim()
@@ -93,5 +99,28 @@ export function checkAnalysisBody(body: unknown): Checked<AnalysisInput> {
     return reject(400, 'The row count is not valid.')
   }
 
-  return { ok: true, value: { question: asked, headers: names, sampleRows: rows, rowCount } }
+  const input: AnalysisInput = { question: asked, headers: names, sampleRows: rows, rowCount }
+  if (previous !== undefined && previous !== null) {
+    const earlier = checkPrevious(previous, names)
+    if (!earlier.ok) return earlier
+    input.previous = earlier.value
+  }
+  return { ok: true, value: input }
+}
+
+/** The plan a follow-up refines. It must pass the same plan check as a model reply, against the same columns. */
+function checkPrevious(previous: unknown, headers: string[]): Checked<NonNullable<AnalysisInput['previous']>> {
+  const invalid = reject(400, 'The previous plan is not valid.')
+  if (!isRecord(previous) || typeof previous.question !== 'string') return invalid
+  const question = previous.question.trim()
+  if (question === '' || question.length > MAX_QUESTION_CHARS) return invalid
+  const plan = validateQueryPlan(previous.plan, headers)
+  if (!plan.ok) return invalid
+  const earlier: QueryPlan = {
+    ...plan.plan,
+    title: plan.plan.title.slice(0, MAX_PLAN_TEXT_CHARS),
+    explanation: plan.plan.explanation.slice(0, MAX_PLAN_TEXT_CHARS),
+  }
+  delete earlier.cannotApply
+  return { ok: true, value: { question, plan: earlier } }
 }

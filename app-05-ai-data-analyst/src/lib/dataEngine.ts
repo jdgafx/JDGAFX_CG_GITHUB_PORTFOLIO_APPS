@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
-import type { HavingOp, HavingStats, ParsedData, QueryPlan, EngineResult, TopGroup } from '../types'
-import { isValueSort } from './queryPlan'
+import type { HavingOp, HavingStats, ParsedData, PlanFilter, QueryPlan, EngineResult, TopGroup } from '../types'
+import { isValueSort, planFilters } from './queryPlan'
 import { MAX_ROWS } from './limits'
 
 const BLANK_LABEL = '(blank)'
@@ -125,35 +125,35 @@ function applyOrder(
   }
 }
 
+/** True when the row meets one test. Number comparisons need a number on both sides. */
+function rowPasses(row: Record<string, string>, { field, op, value }: PlanFilter): boolean {
+  const cellValue = row[field] ?? ''
+  const numValue = parseNumericCell(value)
+  const numCell = parseNumericCell(cellValue)
+  const comparable = numCell !== null && numValue !== null
+  switch (op) {
+    case 'eq':
+      return cellValue.toLowerCase() === value.toLowerCase()
+    case 'neq':
+      return cellValue.toLowerCase() !== value.toLowerCase()
+    case 'gt':
+      return comparable && numCell > numValue
+    case 'lt':
+      return comparable && numCell < numValue
+    case 'gte':
+      return comparable && numCell >= numValue
+    case 'lte':
+      return comparable && numCell <= numValue
+    case 'contains':
+      return cellValue.toLowerCase().includes(value.toLowerCase())
+  }
+}
+
 /** Runs a plan over every row. The plan must already have passed validateQueryPlan for these headers. */
 export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
   let rows = [...data.rows]
 
-  if (plan.filter) {
-    const { field, op, value } = plan.filter
-    const numValue = parseNumericCell(value)
-    rows = rows.filter((row) => {
-      const cellValue = row[field] ?? ''
-      const numCell = parseNumericCell(cellValue)
-      const comparable = numCell !== null && numValue !== null
-      switch (op) {
-        case 'eq':
-          return cellValue.toLowerCase() === value.toLowerCase()
-        case 'neq':
-          return cellValue.toLowerCase() !== value.toLowerCase()
-        case 'gt':
-          return comparable && numCell > numValue
-        case 'lt':
-          return comparable && numCell < numValue
-        case 'gte':
-          return comparable && numCell >= numValue
-        case 'lte':
-          return comparable && numCell <= numValue
-        case 'contains':
-          return cellValue.toLowerCase().includes(value.toLowerCase())
-      }
-    })
-  }
+  for (const filter of planFilters(plan)) rows = rows.filter((row) => rowPasses(row, filter))
 
   const groups = new Map<string, number[]>()
   let skippedCells = 0
@@ -232,6 +232,14 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
     if (compare) applyOrder(labels, values, (a, b) => compare(a.label, b.label))
   }
 
+  let limited: EngineResult['limited']
+  if (plan.limit !== undefined && labels.length > plan.limit) {
+    const lastKept = values[plan.limit - 1]
+    limited = { total: labels.length, tiedBeyond: values.slice(plan.limit).filter((value) => value === lastKept).length }
+    labels.length = plan.limit
+    values.length = plan.limit
+  }
+
   const warnings: string[] = []
   if (skippedCells > 0) {
     const noun = skippedCells === 1 ? 'cell' : 'cells'
@@ -245,6 +253,7 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
     datasets: [{ name: plan.aggregate.field, values }],
     warnings,
     ...(having ? { having } : {}),
+    ...(limited ? { limited } : {}),
   }
 }
 

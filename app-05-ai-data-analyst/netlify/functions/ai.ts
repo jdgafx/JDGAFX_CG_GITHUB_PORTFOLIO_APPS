@@ -124,20 +124,25 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
     "op": "eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "contains",
     "value": "<string value>"
   },
+  "moreFilters": [ { "field": "<column name>", "op": "<as above>", "value": "<string value>" } ],
   "sortBy": {
     "field": "<the groupBy column or the aggregate field>",
     "dir": "asc" | "desc"
   },
   "having": { "op": "gt" | "gte" | "lt" | "lte" | "eq" | "neq", "value": <number> },
+  "limit": <whole number of groups to keep>,
   "title": "<descriptive chart title>",
   "explanation": "<brief explanation of what this visualization shows and why>",
   "missing": ["<each column, measure or category the question names that the dataset does not have>"] | null,
-  "notice": "<one plain sentence, or null>"
+  "notice": "<one plain sentence, or null>",
+  "cannotApply": "<follow-ups only: one plain sentence saying why the follow-up cannot be applied, or null>"
 }
 
 Rules:
-- "filter", "having" and "sortBy" are optional — only include them if relevant
+- "filter", "moreFilters", "having", "limit" and "sortBy" are optional — only include them if relevant
 - "filter" tests individual rows before grouping, for conditions such as "only Alaska" or "magnitude over 4". A threshold on the grouped result, such as months whose total rain is at least 100, regions with at least 50 earthquakes or products whose average price is below 5, goes in "having", never in "filter". "having" compares the aggregate (sum, avg, count, min or max) of each group; its value is a plain number.
+- "moreFilters" lists further row conditions that must all hold together with "filter" (for example "magnitude over 4" in "filter" and "only Alaska" in "moreFilters"). Use it only when the question needs two or more conditions.
+- "limit" keeps only the first N groups after "having" and "sortBy". Set it only when the question names how many groups to show ("the top 5 regions", "the 3 coldest months"). A question such as "which region had the most earthquakes?" gets no "limit": the chart shows every group and the answer names the top one. A "limit" goes with a "sortBy" on the aggregate field.
 - If the question does not explicitly name a filter condition, omit "filter" entirely. Never invent a filter field or use a placeholder such as "missing".
 - groupBy, aggregate.field and filter.field MUST be exact column names copied from the dataset. Never invent a column.
 - sortBy.field must be either the groupBy column or the aggregate field — nothing else is plotted
@@ -145,7 +150,17 @@ Rules:
 - For count queries, aggregate.field must still be a real column name (count ignores its value)
 - Choose the most appropriate chartType for the data pattern
 - "missing": list only what the question names that no column of the dataset provides, such as a measure the data does not hold. When you list something, "notice" is one sentence that says so and names the real column you used instead. Otherwise set "missing" to null.
+- "cannotApply" is for follow-ups only and is null otherwise.
 - Never use "missing" or "notice" for formatting, data quality or parsing. Numeric cells may hold thousands separators, currency signs or percent signs, for example "1,200", and the browser parses them. Set "notice" to null unless "missing" is non-empty.`
+
+const FOLLOW_UP_RULES = `This is a follow-up. You are given the previous question, the previous query plan and the follow-up. Return the NEW complete plan, using the same JSON structure.
+- Start from the previous plan and keep every part the follow-up does not change: groupBy, aggregate, filter, moreFilters, sortBy, having, limit and chartType.
+- "only Alaska", "just 2026" and "where magnitude is over 4" add a row condition. Put it in "moreFilters" when the previous plan already has a "filter", and keep the old condition unless the follow-up replaces it ("actually Texas").
+- "now by month" or "by region instead" changes groupBy. "as a line chart" changes chartType only. "show the top 5" sets "limit" 5 with "sortBy" on the aggregate field, dir "desc"; "the bottom 3" uses dir "asc".
+- Keep the previous sort direction unless the follow-up asks for another end.
+- Pick a groupBy that suits the chart type: a line or area chart needs an ordered column such as a date or month.
+- If the follow-up cannot be answered from this dataset (a time range the data does not cover, another dataset, a column that does not exist, or a comparison that needs two series), return the previous plan UNCHANGED and set "cannotApply" to one plain sentence saying why, naming what the data does cover. Do not guess a stand-in.
+- "cannotApply" is null when you applied the follow-up.`
 
 /** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
 class RunLog {
@@ -215,8 +230,31 @@ function planSummary(plan: QueryPlan): string {
 
 function callDetail(reply: ModelReply): string {
   const served = reply.model ? `Served by ${reply.model}.` : 'The reply did not name the model.'
-  const retry = reply.attempts > 1 ? ' Retried once because the first reply was empty.' : ''
-  return served + retry
+  const why =
+    reply.retriedAfter === 'timeout'
+      ? 'the first try ran out of time'
+      : reply.retriedAfter === 'connection'
+        ? 'the first try lost the connection'
+        : reply.attempts > 1
+          ? 'the first reply was empty'
+          : null
+  return why ? `${served} Retried once because ${why}.` : served
+}
+
+/** The model's prompt for a first question or, with a previous plan, for a follow-up on it. */
+function promptFor(input: AnalysisInput): ChatMessage[] {
+  const schema = `Dataset with ${input.rowCount} rows.
+Columns: ${input.headers.join(', ')}
+Sample rows:
+${JSON.stringify(input.sampleRows, null, 2)}`
+  const system = input.previous ? `${SYSTEM_PROMPT}\n\n${FOLLOW_UP_RULES}` : SYSTEM_PROMPT
+  const user = input.previous
+    ? `Dataset:\n${schema}\n\nPrevious question: ${input.previous.question}\nPrevious plan: ${JSON.stringify(input.previous.plan)}\n\nFollow-up: ${input.question}`
+    : `Dataset:\n${schema}\n\nQuestion: ${input.question}`
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ]
 }
 
 function checkPlan(value: unknown, headers: string[], log: RunLog): Checked {
@@ -255,7 +293,7 @@ async function repairPlan(
 
   let reply: ModelReply
   try {
-    reply = await callModel(askAgain, signal)
+    reply = await callModel(askAgain, signal, { deadlineAt: log.startedAt + UPSTREAM_TIMEOUT_MS })
   } catch (err) {
     const failure = describeFailure(err)
     log.step('Repair turn', 'failed', repairAt, failure.message)
@@ -292,25 +330,18 @@ async function analyse(
   cors: Record<string, string>,
 ): Promise<Response> {
   const buildAt = Date.now()
-  const schema = `Dataset with ${input.rowCount} rows.
-Columns: ${input.headers.join(', ')}
-Sample rows:
-${JSON.stringify(input.sampleRows, null, 2)}`
-  const messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Dataset:\n${schema}\n\nQuestion: ${input.question}` },
-  ]
+  const messages = promptFor(input)
   log.step(
     'Build request',
     'ok',
     buildAt,
-    `Sending ${input.sampleRows.length} sample rows and ${input.headers.length} column names from a dataset of ${input.rowCount} rows.`,
+    `Sending ${input.sampleRows.length} sample rows and ${input.headers.length} column names from a dataset of ${input.rowCount} rows${input.previous ? ', with the previous plan and your follow-up' : ''}.`,
   )
 
   const callAt = Date.now()
   let reply: ModelReply
   try {
-    reply = await callModel(messages, signal)
+    reply = await callModel(messages, signal, { deadlineAt: log.startedAt + UPSTREAM_TIMEOUT_MS })
   } catch (err) {
     const failure = describeFailure(err)
     log.step('Model call', 'failed', callAt, failure.message)
@@ -337,11 +368,19 @@ ${JSON.stringify(input.sampleRows, null, 2)}`
   const checked = checkPlan(read.value, input.headers, log)
   if (checked.ok) {
     log.skip(['Repair turn'], 'Not needed: the first plan passed the column check.')
-    return json({ result: checked.plan, ...log.summary() }, 200, cors)
+    return json({ result: settle(checked.plan, input), ...log.summary() }, 200, cors)
   }
   const outcome = await repairPlan({ reply, message: checked.message }, messages, input.headers, log, signal)
   if (!outcome.ok) return failed(log, outcome.status, outcome.message, cors)
-  return json({ result: outcome.plan, ...log.summary() }, 200, cors)
+  return json({ result: settle(outcome.plan, input), ...log.summary() }, 200, cors)
+}
+
+/** Only a follow-up can be declined. A first question that comes back with the flag gets a plain plan. */
+function settle(plan: QueryPlan, input: AnalysisInput): QueryPlan {
+  if (input.previous || plan.cannotApply === undefined) return plan
+  const plain = { ...plan }
+  delete plain.cannotApply
+  return plain
 }
 
 async function handle(req: Request, origin: string | null, cors: Record<string, string>): Promise<Response> {

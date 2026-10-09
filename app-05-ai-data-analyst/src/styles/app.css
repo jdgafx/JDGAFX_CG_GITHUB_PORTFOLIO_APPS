@@ -1,4 +1,4 @@
-/* App-specific styles only. Shared layout, type and component classes live in tokens.css. */
+/* App-specific styles only. Shared layout, type and component classes live in tokens.css and components.css. */
 
 /*
  * Categorical chart slots for pie charts: eight hues, validated against the
@@ -43,231 +43,89 @@
   --viz-other: #898781;
 }
 
-/* Controls */
-.app-action {
-  display: grid;
-  gap: 8px;
-}
+/* Run column order: the chart sits right under the thread once a run has ended; the figures follow it. */
+[data-run="done"] .ds-run__stage,
+[data-run="failed"] .ds-run__stage,
+[data-run="stopped"] .ds-run__stage { order: -1; }
+[data-run="done"] .ds-run__readout,
+[data-run="failed"] .ds-run__readout,
+[data-run="stopped"] .ds-run__readout { order: 0; }
+/* While a follow-up runs, the thread with its pending step leads, then the live figures, then the chart it will replace. */
+[data-run="running"] .ds-run__result { order: -1; }
+.app-below { display: grid; gap: 28px; min-width: 0; }
 
-.app-status {
-  min-height: 1.55em;
-  font-size: 15px;
-  color: var(--ds-text);
-  overflow-wrap: anywhere;
-}
+/* Rail */
+.app-status { min-height: 1.55em; font-size: 15px; color: var(--ds-text); overflow-wrap: anywhere; }
+.ds-choice__text { -webkit-line-clamp: 3; }
 
-.app-chip {
-  min-height: 36px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: left;
-}
+/* Notices and errors carry a mark and a word, never colour alone */
+.app-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.app-banner > span { min-width: 0; overflow-wrap: anywhere; }
+.app-banner.ds-notice--error > span::before { content: "! Error. "; font-weight: 800; }
+.app-banner__dismiss { flex-shrink: 0; min-height: 36px; padding: 0 12px; font-size: 13px; }
 
-/* Banners */
-.app-banner {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
+/* The analysis thread: the hero. A question per step, what it changed, its answer. */
+.app-result { display: grid; gap: 16px; min-width: 0; overflow-wrap: anywhere; }
+.app-thread { gap: 16px; }
+.app-steps { display: grid; margin: 0; padding: 0; list-style: none; }
+.app-step { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--ds-border); min-width: 0; }
+.app-step:first-child { border-top: 0; padding-top: 0; }
+.app-step--active .ds-trace__index { color: var(--ds-accent); font-weight: 600; }
+.app-step--active .app-step__question { color: var(--ds-text); }
+.app-step__head { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; width: 100%; min-height: 44px; padding: 0; font: inherit; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
+.app-step__head:hover:not(:disabled) .app-step__question { text-decoration: underline; text-decoration-color: var(--ds-accent); text-underline-offset: 3px; }
+.app-step__head:disabled { cursor: default; }
+.app-step__head--static { cursor: default; }
+.app-step__question { font-size: 18px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.app-step__summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-left: 40px; font-size: 15px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+.app-step__from { padding-left: 40px; }
+.app-step__body { display: grid; gap: 14px; padding-left: 40px; min-width: 0; }
+.app-step--pending { gap: 10px; }
+.app-step--pending .ds-skeleton { grid-column: auto; margin: 0 0 0 40px; }
+.app-step--pending .ds-state__actions { grid-column: auto; margin: 0 0 0 40px; }
+.app-changes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0 0 0 40px; list-style: none; }
+.app-change { white-space: normal; font-family: var(--ds-font); font-weight: 650; padding: 3px 10px; }
+.app-answer p { max-width: 62ch; }
+.app-notice { margin: 0; padding: 10px 12px; font-size: 15px; color: var(--ds-warning); background: var(--ds-warning-soft); border-radius: var(--ds-radius-sm); }
+.app-plan-words { grid-template-columns: max-content minmax(0, 1fr); }
+.app-plan-words__row { display: contents; }
+.app-plan-words dd { font-family: var(--ds-font); font-weight: 650; font-size: 15px; }
+.app-plan { max-height: 260px; margin-top: 8px; }
+.app-details .app-plan-words { margin-top: 4px; }
+.app-composer { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--ds-border); }
+.app-composer__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.app-idea { min-height: 40px; padding: 0 14px; font-weight: 500; }
 
-.app-banner > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.app-banner__dismiss {
-  flex-shrink: 0;
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
-}
-
-/* Result: the hero. The answer leads, the plan in plain words follows, then the chart. */
-.app-result {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.app-answer {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 1.3;
-  color: var(--ds-text);
-}
-
-.app-answer--substitute {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--ds-text-muted);
-}
-
-.app-notice--lead {
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.app-plan-words {
-  display: grid;
-  gap: 12px 20px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  margin: 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-border);
-}
-
-.app-plan-words > div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.app-plan-words dt {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
-
-.app-plan-words dd {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.app-notice {
-  margin: 0;
-  padding: 10px 12px;
-  font-size: 15px;
-  color: var(--ds-warning);
-  background: var(--ds-warning-soft);
-  border-radius: var(--ds-radius-sm);
-}
-
-/* Chart: the bench panel holds the frame. A crowded phone chart scrolls sideways. */
-.app-chart {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.viz-panel {
-  min-width: 0;
-}
-
-.viz-frame {
-  width: 100%;
-  height: 300px;
-  min-width: 0;
-}
-
-@media (max-width: 720px) {
-  .viz-frame {
-    height: 240px;
-  }
-
-  .viz-panel--wide {
-    overflow-x: auto;
-  }
-
-  .viz-panel--wide .viz-frame {
-    min-width: var(--viz-min, 0);
-  }
-}
-
-/* Recharts paints legend labels in their series colour inline. Text wears a text token; the swatch carries identity. */
-.recharts-legend-item-text {
-  color: var(--ds-text-muted) !important;
-}
-
-.viz-tooltip {
-  padding: 8px 10px;
-  font-size: 13px;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.viz-tooltip__label {
-  margin: 0 0 2px;
-  color: var(--ds-text-muted);
-}
-
-.viz-tooltip__value {
-  margin: 0;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.app-skeleton {
-  min-height: 300px;
-  animation: app-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes app-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
-}
+/* The chart on the v3 chart frame */
+.app-stage--busy { opacity: 0.55; }
+.app-chart { gap: 12px; }
+.app-chart__holder { min-width: 0; }
+.app-chart__holder--wide { overflow-x: auto; }
+.app-chart__paper { max-width: none; }
+.app-chart .ds-chart__head b { font-size: 18px; font-weight: 650; }
+.app-bar rect, .app-dot circle { stroke: none; }
+.app-dot circle { stroke: var(--ds-surface); stroke-width: 1.5; }
+.app-area { fill-opacity: 0.14; stroke: none; }
+.app-slice { stroke: var(--ds-surface); stroke-width: 2; }
+.app-bar rect:hover, .app-dot circle:hover { opacity: 0.75; }
+.app-chart__actions { gap: 4px 8px; }
+.app-chart__actions .ds-button--quiet { border-color: var(--ds-border-strong); color: var(--ds-text); min-height: 40px; }
 
 /* Disclosures: the chart table, the JSON plan and the data preview */
-.app-details {
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-border);
-}
-
-.app-details > summary {
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.app-details[open] > summary {
-  margin-bottom: 8px;
-}
-
-.app-plan {
-  margin: 0;
-  padding: 12px;
-  font-family: var(--ds-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.app-preview {
-  padding-top: 16px;
-  border-top: 1px solid var(--ds-border);
-}
-
-.app-preview__summary {
-  cursor: pointer;
-  font-size: 18px;
-  font-weight: 650;
-}
-
-.app-preview .ds-section__sub {
-  margin-top: 4px;
-}
+.app-details { padding-top: 12px; border-top: 1px solid var(--ds-border); }
+.app-details > summary { cursor: pointer; font-size: 15px; font-weight: 650; min-height: 32px; }
+.app-details[open] > summary { margin-bottom: 8px; }
+.app-preview { padding-top: 16px; border-top: 1px solid var(--ds-border); }
+.app-preview__summary { cursor: pointer; font-size: 18px; font-weight: 650; }
+.app-preview .ds-section__sub { margin-top: 4px; }
 
 .app-table-wrap {
   padding: 0;
   overflow: auto;
   max-height: 300px;
   margin-top: 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
 }
 
 .app-table {
@@ -346,26 +204,44 @@
   text-decoration: underline;
 }
 
-/* Trace step heading: the step name, then its status as a dot and a word */
-.app-step-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 2px 12px;
+/* Earlier analyses: rows divided by rules */
+.app-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--ds-border);
 }
 
-.app-step-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
+.app-list > li {
+  border-bottom: 1px solid var(--ds-border);
 }
 
-.app-step-status--failed {
-  color: var(--ds-danger);
+.app-history-item {
+  display: grid;
+  justify-content: start;
+  justify-items: start;
+  align-items: start;
+  gap: 2px;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 0;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--ds-text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.app-history-item > span {
+  overflow-wrap: anywhere;
+}
+
+.app-history-item:hover:not(:disabled) {
+  filter: none;
+  text-decoration: underline;
 }
 
 /* Data source panel: where the rows came from, how many, and when they were fetched */

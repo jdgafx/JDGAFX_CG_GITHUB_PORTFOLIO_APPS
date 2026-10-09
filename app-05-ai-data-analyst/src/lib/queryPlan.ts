@@ -1,4 +1,4 @@
-import type { QueryPlan, ChartType, AggregateFn, FilterOp, HavingOp, SortDir } from '../types'
+import type { QueryPlan, PlanFilter, ChartType, AggregateFn, FilterOp, HavingOp, SortDir } from '../types'
 
 const CHART_TYPES: ChartType[] = ['bar', 'line', 'pie', 'area', 'scatter']
 const AGGREGATE_FNS: AggregateFn[] = ['sum', 'avg', 'count', 'min', 'max']
@@ -9,6 +9,12 @@ const PLAIN_NUMBER = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/
 
 /** The most missing items kept from a reply. */
 const MAX_MISSING = 8
+
+/** Row tests beyond the first one that a plan may carry. */
+const MAX_MORE_FILTERS = 3
+/** The most groups a plan may keep. A chart of more is unreadable, and the full result stays one export away. */
+export const MAX_LIMIT = 1000
+const MAX_REASON_CHARS = 300
 
 /** Sort targets that always refer to the aggregated output rather than a source column. */
 const VALUE_SORT_FIELDS = ['value', 'count', 'total']
@@ -29,6 +35,33 @@ function unknownColumn(role: string, name: string, headers: string[]): string {
   const shown = headers.slice(0, 12).join(', ')
   const more = headers.length > 12 ? `, and ${headers.length - 12} more` : ''
   return `The AI picked a ${role} column ("${name}") that is not in this dataset. Available columns: ${shown}${more}. Try naming the column you want in your question.`
+}
+
+type FilterRead = { ok: true; value: PlanFilter } | { ok: false; error: string }
+
+/** One row test from a reply. The column must exist, the comparison must be known, and a value must be present. */
+function readFilter(raw: unknown, headers: string[]): FilterRead {
+  if (!isRecord(raw)) {
+    return { ok: false, error: 'The AI returned an unreadable filter. Try rephrasing your question.' }
+  }
+  const field = str(raw.field)
+  const op = str(raw.op)
+  const value = typeof raw.value === 'string' || typeof raw.value === 'number' ? String(raw.value) : null
+  if (!field || !headers.includes(field)) {
+    return { ok: false, error: unknownColumn('filter', field ?? 'missing', headers) }
+  }
+  if (!op || !FILTER_OPS.includes(op as FilterOp)) {
+    return { ok: false, error: `The AI asked for an unsupported filter comparison ("${op ?? 'missing'}").` }
+  }
+  if (value === null) {
+    return { ok: false, error: 'The AI returned a filter without a value. Try rephrasing your question.' }
+  }
+  return { ok: true, value: { field, op: op as FilterOp, value } }
+}
+
+/** Every row test of a plan, the first one and the further ones. */
+export function planFilters(plan: QueryPlan): PlanFilter[] {
+  return [...(plan.filter ? [plan.filter] : []), ...(plan.moreFilters ?? [])]
 }
 
 /**
@@ -81,24 +114,24 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
   }
 
   if (raw.filter !== undefined && raw.filter !== null) {
-    if (!isRecord(raw.filter)) {
-      return { ok: false, error: 'The AI returned an unreadable filter. Try rephrasing your question.' }
+    const filter = readFilter(raw.filter, headers)
+    if (!filter.ok) return filter
+    plan.filter = filter.value
+  }
+
+  if (raw.moreFilters !== undefined && raw.moreFilters !== null) {
+    if (!Array.isArray(raw.moreFilters)) {
+      return { ok: false, error: 'The AI returned an unreadable list of filters. Try rephrasing your question.' }
     }
-    const filterField = str(raw.filter.field)
-    const op = str(raw.filter.op)
-    const value = typeof raw.filter.value === 'string' || typeof raw.filter.value === 'number'
-      ? String(raw.filter.value)
-      : null
-    if (!filterField || !headers.includes(filterField)) {
-      return { ok: false, error: unknownColumn('filter', filterField ?? 'missing', headers) }
+    const more: PlanFilter[] = []
+    for (const item of raw.moreFilters.slice(0, MAX_MORE_FILTERS)) {
+      const filter = readFilter(item, headers)
+      if (!filter.ok) return filter
+      more.push(filter.value)
     }
-    if (!op || !FILTER_OPS.includes(op as FilterOp)) {
-      return { ok: false, error: `The AI asked for an unsupported filter comparison ("${op ?? 'missing'}").` }
-    }
-    if (value === null) {
-      return { ok: false, error: 'The AI returned a filter without a value. Try rephrasing your question.' }
-    }
-    plan.filter = { field: filterField, op: op as FilterOp, value }
+    // A further test only makes sense beside a first one, so it is promoted when `filter` is absent.
+    if (!plan.filter) plan.filter = more.shift()
+    if (more.length > 0) plan.moreFilters = more
   }
 
   if (raw.sortBy !== undefined && raw.sortBy !== null) {
@@ -143,6 +176,14 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
     plan.having = { op: op as HavingOp, value }
   }
 
+  if (raw.limit !== undefined && raw.limit !== null) {
+    const limit = typeof raw.limit === 'string' && PLAIN_NUMBER.test(raw.limit.trim()) ? Number(raw.limit) : raw.limit
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+      return { ok: false, error: `The AI asked to keep a number of groups that is not between 1 and ${MAX_LIMIT}. Try rephrasing your question.` }
+    }
+    plan.limit = limit
+  }
+
   if (raw.missing !== undefined && raw.missing !== null) {
     if (!Array.isArray(raw.missing) || !raw.missing.every((item) => typeof item === 'string')) {
       return { ok: false, error: 'The AI returned an unreadable list of missing items. Try rephrasing your question.' }
@@ -150,6 +191,9 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
     const missing = raw.missing.map((item: string) => item.trim()).filter((item) => item !== '').slice(0, MAX_MISSING)
     if (missing.length > 0) plan.missing = missing
   }
+
+  const cannotApply = str(raw.cannotApply)
+  if (cannotApply && cannotApply.toLowerCase() !== 'null') plan.cannotApply = cannotApply.slice(0, MAX_REASON_CHARS)
 
   const notice = str(raw.notice)
   if (notice && notice.toLowerCase() !== 'null') plan.notice = notice
@@ -187,6 +231,26 @@ export function askedDirection(question: string): 'highest' | 'lowest' | null {
   const highest = HIGHEST_WORDS.test(text)
   if (lowest === highest) return null
   return lowest ? 'lowest' : 'highest'
+}
+
+const LIMIT_WORDS = /\b(top|bottom|first|last|best|worst|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i
+
+/**
+ * A model sometimes sets "limit: 1" for "which region had the fewest?", which would draw a single bar.
+ * A limit is kept only when it is the one the plan already had, or the question names a number or an
+ * end of the ranking ("top 5", "the 3 coldest", "first ten"). Otherwise the chart keeps every group.
+ */
+export function dropUnaskedLimit(plan: QueryPlan, question: string, previousLimit?: number): QueryPlan {
+  if (plan.limit === undefined || plan.limit === previousLimit || LIMIT_WORDS.test(question)) return plan
+  const kept = { ...plan }
+  delete kept.limit
+  return kept
+}
+
+/** True when the question asks for both ends at once: "the most and the fewest earthquakes". */
+export function asksBothEnds(question: string): boolean {
+  const text = question.replace(THRESHOLD_PHRASE, ' ')
+  return LOWEST_WORDS.test(text) && HIGHEST_WORDS.test(text)
 }
 
 /**

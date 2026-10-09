@@ -103,6 +103,50 @@ describe('callModel usage and retries', () => {
   })
 })
 
+describe('callModel retry after a timeout or a lost connection', () => {
+  const aborted = () => Object.assign(new Error('aborted'), { name: 'AbortError' })
+
+  it('repeats a timed-out try once and reports why', async () => {
+    const mock = vi.fn<FetchFn>().mockRejectedValueOnce(aborted()).mockResolvedValueOnce(reply('{"ok":true}'))
+    vi.stubGlobal('fetch', mock)
+    const result = await callModel(MESSAGES, SIGNAL)
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ text: '{"ok":true}', attempts: 1, retriedAfter: 'timeout' })
+  })
+
+  it('repeats a lost connection once and reports why', async () => {
+    const mock = vi.fn<FetchFn>().mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValueOnce(reply('{}'))
+    vi.stubGlobal('fetch', mock)
+    expect((await callModel(MESSAGES, SIGNAL)).retriedAfter).toBe('connection')
+  })
+
+  it('gives up after the one retry', async () => {
+    const mock = vi.fn<FetchFn>().mockRejectedValue(aborted())
+    vi.stubGlobal('fetch', mock)
+    await expect(callModel(MESSAGES, SIGNAL)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry an HTTP error, a stop by the caller, or a run with under 6 seconds left', async () => {
+    const http = vi.fn<FetchFn>().mockResolvedValue(new Response('{}', { status: 500 }))
+    vi.stubGlobal('fetch', http)
+    await expect(callModel(MESSAGES, SIGNAL)).rejects.toBeInstanceOf(ProviderError)
+    expect(http).toHaveBeenCalledTimes(1)
+
+    const stopped = new AbortController()
+    stopped.abort()
+    const none = vi.fn<FetchFn>().mockRejectedValue(aborted())
+    vi.stubGlobal('fetch', none)
+    await expect(callModel(MESSAGES, stopped.signal)).rejects.toBeDefined()
+    expect(none.mock.calls.length).toBeLessThanOrEqual(1)
+
+    const late = vi.fn<FetchFn>().mockRejectedValue(aborted())
+    vi.stubGlobal('fetch', late)
+    await expect(callModel(MESSAGES, SIGNAL, { deadlineAt: Date.now() + 5_000 })).rejects.toBeDefined()
+    expect(late).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('sumUsage', () => {
   it('adds a field only when every call reported it', () => {
     expect(sumUsage([{ total_tokens: 120, cost: 0.0001 }, { total_tokens: 60 }])).toEqual({ total_tokens: 180 })

@@ -1,89 +1,100 @@
-import AnalysisPanel from './AnalysisPanel'
+import type { AnalysisThreadState } from '../hooks/useAnalysisThread'
+import type { ParsedData } from '../types'
+import ChartFrame from './ChartFrame'
 import DataPreview from './DataPreview'
 import HistoryList from './HistoryList'
-import RunMetrics from './RunMetrics'
+import ReadoutStrip from './ReadoutStrip'
 import RunTrace from './RunTrace'
-import type { AnalysisResult, HistoryEntry, ParsedData, RunOutcome, RunView } from '../types'
-
-const OUTCOME: Record<RunOutcome, { label: string; tone: string }> = {
-  done: { label: 'Completed', tone: 'ds-badge--success' },
-  failed: { label: 'Failed', tone: 'ds-badge--danger' },
-  stopped: { label: 'Stopped', tone: '' },
-}
+import ThreadPanel from './ThreadPanel'
 
 interface RunColumnProps {
   parsedData: ParsedData | null
-  current: AnalysisResult | null
-  run: RunView | null
-  isLoading: boolean
-  history: HistoryEntry[]
-  onReopen: (entry: HistoryEntry) => void
+  datasetLabel: string
+  state: AnalysisThreadState
+  lastQuestion: string
+  onAskFollowUp: (question: string) => void
+  onRetry: () => void
 }
 
-/** Result text for the states that have no chart to show. */
-function emptyResultText(parsedData: ParsedData | null, outcome: RunOutcome | undefined): string {
-  if (!parsedData) return 'Pick a live dataset or upload a CSV to start.'
-  if (outcome === 'failed') return 'No chart for this question. The message at the top says why.'
-  if (outcome === 'stopped') return 'Stopped before a chart was drawn. Choose Plan and run to try again.'
-  return 'Type a question, then choose Plan and run to draw a chart from your data.'
+/** What the result block says when there is no thread to show. */
+function emptyText(parsedData: ParsedData | null): { title: string; body: string } {
+  if (!parsedData) return { title: 'No data yet', body: 'Pick a live dataset or upload a CSV to start.' }
+  return {
+    title: 'Ask a question',
+    body: 'Type a question, then choose Plan and run. Your answer, its chart and the plan behind it appear here. Then refine it with follow-ups.',
+  }
 }
 
-/** The run column: the result first, then the data, the model figures, the steps and the history. */
-export default function RunColumn({ parsedData, current, run, isLoading, history, onReopen }: RunColumnProps) {
+/** The run column, in the order of the ended state: the thread, the chart, the figures, the trace, then the rest. */
+export default function RunColumn({ parsedData, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry }: RunColumnProps) {
+  const { thread, step, run, pending, error } = state
+  const running = pending !== null
+  const freshRun = pending?.mode === 'new'
+  const earlier = state.threads.filter((item) => item.id !== thread?.id)
+  const empty = emptyText(parsedData)
+
   return (
     <div className="ds-run">
-      {isLoading ? (
-        <section className="ds-section app-result" aria-busy="true" aria-label="Result in progress">
-          <div className="ds-panel app-skeleton" />
-        </section>
-      ) : current ? (
-        <AnalysisPanel result={current} />
-      ) : (
-        <section className="ds-section" aria-labelledby="result-title">
-          <div className="ds-section__head">
-            <h2 id="result-title" className="ds-section__title">Result</h2>
-            <p className="ds-section__sub">The answer and chart appear here, drawn from every row.</p>
+      <div className="ds-run__result app-result">
+        {freshRun && (
+          <div className="ds-state ds-state--loading" role="status" aria-busy="true">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title">Planning and running your question</p>
+            <p className="ds-state__body">{pending.question}</p>
+            <div className="ds-skeleton"><span /><span /><span /></div>
+            <div className="ds-state__actions">
+              <button type="button" className="ds-button" onClick={state.stop}>Stop</button>
+            </div>
           </div>
-          <p className="ds-empty">{emptyResultText(parsedData, run?.outcome)}</p>
+        )}
+        {!running && run?.outcome === 'failed' && (
+          <div className="ds-state ds-state--error" role="alert">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title" tabIndex={-1} data-result-focus>The run failed</p>
+            <p className="ds-state__body">{error ?? 'The analysis could not be completed.'}</p>
+            <div className="ds-state__actions">
+              {lastQuestion && <button type="button" className="ds-button" onClick={onRetry}>Try again</button>}
+              <button type="button" className="ds-button ds-button--quiet" onClick={state.dismissError}>Dismiss</button>
+            </div>
+          </div>
+        )}
+        {!running && run?.outcome === 'stopped' && (
+          <div className="ds-state ds-state--stopped" role="status">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title" tabIndex={-1} data-result-focus>Stopped before a reply</p>
+            <p className="ds-state__body">
+              Nothing was drawn for that question. The server may still finish the call and bill its tokens.
+            </p>
+            <div className="ds-state__actions">
+              {lastQuestion && <button type="button" className="ds-button" onClick={onRetry}>Ask again</button>}
+            </div>
+          </div>
+        )}
+        {!freshRun && thread && (
+          <ThreadPanel state={state} data={parsedData} datasetLabel={datasetLabel} onAskFollowUp={onAskFollowUp} />
+        )}
+        {!freshRun && !thread && !run && (
+          <div className="ds-state ds-state--empty">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title">{empty.title}</p>
+            <p className="ds-state__body">{empty.body}</p>
+          </div>
+        )}
+      </div>
+
+      {!freshRun && step && (
+        <section className={running ? 'ds-run__stage app-stage app-stage--busy' : 'ds-run__stage app-stage'} aria-label="Chart for the open step">
+          <ChartFrame result={step.result} />
         </section>
       )}
 
-      {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
+      <ReadoutStrip running={running} run={run} />
 
-      <section className="ds-section" aria-labelledby="readout-title">
-        <div className="ds-section__head">
-          <h2 id="readout-title" className="ds-section__title">Model and cost</h2>
-          <p className="ds-section__sub">The served model, tokens, cost and latency for this run.</p>
-        </div>
-        {isLoading ? (
-          <p className="ds-empty">Figures appear when the reply arrives.</p>
-        ) : run ? (
-          <RunMetrics run={run} />
-        ) : (
-          <p className="ds-empty">Figures appear here after the first run.</p>
-        )}
-      </section>
-
-      <section className="ds-section" aria-labelledby="trace-title">
-        <div className="ds-section__head ds-section__head--row">
-          <h2 id="trace-title" className="ds-section__title">Agent run</h2>
-          {run && !isLoading && (
-            <span className={`ds-badge ${OUTCOME[run.outcome].tone}`}>{OUTCOME[run.outcome].label}</span>
-          )}
-        </div>
-        <p className="ds-section__sub">
-          Each step, in order, with its status, time and tokens. Steps that did not run are marked skipped.
-        </p>
-        {isLoading ? (
-          <RunTrace pending />
-        ) : run ? (
-          <RunTrace steps={run.trace} />
-        ) : (
-          <p className="ds-empty">Each step appears here once a question runs, with its time and token use.</p>
-        )}
-      </section>
-
-      <HistoryList entries={history} disabled={isLoading} onReopen={onReopen} />
+      <div className="ds-run__trace app-below">
+        <RunTrace run={run} running={running} />
+        <HistoryList threads={earlier} disabled={running} onOpen={state.openThread} />
+        {parsedData && parsedData.headers.length > 0 && <DataPreview data={parsedData} />}
+      </div>
     </div>
   )
 }

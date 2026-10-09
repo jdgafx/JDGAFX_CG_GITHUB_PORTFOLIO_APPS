@@ -27,11 +27,13 @@ afterEach(() => {
 describe('ai function deadline', () => {
   it('answers 504 with the timeout message when the provider body never finishes', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const stalled = new Response(new ReadableStream<Uint8Array>({ start() {} }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })
-    vi.stubGlobal('fetch', vi.fn(async () => stalled))
+    const stalled = () =>
+      new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    const fetchMock = vi.fn(async () => stalled())
+    vi.stubGlobal('fetch', fetchMock)
     const request = new Request('https://app.example/api/ai', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': 'deadline-client' },
@@ -44,5 +46,7 @@ describe('ai function deadline', () => {
 
     expect(res.status).toBe(504)
     expect(await res.json()).toMatchObject({ error: 'The AI provider did not answer in time.' })
+    // Each try is cut at its own limit (6 s), and the one retry that fits in the budget stalls too.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

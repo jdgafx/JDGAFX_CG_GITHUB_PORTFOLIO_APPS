@@ -1,5 +1,5 @@
 import type { RunUsage } from '../../src/types'
-import { raceAbort } from './deadline'
+import { withDeadline } from './deadline'
 
 /**
  * The one module that calls the model. Every chat or text call goes through
@@ -13,6 +13,15 @@ const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 /** Explicit cap on every call. With reasoning off, the whole budget goes to the visible JSON. */
 const MAX_TOKENS = 4096
 
+/**
+ * The most one model call may take. Over 24 live plan calls (first questions and follow-ups) the median was
+ * 1.7 s, p95 2.6 s and the slowest 4.1 s, so 6 s is 1.5 times the slowest healthy call. A call that hangs
+ * is cut here and, budget allowing, repeated once.
+ */
+export const CALL_LIMIT_MS = 6_000
+/** A retry after a timeout needs at least this much of the run budget left, or the failure is reported. */
+const RETRY_MIN_MS = 6_000
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -24,6 +33,8 @@ export interface ModelReply {
   model: string | null
   usage: RunUsage
   attempts: number
+  /** Why the call was repeated once, when it was: the first try hit the call limit or lost the connection. */
+  retriedAfter: 'timeout' | 'connection' | null
 }
 
 /** An HTTP error from the provider. Only the status is kept; the body is never shown. */
@@ -73,10 +84,9 @@ interface RawReply {
   usage: RunUsage
 }
 
-// The run's deadline signal covers the body read as well as the headers. raceAbort ends the wait
-// at the deadline even when the fetch or its body ignores the abort.
+// Each try runs against its own referenced timer and the run's signal, body read included.
 function requestOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
-  return raceAbort(readOnce(messages, apiKey, signal), signal)
+  return withDeadline(CALL_LIMIT_MS, signal, (own) => readOnce(messages, apiKey, own), 'AbortError')
 }
 
 async function readOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
@@ -115,24 +125,55 @@ async function readOnce(messages: ChatMessage[], apiKey: string, signal: AbortSi
   }
 }
 
+export interface CallOptions {
+  /** When the run's budget ends (Date.now() scale). A retry is skipped when too little is left. */
+  deadlineAt?: number
+}
+
+/** A try that ran out of time or lost the connection may be repeated once. An HTTP answer or a stop may not. */
+function retryKind(err: unknown, signal: AbortSignal): 'timeout' | 'connection' | null {
+  if (signal.aborted || err instanceof ProviderError) return null
+  if (err instanceof Error && err.name === 'AbortError') return 'timeout'
+  return err instanceof TypeError ? 'connection' : null
+}
+
 /**
  * One chat call. An empty reply gets one more attempt. A cut-off reply does not,
  * because the same prompt would be cut off again; the caller reports it instead.
+ * A try that times out or loses the connection is repeated once while the run budget allows.
  */
-export async function callModel(messages: ChatMessage[], signal: AbortSignal): Promise<ModelReply> {
+export async function callModel(
+  messages: ChatMessage[],
+  signal: AbortSignal,
+  options: CallOptions = {},
+): Promise<ModelReply> {
   const apiKey = getApiKey()
   if (!apiKey) throw new ProviderError(401)
 
-  const first = await requestOnce(messages, apiKey, signal)
-  if (first.text || first.finish === 'length') return { ...first, attempts: 1 }
+  let retriedAfter: ModelReply['retriedAfter'] = null
+  const attempt = async (): Promise<RawReply> => {
+    try {
+      return await requestOnce(messages, apiKey, signal)
+    } catch (err) {
+      const kind = retryKind(err, signal)
+      const roomLeft = options.deadlineAt === undefined || options.deadlineAt - Date.now() >= RETRY_MIN_MS
+      if (!kind || retriedAfter || !roomLeft) throw err
+      retriedAfter = kind
+      return await requestOnce(messages, apiKey, signal)
+    }
+  }
 
-  const second = await requestOnce(messages, apiKey, signal)
+  const first = await attempt()
+  if (first.text || first.finish === 'length') return { ...first, attempts: 1, retriedAfter }
+
+  const second = await attempt()
   return {
     text: second.text,
     finish: second.finish,
     model: second.model ?? first.model,
     usage: sumUsage([first.usage, second.usage]),
     attempts: 2,
+    retriedAfter,
   }
 }
 

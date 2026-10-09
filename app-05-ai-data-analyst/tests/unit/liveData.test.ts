@@ -3,7 +3,7 @@ import {
   CITIES,
   DATASET_CHOICES,
   earthquakeUrl,
-  lastTwelveMonths,
+  lastTwelveWholeMonths,
   weatherUrl,
 } from '../../src/lib/liveData/catalog'
 import { DatasetLoadError, loadDataset } from '../../src/lib/liveData/load'
@@ -119,13 +119,13 @@ describe('parseWeatherCsv', () => {
 })
 
 describe('catalog', () => {
-  it('spans the 12 months ending yesterday', () => {
-    expect(lastTwelveMonths(new Date('2026-10-09T15:00:00Z'))).toEqual({ start: '2025-10-09', end: '2026-10-08' })
+  it('spans the 12 whole calendar months before the current one', () => {
+    expect(lastTwelveWholeMonths(new Date('2026-10-09T15:00:00Z'))).toEqual({ start: '2025-10-01', end: '2026-09-30' })
   })
 
   it('crosses a year boundary and a leap day', () => {
-    expect(lastTwelveMonths(new Date('2027-01-01T00:00:00Z'))).toEqual({ start: '2026-01-01', end: '2026-12-31' })
-    expect(lastTwelveMonths(new Date('2028-03-01T00:00:00Z'))).toEqual({ start: '2027-03-01', end: '2028-02-29' })
+    expect(lastTwelveWholeMonths(new Date('2027-01-01T00:00:00Z'))).toEqual({ start: '2026-01-01', end: '2026-12-31' })
+    expect(lastTwelveWholeMonths(new Date('2028-03-01T00:00:00Z'))).toEqual({ start: '2027-03-01', end: '2028-02-29' })
   })
 
   it('builds the two USGS feed addresses', () => {
@@ -139,13 +139,13 @@ describe('catalog', () => {
 
   it('builds the Open-Meteo archive request for a city', () => {
     const sydney = CITIES.find((city) => city.id === 'sydney')!
-    const url = new URL(weatherUrl(sydney, { start: '2025-10-09', end: '2026-10-08' }))
+    const url = new URL(weatherUrl(sydney, { start: '2025-10-01', end: '2026-09-30' }))
     expect(url.origin + url.pathname).toBe('https://archive-api.open-meteo.com/v1/archive')
     expect(Object.fromEntries(url.searchParams)).toEqual({
       latitude: '-33.87',
       longitude: '151.21',
-      start_date: '2025-10-09',
-      end_date: '2026-10-08',
+      start_date: '2025-10-01',
+      end_date: '2026-09-30',
       daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum',
       timezone: 'auto',
       format: 'csv',
@@ -205,7 +205,7 @@ describe('loadDataset', () => {
     expect(loaded.source.fetchedAt).toBeInstanceOf(Date)
   })
 
-  it('asks Open-Meteo for the chosen city over the last 12 months', async () => {
+  it('asks Open-Meteo for the chosen city over the 12 whole months before this one', async () => {
     const fetchMock = stubFetch(async () => new Response(OPEN_METEO_EXCERPT))
     const loaded = await loadDataset(
       { id: 'weather', cityId: 'tokyo' },
@@ -213,11 +213,11 @@ describe('loadDataset', () => {
     )
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]))
     expect(url.searchParams.get('latitude')).toBe('35.68')
-    expect(url.searchParams.get('start_date')).toBe('2025-10-09')
-    expect(url.searchParams.get('end_date')).toBe('2026-10-08')
+    expect(url.searchParams.get('start_date')).toBe('2025-10-01')
+    expect(url.searchParams.get('end_date')).toBe('2026-09-30')
     expect(loaded.data.rows).toHaveLength(11)
     expect(loaded.source.label).toBe('Daily weather, Tokyo')
-    expect(loaded.source.detail).toBe('Daily highs, lows and rain from the Open-Meteo archive. Covers 2025-10-09 to 2026-10-08.')
+    expect(loaded.source.detail).toBe('Daily highs, lows and rain from the Open-Meteo archive, for 12 whole calendar months. Covers 2025-10-01 to 2026-09-30.')
   })
 
   it('reports a non-200 answer with its status', async () => {

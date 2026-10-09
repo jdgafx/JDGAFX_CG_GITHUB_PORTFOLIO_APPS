@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { answerSentence, describePlan, describeResult } from '../../src/lib/answer'
-import type { FilterOp, QueryPlan } from '../../src/types'
+import { topGroup } from '../../src/lib/dataEngine'
+import { EARTHQUAKE_VOCABULARY, WEATHER_VOCABULARY } from '../../src/lib/vocabulary'
+import type { EngineResult, FilterOp, QueryPlan } from '../../src/types'
 
 const PLAN: QueryPlan = {
   chartType: 'bar',
@@ -124,5 +126,106 @@ describe('describePlan', () => {
 
   it('describes the order a line chart gets when no sort is set', () => {
     expect(describePlan({ ...PLAN, chartType: 'line' }).sort).toBe('None, dates and numbers run in order')
+  })
+})
+
+describe('the dataset words', () => {
+  const quakeCount = { ...PLAN, groupBy: 'region', aggregate: { field: 'id', fn: 'count' as const } }
+
+  it('counts earthquakes, not rows', () => {
+    expect(answerSentence(quakeCount, { label: 'Alaska', value: 624, tied: ['Alaska'] }, EARTHQUAKE_VOCABULARY)).toBe(
+      'Alaska has the highest number of earthquakes: 624.',
+    )
+    expect(answerSentence(quakeCount, { label: 'A', value: 5, tied: ['A', 'B'] }, EARTHQUAKE_VOCABULARY)).toBe(
+      '2 groups tie for the highest number of earthquakes: 5 (A, B).',
+    )
+  })
+
+  it('names the column in plain words and puts the unit after the value', () => {
+    const rain = { ...PLAN, groupBy: 'month', aggregate: { field: 'precipitation_mm', fn: 'sum' as const } }
+    expect(answerSentence(rain, { label: '2026-01', value: 123.456, tied: ['2026-01'] }, WEATHER_VOCABULARY)).toBe(
+      '2026-01 has the highest total rain: 123.46 mm.',
+    )
+    const low = { ...PLAN, aggregate: { field: 'temp_min_c', fn: 'min' as const }, sortBy: { field: 'temp_min_c', dir: 'asc' as const } }
+    expect(answerSentence(low, { label: '2026-02', value: -11, tied: ['2026-02'] }, WEATHER_VOCABULARY)).toBe(
+      '2026-02 has the lowest minimum daily low temperature: -11 °C.',
+    )
+  })
+
+  it('counts days for the weather data and explains the plan with the same words', () => {
+    const days = { ...PLAN, groupBy: 'month', aggregate: { field: 'date', fn: 'count' as const }, filter: { field: 'precipitation_mm', op: 'gt' as const, value: '1' } }
+    expect(describePlan(days, WEATHER_VOCABULARY)).toMatchObject({
+      groupBy: 'month',
+      measure: 'number of days',
+      filter: 'rain is greater than 1 mm',
+    })
+  })
+})
+
+describe('describeResult: both ends, limits and ties', () => {
+  const labels = ['Alaska', 'California', 'Hawaii', 'Nevada', 'Utah', 'Texas', 'Peru']
+  const result = (values: number[], extra: Partial<EngineResult> = {}): EngineResult => ({
+    labels,
+    datasets: [{ name: 'id', values }],
+    warnings: [],
+    ...extra,
+  })
+  const COUNT = { ...PLAN, groupBy: 'region', aggregate: { field: 'id', fn: 'count' as const } }
+
+  it('answers both ends of a "most and fewest" question', () => {
+    const data = result([9, 8, 7, 6, 5, 3, 2])
+    const headline = describeResult(COUNT, topGroup(data, 'highest'), data, {
+      vocab: EARTHQUAKE_VOCABULARY,
+      question: 'Which region had the most and the fewest earthquakes?',
+      highest: topGroup(data, 'highest'),
+      lowest: topGroup(data, 'lowest'),
+    })
+    expect(headline.answer).toBe(
+      'Alaska has the highest number of earthquakes: 9. Peru has the lowest number of earthquakes: 2.',
+    )
+  })
+
+  it('answers one end as before when the question names one', () => {
+    const data = result([9, 8, 7, 6, 5, 3, 2])
+    const headline = describeResult(COUNT, topGroup(data, 'highest'), data, {
+      question: 'Which region had the most earthquakes?',
+      highest: topGroup(data, 'highest'),
+      lowest: topGroup(data, 'lowest'),
+    })
+    expect(headline.answer).toBe('Alaska has the highest number of rows: 9.')
+  })
+
+  it('names a tie at the lowest end too', () => {
+    const data = result([9, 8, 7, 6, 5, 2, 2])
+    const headline = describeResult(COUNT, topGroup(data, 'highest'), data, {
+      question: 'most and fewest',
+      highest: topGroup(data, 'highest'),
+      lowest: topGroup(data, 'lowest'),
+    })
+    expect(headline.answer).toBe(
+      'Alaska has the highest number of rows: 9. 2 groups tie for the lowest number of rows: 2 (Texas, Peru).',
+    )
+  })
+
+  it('lists the groups a limit kept and says when the cut-off split a tie', () => {
+    const data = result([9, 8, 7], { labels: ['Alaska', 'California', 'Hawaii'], limited: { total: 7, tiedBeyond: 2 } })
+    const headline = describeResult({ ...COUNT, limit: 3 }, topGroup(data, 'highest'), data, { vocab: EARTHQUAKE_VOCABULARY })
+    expect(headline.answer).toBe(
+      'Top 3 of 7 regions by number of earthquakes: Alaska (9), California (8), Hawaii (7). 2 more have the same 7 and are not shown.',
+    )
+  })
+
+  it('says bottom for an ascending limit', () => {
+    const data = result([2, 3], { labels: ['Peru', 'Utah'], limited: { total: 7, tiedBeyond: 0 } })
+    const ascending = { ...COUNT, limit: 2, sortBy: { field: 'id', dir: 'asc' as const } }
+    expect(describeResult(ascending, topGroup(data, 'lowest'), data).answer).toBe('Bottom 2 of 7 regions by number of rows: Peru (2), Utah (3).')
+  })
+
+  it('shows the tie behind the fifth name in a threshold list', () => {
+    const data = result([9, 8, 7, 6, 5, 5, 5], { having: { total: 12, highest: null, lowest: null } })
+    const headline = describeResult({ ...COUNT, having: { op: 'gte', value: 5 } }, topGroup(data, 'highest'), data)
+    expect(headline.answer).toBe(
+      '7 regions with number of rows of at least 5: Alaska (9), California (8), Hawaii (7), Nevada (6), Utah (5), and 2 more (2 of them tie with Utah at 5).',
+    )
   })
 })

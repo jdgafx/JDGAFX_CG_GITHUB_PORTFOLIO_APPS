@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerDirection, applyQuestionDirection, askedDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
+import { answerDirection, applyQuestionDirection, asksBothEnds, askedDirection, dropUnaskedLimit, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan } from '../../src/types'
 
 const HEADERS = ['date', 'product', 'revenue', 'units', 'region']
@@ -252,5 +252,74 @@ describe('applyQuestionDirection', () => {
     const byName = { ...plan, sortBy: { field: 'region', dir: 'asc' as const } }
     expect(applyQuestionDirection(byName, 'Count by region')).toBe(byName)
     expect(applyQuestionDirection(plan, 'Which region had the most earthquakes at least 5 km deep?').sortBy).toEqual({ field: 'id', dir: 'desc' })
+  })
+})
+
+describe('validateQueryPlan: follow-up fields', () => {
+  it('keeps a limit as a whole number, also when the model writes it as text', () => {
+    expect(planOf({ ...GOOD, limit: 5 }).limit).toBe(5)
+    expect(planOf({ ...GOOD, limit: '3' }).limit).toBe(3)
+    expect(planOf({ ...GOOD, limit: null }).limit).toBeUndefined()
+  })
+
+  it('refuses a limit that is not a whole number from 1 to 1000', () => {
+    for (const limit of [0, -2, 2.5, 1001, 'many']) {
+      expect(errorOf({ ...GOOD, limit })).toContain('not between 1 and 1000')
+    }
+  })
+
+  it('keeps further conditions beside the first and checks their columns', () => {
+    const plan = planOf({
+      ...GOOD,
+      filter: { field: 'region', op: 'eq', value: 'North' },
+      moreFilters: [{ field: 'units', op: 'gt', value: 5 }],
+    })
+    expect(plan.filter).toEqual({ field: 'region', op: 'eq', value: 'North' })
+    expect(plan.moreFilters).toEqual([{ field: 'units', op: 'gt', value: '5' }])
+    expect(errorOf({ ...GOOD, moreFilters: [{ field: 'nope', op: 'eq', value: 'x' }] })).toContain('"nope"')
+  })
+
+  it('promotes the first further condition when there is no filter', () => {
+    const plan = planOf({ ...GOOD, moreFilters: [{ field: 'region', op: 'eq', value: 'North' }] })
+    expect(plan.filter).toEqual({ field: 'region', op: 'eq', value: 'North' })
+    expect(plan.moreFilters).toBeUndefined()
+  })
+
+  it('keeps the reason a follow-up cannot be applied, and ignores the word null', () => {
+    expect(planOf({ ...GOOD, cannotApply: 'The data holds one week.' }).cannotApply).toBe('The data holds one week.')
+    expect(planOf({ ...GOOD, cannotApply: 'null' }).cannotApply).toBeUndefined()
+    expect(planOf({ ...GOOD, cannotApply: null }).cannotApply).toBeUndefined()
+  })
+})
+
+describe('asksBothEnds', () => {
+  it('is true only when the question names the high end and the low end', () => {
+    expect(asksBothEnds('Which month had the most and the fewest earthquakes?')).toBe(true)
+    expect(asksBothEnds('Which month had the most earthquakes?')).toBe(false)
+    expect(asksBothEnds('Show the hottest and coldest month')).toBe(true)
+  })
+
+  it('does not read "at least" and "at most" as two ends', () => {
+    expect(asksBothEnds('Months with at least 5 and at most 9 quakes')).toBe(false)
+  })
+})
+
+describe('dropUnaskedLimit', () => {
+  const limited = { ...planOf(GOOD), limit: 1 }
+
+  it('drops a limit the question never asked for', () => {
+    expect(dropUnaskedLimit(limited, 'Which region had the fewest earthquakes?').limit).toBeUndefined()
+    expect(dropUnaskedLimit(limited, 'only Alaska').limit).toBeUndefined()
+  })
+
+  it('keeps a limit the question names with a number or an end of the ranking', () => {
+    expect(dropUnaskedLimit({ ...limited, limit: 5 }, 'show the top 5').limit).toBe(5)
+    expect(dropUnaskedLimit({ ...limited, limit: 3 }, 'the three coldest months').limit).toBe(3)
+    expect(dropUnaskedLimit({ ...limited, limit: 10 }, 'the bottom ten').limit).toBe(10)
+  })
+
+  it('keeps the limit a follow-up inherited unchanged from the plan before it', () => {
+    expect(dropUnaskedLimit({ ...limited, limit: 5 }, 'only Alaska', 5).limit).toBe(5)
+    expect(dropUnaskedLimit({ ...limited, limit: 5 }, 'only Alaska', 3).limit).toBeUndefined()
   })
 })

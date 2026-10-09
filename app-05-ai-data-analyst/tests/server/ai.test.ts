@@ -345,18 +345,109 @@ describe('ai function provider failures', () => {
     expect(await readReply(response)).toMatchObject({ error: 'Rate limited, try again in a minute.' })
   })
 
-  it('maps a timeout to 504 with the did-not-answer message', async () => {
-    const mock = stubProvider(abortError())
+  it('maps a timeout to 504 with the did-not-answer message, after one retry', async () => {
+    const mock = stubProvider(abortError(), abortError())
     const response = await handler(request(BODY))
     expect(response.status).toBe(504)
     expect(await readReply(response)).toMatchObject({ error: 'The AI provider did not answer in time.' })
-    expect(mock).toHaveBeenCalledTimes(1)
+    expect(mock).toHaveBeenCalledTimes(2)
   })
 
-  it('maps a network failure to the could-not-reach message', async () => {
-    stubProvider(new TypeError('fetch failed'))
+  it('maps a network failure to the could-not-reach message, after one retry', async () => {
+    const mock = stubProvider(new TypeError('fetch failed'), new TypeError('fetch failed'))
     const response = await handler(request(BODY))
     expect(response.status).toBe(502)
     expect(await readReply(response)).toMatchObject({ error: 'Could not reach the AI provider. Try again.' })
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries a timed-out call once and says so in the trace', async () => {
+    const mock = stubProvider(abortError(), modelReply(JSON.stringify(PLAN)))
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(200)
+    const reply = await readReply(response)
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(reply.trace?.find((step) => step.name === 'Model call')?.detail).toBe(
+      `Served by ${SERVED}. Retried once because the first try ran out of time.`,
+    )
+  })
+
+  it('never retries an HTTP answer from the provider', async () => {
+    const mock = stubProvider(providerStatus(503), modelReply(JSON.stringify(PLAN)))
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(502)
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ai function follow-ups', () => {
+  const PREVIOUS = { question: 'Total revenue by product', plan: { ...PLAN, title: 'Total revenue by product', cannotApply: 'stale' } }
+  const FOLLOW = { ...BODY, question: 'only the North region', previous: PREVIOUS }
+
+  function sentMessages(mock: ReturnType<typeof stubProvider>): Array<{ role: string; content: string }> {
+    const init = mock.mock.calls[0]?.[1]
+    return (JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> }).messages
+  }
+
+  it('sends the previous question and plan to the model with the follow-up rules', async () => {
+    const refined = { ...PLAN, filter: { field: 'region', op: 'eq', value: 'North' } }
+    const mock = stubProvider(modelReply(JSON.stringify(refined)))
+    const response = await handler(request(FOLLOW))
+    expect(response.status).toBe(200)
+    const [system, user] = sentMessages(mock)
+    expect(system?.content).toContain('This is a follow-up.')
+    expect(user?.content).toContain('Previous question: Total revenue by product')
+    expect(user?.content).toContain('Follow-up: only the North region')
+    expect(user?.content).toContain('"groupBy":"product"')
+    // The previous plan is rebuilt by the plan check, so a stale decline flag never reaches the prompt.
+    expect(user?.content).not.toContain('stale')
+    const reply = await readReply(response)
+    expect(reply.result).toMatchObject({ filter: { field: 'region', op: 'eq', value: 'North' } })
+    expect(reply.trace?.[0]?.detail).toContain('with the previous plan and your follow-up')
+  })
+
+  it('does not put follow-up rules in the prompt for a first question', async () => {
+    const mock = stubProvider(modelReply(JSON.stringify(PLAN)))
+    await handler(request(BODY))
+    expect(sentMessages(mock)[0]?.content).not.toContain('This is a follow-up.')
+  })
+
+  it('passes a decline through on a follow-up, with the previous plan unchanged', async () => {
+    const declined = { ...PLAN, cannotApply: 'The data holds 7 days, so there is no last week to compare with.' }
+    stubProvider(modelReply(JSON.stringify(declined)))
+    const reply = await readReply(await handler(request({ ...FOLLOW, question: 'compare with last week' })))
+    expect(reply.result).toMatchObject({
+      groupBy: 'product',
+      cannotApply: 'The data holds 7 days, so there is no last week to compare with.',
+    })
+  })
+
+  it('drops a decline flag on a first question', async () => {
+    stubProvider(modelReply(JSON.stringify({ ...PLAN, cannotApply: 'nope' })))
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.result).not.toHaveProperty('cannotApply')
+  })
+
+  it('refuses a previous plan that names a column the data does not have', async () => {
+    const mock = stubProvider()
+    const bad = { ...FOLLOW, previous: { ...PREVIOUS, plan: { ...PLAN, groupBy: 'category' } } }
+    const response = await handler(request(bad))
+    expect(response.status).toBe(400)
+    expect(await readReply(response)).toEqual({ error: 'The previous plan is not valid.' })
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a previous question over the length limit and a previous value that is not an object', async () => {
+    stubProvider()
+    const long = { ...FOLLOW, previous: { ...PREVIOUS, question: 'q'.repeat(2001) } }
+    expect((await handler(request(long))).status).toBe(400)
+    expect((await handler(request({ ...FOLLOW, previous: 'x' }))).status).toBe(400)
+  })
+
+  it('cuts a long title in the previous plan before it enters the prompt', async () => {
+    const mock = stubProvider(modelReply(JSON.stringify(PLAN)))
+    const title = `T${'x'.repeat(500)}END`
+    await handler(request({ ...FOLLOW, previous: { ...PREVIOUS, plan: { ...PLAN, title } } }))
+    expect(sentMessages(mock)[1]?.content).not.toContain('END')
   })
 })
