@@ -129,40 +129,59 @@ export interface EvidenceCheck {
   unmatched: string[]
 }
 
-/** Every date the evidence and the window state, as YYYY-MM-DD. */
-function knownDates(s: Summary): Set<string> {
+/** A date or a version written in the text, where it starts and what it says. */
+export interface Written {
+  index: number
+  text: string
+  kind: 'date' | 'version'
+  /** For a date: month-day as MM-DD, and the year when the text gives one. */
+  monthDay?: string
+  year?: string
+  /** For a version: x.y.z. */
+  version?: string
+}
+
+/** Every date (2026-09-28, September 28, Sep 28, 2026) and every version written as x.y.z in `text`, in order. */
+export function writtenDatesAndVersions(text: string): Written[] {
+  const found: Written[] = []
+  for (const m of text.matchAll(ISO_IN_TEXT)) found.push({ index: m.index ?? 0, text: m[0], kind: 'date', monthDay: `${m[2]}-${m[3]}`, year: m[1] })
+  for (const m of text.matchAll(WORDED_DATE)) {
+    const month = String(MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1).padStart(2, '0')
+    found.push({ index: m.index ?? 0, text: m[0].trim(), kind: 'date', monthDay: `${month}-${m[2].padStart(2, '0')}`, year: m[3] })
+  }
+  for (const m of text.matchAll(VERSION_IN_TEXT)) found.push({ index: m.index ?? 0, text: m[0], kind: 'version', version: m[1] })
+  return found.sort((a, b) => a.index - b.index)
+}
+
+/**
+ * Whether something written is in the evidence. With `name`, only that package's evidence counts: its spike days, the
+ * dates of its releases and the window's own dates for a date, its releases for a version.
+ */
+export function writtenIsKnown(item: Written, s: Summary, name?: string): boolean {
+  const spikes = (s.spikes ?? []).filter((spike) => name === undefined || spike.name === name)
+  if (item.kind === 'version') return spikes.some((spike) => spike.releases.some((r) => r.version === item.version))
   const dates = new Set([s.startDate, s.endDate])
-  for (const spike of s.spikes ?? []) {
+  for (const spike of spikes) {
     dates.add(spike.date)
     for (const release of spike.releases) dates.add(release.date)
   }
-  return dates
+  return [...dates].some((d) => d.slice(5) === item.monthDay && (item.year === undefined || d.slice(0, 4) === item.year))
 }
 
 /**
  * Checks the dates and versions an answer writes against the spike evidence. A date matches when the evidence
  * holds it (month and day, and the year when the answer gives one). A version written as x.y.z matches when a
  * listed release has it. Versions in shortened form, such as "v19", are not read. Does nothing when the request
- * carried no spike evidence.
+ * carried no spike evidence. `covered` skips what a structured claim has already checked.
  */
-export function checkEvidence(text: string, s: Summary): EvidenceCheck {
+export function checkEvidence(text: string, s: Summary, covered: (index: number) => boolean = () => false): EvidenceCheck {
   const result: EvidenceCheck = { checked: 0, matched: 0, unmatched: [] }
   if (s.spikes === undefined) return result
-  const dates = knownDates(s)
-  const monthDays = new Set([...dates].map((d) => d.slice(5)))
-  const versions = new Set(s.spikes.flatMap((spike) => spike.releases.map((r) => r.version)))
-  const score = (shown: string, ok: boolean) => {
+  for (const item of writtenDatesAndVersions(text)) {
+    if (covered(item.index)) continue
     result.checked += 1
-    if (ok) result.matched += 1
-    else result.unmatched.push(shown)
+    if (writtenIsKnown(item, s)) result.matched += 1
+    else result.unmatched.push(item.text)
   }
-
-  for (const m of text.matchAll(ISO_IN_TEXT)) score(m[0], dates.has(m[0]))
-  for (const m of text.matchAll(WORDED_DATE)) {
-    const month = String(MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1).padStart(2, '0')
-    const monthDay = `${month}-${m[2].padStart(2, '0')}`
-    score(m[0].trim(), m[3] ? dates.has(`${m[3]}-${monthDay}`) : monthDays.has(monthDay))
-  }
-  for (const m of text.matchAll(VERSION_IN_TEXT)) score(m[0], versions.has(m[1]))
   return result
 }

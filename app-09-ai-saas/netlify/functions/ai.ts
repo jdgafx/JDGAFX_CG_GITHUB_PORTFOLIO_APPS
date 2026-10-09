@@ -1,12 +1,14 @@
 import { CHAT_URL, chatRequest } from '../shared/provider'
 import type { Summary } from '../shared/contract'
+import { checkClaims, ClaimSplitter, claimsPrompt, describeClaimCheck, parseClaims, splitAnswer, type ClaimCheck } from '../shared/claims'
 import { buildPrompt, checkFigures, describeFigureCheck, parseInsightRequest } from '../shared/insights'
 import { DONE_FRAME, encodeFrame, readProviderStream, type Emit } from '../shared/stream'
 
 export const config = { path: '/api/ai' }
 
 // Limits are fixed in code, not read from the environment, so no deploy setting can leave a call unbounded.
-const MAX_OUTPUT_TOKENS = 1024
+/** The explanation plus its claims array. */
+const MAX_OUTPUT_TOKENS = 4096
 const MAX_BODY_BYTES = 32_000
 const UPSTREAM_TIMEOUT_MS = 25_000
 /** How long one request to the provider may take to be accepted: about 1.5 times a healthy call's wait for response headers. */
@@ -26,6 +28,8 @@ interface TraceStep {
   detail: string
   tokens?: number
   cost?: number
+  /** For the figure check: the structured result, so the page can underline each rejected figure. */
+  check?: ClaimCheck
 }
 
 type HeaderMap = Record<string, string>
@@ -166,7 +170,7 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
     steps.push(step)
     emit({ step })
   }
-  const finishStage = (status: TraceStep['status'], detail: string, extra: Pick<TraceStep, 'tokens' | 'cost'> = {}) => {
+  const finishStage = (status: TraceStep['status'], detail: string, extra: Pick<TraceStep, 'tokens' | 'cost' | 'check'> = {}) => {
     record({ name: run.stage, status, ms: Date.now() - run.stageStart, detail, ...extra })
   }
   const beginStage = (next: Stage) => {
@@ -188,7 +192,7 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
   }, UPSTREAM_TIMEOUT_MS)
 
   try {
-    const prompt = buildPrompt(summary)
+    const prompt = buildPrompt(summary) + claimsPrompt()
     const packages = summary.packages.length
     finishStage('ok', `${packages} ${packages === 1 ? 'package' : 'packages'}, ${summary.startDate} to ${summary.endDate}`)
 
@@ -211,26 +215,48 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
 
     beginStage('Stream answer')
     if (!response.body) return failRun('The AI provider returned an empty response. Try again.')
-    const answer = await readProviderStream(response.body, emit, upstream.signal)
+    // The claims array follows the explanation after a marker line. The viewer sees the explanation only.
+    const splitter = new ClaimSplitter()
+    const answer = await readProviderStream(
+      response.body,
+      (frame) => {
+        if ('text' in frame && typeof frame.text === 'string') {
+          const shown = splitter.push(frame.text)
+          if (shown) emit({ text: shown })
+        } else emit(frame)
+      },
+      upstream.signal,
+    )
     if (upstream.signal.aborted) {
       // The deadline or the viewer ended the run while the stream was open. Only the deadline gets a message.
       if (run.timedOut) return failRun(TIMEOUT_MESSAGE)
       return
     }
     if (answer.providerError !== null) return failRun(providerFailure(answer.providerError))
-    finishStage('ok', `${answer.chunks} ${answer.chunks === 1 ? 'chunk' : 'chunks'}, ${answer.text.length} characters`, {
+    const tail = splitter.flush()
+    if (tail) emit({ text: tail })
+    const { explanation, claimsRaw } = splitAnswer(answer.text)
+    finishStage('ok', `${answer.chunks} ${answer.chunks === 1 ? 'chunk' : 'chunks'}, ${explanation.length} characters`, {
       tokens: answer.usage?.total_tokens,
       cost: answer.usage?.cost,
     })
 
     beginStage('Check figures')
-    const check = checkFigures(answer.text, summary)
-    finishStage(check.unmatched.length > 0 ? 'failed' : 'ok', describeFigureCheck(check))
+    // With a valid claims array each claimed figure is checked against the value the claim names. Without one, the
+    // whole explanation goes through the sentence-reading check.
+    const claims = claimsRaw === null ? null : parseClaims(claimsRaw)
+    if (claims) {
+      const claimCheck = checkClaims(explanation, claims, summary)
+      finishStage(claimCheck.rejected.length > 0 ? 'failed' : 'ok', describeClaimCheck(claimCheck), { check: claimCheck })
+    } else {
+      const check = checkFigures(explanation, summary)
+      finishStage(check.unmatched.length > 0 ? 'failed' : 'ok', `${describeFigureCheck(check)}${claimsRaw === null ? '' : '. The claims array could not be read, so every figure was read from its sentence'}`)
+    }
 
     beginStage('Validate output')
     // A stream is finished once it sent [DONE] or a finish reason. Anything else was cut off on the way.
     if (!answer.done && answer.finishReason === null) return failRun('The answer was cut off before it finished.')
-    if (!answer.text.trim()) return failRun('The model returned no text. Try again.')
+    if (!explanation.trim()) return failRun('The model returned no text. Try again.')
     const cut = answer.finishReason === 'length'
     finishStage(
       cut ? 'failed' : 'ok',
@@ -239,7 +265,7 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
 
     emit({
       stage: 'complete',
-      result: answer.text,
+      result: explanation,
       trace: steps,
       usage: answer.usage,
       model: answer.model,

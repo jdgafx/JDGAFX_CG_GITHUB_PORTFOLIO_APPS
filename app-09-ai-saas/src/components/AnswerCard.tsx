@@ -67,25 +67,50 @@ const paragraphs = (text: string): string[] =>
     .map((part) => part.trim())
     .filter((part) => part !== '')
 
-/** What the figure check found, as a badge, with the figures it could not find listed beside it. */
-function CheckBadge({ step }: { step: TraceStep }) {
-  const match = step.status === 'skipped' ? null : COUNT_LINE.exec(step.detail)
+/** What the figure check came to: the counts the server worked out, or, for an older reply, the counts in its text. */
+function figureResult(step: TraceStep): { text: string; failed: boolean; rejected: string[]; titles: string[]; unchecked: string[] } {
   const failed = step.status === 'failed'
-  const missing = match?.[3]?.split(', ') ?? []
+  if (step.check) {
+    const { matched, checked, rejected, unchecked } = step.check
+    return {
+      text: `${matched} of ${checked} figures match the evidence`,
+      failed,
+      rejected: rejected.map((r) => r.figure),
+      titles: rejected.map((r) => r.quote),
+      unchecked,
+    }
+  }
+  const match = step.status === 'skipped' ? null : COUNT_LINE.exec(step.detail)
+  return {
+    text: match ? `${match[1]} of ${match[2]} figures match the evidence` : step.detail,
+    failed,
+    rejected: match?.[3]?.split(', ') ?? [],
+    titles: [],
+    unchecked: [],
+  }
+}
+
+/** What the figure check found, as a badge, with the figures that did not match listed beside it and the unchecked ones noted. */
+function CheckBadge({ result }: { result: ReturnType<typeof figureResult> }) {
   return (
     <>
-      <span className={`ds-badge ${failed ? 'ds-badge--warning' : 'ds-badge--success'}`}>
-        <span className={`ds-dot ${failed ? 'ds-dot--stopped' : 'ds-dot--ok'}`} aria-hidden="true" />
-        {match ? `${match[1]} of ${match[2]} figures match the evidence` : step.detail}
+      <span className={`ds-badge ${result.failed ? 'ds-badge--warning' : 'ds-badge--success'}`}>
+        <span className={`ds-dot ${result.failed ? 'ds-dot--stopped' : 'ds-dot--ok'}`} aria-hidden="true" />
+        {result.text}
       </span>
-      {missing.length > 0 && (
+      {result.rejected.length > 0 && (
         <span className="hub-missing">
           Not in the evidence:{' '}
-          {missing.map((figure) => (
-            <span key={figure} className="ds-chip">
+          {result.rejected.map((figure, i) => (
+            <span key={`${figure}-${i}`} className="ds-chip" title={result.titles[i]}>
               {figure}
             </span>
           ))}
+        </span>
+      )}
+      {result.unchecked.length > 0 && (
+        <span className="hub-unchecked ds-help" title={result.unchecked.join(', ')}>
+          {result.unchecked.length} {result.unchecked.length === 1 ? 'figure' : 'figures'} unchecked
         </span>
       )}
     </>
@@ -103,7 +128,7 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
   const { status, answer, steps, errorMessage } = run
   const check = steps.find((step) => step.name === 'Check figures')
   const retry = onStart
-  const missing = (check && check.status !== 'skipped' ? COUNT_LINE.exec(check.detail)?.[3]?.split(', ') : undefined) ?? []
+  const missing = check && check.status !== 'skipped' ? figureResult(check).rejected : []
 
   const card = (live: boolean) => (
     <article className="ds-lead" aria-live="polite" aria-busy={live}>
@@ -112,7 +137,7 @@ export default function AnswerCard({ run, ready, onStart }: AnswerCardProps) {
           Explanation
         </h2>
         {check ? (
-          <CheckBadge step={check} />
+          <CheckBadge result={figureResult(check)} />
         ) : (
           <span className="ds-badge">
             <span className={`ds-dot ${live ? 'ds-dot--running' : 'ds-dot--skipped'}`} aria-hidden="true" />

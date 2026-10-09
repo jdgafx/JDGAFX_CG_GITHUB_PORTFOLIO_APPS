@@ -193,16 +193,19 @@ describe('checkFigures: a sentence that starts with a pronoun is about the previ
   it.each([
     ['1.5 is not zod over react', `${LEAD}It is roughly 1.5 times react's total.`, '1.5 times'],
     ['9 is zod over sdk, not zod over react', `${LEAD}It is about 9 times react's total.`, '9 times'],
-    ['react over sdk is 6.8, not a multiple of the subject', `${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, '6.8 times'],
     ['no pronoun, so the subject is not borrowed: both named packages are react and sdk', `${LEAD}React is 1.4 times @anthropic-ai/sdk's total.`, '1.4 times'],
   ])('still rejects a wrong multiple: %s', (_label, text, rejected) => {
     expect(checkFigures(text, zodSummary).unmatched).toEqual([rejected])
   })
 
-  it('does not borrow a package from more than three sentences back', () => {
-    // With zod borrowed the pair would have to be zod and sdk (9.4), so 6.8 (react / sdk) would be rejected.
-    // Out of reach, only sdk is named and 6.8 is a multiple that involves it.
-    expect(checkFigures(`${LEAD}A. B. C. It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual([])
-    expect(checkFigures(`${LEAD}A. B. It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual(['6.8 times'])
+  it('reads a sentence that names its own subject as itself, whatever came before it', () => {
+    // The previous sentence is about react; "This package, zod," names its own subject, and zod / sdk is 9.4.
+    const text = "React is big. This package, zod, is 9 times @anthropic-ai/sdk's size."
+    expect(checkFigures(text, zodSummary).unmatched).toEqual([])
+  })
+
+  it('accepts a multiple under either reading, so a pronoun never makes a right figure fail', () => {
+    // Own reading: only sdk is named, and react / sdk is 6.8. Borrowed reading: zod and sdk, which would make 6.8 wrong.
+    expect(checkFigures(`${LEAD}It is 6.8 times @anthropic-ai/sdk's.`, zodSummary).unmatched).toEqual([])
   })
 })

@@ -11,13 +11,13 @@ function count(value: number): string {
 }
 
 /** Rounds to a number of decimal places, halves up. */
-function roundTo(value: number, decimals: number): number {
+export function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals
   return Math.round(value * factor) / factor
 }
 
 /** How far weekends sit below (or above) weekdays, in percent of the weekday level. */
-function weekendGap(weekendPct: number): number {
+export function weekendGap(weekendPct: number): number {
   return roundTo(Math.abs(100 - weekendPct), 1)
 }
 
@@ -47,7 +47,7 @@ Use only the figures listed above. Do not invent numbers, rankings, versions, re
 Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
 }
 
-type Sign = 1 | -1 | 0
+export type Sign = 1 | -1 | 0
 
 /**
  * A figure the check can match: a percentage, a count with a scale word (1.2 billion, 41k), a count
@@ -118,7 +118,7 @@ function summaryFigures(s: Summary): SummaryFigure[] {
  * nearest rise or fall word among the few words before it, within the same sentence, gives it. Zero
  * means the text gives no direction.
  */
-function signOf(text: string, start: number): Sign {
+export function signOf(text: string, start: number): Sign {
   const before = text.charAt(start - 1)
   const beforeThat = text.charAt(start - 2)
   if (/[-−–+]/.test(before) && !/[A-Za-z0-9]/.test(beforeThat)) return before === '+' ? 1 : -1
@@ -132,7 +132,7 @@ function signOf(text: string, start: number): Sign {
   return 0
 }
 
-interface Quoted {
+export interface Quoted {
   unit: SummaryFigure['unit']
   value: number
   decimals: number
@@ -170,23 +170,25 @@ function namedInOrder(sentence: string, names: string[]): string[] {
 }
 
 /**
- * The packages the sentence around `index` is about: those it names, plus, when it opens with a pronoun ("It is
- * 1.4 times react's total"), the first package named in the nearest earlier sentence that names one.
+ * The packages sets a figure's sentence can be read with: the packages it names and, when it opens with a pronoun
+ * ("It is 1.4 times react's total"), those plus the first package named in the nearest earlier sentence. A figure
+ * passes under either reading, so a sentence that names its own subject is not pushed onto the previous one's.
  */
-function packagesForFigure(text: string, index: number, names: string[]): Set<string> {
+function packagesForFigure(text: string, index: number, names: string[]): Set<string>[] {
   const spans = sentenceSpans(text)
   const at = Math.max(0, spans.findIndex((span) => index >= span.start && index <= span.end))
-  const named = new Set(namedInOrder(text.slice(spans[at].start, spans[at].end), names))
+  const own = new Set(namedInOrder(text.slice(spans[at].start, spans[at].end), names))
+  const readings = [own]
   if (PRONOUN_START.test(text.slice(spans[at].start, spans[at].end))) {
     for (let back = at - 1; back >= Math.max(0, at - PRONOUN_REACH); back--) {
       const subject = namedInOrder(text.slice(spans[back].start, spans[back].end), names)[0]
       if (subject !== undefined) {
-        named.add(subject)
+        readings.push(new Set([...own, subject]))
         break
       }
     }
   }
-  return named
+  return readings
 }
 
 /**
@@ -216,35 +218,65 @@ function judge(q: Quoted, pool: SummaryFigure[], named: ReadonlySet<string>): { 
   return { matched: false, wrongDirection: sizeMatched }
 }
 
+/** A checkable figure written in the text: where it starts, how it is written and what it says. Its sign is read from the text around it. */
+export interface Occurrence {
+  index: number
+  whole: string
+  quoted: Quoted
+}
+
+/** Every percentage, count and multiple written in `text`, in order. */
+export function figureOccurrences(text: string): Occurrence[] {
+  return [...text.matchAll(FIGURE)].map((match) => {
+    const [whole, percent, scaled, word, grouped, multiple] = match
+    const digits = (percent ?? scaled ?? grouped ?? multiple).replace(/,/g, '')
+    const unit = percent !== undefined ? '%' : multiple !== undefined ? 'times' : 'count'
+    return {
+      index: match.index ?? 0,
+      whole: whole.trim(),
+      quoted: {
+        unit,
+        value: Number(digits),
+        decimals: digits.split('.')[1]?.length ?? 0,
+        scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
+        sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
+      } satisfies Quoted,
+    }
+  })
+}
+
+/** Whether `value`, divided by the figure's own scale and rounded to its own decimals, is what the figure says. */
+export function matchesQuoted(q: Quoted, value: number): boolean {
+  return roundTo(Math.abs(value) / q.scale, q.decimals) === q.value
+}
+
+/** Whether the direction the text gives a trend figure agrees with the real value. A figure with no direction in the text passes. */
+export function directionAgrees(q: Quoted, value: number): boolean {
+  return q.sign === 0 || (q.sign < 0 ? value <= 0 : value >= 0)
+}
+
 /**
  * Matches each checkable figure in the answer against the summary. A figure matches when it equals the
  * summary value rounded to the figure's own decimals, so "1.2 billion" matches 1,150,000,000 and
  * "1.1 billion" does not. A multiple such as "4.3 times" matches the ratio of two packages' totals or per-day averages. A trend figure also needs the direction the text gives it. This shows which
  * numbers come from the data. It does not judge the conclusion drawn from them.
  */
-export function checkFigures(text: string, s: Summary): FigureCheck {
+export function checkFigures(text: string, s: Summary, covered: (index: number) => boolean = () => false): FigureCheck {
   const pool = summaryFigures(s)
   const names = s.packages.map((p) => p.name)
   const result: FigureCheck = { checked: 0, matched: 0, unmatched: [] }
-  for (const match of text.matchAll(FIGURE)) {
-    const [whole, percent, scaled, word, grouped, multiple] = match
-    const digits = (percent ?? scaled ?? grouped ?? multiple).replace(/,/g, '')
-    const unit = percent !== undefined ? '%' : multiple !== undefined ? 'times' : 'count'
-    const quoted: Quoted = {
-      unit,
-      value: Number(digits),
-      decimals: digits.split('.')[1]?.length ?? 0,
-      scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
-      sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
-    }
-    const named = unit === 'times' ? packagesForFigure(text, match.index ?? 0, names) : new Set<string>()
-    const verdict = judge(quoted, pool, named)
+  for (const { index, whole, quoted } of figureOccurrences(text)) {
+    if (covered(index)) continue
+    // A multiple can be read with the packages its sentence names, or with the subject a leading "It" points to.
+    const sets = quoted.unit === 'times' ? packagesForFigure(text, index, names) : [new Set<string>()]
+    const verdicts = sets.map((named) => judge(quoted, pool, named))
+    const verdict = verdicts.find((v) => v.matched) ?? verdicts[0]
     result.checked += 1
     if (verdict.matched) result.matched += 1
-    else result.unmatched.push(verdict.wrongDirection ? `${whole.trim()} (direction does not match)` : whole.trim())
+    else result.unmatched.push(verdict.wrongDirection ? `${whole} (direction does not match)` : whole)
   }
   // Dates and versions are checked only against spike evidence the request carried.
-  const evidence = checkEvidence(text, s)
+  const evidence = checkEvidence(text, s, covered)
   result.checked += evidence.checked
   result.matched += evidence.matched
   result.unmatched.push(...evidence.unmatched)

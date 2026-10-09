@@ -179,7 +179,7 @@ describe('netlify/functions/ai: streamed run', () => {
     const sent = JSON.parse(String(init?.body)) as { model: string; messages: { content: string }[] }
     expect(sent).toMatchObject({
       model: 'anthropic/claude-haiku-5.5',
-      max_tokens: 1024,
+      max_tokens: 4096,
       reasoning: { enabled: false },
       usage: { include: true },
       stream: true,
@@ -218,7 +218,7 @@ describe('netlify/functions/ai: streamed run', () => {
     const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Validate output')).toMatchObject({
       status: 'failed',
-      detail: 'Stopped at the 1024-token output cap, so the answer may be cut short',
+      detail: 'Stopped at the 4096-token output cap, so the answer may be cut short',
     })
     expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe('Partial answer cut')
   })
@@ -578,5 +578,51 @@ describe('netlify/functions/ai: spike evidence', () => {
     const res = await handler(post({ summary: { ...SUMMARY, spikes: [{ ...SPIKE, name: 'angular' }] } }))
     expect(res.status).toBe(400)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('netlify/functions/ai: structured claims', () => {
+  const EXPLANATION = 'React holds 62.5% of the selection. It is roughly 2.2 times vue by total, and 9 times vue per day.'
+  const claimsReply = (claims: string, marker = '\n===CLAIMS===\n') =>
+    sse([
+      frame({ model: SERVED_MODEL, choices: [{ delta: { content: EXPLANATION.slice(0, 40) } }] }),
+      frame({ choices: [{ delta: { content: EXPLANATION.slice(40) + marker.slice(0, 7) } }] }),
+      frame({ choices: [{ delta: { content: marker.slice(7) + claims }, finish_reason: 'stop' }] }),
+      DONE,
+    ])
+  const GOOD = JSON.stringify([
+    { q: '62.5%', k: 'share_pct', p: ['react'] },
+    { q: '2.2 times', k: 'multiple', p: ['react', 'vue'], m: 'total' },
+  ])
+
+  it('shows the viewer the explanation only, and checks each claimed figure against the value it names', async () => {
+    const fetchMock = stubFetch(async () => claimsReply(GOOD))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    expect(reply.frames.filter((f) => f.text !== undefined).map((f) => f.text).join('')).toBe(EXPLANATION)
+    expect(reply.raw).not.toContain('CLAIMS')
+    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(EXPLANATION)
+    const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures') as Step & { check?: Record<string, unknown> }
+    // 9 times is claimed by nobody; vue's per-day ratio is 2.2 too, so the sentence check cannot match it: unchecked.
+    expect(check).toMatchObject({ status: 'ok', detail: '2 of 2 figures match the summary; 1 unchecked' })
+    expect(check.check).toMatchObject({ checked: 2, matched: 2, rejected: [], unchecked: ['9 times'] })
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { messages: { content: string }[]; max_tokens: number }
+    expect(sent.messages[0].content).toContain('===CLAIMS===')
+    expect(sent.max_tokens).toBe(4096)
+  })
+
+  it('fails the check and names the figure when a claim does not match', async () => {
+    const bad = JSON.stringify([{ q: '2.2 times', k: 'multiple', p: ['react', 'vue'], m: 'total' }, { q: '62.5%', k: 'share_pct', p: ['vue'] }])
+    stubFetch(async () => claimsReply(bad))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
+    expect(check).toMatchObject({ status: 'failed', detail: '1 of 2 figures match the summary; 1 unchecked. Not in the summary: 62.5%' })
+  })
+
+  it('falls back to reading every figure from its sentence when the claims cannot be read, and says so', async () => {
+    stubFetch(async () => claimsReply('this is not json'))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
+    expect(check?.detail).toContain('The claims array could not be read')
+    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(EXPLANATION)
   })
 })

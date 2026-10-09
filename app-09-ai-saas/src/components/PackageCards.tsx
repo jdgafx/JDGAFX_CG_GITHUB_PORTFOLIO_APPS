@@ -32,7 +32,7 @@ export default function PackageCards({ packages, colorIndex, windowDays }: Packa
           <article key={p.name} className="ds-card hub-card" aria-label={p.name}>
             <header className="hub-card__head">
               <span className="hub-swatch" style={{ background: seriesColor(colorIndex[i]) }} aria-hidden="true" />
-              <h3 className="hub-card__name ds-mono" title={p.name}>{p.name}</h3>
+              <h3 className="hub-card__name ds-mono">{p.name.split('/').flatMap((part, i, all) => (i < all.length - 1 ? [part + '/', <wbr key={i} />] : [part]))}</h3>
             </header>
             <p className="hub-card__total ds-num" title={`${full(p.total)} downloads`}>
               {compact(p.total)}

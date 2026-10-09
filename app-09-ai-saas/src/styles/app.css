@@ -86,6 +86,7 @@
 .ds-lead__text code { font-family: var(--ds-mono); font-size: 0.9em; padding: 0 4px; background: var(--ds-surface-2); border-radius: 3px; }
 .hub-unmatched { color: inherit; background: var(--ds-warning-soft); text-decoration: underline wavy var(--ds-warning); text-underline-offset: 4px; border-radius: 2px; }
 .hub-release-notice { display: grid; gap: 8px; justify-items: start; }
+.hub-unchecked { font-size: 13px; }
 .hub-missing { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
 
 /* Package cards: the grid is chosen by how many packages there are and how wide the run column is, so no card is left alone on a row */
@@ -105,7 +106,7 @@
 }
 .hub-card { display: grid; gap: 12px; align-content: start; padding: 16px; }
 .hub-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.hub-card__name { font-size: 15px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-card__name { font-size: 15px; font-weight: 650; min-width: 0; overflow-wrap: break-word; }
 .hub-card__total { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
 .hub-card__unit { font-family: var(--ds-font); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--ds-text-muted); }
 .hub-card__rows { display: grid; gap: 8px; margin: 0; }

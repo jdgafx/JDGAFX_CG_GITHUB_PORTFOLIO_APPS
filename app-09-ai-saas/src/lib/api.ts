@@ -22,6 +22,18 @@ export interface TraceStep {
   detail: string
   tokens?: number
   cost?: number
+  /** For the figure check: what the model's claims came to. Absent when the claims could not be read. */
+  check?: FigureResult
+}
+
+/** The result of checking the figures an explanation quotes. */
+export interface FigureResult {
+  checked: number
+  matched: number
+  /** Figures the check could not judge, shown neutrally. */
+  unchecked: string[]
+  /** Figures that do not match the value they were claimed to be. `quote` is the words around it. */
+  rejected: { figure: string; quote: string }[]
 }
 
 /** The five stages the server runs, in order, each with what it does in plain words. */
