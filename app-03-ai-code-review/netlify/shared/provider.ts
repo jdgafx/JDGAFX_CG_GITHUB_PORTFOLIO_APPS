@@ -19,10 +19,10 @@ export interface ProviderReply {
  * cannot spend the output budget before the JSON is written. usage.include asks
  * OpenRouter to report token counts and cost in the reply.
  */
-export function chatBody(system: string, user: string): string {
+export function chatBody(system: string, user: string, maxTokens = MAX_OUTPUT_TOKENS): string {
   return JSON.stringify({
     model: MODEL,
-    max_tokens: MAX_OUTPUT_TOKENS,
+    max_tokens: maxTokens,
     reasoning: { enabled: false },
     usage: { include: true },
     provider: { require_parameters: true },

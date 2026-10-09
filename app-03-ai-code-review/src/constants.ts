@@ -40,14 +40,15 @@ export const SEVERITY_HINT: Record<Severity, string> = {
   info: 'Style, best practice and refactoring notes',
 }
 
-/** The stages of a run, in order. Names match the server's trace; details follow the README. */
+/** The stages of a run, in order. Names match the server's trace. */
 export const PIPELINE_STAGES: ReadonlyArray<{ name: string; detail: string }> = [
-  { name: 'Check request', detail: 'Applies the rate limit, confirms the key and checks the code length.' },
+  { name: 'Check request', detail: 'Applies the rate limit and checks the size of the code or diff.' },
   { name: 'Build prompt', detail: 'Numbers every line and sets the comment budget.' },
-  { name: 'Model call', detail: 'One chat completion, with the token usage the provider reports.' },
-  { name: 'Retry', detail: 'Runs only if the first reply is empty or cut short, and at most once.' },
+  { name: 'Pass 1: review', detail: 'The first model call writes the comments. Retried once if the connection drops.' },
   { name: 'Parse reply', detail: 'Reads the JSON review. Code fences and surrounding prose are tolerated.' },
-  { name: 'Validate comments', detail: 'Keeps comments that cite a real line and carry valid text.' },
+  { name: 'Checks', detail: 'Drops comments that cite a bad line, quote code that is not there, or propose no change.' },
+  { name: 'Pass 2: verify', detail: 'The second model call keeps, moves or drops each comment, quoting the code.' },
+  { name: 'Re-validate', detail: 'Checks every verdict against the code before it is shown as checked.' },
 ]
 
 const FILE_EXTENSIONS: Record<string, string> = {
@@ -84,5 +85,21 @@ export const GITHUB_SUGGESTIONS: ReadonlyArray<{ link: string; blurb: string }> 
   {
     link: 'https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts',
     blurb: 'The store at the core of Redux, written in TypeScript.',
+  },
+]
+
+/** Merged public pull requests offered as one-click starts. Each is fetched from GitHub when chosen. */
+export const PR_SUGGESTIONS: ReadonlyArray<{ link: string; blurb: string }> = [
+  {
+    link: 'https://github.com/psf/requests/pull/6963',
+    blurb: 'A security fix for credential handling in requests: two files, mostly Python.',
+  },
+  {
+    link: 'https://github.com/gorilla/mux/pull/731',
+    blurb: 'Adds a hook to override regexp compilation in the Go router: three files.',
+  },
+  {
+    link: 'https://github.com/gorilla/mux/pull/691',
+    blurb: 'A performance change that cuts allocations in the Go router: five files, a larger diff.',
   },
 ]

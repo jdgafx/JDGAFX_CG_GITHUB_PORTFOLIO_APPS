@@ -5,8 +5,23 @@ import {
   commentBudget,
   endsWithNoChangeVerdict,
   parseReview,
-  validateComments,
+  precheck,
 } from '../../netlify/shared/review'
+import { fileDoc } from '../../netlify/shared/anchor'
+
+/** The old validator's view of precheck: what stayed, and why the rest went. */
+function validateComments(raw: unknown, lines: string[], budget: number) {
+  const r = precheck(raw, fileDoc(lines), budget)
+  const why = (start: string) => r.dropped.filter((d) => d.reason.startsWith(start)).length
+  return {
+    comments: r.candidates,
+    dropped: r.dropped.length + r.malformed,
+    droppedNoIssue: why('The reviewer marked') + why('Concludes') + why('Proposes no change'),
+    droppedBlank: why('Cited a blank line'),
+    droppedUnfound: why('The code it quotes'),
+    moved: r.candidates.filter((c) => c.moveNote).length,
+  }
+}
 
 describe('commentBudget', () => {
   it('never asks for more comments than the file has lines', () => {
@@ -67,8 +82,15 @@ describe('parseReview', () => {
     expect(parseReview('{"comments":[{"line":1,"severity":"info"')).toBeNull()
   })
 
-  it('does not read the first object of a bare array as the review', () => {
-    expect(parseReview('[{"line":2,"severity":"critical","message":"m","suggestion":"s"}]')).toBeNull()
+  it('reads a reply that is wholly one array as the list of comments (the live model does this on large diffs)', () => {
+    const item = '{"line":2,"severity":"critical","message":"m","suggestion":"s"}'
+    expect(parseReview(`[${item}]`)).toEqual({ comments: [JSON.parse(item)] })
+    expect(parseReview('```json\n[]\n```')).toEqual({ comments: [] })
+  })
+
+  it('does not read the first object of a broken or prose-wrapped array as the review', () => {
+    expect(parseReview('[{"line":2,"severity":"critical","message":"m","suggestion":"s"},')).toBeNull()
+    expect(parseReview('Here is one: [{"line":2}] and more')).toBeNull()
   })
 
   it('returns null for an object without a comments array', () => {
@@ -89,8 +111,8 @@ describe('validateComments', () => {
       'junk',
     ]
     const { comments, dropped } = validateComments(raw, file(3), 15)
-    expect(comments).toEqual([
-      { line: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Guard b === 0' },
+    expect(comments).toMatchObject([
+      { id: 1, line: 2, fromLine: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Guard b === 0' },
     ])
     expect(dropped).toBe(3)
   })
@@ -343,5 +365,21 @@ describe('buildSystemPrompt: severity and quoting', () => {
     expect(prompt).toContain('"quote"')
     expect(prompt).toContain('never a blank line')
     expect(prompt).toContain('the exact code fragment this comment is about')
+  })
+})
+
+describe('precheck: severity that contradicts the message', () => {
+  // The live reply for redux v5.0.1 createStore.ts line 242, rated critical while saying it is not a crash.
+  const redux = ['a', 'b', 'c']
+  const raw = (severity: string, message: string) => [{ line: 2, quote: 'b', severity, message, suggestion: 'Remove the assignment.' }]
+
+  it('lowers a critical comment that says it is not a crash to info and records the original', () => {
+    const r = precheck(raw('critical', 'unsubscribe sets currentListeners to null, but dispatch reassigns it. Setting it to null here is not a crash on the current code.'), fileDoc(redux), 5)
+    expect(r.candidates[0]).toMatchObject({ severity: 'info', loweredFrom: 'critical' })
+  })
+
+  it('leaves an honest warning alone, and an info comment', () => {
+    expect(precheck(raw('warning', 'The append can overwrite entries the caller holds.'), fileDoc(redux), 5).candidates[0]).toMatchObject({ severity: 'warning', loweredFrom: null })
+    expect(precheck(raw('info', 'This is harmless but noisy.'), fileDoc(redux), 5).candidates[0]).toMatchObject({ severity: 'info', loweredFrom: null })
   })
 })
