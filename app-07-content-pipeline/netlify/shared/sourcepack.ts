@@ -102,21 +102,31 @@ function stripSourcesSection(text: string): string {
 // A marker is "[n]" not glued to a word, so array[0] in code is left alone.
 const CITATION = / ?(?<![\w\]])((?:\[\d{1,2}\])+)/g
 
-// Words of four letters or more that say nothing about a claim, so they never make a citation fit.
+// Words that say nothing about a claim, so they never make a citation fit.
 const FILLER = new Set([
-  'that', 'this', 'with', 'from', 'have', 'been', 'were', 'also', 'more', 'most', 'such', 'than', 'into', 'about', 'over',
-  'only', 'many', 'other', 'which', 'their', 'there', 'these', 'those', 'while', 'where', 'when', 'what', 'will', 'would',
-  'could', 'should', 'being', 'both', 'each', 'some', 'them', 'they', 'then', 'very', 'just', 'like', 'make', 'makes',
-  'made', 'much', 'well', 'even', 'still', 'often', 'every', 'because', 'between', 'through', 'after', 'before',
+  'the', 'and', 'for', 'are', 'was', 'not', 'but', 'you', 'all', 'can', 'has', 'had', 'its', 'our', 'out', 'who', 'how',
+  'why', 'too', 'any', 'may', 'one', 'two', 'new', 'use', 'get', 'got', 'his', 'her', 'she', 'him', 'from', 'that', 'this',
+  'with', 'have', 'been', 'were', 'also', 'more', 'most', 'such', 'than', 'into', 'about', 'over', 'only', 'many', 'other',
+  'which', 'their', 'there', 'these', 'those', 'while', 'where', 'when', 'what', 'will', 'would', 'could', 'should',
+  'being', 'both', 'each', 'some', 'them', 'they', 'then', 'very', 'just', 'like', 'make', 'makes', 'made', 'much', 'well',
+  'even', 'still', 'often', 'every', 'because', 'between', 'through', 'after', 'before',
 ])
 
-// A word is compared by its first four letters. The topic's own words are left out: every
-// sentence about the topic has them, so they cannot show that a source backs the claim.
-function claimStems(text: string, ignore: ReadonlySet<string>): Set<string> {
-  const stems = (text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [])
-    .filter(word => !FILLER.has(word))
-    .map(word => word.slice(0, 4))
-  return new Set(stems.filter(stem => !ignore.has(stem)))
+// A token is a word, or a name such as "asm.js", "node.js" or "c++". It is compared by its first
+// four letters, so plurals and endings match; a name with a dot or plus is compared whole.
+function stemOf(token: string): string {
+  return /[.+]/.test(token) ? token : token.slice(0, 4)
+}
+
+// Three letters or more, no filler. A claim word is "rare" when it is a name with a dot, plus or
+// digit, or a long word: one shared rare word is enough to back a claim, otherwise two are needed.
+function claimWords(text: string): Map<string, boolean> {
+  const words = new Map<string, boolean>()
+  for (const token of text.toLowerCase().match(/[\p{L}\p{N}]+(?:\.[\p{L}\p{N}]+)*\+*/gu) ?? []) {
+    if (token.length < 3 || FILLER.has(token)) continue
+    words.set(stemOf(token), /[.+\d]/.test(token) || token.length >= 9)
+  }
+  return words
 }
 
 function sentenceBefore(text: string, index: number): string {
@@ -125,11 +135,17 @@ function sentenceBefore(text: string, index: number): string {
   return head.slice(cut + 1)
 }
 
-// True when the sentence shares at least one claim word with the source's title or extract.
+// True when the sentence shares two claim words with the source's title or extract, or one rare
+// one. The topic's own words are left out: every sentence about the topic has them.
 function backs(source: Source, sentence: string, ignore: ReadonlySet<string>): boolean {
-  const have = claimStems(`${source.title} ${source.summary}`, ignore)
-  for (const stem of claimStems(sentence, ignore)) if (have.has(stem)) return true
-  return false
+  const have = claimWords(`${source.title} ${source.summary}`)
+  let shared = 0
+  for (const [stem, rare] of claimWords(sentence)) {
+    if (ignore.has(stem) || !have.has(stem)) continue
+    if (rare) return true
+    shared += 1
+  }
+  return shared >= 2
 }
 
 function escapeMarkdown(text: string): string {
@@ -164,7 +180,7 @@ function listEntry(source: Source, contentType: string): string {
 
 /**
  * Ends the finished piece with its Sources list. Markers that point at no real source are removed,
- * and so is a marker whose sentence shares no claim word with its source (the sentence stays, uncited).
+ * and so is a marker whose sentence shares too few claim words with its source (the sentence stays, uncited).
  * The list is built from the lookup, never from model text. With no sources the piece says so.
  * `topicTerms` are the topic's words, which do not count as a match.
  */
@@ -176,7 +192,7 @@ export function withSources(piece: string, pack: SourcePack, contentType: string
   }
 
   const bySource = new Map(pack.sources.map(source => [source.n, source]))
-  const ignore = new Set(topicTerms.map(term => term.slice(0, 4)))
+  const ignore = new Set(topicTerms.map(stemOf))
   const cited = new Set<number>()
   // A run such as "[1][2]" is judged marker by marker, and the markers that hold stay together.
   const cleaned = body.replace(CITATION, (match, run: string, offset: number) => {

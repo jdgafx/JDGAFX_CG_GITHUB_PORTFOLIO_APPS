@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { wordCount } from '../../netlify/shared/contract'
 import {
-  MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, rejectOutput,
+  MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../../netlify/shared/stages'
 
 const TOPIC = 'Why unit tests matter for small teams'
@@ -29,7 +29,7 @@ describe('buildUserMessage', () => {
     )
   })
 
-  it('clips a prior stage to 1,800 characters before it reaches the prompt', () => {
+  it('clips side context to 1,800 characters before it reaches the prompt', () => {
     const message = buildUserMessage('outline', TOPIC, 'Blog Post', { research: 'x'.repeat(2_000) })
     expect(message).toContain(`${'x'.repeat(1_800)}\n...[truncated]`)
     expect(message).not.toContain('x'.repeat(1_801))
@@ -45,6 +45,64 @@ const PACK = [
   'URL: https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/',
   'Points: 319',
 ].join('\n')
+
+// A Draft well over the 1,800 characters that side context is cut to, in whole sentences.
+const LONG_DRAFT = Array.from({ length: 40 }, (_, i) => `Sentence number ${i + 1} says something specific about the telescope.`).join(' ')
+
+describe('buildUserMessage: text a stage rewrites is passed whole', () => {
+  it('gives Edit the whole Draft, with no cut and no marker, even past 1,800 characters', () => {
+    expect(LONG_DRAFT.length).toBeGreaterThan(1_800)
+    const message = buildUserMessage('edit', TOPIC, 'Blog Post', { outline: '- P', draft: LONG_DRAFT })
+    expect(message).toContain(`## Draft\n${LONG_DRAFT}\n\n`)
+    expect(message).not.toContain('[truncated]')
+  })
+
+  it('gives Polish the whole Edit', () => {
+    expect(buildUserMessage('polish', TOPIC, 'Blog Post', { edit: LONG_DRAFT })).toContain(`## Edit\n${LONG_DRAFT}\n\n`)
+  })
+
+  it('cuts side context at the last sentence inside the limit, never mid-word', () => {
+    const message = buildUserMessage('outline', TOPIC, 'Blog Post', { research: LONG_DRAFT })
+    const shown = message.split('## Research\n')[1]?.split('\n...[truncated]')[0] ?? ''
+    expect(shown.length).toBeLessThanOrEqual(1_800)
+    expect(shown.endsWith('telescope.')).toBe(true)
+    expect(LONG_DRAFT.startsWith(shown)).toBe(true)
+    expect(message).toContain('...[truncated]')
+  })
+
+  it('cuts at a word when there is no sentence end in range', () => {
+    const message = buildUserMessage('outline', TOPIC, 'Blog Post', { research: 'alpha '.repeat(500) })
+    const shown = message.split('## Research\n')[1]?.split('\n...[truncated]')[0] ?? ''
+    expect(shown.endsWith('alpha')).toBe(true)
+    expect(shown.length).toBeLessThanOrEqual(1_800)
+  })
+})
+
+describe('stageTimeoutMs and retryFits', () => {
+  const limits = (['research', 'outline', 'draft', 'edit', 'polish'] as const).map(stageTimeoutMs)
+
+  it('abandons a hung call at about 1.5 times the p95 of healthy calls', () => {
+    expect(limits).toEqual([6_000, 8_000, 10_000, 6_000, 8_000])
+  })
+
+  it('lets a call that used a whole limit run a second full limit, inside the 21 second request budget', () => {
+    for (const limit of limits) expect(retryFits(limit, limit)).toBe(true)
+    // Worst case for a stage request: two full limits, which stays under the 22 seconds the lead set.
+    expect(Math.max(...limits) * 2).toBeLessThanOrEqual(20_000)
+  })
+
+  it('refuses a retry that would run past the request budget', () => {
+    expect(retryFits(11_000, 10_000)).toBe(true)
+    expect(retryFits(11_001, 10_000)).toBe(false)
+    expect(retryFits(14_000, 8_000)).toBe(false)
+  })
+})
+
+describe('stageMaxTokens', () => {
+  it('is five tokens per budget word, so a stage that runs on is cut off and refused', () => {
+    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([400, 500, 800, 800, 800])
+  })
+})
 
 describe('buildUserMessage: sources', () => {
   it('hands the research stage the full source pack, extracts included', () => {
@@ -183,21 +241,47 @@ describe('rejectOutput: text that is not an article', () => {
 })
 
 describe('rejectOutput: Edit and Polish keep the length of their input', () => {
-  it('rejects an Edit under half the words of the Draft, and accepts exactly half', () => {
+  it('rejects an Edit under 70% of the words of the Draft, and accepts exactly 70%', () => {
     const draft = { outline: 'o', draft: words(100) }
-    expect(rejectOutput('edit', reply(words(49)), draft)).toEqual({
+    expect(rejectOutput('edit', reply(words(69)), draft)).toEqual({
       message: 'This stage returned far less text than the Draft stage it was given, so it was discarded.',
       retryable: true,
     })
-    expect(rejectOutput('edit', reply(words(50)), draft)).toBeNull()
+    expect(rejectOutput('edit', reply(words(70)), draft)).toBeNull()
   })
 
-  it('rejects a Polish under half the words of the Edit, and accepts exactly half', () => {
-    expect(rejectOutput('polish', reply(words(30)), { edit: words(100) })).toEqual({
+  it('rejects a Polish under 70% of the words of the Edit, and accepts exactly 70%', () => {
+    expect(rejectOutput('polish', reply(words(60)), { edit: words(100) })).toEqual({
       message: 'This stage returned far less text than the Edit stage it was given, so it was discarded.',
       retryable: true,
     })
-    expect(rejectOutput('polish', reply(words(60)), { edit: words(100) })).toBeNull()
+    expect(rejectOutput('polish', reply(words(70)), { edit: words(100) })).toBeNull()
+  })
+})
+
+describe('rejectOutput: a rewrite must not stop mid-sentence', () => {
+  const DRAFT = `${words(60)}. The telescope found early galaxies. It also imaged Uranus.`
+  const CUT = `${words(60)}. The telescope found early galaxies. It also imag`
+  const STOPPED = 'This stage stopped in the middle of a sentence, so it was discarded.'
+
+  it('rejects an Edit and a Polish that stop mid-word after a Draft or Edit that ended properly, for one retry', () => {
+    expect(rejectOutput('edit', reply(CUT), { outline: 'o', draft: DRAFT })).toEqual({ message: STOPPED, retryable: true })
+    expect(rejectOutput('polish', reply(CUT), { edit: DRAFT })).toEqual({ message: STOPPED, retryable: true })
+  })
+
+  it('accepts a rewrite that ends on a full stop, a quote, a bracket or an emoji', () => {
+    for (const ending of ['It also imaged Uranus.', 'It also imaged "Uranus."', 'It also imaged Uranus (twice).', 'Thanks for reading! \u{1F980}', 'Did it image Uranus?']) {
+      expect(rejectOutput('edit', reply(`${words(60)}. ${ending}`), { outline: 'o', draft: DRAFT })).toBeNull()
+    }
+  })
+
+  it('accepts a social thread ending on a hashtag or a list item, which carry no full stop', () => {
+    expect(rejectOutput('polish', reply(`${words(60)}. Try it today #rust #memorysafety`), { edit: DRAFT })).toBeNull()
+    expect(rejectOutput('polish', reply(`${words(60)}.\n- Read the Rust book`), { edit: DRAFT })).toBeNull()
+  })
+
+  it('does not judge an ending the input did not have either', () => {
+    expect(rejectOutput('edit', reply(`${words(60)} get started today`), { outline: 'o', draft: `${words(60)} get started now` })).toBeNull()
   })
 })
 

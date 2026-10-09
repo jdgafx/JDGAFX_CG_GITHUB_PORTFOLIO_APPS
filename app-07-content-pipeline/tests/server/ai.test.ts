@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/ai'
-import { CONTENT_TYPES } from '../../netlify/shared/contract'
+import { CONTENT_TYPES, STAGE_LABELS } from '../../netlify/shared/contract'
+import { SITE_URL } from '../../netlify/shared/provider'
 import {
   ARTICLE, CUT_OFF_MESSAGE, EMPTY_MESSAGE, KEY_MESSAGE, LABEL_MESSAGE, NOTES, PLACEHOLDER, RATE_MESSAGE, SHORT_MESSAGE, SLOW_MESSAGE, SOURCES, TOPIC,
-  completion, providerWill, request, stageBody, installFunctionHarness, words, type ErrorBody, type StageBody,
+  completion, providerWill, request, stageBody, installFunctionHarness, words, type ErrorBody, type Sent, type StageBody,
 } from './harness'
 
 installFunctionHarness()
@@ -24,16 +25,33 @@ describe('happy path', () => {
     expect(sent).toHaveLength(1)
   })
 
-  it('sends the fixed model, a 4,096 token ceiling and usage reporting, whatever model the browser names', async () => {
+  it('sends the fixed model, a ceiling of five tokens per budget word and usage reporting, whatever model the browser names', async () => {
     const sent = providerWill(() => completion(ARTICLE))
 
     await handler(request(stageBody('research', {}, { model: 'openai/gpt-4o' })))
     expect(sent[0].url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(sent[0].body.model).toBe('anthropic/claude-haiku-5.5')
-    expect(sent[0].body.max_tokens).toBe(4_096)
+    expect(sent[0].body.max_tokens).toBe(400)
     expect(sent[0].body.usage).toEqual({ include: true })
     expect(sent[0].body.stream).toBe(false)
     expect(sent[0].init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
+  })
+
+  it.each([['research', 400], ['outline', 500], ['draft', 800], ['edit', 800], ['polish', 800]])('limits %s to %i tokens', async (stage, tokens) => {
+    const sent = providerWill(() => completion(ARTICLE))
+    await handler(request(stageBody(stage, { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE })))
+    expect(sent[0].body.max_tokens).toBe(tokens)
+  })
+
+  it('sends the whole Draft to Edit, however long, and refuses an Edit that stops mid-word', async () => {
+    const longDraft = Array.from({ length: 40 }, (_, i) => `Sentence number ${i + 1} says something specific about the telescope.`).join(' ')
+    const sent = providerWill(() => completion(`${longDraft.slice(0, 1_850)}fi`))
+    const res = await handler(request(stageBody('edit', { outline: '- P', draft: longDraft })))
+    const message = (sent[0].body.messages as Array<{ content: string }>)[1].content
+    expect(message).toContain(`## Draft\n${longDraft}\n\n`)
+    expect(message).not.toContain('[truncated]')
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ error: 'This stage stopped in the middle of a sentence, so it was discarded.', retryable: true })
   })
 
   it('sends the Draft prompt with the research and the outline attached', async () => {
@@ -191,33 +209,128 @@ describe('provider failures', () => {
     expect(await res.json()).toMatchObject({ error: SLOW_MESSAGE, retryable: false })
   })
 
-  it('answers with the timeout message when the provider body never finishes', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    providerWill(() => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
-
-    const pending = handler(request(stageBody('research')))
-    await vi.advanceTimersByTimeAsync(8_000)
-
-    const res = await pending
-    expect(res.status).toBe(504)
-    expect(((await res.json()) as ErrorBody).error).toBe(SLOW_MESSAGE)
+  // The call limit of each stage: about 1.5 times the p95 of healthy calls over 32 live runs on Haiku 5.5.
+  const LIMITS: Array<[string, number]> = [['research', 6_000], ['outline', 8_000], ['draft', 10_000], ['edit', 6_000], ['polish', 8_000]]
+  const context = { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE }
+  const hangs = (call: Sent) => new Promise<Response>((_resolve, reject) => {
+    call.init?.signal?.addEventListener('abort', () => reject(call.init?.signal?.reason))
   })
 
-  it('stops the provider call after 8 seconds and answers with the timeout message', async () => {
+  it.each(LIMITS)('lets the %s call run until %i ms and abandons it then', async (stage, limit) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const sent = providerWill(call => new Promise<Response>((_resolve, reject) => {
-      call.init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
-    }))
+    const sent = providerWill(hangs)
 
-    const pending = handler(request(stageBody('research')))
-    await vi.advanceTimersByTimeAsync(7_999)
+    const pending = handler(request(stageBody(stage, context)))
+    await vi.advanceTimersByTimeAsync(limit - 1)
     expect(sent).toHaveLength(1)
     expect(sent[0].init?.signal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
+    expect(sent[0].init?.signal?.aborted).toBe(true)
+    // The second attempt starts at once, with its own full limit.
+    expect(sent).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(limit)
 
     const res = await pending
     expect(res.status).toBe(504)
-    expect(((await res.json()) as ErrorBody).error).toBe(SLOW_MESSAGE)
+    const body = (await res.json()) as ErrorBody
+    expect(body.error).toBe(SLOW_MESSAGE)
+    expect(body.retryable).toBe(false)
+    expect(body.trace?.[0]).toMatchObject({ status: 'failed', detail: `${SLOW_MESSAGE} Retried once after a timeout of ${limit / 1000} s.` })
+    expect(sent).toHaveLength(2)
+  })
+
+  it.each(LIMITS)('answers the %s stage with one retry row when the first call hangs and the second answers', async (stage, limit) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let calls = 0
+    const sent = providerWill(call => {
+      calls += 1
+      return calls === 1 ? hangs(call) : completion(ARTICLE)
+    })
+
+    const pending = handler(request(stageBody(stage, context)))
+    await vi.advanceTimersByTimeAsync(limit)
+
+    const res = await pending
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as StageBody
+    expect(body.trace).toHaveLength(1)
+    expect(body.trace[0]).toMatchObject({ name: STAGE_LABELS[stage as 'research'], status: 'ok', tokens: 1200 })
+    expect(String(body.trace[0].detail)).toMatch(new RegExp(`^Retried once after a timeout of ${limit / 1000} s\\. \\d+ words: `))
+    expect(sent).toHaveLength(2)
+  })
+
+  it('also ends a call whose body never finishes at the limit and retries it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let calls = 0
+    const sent = providerWill(() => {
+      calls += 1
+      return calls === 1
+        ? new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } })
+        : completion(ARTICLE)
+    })
+
+    const pending = handler(request(stageBody('research')))
+    await vi.advanceTimersByTimeAsync(6_000)
+    expect((await pending).status).toBe(200)
+    expect(sent).toHaveLength(2)
+  })
+
+  it('retries a call that could not connect once, and says so', async () => {
+    let calls = 0
+    const sent = providerWill(() => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return completion(ARTICLE)
+    })
+    const res = await handler(request(stageBody('research')))
+    expect(res.status).toBe(200)
+    expect(String(((await res.json()) as StageBody).trace[0].detail)).toMatch(/^Retried once after a connection failure\. /)
+    expect(sent).toHaveLength(2)
+  })
+
+  it('gives up after a second connection failure with the plain message and the note', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const sent = providerWill(() => {
+      throw new TypeError('fetch failed')
+    })
+    const res = await handler(request(stageBody('research')))
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as ErrorBody
+    expect(body.error).toBe('Could not get a usable answer from the AI provider. Try again.')
+    expect(body.trace?.[0].detail).toBe(`${body.error} Retried once after a connection failure.`)
+    expect(sent).toHaveLength(2)
+  })
+
+  it.each([[400], [401], [402], [403], [429], [500], [503]])('makes exactly one call when the provider answers HTTP %i', async status => {
+    const sent = providerWill(() => new Response('{}', { status }))
+    await handler(request(stageBody('research')))
+    expect(sent).toHaveLength(1)
+  })
+
+  it('makes exactly one call for a reply that is not JSON, an empty reply and a refused reply', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    for (const respond of [() => new Response('<html></html>', { status: 200 }), () => completion('   '), () => completion('User Safety: safe')]) {
+      const sent = providerWill(respond)
+      await handler(request(stageBody('research')))
+      expect(sent).toHaveLength(1)
+    }
+  })
+
+  it('does not retry when the browser stops the run', async () => {
+    const controller = new AbortController()
+    const sent = providerWill(call => {
+      controller.abort()
+      return hangs(call)
+    })
+    const req = new Request('https://example.test/api/ai', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'content-type': 'application/json', origin: SITE_URL, 'x-nf-client-connection-ip': '203.0.113.201' },
+      body: JSON.stringify(stageBody('research')),
+    })
+    const res = await handler(req)
+    expect(res.status).toBe(503)
+    expect(sent).toHaveLength(1)
   })
 })
 
@@ -238,22 +351,22 @@ describe('output checks', () => {
     expect(((await res.json()) as ErrorBody).error).toBe(LABEL_MESSAGE)
   })
 
-  it('rejects a Polish that is less than half the length of the Edit it was given', async () => {
-    providerWill(() => completion(words(30)))
+  it('rejects a Polish that is under 70% of the length of the Edit it was given', async () => {
+    providerWill(() => completion(words(60)))
     const res = await handler(request(stageBody('polish', { edit: words(100) })))
     expect(res.status).toBe(502)
     expect(await res.json()).toMatchObject({ error: SHORT_MESSAGE, retryable: true })
   })
 
-  it('accepts a Polish that keeps half of the Edit', async () => {
-    providerWill(() => completion(words(60)))
+  it('accepts a Polish that keeps 70% of the Edit', async () => {
+    providerWill(() => completion(words(70)))
     const res = await handler(request(stageBody('polish', { edit: words(100) })))
     expect(res.status).toBe(200)
     const { result } = (await res.json()) as StageBody
-    expect(result.startsWith(words(60))).toBe(true)
+    expect(result.startsWith(words(70))).toBe(true)
   })
 
-  it('rejects an Edit that is less than half the length of the Draft', async () => {
+  it('rejects an Edit that is under 70% of the length of the Draft', async () => {
     providerWill(() => completion(words(20)))
     const res = await handler(request(stageBody('edit', { outline: '- Point', draft: words(100) })))
     expect(await res.json()).toMatchObject({

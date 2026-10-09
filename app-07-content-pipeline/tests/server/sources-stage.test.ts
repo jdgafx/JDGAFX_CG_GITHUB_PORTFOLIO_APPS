@@ -89,7 +89,7 @@ describe('Sources stage', () => {
     expect(String(body.trace[0].detail)).toContain('Hacker News did not answer in time.')
   })
 
-  it('applies one 4 second cap to both lookups', async () => {
+  it('applies one 5 second cap to both lookups', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     // Both lookups hang until the signal fires, as a stalled upstream would.
     const signals: AbortSignal[] = []
@@ -99,7 +99,7 @@ describe('Sources stage', () => {
     })))
 
     const pending = handler(request(stageBody('sources')))
-    await vi.advanceTimersByTimeAsync(3_999)
+    await vi.advanceTimersByTimeAsync(4_999)
     expect(signals).toHaveLength(2)
     expect(signals.every(signal => !signal.aborted)).toBe(true)
     await vi.advanceTimersByTimeAsync(1)
@@ -111,13 +111,13 @@ describe('Sources stage', () => {
     })
   })
 
-  it('ends a lookup whose body never finishes at the 4 second cap, and keeps the other source', async () => {
+  it('ends a lookup whose body never finishes at the 5 second cap, and keeps the other source', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const stalled = () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
     lookupsWill(() => ok(WIKI_BODY), stalled)
 
     const pending = handler(request(stageBody('sources')))
-    await vi.advanceTimersByTimeAsync(4_000)
+    await vi.advanceTimersByTimeAsync(5_000)
     const body = (await (await pending).json()) as StageBody
     expect(body.trace[0]).toMatchObject({
       status: 'ok',

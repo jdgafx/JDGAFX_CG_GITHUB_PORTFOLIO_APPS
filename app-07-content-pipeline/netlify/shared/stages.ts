@@ -30,6 +30,39 @@ const STAGE_WORD_BUDGETS: Record<ModelStageId, number> = {
   polish: 160,
 }
 
+// Tokens a word can take, with room for Markdown and citation markers. The ceiling is a multiple of
+// the word budget, so a stage that runs on is cut off and refused, never passed on half written.
+const TOKENS_PER_BUDGET_WORD = 5
+
+export function stageMaxTokens(stage: ModelStageId): number {
+  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD
+}
+
+// How long one model call may take before the function gives up on it: about 1.5 times the p95 of
+// calls that were not stalled, over 32 live runs on Haiku 5.5 (p95 in seconds: research 3.6,
+// outline 4.1, draft 4.2, edit 3.6, polish 4.0). A call that is still silent then is hung, and
+// waiting longer does not help, so it is abandoned and tried once more (see retryFits).
+const STAGE_TIMEOUTS_MS: Record<ModelStageId, number> = {
+  research: 6_000,
+  outline: 8_000,
+  draft: 10_000,
+  edit: 6_000,
+  polish: 8_000,
+}
+
+export function stageTimeoutMs(stage: ModelStageId): number {
+  return STAGE_TIMEOUTS_MS[stage]
+}
+
+// One request may spend this long on its model calls. Netlify cuts a function at about 26 seconds;
+// the budget leaves room for the reply, the checks and the Sources list.
+const REQUEST_BUDGET_MS = 21_000
+
+// True when a call that has taken `elapsedMs` of the request could run a second full `limitMs`.
+export function retryFits(elapsedMs: number, limitMs: number): boolean {
+  return elapsedMs + limitMs <= REQUEST_BUDGET_MS
+}
+
 const STAGE_PROMPTS: Record<ModelStageId, string> = {
   research: 'Produce a tight research brief: the key facts, figures, expert views and background worth using. Dense notes, not prose — no introduction and no conclusion.',
   outline: 'Produce the outline only: section headings with a few bullet points under each. Bullets, never paragraphs, and never any of the finished writing.',
@@ -45,9 +78,10 @@ const MAX_SOURCES_CHARS = 3600
 // Anything shorter than this is not usable text for any stage.
 const MIN_STAGE_WORDS = 5
 
-// Edit and polish must keep roughly the length of the text they were given.
+// Edit and polish rewrite the text they were given, so they read it whole (never clipped) and
+// must return roughly its length.
 const LENGTH_SOURCE: Partial<Record<ModelStageId, StageId>> = { edit: 'draft', polish: 'edit' }
-const MIN_SHARE_OF_SOURCE = 0.5
+const MIN_SHARE_OF_SOURCE = 0.7
 
 // Safety models answer with a label such as "User Safety: safe", never with article
 // text. Only short replies are checked, so an article that mentions a safety rating is not caught.
@@ -60,8 +94,24 @@ interface StageRejection {
   retryable: boolean
 }
 
+// Side context is cut at the last line or sentence end inside the limit, else at a word, so a
+// stage never reads half a word.
 function clip(text: string, limit: number): string {
-  return text.length > limit ? `${text.slice(0, limit)}\n...[truncated]` : text
+  if (text.length <= limit) return text
+  const head = text.slice(0, limit)
+  const boundary = Math.max(head.lastIndexOf('\n'), head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '))
+  const space = head.lastIndexOf(' ')
+  const cut = boundary > limit / 2 ? boundary + 1 : space > limit / 2 ? space : limit
+  return `${head.slice(0, cut).trimEnd()}\n...[truncated]`
+}
+
+// Text ends complete when its last letter or number is followed by closing punctuation, an emoji
+// or a symbol; or when it ends on a hashtag, mention or list item, which carry no full stop.
+function endsComplete(text: string): boolean {
+  const lastLine = text.trimEnd().split('\n').pop() ?? ''
+  if (/^\s*(?:[-*\u2022]|\d+[.)]|#{1,6})\s/.test(lastLine) || /(?:^|\s)[#@]\S+$/.test(lastLine)) return true
+  const tail = lastLine.replace(/[\s*_`~]+$/u, '')
+  return !/[\p{L}\p{N}]$/u.test(tail)
 }
 
 function isSafetyLabel(text: string): boolean {
@@ -97,7 +147,7 @@ export function buildSystemPrompt(stage: ModelStageId, topic: string, contentTyp
     `You are an expert content creator. The user wants a ${contentType} about: "${topic}".`,
     `Current step: ${stage.toUpperCase()}. ${STAGE_PROMPTS[stage]}`,
     grounding,
-    `Keep this response to roughly ${STAGE_WORD_BUDGETS[stage]} words, and finish inside that budget.`,
+    `Keep this response to roughly ${STAGE_WORD_BUDGETS[stage]} words, and finish inside that budget. End on a complete sentence.`,
     'Output only the content for this step — no preamble, no commentary on what you are doing. Stop as soon as the requested content is complete; never exceed the word budget.',
   ].join(' ')
 }
@@ -117,7 +167,8 @@ export function buildUserMessage(
         const shown = SOURCES_AS_INDEX.has(stage) && pack.sources.length > 0 ? sourceIndex(pack) : clip(content, MAX_SOURCES_CHARS)
         return `## ${STAGE_LABELS[input]}\n${shown}`
       }
-      return `## ${STAGE_LABELS[input]}\n${clip(content, MAX_CONTEXT_CHARS)}`
+      const rewritten = LENGTH_SOURCE[stage] === input
+      return `## ${STAGE_LABELS[input]}\n${rewritten ? content : clip(content, MAX_CONTEXT_CHARS)}`
     })
     .filter(Boolean)
 
@@ -153,6 +204,10 @@ export function rejectOutput(
   const source = LENGTH_SOURCE[stage]
   if (source && wordCount(reply.content) < wordCount(context[source] ?? '') * MIN_SHARE_OF_SOURCE) {
     return { message: `This stage returned far less text than the ${STAGE_LABELS[source]} stage it was given, so it was discarded.`, retryable: true }
+  }
+  // A rewrite of text that ended properly must end properly too; a stop mid-sentence means it was cut off.
+  if (source && endsComplete(context[source] ?? '') && !endsComplete(reply.content)) {
+    return { message: 'This stage stopped in the middle of a sentence, so it was discarded.', retryable: true }
   }
   return null
 }

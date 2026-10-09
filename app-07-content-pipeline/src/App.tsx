@@ -17,6 +17,7 @@ function statusText(topic: string, running: boolean, runningStage: StageId | nul
     if (!runningStage) return 'Starting the run.'
     return `Running ${STAGE_LABELS[runningStage]}, step ${STAGE_IDS.indexOf(runningStage) + 1} of ${STAGE_IDS.length}.`
   }
+  if (topic.trim().length > MAX_TOPIC_CHARS) return `Shorten the topic to ${MAX_TOPIC_CHARS} characters to continue.`
   if (!outcome) return topic.trim() ? 'Press Generate to look up sources and write the piece.' : 'Enter a topic to start.'
   if (outcome.kind === 'complete') return 'All steps finished. Copy the final piece from Stage outputs.'
   if (outcome.kind === 'stopped') return `Stopped at ${STAGE_LABELS[outcome.stage]}. Press Resume to continue there.`

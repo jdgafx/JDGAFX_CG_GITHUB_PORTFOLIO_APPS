@@ -7,7 +7,7 @@ export const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php'
 export const HACKER_NEWS_API = 'https://hn.algolia.com/api/v1/search'
 
 // The Sources lookups run in parallel under this one cap, so the stage stays well inside the limit.
-export const SOURCES_TIMEOUT_MS = 4_000
+export const SOURCES_TIMEOUT_MS = 5_000
 
 const USER_AGENT = 'ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app; portfolio demo)'
 // A lookup answer larger than this is refused; real answers are a few kilobytes.

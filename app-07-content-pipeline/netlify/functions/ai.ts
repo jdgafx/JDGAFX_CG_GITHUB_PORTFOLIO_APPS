@@ -1,17 +1,15 @@
 import { chat, MODEL, ProviderStatusError, type ChatReply } from '../shared/provider'
 import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, TOPIC_TOO_LONG_MESSAGE, wordCount, type ModelStageId, type StageId, type TraceRow, type Usage } from '../shared/contract'
 import {
-  MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput,
+  MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../shared/stages'
+import { withDeadline } from '../shared/deadline'
 import { gatherSources, searchTerms } from '../shared/sources'
 import { formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
-// Each stage is one short model call and the browser chains them. The timeout keeps
-// every call inside Netlify's synchronous limit (about 10 seconds).
-const MODEL_TIMEOUT_MS = 8_000
-// A ceiling only. The word budgets and the timeout set the real length.
-const STAGE_MAX_TOKENS = 4_096
+// Each stage is one request with one short model call, tried a second time if it hung, and the
+// browser chains the requests. The per-stage call limits and the request budget are in stages.ts.
 // Four full stage outputs, with room for UTF-8 and JSON escapes.
 const MAX_BODY_BYTES = 128 * 1024
 
@@ -40,13 +38,14 @@ function failureFor(stage: StageId, startedAt: number, origin: string | null) {
     status: number,
     retryable: boolean,
     attempt: { usage: Usage | null; model: string | null } = { usage: null, model: null },
+    note?: string,
   ): Response => {
     const ms = Date.now() - startedAt
     const trace: TraceRow[] = [{
       name: STAGE_LABELS[stage],
       status: 'failed',
       ms,
-      detail: message,
+      detail: note ? `${message} ${note}` : message,
       tokens: attempt.usage?.total_tokens,
       cost: attempt.usage?.cost,
     }]
@@ -142,32 +141,44 @@ async function runSources(run: RunRequest, req: Request, origin: string | null):
   return json({ result: formatSourcePack(pack), trace: [row], usage: null, model: null, totalMs: ms }, 200, origin)
 }
 
+// A call that hung (our own deadline fired) or never connected is tried once more, if the request
+// still has the time. A provider status (4xx, 429, 5xx), a refused reply and a stop by the user are
+// never tried again here.
+function retryNote(err: unknown, limitMs: number): string | null {
+  if (err instanceof DOMException && err.name === 'TimeoutError') return `Retried once after a timeout of ${limitMs / 1000} s.`
+  if (err instanceof TypeError) return 'Retried once after a connection failure.'
+  return null
+}
+
 async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Request, origin: string | null): Promise<Response> {
   const { stage } = run
   const startedAt = Date.now()
   const fail = failureFor(stage, startedAt, origin)
   const sources = parseSourcePack(run.context.sources ?? '')
-  const upstream = new AbortController()
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    upstream.abort()
-  }, MODEL_TIMEOUT_MS)
-  const stopWithClient = () => upstream.abort()
-  req.signal.addEventListener('abort', stopWithClient)
+  const system = buildSystemPrompt(stage, run.topic, run.contentType, sources.sources.length)
+  const user = buildUserMessage(stage, run.topic, run.contentType, run.context)
+  const limitMs = stageTimeoutMs(stage)
+  let retried: string | null = null
 
   try {
-    const reply: ChatReply = await chat(
-      buildSystemPrompt(stage, run.topic, run.contentType, sources.sources.length),
-      buildUserMessage(stage, run.topic, run.contentType, run.context),
-      STAGE_MAX_TOKENS,
-      upstream.signal,
-    )
+    let reply: ChatReply
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        reply = await withDeadline(limitMs, req.signal, signal => chat(system, user, stageMaxTokens(stage), signal))
+        break
+      } catch (err) {
+        const note = retryNote(err, limitMs)
+        if (attempt > 0 || !note || req.signal.aborted || !retryFits(Date.now() - startedAt, limitMs)) {
+          throw err
+        }
+        retried = note
+      }
+    }
     const ms = Date.now() - startedAt
     const attempt = { usage: reply.usage, model: reply.servedModel ?? MODEL }
     const rejection = rejectOutput(stage, reply, run.context)
     if (rejection) {
-      return fail(rejection.message, 502, rejection.retryable, attempt)
+      return fail(rejection.message, 502, rejection.retryable, attempt, retried ?? undefined)
     }
 
     // The last stage ends the piece with its Sources list, built from the lookup and not from model text.
@@ -177,7 +188,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
       name: STAGE_LABELS[stage],
       status: 'ok',
       ms,
-      detail: detailFor(content),
+      detail: [retried, detailFor(content)].filter(Boolean).join(' '),
       tokens: reply.usage?.total_tokens,
       cost: reply.usage?.cost,
     }
@@ -186,18 +197,15 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
     if (req.signal.aborted) {
       return fail('The run was stopped before this stage finished.', 503, false)
     }
-    if (timedOut || isAbortError(err)) {
-      return fail(SLOW_MESSAGE, 504, false)
+    if ((err instanceof DOMException && err.name === 'TimeoutError') || isAbortError(err)) {
+      return fail(SLOW_MESSAGE, 504, false, undefined, retried ?? undefined)
     }
     if (err instanceof ProviderStatusError) {
       const { message, httpStatus } = providerOutcome(err.status)
       return fail(message, httpStatus, false)
     }
     console.error(`${stage} stage failed: ${err instanceof Error ? err.name : 'unknown error'}`)
-    return fail('Could not get a usable answer from the AI provider. Try again.', 502, false)
-  } finally {
-    clearTimeout(timer)
-    req.signal.removeEventListener('abort', stopWithClient)
+    return fail('Could not get a usable answer from the AI provider. Try again.', 502, false, undefined, retried ?? undefined)
   }
 }
 

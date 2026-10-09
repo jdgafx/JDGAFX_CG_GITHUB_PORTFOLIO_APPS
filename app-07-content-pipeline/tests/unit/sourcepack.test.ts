@@ -129,6 +129,38 @@ describe('withSources', () => {
     expect(withSources('James Webb led NASA in 1961 [1].', pack, 'Blog Post', ['james', 'webb']).startsWith('James Webb led NASA in 1961 [1].')).toBe(true)
   })
 
+  describe('how many claim words back a marker', () => {
+    const ASM: SourcePack = {
+      sources: [{ n: 3, kind: 'hackernews', title: 'From Asm.js to WebAssembly', url: 'https://brendaneich.com/2015/06/from-asm-js-to-webassembly/', summary: '', points: 120, date: '2015-06-17' }],
+      notes: [],
+    }
+    const WASM = ['webassembly']
+
+    it('keeps a marker on a sentence that quotes a title built on a name such as "Asm.js", with the topic word ignored', () => {
+      const text = withSources('The story is told in "From Asm.js to WebAssembly" [3].', ASM, 'Newsletter', WASM)
+      expect(text.startsWith('The story is told in "From Asm.js to WebAssembly" [3].')).toBe(true)
+      expect(text).toContain('- [3] [From Asm.js to WebAssembly]')
+    })
+
+    it('keeps a marker on one shared rare word, such as a name with a dot, a number or a long word', () => {
+      expect(withSources('It grew out of asm.js [3].', ASM, 'Blog Post', WASM).startsWith('It grew out of asm.js [3].')).toBe(true)
+      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider began operating in 2008 at CERN.' }], notes: [] }
+      expect(withSources('Operations began in 2008 [1].', lhc, 'Blog Post').startsWith('Operations began in 2008 [1].')).toBe(true)
+      expect(withSources('The accelerator needs superconducting magnets [1].', { sources: [{ ...WIKI, summary: 'It uses superconducting magnets.' }], notes: [] }, 'Blog Post').startsWith('The accelerator needs superconducting magnets [1].')).toBe(true)
+    })
+
+    it('removes a marker that rests on one shared ordinary word', () => {
+      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider is operated by CERN near Geneva.' }], notes: [] }
+      // "operated" is the only word they share.
+      expect(withSources('Staff operated the control room all night [1].', lhc, 'Blog Post').startsWith('Staff operated the control room all night.')).toBe(true)
+    })
+
+    it('keeps a marker on two shared ordinary words', () => {
+      const lhc: SourcePack = { sources: [{ ...WIKI, title: 'Large Hadron Collider', summary: 'The collider is operated by CERN near Geneva.' }], notes: [] }
+      expect(withSources('CERN operated it near Geneva [1].', lhc, 'Blog Post').startsWith('CERN operated it near Geneva [1].')).toBe(true)
+    })
+  })
+
   it('judges each marker of a run such as [1][2] on its own and keeps the ones that hold', () => {
     const text = withSources('A general-purpose language [1][2].', PACK, 'Blog Post')
     expect(text.startsWith('A general-purpose language [1].')).toBe(true)
@@ -144,8 +176,8 @@ describe('withSources', () => {
   })
 
   it('uses short, clickable links for a social thread', () => {
-    expect(withSources('1/ Rust is fast [1].', PACK, 'Social Thread')).toBe([
-      '1/ Rust is fast [1].',
+    expect(withSources('1/ Rust is a general-purpose language [1].', PACK, 'Social Thread')).toBe([
+      '1/ Rust is a general-purpose language [1].',
       '',
       '**Sources**',
       '',
