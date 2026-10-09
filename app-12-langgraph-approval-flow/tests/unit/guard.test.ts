@@ -7,9 +7,8 @@ import {
   rateLimit,
   readJsonBody,
   threadIdFrom,
-  ticketFrom,
 } from '../../netlify/shared/guard'
-import { NOTE_MAX_LENGTH, TICKET_MAX_LENGTH, TICKET_MIN_LENGTH, ticketProblem } from '../../src/lib/limits'
+import { EDIT_LABELS_MAX, NOTE_MAX_LENGTH } from '../../src/lib/limits'
 
 const LIVE = 'https://jdgafx-app-12-langgraph-approval-flow.netlify.app'
 
@@ -50,8 +49,14 @@ describe('origins', () => {
 
 describe('readJsonBody', () => {
   it('reads valid JSON', async () => {
-    const result = await readJsonBody(new Request('https://x.test', { method: 'POST', body: '{"ticket":"hi"}' }))
-    expect(result).toEqual({ ok: true, value: { ticket: 'hi' } })
+    const result = await readJsonBody(new Request('https://x.test', { method: 'POST', body: '{"issue":"hi"}' }))
+    expect(result).toEqual({ ok: true, value: { issue: 'hi' } })
+  })
+
+  it('accepts a body of 6,000 four-byte characters, the largest issue the page can send', async () => {
+    const body = JSON.stringify({ issue: { body: '\u{1F600}'.repeat(6000) } })
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThan(MAX_BODY_BYTES)
+    expect((await readJsonBody(new Request('https://x.test', { method: 'POST', body }))).ok).toBe(true)
   })
 
   it('refuses a body whose declared length is over the cap, before reading it', async () => {
@@ -82,26 +87,6 @@ describe('readJsonBody', () => {
   })
 })
 
-describe('ticket limits', () => {
-  it('accepts 10 to 2,000 characters after trimming, and refuses anything outside that range', () => {
-    expect(TICKET_MIN_LENGTH).toBe(10)
-    expect(TICKET_MAX_LENGTH).toBe(2000)
-    expect(ticketProblem('x'.repeat(9))).toBe('The ticket must be 10 to 2,000 characters.')
-    expect(ticketProblem('  ' + 'x'.repeat(10) + '  ')).toBeNull()
-    expect(ticketProblem('x'.repeat(2000))).toBeNull()
-    expect(ticketProblem('x'.repeat(2001))).toBe('The ticket must be 10 to 2,000 characters.')
-  })
-
-  it('returns the trimmed ticket for a valid body and the plain rule for anything else', () => {
-    expect(ticketFrom({ ticket: '  Order ORD-1077 is damaged.  ' })).toEqual({
-      ok: true,
-      value: 'Order ORD-1077 is damaged.',
-    })
-    expect(ticketFrom({ ticket: 42 })).toEqual({ ok: false, message: 'The ticket must be 10 to 2,000 characters.' })
-    expect(ticketFrom(null)).toEqual({ ok: false, message: 'The ticket must be 10 to 2,000 characters.' })
-  })
-})
-
 describe('thread ids', () => {
   it('accepts a generated id and refuses anything that could be a path', () => {
     expect(threadIdFrom('3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b')).toBe('3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b')
@@ -111,28 +96,39 @@ describe('thread ids', () => {
 })
 
 describe('decisionFrom', () => {
-  it('accepts approve and reject, and drops an amount sent with them', () => {
-    expect(decisionFrom({ decision: { action: 'approve', amount: 5 } })).toEqual({ ok: true, value: { action: 'approve' } })
-    expect(decisionFrom({ decision: { action: 'reject', note: '  Bank hold  ' } })).toEqual({
+  it('accepts approve and reject, and drops labels and priority sent with them', () => {
+    expect(decisionFrom({ decision: { action: 'approve', labels: ['bug'], priority: 'high' } })).toEqual({
       ok: true,
-      value: { action: 'reject', note: 'Bank hold' },
+      value: { action: 'approve' },
+    })
+    expect(decisionFrom({ decision: { action: 'reject', note: '  Not reproducible  ' } })).toEqual({
+      ok: true,
+      value: { action: 'reject', note: 'Not reproducible' },
     })
   })
 
-  it('needs a positive amount with at most two decimals for an edit', () => {
-    expect(decisionFrom({ decision: { action: 'edit', amount: 100 } })).toEqual({
+  it('needs labels and a known priority for an edit, and removes duplicate labels', () => {
+    expect(decisionFrom({ decision: { action: 'edit', labels: ['bug', ' bug ', 'security'], priority: 'urgent' } })).toEqual({
       ok: true,
-      value: { action: 'edit', amount: 100 },
+      value: { action: 'edit', labels: ['bug', 'security'], priority: 'urgent' },
     })
-    const message = 'Enter an amount greater than zero, with at most two decimals.'
-    expect(decisionFrom({ decision: { action: 'edit' } })).toEqual({ ok: false, message })
-    expect(decisionFrom({ decision: { action: 'edit', amount: 0 } })).toEqual({ ok: false, message })
-    expect(decisionFrom({ decision: { action: 'edit', amount: 1.005 } })).toEqual({ ok: false, message })
-    expect(decisionFrom({ decision: { action: 'edit', amount: '12' } })).toEqual({ ok: false, message })
-    expect(decisionFrom({ decision: { action: 'edit', amount: 12.5 } })).toEqual({
+    expect(decisionFrom({ decision: { action: 'edit', labels: [], priority: 'low' } })).toEqual({
       ok: true,
-      value: { action: 'edit', amount: 12.5 },
+      value: { action: 'edit', labels: [], priority: 'low' },
     })
+    const labelsMessage = `Send up to ${EDIT_LABELS_MAX} labels, each 1 to 50 characters.`
+    expect(decisionFrom({ decision: { action: 'edit', priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: 'bug', priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: [1], priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: ['  '], priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: ['x'.repeat(51)], priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: Array(EDIT_LABELS_MAX + 1).fill('bug'), priority: 'low' } })).toEqual({
+      ok: false,
+      message: labelsMessage,
+    })
+    const priorityMessage = 'Choose a priority: low, medium, high, urgent.'
+    expect(decisionFrom({ decision: { action: 'edit', labels: ['bug'] } })).toEqual({ ok: false, message: priorityMessage })
+    expect(decisionFrom({ decision: { action: 'edit', labels: ['bug'], priority: 'p0' } })).toEqual({ ok: false, message: priorityMessage })
   })
 
   it('refuses an unknown action and an over-long note with plain messages', () => {

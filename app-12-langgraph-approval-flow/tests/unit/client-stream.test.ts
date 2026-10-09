@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchThread, processSSELines, RequestFailure, resumeThread, startTicket } from '../../src/lib/api'
+import { fetchThread, processSSELines, RequestFailure, resumeThread, startIssue } from '../../src/lib/api'
 import type { StreamEvent } from '../../netlify/shared/events'
+import { QUESTION } from '../helpers/issues'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -35,7 +36,7 @@ describe('processSSELines', () => {
   })
 })
 
-describe('startTicket', () => {
+describe('startIssue', () => {
   it('reads a server-sent answer from the start function to its end marker', async () => {
     vi.stubGlobal(
       'fetch',
@@ -48,7 +49,10 @@ describe('startTicket', () => {
       ),
     )
     const seen: StreamEvent[] = []
-    await startTicket('Order ORD-1077 arrived damaged, please refund.', (event) => seen.push(event))
+    await startIssue(QUESTION, (event) => seen.push(event))
+    const [path, init] = vi.mocked(fetch).mock.calls[0]
+    expect(path).toBe('/api/start')
+    expect(JSON.parse(String(init?.body))).toEqual({ issue: QUESTION })
     expect(seen).toEqual([
       { type: 'thread', threadId: 'abc' },
       { type: 'error', message: 'stopped' },
@@ -58,24 +62,24 @@ describe('startTicket', () => {
   it('shows the server plain-language error when the start is refused', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ success: false, error: 'The ticket must be 10 to 2,000 characters.' }), { status: 400 })),
+      vi.fn(async () => new Response(JSON.stringify({ success: false, error: 'The issue title must be 1 to 300 characters.' }), { status: 400 })),
     )
-    await expect(startTicket('short', () => {})).rejects.toMatchObject({
+    await expect(startIssue(QUESTION, () => {})).rejects.toMatchObject({
       name: 'RequestFailure',
-      message: 'The ticket must be 10 to 2,000 characters.',
+      message: 'The issue title must be 1 to 300 characters.',
     })
   })
 
   it('refuses an HTML page that came back where the run stream should be', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>site</html>', { status: 200, headers: { 'Content-Type': 'text/html' } })))
-    const failure = await startTicket('Order ORD-1077 arrived damaged, please refund.', () => {}).catch((err: unknown) => err)
+    const failure = await startIssue(QUESTION, () => {}).catch((err: unknown) => err)
     expect(failure).toBeInstanceOf(RequestFailure)
     expect((failure as Error).message).toContain('did not start a run')
   })
 
   it('reports an unreachable server in plain words', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('network down'))))
-    await expect(startTicket('Order ORD-1077 arrived damaged, please refund.', () => {})).rejects.toThrow(
+    await expect(startIssue(QUESTION, () => {})).rejects.toThrow(
       'Could not reach the server.',
     )
   })
@@ -94,12 +98,12 @@ describe('startTicket', () => {
     expect(refused).toMatchObject({ connection: false, status: 409 })
   })
 
-  it('reads the full ticket from a thread, and refuses a thread body without one', async () => {
-    const view = { success: true, threadId: 't-1', title: 'Order', ticket: 'Order ORD-1077 arrived damaged, please refund.', status: 'completed' }
+  it('reads the issue from a thread, and refuses a thread body without one', async () => {
+    const view = { success: true, threadId: 't-1', title: 'acme/widgets #101', issue: QUESTION, status: 'completed' }
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(view), { status: 200 })))
-    await expect(fetchThread('t-1')).resolves.toMatchObject({ ticket: 'Order ORD-1077 arrived damaged, please refund.' })
+    await expect(fetchThread('t-1')).resolves.toMatchObject({ issue: { repo: 'acme/widgets', number: 101 } })
 
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...view, ticket: 42 }), { status: 200 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...view, issue: 42 }), { status: 200 })))
     await expect(fetchThread('t-1')).rejects.toThrow('could not read')
     vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200 })))
     await expect(fetchThread('t-1')).rejects.toThrow('could not read')

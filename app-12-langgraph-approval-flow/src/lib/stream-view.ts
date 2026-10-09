@@ -13,7 +13,7 @@ export const NO_STREAM: StreamFlow = { resuming: false, eventsArrived: false }
 export function runningLine(current: NodeName | null, flow: StreamFlow): string {
   if (flow.resuming && !flow.eventsArrived) return 'Sending your decision.'
   if (current) return `Running the ${current} step.`
-  return flow.eventsArrived ? 'Running the refund.' : 'Starting the refund run.'
+  return flow.eventsArrived ? 'Running the triage.' : 'Starting the triage run.'
 }
 
 /**

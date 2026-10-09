@@ -3,31 +3,29 @@ import type { NodeStatus, RunView } from '../lib/run-state'
 import type { NodeName } from '../types'
 
 type Point = [number, number]
-type ArrowName = 'start' | 'intakePolicy' | 'policyDecide' | 'decideReview' | 'decideReply' | 'reviewReply' | 'end'
+type ArrowName = 'start' | 'classifyDecide' | 'decideReview' | 'decideReply' | 'reviewReply' | 'end'
 
 /** The stage has a fixed size, so the boxes and arrows keep their places. A narrow screen scrolls it. */
-const STAGE = { width: 512, height: 232 }
-const BOX = { width: 100, height: 76 }
+const STAGE = { width: 560, height: 226 }
+const BOX = { width: 112, height: 76 }
 const TOP_ROW = 12
 const LOW_ROW = 116
 
 const PLACE: Record<NodeName, { left: number; top: number }> = {
-  intake: { left: 50, top: TOP_ROW },
-  policy: { left: 170, top: TOP_ROW },
-  decide: { left: 290, top: TOP_ROW },
-  review: { left: 290, top: LOW_ROW },
-  reply: { left: 410, top: LOW_ROW },
+  classify: { left: 44, top: TOP_ROW },
+  decide: { left: 196, top: TOP_ROW },
+  review: { left: 196, top: LOW_ROW },
+  reply: { left: 400, top: TOP_ROW },
 }
 
 /** Each arrow as its points. The last segment sets the direction of the arrowhead. */
 const ARROWS: Record<ArrowName, Point[]> = {
-  start: [[36, 50], [50, 50]],
-  intakePolicy: [[150, 50], [170, 50]],
-  policyDecide: [[270, 50], [290, 50]],
-  decideReview: [[340, 88], [340, 116]],
-  decideReply: [[390, 50], [460, 50], [460, 116]],
-  reviewReply: [[390, 154], [410, 154]],
-  end: [[460, 192], [460, 202]],
+  start: [[30, 50], [44, 50]],
+  classifyDecide: [[156, 50], [196, 50]],
+  decideReply: [[308, 50], [400, 50]],
+  decideReview: [[252, 88], [252, 116]],
+  reviewReply: [[308, 154], [456, 154], [456, 88]],
+  end: [[512, 50], [534, 50]],
 }
 
 const STATE_TEXT: Record<NodeStatus, string> = {
@@ -43,7 +41,7 @@ const STATE_TEXT: Record<NodeStatus, string> = {
 const DOT_CLASS: Record<NodeStatus, string> = {
   idle: '',
   running: 'ds-dot--running',
-  waiting: 'gg-dot--active',
+  waiting: 'gg-dot--waiting',
   done: 'ds-dot--ok',
   failed: 'ds-dot--failed',
   skipped: 'ds-dot--skipped',
@@ -85,7 +83,7 @@ function StepBox({ name, status }: { name: NodeName; status: NodeStatus }) {
     >
       <span className="gg-node__head">
         <span className="gg-node__name">{name}</span>
-        <span className={`ds-dot ${DOT_CLASS[status]}`} aria-hidden="true" />
+        {status === 'waiting' ? <span className="gg-node__pause" aria-hidden="true" /> : <span className={`ds-dot ${DOT_CLASS[status]}`} aria-hidden="true" />}
       </span>
       <span className="gg-node__state">{STATE_TEXT[status]}</span>
     </li>
@@ -102,18 +100,22 @@ function EdgeLabel({ text, taken, style }: { text: string; taken: boolean; style
   )
 }
 
-/** The run as a graph: five steps, the two decide edges with their labels, and the path this run took. */
+/** The run as a graph: four steps, the two decide edges with their labels, and the path this run took. */
 export function GraphView({ run }: { run: RunView }) {
   const taken = (key: string) => key in run.taken
   const needsHuman = taken('decide>review')
-  const autoApprove = taken('decide>reply')
+  const autoTriage = taken('decide>reply')
+  const paused = run.nodes.review === 'waiting'
 
   return (
     <section className="ds-panel gg-hero" aria-labelledby="graph-heading">
       <div className="ds-section__head">
         <h2 id="graph-heading" className="ds-section__title">Graph</h2>
-        <p className="ds-section__sub">Each box is one step. The highlighted path is the route this run took.</p>
+        <p className="ds-section__sub">
+          Each box is one step. The highlighted path is the route this run took. The review box is where it waits for a maintainer.
+        </p>
       </div>
+      <p className="ds-help gg-scroll-hint">Swipe the graph sideways to see all of it.</p>
       <div className="ds-scroll-x" role="region" aria-label="Graph, scrolls sideways" tabIndex={0}>
         <div className="gg-stage" style={{ width: STAGE.width, height: STAGE.height }}>
           <svg
@@ -124,29 +126,32 @@ export function GraphView({ run }: { run: RunView }) {
             aria-hidden="true"
             focusable="false"
           >
-            <Arrow name="start" taken={run.nodes.intake !== 'idle'} />
-            <Arrow name="intakePolicy" taken={taken('intake>policy')} />
-            <Arrow name="policyDecide" taken={taken('policy>decide')} />
+            <Arrow name="start" taken={run.nodes.classify !== 'idle'} />
+            <Arrow name="classifyDecide" taken={taken('classify>decide')} />
             <Arrow name="decideReview" taken={needsHuman} />
-            <Arrow name="decideReply" taken={autoApprove} />
+            <Arrow name="decideReply" taken={autoTriage} />
             <Arrow name="reviewReply" taken={taken('review>reply')} />
             <Arrow name="end" taken={run.nodes.reply === 'done'} />
           </svg>
           <ol className="gg-stage__nodes" aria-label="Graph steps">
-            <StepBox name="intake" status={run.nodes.intake} />
-            <StepBox name="policy" status={run.nodes.policy} />
+            <StepBox name="classify" status={run.nodes.classify} />
             <StepBox name="decide" status={run.nodes.decide} />
             <StepBox name="review" status={run.nodes.review} />
             <StepBox name="reply" status={run.nodes.reply} />
           </ol>
-          <EdgeLabel text="needs a human" taken={needsHuman} style={{ right: STAGE.width - 332, top: 94 }} />
-          <EdgeLabel text="auto-approve" taken={autoApprove} style={{ left: 398, top: 30 }} />
+          <EdgeLabel text="auto-triage" taken={autoTriage} style={{ left: 316, top: 30 }} />
+          <EdgeLabel text="needs a maintainer" taken={needsHuman} style={{ left: 262, top: 94 }} />
           <span className="gg-stage__terminal" style={{ left: 0, top: 42 }}>
             Start
           </span>
-          <span className="gg-stage__terminal" style={{ left: 448, top: 204 }}>
+          <span className="gg-stage__terminal" style={{ left: 538, top: 42 }}>
             End
           </span>
+          {paused ? (
+            <span className="gg-stage__pause" style={{ left: 168, top: 198 }}>
+              Paused for a maintainer
+            </span>
+          ) : null}
         </div>
       </div>
     </section>

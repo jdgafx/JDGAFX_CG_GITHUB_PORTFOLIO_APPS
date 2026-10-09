@@ -10,11 +10,12 @@
 .gg-hero,
 .gg-approval,
 .gg-decision,
-.gg-email,
+.gg-draft,
 .gg-edit,
-.gg-samples,
-.gg-sample,
-.gg-start-block,
+.gg-presets,
+.gg-repo-form,
+.gg-issues,
+.gg-card-facts,
 .gg-facts,
 .gg-threads,
 .gg-node {
@@ -46,50 +47,6 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
-}
-
-/* Sample tickets: each button names its ticket and states the outcome under the name */
-.gg-samples {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.gg-sample {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
-  width: 100%;
-  min-height: 56px;
-  padding: 10px 14px;
-  text-align: left;
-}
-
-.gg-sample__label {
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.gg-sample__outcome {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.gg-sample[aria-pressed="true"] {
-  background: var(--ds-surface-2);
-  border-color: var(--ds-text-muted);
-}
-
-.gg-start-block {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.gg-start {
-  width: 100%;
 }
 
 /* Threads: rules between rows, no boxes */
@@ -144,153 +101,9 @@
   margin-top: 0.4em;
 }
 
-/* The tokens have no dot for a paused step or a waiting run, so the app adds two. A paused review gate
-   takes the signal colour to match its box. A waiting run in a list takes the warning colour. */
-.gg-dot--active {
-  background: var(--ds-accent);
-}
-
+/* The tokens have no dot for a waiting run, so the app adds one in the warning colour. */
 .gg-dot--waiting {
   background: var(--ds-warning);
-}
-
-/* The graph: a fixed-size stage. Boxes and arrows keep their places, and a narrow screen scrolls it. */
-.gg-hero {
-  display: grid;
-  gap: 16px;
-}
-
-.gg-stage {
-  position: relative;
-}
-
-.gg-stage__svg {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: visible;
-}
-
-.gg-stage__nodes {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Untaken edges are dashed graphite. Taken edges are solid signal colour. */
-.gg-stage__line {
-  fill: none;
-  stroke: var(--ds-text-muted);
-  stroke-width: 1.5;
-  stroke-dasharray: 5 4;
-}
-
-.gg-stage__line--taken {
-  stroke: var(--ds-accent);
-  stroke-width: 2.5;
-  stroke-dasharray: none;
-}
-
-.gg-stage__head {
-  fill: var(--ds-text-muted);
-}
-
-.gg-stage__head--taken {
-  fill: var(--ds-accent);
-}
-
-.gg-stage__label {
-  position: absolute;
-  font-size: 13px;
-  line-height: 16px;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-.gg-stage__label--taken {
-  color: var(--ds-accent);
-  font-weight: 650;
-}
-
-.gg-stage__terminal {
-  position: absolute;
-  font-size: 13px;
-  line-height: 16px;
-  color: var(--ds-text-muted);
-}
-
-.gg-node {
-  position: absolute;
-  display: grid;
-  align-content: center;
-  gap: 6px;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 8px 10px;
-  list-style: none;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.gg-node__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.gg-node__name {
-  font-family: var(--ds-mono);
-  font-size: 15px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.gg-node__state {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
-
-.gg-node--done {
-  border-color: var(--ds-text-muted);
-}
-
-.gg-node--done .gg-node__state {
-  color: var(--ds-text);
-}
-
-/* The active step takes the signal colour. The review gate adds an outer rule while it waits. */
-.gg-node--running,
-.gg-node--waiting {
-  padding: 7px 9px;
-  border: 2px solid var(--ds-accent);
-  background: var(--ds-accent-soft);
-}
-
-.gg-node--waiting {
-  outline: 1px solid var(--ds-accent);
-  outline-offset: 3px;
-}
-
-.gg-node--failed {
-  padding: 7px 9px;
-  border: 2px solid var(--ds-danger);
-  background: var(--ds-danger-soft);
-}
-
-.gg-node--skipped {
-  border-style: dashed;
-}
-
-.gg-node--skipped .gg-node__name {
-  font-weight: 400;
-  color: var(--ds-text-muted);
 }
 
 /* The readout keeps the tokens' strip. These rules only set three columns, with the models row across all three. */
@@ -308,78 +121,166 @@
   }
 }
 
-/* The approval card: the one loud panel, and only while the run waits */
-.gg-approval {
-  display: grid;
-  gap: 16px;
-  background: var(--ds-surface);
-  border: 2px solid var(--ds-warning);
-}
-
-.gg-facts {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-}
-
-.gg-facts > div {
-  display: grid;
-  gap: 2px;
-}
-
-.gg-facts dt {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
-
-.gg-facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-@media (min-width: 560px) {
-  .gg-facts > div {
-    grid-template-columns: 160px minmax(0, 1fr);
-    gap: 16px;
-  }
-}
-
-.gg-decision {
+/* Repo picker: presets as quiet buttons, then a one-line form */
+.gg-presets {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
-.gg-actions {
+.gg-presets__row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
-/* The edit form is a tint, not a box */
-.gg-edit {
+.gg-preset {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-family: var(--ds-mono);
+  font-weight: 600;
+}
+
+.gg-preset[aria-pressed="true"] {
+  background: var(--ds-accent-soft);
+  border-color: var(--ds-accent);
+  color: var(--ds-accent);
+}
+
+.gg-repo-form {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  background: var(--ds-surface-2);
-  border-radius: var(--ds-radius-sm);
+  gap: 10px;
+  min-width: 0;
 }
 
-.gg-edit .ds-button {
+.gg-repo-form .ds-button {
   justify-self: start;
 }
 
-/* The customer reply */
-.gg-email {
+/* Issue list: rules between rows, scrolls inside its own box so the page stays short */
+.gg-issues {
   display: grid;
-  gap: 10px;
+  gap: 0;
+  margin: 0;
+  padding: 0 12px;
+  list-style: none;
+  max-height: 520px;
+  overflow-y: auto;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
 }
 
-.gg-subject {
+.gg-issue {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--ds-border);
+}
+
+.gg-issue:first-child {
+  border-top: 0;
+}
+
+.gg-issue--active .gg-issue__title {
+  color: var(--ds-accent);
+}
+
+.gg-issue__text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gg-issue__title {
   font-weight: 650;
   overflow-wrap: anywhere;
 }
 
-.gg-body {
-  white-space: pre-wrap;
+.gg-issue__number {
+  font-family: var(--ds-mono);
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.gg-issue__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+/* Chips: labels and priorities. A word in a pill, never colour alone. */
+.gg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gg-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ds-text);
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
   overflow-wrap: anywhere;
+}
+
+.gg-chip--high,
+.gg-chip--urgent {
+  color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+  border-color: transparent;
+}
+
+.gg-chip--medium {
+  color: var(--ds-warning);
+  background: var(--ds-warning-soft);
+  border-color: transparent;
+}
+
+.gg-chip--low {
+  color: var(--ds-success);
+  background: var(--ds-success-soft);
+  border-color: transparent;
+}
+
+/* The issue the run is about */
+.gg-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  max-width: none;
+  padding: 10px 14px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-accent);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-banner__repo {
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.gg-banner__title {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.gg-banner a {
+  font-size: 13px;
+  color: var(--ds-accent);
 }

@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { providerFetch } from '../helpers/fake-openrouter'
 import { getFrom, postJson, readFrames, typesOf, type Frame } from '../helpers/http'
+import { BUG, CLASSIFIED_BUG } from '../helpers/issues'
 
 vi.mock('@netlify/blobs', async () => (await import('../helpers/fake-blobs')).fakeBlobsModule())
 
 import resume from '../../netlify/functions/resume'
 import start from '../../netlify/functions/start'
 
-const LARGE = 'I was charged twice for ORD-1042. Both charges were $129.00, please refund the extra one.'
 const NOT_AWAITING = 'This thread is not awaiting approval.'
+const UNKNOWN_ID = '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b'
 
 function find(frames: Frame[], type: string): Record<string, unknown> | undefined {
   return frames.find((frame): frame is Record<string, unknown> => frame !== '[DONE]' && frame.type === type)
@@ -20,10 +21,10 @@ function nodeEnds(frames: Frame[]): Array<[unknown, unknown]> {
     .map((frame) => [frame.node, frame.status])
 }
 
-/** Starts the large duplicate-charge ticket and returns its thread id, paused at review. */
+/** Starts the high-severity bug and returns its thread id, paused at review. */
 async function pausedThread(client: string): Promise<string> {
-  vi.stubGlobal('fetch', providerFetch())
-  const frames = await readFrames(await start(postJson('/api/start', { ticket: LARGE }, client)))
+  vi.stubGlobal('fetch', providerFetch({ classification: CLASSIFIED_BUG }))
+  const frames = await readFrames(await start(postJson('/api/start', { issue: BUG }, client)))
   const thread = find(frames, 'thread')
   if (!thread || typeof thread.threadId !== 'string') throw new Error('start sent no thread frame')
   return thread.threadId
@@ -41,7 +42,8 @@ afterEach(() => {
 describe('POST /api/resume', () => {
   it('approve continues from the checkpoint and streams review, reply and the result', async () => {
     const threadId = await pausedThread('ip-resume-1')
-    vi.stubGlobal('fetch', providerFetch())
+    const fetchStub = providerFetch()
+    vi.stubGlobal('fetch', fetchStub)
 
     const response = await resume(postJson('/api/resume', { threadId, decision: { action: 'approve' } }, 'ip-resume-1'))
     const frames = await readFrames(response)
@@ -54,56 +56,82 @@ describe('POST /api/resume', () => {
     ])
     expect(frames).toContainEqual({ type: 'edge', from: 'review', to: 'reply' })
     expect(find(frames, 'result')?.result).toMatchObject({
-      action: 'refund',
-      amount: 129,
+      outcome: 'approved',
+      path: 'human',
+      labels: ['bug', 'area: router'],
+      priority: 'high',
       humanDecision: { action: 'approve' },
-      reply: { subject: 'Your refund for ORD-1042' },
+      issue: { number: 202 },
     })
+    // The classify call is not repeated after the pause: only the reply is drafted.
+    expect(fetchStub).toHaveBeenCalledTimes(1)
   })
 
-  it('edit refunds the edited amount when it is within the order total', async () => {
+  it('edit applies the maintainer labels and priority', async () => {
     const threadId = await pausedThread('ip-resume-2')
     vi.stubGlobal('fetch', providerFetch())
 
     const frames = await readFrames(
-      await resume(postJson('/api/resume', { threadId, decision: { action: 'edit', amount: 100, note: 'Goodwill' } }, 'ip-resume-2')),
+      await resume(
+        postJson(
+          '/api/resume',
+          { threadId, decision: { action: 'edit', labels: ['bug', 'good first issue'], priority: 'low', note: 'Easy fix' } },
+          'ip-resume-2',
+        ),
+      ),
     )
 
     expect(find(frames, 'result')?.result).toMatchObject({
-      action: 'refund',
-      amount: 100,
-      humanDecision: { action: 'edit', amount: 100, note: 'Goodwill' },
+      outcome: 'edited',
+      labels: ['bug', 'good first issue'],
+      priority: 'low',
+      humanDecision: { action: 'edit', labels: ['bug', 'good first issue'], priority: 'low', note: 'Easy fix' },
     })
   })
 
-  it('refuses an edit above the order total with a plain 400, and the thread keeps waiting', async () => {
+  it('refuses an edit with a label the card did not offer, with a plain 400, and the thread keeps waiting', async () => {
     const threadId = await pausedThread('ip-resume-3')
     vi.stubGlobal('fetch', providerFetch())
 
-    const refused = await resume(postJson('/api/resume', { threadId, decision: { action: 'edit', amount: 500 } }, 'ip-resume-3'))
+    const refused = await resume(
+      postJson('/api/resume', { threadId, decision: { action: 'edit', labels: ['bug', 'wontfix-ever'], priority: 'low' } }, 'ip-resume-3'),
+    )
 
     expect(refused.status).toBe(400)
     expect(await refused.json()).toEqual({
       success: false,
-      error: 'The amount cannot be more than the order total of $129.00.',
+      error: '"wontfix-ever" is not one of the labels offered. Pick from the list.',
     })
     const still = await resume(postJson('/api/resume', { threadId, decision: { action: 'reject' } }, 'ip-resume-3'))
     const frames = await readFrames(still)
-    expect(find(frames, 'result')?.result).toMatchObject({ action: 'deny', amount: 0 })
+    expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'rejected', labels: [], priority: null })
   })
 
-  it('reject streams a polite denial as the result', async () => {
-    const threadId = await pausedThread('ip-resume-4')
-    vi.stubGlobal('fetch', providerFetch({ email: 'Thank you for writing. We cannot refund this order.' }))
+  it('accepts the area label the rules proposed, which is not in the fixed list', async () => {
+    const threadId = await pausedThread('ip-resume-10')
+    vi.stubGlobal('fetch', providerFetch())
 
     const frames = await readFrames(
-      await resume(postJson('/api/resume', { threadId, decision: { action: 'reject', note: 'Bank shows one charge' } }, 'ip-resume-4')),
+      await resume(postJson('/api/resume', { threadId, decision: { action: 'edit', labels: ['area: router'], priority: 'medium' } }, 'ip-resume-10')),
+    )
+
+    expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'edited', labels: ['area: router'] })
+  })
+
+  it('reject streams a draft that says only that a maintainer looked, with nothing applied', async () => {
+    const threadId = await pausedThread('ip-resume-4')
+    vi.stubGlobal('fetch', providerFetch({ email: 'Thank you for writing. A maintainer has looked at this.' }))
+
+    const frames = await readFrames(
+      await resume(postJson('/api/resume', { threadId, decision: { action: 'reject', note: 'Cannot reproduce' } }, 'ip-resume-4')),
     )
 
     expect(find(frames, 'result')?.result).toMatchObject({
-      action: 'deny',
-      amount: 0,
-      reply: { subject: 'Update on ORD-1042', body: 'Thank you for writing. We cannot refund this order.' },
+      outcome: 'rejected',
+      labels: [],
+      priority: null,
+      humanDecision: { action: 'reject', note: 'Cannot reproduce' },
+      reply: { body: 'Thank you for writing. A maintainer has looked at this.' },
     })
   })
 
@@ -143,16 +171,14 @@ describe('POST /api/resume', () => {
     })
     release()
     const frames = await readFrames(first)
-    expect(find(frames, 'result')?.result).toMatchObject({ action: 'refund', amount: 129 })
+    expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'approved', priority: 'high' })
   })
 
   it('answers 409 for a thread id that was never started', async () => {
     const fetchStub = providerFetch()
     vi.stubGlobal('fetch', fetchStub)
 
-    const response = await resume(
-      postJson('/api/resume', { threadId: '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b', decision: { action: 'approve' } }, 'ip-resume-6'),
-    )
+    const response = await resume(postJson('/api/resume', { threadId: UNKNOWN_ID, decision: { action: 'approve' } }, 'ip-resume-6'))
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ success: false, error: NOT_AWAITING })
@@ -166,11 +192,13 @@ describe('POST /api/resume', () => {
     expect(badId.status).toBe(400)
     expect(await badId.json()).toEqual({ success: false, error: 'The thread id is not valid.' })
 
-    const badAction = await resume(
-      postJson('/api/resume', { threadId: '3f2b6c1e-9a4d-4e8f-8b7a-1c2d3e4f5a6b', decision: { action: 'maybe' } }, 'ip-resume-7'),
-    )
+    const badAction = await resume(postJson('/api/resume', { threadId: UNKNOWN_ID, decision: { action: 'maybe' } }, 'ip-resume-7'))
     expect(badAction.status).toBe(400)
     expect(await badAction.json()).toEqual({ success: false, error: 'Choose approve, edit or reject.' })
+
+    const badEdit = await resume(postJson('/api/resume', { threadId: UNKNOWN_ID, decision: { action: 'edit', labels: ['bug'], priority: 'p0' } }, 'ip-resume-7'))
+    expect(badEdit.status).toBe(400)
+    expect(await badEdit.json()).toEqual({ success: false, error: 'Choose a priority: low, medium, high, urgent.' })
   })
 
   it('answers 405 to a GET', async () => {

@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["netlify", "src/lib/limits.ts", "src/lib/money.ts", "src/lib/orders.ts", "src/types"]
+  "include": ["netlify", "src/lib/limits.ts", "src/types"]
 }

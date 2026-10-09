@@ -1,0 +1,181 @@
+/* The graph stage: fixed-size boxes and arrows. A narrow screen scrolls it sideways. */
+
+.gg-hero {
+  display: grid;
+  gap: 16px;
+}
+
+.gg-stage {
+  position: relative;
+}
+
+.gg-stage__svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.gg-stage__nodes {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Untaken edges are dashed graphite. Taken edges are solid signal colour. */
+.gg-stage__line {
+  fill: none;
+  stroke: var(--ds-text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.gg-stage__line--taken {
+  stroke: var(--ds-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+.gg-stage__head {
+  fill: var(--ds-text-muted);
+}
+
+.gg-stage__head--taken {
+  fill: var(--ds-accent);
+}
+
+.gg-stage__label {
+  position: absolute;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.gg-stage__label--taken {
+  color: var(--ds-accent);
+  font-weight: 650;
+}
+
+.gg-stage__terminal {
+  position: absolute;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--ds-text-muted);
+}
+
+.gg-node {
+  position: absolute;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gg-node__name {
+  font-family: var(--ds-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gg-node__state {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.gg-node--done {
+  border-color: var(--ds-text-muted);
+}
+
+.gg-node--done .gg-node__state {
+  color: var(--ds-text);
+}
+
+/* The active step takes the signal colour. The review gate adds an outer rule while it waits. */
+.gg-node--running {
+  padding: 7px 9px;
+  border: 2px solid var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+
+/* The pause is the point of the graph, so the waiting gate takes the warning colour of the approval card,
+   an outer rule that breathes, and a pause mark. The word "paused" is always shown too. */
+.gg-node--waiting {
+  padding: 7px 9px;
+  border: 2px solid var(--ds-warning);
+  background: var(--ds-warning-soft);
+  outline: 1px solid var(--ds-warning);
+  outline-offset: 3px;
+  animation: gg-hold 1.8s ease-in-out infinite;
+}
+
+.gg-node--waiting .gg-node__state {
+  color: var(--ds-warning);
+  font-weight: 650;
+}
+
+@keyframes gg-hold {
+  0%, 100% { outline-offset: 3px; outline-color: var(--ds-warning); }
+  50% { outline-offset: 6px; outline-color: transparent; }
+}
+
+.gg-node__pause {
+  display: inline-block;
+  width: 11px;
+  height: 13px;
+  border-left: 4px solid var(--ds-warning);
+  border-right: 4px solid var(--ds-warning);
+}
+
+.gg-stage__pause {
+  position: absolute;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--ds-warning);
+}
+
+.gg-node--failed {
+  padding: 7px 9px;
+  border: 2px solid var(--ds-danger);
+  background: var(--ds-danger-soft);
+}
+
+.gg-node--skipped {
+  border-style: dashed;
+}
+
+.gg-node--skipped .gg-node__name {
+  font-weight: 400;
+  color: var(--ds-text-muted);
+}
+
+
+.gg-scroll-hint {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .gg-scroll-hint {
+    display: block;
+  }
+}

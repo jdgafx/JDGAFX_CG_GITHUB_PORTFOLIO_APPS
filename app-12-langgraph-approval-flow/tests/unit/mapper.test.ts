@@ -1,20 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { DONE_FRAME, NOT_NEEDED_DETAIL, encodeFrame, SSE_HEADERS, type StreamEvent } from '../../netlify/shared/events'
 import { FrameMapper } from '../../netlify/shared/mapper'
+import { PROPOSAL } from '../helpers/issues'
 
 function recorder() {
   const events: StreamEvent[] = []
   return { events, send: (event: StreamEvent) => events.push(event) }
 }
 
-const policyChunk = (requiresHuman: boolean) => ({
-  policyResult: {
-    eligible: true,
-    reason: 'reason',
-    amount: 24.5,
-    requiresHuman,
-  },
-  trace: [{ node: 'policy', status: 'ok', ms: 2, detail: 'reason' }],
+const decideChunk = (requiresHuman: boolean) => ({
+  triage: { requiresHuman, reasons: [], reason: 'reason', labels: [], priority: 'low' },
+  trace: [{ node: 'decide', status: 'ok', ms: 2, detail: 'reason' }],
 })
 
 describe('encodeFrame and the stream constants', () => {
@@ -35,17 +31,17 @@ describe('FrameMapper', () => {
     const { events, send } = recorder()
     const mapper = new FrameMapper('t-1', send, 0)
 
-    mapper.onCustom({ type: 'node_start', node: 'intake' })
+    mapper.onCustom({ type: 'node_start', node: 'classify' })
     mapper.onUpdates({
-      intake: {
-        trace: [{ node: 'intake', status: 'ok', ms: 12, model: 'm', usage: { total_tokens: 5 }, cost: 0.1, costSource: 'usage', detail: 'd' }],
+      classify: {
+        trace: [{ node: 'classify', status: 'ok', ms: 12, model: 'm', usage: { total_tokens: 5 }, cost: 0.1, costSource: 'usage', detail: 'd' }],
       },
     })
 
-    expect(events[0]).toMatchObject({ type: 'node_start', node: 'intake' })
+    expect(events[0]).toMatchObject({ type: 'node_start', node: 'classify' })
     expect(events[1]).toEqual({
       type: 'node_end',
-      node: 'intake',
+      node: 'classify',
       ms: 12,
       status: 'ok',
       model: 'm',
@@ -54,48 +50,41 @@ describe('FrameMapper', () => {
       costSource: 'usage',
       detail: 'd',
     })
-    expect(events[2]).toEqual({ type: 'edge', from: 'intake', to: 'policy' })
+    expect(events[2]).toEqual({ type: 'edge', from: 'classify', to: 'decide' })
   })
 
   it('takes the requiresHuman edge to review, and the interrupt frame carries the proposal', () => {
     const { events, send } = recorder()
     const mapper = new FrameMapper('t-2', send, 0)
-    mapper.onUpdates({ policy: policyChunk(true) })
-    expect(events).toContainEqual({ type: 'edge', from: 'policy', to: 'decide' })
-    mapper.onUpdates({ decide: { trace: [{ node: 'decide', status: 'ok', ms: 3, detail: 'd' }] } })
-    mapper.onUpdates({
-      __interrupt__: [
-        {
-          value: {
-            proposal: { action: 'refund', amount: 129, rationale: 'Two charges.' },
-            policy: { eligible: true, reason: 'r', amount: 129, requiresHuman: true },
-            orderId: 'ORD-1042',
-            orderTotal: 129,
-            requestedAmount: 129,
-          },
-          resumable: true,
-        },
-      ],
-    })
+    mapper.onUpdates({ decide: decideChunk(true) })
+    mapper.onUpdates({ __interrupt__: [{ value: PROPOSAL, resumable: true }] })
 
     expect(events.filter((event) => event.type === 'edge')).toEqual([
-      { type: 'edge', from: 'policy', to: 'decide' },
       { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },
     ])
     expect(mapper.paused).toBe(true)
-    expect(mapper.proposalAmount).toBe(129)
-    expect(events[events.length - 1]).toMatchObject({ type: 'interrupt', node: 'review', threadId: 't-2' })
+    expect(mapper.proposalPriority).toBe('high')
+    expect(events[events.length - 1]).toEqual({ type: 'interrupt', node: 'review', threadId: 't-2', payload: PROPOSAL })
   })
 
-  it('takes the otherwise edge to reply and reports review as skipped on an automatic refund', () => {
+  it('takes the otherwise edge to reply and reports review as skipped on an automatic triage', () => {
     const { events, send } = recorder()
     const mapper = new FrameMapper('t-3', send, 0)
-    mapper.onUpdates({ policy: policyChunk(false) })
-    mapper.onUpdates({ decide: { trace: [{ node: 'decide', status: 'ok', ms: 3, detail: 'd' }] } })
+    mapper.onUpdates({ decide: decideChunk(false) })
 
     expect(events).toContainEqual({ type: 'edge', from: 'decide', to: 'reply', label: 'otherwise' })
     expect(events).toContainEqual({ type: 'node_end', node: 'review', ms: 0, status: 'skipped', detail: NOT_NEEDED_DETAIL })
     expect(mapper.paused).toBe(false)
+  })
+
+  it('does not pause on an interrupt payload that is not a review payload', () => {
+    const { events, send } = recorder()
+    const mapper = new FrameMapper('t-6', send, 0)
+    mapper.onUpdates({ __interrupt__: [{ value: { triage: { priority: 'p0' } } }] })
+    mapper.onUpdates({ __interrupt__: [{ value: { ...PROPOSAL, triage: { ...PROPOSAL.triage, priority: 'p0' } } }] })
+    mapper.onUpdates({ __interrupt__: 'nope' })
+    expect(mapper.paused).toBe(false)
+    expect(events).toEqual([])
   })
 
   it('marks the running node failed with the message when the run stops', () => {
@@ -115,8 +104,8 @@ describe('FrameMapper', () => {
   it('ignores custom chunks and updates it does not recognise', () => {
     const { events, send } = recorder()
     const mapper = new FrameMapper('t-5', send, 0)
-    mapper.onCustom({ type: 'something-else', node: 'intake' })
-    mapper.onCustom({ type: 'node_start', node: 'not-a-node' })
+    mapper.onCustom({ type: 'something-else', node: 'classify' })
+    mapper.onCustom({ type: 'node_start', node: 'intake' })
     mapper.onUpdates({ notANode: { trace: [] } })
     expect(events).toEqual([])
   })

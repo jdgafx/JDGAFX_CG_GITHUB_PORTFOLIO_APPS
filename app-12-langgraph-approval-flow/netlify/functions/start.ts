@@ -1,11 +1,12 @@
 import { RunBudget } from '../shared/budget'
-import { checkRequest, clientKey, fail, rateLimit, readJsonBody, SERVER_ERROR, ticketFrom } from '../shared/guard'
+import { checkRequest, clientKey, fail, rateLimit, readJsonBody, SERVER_ERROR } from '../shared/guard'
+import { issueFrom } from '../shared/issue-input'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
 import { startRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
 import { activeStore } from '../shared/store'
 
-/** POST /api/start: runs one ticket and streams its frames until the review pause or the result. */
+/** POST /api/start: triages one GitHub issue and streams its frames until the review pause or the result. */
 export default async (req: Request): Promise<Response> => {
   const budget = new RunBudget()
   let streaming = false
@@ -24,8 +25,8 @@ export default async (req: Request): Promise<Response> => {
 
     const body = await readJsonBody(req)
     if (!body.ok) return body.response
-    const ticket = ticketFrom(body.value)
-    if (!ticket.ok) return fail(ticket.message, 400)
+    const issue = issueFrom(body.value)
+    if (!issue.ok) return fail(issue.message, 400)
 
     const { store, kind } = activeStore()
     const threadId = crypto.randomUUID()
@@ -33,7 +34,7 @@ export default async (req: Request): Promise<Response> => {
     return streamResponse(budget, (send, signal) =>
       startRun(
         { store, storage: kind, chat, now: () => new Date() },
-        { ticket: ticket.value, threadId, budget: signal, send },
+        { issue: issue.value, threadId, budget: signal, send },
       ),
     )
   } catch (err) {

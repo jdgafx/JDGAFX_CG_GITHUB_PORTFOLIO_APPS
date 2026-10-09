@@ -1,9 +1,9 @@
-import { NOTE_MAX_LENGTH, ticketProblem, TICKET_RULE } from '../../src/lib/limits'
-import type { HumanAction, HumanDecision } from '../../src/types'
+import { EDIT_LABELS_MAX, LABEL_MAX_LENGTH, NOTE_MAX_LENGTH, lengthOf } from '../../src/lib/limits'
+import { PRIORITIES, type HumanAction, type HumanDecision, type Priority } from '../../src/types'
 
-/** Request bodies larger than this are refused. A 2,000-character ticket is far smaller. */
-export const MAX_BODY_BYTES = 16 * 1024
-export const RATE_LIMIT_PER_MINUTE = 20
+/** Request bodies larger than this are refused. A 6,000-character issue body is at most about 24 KB of UTF-8. */
+export const MAX_BODY_BYTES = 32 * 1024
+const RATE_LIMIT_PER_MINUTE = 20
 
 const DEFAULT_ORIGINS = [
   'https://jdgafx-app-12-langgraph-approval-flow.netlify.app',
@@ -118,13 +118,6 @@ export async function readJsonBody(req: Request): Promise<{ ok: true; value: unk
   }
 }
 
-/** The ticket text from a start request body. */
-export function ticketFrom(body: unknown): Checked<string> {
-  if (!isRecord(body) || typeof body.ticket !== 'string') return { ok: false, message: TICKET_RULE }
-  const problem = ticketProblem(body.ticket)
-  return problem ? { ok: false, message: problem } : { ok: true, value: body.ticket.trim() }
-}
-
 const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** A thread id from a request, or null. Ids become storage keys, so only the generated form is accepted. */
@@ -134,7 +127,7 @@ export function threadIdFrom(value: unknown): string | null {
 
 const ACTIONS: readonly HumanAction[] = ['approve', 'edit', 'reject']
 
-/** The human decision from a resume body. An amount counts only for an edit. */
+/** The maintainer's decision from a resume body. Labels and priority count only for an edit. */
 export function decisionFrom(body: unknown): Checked<HumanDecision> {
   const raw = isRecord(body) && isRecord(body.decision) ? body.decision : null
   const action = raw?.action
@@ -144,17 +137,22 @@ export function decisionFrom(body: unknown): Checked<HumanDecision> {
   const decision: HumanDecision = { action: action as HumanAction }
 
   if (decision.action === 'edit') {
-    const amount = raw?.amount
-    const cents = typeof amount === 'number' && Number.isFinite(amount) ? Math.round(amount * 100) : NaN
-    if (typeof amount !== 'number' || !(amount > 0) || Math.abs(cents / 100 - amount) > 1e-9) {
-      return { ok: false, message: 'Enter an amount greater than zero, with at most two decimals.' }
+    const labels = raw?.labels
+    const shaped =
+      Array.isArray(labels) &&
+      labels.length <= EDIT_LABELS_MAX &&
+      labels.every((label) => typeof label === 'string' && label.trim() !== '' && lengthOf(label) <= LABEL_MAX_LENGTH)
+    if (!shaped) return { ok: false, message: `Send up to ${EDIT_LABELS_MAX} labels, each 1 to ${LABEL_MAX_LENGTH} characters.` }
+    if (typeof raw?.priority !== 'string' || !PRIORITIES.includes(raw.priority as Priority)) {
+      return { ok: false, message: `Choose a priority: ${PRIORITIES.join(', ')}.` }
     }
-    decision.amount = cents / 100
+    decision.labels = [...new Set((labels as string[]).map((label) => label.trim()))]
+    decision.priority = raw.priority as Priority
   }
 
   const note = raw?.note
   if (note !== undefined && note !== null) {
-    if (typeof note !== 'string' || [...note].length > NOTE_MAX_LENGTH) {
+    if (typeof note !== 'string' || lengthOf(note) > NOTE_MAX_LENGTH) {
       return { ok: false, message: `The note must be ${NOTE_MAX_LENGTH} characters or fewer.` }
     }
     if (note.trim()) decision.note = note.trim()

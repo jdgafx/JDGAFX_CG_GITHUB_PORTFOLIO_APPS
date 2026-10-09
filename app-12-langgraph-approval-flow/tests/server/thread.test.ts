@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { providerFetch } from '../helpers/fake-openrouter'
 import { getFrom, postJson, readFrames, type Frame } from '../helpers/http'
+import { BUG, CLASSIFIED_BUG } from '../helpers/issues'
 
 vi.mock('@netlify/blobs', async () => (await import('../helpers/fake-blobs')).fakeBlobsModule())
 
@@ -8,15 +9,13 @@ import resume from '../../netlify/functions/resume'
 import start from '../../netlify/functions/start'
 import thread from '../../netlify/functions/thread'
 
-const LARGE = 'I was charged twice for ORD-1042. Both charges were $129.00, please refund the extra one.'
-
 function find(frames: Frame[], type: string): Record<string, unknown> | undefined {
   return frames.find((frame): frame is Record<string, unknown> => frame !== '[DONE]' && frame.type === type)
 }
 
 async function pausedThread(client: string): Promise<string> {
-  vi.stubGlobal('fetch', providerFetch())
-  const frames = await readFrames(await start(postJson('/api/start', { ticket: LARGE }, client)))
+  vi.stubGlobal('fetch', providerFetch({ classification: CLASSIFIED_BUG }))
+  const frames = await readFrames(await start(postJson('/api/start', { issue: BUG }, client)))
   const threadFrame = find(frames, 'thread')
   if (typeof threadFrame?.threadId !== 'string') throw new Error('start sent no thread frame')
   return threadFrame.threadId
@@ -44,14 +43,14 @@ describe('GET /api/thread', () => {
       threadId,
       status: 'awaiting_approval',
       storage: 'blobs',
-      proposal: { proposal: { action: 'refund', amount: 129 }, orderTotal: 129 },
+      proposal: { issue: { number: 202 }, triage: { priority: 'high', labels: ['bug', 'area: router'] } },
       result: null,
-      ticket: LARGE,
+      issue: BUG,
+      title: 'acme/widgets #202: Router crashes when the page unmounts during nav...',
     })
     const trace = body.trace as Array<{ node: string; status: string }>
     expect(trace.map((row) => [row.node, row.status])).toEqual([
-      ['intake', 'ok'],
-      ['policy', 'ok'],
+      ['classify', 'ok'],
       ['decide', 'ok'],
       ['review', 'pending'],
       ['reply', 'pending'],
@@ -68,7 +67,7 @@ describe('GET /api/thread', () => {
     const body = (await (await thread(getFrom(`/api/thread?id=${threadId}`, 'ip-thread-2'))).json()) as Record<string, unknown>
 
     expect(body).toMatchObject({ status: 'completed', proposal: null })
-    expect(body.result).toMatchObject({ action: 'refund', amount: 129, reply: { subject: 'Your refund for ORD-1042' } })
+    expect(body.result).toMatchObject({ outcome: 'approved', labels: ['bug', 'area: router'], priority: 'high', reply: { body: 'Thanks for the report. We have triaged this issue.' } })
   })
 
   it('answers 404 for a well-formed id that no thread has', async () => {

@@ -1,70 +1,118 @@
 # GraphGate
 
-GraphGate is a refund agent for support tickets, built with LangGraph.js. A ticket comes in. The graph reads the order id and the issue, checks a fixed refund policy against sample orders, and drafts a decision. Small refunds (up to $50) are approved automatically. Anything larger, or any case the policy cannot decide, pauses the run. A person then approves, edits the amount, or rejects it. The run resumes and writes the customer reply.
+GraphGate triages live public GitHub issues with a LangGraph.js graph. The visitor picks a repository and one of its newest open issues. The graph classifies the issue, applies fixed rules, and either triages it alone or pauses for a maintainer. The maintainer approves, edits the labels and priority, or rejects. The run resumes and drafts the comment a maintainer could post.
+
+Draft only: nothing is posted to GitHub. No label, priority or comment is applied there. The page and this README say so wherever a draft appears.
 
 The graph needs LangGraph because the pause has to survive a reload. The run stops at an `interrupt()` call and writes its state to a checkpoint in Netlify Blobs. A visitor can close the page, come back, see the thread listed as waiting, and resume it from that checkpoint. A plain chain cannot stop mid-run and continue later from stored state.
 
 What this showcases: a graph that pauses for a human with `interrupt()`, saves its checkpoint, and resumes from it after a reload.
 
+## Data
+
+The issues are real and are fetched live, in the visitor's browser, from `https://api.github.com/repos/{owner}/{repo}/issues`. GitHub allows cross-origin reads and gives each anonymous visitor 60 requests an hour. Netlify functions share addresses, so the server never calls GitHub. A rate limit shows the reset time from GitHub's `X-RateLimit-Reset` header.
+
+- Five well-known repos are one click each: `facebook/react`, `vitejs/vite`, `microsoft/vscode`, `denoland/deno` and `langchain-ai/langgraphjs`. Any other public repo can be typed as `owner/name` or pasted as a github.com link.
+- The list shows the 25 newest open issues. Pull requests share the endpoint and are dropped. Each row shows the number, title, labels, age and comment count.
+- The page sends the chosen issue to the server: repo, number, title, body (cut to 6,000 characters), labels, author association, created date, link and comment count.
+
+The issue text reaches the server from the visitor's browser, so it is unverified. The server checks every field at the boundary and treats the text as untrusted data.
+
 ## The graph
 
 ```text
-START -> intake -> policy -> decide --requiresHuman--> review -> reply -> END
-                               |                         ^
-                               +----otherwise------------+
+START -> classify -> decide --requiresHuman--> review -> reply -> END
+                        |                         ^
+                        +-------otherwise---------+
 ```
 
-- **intake** (model): reads the ticket into JSON facts: order id, issue type, requested amount.
-- **policy** (tool, no model): applies the refund rules to the sample order table.
-- **decide** (model): writes the rationale. Its action and amount come from the policy, not the model.
-- **review** (human): calls `interrupt({ proposal, policy, ... })`. The run stops here until resumed with `approve`, `edit` or `reject`.
-- **reply** (model): writes the customer email for the final outcome. After a person decides, the model gets the final outcome and the reviewer note, not the earlier rationale. A draft that says an approval is still pending is replaced with fixed wording, and the trace says so.
+- **classify** (model): reads the issue into a fixed shape: type (bug, feature, question, docs, other), area, severity, flags for unclear, likely duplicate and possible security report, a confidence from 0 to 1, and a one-sentence summary.
+- **decide** (rules, no model): proposes labels and a priority, and decides whether a maintainer must look. The same issue and classification always give the same verdict.
+- **review** (human): calls `interrupt({ issue, classification, triage })`. The run stops here until resumed with `approve`, `edit` or `reject`.
+- **reply** (model): drafts the maintainer comment for the final outcome. The model is told the outcome is final, so a draft that calls it pending is replaced by fixed wording, and the trace says so.
 
-Conditional edge from **decide**: `requiresHuman` goes to review when the policy amount is over $50 or the case is unclear. `otherwise` goes straight to reply. The graph has no cycles. The only pause is the review interrupt.
+The conditional edge from **decide** goes to review when any of these holds, and straight to reply otherwise:
 
-Policy rules, applied in order: no matching order or an unrecognised issue is unclear (a person decides). A delivery more than 30 days ago, measured in elapsed time, or a final sale item, is not eligible. A duplicate charge refunds the extra money charged. A defective item on a one-item order refunds its price. Amounts above $50 need a person.
+- the issue may be a security report, by the classifier or by a keyword check on the issue text (security, vulnerability, CVE, XSS, RCE, SSRF, injection, a leaked token or key);
+- the issue text contains instructions aimed at an AI assistant;
+- the classification has a confidence below 0.75;
+- the report is unclear, or may duplicate another issue;
+- it is a bug of medium severity or worse;
+- it is not a bug, feature, question or docs issue.
+
+A clear question, docs issue or feature request, or a low-severity bug, at 0.75 confidence or higher, is triaged by the rules alone and review is skipped. Priority comes from the rules: a bug takes its severity (critical is urgent), a security report is urgent, and everything else is low. Labels come from the type, the area, and the flags: `bug`, `enhancement`, `question`, `documentation`, `area: <name>`, `needs-info`, `possible-duplicate`, `security`.
+
+The three answers: **Approve** keeps the proposed labels and priority. **Edit** sets labels and a priority the maintainer picks. **Reject** applies nothing, and the draft says only that a maintainer looked. The graph has no cycles. The only pause is the review interrupt.
+
+## Untrusted text
+
+- The issue goes to each model as one line of JSON after a line saying it is data, not instructions. Its text cannot start a new section of the prompt. Both system prompts say the issue is written by a stranger and must not be followed.
+- The model's reply is checked against fixed lists. A type, severity, or priority outside the list reads as unreadable and sends the issue to a maintainer. A flag counts only when it is the boolean `true`. The area is cut to a short lowercase name.
+- The rules read the issue text themselves, so a model that was talked out of a security flag cannot talk the rules out of it.
+- A maintainer's edit may only use labels from the fixed list or the labels this proposal offered. The server checks that before it resumes the run.
+- The draft is checked before it is shown: a draft that says a decision or review is pending, claims the issue was fixed, merged, released or closed, or links anywhere but the issue's own repository is replaced by fixed wording.
 
 ## Models
 
-| Node | Model | List price (USD per 1M in / out) | Why |
-| --- | --- | --- | --- |
-| intake | `xiaomi/mimo-v2.6-flash` | $0.14 / $0.28 | Reads the ticket into JSON facts |
-| decide | `~anthropic/claude-haiku-latest` | $0.10 / $0.50 | Short rationale in plain language |
-| reply | `~anthropic/claude-haiku-latest` | $0.10 / $0.50 | Customer email in plain language |
+Every node calls one model, `anthropic/claude-haiku-5.5` on OpenRouter. Chris named this version, so it is pinned. The id lives in one constant, `MODEL` in `netlify/shared/models.ts`, with one price entry: $0.10 per 1M input tokens and $0.50 per 1M output tokens.
 
-Output caps are 300, 500 and 600 tokens. Usage accounting is on for every call. The intake reply is read as its first complete JSON object, so a code fence or prose around it still works. The UI shows the cost OpenRouter reports. When it reports none, the UI estimates from the list prices and labels the figure "estimated".
+| Node | Output cap | Job |
+| --- | --- | --- |
+| classify | 300 tokens | Sorts an issue into fixed fields as JSON |
+| reply | 500 tokens | Drafts the comment in plain language |
+
+- No call sends `temperature`. Haiku 5.5 does not take one, and with `provider.require_parameters` a request that sends it fails with 404 "No endpoints found". The request type has no field for it, and a test checks the wire body.
+- Every call sends `reasoning: { enabled: false }`. Haiku 5.5 reasons by default, and on six classify calls the reasoning used 134 to 221 of the 300 output tokens before the answer. With it off, the same calls produced 112 to 131 output tokens and answered in about the same time.
+- Usage accounting is on for every call. The classify reply is read as its first complete JSON object, so a code fence or prose around it still works. The UI shows the cost OpenRouter reports. When it reports none, the UI estimates from the list price and labels the figure "estimated".
+
+Measured on 2026-10-09 with 13 real issues from vite, deno and vscode, run through the real graph (nearest-rank percentiles; the sample is small):
+
+| Step | p50 | p95 | max |
+| --- | --- | --- | --- |
+| classify call | 1.7 s | 3.0 s | 3.0 s |
+| reply call | 1.6 s | 3.0 s | 3.0 s |
+| start request (classify, decide, and reply when automatic) | 2.2 s | 5.0 s | 5.0 s |
+| resume request (review and reply) | 1.6 s | 2.0 s | 2.0 s |
+
+These figures leave the limits as they are: 12 seconds per model call, about four times the p95, and 25 seconds per request. Two calls at the call limit would take 24 seconds, so even the worst case stays under the budget before store time is counted. The figures do not include Blobs latency on Netlify.
 
 ## What the UI shows
 
-- **Support ticket**: two sample tickets, one that needs approval and one that is approved automatically. Each one loads into the ticket text.
-- **Graph**: the five steps as the run walks them. The two decide edges are labelled "needs a human" (`requiresHuman` in the code) and "auto-approve" (`otherwise`). The path the run took is highlighted, and review shows as paused while the run waits.
-- **Approval card**: the proposed outcome, the policy reason, the order total, what the customer asked for, and Approve refund, Edit amount and Reject. An edited amount may not exceed the order total. This is the intended rule.
-- **Run trace**: each step in the order it ran, with its time in milliseconds, served model, tokens and cost.
-- **Readout**: under the graph, the run time (the sum of the steps that ran), tokens, cost and served models. A value the provider did not report reads "not reported".
-- **Customer reply**: the subject and body, and whether a person or the policy decided.
-- **Threads**: the saved threads, newest first. Open a waiting thread to approve it after a reload.
+- **Repository**: the well-known repos and a field for any other public repo.
+- **Open issues**: the newest open issues of that repo, each with a Triage button.
+- **Graph**: the four steps as the run walks them. The two decide edges are labelled "needs a maintainer" (`requiresHuman` in the code) and "auto-triage" (`otherwise`). The path the run took is highlighted. While the run waits, the review box turns amber with a pause mark and the words "Paused for a maintainer". On a narrow screen the graph scrolls sideways.
+- **Approval card**: why the graph paused, the classification, the proposed labels and priority, and Approve, Edit and Reject. Edit shows label checkboxes and a priority select. A note is optional.
+- **Triage card**: the final labels and priority, how the decision was reached, the drafted comment, and the line "Draft only. Nothing is posted to GitHub".
+- **Run trace** and **readout**: each step with its time, served model, tokens and cost. A value the provider did not report reads "not reported".
+- **Retry card**: shown on a failed thread. It continues from the checkpoint and runs only the step that failed.
+- **Threads**: the saved threads, newest first. Open a waiting thread to review it after a reload.
 
 ## Architecture
 
-Browser, then Netlify Functions, then OpenRouter and Netlify Blobs.
+Browser, then Netlify Functions, then OpenRouter and Netlify Blobs. GitHub is called by the browser only.
 
-- `POST /api/start` takes `{ ticket }` (10 to 2,000 characters). It streams server-sent frames: `thread`, then `node_start`, `node_end`, `edge`, then `interrupt` or `result`, then `[DONE]`.
-- `POST /api/resume` takes `{ threadId, decision }`. It streams the rest of the run from the checkpoint. A thread that is not waiting gets 409.
+- `POST /api/start` takes `{ issue }`. It streams server-sent frames: `thread`, then `node_start`, `node_end`, `edge`, then `interrupt` or `result`, then `[DONE]`. A bad issue gets 400 before any model call.
+- `POST /api/resume` takes `{ threadId, decision }`. It streams the rest of the run from the checkpoint. A thread that is not waiting gets 409. The classify call is not repeated: the resumed run reads it from the checkpoint.
+- `POST /api/retry` takes `{ threadId }`. It continues a failed thread from its last checkpoint and streams like resume. The classification and a maintainer's answer are read from the checkpoint and not run again. A thread that did not fail, or has no saved step, gets 409.
 - `GET /api/threads` returns the thread index and where checkpoints are kept.
-- `GET /api/thread?id=` returns one thread's status, full ticket text, pending proposal and result.
-- Checkpoints use the `graphgate-checkpoints` Blobs store, with keys under `thread/<id>/`. The thread index is one document at `threads/index`. It keeps 50 threads, and a thread awaiting approval is never dropped.
+- `GET /api/thread?id=` returns one thread's status, issue, pending proposal and result.
+- Validation of the issue: `repo` is `owner/name`; `number` is a positive integer; the title is 1 to 300 characters; the body is text of at most 6,000 characters; there are at most 30 labels of 50 characters; `authorAssociation` is one of GitHub's values; `createdAt` is a UTC ISO time; and the link must equal `https://github.com/{repo}/issues/{number}` exactly. Control characters are removed from text.
+- Checkpoints use the `graphgate-checkpoints` Blobs store, with keys under `thread/<id>/`. The thread index is one document at `threads/index`. It keeps 50 threads, and a thread awaiting a maintainer is never dropped.
 - The checkpoint saver imports its base class, `WRITES_IDX_MAP` and checkpoint types from `@langchain/langgraph-checkpoint`. That package is therefore a direct dependency, pinned to the version `@langchain/langgraph` already uses.
 - The OpenRouter key is read only on the server. A missing key returns 503 before any model call.
-- Requests from unknown origins get 403, and wrong methods get 405. A request with no Origin header passes. Bodies over 16 KB get 413. Each client address gets 20 starts or resumes a minute.
+- Requests from unknown origins get 403, and wrong methods get 405. A request with no Origin header passes. Bodies over 32 KB get 413. Each client address gets 20 starts or resumes a minute.
 - One request has a 25-second budget, because Netlify closes these functions at about 30 seconds in practice. Each model call has 12 seconds, and each checkpoint or index call has 8 seconds. Every call also stops when the budget ends. A stalled call, or a run that uses the whole budget, fails the run with a plain message, marks the thread failed, and the stream still ends with `[DONE]`. The final index write has its own 8-second limit and is not counted in the budget.
-- Reads of the thread list and of one thread use the 8-second limit only.
+- Deadlines are timers that settle a race with the whole exchange, the body read included, and they also abort the fetch. A reply whose body never finishes is cut at the limit even if the fetch ignores its abort signal. The same holds for the browser's GitHub request (10 seconds) and for every store call. Nothing relies on `AbortSignal.timeout` alone.
+- A stop says what ended it. A call that passes 12 seconds reads "The AI provider did not answer within 12 seconds during the classify step." A run that uses its 25-second budget reads "The run reached its 25-second budget during the reply step and was stopped." Both add that finished steps are saved.
+- A failed run keeps its checkpoint. The thread is marked failed and listed, and Retry continues it.
+- The page's Content-Security-Policy allows `https://api.github.com` in `connect-src`, and nothing else beyond the page itself. The page shows no avatars, so `img-src` is unchanged.
 - A failure is sent as an `error` frame with plain-language text. The trace marks the step that failed.
 
 ## Run locally
 
 ```bash
 npm ci
-npm run dev          # UI only; running a ticket needs the functions
+npm run dev          # UI only; running a triage needs the functions
 npx netlify dev      # UI and functions on port 8888, with Blobs when the site is linked
 ```
 
@@ -83,28 +131,30 @@ npm run typecheck
 npm run build
 ```
 
+The tests mock the model and the store. They cover the graph paths with a mocked model (auto-triage, pause then approve, edit, reject, and resume from a fresh checkpointer over the same store), the retry of a failed thread, the call and budget deadlines (including a reply whose body never finishes), the rules, the boundary validation of the issue and of the decision, the parsing of a recorded GitHub response, the draft guard, and the thread index. The recorded GitHub response exists only in the tests. The app fetches live.
+
 Live URL: https://jdgafx-app-12-langgraph-approval-flow.netlify.app
 
 ## Known limits
 
-- The sample orders are fictional. Their dates are counted back from the current day.
-- The 30-day window and the final-sale rule apply to duplicate charges too. A real shop might treat billing errors differently.
-- Intake reads only order ids of the form ORD-1234 and three issue types. Anything else goes to a person.
-- The page has no sign-in. Anyone with the URL can run tickets and approve refunds on the sample data.
+- The classification is a model's reading of text a stranger wrote. A crafted issue may push the model to call itself confident. The rules catch security wording and text aimed at an assistant, and the draft is checked, but a clear-looking issue can still be triaged without a maintainer. The result is a draft that nothing posts.
+- The page has no sign-in. Anyone with the URL can run issues and answer reviews.
+- GitHub's anonymous limit is 60 requests an hour per visitor address. Loading a repo costs one request.
+- Pull requests are dropped after the fetch, so a repo with many open pull requests lists fewer than 25 issues.
+- The issue text is cut to 6,000 characters before it is sent. The reply call sees the first 1,500.
+- Threads saved by the earlier refund version of this app have a different shape. The thread list skips them, so they cannot be opened or resumed. The next write to the index drops them.
 - The rate limit and the resume guard count per function instance, so the real limits depend on how many instances run.
 - Requests with no Origin header pass the origin check.
 - The thread index is read, changed and written as one document. Two writes at the same moment can drop a row. Checkpoints are not affected.
-- If the index write fails after a pause, the paused thread is not listed, so its approval cannot be reached from the page.
-- If the index write fails after a resume completes, the thread stays listed as awaiting approval with no proposal. Resuming it then answers 409.
-- Waiting threads are never dropped, so the index can grow past 50 when many approvals are left waiting.
-- Two approvals for one thread are refused only inside one instance. Across instances they could both run.
-- A run that fails after approval is marked failed and cannot be resumed.
+- If the index write fails after a pause, the paused thread is not listed, so its review cannot be reached from the page.
+- If the index write fails after a resume completes, the thread stays listed as awaiting a maintainer with no proposal. Resuming it then answers 409.
+- Waiting threads are never dropped, so the index can grow past 50 when many reviews are left waiting.
+- Two answers for one thread are refused only inside one instance. Across instances they could both run.
+- A run that fails is marked failed. Retry continues it from the checkpoint, unless it failed before any step was saved. A retry after a platform stop mid-call may repeat that call and bill it twice.
 - A failed thread, reopened later, shows the steps that finished. The failing step's message appears only in the live run.
 - A run the platform stops before it pauses or ends is not listed in the threads.
 - Closing the page does not stop a run. The run finishes on the server, and the provider may bill it.
-- The intake reply is read as its first JSON object. A reply with no object sends the ticket to a person. Whether the flash model returns JSON on the live site is checked only in the live run.
-- The Haiku calls set `require_parameters`, so OpenRouter routes them only to providers that accept every parameter in the request.
-- The model's reasoning is off for every call.
+- Every call sets `require_parameters`, so OpenRouter routes it only to providers that accept every parameter in the request.
 - The served model is the one the provider names in its reply. If the reply names none, the trace shows the requested model.
-- The state keys are `policyResult` and `replyEmail`, because LangGraph does not allow a node and a state key to share a name.
-- No test calls OpenRouter or Netlify Blobs. The live site was not run as part of this build.
+- The state keys are `classification`, `triage` and `replyDraft`, because LangGraph does not allow a node and a state key to share a name.
+- No test calls OpenRouter, GitHub or Netlify Blobs. The live GitHub fetch and the model calls were run by hand on 2026-10-09 and are not part of the test suite.

@@ -1,29 +1,36 @@
-import type { NodeName, ReviewPayload, TraceRow } from '../../src/types'
+import { NODES, PRIORITIES, type NodeName, type Priority, type ReviewPayload, type TraceRow } from '../../src/types'
 import { NOT_NEEDED_DETAIL, type EdgeLabel, type StreamEvent } from './events'
 import { isRecord } from './guard'
 
-const NODES: readonly NodeName[] = ['intake', 'policy', 'decide', 'review', 'reply']
 const INTERRUPT_KEY = '__interrupt__'
 
 function isNodeName(value: string): value is NodeName {
   return (NODES as readonly string[]).includes(value)
 }
 
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+}
+
 /** The review payload the graph passes to interrupt(), checked field by field before the browser sees it. */
 function isReviewPayload(value: unknown): value is ReviewPayload {
-  if (!isRecord(value) || !isRecord(value.proposal) || !isRecord(value.policy)) return false
-  const { proposal, policy } = value
+  if (!isRecord(value) || !isRecord(value.issue) || !isRecord(value.classification) || !isRecord(value.triage)) return false
+  const { issue, classification, triage } = value
   return (
-    typeof proposal.action === 'string' &&
-    typeof proposal.amount === 'number' &&
-    typeof proposal.rationale === 'string' &&
-    typeof policy.eligible === 'boolean' &&
-    typeof policy.reason === 'string' &&
-    typeof policy.amount === 'number' &&
-    typeof policy.requiresHuman === 'boolean' &&
-    (value.orderId === null || typeof value.orderId === 'string') &&
-    (value.orderTotal === null || typeof value.orderTotal === 'number') &&
-    (value.requestedAmount === null || typeof value.requestedAmount === 'number')
+    typeof issue.repo === 'string' &&
+    typeof issue.number === 'number' &&
+    typeof issue.title === 'string' &&
+    typeof issue.htmlUrl === 'string' &&
+    typeof classification.type === 'string' &&
+    typeof classification.severity === 'string' &&
+    typeof classification.confidence === 'number' &&
+    typeof classification.summary === 'string' &&
+    typeof triage.requiresHuman === 'boolean' &&
+    typeof triage.reason === 'string' &&
+    isStringList(triage.reasons) &&
+    isStringList(triage.labels) &&
+    typeof triage.priority === 'string' &&
+    (PRIORITIES as readonly string[]).includes(triage.priority)
   )
 }
 
@@ -35,23 +42,25 @@ function traceRowsOf(value: unknown): TraceRow[] {
 /**
  * Turns the graph's stream chunks into the frames the browser renders. Custom chunks announce a
  * node's start. Update chunks carry each finished node's trace row, which becomes node_end, and
- * the interrupt. Edges are taken from the graph's own order and from policy.requiresHuman.
+ * the interrupt. Edges are taken from the graph's own order and from triage.requiresHuman.
  */
 export class FrameMapper {
   /** True once the run has paused at the review interrupt. */
   paused = false
-  /** The proposal amount at the pause, recorded in the thread index. */
-  proposalAmount: number | null = null
+  /** The priority proposed at the pause, recorded in the thread index. */
+  proposalPriority: Priority | null = null
   private current: { node: NodeName; startedAt: number } | null = null
   private requiresHuman = false
-  private readonly threadId: string
-  private readonly send: (event: StreamEvent) => void
-  private readonly startedAt: number
 
-  constructor(threadId: string, send: (event: StreamEvent) => void, startedAt: number = Date.now()) {
-    this.threadId = threadId
-    this.send = send
-    this.startedAt = startedAt
+  constructor(
+    private readonly threadId: string,
+    private readonly send: (event: StreamEvent) => void,
+    private readonly startedAt: number = Date.now(),
+  ) {}
+
+  /** The node that started and has not finished, for an error message that names the step. */
+  get currentNode(): NodeName | null {
+    return this.current?.node ?? null
   }
 
   onCustom(chunk: unknown): void {
@@ -83,8 +92,8 @@ export class FrameMapper {
   }
 
   private onNodeEnd(node: NodeName, value: unknown): void {
-    if (node === 'policy' && isRecord(value) && isRecord(value.policyResult)) {
-      this.requiresHuman = value.policyResult.requiresHuman === true
+    if (node === 'decide' && isRecord(value) && isRecord(value.triage)) {
+      this.requiresHuman = value.triage.requiresHuman === true
     }
     this.current = null
     const row = traceRowsOf(value).at(-1)
@@ -106,11 +115,8 @@ export class FrameMapper {
 
   private sendEdgesAfter(node: NodeName): void {
     switch (node) {
-      case 'intake':
-        this.edge('intake', 'policy')
-        return
-      case 'policy':
-        this.edge('policy', 'decide')
+      case 'classify':
+        this.edge('classify', 'decide')
         return
       case 'decide':
         if (this.requiresHuman) {
@@ -133,7 +139,7 @@ export class FrameMapper {
     const payload: unknown = isRecord(first) ? first.value : undefined
     if (!isReviewPayload(payload)) return
     this.paused = true
-    this.proposalAmount = payload.proposal.amount
+    this.proposalPriority = payload.triage.priority
     this.send({ type: 'interrupt', node: 'review', threadId: this.threadId, payload })
   }
 

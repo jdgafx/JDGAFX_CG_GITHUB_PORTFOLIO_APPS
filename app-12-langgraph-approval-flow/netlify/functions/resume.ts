@@ -1,4 +1,3 @@
-import { formatUsd } from '../../src/lib/money'
 import { RunBudget } from '../shared/budget'
 import {
   checkRequest,
@@ -16,6 +15,7 @@ import { pendingReview, resumeRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
 import { activeStore, guardStore, storeTimeoutOf } from '../shared/store'
 import { getThreadEntry } from '../shared/thread-index'
+import { labelsProblem } from '../shared/triage'
 
 const NOT_AWAITING = 'This thread is not awaiting approval.'
 const BUSY = 'This thread is already being resumed. Wait for that run to finish.'
@@ -26,7 +26,7 @@ const BUSY = 'This thread is already being resumed. Wait for that run to finish.
  */
 const resuming = new Set<string>()
 
-/** POST /api/resume: continues a paused thread from its checkpoint with the human's answer. */
+/** POST /api/resume: continues a paused thread from its checkpoint with the maintainer's answer. */
 export default async (req: Request): Promise<Response> => {
   const budget = new RunBudget()
   let streaming = false
@@ -59,27 +59,16 @@ export default async (req: Request): Promise<Response> => {
     if (!review) return fail(NOT_AWAITING, 409)
 
     const answer = decision.value
-    // The cap is intended: an edited refund may not exceed what the order cost.
+    // An edit may only use labels from the list the card offered, so a crafted request cannot invent one.
     if (answer.action === 'edit') {
-      if (review.orderTotal === null) {
-        return fail('No order matches this thread, so the amount cannot be edited. Approve or reject instead.', 400)
-      }
-      if ((answer.amount ?? 0) > review.orderTotal) {
-        return fail(`The amount cannot be more than the order total of ${formatUsd(review.orderTotal)}.`, 400)
-      }
+      const problem = labelsProblem(answer.labels ?? [], review.triage.labels)
+      if (problem) return fail(problem, 400)
     }
 
     resuming.add(threadId)
     streaming = true
     return streamResponse(budget, (send, signal) =>
-      resumeRun(deps, {
-        threadId,
-        title: entry.title,
-        failedAmount: entry.amount,
-        answer,
-        budget: signal,
-        send,
-      }).finally(() => resuming.delete(threadId)),
+      resumeRun(deps, { threadId, entry, answer, budget: signal, send }).finally(() => resuming.delete(threadId)),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)

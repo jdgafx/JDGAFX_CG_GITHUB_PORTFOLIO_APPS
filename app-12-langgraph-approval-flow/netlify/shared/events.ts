@@ -23,8 +23,8 @@ export type StreamEvent =
   | { type: 'result'; result: RunResult }
   | { type: 'error'; message: string }
 
-/** Shown for the review node on an automatic refund, where no person was needed. */
-export const NOT_NEEDED_DETAIL = 'Not needed: the policy did not require a person.'
+/** Shown for the review node on an automatic triage, where no maintainer was needed. */
+export const NOT_NEEDED_DETAIL = 'Not needed: the rules did not require a maintainer.'
 
 /** The end marker every stream sends last, also after a failure. */
 export const DONE_FRAME = 'data: [DONE]\n\n'

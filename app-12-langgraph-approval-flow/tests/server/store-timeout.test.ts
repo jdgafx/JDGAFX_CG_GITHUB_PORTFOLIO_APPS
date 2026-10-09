@@ -41,7 +41,7 @@ beforeEach(() => {
   shared.values.set(
     'threads/index',
     JSON.stringify([
-      { id: WAITING_ID, title: 'Duplicate charge', status: 'awaiting_approval', updatedAt: '2026-10-08T12:00:00.000Z', amount: 129 },
+      { id: WAITING_ID, title: 'acme/widgets #202: Router crashes', repo: 'acme/widgets', number: 202, status: 'awaiting_approval', updatedAt: '2026-10-09T12:00:00.000Z', priority: 'high' },
     ]),
   )
 })

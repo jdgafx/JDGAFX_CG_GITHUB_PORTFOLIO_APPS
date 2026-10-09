@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { formatUsd } from '../lib/format'
-import { NOTE_MAX_LENGTH } from '../lib/limits'
-import type { HumanDecision, ReviewPayload } from '../types'
-import { outcomeOf } from './ReplyCard'
+import { EDIT_LABELS_MAX, NOTE_MAX_LENGTH } from '../lib/limits'
+import { LABEL_VOCABULARY, PRIORITIES, type HumanDecision, type Priority, type ReviewPayload } from '../types'
 
 interface ApprovalCardProps {
   proposal: ReviewPayload
@@ -10,44 +8,56 @@ interface ApprovalCardProps {
   onDecide: (decision: HumanDecision) => void
 }
 
-/** Checks a typed amount before it is sent. The server checks it again. */
-function amountProblem(text: string, orderTotal: number | null): string | null {
-  const amount = Number(text)
-  if (text.trim() === '' || !Number.isFinite(amount) || amount <= 0) return 'Enter an amount greater than zero.'
-  if (Math.round(amount * 100) / 100 !== amount) return 'Use at most two decimals.'
-  if (orderTotal === null) return 'No order matches this ticket, so the amount cannot be edited. Approve or reject instead.'
-  if (amount > orderTotal) return `The amount cannot be more than the order total of ${formatUsd(orderTotal)}.`
-  return null
+/** The labels the edit form offers: the fixed list, plus any label the rules proposed, such as the area. */
+function labelChoices(proposed: readonly string[]): string[] {
+  return [...new Set<string>([...LABEL_VOCABULARY, ...proposed])]
 }
 
-/** The proposal the graph paused on, with the three answers a person can give. */
+function Chips({ items, empty }: { items: readonly string[]; empty: string }) {
+  if (items.length === 0) return <span className="ds-help">{empty}</span>
+  return (
+    <span className="gg-chips">
+      {items.map((item) => (
+        <span key={item} className="gg-chip">
+          {item}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** The proposal the graph paused on, with the three answers a maintainer can give. */
 export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
+  const { classification, triage } = proposal
   const [editing, setEditing] = useState(false)
-  const [amountText, setAmountText] = useState(String(proposal.proposal.amount))
+  const [labels, setLabels] = useState<string[]>(triage.labels)
+  const [priority, setPriority] = useState<Priority>(triage.priority)
   const [note, setNote] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
 
+  const toggle = (label: string) =>
+    setLabels((current) => (current.includes(label) ? current.filter((entry) => entry !== label) : [...current, label]))
+
   const submitEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const issue = amountProblem(amountText, proposal.orderTotal)
-    setProblem(issue)
-    if (issue) return
-    onDecide({ action: 'edit', amount: Number(amountText), note: note.trim() || undefined })
+    if (labels.length > EDIT_LABELS_MAX) {
+      setProblem(`Keep at most ${EDIT_LABELS_MAX} labels.`)
+      return
+    }
+    setProblem(null)
+    onDecide({ action: 'edit', labels, priority, note: note.trim() || undefined })
   }
-
-  const customerAsked = proposal.requestedAmount !== null ? formatUsd(proposal.requestedAmount) : 'not stated'
-  const orderId = proposal.orderId ?? 'not stated'
-  const orderLine =
-    proposal.orderTotal !== null ? `${orderId}, total ${formatUsd(proposal.orderTotal)}` : `${orderId}, no matching order`
 
   return (
     <section className="ds-panel gg-approval" aria-labelledby="approval-heading">
       <div className="ds-section__head ds-section__head--row">
         <div>
           <h2 id="approval-heading" className="ds-section__title">
-            Approval needed
+            Maintainer review needed
           </h2>
-          <p className="ds-section__sub">The graph paused on this proposal. Choose one answer to resume the run.</p>
+          <p className="ds-section__sub">
+            The graph paused here and saved its checkpoint. Reload the page and come back: the run waits. Choose one answer to resume it.
+          </p>
         </div>
         <span className="ds-badge ds-badge--warning">
           <span className="ds-dot gg-dot--waiting" aria-hidden="true" />
@@ -57,24 +67,38 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
 
       <dl className="gg-facts">
         <div>
-          <dt>Proposed outcome</dt>
-          <dd>{outcomeOf(proposal.proposal)}</dd>
+          <dt>Why it paused</dt>
+          <dd>
+            <ul className="gg-reasons">
+              {triage.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </dd>
         </div>
         <div>
-          <dt>Order</dt>
-          <dd>{orderLine}</dd>
+          <dt>Read as</dt>
+          <dd>
+            {classification.type}
+            {classification.area ? `, area ${classification.area}` : ''}, severity {classification.severity},{' '}
+            {Math.round(classification.confidence * 100)}% confidence
+          </dd>
         </div>
         <div>
-          <dt>Customer asked for</dt>
-          <dd>{customerAsked}</dd>
+          <dt>Summary</dt>
+          <dd>{classification.summary || 'The classifier gave no summary.'}</dd>
         </div>
         <div>
-          <dt>Policy reason</dt>
-          <dd>{proposal.policy.reason}</dd>
+          <dt>Proposed labels</dt>
+          <dd>
+            <Chips items={triage.labels} empty="None" />
+          </dd>
         </div>
         <div>
-          <dt>Rationale</dt>
-          <dd>{proposal.proposal.rationale}</dd>
+          <dt>Proposed priority</dt>
+          <dd>
+            <span className={`gg-chip gg-chip--${triage.priority}`}>{triage.priority}</span>
+          </dd>
         </div>
       </dl>
 
@@ -84,22 +108,22 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
             type="button"
             className="ds-button ds-button--primary"
             disabled={busy}
-            onClick={() => onDecide({ action: 'approve' })}
+            onClick={() => onDecide({ action: 'approve', note: note.trim() || undefined })}
           >
-            Approve refund
+            Approve
           </button>
           <button
             type="button"
             className="ds-button"
             disabled={busy}
             aria-expanded={editing}
-            aria-controls="edit-amount-form"
+            aria-controls="edit-triage-form"
             onClick={() => {
               setProblem(null)
               setEditing((open) => !open)
             }}
           >
-            Edit amount
+            Edit labels and priority
           </button>
           <button
             type="button"
@@ -111,34 +135,51 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
           </button>
         </div>
         <p id="decision-help" className="ds-help">
-          Approve refunds the proposed amount. Edit amount sets another one. Reject refunds nothing.
+          Approve keeps the proposed labels and priority. Edit changes them. Reject applies neither, and the draft says
+          only that a maintainer looked.
         </p>
       </div>
 
       {editing ? (
-        <form id="edit-amount-form" className="gg-edit" onSubmit={submitEdit} noValidate>
+        <form id="edit-triage-form" className="gg-edit" onSubmit={submitEdit} noValidate>
+          <fieldset className="gg-labels" disabled={busy} aria-describedby="edit-labels-help">
+            <legend className="ds-label">Labels</legend>
+            <div className="gg-labels__grid">
+              {labelChoices(triage.labels).map((label) => (
+                <label key={label} className="gg-check">
+                  <input type="checkbox" checked={labels.includes(label)} onChange={() => toggle(label)} />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <p id="edit-labels-help" className="ds-help">
+              Up to {EDIT_LABELS_MAX}. Tick the ones to apply.
+            </p>
+          </fieldset>
           <div className="ds-field">
-            <label htmlFor="edit-amount" className="ds-label">
-              Refund amount in dollars
+            <label htmlFor="edit-priority" className="ds-label">
+              Priority
             </label>
-            <input
-              id="edit-amount"
-              className="ds-input"
-              type="text"
-              inputMode="decimal"
-              value={amountText}
+            <select
+              id="edit-priority"
+              className="ds-select"
+              value={priority}
               disabled={busy}
-              onChange={(event) => setAmountText(event.target.value)}
-              aria-describedby="edit-amount-help"
-            />
-            <p id="edit-amount-help" className="ds-help">
-              {proposal.orderTotal !== null
-                ? `Up to ${formatUsd(proposal.orderTotal)}, the order total.`
-                : 'Not available for this ticket.'}
+              onChange={(event) => setPriority(event.target.value as Priority)}
+              aria-describedby="edit-priority-help"
+            >
+              {PRIORITIES.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+            <p id="edit-priority-help" className="ds-help">
+              How soon a maintainer should look at it.
             </p>
           </div>
           <button type="submit" className="ds-button ds-button--primary" disabled={busy}>
-            Refund edited amount
+            Apply the edited triage
           </button>
         </form>
       ) : null}
@@ -149,7 +190,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         </label>
         <textarea
           id="review-note"
-          className="ds-textarea"
+          className="ds-textarea gg-note"
           maxLength={NOTE_MAX_LENGTH}
           value={note}
           disabled={busy}
@@ -157,7 +198,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
           aria-describedby="review-note-help"
         />
         <p id="review-note-help" className="ds-help">
-          Kept on the run and shown under the customer reply.
+          Kept on the run and shown on the triage card. It is not sent to GitHub.
         </p>
       </div>
 

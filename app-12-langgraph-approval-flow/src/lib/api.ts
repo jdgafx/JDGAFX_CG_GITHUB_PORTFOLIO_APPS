@@ -1,5 +1,5 @@
 import type { StreamEvent } from '../../netlify/shared/events'
-import type { HumanDecision, ThreadEntry, ThreadView } from '../types'
+import type { HumanDecision, IssueInput, ThreadEntry, ThreadView } from '../types'
 
 /** The server must start answering within 15 s. */
 const CONNECT_TIMEOUT_MS = 15_000
@@ -175,8 +175,8 @@ async function streamFrom(
   await readEvents(reader, onEvent, signal)
 }
 
-export function startTicket(ticket: string, onEvent: (event: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
-  return streamFrom('/api/start', { ticket }, onEvent, signal)
+export function startIssue(issue: IssueInput, onEvent: (event: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
+  return streamFrom('/api/start', { issue }, onEvent, signal)
 }
 
 export function resumeThread(
@@ -186,6 +186,11 @@ export function resumeThread(
   signal?: AbortSignal,
 ): Promise<void> {
   return streamFrom('/api/resume', { threadId, decision }, onEvent, signal)
+}
+
+/** Continues a failed thread from its last checkpoint. The steps that finished are not run again. */
+export function retryThread(threadId: string, onEvent: (event: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
+  return streamFrom('/api/retry', { threadId }, onEvent, signal)
 }
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -207,8 +212,9 @@ export function fetchThreads(signal?: AbortSignal): Promise<ThreadsResponse> {
 
 export async function fetchThread(threadId: string, signal?: AbortSignal): Promise<ThreadResponse> {
   const view = await getJson<ThreadResponse>(`/api/thread?id=${encodeURIComponent(threadId)}`, signal)
-  // The ticket fills the form, so it is checked here instead of trusted.
-  if (typeof (view as { ticket?: unknown } | null)?.ticket !== 'string') {
+  // The issue is shown on the page, so it is checked here instead of trusted.
+  const issue = (view as { issue?: { repo?: unknown; title?: unknown } } | null)?.issue
+  if (typeof issue?.repo !== 'string' || typeof issue.title !== 'string') {
     throw new RequestFailure('The server sent a thread the page could not read. Try again.')
   }
   return view

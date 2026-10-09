@@ -3,32 +3,25 @@ import type { StreamEvent } from '../../netlify/shared/events'
 import { NOT_NEEDED_DETAIL } from '../../netlify/shared/events'
 import { applyEvent, emptyRun, runFromView } from '../../src/lib/run-state'
 import { padTrace } from '../../netlify/shared/thread-view'
-import { formatCost, formatMs, formatTokens } from '../../src/lib/format'
-import type { ThreadView } from '../../src/types'
+import { formatAge, formatCost, formatMs, formatTokens } from '../../src/lib/format'
+import type { RunResult, ThreadView } from '../../src/types'
+import { BUG, CLASSIFIED_QUESTION, PROPOSAL, QUESTION } from '../helpers/issues'
 
 function apply(events: StreamEvent[]) {
   return events.reduce((run, event) => applyEvent(run, event), emptyRun())
-}
-
-const proposal = {
-  proposal: { action: 'refund' as const, amount: 129, rationale: 'Two charges.' },
-  policy: { eligible: true, reason: 'r', amount: 129, requiresHuman: true },
-  orderId: 'ORD-1042',
-  orderTotal: 129,
-  requestedAmount: 129,
 }
 
 describe('applyEvent', () => {
   it('moves a node from running to done and records its trace row', () => {
     const run = apply([
       { type: 'thread', threadId: 't-1' },
-      { type: 'node_start', node: 'intake', ms: 3 },
-      { type: 'node_end', node: 'intake', ms: 40, status: 'ok', model: 'mimo', usage: { total_tokens: 9 }, cost: 0.01, costSource: 'usage', detail: 'Read ORD-1077.' },
+      { type: 'node_start', node: 'classify', ms: 3 },
+      { type: 'node_end', node: 'classify', ms: 40, status: 'ok', model: 'mimo', usage: { total_tokens: 9 }, cost: 0.01, costSource: 'usage', detail: 'Read as bug.' },
     ])
     expect(run.threadId).toBe('t-1')
-    expect(run.nodes.intake).toBe('done')
+    expect(run.nodes.classify).toBe('done')
     expect(run.trace).toEqual([
-      { node: 'intake', status: 'ok', ms: 40, model: 'mimo', usage: { total_tokens: 9 }, cost: 0.01, costSource: 'usage', detail: 'Read ORD-1077.' },
+      { node: 'classify', status: 'ok', ms: 40, model: 'mimo', usage: { total_tokens: 9 }, cost: 0.01, costSource: 'usage', detail: 'Read as bug.' },
     ])
   })
 
@@ -36,14 +29,14 @@ describe('applyEvent', () => {
     const run = apply([
       { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },
       { type: 'node_start', node: 'review', ms: 90 },
-      { type: 'interrupt', node: 'review', threadId: 't-2', payload: proposal },
+      { type: 'interrupt', node: 'review', threadId: 't-2', payload: PROPOSAL },
     ])
     expect(run.taken['decide>review']).toBe('requiresHuman')
     expect(run.nodes.review).toBe('waiting')
-    expect(run.proposal).toEqual(proposal)
+    expect(run.proposal).toEqual(PROPOSAL)
   })
 
-  it('marks review skipped on an automatic refund and takes the otherwise edge', () => {
+  it('marks review skipped on an automatic triage and takes the otherwise edge', () => {
     const run = apply([
       { type: 'edge', from: 'decide', to: 'reply', label: 'otherwise' },
       { type: 'node_end', node: 'review', ms: 0, status: 'skipped', detail: NOT_NEEDED_DETAIL },
@@ -53,15 +46,18 @@ describe('applyEvent', () => {
   })
 
   it('keeps the error text and sets the finished result, replacing the trace with the complete one', () => {
-    const result = {
+    const result: RunResult = {
       threadId: 't-3',
-      action: 'refund' as const,
-      amount: 24.5,
-      proposal: { action: 'refund' as const, amount: 24.5, rationale: 'r' },
+      issue: { repo: 'acme/widgets', number: 101, title: QUESTION.title, htmlUrl: QUESTION.htmlUrl },
+      outcome: 'auto',
+      labels: ['question'],
+      priority: 'low',
+      classification: CLASSIFIED_QUESTION,
+      triage: { ...PROPOSAL.triage, requiresHuman: false, reasons: [], priority: 'low', labels: ['question'] },
       humanDecision: null,
-      reply: { subject: 'Your refund for ORD-1077', body: 'Dear customer.' },
-      policy: { eligible: true, reason: 'r', amount: 24.5, requiresHuman: false },
-      trace: [{ node: 'intake' as const, status: 'ok' as const, ms: 5, detail: 'd' }],
+      reply: { body: 'Thanks.' },
+      path: 'auto',
+      trace: [{ node: 'classify', status: 'ok', ms: 5, detail: 'd' }],
       totals: { nodeMs: 5, tokens: null, cost: null, costSource: null, models: [] },
     }
     const finished = apply([{ type: 'result', result }])
@@ -69,98 +65,104 @@ describe('applyEvent', () => {
     expect(finished.trace).toEqual(result.trace)
     expect(apply([{ type: 'error', message: 'stopped' }]).error).toBe('stopped')
   })
+
+  it('marks a run retryable once it has a thread, and not before', () => {
+    expect(apply([{ type: 'error', message: 'no thread yet' }]).retryable).toBe(false)
+    const run = apply([{ type: 'thread', threadId: 't-8' }, { type: 'error', message: 'stopped' }])
+    expect(run).toMatchObject({ error: 'stopped', retryable: true })
+  })
+
+  it('carries the issue the run was started for', () => {
+    const issue = PROPOSAL.issue
+    expect(emptyRun(issue).issue).toEqual(issue)
+    expect(applyEvent(emptyRun(issue), { type: 'thread', threadId: 't-9' }).issue).toEqual(issue)
+  })
 })
 
 describe('runFromView', () => {
   const trace = (rows: Array<[ThreadView['trace'][number]['node'], ThreadView['trace'][number]['status']]>) =>
     rows.map(([node, status]) => ({ node, status, ms: 1, detail: 'd' }))
+  const base = {
+    title: 'acme/widgets #202: Router crashes',
+    issue: BUG,
+    updatedAt: '2026-10-09T12:00:00.000Z',
+    storage: 'blobs' as const,
+  }
 
   it('rebuilds a waiting thread with review waiting and the requiresHuman edge taken', () => {
     const view: ThreadView = {
+      ...base,
       threadId: 't-4',
-      title: 'Duplicate charge',
-      ticket: 'I was charged twice for ORD-1042.',
       status: 'awaiting_approval',
-      updatedAt: '2026-10-08T12:00:00.000Z',
-      storage: 'blobs',
-      proposal,
-      trace: trace([
-        ['intake', 'ok'],
-        ['policy', 'ok'],
-        ['decide', 'ok'],
-        ['review', 'pending'],
-        ['reply', 'pending'],
-      ]),
+      proposal: PROPOSAL,
+      retryable: false,
+      trace: trace([['classify', 'ok'], ['decide', 'ok'], ['review', 'pending'], ['reply', 'pending']]),
       result: null,
     }
     const run = runFromView(view)
-    expect(run.nodes.review).toBe('waiting')
-    expect(run.nodes.reply).toBe('idle')
-    expect(run.taken).toMatchObject({ 'decide>review': 'requiresHuman' })
-    expect(run.proposal).toEqual(proposal)
-    expect(run.trace.map((row) => row.node)).toEqual(['intake', 'policy', 'decide'])
+    expect(run.nodes).toEqual({ classify: 'done', decide: 'done', review: 'waiting', reply: 'idle' })
+    expect(run.taken).toEqual({ 'classify>decide': '', 'decide>review': 'requiresHuman' })
+    expect(run.proposal).toEqual(PROPOSAL)
+    expect(run.issue).toEqual(PROPOSAL.issue)
+    expect(run.trace.map((row) => row.node)).toEqual(['classify', 'decide'])
   })
 
   it('shows a reloaded waiting thread exactly like the live paused run', () => {
     const live = apply([
       { type: 'thread', threadId: 't-6' },
-      { type: 'node_end', node: 'intake', ms: 1, status: 'ok', detail: 'd' },
-      { type: 'node_end', node: 'policy', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'node_end', node: 'classify', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'edge', from: 'classify', to: 'decide' },
       { type: 'node_end', node: 'decide', ms: 1, status: 'ok', detail: 'd' },
       { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },
       { type: 'node_start', node: 'review', ms: 1 },
-      { type: 'interrupt', node: 'review', threadId: 't-6', payload: proposal },
+      { type: 'interrupt', node: 'review', threadId: 't-6', payload: PROPOSAL },
     ])
     const reloaded = runFromView({
+      ...base,
       threadId: 't-6',
-      title: 'Duplicate charge',
-      ticket: 'I was charged twice for ORD-1042.',
       status: 'awaiting_approval',
-      updatedAt: '2026-10-08T12:00:00.000Z',
-      storage: 'blobs',
-      proposal,
+      proposal: PROPOSAL,
+      retryable: false,
       trace: padTrace(live.trace, 'awaiting_approval'),
       result: null,
     })
-    expect(reloaded.nodes).toEqual({ intake: 'done', policy: 'done', decide: 'done', review: 'waiting', reply: 'idle' })
     expect(reloaded.nodes).toEqual(live.nodes)
-    expect(reloaded.trace.map((row) => row.node)).toEqual(['intake', 'policy', 'decide'])
+    expect(reloaded.taken).toEqual(live.taken)
+    expect(reloaded.trace.map((row) => row.node)).toEqual(['classify', 'decide'])
   })
 
-  it('keeps review skipped on a finished automatic path', () => {
+  it('keeps review skipped and takes the otherwise edge on a finished automatic path', () => {
     const view: ThreadView = {
+      ...base,
       threadId: 't-7',
-      title: 'Small refund',
-      ticket: 'Order ORD-1077 arrived damaged.',
       status: 'completed',
-      updatedAt: '2026-10-08T12:00:00.000Z',
-      storage: 'blobs',
       proposal: null,
-      trace: trace([
-        ['intake', 'ok'],
-        ['policy', 'ok'],
-        ['decide', 'ok'],
-        ['review', 'skipped'],
-        ['reply', 'ok'],
-      ]),
+      retryable: false,
+      trace: trace([['classify', 'ok'], ['decide', 'ok'], ['review', 'skipped'], ['reply', 'ok']]),
       result: null,
     }
-    expect(runFromView(view).nodes.review).toBe('skipped')
+    const run = runFromView(view)
+    expect(run.nodes.review).toBe('skipped')
+    expect(run.taken['decide>reply']).toBe('otherwise')
+    expect('decide>review' in run.taken).toBe(false)
   })
 
   it('rebuilds a failed thread with its error text', () => {
     const view: ThreadView = {
+      ...base,
       threadId: 't-5',
-      title: 'Failed',
-      ticket: 'Order ORD-1077 arrived damaged.',
       status: 'failed',
-      updatedAt: '2026-10-08T12:00:00.000Z',
       storage: 'memory',
       proposal: null,
-      trace: trace([['intake', 'failed']]),
+      retryable: false,
+      trace: trace([['classify', 'failed']]),
       result: null,
     }
     expect(runFromView(view).error).toContain('stopped before it finished')
+    expect(runFromView(view).retryable).toBe(false)
+    expect(runFromView({ ...view, retryable: true }).retryable).toBe(true)
+    // A thread that is not failed is never retryable, whatever the server says.
+    expect(runFromView({ ...view, status: 'completed', retryable: true }).retryable).toBe(false)
   })
 })
 
@@ -173,5 +175,17 @@ describe('formatting', () => {
     expect(formatTokens(1234)).toBe('1,234')
     expect(formatMs(850)).toBe('850 ms')
     expect(formatMs(2500)).toBe('2.50 s')
+  })
+
+  it('says how old an issue is in the largest whole unit', () => {
+    const now = Date.parse('2026-10-09T12:00:00Z')
+    expect(formatAge('2026-10-09T11:59:40Z', now)).toBe('just now')
+    expect(formatAge('2026-10-09T11:55:00Z', now)).toBe('5 min ago')
+    expect(formatAge('2026-10-09T09:00:00Z', now)).toBe('3 h ago')
+    expect(formatAge('2026-10-08T12:00:00Z', now)).toBe('1 day ago')
+    expect(formatAge('2026-10-02T12:00:00Z', now)).toBe('7 days ago')
+    expect(formatAge('2026-07-09T12:00:00Z', now)).toBe('3 months ago')
+    expect(formatAge('2023-10-09T12:00:00Z', now)).toBe('3 years ago')
+    expect(formatAge('not a date', now)).toBe('unknown age')
   })
 })

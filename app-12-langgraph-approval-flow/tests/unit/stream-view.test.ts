@@ -3,17 +3,17 @@ import { approvalVisible, NO_STREAM, runningLine } from '../../src/lib/stream-vi
 
 describe('runningLine', () => {
   it('says the run is starting only before the first event of a new run', () => {
-    expect(runningLine(null, NO_STREAM)).toBe('Starting the refund run.')
-    expect(runningLine(null, { resuming: false, eventsArrived: true })).toBe('Running the refund.')
+    expect(runningLine(null, NO_STREAM)).toBe('Starting the triage run.')
+    expect(runningLine(null, { resuming: false, eventsArrived: true })).toBe('Running the triage.')
   })
 
   it('names the step while one is running', () => {
-    expect(runningLine('decide', { resuming: false, eventsArrived: true })).toBe('Running the decide step.')
+    expect(runningLine('classify', { resuming: false, eventsArrived: true })).toBe('Running the classify step.')
   })
 
   it('says the decision is being sent from the click until the first event of a resume', () => {
     expect(runningLine(null, { resuming: true, eventsArrived: false })).toBe('Sending your decision.')
-    expect(runningLine(null, { resuming: true, eventsArrived: true })).toBe('Running the refund.')
+    expect(runningLine(null, { resuming: true, eventsArrived: true })).toBe('Running the triage.')
     expect(runningLine('reply', { resuming: true, eventsArrived: true })).toBe('Running the reply step.')
   })
 })

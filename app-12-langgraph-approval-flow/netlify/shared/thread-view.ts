@@ -1,25 +1,24 @@
-import type { NodeName, ReviewPayload, RunResult, ThreadEntry, ThreadStatus, ThreadView, TraceRow } from '../../src/types'
+import { NODES, type IssueInput, type NodeName, type ReviewPayload, type RunResult, type ThreadEntry, type ThreadStatus, type ThreadView, type TraceRow } from '../../src/types'
 import { totalsOf } from '../../src/lib/totals'
 import { NOT_NEEDED_DETAIL } from './events'
+import { issueRefOf } from './issue-input'
 import type { GraphValues } from './state'
-import { resolveDecision } from './policy'
 import type { StorageKind } from './store'
-
-const NODE_ORDER: readonly NodeName[] = ['intake', 'policy', 'decide', 'review', 'reply']
+import { resolveTriage } from './triage'
 
 function missingDetail(node: NodeName, status: ThreadStatus): string {
   if (status === 'failed') return 'Not run: an earlier step failed.'
-  if (status === 'awaiting_approval') return node === 'review' ? 'Waiting for a person.' : 'Not run yet.'
+  if (status === 'awaiting_approval') return node === 'review' ? 'Waiting for a maintainer.' : 'Not run yet.'
   return node === 'review' ? NOT_NEEDED_DETAIL : 'Not run on this path.'
 }
 
 /**
  * One row per node in graph order, so the trace is always complete. A node that never ran is
- * pending while the thread still waits for a person (it will run), and skipped otherwise.
+ * pending while the thread still waits for a maintainer (it will run), and skipped otherwise.
  */
 export function padTrace(rows: readonly TraceRow[], status: ThreadStatus): TraceRow[] {
   const missing = status === 'awaiting_approval' ? 'pending' : 'skipped'
-  return NODE_ORDER.map((node) => {
+  return NODES.map((node) => {
     const row = rows.filter((candidate) => candidate.node === node).at(-1)
     return row ?? { node, status: missing, ms: 0, detail: missingDetail(node, status) }
   })
@@ -30,45 +29,52 @@ function requireValue<T>(value: T | null, name: string): T {
   return value
 }
 
-/** The finished outcome of a completed thread, with the final action and amount after the human answer. */
+/** The finished triage card of a completed thread, with the labels and priority after the maintainer's answer. */
 export function buildResult(threadId: string, values: GraphValues): RunResult {
-  const proposal = requireValue(values.decision, 'decision')
-  const policy = requireValue(values.policyResult, 'policy result')
-  const reply = requireValue(values.replyEmail, 'reply')
-  const final = resolveDecision(proposal, values.humanDecision)
+  const issue = requireValue(values.issue, 'issue')
+  const classification = requireValue(values.classification, 'classification')
+  const triage = requireValue(values.triage, 'triage')
+  const reply = requireValue(values.replyDraft, 'reply')
+  const final = resolveTriage(triage, values.humanDecision)
   return {
     threadId,
-    action: final.action,
-    amount: final.amount,
-    proposal,
+    issue: issueRefOf(issue),
+    outcome: final.outcome,
+    labels: final.labels,
+    priority: final.priority,
+    classification,
+    triage,
     humanDecision: values.humanDecision,
     reply,
-    policy,
+    path: values.humanDecision ? 'human' : 'auto',
     trace: padTrace(values.trace, 'completed'),
     totals: totalsOf(values.trace),
   }
 }
 
-export interface ThreadViewInput {
+interface ThreadViewInput {
   threadId: string
   entry: ThreadEntry
   storage: StorageKind
   values: GraphValues
   proposal: ReviewPayload | null
+  retryable: boolean
 }
 
 /** What GET /api/thread returns: status, the pending proposal while waiting, and the result when done. */
 export function threadViewOf(input: ThreadViewInput): ThreadView {
   const { entry, values } = input
-  const finished = entry.status === 'completed' && values.decision !== null && values.replyEmail !== null
+  const issue: IssueInput = requireValue(values.issue, 'issue')
+  const finished = entry.status === 'completed' && values.triage !== null && values.replyDraft !== null
   return {
     threadId: input.threadId,
     title: entry.title,
-    ticket: values.ticket,
+    issue,
     status: entry.status,
     updatedAt: entry.updatedAt,
     storage: input.storage,
     proposal: entry.status === 'awaiting_approval' ? input.proposal : null,
+    retryable: input.retryable,
     trace: padTrace(values.trace, entry.status),
     result: finished ? buildResult(input.threadId, values) : null,
   }

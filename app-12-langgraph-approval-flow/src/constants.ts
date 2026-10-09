@@ -2,25 +2,11 @@
 export const MEMORY_NOTE =
   'Checkpoints are kept in memory on this server because Netlify Blobs is not configured here. An approval can be lost on reload.'
 
-export interface SampleTicket {
-  id: 'duplicate' | 'defect'
-  label: string
-  outcome: string
-  text: string
-}
-
-/** Two tickets that the sample orders answer. One needs a person, and one is approved automatically. */
-export const SAMPLE_TICKETS: readonly SampleTicket[] = [
-  {
-    id: 'duplicate',
-    label: 'Duplicate charge, $129.00',
-    outcome: 'Needs a person. The refund is over $50.',
-    text: 'Hi, I was charged twice for order ORD-1042 on my card. Both charges were $129.00. Please refund the extra one.',
-  },
-  {
-    id: 'defect',
-    label: 'Defective mouse, $24.50',
-    outcome: 'Approved automatically. The refund is $50 or less.',
-    text: 'Hello, order ORD-1077 arrived with a cracked case and the scroll wheel does not work. Please refund the mouse.',
-  },
+/** Well-known, active public repositories, one click each. Any other public repo can be typed in. */
+export const PRESET_REPOS: readonly string[] = [
+  'facebook/react',
+  'vitejs/vite',
+  'microsoft/vscode',
+  'denoland/deno',
+  'langchain-ai/langgraphjs',
 ]

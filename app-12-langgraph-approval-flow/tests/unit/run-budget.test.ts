@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RUN_BUDGET_MS, RunBudget } from '../../netlify/shared/budget'
 import type { StreamEvent } from '../../netlify/shared/events'
-import { CALL_TIMEOUT_MS } from '../../netlify/shared/openrouter'
-import { RUN_BUDGET_MESSAGE, startRun, type RunDeps } from '../../netlify/shared/run'
+import { CALL_TIMEOUT_MS, PROVIDER_SLOW, ProviderError } from '../../netlify/shared/openrouter'
+import { budgetMessage, startRun, type RunDeps } from '../../netlify/shared/run'
 import { streamResponse } from '../../netlify/shared/sse'
 import { createMemoryStore, STORE_SLOW, type KeyValueStore } from '../../netlify/shared/store'
 import { readThreadIndex } from '../../netlify/shared/thread-index'
 import { fakeChat } from '../helpers/fake-chat'
+import { QUESTION } from '../helpers/issues'
 import { untilSettled } from '../helpers/fake-time'
 import { parseFrames } from '../helpers/http'
 
 const NOW = new Date('2026-10-08T12:00:00Z')
-const TICKET = 'Order ORD-1077 arrived with a dead wheel on the mouse, please refund that item.'
 const NEVER = () => new Promise<never>(() => {})
 
 /** A store whose checkpoint reads, or writes, never resolve. The thread index still answers. */
@@ -45,7 +45,7 @@ describe('a run whose checkpoint store never answers', () => {
 
       await untilSettled(
         startRun(deps, {
-          ticket: TICKET,
+          issue: QUESTION,
           threadId: `hang-${hang}`,
           budget: budget.signal,
           send: (event) => events.push(event),
@@ -74,7 +74,7 @@ describe('the run budget', () => {
 
   it('is 25 seconds, with the message and the model call limit to match', () => {
     expect(RUN_BUDGET_MS).toBe(25_000)
-    expect(RUN_BUDGET_MESSAGE).toContain('25 seconds')
+    expect(budgetMessage('reply')).toContain('25-second budget during the reply step')
     expect(CALL_TIMEOUT_MS).toBe(12_000)
     expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
   })
@@ -84,18 +84,36 @@ describe('the run budget', () => {
     // A model call that never answers on its own and stops only when the run is aborted.
     const stalled = vi.fn((_request: unknown, signal: AbortSignal) =>
       new Promise<never>((_resolve, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('aborted')))
+        signal.addEventListener('abort', () => reject(new ProviderError(504, PROVIDER_SLOW, 'budget')))
       }),
     )
     const deps: RunDeps = { store, storage: 'memory', chat: stalled as unknown as RunDeps['chat'], now: () => NOW }
 
     const response = streamResponse(new RunBudget(3_000), (send, signal) =>
-      startRun(deps, { ticket: TICKET, threadId: 'budget-short', budget: signal, send }),
+      startRun(deps, { issue: QUESTION, threadId: 'budget-short', budget: signal, send }),
     )
     const frames = parseFrames(await untilSettled(response.text()))
 
-    expect(frames.find((frame) => frame !== '[DONE]' && frame.type === 'error')).toEqual({ type: 'error', message: RUN_BUDGET_MESSAGE })
+    expect(frames.find((frame) => frame !== '[DONE]' && frame.type === 'error')).toEqual({ type: 'error', message: budgetMessage('classify') })
     expect(frames.at(-1)).toBe('[DONE]')
     expect(await readThreadIndex(store)).toEqual([expect.objectContaining({ id: 'budget-short', status: 'failed' })])
+  })
+
+  it('names the budget, not the provider, when the budget ends a call, and the call limit when a call overruns', async () => {
+    const store = createMemoryStore()
+    const slowCall = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 12 seconds.', 'timeout')))
+    const deps: RunDeps = { store, storage: 'memory', chat: slowCall as unknown as RunDeps['chat'], now: () => NOW }
+    const events: StreamEvent[] = []
+
+    await startRun(deps, { issue: QUESTION, threadId: 'call-limit', budget: new AbortController().signal, send: (event) => events.push(event) })
+
+    expect(events.find((event) => event.type === 'error')).toEqual({
+      type: 'error',
+      message: 'The AI provider did not answer within 12 seconds during the classify step. Finished steps are saved, so you can retry the thread.',
+    })
+    expect(budgetMessage('classify')).toBe(
+      'The run reached its 25-second budget during the classify step and was stopped. Finished steps are saved, so you can retry the thread.',
+    )
+    expect(events.find((event) => event.type === 'node_end')).toMatchObject({ node: 'classify', status: 'failed' })
   })
 })

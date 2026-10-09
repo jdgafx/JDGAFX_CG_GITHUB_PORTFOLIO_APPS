@@ -120,7 +120,7 @@ describe('GraphGateSaver: pending writes', () => {
     const { second } = await twoCheckpoints(saver, 'thread-h')
     const config = { configurable: { thread_id: 'thread-h', checkpoint_id: second.id } }
 
-    const interruptValue = [{ value: { proposal: { action: 'refund', amount: 129 } }, resumable: true }]
+    const interruptValue = [{ value: { triage: { priority: 'high' } }, resumable: true }]
     await saver.putWrites(config, [['__interrupt__', interruptValue]], 'review-task')
 
     const tuple = await saver.getTuple(config)
@@ -133,16 +133,25 @@ describe('GraphGateSaver: pending writes', () => {
 })
 
 describe('thread index', () => {
+  const row = (id: string, status: 'awaiting_approval' | 'completed', priority: 'high' | 'low' | null) => ({
+    id,
+    title: `acme/widgets #1: ${id}`,
+    repo: 'acme/widgets',
+    number: 1,
+    status,
+    priority,
+  })
+
   it('stores one row per thread, newest first, and replaces a row when the thread changes', async () => {
     const store: KeyValueStore = createMemoryStore()
-    await upsertThread(store, { id: 'a', title: 'First', status: 'awaiting_approval', amount: 129 }, new Date('2026-10-08T10:00:00Z'))
-    await upsertThread(store, { id: 'b', title: 'Second', status: 'completed', amount: 24.5 }, new Date('2026-10-08T11:00:00Z'))
-    await upsertThread(store, { id: 'a', title: 'First', status: 'completed', amount: 129 }, new Date('2026-10-08T12:00:00Z'))
+    await upsertThread(store, row('a', 'awaiting_approval', 'high'), new Date('2026-10-08T10:00:00Z'))
+    await upsertThread(store, row('b', 'completed', 'low'), new Date('2026-10-08T11:00:00Z'))
+    await upsertThread(store, row('a', 'completed', 'high'), new Date('2026-10-08T12:00:00Z'))
 
     const rows = await readThreadIndex(store)
-    expect(rows.map((row) => [row.id, row.status, row.amount])).toEqual([
-      ['a', 'completed', 129],
-      ['b', 'completed', 24.5],
+    expect(rows.map((entry) => [entry.id, entry.status, entry.priority])).toEqual([
+      ['a', 'completed', 'high'],
+      ['b', 'completed', 'low'],
     ])
     expect(rows[0].updatedAt).toBe('2026-10-08T12:00:00.000Z')
   })
@@ -150,12 +159,12 @@ describe('thread index', () => {
   it('keeps only the 50 newest threads', async () => {
     const store = createMemoryStore()
     for (let i = 0; i < 55; i += 1) {
-      await upsertThread(store, { id: `t-${i}`, title: `Ticket ${i}`, status: 'completed', amount: 0 }, new Date(Date.UTC(2026, 9, 1, 0, i)))
+      await upsertThread(store, row(`t-${i}`, 'completed', null), new Date(Date.UTC(2026, 9, 1, 0, i)))
     }
     const rows = await readThreadIndex(store)
     expect(rows).toHaveLength(50)
     expect(rows[0].id).toBe('t-54')
-    expect(rows.some((row) => row.id === 't-0')).toBe(false)
+    expect(rows.some((entry) => entry.id === 't-0')).toBe(false)
   })
 
   it('reads a damaged index as empty instead of failing the page', async () => {

@@ -1,5 +1,4 @@
 import { MEMORY_NOTE } from '../constants'
-import { formatUsd } from '../lib/format'
 import type { ThreadEntry, ThreadStatus } from '../types'
 
 export interface ThreadsState {
@@ -11,7 +10,7 @@ export interface ThreadsState {
 }
 
 const STATUS_TEXT: Record<ThreadStatus, string> = {
-  awaiting_approval: 'Awaiting approval',
+  awaiting_approval: 'Awaiting a maintainer',
   completed: 'Completed',
   failed: 'Failed',
 }
@@ -59,7 +58,7 @@ export function ThreadsCard({ state, busy, onRefresh, onOpen }: ThreadsCardProps
         </p>
       ) : null}
       {!state.loading && !state.error && state.items.length === 0 ? (
-        <div className="ds-empty">No saved runs yet. Start the refund run, and it appears here.</div>
+        <div className="ds-empty">No saved runs yet. Triage an issue, and it appears here.</div>
       ) : null}
 
       <ul className="gg-threads">
@@ -71,7 +70,7 @@ export function ThreadsCard({ state, busy, onRefresh, onOpen }: ThreadsCardProps
                 <span className={`ds-dot ${STATUS_DOT[item.status]}`} aria-hidden="true" />
                 <span>
                   {STATUS_TEXT[item.status]}
-                  {item.amount !== null ? `, ${formatUsd(item.amount)}` : ''}, {new Date(item.updatedAt).toLocaleString()}
+                  {item.priority ? `, ${item.priority} priority` : ''}, {new Date(item.updatedAt).toLocaleString()}
                 </span>
               </p>
             </div>
@@ -82,7 +81,7 @@ export function ThreadsCard({ state, busy, onRefresh, onOpen }: ThreadsCardProps
               onClick={() => onOpen(item.id)}
               aria-label={`Open ${item.title}`}
             >
-              {item.status === 'awaiting_approval' ? 'Open to approve' : 'Open'}
+              {item.status === 'awaiting_approval' ? 'Open to review' : 'Open'}
             </button>
           </li>
         ))}

@@ -14,7 +14,7 @@ export interface KeyValueStore {
 
 export type StorageKind = 'blobs' | 'memory'
 
-export interface OpenStore {
+interface OpenStore {
   store: KeyValueStore
   kind: StorageKind
 }
@@ -27,7 +27,7 @@ export const MEMORY_NOTICE =
 export const STORE_SLOW = 'The checkpoint store did not answer in time. Try again.'
 
 /** The longest wait for one store call. A call that outlives it fails with STORE_SLOW. */
-export const STORE_CALL_MS = 8_000
+const STORE_CALL_MS = 8_000
 
 export class StoreTimeoutError extends Error {
   constructor() {
@@ -104,11 +104,6 @@ let active: OpenStore | undefined
 export function activeStore(): OpenStore {
   active ??= createStore()
   return active
-}
-
-/** Tests inject a fake store here. Pass undefined to go back to the real choice. */
-export function overrideStore(override: OpenStore | undefined): void {
-  active = override
 }
 
 /**
