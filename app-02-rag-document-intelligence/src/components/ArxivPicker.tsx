@@ -14,7 +14,7 @@ interface ArxivPickerProps {
   onError: (message: string) => void
 }
 
-/** An arXiv ID or link, fetched by this app's function and read in the browser like an upload. */
+/** An arXiv ID or link, fetched by your browser from arxiv.org and read like an upload. */
 export function ArxivPicker({ busy, onLoad, onError }: ArxivPickerProps) {
   const [value, setValue] = useState('')
 
@@ -51,7 +51,7 @@ export function ArxivPicker({ busy, onLoad, onError }: ArxivPickerProps) {
             </button>
           </div>
           <p id="docmind-arxiv-help" className="ds-help">
-            This app&apos;s server fetches the PDF from arxiv.org, up to 5 MB. Your browser reads its text, as it does for an upload.
+            Your browser fetches the PDF from arxiv.org, up to 5 MB, and reads its text as it does for an upload.
           </p>
         </div>
       </form>

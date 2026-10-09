@@ -1,7 +1,6 @@
 /**
  * An arXiv identifier, new style ("1706.03762", "2101.00001v2") or old style
- * ("hep-th/9901001"). The server accepts only this shape, so it is the one definition
- * the browser and the function share.
+ * ("hep-th/9901001"). Only this shape is ever put in a URL.
  */
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z]+(?:-[a-z]+)*(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/
 
@@ -24,7 +23,8 @@ export function arxivAbsUrl(id: string): string {
   return `https://arxiv.org/abs/${id}`
 }
 
-/** The path of this app's own function that fetches the PDF. */
-export function arxivProxyPath(id: string): string {
-  return `/api/arxiv?id=${encodeURIComponent(id)}`
+/** The PDF URL for a validated ID. The host is a literal, so the ID is the only input. Throws on anything else. */
+export function arxivPdfUrl(id: string): string {
+  if (!ARXIV_ID.test(id)) throw new Error('Not an arXiv ID.')
+  return `https://arxiv.org/pdf/${id}`
 }

@@ -1,7 +1,13 @@
-import { arxivProxyPath } from './arxivId'
+import { arxivPdfUrl } from './arxivId'
 
-/** Longest wait for the function, which itself gives arXiv 20 seconds. */
-const REQUEST_TIMEOUT_MS = 30_000
+/** Largest PDF read. A longer body stops being read at this size. */
+export const MAX_PDF_BYTES = 5 * 1024 * 1024
+
+/** The download is abandoned when nothing arrives for this long, before the reply or between chunks. */
+export const STALL_MS = 15_000
+
+/** Ceiling for the whole download, so a slow trickle cannot run on forever. */
+const TOTAL_MS = 90_000
 
 /** A paper that could not be fetched, with a sentence safe to show. */
 export class ArxivError extends Error {
@@ -11,38 +17,95 @@ export class ArxivError extends Error {
   }
 }
 
-/** The error sentence a failed reply carries, or a generic one when it has none. */
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: unknown }
-    if (typeof body.error === 'string' && body.error.trim() !== '') return body.error
-  } catch {
-    // The body was not JSON. The generic sentence below covers it.
+export const TOO_LARGE_MESSAGE = `That paper is larger than ${MAX_PDF_BYTES / (1024 * 1024)} MB. Try a shorter one, or download it and use Upload.`
+const UNREACHABLE_MESSAGE =
+  'Could not load that paper from arXiv. Check the ID and your connection, then try again. A paper that does not exist fails the same way.'
+
+/** A failed attempt that is worth one more try: the request itself did not complete. */
+class NetworkFailure extends Error {}
+
+/**
+ * One attempt. The browser asks arxiv.org directly, which allows cross-origin reads of its PDFs.
+ * The watchdog restarts at the reply and after every chunk, so only a stalled download is cut off.
+ */
+async function download(id: string, signal: AbortSignal | undefined): Promise<Blob> {
+  const watchdog = new AbortController()
+  const stalled = () => watchdog.abort(new DOMException('The download stalled.', 'TimeoutError'))
+  let timer = setTimeout(stalled, STALL_MS)
+  const rearm = () => {
+    clearTimeout(timer)
+    timer = setTimeout(stalled, STALL_MS)
   }
-  return response.status === 429
-    ? 'Rate limited, try again in a minute.'
-    : 'The paper could not be fetched right now. Try again shortly.'
+  const limits = [watchdog.signal, AbortSignal.timeout(TOTAL_MS)]
+
+  try {
+    let response: Response
+    try {
+      response = await fetch(arxivPdfUrl(id), { signal: AbortSignal.any(signal ? [...limits, signal] : limits) })
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (watchdog.signal.aborted) throw new ArxivError('arXiv did not answer in time. Try again.')
+      throw new NetworkFailure()
+    }
+    rearm()
+    if (response.status === 404) throw new ArxivError('arXiv has no paper with that ID.')
+    if (response.status === 429) throw new ArxivError('arXiv is rate limiting requests. Try again in a minute.')
+    if (!response.ok || !response.body) throw new ArxivError('arXiv could not provide that paper right now. Try again shortly.')
+    if (!(response.headers.get('content-type') ?? '').toLowerCase().startsWith('application/pdf')) {
+      await response.body.cancel().catch(() => undefined)
+      throw new ArxivError('arXiv did not return a PDF for that ID.')
+    }
+    if (Number(response.headers.get('content-length') ?? 0) > MAX_PDF_BYTES) {
+      await response.body.cancel().catch(() => undefined)
+      throw new ArxivError(TOO_LARGE_MESSAGE)
+    }
+
+    const reader = response.body.getReader()
+    const parts: Uint8Array<ArrayBuffer>[] = []
+    let size = 0
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > MAX_PDF_BYTES) {
+          await reader.cancel().catch(() => undefined)
+          throw new ArxivError(TOO_LARGE_MESSAGE)
+        }
+        parts.push(value as Uint8Array<ArrayBuffer>)
+        rearm()
+      }
+    } catch (err) {
+      if (err instanceof ArxivError || signal?.aborted) throw err
+      throw new ArxivError(
+        watchdog.signal.aborted
+          ? 'arXiv stopped sending the paper. Try again.'
+          : 'The PDF download was cut short. Try again.',
+      )
+    }
+    return new Blob(parts, { type: 'application/pdf' })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-/** Fetches a paper's PDF through this app's function and returns it as a file for the PDF reader. */
+/**
+ * Fetches a paper's PDF straight from arxiv.org and returns it as a file for the PDF reader.
+ * A request that fails outright is tried once more. An error reply from arXiv carries no CORS
+ * header, so the browser reports a missing paper and a dropped connection the same way.
+ */
 export async function fetchArxivFile(id: string, signal?: AbortSignal): Promise<File> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  let response: Response
+  let blob: Blob
   try {
-    response = await fetch(arxivProxyPath(id), { signal: signal ? AbortSignal.any([timeout, signal]) : timeout })
+    blob = await download(id, signal)
   } catch (err) {
-    if (signal?.aborted) throw err
-    throw new ArxivError(
-      timeout.aborted ? 'arXiv did not answer in time. Try again.' : 'Could not reach the server. Check your connection and try again.',
-    )
+    if (!(err instanceof NetworkFailure)) throw err
+    try {
+      blob = await download(id, signal)
+    } catch (retryErr) {
+      if (retryErr instanceof NetworkFailure) throw new ArxivError(UNREACHABLE_MESSAGE)
+      throw retryErr
+    }
   }
-  if (!response.ok) throw new ArxivError(await errorMessage(response))
-  if (!(response.headers.get('content-type') ?? '').startsWith('application/pdf')) {
-    throw new ArxivError('The server did not return a PDF for that ID.')
-  }
-  try {
-    return new File([await response.blob()], `${id.replace('/', '_')}.pdf`, { type: 'application/pdf' })
-  } catch {
-    throw new ArxivError('The PDF download was cut short. Try again.')
-  }
+  return new File([blob], `${id.replace('/', '_')}.pdf`, { type: 'application/pdf' })
 }

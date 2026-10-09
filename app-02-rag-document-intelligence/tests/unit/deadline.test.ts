@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { raceAbort, withDeadline } from '../../netlify/shared/deadline'
-import { ARXIV_TIMEOUT_MESSAGE, FETCH_TIMEOUT_MS, fetchArxivPdf } from '../../netlify/shared/arxiv'
 import { TIMEOUT_MESSAGE, callModel } from '../../netlify/shared/provider'
 
 afterEach(() => {
@@ -10,8 +9,8 @@ afterEach(() => {
 })
 
 /** A reply that sends its headers and then never produces a byte and never ends. */
-function stalledBody(type = 'application/json'): Response {
-  return new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': type } })
+function stalledBody(): Response {
+  return new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 
 describe('withDeadline', () => {
@@ -48,7 +47,7 @@ describe('withDeadline', () => {
   })
 })
 
-describe('stalled bodies end at the limit with the existing timeout message', () => {
+describe('a stalled body ends at the limit with the existing timeout message', () => {
   it('a model reply whose body never finishes becomes the provider timeout message', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     vi.stubGlobal('fetch', vi.fn(async () => stalledBody()))
@@ -56,14 +55,5 @@ describe('stalled bodies end at the limit with the existing timeout message', ()
     const result = await callModel('test-only-placeholder', [{ role: 'user', content: 'Q' }], Date.now() + 80)
     expect(Date.now() - started).toBeLessThan(2_000)
     expect(result).toEqual({ ok: false, status: 504, message: TIMEOUT_MESSAGE })
-  })
-
-  it('an arXiv PDF whose body never finishes becomes the arXiv timeout message', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    vi.stubGlobal('fetch', vi.fn(async () => stalledBody('application/pdf')))
-    const pending = fetchArxivPdf('1706.03762')
-    await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS)
-    await expect(pending).resolves.toEqual({ ok: false, status: 504, message: ARXIV_TIMEOUT_MESSAGE })
   })
 })

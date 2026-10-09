@@ -7,7 +7,7 @@ What this showcases: retrieval-augmented answering. The browser retrieves the pa
 ## Where documents come from
 
 - **Wikipedia.** Search by title with live suggestions, or start from one of three article titles. The browser fetches the article text from `en.wikipedia.org/w/api.php` when you choose it, so it is the article as it is today. Each section becomes a numbered unit (`--- Page N ---` markers, the same ones the PDF reader writes), titled with its heading. Nested sections read "Parent > Child". Empty headings, the reference lists at the end (See also, Notes, References, Further reading, External links) and everything under them are left out. The UI calls these units sections, not pages. The text is cut at 25 MB, the size the app accepts for a file.
-- **arXiv.** Enter an ID (`1706.03762`, `hep-th/9901001`) or paste an arxiv.org link, or start from an example. The browser asks this app's function `/api/arxiv?id=...`, which fetches the PDF from `arxiv.org` and returns it. The host is fixed in the code, the ID must match the arXiv ID pattern, redirects are followed only within `arxiv.org` over https, the function gives up after 20 seconds, the content type must be `application/pdf`, and the PDF can be at most 5 MB (Netlify limits a synchronous response to about 6 MB). The browser then reads the PDF text with the same in-browser reader as an upload, so citations say "page N".
+- **arXiv.** Enter an ID (`1706.03762`, `hep-th/9901001`) or paste an arxiv.org link, or start from an example. The browser fetches `https://arxiv.org/pdf/<id>` directly, because arXiv allows cross-origin reads of its PDFs. The host is fixed in the code and the ID must match the arXiv ID pattern. The reply must be `application/pdf`, and the PDF is read as a stream and at most 5 MB of it is kept. The download is abandoned when no data arrives for 15 seconds, and a request that fails outright is tried once more. The browser then reads the PDF text with the same in-browser reader as an upload, so citations say "page N".
 - **Upload.** A PDF or TXT file up to 25 MB, read in the browser and never uploaded whole.
 
 The document panel shows the title, a link to the source, and the number of passages, sections or pages, and characters. The question box starts empty. For an article, it also offers question starters built from the article's own section titles. A starter fills the box and you press **Ask**.
@@ -35,8 +35,8 @@ The Passages panel is the retrieval view. Its map shows the whole document as a 
 
 ```
 browser (React, pdf.js)
-  -> Wikipedia article text fetched from en.wikipedia.org (CORS), or a PDF from GET /api/arxiv?id=<ID>
-     (Netlify Function netlify/functions/arxiv.ts, arxiv.org only), or an uploaded file
+  -> Wikipedia article text fetched from en.wikipedia.org (CORS), or a PDF fetched from arxiv.org (CORS),
+     or an uploaded file
   -> PDF text read locally, passages chunked (500 characters, 50 overlap)
   -> term-overlap retrieval picks up to 20 passages
   -> POST /api/ai  (Accept: text/event-stream)
@@ -47,11 +47,11 @@ browser (React, pdf.js)
   <- server-sent events: start, step, result or error, then [DONE]
 ```
 
-- **Content Security Policy.** `connect-src` allows `'self'` and `https://en.wikipedia.org`, the one host the browser calls directly. Everything else goes through this app's functions.
+- **Content Security Policy.** `connect-src` allows `'self'`, `https://en.wikipedia.org` and `https://arxiv.org`, the two hosts the browser calls directly. The model call goes through this app's function.
 - **Keys.** `OPENROUTER_API_KEY` is read only inside the function. The browser never receives it and never calls OpenRouter.
 - **Model.** One server constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned. The UI has no model picker, and any model name the client sends is ignored.
 - **Output cap.** Every model call sends `max_tokens: 4096` and `usage: { include: true }`, so the reply reports tokens and cost.
-- **Same origin only.** The app and its functions share one origin, so the functions send no CORS headers and do not answer OPTIONS. A request whose Origin header is not on the list gets 403. Requests with no Origin header are allowed.
+- **Same origin only.** The app and its function share one origin, so the function sends no CORS headers and do not answer OPTIONS. A request whose Origin header is not on the list gets 403. Requests with no Origin header are allowed.
 - **Validation.** Non-POST methods get 405. Bad JSON gets 400. Bodies over 256 KB get 413. The question is at most 2000 characters, at most 20 passages are accepted, and each passage must start with its `[Chunk N]` label. Each passage is cut to 2000 characters and the title to 200.
 - **Rate limit.** 20 requests per minute per client address, kept in memory by each function instance. It is a cost guard, not a quota.
 - **Deadline.** One 25-second budget covers the first call, any retry, and the price lookup. The price lookup is skipped when less than a second remains.
@@ -93,6 +93,7 @@ The tests blank every provider key. Every function test replaces `fetch` with a 
 - Wikipedia text is read as plain text. Tables, lists of links and images are not included, and an article that has no prose is refused.
 - The model's answer text may name a passage as "Chunk N", counted from 0, while the panel numbers passages from 1. The cited list below the answer uses the panel numbers.
 - arXiv papers over 5 MB are refused. Download them and use Upload, up to 25 MB.
+- arXiv's error replies carry no CORS header, so the browser cannot tell a paper that does not exist from a dropped connection. Both show one sentence that says so, after one automatic retry.
 - Citations are checked against the passages that were sent. The answer text itself is not checked against them.
 - The rate limit is kept in memory per function instance, so the true number of requests a site allows is higher than 20 per minute.
 - Requests with no Origin header are accepted. The origin list stops other websites in a browser, not direct calls.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { arxivAbsUrl, arxivProxyPath, parseArxivId } from '../../src/lib/arxivId'
-import { arxivPdfUrl, fetchArxivPdf, MAX_PDF_BYTES, NOT_A_PDF_MESSAGE, TOO_LARGE_MESSAGE } from '../../netlify/shared/arxiv'
+import { ArxivError, fetchArxivFile, MAX_PDF_BYTES, STALL_MS, TOO_LARGE_MESSAGE } from '../../src/lib/arxiv'
+import { arxivAbsUrl, arxivPdfUrl, parseArxivId } from '../../src/lib/arxivId'
 
 describe('parseArxivId', () => {
   it.each([
@@ -30,9 +30,8 @@ describe('parseArxivId', () => {
     expect(parseArxivId(input)).toBeNull()
   })
 
-  it('builds the abstract link and the function path', () => {
+  it('builds the abstract link', () => {
     expect(arxivAbsUrl('1706.03762')).toBe('https://arxiv.org/abs/1706.03762')
-    expect(arxivProxyPath('hep-th/9901001')).toBe('/api/arxiv?id=hep-th%2F9901001')
   })
 })
 
@@ -50,14 +49,18 @@ describe('arxivPdfUrl', () => {
   })
 })
 
-describe('fetchArxivPdf', () => {
-  afterEach(() => vi.unstubAllGlobals())
+describe('fetchArxivFile', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x35])
   const pdfResponse = (body: BodyInit = PDF, headers: Record<string, string> = {}) =>
     new Response(body, { status: 200, headers: { 'Content-Type': 'application/pdf', ...headers } })
 
-  function stub(...replies: Array<() => Response>) {
+  type Reply = () => Response | Promise<Response>
+  function stub(...replies: Reply[]) {
     const mock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => {
       const next = replies.shift()
       if (!next) throw new Error('unexpected fetch')
@@ -66,36 +69,47 @@ describe('fetchArxivPdf', () => {
     vi.stubGlobal('fetch', mock)
     return mock
   }
+  const networkFailure: Reply = () => Promise.reject(new TypeError('Failed to fetch'))
+  const failure = async (promise: Promise<unknown>) => {
+    const err: unknown = await promise.then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ArxivError)
+    return (err as ArxivError).message
+  }
 
-  it('returns the bytes of a PDF fetched from arxiv.org without following redirects blindly', async () => {
+  it('returns the paper as a PDF file named after its ID, fetched from the fixed arxiv.org URL', async () => {
     const mock = stub(() => pdfResponse())
-    const result = await fetchArxivPdf('1706.03762')
-    expect(result).toEqual({ ok: true, bytes: PDF })
+    const file = await fetchArxivFile('hep-th/9901001')
+    expect(file.name).toBe('hep-th_9901001.pdf')
+    expect(file.type).toBe('application/pdf')
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(PDF)
     expect(mock).toHaveBeenCalledTimes(1)
-    expect(mock.mock.calls[0]?.[0]).toBe('https://arxiv.org/pdf/1706.03762')
-    expect(mock.mock.calls[0]?.[1]).toMatchObject({ redirect: 'manual' })
+    expect(mock.mock.calls[0]?.[0]).toBe('https://arxiv.org/pdf/hep-th/9901001')
   })
 
-  it('answers 400 for a bad ID without any request', async () => {
+  it('refuses a bad ID without any request', async () => {
     const mock = stub()
-    expect(await fetchArxivPdf('https://evil.example/x')).toMatchObject({ ok: false, status: 400 })
+    await expect(fetchArxivFile('https://evil.example/x')).rejects.toThrow()
     expect(mock).not.toHaveBeenCalled()
   })
 
-  it('maps a missing paper to 404 and a rate limit to 429', async () => {
-    stub(() => new Response('nope', { status: 404 }), () => new Response('slow down', { status: 429 }))
-    expect(await fetchArxivPdf('1706.03762')).toEqual({ ok: false, status: 404, message: 'arXiv has no paper with that ID.' })
-    expect(await fetchArxivPdf('1706.03762')).toMatchObject({ ok: false, status: 429 })
+  it('maps a readable 404 and 429 to plain sentences', async () => {
+    stub(() => new Response('nope', { status: 404 }), () => new Response('slow', { status: 429 }), () => new Response('x', { status: 503 }))
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe('arXiv has no paper with that ID.')
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe('arXiv is rate limiting requests. Try again in a minute.')
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe('arXiv could not provide that paper right now. Try again shortly.')
   })
 
-  it('refuses a reply that is not a PDF, such as an HTML page for a withdrawn paper', async () => {
+  it('refuses a reply that is not a PDF', async () => {
     stub(() => new Response('<html>', { status: 200, headers: { 'Content-Type': 'text/html' } }))
-    expect(await fetchArxivPdf('1706.03762')).toEqual({ ok: false, status: 502, message: NOT_A_PDF_MESSAGE })
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe('arXiv did not return a PDF for that ID.')
   })
 
   it('refuses a declared size over the cap without reading the body', async () => {
     stub(() => pdfResponse(PDF, { 'Content-Length': String(MAX_PDF_BYTES + 1) }))
-    expect(await fetchArxivPdf('1706.03762')).toEqual({ ok: false, status: 413, message: TOO_LARGE_MESSAGE })
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe(TOO_LARGE_MESSAGE)
   })
 
   it('stops reading a body that grows past the cap even when it declares no size', async () => {
@@ -112,44 +126,77 @@ describe('fetchArxivPdf', () => {
       },
     })
     stub(() => pdfResponse(body))
-    expect(await fetchArxivPdf('1706.03762')).toEqual({ ok: false, status: 413, message: TOO_LARGE_MESSAGE })
+    expect(await failure(fetchArxivFile('1706.03762'))).toBe(TOO_LARGE_MESSAGE)
     expect(cancelled).toBe(true)
     expect(sent).toBeLessThanOrEqual(MAX_PDF_BYTES + 2 * MB)
   })
 
-  it('follows a redirect that stays on arxiv.org over https', async () => {
-    const mock = stub(
-      () => new Response(null, { status: 301, headers: { Location: '/pdf/1706.03762v7' } }),
-      () => pdfResponse(),
+  it('tries once more after a request that failed outright, and succeeds if the second works', async () => {
+    const mock = stub(networkFailure, () => pdfResponse())
+    expect((await fetchArxivFile('1706.03762')).size).toBe(PDF.byteLength)
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives one plain sentence after two failed requests, and does not try a third time', async () => {
+    const mock = stub(networkFailure, networkFailure)
+    expect(await failure(fetchArxivFile('1706.03762'))).toMatch(/^Could not load that paper from arXiv\./)
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a readable error such as a 404', async () => {
+    const mock = stub(() => new Response('nope', { status: 404 }))
+    await failure(fetchArxivFile('1706.03762'))
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('cuts off a reply that never starts, after the stall limit', async () => {
+    vi.useFakeTimers()
+    const mock = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      }),
     )
-    expect((await fetchArxivPdf('1706.03762')).ok).toBe(true)
-    expect(mock.mock.calls[1]?.[0]).toBe('https://arxiv.org/pdf/1706.03762v7')
+    vi.stubGlobal('fetch', mock)
+    const outcome = failure(fetchArxivFile('1706.03762'))
+    await vi.advanceTimersByTimeAsync(STALL_MS - 1)
+    expect(mock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await outcome).toBe('arXiv did not answer in time. Try again.')
   })
 
-  it.each(['https://evil.example/x.pdf', 'http://arxiv.org/pdf/1706.03762', 'https://arxiv.org.evil.example/p'])(
-    'refuses a redirect to %s and makes no second request',
-    async location => {
-      const mock = stub(() => new Response(null, { status: 302, headers: { Location: location } }))
-      expect(await fetchArxivPdf('1706.03762')).toEqual({ ok: false, status: 502, message: NOT_A_PDF_MESSAGE })
-      expect(mock).toHaveBeenCalledTimes(1)
-    },
-  )
-
-  it('gives up on a redirect loop', async () => {
-    const loop = () => new Response(null, { status: 302, headers: { Location: '/pdf/1706.03762' } })
-    const mock = stub(loop, loop, loop, loop, loop)
-    expect(await fetchArxivPdf('1706.03762')).toMatchObject({ ok: false, status: 502 })
-    expect(mock).toHaveBeenCalledTimes(4)
+  it('cuts off a download that stops sending, but not one that is merely slow', async () => {
+    vi.useFakeTimers()
+    let enqueue: (chunk: Uint8Array) => void = () => undefined
+    // Like a real fetch body, this one errors when the request's signal aborts.
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          enqueue = chunk => controller.enqueue(chunk)
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason))
+        },
+      })
+      return pdfResponse(body)
+    }))
+    let settled = false
+    const outcome = failure(fetchArxivFile('1706.03762')).finally(() => {
+      settled = true
+    })
+    // Chunks keep arriving just inside the limit, for far longer than one limit in total.
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(STALL_MS - 1000)
+      enqueue(new Uint8Array(10))
+    }
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(STALL_MS)
+    expect(await outcome).toBe('arXiv stopped sending the paper. Try again.')
   })
 
-  it('maps a timeout to 504 and a network failure to 502', async () => {
-    const timeout = new Error('timed out')
-    timeout.name = 'TimeoutError'
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(timeout)))
-    expect(await fetchArxivPdf('1706.03762')).toMatchObject({ ok: false, status: 504 })
-    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('fetch failed'))))
-    expect(await fetchArxivPdf('1706.03762')).toMatchObject({ ok: false, status: 502 })
-    vi.restoreAllMocks()
+  it('rethrows the caller abort as it is, so a cancelled load shows no error', async () => {
+    const caller = new AbortController()
+    stub(async () => {
+      caller.abort()
+      throw new DOMException('aborted', 'AbortError')
+    })
+    await expect(fetchArxivFile('1706.03762', caller.signal)).rejects.not.toBeInstanceOf(ArxivError)
   })
 })
