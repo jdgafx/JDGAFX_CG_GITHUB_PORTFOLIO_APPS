@@ -38,3 +38,20 @@ export function barPercent(value: number, scale: number | null): number {
   if (!scale || scale <= 0) return 0
   return Math.min(100, (value / scale) * 100)
 }
+
+// "anthropic/claude-haiku-5.5" becomes the vendor and the model name, so the name can lead.
+export function splitModel(id: string): { vendor: string; name: string } {
+  const slash = id.indexOf('/')
+  return slash < 0 ? { vendor: '', name: id } : { vendor: id.slice(0, slash), name: id.slice(slash + 1) }
+}
+
+export function formatRating(rating: number): string {
+  return Math.round(rating).toLocaleString('en-US')
+}
+
+// A rating change to one decimal with its sign, so a rise and a fall are different shapes as well as colours.
+export function formatDelta(delta: number): string {
+  const rounded = Math.round(delta * 10) / 10
+  if (rounded === 0) return '±0.0'
+  return `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(1)}`
+}

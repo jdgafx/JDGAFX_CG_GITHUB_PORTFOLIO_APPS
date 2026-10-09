@@ -1,48 +1,83 @@
-import { formatCount, formatMs, formatUsd } from '../lib/format'
+import { useEffect, useState, type ReactNode } from 'react'
+import { formatCount, formatMs, formatUsd, splitModel } from '../lib/format'
 import { runTotals, type RunTotals, type RunView } from '../lib/run'
-import { Metric } from './Metric'
 
-export function RunTotalsStrip({ run }: { run: RunView | null }) {
-  const totals = run ? runTotals(run) : null
-  // Model IDs contain a slash. Status words such as "not run" stay in the body font.
-  const judgeIsId = totals?.judgeModel.includes('/') ?? false
+interface CellProps {
+  label: string
+  hint: string
+  children: ReactNode
+  mono?: boolean
+}
+
+function Cell({ label, hint, children, mono = true }: CellProps) {
   return (
-    <section className="ds-section" aria-labelledby="totals-title">
-      <div className="ds-section__head">
-        <h2 className="ds-section__title" id="totals-title">
-          Run totals
-        </h2>
-        <p className="ds-section__sub">
-          Time covers the compare call and the judge. Tokens and cost cover the answering panels.
-        </p>
-      </div>
-      {totals ? (
-        <div className="ds-strip arena-strip">
-          <Metric label="Run time" value={formatMs(totals.runMs)} hint="Panels plus judge" />
-          <Metric label="Prompt tokens" value={formatCount(totals.promptTokens)} hint={answeringLabel(totals)} />
-          <Metric label="Output tokens" value={formatCount(totals.outputTokens)} />
-          <Metric label="Total tokens" value={formatCount(totals.totalTokens)} />
-          <Metric
-            label="Panel cost"
-            value={totals.panelCost ? formatUsd(totals.panelCost.usd) : 'not reported'}
-            hint={costLabel(totals)}
-          />
-          <Metric label="Judge model" value={totals.judgeModel} mono={judgeIsId} hint="Opinion, not measured" />
-        </div>
-      ) : (
-        <div className="ds-empty">Totals appear here after a comparison.</div>
-      )}
-    </section>
+    <div className="ds-strip__item">
+      <dt className="ds-strip__label">{label}</dt>
+      <dd className="ds-strip__value" style={mono ? undefined : { fontSize: 15 }}>{children}</dd>
+      <dd className="ds-strip__hint">{hint}</dd>
+    </div>
   )
 }
 
-function answeringLabel(totals: RunTotals): string {
-  if (totals.answering === 0) return 'No panel answered'
-  return `From ${totals.answering} answering ${totals.answering === 1 ? 'panel' : 'panels'}`
+/** Counts up from zero while it is on screen, so mounting it starts the clock. */
+function LiveClock() {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const start = Date.now()
+    const id = window.setInterval(() => setElapsed(Date.now() - start), 100)
+    return () => window.clearInterval(id)
+  }, [])
+  return <>{formatMs(Math.round(elapsed / 100) * 100)}</>
 }
 
-function costLabel(totals: RunTotals): string {
+const NONE = '—'
+
+function answeringLabel(totals: RunTotals): string {
   if (totals.answering === 0) return 'No panel answered'
-  const base = `${totals.costedPanels} of ${totals.answering} answering panels reported cost`
+  return `${totals.answering} answering ${totals.answering === 1 ? 'panel' : 'panels'}`
+}
+
+function costHint(totals: RunTotals): string {
+  if (totals.answering === 0) return 'No panel answered'
+  const base = `${totals.costedPanels} of ${totals.answering} reported cost`
   return totals.panelCost?.source === 'estimated' ? `${base}, part estimated` : base
+}
+
+// The run's figures: a clock while it runs, the totals once the models are known, dashes before a run.
+// A blind run before the vote shows only the time, because tokens, cost and model names would give the models away.
+export function RunTotalsStrip({ run }: { run: RunView | null }) {
+  const running = run?.status === 'running'
+  const hidden = run?.status === 'voting'
+  const totals = run?.compare ? runTotals(run) : null
+  const pending = !run
+  const tone = running ? ' ds-strip--live' : pending ? ' ds-strip--pending' : ''
+  const models = [...new Set(run?.compare?.panels.filter(p => p.ok).map(p => p.servedModel ?? p.requestedModel) ?? [])]
+  const waiting = hidden ? 'After your vote' : NONE
+
+  return (
+    <section className="ds-section ds-run__readout" aria-label="Run totals">
+      <dl className={`ds-strip${tone}`}>
+        <Cell label="Time" hint={running ? 'Running now' : hidden ? 'Panels answered' : 'Panels plus judge'}>
+          {running ? <LiveClock /> : hidden && run?.blind ? formatMs(run.blind.totalMs) : totals ? formatMs(totals.runMs) : NONE}
+        </Cell>
+        <Cell label="Tokens" hint={totals ? answeringLabel(totals) : 'Answering panels'} mono={totals !== null || !hidden}>
+          {totals ? formatCount(totals.totalTokens) : waiting}
+        </Cell>
+        <Cell label="Cost (USD)" hint={totals ? costHint(totals) : 'Reported or estimated'} mono={totals !== null || !hidden}>
+          {totals ? (totals.panelCost ? formatUsd(totals.panelCost.usd) : 'not reported') : waiting}
+        </Cell>
+        <Cell label="Models" hint={hidden ? 'Hidden until you vote' : 'Served by the provider'} mono={false}>
+          {models.length > 0 ? (
+            <span className="ds-chips">
+              {models.map(id => (
+                <span key={id} className="ds-chip" title={id}>{splitModel(id).name}</span>
+              ))}
+            </span>
+          ) : (
+            waiting
+          )}
+        </Cell>
+      </dl>
+    </section>
+  )
 }

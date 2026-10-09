@@ -39,7 +39,7 @@ const MEASURES: Measure[] = [
 export function EvidenceCard({ compare }: { compare: CompareResponse | null }) {
   return (
     <section className="ds-section" aria-labelledby="evidence-title">
-      <div className="ds-section__head">
+      <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="evidence-title">
           Evidence
         </h2>
@@ -56,11 +56,11 @@ export function EvidenceCard({ compare }: { compare: CompareResponse | null }) {
           </ul>
           <div className="ds-scroll-x">
             <table className="arena-table">
-              <caption className="sr-only">Measured results for each panel</caption>
+              <caption className="ds-sr-only">Measured results for each panel</caption>
               <thead>
                 <tr>
                   <th scope="col">
-                    <span className="sr-only">Measure</span>
+                    <span className="ds-sr-only">Measure</span>
                   </th>
                   {SLOTS.map(slot => (
                     <th scope="col" key={slot}>

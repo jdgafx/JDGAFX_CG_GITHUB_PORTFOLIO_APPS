@@ -6,8 +6,12 @@ import {
   SLOTS,
   SYSTEM_MAX_CHARS,
   type CompareRequest,
+  RUN_ID_PATTERN,
+  VOTE_CHOICES,
   type JudgeRequest,
   type Slot,
+  type VoteChoice,
+  type VoteRequest,
 } from './contract'
 import { isRecord } from './parse'
 
@@ -19,7 +23,7 @@ function fail(error: string): { ok: false; error: string } {
 
 export function parseCompare(body: unknown): Parsed<CompareRequest> {
   if (!isRecord(body)) return fail('Request body must be a JSON object')
-  const { prompt, models, system, temperature } = body
+  const { prompt, models, system, temperature, blind } = body
   if (!isPrompt(prompt)) return fail(`Prompt must be 1 to ${PROMPT_MAX_CHARS} characters`)
   if (!Array.isArray(models) || models.length !== 3 || !models.every(isModelId)) {
     return fail('models must list three model IDs')
@@ -29,6 +33,7 @@ export function parseCompare(body: unknown): Parsed<CompareRequest> {
     return fail(`System prompt must be ${SYSTEM_MAX_CHARS} characters or fewer`)
   }
   if (temperature !== undefined && !isTemperature(temperature)) return fail('Temperature must be between 0 and 1')
+  if (blind !== undefined && typeof blind !== 'boolean') return fail('blind must be true or false')
   return {
     ok: true,
     value: {
@@ -36,8 +41,19 @@ export function parseCompare(body: unknown): Parsed<CompareRequest> {
       models: [models[0], models[1], models[2]] as [string, string, string],
       system: hasSystem ? system : undefined,
       temperature: typeof temperature === 'number' ? temperature : undefined,
+      blind: blind === true ? true : undefined,
     },
   }
+}
+
+export function parseVote(body: unknown): Parsed<VoteRequest> {
+  if (!isRecord(body)) return fail('Request body must be a JSON object')
+  const { runId, choice } = body
+  if (typeof runId !== 'string' || !RUN_ID_PATTERN.test(runId)) return fail('runId is not a run this server issued')
+  if (typeof choice !== 'string' || !VOTE_CHOICES.includes(choice as VoteChoice)) {
+    return fail('choice must be A, B, C, tie or all-bad')
+  }
+  return { ok: true, value: { runId, choice: choice as VoteChoice } }
 }
 
 export function parseJudge(body: unknown): Parsed<JudgeRequest> {

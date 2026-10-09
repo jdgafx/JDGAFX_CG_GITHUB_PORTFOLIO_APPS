@@ -169,8 +169,11 @@ describe('compare function', () => {
     const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
     const body = (await response.json()) as CompareResponse
     expect(body.panels[1]).toMatchObject({ ok: false, error: 'Rate limited, try again in a minute' })
-    expect(body.panels[2]).toMatchObject({ ok: false, error: NO_ANSWER })
-    expect(stub).toHaveBeenCalledTimes(4)
+    // A timeout is retried once (panel C asks twice); a 429 is never retried.
+    expect(body.panels[2]).toMatchObject({ ok: false, error: NO_ANSWER, retried: true })
+    expect(body.panels[1].retried).toBe(false)
+    expect(body.trace[2].detail).toBe(`${NO_ANSWER}. Retried once after the first try timed out`)
+    expect(stub).toHaveBeenCalledTimes(5)
   })
 
   it('passes the request abort signal to each provider call, so a stop during the first call stops every panel', async () => {

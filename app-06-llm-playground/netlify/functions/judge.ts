@@ -1,7 +1,8 @@
 import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type JudgeResponse } from '../shared/contract'
 import { gate, json, readJson, remainingMs, SERVER_ERROR } from '../shared/guard'
 import { usageFrom } from '../shared/measure'
-import { chat, providerKey, replyOf } from '../shared/openrouter'
+import { providerKey, replyOf } from '../shared/openrouter'
+import { chatWithRetry } from '../shared/retry'
 import { errorName, strOrNull } from '../shared/parse'
 import { parseJudge } from '../shared/validate'
 import { judgeMessages, parseVerdict } from '../shared/verdict'
@@ -24,7 +25,7 @@ export default async (req: Request): Promise<Response> => {
 
     const { prompt, answers } = parsed.value
     // Reasoning is off so a reasoning model cannot spend the budget and cut the JSON short.
-    const result = await chat(
+    const result = await chatWithRetry(
       key,
       {
         model: MODEL,
@@ -32,7 +33,7 @@ export default async (req: Request): Promise<Response> => {
         max_tokens: JUDGE_MAX_TOKENS,
         reasoning: { enabled: false },
       },
-      { timeoutMs: Math.min(JUDGE_TIMEOUT_MS, remainingMs(started)), signal: req.signal },
+      { budgetMs: Math.min(JUDGE_TIMEOUT_MS, remainingMs(started)), signal: req.signal },
     )
     // A judge failure is a normal result for the page, so it returns 200 with ok: false.
     if (!result.ok) return json(failure(result.error, null, result.latencyMs), 200, guard.headers)
@@ -59,7 +60,7 @@ export default async (req: Request): Promise<Response> => {
           name: 'Judge',
           status: 'ok',
           ms: result.latencyMs,
-          detail: `${served ?? 'Model not reported'} picked ${picked}`,
+          detail: `${served ?? 'Model not reported'} picked ${picked}${result.retried ? '. Retried once after the first try timed out' : ''}`,
           tokens: usage.total_tokens,
           cost,
         },

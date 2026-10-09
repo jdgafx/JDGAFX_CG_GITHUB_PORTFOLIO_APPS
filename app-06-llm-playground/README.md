@@ -4,9 +4,23 @@ ModelArena sends one prompt to three models at the same time and shows what each
 
 What this showcases: the same prompt measured on three models at once, with cost from the provider's usage and an AI judge's note labelled as opinion.
 
+## Blind arena and leaderboard
+
+Blind is the default mode. The server shuffles the three panels, so the label A, B or C says nothing about which model wrote it, and sends back only the answer texts: no model id, no served model, no latency, tokens or cost. You read the answers, then vote for the best one, or for a tie, or for "all answers are bad". The vote reveals every model with its served model id, tokens, cost and latency, and shows how your vote moved the ratings. The AI judge starts as soon as the answers are in but stays hidden until you vote, so it cannot sway you. Open mode keeps the old behaviour (names and figures at once) and takes no votes, so nobody can vote with the models in view.
+
+The leaderboard is shared and real. It starts empty and fills only from votes cast through the page. Each model starts at 1,000. Ratings use standard Elo with K = 24, applied pairwise from the ratings before the vote: picking one answer of three is two wins (a winner of equal models gains 24 and each loser gives up 12), a tie draws every pair, and "all answers are bad" is counted as a ballot without moving any rating. A model that appears in two panels never plays itself. The table shows rank, rating, a bar against the 1,000 start line, wins, losses, ties, votes and a hint: under 5 votes is "Few votes", under 20 is "Provisional", then "Steady". The key is the model id the visitor picked (for example `google/gemini-2.5-flash-lite`); the id the provider served under it is shown in the reveal.
+
+How a vote is kept honest:
+
+- A blind compare stores the real run under `runs/<runId>` in Netlify Blobs (store `modelarena-arena`): models, order and figures. The run id is opaque to the browser and starts with its expiry time; a run takes a vote for 30 minutes. No secret or extra environment variable is needed.
+- `POST /api/vote` (`netlify/functions/vote.ts`) accepts `{ runId, choice }` with `choice` one of `A`, `B`, `C`, `tie`, `all-bad`. It refuses an unknown or expired run (410), a panel that gave no answer (400), a run with fewer than two different models (400) and anything malformed (400), after the origin, method and rate-limit checks.
+- One vote per run. The leaderboard is one record that is replaced only with a conditional write on the tag that was read (`setIfMatch`, with `setIfNew` for the first write). Two votes that race cannot overwrite each other: the loser re-reads and applies its own ballot on top, up to 12 times, then answers 503 and records nothing. The record lists the run ids it has counted, so a second vote on the same run is refused (409) even when two arrive together.
+- If the run cannot be stored, or fewer than two different models answered, the page shows the models openly and says why, since there is nothing to vote on.
+- `GET /api/leaderboard` returns the ranked rows. When Netlify Blobs is not configured (local runs), votes live in server memory and the page says so.
+
 ## Screen
 
-From 1000px wide, the controls sit on the left and the results on the right. Below that, the controls stack above the results. The controls are, in order, the prompt (with three sample prompts, the options and the system prompt), the Compare, Stop and Clear buttons, and the models (Panel A is fixed, and B and C come from the grouped picker). Compare sits right under the prompt so it is in view without scrolling. The results hold, in order: the status line, Answers (three panels, each with its served model, answer, latency, output tokens and cost), Evidence (summary lines and a table of measures), AI judge (one model's opinion, in a dashed panel), Run totals, and Run trace.
+The design is the shared family system (accent plate 06). From 1000px wide, the controls sit on the left and the results on the right: the leaderboard leads before a run, the answers lead once a run has finished, and the run trace sits last. Below that, the controls stack above the results. The controls are, in order, the prompt (with three sample prompts, the options and the system prompt), the Compare, Stop and Clear buttons, and the models (Panel A is fixed, and B and C come from the grouped picker). Compare sits right under the prompt so it is in view without scrolling. The results hold, in order: the status line, Answers (three panels, each with its served model, answer, latency, output tokens and cost), Evidence (summary lines and a table of measures), AI judge (one model's opinion, in a dashed panel), Run totals, and Run trace.
 
 The page opens with the first sample prompt already in the box, so one click on Compare models runs it. The three samples are a sentence task with exact word counts (`Word counts`), an apple count that does not divide evenly (`Messy arithmetic`) and a capitals question with a same-first-letter rule (`Same first letter`). Each has a rule you can check by hand, and models tend to differ on whether they keep it. Choosing a sample replaces the text in the box and does not start a run.
 
@@ -28,9 +42,10 @@ Cost comes from the billed amount that OpenRouter reports. When OpenRouter repor
 
 ## Architecture
 
-The browser (React and Vite) calls three Netlify Functions. Each function calls OpenRouter at `https://openrouter.ai/api/v1`.
+The browser (React and Vite) calls five Netlify Functions. Each function calls OpenRouter at `https://openrouter.ai/api/v1`.
 
 - `GET /api/models` (`netlify/functions/models.ts`) returns the grouped model list.
+- `GET /api/leaderboard` and `POST /api/vote` (see Blind arena above).
 - `POST /api/compare` (`netlify/functions/compare.ts`) runs the three panels and returns one JSON reply.
 - `POST /api/judge` (`netlify/functions/judge.ts`) returns the judge's verdict.
 
@@ -67,6 +82,10 @@ Live site: https://jdgafx-app-06-llm-playground.netlify.app
 
 ## Known limits
 
+- Votes are one per comparison, not one per person. Anyone can run many comparisons, each costing a rate-limited provider call (20 POST requests per minute per client on each warm instance), so the board resists casual stuffing but not a determined one. There is no account system.
+- Elo from a handful of votes is noisy. The board marks models under 5 votes, and no rating here is a benchmark. The judge is Claude Haiku 5.5, which is also Panel A's model, so its opinion may favour its own style.
+- A vote that loses every race for the leaderboard record (12 tries) is refused with "Press the button again" and counts nothing.
+- Timeouts: the first try of a panel is capped at 12 s for Panel A and 16 s for B and C, the judge at 12 s. After a timeout or lost connection, one automatic second try runs when at least 5 s of the 24 s budget remain; the trace says "Retried once". A refusal (401, 402, 429, 5xx) is never retried. The browser gives up on a compare call after 60 s.
 - Stop aborts the browser request. The server call can still complete and bill, so a stopped run may still cost money.
 - Nothing streams. Each panel's answer appears when that panel finishes.
 - The judge gives one model's opinion. It is not a measurement. The app has no quality evals, so the Evidence numbers cover speed, cost and output length only.

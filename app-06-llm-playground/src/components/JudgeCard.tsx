@@ -1,27 +1,37 @@
 import type { ReactNode } from 'react'
 import { SLOTS, type CompareResponse, type JudgeVerdict, type Slot } from '../../netlify/shared/contract'
 import { panelNote, type JudgeView } from '../lib/run'
+import { Prose } from './Prose'
 
 interface JudgeCardProps {
   judge: JudgeView
   compare: CompareResponse | null
+  // A blind run before the vote: the judge may be done, but its opinion stays hidden.
+  held?: boolean
 }
 
-export function JudgeCard({ judge, compare }: JudgeCardProps) {
+export function JudgeCard({ judge, compare, held = false }: JudgeCardProps) {
   return (
     <section className="ds-section" aria-labelledby="judge-title">
-      <div className="ds-section__head">
+      <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="judge-title">
           AI judge
         </h2>
         <p className="ds-section__sub">One model's opinion of the three answers. It is not a measurement.</p>
       </div>
-      <JudgeBody judge={judge} compare={compare} />
+      {held ? (
+        <div className="ds-empty">
+          {judge.state === 'failed' ? 'The judge could not give an opinion.' : 'The judge is reading the answers.'} Its opinion
+          appears after you vote, so it cannot sway you.
+        </div>
+      ) : (
+        <JudgeBody judge={judge} compare={compare} />
+      )}
     </section>
   )
 }
 
-function JudgeBody({ judge, compare }: JudgeCardProps) {
+function JudgeBody({ judge, compare }: Omit<JudgeCardProps, 'held'>) {
   switch (judge.state) {
     case 'idle':
       return <div className="ds-empty">The judge reads the answers after a run.</div>
@@ -77,7 +87,7 @@ function Verdict({ verdict, compare }: { verdict: JudgeVerdict; compare: Compare
               Panel {slot}
               {nameTag(slot, compare)}
             </dt>
-            <dd>{panelNote(verdict.perPanel[slot])}</dd>
+            <dd><Prose text={panelNote(verdict.perPanel[slot])} /></dd>
           </div>
         ))}
       </dl>

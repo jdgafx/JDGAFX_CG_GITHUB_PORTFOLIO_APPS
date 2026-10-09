@@ -2,6 +2,8 @@ import {
   COMPARE_MAX_TOKENS,
   PROMPT_MAX_CHARS,
   SLOTS,
+  SYSTEM_MAX_CHARS,
+  type BlindCompareResponse,
   type CatalogueResponse,
   type CompareResponse,
   type CompareSummary,
@@ -9,7 +11,9 @@ import {
   type JudgeVerdict,
   type ModelOption,
   type PanelResult,
+  type RatingChange,
   type TraceStep,
+  type VoteChoice,
   type Usage,
 } from '../../netlify/shared/contract'
 import { formatUsd } from './format'
@@ -17,7 +21,16 @@ import { formatUsd } from './format'
 const IDLE_STATUS = 'Ready. Choose Compare models to send the prompt to all three panels.'
 const NO_NOTE = 'The judge gave no note for this panel.'
 
-type RunStatus = 'running' | 'done' | 'stopped' | 'error'
+// voting: a blind run whose answers are shown and whose models are still hidden.
+type RunStatus = 'running' | 'voting' | 'done' | 'stopped' | 'error'
+
+export type Mode = 'blind' | 'open'
+
+export type VoteView =
+  | { state: 'idle' }
+  | { state: 'sending'; choice: VoteChoice }
+  | { state: 'failed'; message: string; final: boolean }
+  | { state: 'counted'; choice: VoteChoice; changes: RatingChange[] }
 
 export type JudgeView =
   | { state: 'idle' }
@@ -28,9 +41,22 @@ export type JudgeView =
 
 export interface RunView {
   status: RunStatus
+  mode: Mode
+  // The prompt this run answered, kept for the heading over its answers.
+  prompt: string
+  // What a blind visitor sees before voting. Null in open mode and once the models are revealed.
+  blind: BlindCompareResponse | null
+  // The full measured run: at once in open mode, after the vote in blind mode.
   compare: CompareResponse | null
   judge: JudgeView
   error: string | null
+  // Why a blind request was shown openly (nothing to vote on, or votes unavailable).
+  notice: string | null
+  vote: VoteView
+}
+
+export function startedRun(mode: Mode, prompt: string): RunView {
+  return { status: 'running', mode, prompt, blind: null, compare: null, judge: { state: 'idle' }, error: null, notice: null, vote: { state: 'idle' } }
 }
 
 // The server reports ok, failed or skipped. The browser adds "running" for a step in progress.
@@ -71,12 +97,20 @@ export function chooseOption(catalogue: CatalogueResponse, current: string): str
 }
 
 // The first thing that stops a run, so the disabled button can say what to do next.
-export function blockedReason(catalogue: CatalogueResponse | null, picks: Picks, prompt: string): string | null {
+export function blockedReason(
+  catalogue: CatalogueResponse | null,
+  picks: Picks,
+  prompt: string,
+  system: string = '',
+): string | null {
   if (catalogue === null) return 'Wait for the model list to load.'
   if (!listed(catalogue, picks.B) || !listed(catalogue, picks.C)) return 'Choose panel B and C models from the list.'
   if (prompt.trim() === '') return 'Enter a prompt, or choose a sample prompt.'
   if (prompt.length > PROMPT_MAX_CHARS) {
     return `Shorten the prompt to ${PROMPT_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
+  }
+  if (system.length > SYSTEM_MAX_CHARS) {
+    return `Shorten the system prompt to ${SYSTEM_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
   }
   return null
 }
@@ -97,6 +131,7 @@ export function panelNote(note: string | undefined): string {
 export function statusLine(run: RunView | null): string {
   if (!run) return ''
   if (run.status === 'running') return run.compare ? 'Asking the judge for an opinion.' : 'Running the three panels.'
+  if (run.status === 'voting') return 'Three answers are in. Pick the best one to reveal the models.'
   if (run.status === 'stopped') return 'Stopped.'
   if (run.status === 'error') return run.error ?? 'The comparison failed.'
   const answered = run.compare ? run.compare.panels.filter(p => p.ok).length : 0
@@ -119,6 +154,12 @@ export function verdictSentences(summary: CompareSummary): string[] {
 
 // The run trace: the server's panel and judge steps, plus the states only the browser knows.
 export function traceSteps(run: RunView): ViewStep[] {
+  // Before the vote the panel and judge steps would name the models, so only the compare call shows.
+  if (run.blind && !run.compare) {
+    return [
+      { name: 'Compare request', status: 'ok', ms: run.blind.totalMs, detail: 'Three answers returned. The steps appear after your vote.', tokens: null, cost: null },
+    ]
+  }
   if (!run.compare) {
     if (run.error) return [failedStep('Compare request', run.error)]
     if (run.status === 'stopped') return [failedStep('Compare request', 'Stopped before the panels answered')]

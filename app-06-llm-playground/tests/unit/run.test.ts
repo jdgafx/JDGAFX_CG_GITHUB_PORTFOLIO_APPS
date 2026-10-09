@@ -26,6 +26,8 @@ import {
   type RunView,
 } from '../../src/lib/run'
 
+const OPEN = { mode: 'open', prompt: 'Q', blind: null, notice: null, vote: { state: 'idle' } } as const
+
 function option(id: string, inPerM: number | null = null, outPerM: number | null = null): ModelOption {
   return { id, label: id, why: '', inPerM, outPerM, contextLength: null }
 }
@@ -120,7 +122,7 @@ describe('panelStatus', () => {
 
 describe('statusLine', () => {
   it('describes each stage of a run for screen readers', () => {
-    const base = { compare: null, judge: idle, error: null }
+    const base = { ...OPEN, compare: null, judge: idle, error: null }
     expect(statusLine(null)).toBe('')
     expect(statusLine({ ...base, status: 'running' })).toBe('Running the three panels.')
     expect(statusLine({ ...base, status: 'running', compare: compareOf([panel('A')], emptySummary) })).toBe(
@@ -167,7 +169,7 @@ describe('runTotals', () => {
   ]
 
   it('adds up the answering panels and the judge time', () => {
-    const run: RunView = { status: 'done', compare: compareOf(panels, emptySummary), judge: { state: 'done', verdict }, error: null }
+    const run: RunView = { ...OPEN, status: 'done', compare: compareOf(panels, emptySummary), judge: { state: 'done', verdict }, error: null }
     expect(runTotals(run)).toEqual({
       runMs: 1300,
       answering: 2,
@@ -182,17 +184,17 @@ describe('runTotals', () => {
 
   it('marks the panel cost as partly estimated when any panel cost is estimated', () => {
     const estimated = [panel('A', { cost: { usd: 0.0004, source: 'usage' } }), panel('B', { cost: { usd: 0.0001, source: 'estimated' } })]
-    const run: RunView = { status: 'done', compare: compareOf(estimated, emptySummary), judge: idle, error: null }
+    const run: RunView = { ...OPEN, status: 'done', compare: compareOf(estimated, emptySummary), judge: idle, error: null }
     expect(runTotals(run).panelCost).toEqual({ usd: 0.0005, source: 'estimated' })
   })
 
   it('has no run time while the judge is still running', () => {
-    const run: RunView = { status: 'running', compare: compareOf(panels, emptySummary), judge: { state: 'running' }, error: null }
+    const run: RunView = { ...OPEN, status: 'running', compare: compareOf(panels, emptySummary), judge: { state: 'running' }, error: null }
     expect(runTotals(run)).toMatchObject({ runMs: null, judgeModel: 'running' })
   })
 
   it('reports nothing when no run has started the panels', () => {
-    const run: RunView = { status: 'error', compare: null, judge: idle, error: 'x' }
+    const run: RunView = { ...OPEN, status: 'error', compare: null, judge: idle, error: 'x' }
     expect(runTotals(run)).toMatchObject({
       answering: 0,
       promptTokens: null,
@@ -206,6 +208,7 @@ describe('runTotals', () => {
 describe('traceSteps', () => {
   it('lists the three panel steps and then the judge step from the server', () => {
     const run: RunView = {
+      ...OPEN,
       status: 'done',
       compare: compareOf([panel('A'), panel('B'), panel('C')], emptySummary),
       judge: { state: 'done', verdict },
@@ -217,13 +220,13 @@ describe('traceSteps', () => {
   })
 
   it('shows the compare request as waiting, failed or stopped before the panels answer', () => {
-    expect(traceSteps({ status: 'running', compare: null, judge: idle, error: null })).toEqual([
+    expect(traceSteps({ ...OPEN, status: 'running', compare: null, judge: idle, error: null })).toEqual([
       { name: 'Compare request', status: 'running', ms: null, detail: 'Waiting for the three panels', tokens: null, cost: null },
     ])
-    expect(traceSteps({ status: 'error', compare: null, judge: idle, error: 'Could not reach the server.' })).toEqual([
+    expect(traceSteps({ ...OPEN, status: 'error', compare: null, judge: idle, error: 'Could not reach the server.' })).toEqual([
       { name: 'Compare request', status: 'failed', ms: null, detail: 'Could not reach the server.', tokens: null, cost: null },
     ])
-    expect(traceSteps({ status: 'stopped', compare: null, judge: idle, error: null })[0]).toMatchObject({
+    expect(traceSteps({ ...OPEN, status: 'stopped', compare: null, judge: idle, error: null })[0]).toMatchObject({
       name: 'Compare request',
       status: 'failed',
       detail: 'Stopped before the panels answered',
@@ -232,6 +235,7 @@ describe('traceSteps', () => {
 
   it('marks a judge that was skipped because two answers were not available', () => {
     const run: RunView = {
+      ...OPEN,
       status: 'done',
       compare: compareOf([panel('A')], emptySummary),
       judge: { state: 'skipped', reason: 'The judge needs two answers. 1 of 3 panels answered.' },
@@ -283,7 +287,7 @@ describe('blockedReason and the idle status line', () => {
   })
 
   it('leaves the status of a finished or failed run to the run itself', () => {
-    const base = { compare: null, judge: idle, error: null }
+    const base = { ...OPEN, compare: null, judge: idle, error: null }
     expect(statusText({ ...base, status: 'error', error: 'x' }, 'Enter a prompt, or choose a sample prompt.')).toBe(
       'Comparison did not finish.',
     )

@@ -50,6 +50,8 @@ export interface CompareRequest {
   models: [string, string, string]
   system?: string
   temperature?: number
+  // Blind: the server shuffles the panels and withholds who answered what until a vote is cast.
+  blind?: boolean
 }
 
 export interface Usage {
@@ -85,6 +87,8 @@ export interface PanelResult {
   latencyMs: number | null
   usage: Usage
   cost: Cost | null
+  // True when the first attempt timed out or lost its connection and a second one was made.
+  retried?: boolean
 }
 
 export interface CompareSummary {
@@ -100,6 +104,88 @@ export interface CompareResponse {
   panels: PanelResult[]
   trace: TraceStep[]
   summary: CompareSummary
+  blind?: false
+  // Set on a blind request that cannot take a vote: the reason, with the panels shown openly.
+  notVoteable?: string
+}
+
+// ---- Blind arena -------------------------------------------------------------------------------
+
+export const ELO_START = 1000
+export const ELO_K = 24
+// A blind run takes its vote within this long. After that the stored run is gone.
+export const RUN_TTL_MS = 30 * 60_000
+// Votes behind a rating: fewer than FEW_VOTES is "few votes", fewer than STEADY_VOTES is "provisional".
+export const FEW_VOTES = 5
+export const STEADY_VOTES = 20
+
+// What a blind visitor sees of one panel: the text and nothing that names or fingerprints the model.
+export interface BlindAnswer {
+  label: Slot
+  ok: boolean
+  error: string | null
+  text: string
+  finishReason: string | null
+}
+
+export interface BlindCompareResponse {
+  blind: true
+  runId: string
+  expiresAt: string
+  totalMs: number
+  answers: BlindAnswer[]
+}
+
+export type CompareResult = CompareResponse | BlindCompareResponse
+
+// A run id is the expiry time in milliseconds, then a random UUID. The browser treats it as opaque.
+export const RUN_ID_PATTERN = /^\d{13}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export type VoteChoice = Slot | 'tie' | 'all-bad'
+export const VOTE_CHOICES: readonly VoteChoice[] = ['A', 'B', 'C', 'tie', 'all-bad']
+
+export interface VoteRequest {
+  runId: string
+  choice: VoteChoice
+}
+
+export type Confidence = 'few' | 'provisional' | 'steady'
+
+export interface LeaderboardRow {
+  rank: number
+  model: string
+  rating: number
+  wins: number
+  losses: number
+  ties: number
+  votes: number
+  lastServed: string | null
+  confidence: Confidence
+}
+
+export interface LeaderboardResponse {
+  rows: LeaderboardRow[]
+  ballots: number
+  ties: number
+  allBad: number
+  updatedAt: string | null
+  // memory: Netlify Blobs is not configured here, so votes live in this server's memory only.
+  storage: 'blobs' | 'memory'
+}
+
+export interface RatingChange {
+  model: string
+  before: number
+  after: number
+}
+
+export interface VoteResponse {
+  ok: true
+  choice: VoteChoice
+  // The run with its models revealed, relabelled to the labels the visitor saw.
+  compare: CompareResponse
+  changes: RatingChange[]
+  leaderboard: LeaderboardResponse
 }
 
 export interface JudgeRequest {

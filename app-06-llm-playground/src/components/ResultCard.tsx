@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { PanelResult, Slot } from '../../netlify/shared/contract'
-import { barPercent, formatCount, formatMs, formatUsd } from '../lib/format'
+import type { PanelResult, RatingChange, Slot } from '../../netlify/shared/contract'
+import { barPercent, formatCount, formatDelta, formatMs, formatUsd, splitModel } from '../lib/format'
 import { panelStatus } from '../lib/run'
+import { Prose } from './Prose'
 
 // The two 14px icons on the copy button, drawn on a 24px grid in the current text colour.
 function Icon({ children }: { children: ReactNode }) {
@@ -63,10 +64,30 @@ interface ResultCardProps {
   cheapest: boolean
   judgePick: boolean
   scaleMs: number | null
+  // The visitor's own pick in a blind vote, the rating change it caused, and whether the models were just revealed.
+  yourPick?: boolean
+  change?: RatingChange | null
+  revealed?: boolean
+}
+
+// The model behind a panel: its name leads, with the vendor and the id the provider served under it.
+function ModelName({ panel, requested, revealed }: { panel: PanelResult | null; requested: string; revealed: boolean }) {
+  const id = panel?.requestedModel ?? requested
+  const { vendor, name } = splitModel(id)
+  const served = panel?.servedModel && panel.servedModel !== id ? panel.servedModel : null
+  return (
+    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={id}>
+      <span className="arena-name__model">{name}</span>
+      <span className="arena-name__meta">
+        {vendor}
+        {panel ? (served ? ` · served as ${served}` : panel.servedModel ? '' : ' · served model not reported') : ''}
+      </span>
+    </p>
+  )
 }
 
 export function ResultCard(props: ResultCardProps) {
-  const { slot, requested, panel, phase, fastest, cheapest, judgePick, scaleMs } = props
+  const { slot, requested, panel, phase, fastest, cheapest, judgePick, scaleMs, yourPick = false, change = null, revealed = false } = props
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -93,20 +114,33 @@ export function ResultCard(props: ResultCardProps) {
 
   return (
     <article
-      className={active ? 'ds-panel arena-panel arena-panel--active' : 'ds-panel arena-panel'}
+      className={`ds-panel arena-panel${active ? ' arena-panel--active' : ''}${yourPick ? ' arena-panel--picked' : ''}`}
       aria-labelledby={headingId}
     >
       <div className="arena-panel__head">
-        <h3 className="arena-panel__title" id={headingId}>
-          Panel {slot}
-        </h3>
+        <span className="arena-letter" aria-hidden="true">{slot}</span>
+        <div className="arena-panel__id">
+          <h3 className="arena-panel__title" id={headingId}>Panel {slot}</h3>
+          <ModelName panel={panel} requested={requested} revealed={revealed} />
+        </div>
         <span className="ds-badge">
           <span className={`ds-dot ${state.dot}`} aria-hidden="true" />
           {state.label}
         </span>
       </div>
-      {(fastest || cheapest || judgePick) && (
+      {(fastest || cheapest || judgePick || yourPick || change) && (
         <ul className="arena-marks" aria-label={`Panel ${slot} markers`}>
+          {yourPick && (
+            <li className="ds-badge ds-badge--accent">
+              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
+              Your pick
+            </li>
+          )}
+          {change && (
+            <li className={change.after >= change.before ? 'ds-badge arena-delta arena-delta--up' : 'ds-badge arena-delta arena-delta--down'}>
+              Rating {formatDelta(change.after - change.before)}
+            </li>
+          )}
           {fastest && (
             <li className="ds-badge ds-badge--accent">
               <span className="ds-dot arena-dot--accent" aria-hidden="true" />
@@ -127,21 +161,6 @@ export function ResultCard(props: ResultCardProps) {
           )}
         </ul>
       )}
-      <p className="arena-served">
-        {panel ? (
-          panel.servedModel ? (
-            <>
-              Served by <span className="ds-mono">{panel.servedModel}</span>
-            </>
-          ) : (
-            'Served model not reported'
-          )
-        ) : (
-          <>
-            Model <span className="ds-mono">{requested}</span>
-          </>
-        )}
-      </p>
       {panel?.error && (
         <div className="ds-notice ds-notice--error" role="alert">
           {panel.error}
@@ -150,7 +169,7 @@ export function ResultCard(props: ResultCardProps) {
       {panel?.text ? (
         <>
           <div className="arena-answer" tabIndex={0} role="region" aria-label={`Panel ${slot} answer`}>
-            {panel.text}
+            <Prose text={panel.text} />
           </div>
           <div className="ds-row">
             <button type="button" className="ds-button" onClick={copyAnswer}>
@@ -166,7 +185,7 @@ export function ResultCard(props: ResultCardProps) {
               </Icon>
               {copyState === 'copied' ? 'Copied' : 'Copy answer'}
             </button>
-            <span className="sr-only" role="status">
+            <span className="ds-sr-only" role="status">
               {copyState === 'failed' ? 'Copy failed' : copyState === 'copied' ? 'Answer copied' : ''}
             </span>
           </div>

@@ -54,7 +54,7 @@ describe('stalled bodies end at the limit with the existing timeout message', ()
     stubFetch(async () => stalledBody())
     const pending = chat(TEST_KEY, { model: 'vendor/x', messages: [{ role: 'user', content: 'hi' }], max_tokens: 16 }, { timeoutMs: 5_000 })
     await vi.advanceTimersByTimeAsync(5_000)
-    await expect(pending).resolves.toEqual({ ok: false, error: 'The AI provider did not answer in time', latencyMs: 5_000 })
+    await expect(pending).resolves.toEqual({ ok: false, error: 'The AI provider did not answer in time', latencyMs: 5_000, retryable: true })
   })
 
   it('a catalogue reply whose body never finishes falls back to the curated list at the limit', async () => {

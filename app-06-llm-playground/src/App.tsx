@@ -1,36 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODEL, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
-import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
-import { blockedReason, chooseOption, DEFAULT_PICKS, failedJudgeStep, statusText, type Picks, type RunView } from './lib/run'
-import { Header } from './components/Header'
-import { PromptCard, SAMPLES } from './components/PromptCard'
-import { PanelSetup } from './components/PanelSetup'
-import { RunActions } from './components/RunActions'
-import { ResultCard, type CardPhase } from './components/ResultCard'
+import { fetchCatalogue, isAbortError } from './lib/api'
+import { blockedReason, chooseOption, DEFAULT_PICKS, statusText, type Mode, type Picks, type RunView } from './lib/run'
+import { useArena } from './lib/useArena'
+import type { CatalogueResponse } from '../netlify/shared/contract'
+import { AnswersSection } from './components/AnswersSection'
 import { EvidenceCard } from './components/EvidenceCard'
+import { Header } from './components/Header'
 import { JudgeCard } from './components/JudgeCard'
+import { Leaderboard } from './components/Leaderboard'
+import { PanelSetup } from './components/PanelSetup'
+import { PromptCard, SAMPLES } from './components/PromptCard'
+import { RunActions } from './components/RunActions'
 import { RunTotalsStrip } from './components/RunTotals'
 import { TraceCard } from './components/TraceCard'
 
-function messageFor(err: unknown): string {
-  return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
-}
-
-// The status dot follows the run's state, and the status line's words say the same thing.
-function statusDot(run: RunView | null): string {
-  if (!run) return ''
-  if (run.status === 'running') return 'ds-dot--running'
-  if (run.status === 'error') return 'ds-dot--failed'
-  if (run.status === 'stopped') return 'ds-dot--skipped'
-  const allAnswered = run.compare?.panels.every(p => p.ok) ?? false
-  return allAnswered ? 'ds-dot--ok' : 'arena-dot--warn'
-}
-
-// The slot the judge named best, or null for a tie or when there is no verdict.
-function judgePickOf(run: RunView | null): Slot | null {
-  const judge = run?.judge
-  if (judge?.state !== 'done') return null
-  return judge.verdict.bestOverall === 'tie' ? null : judge.verdict.bestOverall
+// The shell's run state: voting is a finished comparison waiting on the visitor, so it reads as done.
+function dataRun(run: RunView | null): 'idle' | 'running' | 'done' | 'failed' | 'stopped' {
+  if (!run) return 'idle'
+  if (run.status === 'running') return 'running'
+  if (run.status === 'error') return 'failed'
+  if (run.status === 'stopped') return 'stopped'
+  return 'done'
 }
 
 export default function App() {
@@ -38,11 +28,12 @@ export default function App() {
   const [system, setSystem] = useState('')
   // null leaves the model's own temperature in place, so the default request matches the spec.
   const [temperature, setTemperature] = useState<number | null>(null)
+  const [mode, setMode] = useState<Mode>('blind')
   const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null)
   const [catalogueFailed, setCatalogueFailed] = useState(false)
   const [picks, setPicks] = useState<Picks>(DEFAULT_PICKS)
-  const [run, setRun] = useState<RunView | null>(null)
-  const controllerRef = useRef<AbortController | null>(null)
+  const arena = useArena(catalogue)
+  const { run } = arena
 
   useEffect(() => {
     const controller = new AbortController()
@@ -58,120 +49,73 @@ export default function App() {
   }, [])
 
   const running = run?.status === 'running'
-  const blocked = blockedReason(catalogue, picks, prompt)
+  const startScroll = useRef(0)
+  const previousStatus = useRef<RunView['status'] | null>(null)
+  const previousVote = useRef(false)
+
+  // On a narrow screen a finished, failed or stopped run brings its result into view and focuses the heading,
+  // unless the visitor scrolled during the run. A counted vote does the same for the reveal.
+  useEffect(() => {
+    const was = previousStatus.current
+    const status = run?.status ?? null
+    const counted = run?.vote.state === 'counted'
+    previousStatus.current = status
+    const wasCounted = previousVote.current
+    previousVote.current = counted
+    const ended = was === 'running' && status !== null && status !== 'running'
+    const revealed = counted && !wasCounted
+    if (!ended && !revealed) return
+    const target = document.querySelector<HTMLElement>(revealed ? '[data-reveal-focus]' : '[data-result-focus]')
+    if (!target) return
+    const narrow = !window.matchMedia('(min-width: 1000px)').matches
+    const scrolled = ended && Math.abs(window.scrollY - startScroll.current) > 40
+    if (narrow && !scrolled) {
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      target.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
+    }
+    target.focus({ preventScroll: true })
+  }, [run?.status, run?.vote.state])
+  const blocked = blockedReason(catalogue, picks, prompt, system)
   const canRun = !running && blocked === null
 
-  async function handleRun() {
-    if (!canRun || !catalogue) return
-    const controller = new AbortController()
-    controllerRef.current = controller
-    const sent = prompt
-    setRun({ status: 'running', compare: null, judge: { state: 'idle' }, error: null })
-    try {
-      const compare = await runCompare(
-        {
-          prompt: sent,
-          models: [catalogue.defaultModel, picks.B, picks.C],
-          system: system.trim() === '' ? undefined : system,
-          temperature: temperature ?? undefined,
-        },
-        controller.signal,
-      )
-      const answers = compare.panels.flatMap(p => (p.ok ? [{ slot: p.slot, text: p.text }] : []))
-      if (answers.length < 2) {
-        setRun({
-          status: 'done',
-          compare,
-          judge: { state: 'skipped', reason: `The judge needs two answers. ${answers.length} of ${SLOTS.length} panels answered.` },
-          error: null,
-        })
-        return
-      }
-      setRun({ status: 'running', compare, judge: { state: 'running' }, error: null })
-      const verdict = await runJudge({ prompt: sent, answers }, controller.signal)
-      setRun(prev =>
-        prev && {
-          ...prev,
-          status: 'done',
-          judge: verdict.ok
-            ? { state: 'done', verdict }
-            : { state: 'failed', step: verdict.trace[0], model: verdict.model },
-        },
-      )
-    } catch (err) {
-      const stopped = isAbortError(err)
-      setRun(prev => {
-        if (!prev) return prev
-        // Before the panels answered, the whole run failed or stopped.
-        if (!prev.compare) {
-          return { ...prev, status: stopped ? 'stopped' : 'error', error: stopped ? null : messageFor(err) }
-        }
-        // The panels answered, so keep them and mark only the judge step.
-        return {
-          ...prev,
-          status: stopped ? 'stopped' : 'done',
-          judge: {
-            state: 'failed',
-            step: failedJudgeStep(stopped ? 'Stopped before the judge answered.' : messageFor(err)),
-            model: null,
-          },
-        }
-      })
-    } finally {
-      controllerRef.current = null
+  function handleRun() {
+    if (!canRun) return
+    startScroll.current = window.scrollY
+    // An open sample or options list would push the result off a narrow screen, so close them as the run starts.
+    if (!window.matchMedia('(min-width: 1000px)').matches) {
+      document.querySelectorAll<HTMLDetailsElement>('.ds-controls details[open]').forEach(d => (d.open = false))
     }
+    void arena.start({ mode, prompt, system, temperature, models: [picks.B, picks.C] })
   }
 
-  function handleStop() {
-    controllerRef.current?.abort()
-  }
-
-  function handleClear() {
-    setRun(null)
-  }
-
-  const phase: CardPhase = !run
-    ? 'idle'
-    : run.status === 'running'
-      ? 'running'
-      : run.status === 'stopped'
-        ? 'stopped'
-        : run.status === 'error'
-          ? 'error'
-          : 'done'
-  const panels = run?.compare?.panels ?? []
-  const scaleMs = panels.length > 0 ? Math.max(0, ...panels.map(p => p.latencyMs ?? 0)) : null
-  const requested = (slot: Slot) => (slot === 'A' ? MODEL : picks[slot])
-  const fastestSlot = run?.compare?.summary.fastest?.slot ?? null
-  const cheapestSlot = run?.compare?.summary.cheapest?.slot ?? null
-  const pickSlot = judgePickOf(run)
-  const dot = statusDot(run)
+  const voted = run?.vote.state === 'counted' ? run.vote.changes : []
 
   return (
-    <div className="ds-app">
-      <Header catalogue={catalogue} catalogueFailed={catalogueFailed} />
+    <div className="ds-app" data-run={dataRun(run)}>
+      <Header catalogue={catalogue} catalogueFailed={catalogueFailed} run={run} />
       <main className="ds-main">
         <div className="ds-bench">
           <div className="ds-controls">
             <PromptCard
               prompt={prompt}
               onPrompt={setPrompt}
-              onSample={setPrompt}
               system={system}
               onSystem={setSystem}
               temperature={temperature}
               onTemperature={setTemperature}
+              mode={mode}
+              onMode={setMode}
               running={running}
               onRun={handleRun}
             />
             <RunActions
+              mode={mode}
               canRun={canRun}
               running={running}
               hasRun={run !== null}
               blockedBy={running ? null : blocked}
-              onRun={handleRun}
-              onStop={handleStop}
-              onClear={handleClear}
+              onStop={arena.stop}
+              onClear={arena.clear}
             />
             {catalogueFailed && (
               <div className="ds-notice ds-notice--error" role="alert">
@@ -188,44 +132,21 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <p className="arena-status" role="status" aria-live="polite">
-              {dot && <span className={`ds-dot ${dot}`} aria-hidden="true" />}
-              {statusText(run, blocked)}
-            </p>
-            {run?.error && (
-              <div className="ds-notice ds-notice--error" role="alert">
-                {run.error}
-              </div>
-            )}
-            <section className="ds-section" aria-labelledby="answers-title">
-              <div className="ds-section__head">
-                <h2 className="ds-section__title" id="answers-title">
-                  Answers
-                </h2>
-                <p className="ds-section__sub">
-                  Each panel shows the model that served it, its answer, and the figures measured for that call.
-                </p>
-              </div>
-              <div className="arena-grid">
-                {SLOTS.map(slot => (
-                  <ResultCard
-                    key={slot}
-                    slot={slot}
-                    requested={requested(slot)}
-                    panel={panels.find(p => p.slot === slot) ?? null}
-                    phase={phase}
-                    fastest={fastestSlot === slot}
-                    cheapest={cheapestSlot === slot}
-                    judgePick={pickSlot === slot}
-                    scaleMs={scaleMs}
-                  />
-                ))}
-              </div>
-            </section>
-            <EvidenceCard compare={run?.compare ?? null} />
-            <JudgeCard judge={run?.judge ?? { state: 'idle' }} compare={run?.compare ?? null} />
+            <p className="ds-sr-only" role="status" aria-live="polite">{statusText(run, blocked)}</p>
+            <Leaderboard state={arena.board} changes={voted} onRetry={() => void arena.refreshBoard()} />
             <RunTotalsStrip run={run} />
-            <TraceCard run={run} />
+            <div className="ds-run__result arena-result">
+              <AnswersSection run={run} picks={picks} onVote={choice => void arena.vote(choice)} onRetry={handleRun} canRetry={canRun} />
+              <JudgeCard
+                judge={run?.judge ?? { state: 'idle' }}
+                compare={run?.compare ?? null}
+                held={run?.status === 'voting'}
+              />
+            </div>
+            <div className="ds-run__trace arena-result">
+              <EvidenceCard compare={run?.compare ?? null} />
+              <TraceCard run={run} />
+            </div>
           </div>
         </div>
       </main>

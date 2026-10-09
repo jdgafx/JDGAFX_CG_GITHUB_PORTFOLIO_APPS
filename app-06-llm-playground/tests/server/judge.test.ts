@@ -200,7 +200,8 @@ describe('judge function', () => {
       throw Object.assign(new Error('timed out'), { name: 'TimeoutError' })
     })
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
-    expect(stub).toHaveBeenCalledTimes(1)
+    // The first try timed out, so the judge asked once more before giving up.
+    expect(stub).toHaveBeenCalledTimes(2)
     expect(await response.json()).toMatchObject({ ok: false, reason: 'The AI provider did not answer in time' })
   })
 })

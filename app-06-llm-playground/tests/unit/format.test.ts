@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barPercent, formatCost, formatCount, formatMs, formatPrice, formatUsd, tokensPerSecond } from '../../src/lib/format'
+import { barPercent, formatCost, formatCount, formatDelta, formatMs, formatPrice, formatRating, formatUsd, splitModel, tokensPerSecond } from '../../src/lib/format'
 
 describe('formatUsd', () => {
   it('shows six decimals', () => {
@@ -68,5 +68,22 @@ describe('barPercent', () => {
   it('draws no bar without a positive scale', () => {
     expect(barPercent(5, null)).toBe(0)
     expect(barPercent(5, 0)).toBe(0)
+  })
+})
+
+describe('model and rating formatting', () => {
+  it('splits a model id into vendor and name', () => {
+    expect(splitModel('anthropic/claude-haiku-5.5')).toEqual({ vendor: 'anthropic', name: 'claude-haiku-5.5' })
+    expect(splitModel('qwen/qwen3-coder:free/x')).toEqual({ vendor: 'qwen', name: 'qwen3-coder:free/x' })
+    expect(splitModel('plain')).toEqual({ vendor: '', name: 'plain' })
+  })
+
+  it('rounds a rating to a whole number and a change to one decimal with its sign', () => {
+    expect(formatRating(1005.766)).toBe('1,006')
+    expect(formatRating(988)).toBe('988')
+    expect(formatDelta(24)).toBe('+24.0')
+    expect(formatDelta(-12)).toBe('−12.0')
+    expect(formatDelta(5.766075)).toBe('+5.8')
+    expect(formatDelta(0.0001)).toBe('±0.0')
   })
 })

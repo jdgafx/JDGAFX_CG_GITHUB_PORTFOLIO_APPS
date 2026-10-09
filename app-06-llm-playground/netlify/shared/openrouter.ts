@@ -25,9 +25,11 @@ interface ChatLimits {
   signal?: AbortSignal
 }
 
-type ChatResult =
+// retryable: the failure was a timeout or a lost connection, which a second try can fix. A refusal
+// (401, 402, 429, 5xx), an unreadable reply and a stop are never retried.
+export type ChatResult =
   | { ok: true; data: Record<string, unknown>; latencyMs: number }
-  | { ok: false; error: string; latencyMs: number }
+  | { ok: false; error: string; latencyMs: number; retryable?: boolean }
 
 // The key exists only as a Netlify environment variable. Never log or return it.
 export function providerKey(): string | null {
@@ -74,10 +76,10 @@ export async function chat(key: string, body: ChatRequest, limits: ChatLimits): 
     if (limits.signal?.aborted) return stopped()
     const name = errorName(err)
     if (name === 'TimeoutError' || name === 'AbortError') {
-      return { ok: false, error: NO_ANSWER, latencyMs: Date.now() - started }
+      return { ok: false, error: NO_ANSWER, latencyMs: Date.now() - started, retryable: true }
     }
     console.error(`Provider call failed for ${body.model}: ${name}`)
-    return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started }
+    return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started, retryable: true }
   }
 }
 

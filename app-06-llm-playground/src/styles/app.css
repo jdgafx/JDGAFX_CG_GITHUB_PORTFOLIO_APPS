@@ -1,367 +1,132 @@
-/* ModelArena layout only. Colour, type and the shared ds- classes come from tokens.css. */
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+/* App layer for ModelArena. Colour, type, states, readout, trace, segmented control and the ds- classes come from tokens.css
+   and components.css. This file holds the blind answers, the reveal and the leaderboard. */
 
 /* Status dots beyond the shared set: measured markers, the judge's pick, and a warning. */
-.arena-dot--accent {
-  background: var(--ds-accent);
-}
-
-.arena-dot--ring {
-  background: transparent;
-  border: 2px solid var(--ds-accent);
-}
-
-.arena-dot--warn {
-  background: var(--ds-warning);
-}
-
-/* Controls stay reachable: on a short window the column scrolls inside itself. */
-@media (min-width: 1000px) {
-  .ds-controls {
-    max-height: calc(100vh - 32px);
-    max-height: calc(100dvh - 32px);
-    overflow-y: auto;
-    padding: 2px;
-  }
-}
+.arena-dot--accent { background: var(--ds-accent); }
+.arena-dot--ring { background: transparent; border: 2px solid var(--ds-accent); }
+.arena-dot--warn { background: var(--ds-warning); }
 
 /* The run column is a size container, so the answers sit side by side when there is room for three. */
-.ds-run {
-  container-type: inline-size;
-}
+.ds-run { container-type: inline-size; }
 
-.arena-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
+/* While the panels run, the loading state leads and the leaderboard waits underneath. */
+[data-run="running"] .ds-run__result { order: 1; }
+[data-run="running"] .ds-run__stage { order: 2; }
+.arena-result { display: grid; gap: 20px; min-width: 0; }
 
-/* Answers: three columns whose readout rows share one baseline */
-.arena-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr);
-}
+.arena-dock-help { flex-basis: 100%; }
+.arena-field-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.arena-check { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 15px; font-weight: 650; }
+.arena-options { padding-top: 6px; }
+.arena-fixed { display: flex; align-items: center; min-height: 44px; padding: 9px 12px; font-family: var(--ds-mono); font-size: 14px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); overflow-wrap: anywhere; }
+.ds-seg { width: 100%; }
+.ds-seg > button { flex: 1; }
 
-@container (min-width: 540px) {
-  .arena-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
+/* ---- Answers: three columns whose readout rows share one baseline ---- */
+.arena-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+@container (min-width: 600px) { .arena-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.arena-blind { display: grid; gap: 16px; }
+.arena-panel { display: flex; flex-direction: column; gap: 12px; }
+.arena-panel--active { border-color: var(--ds-accent); }
+.arena-panel--picked { background: var(--ds-surface); border-color: var(--ds-accent); box-shadow: inset 0 3px 0 var(--ds-accent); }
+.arena-panel__head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: center; }
+.arena-panel__head > .ds-badge { grid-column: 1 / -1; justify-self: start; }
+.arena-panel__id { display: grid; min-width: 0; }
+.arena-panel__title { font-size: 13px; font-weight: 650; color: var(--ds-text-muted); line-height: 1.3; }
+.arena-letter { display: grid; place-items: center; width: 44px; height: 44px; font-family: var(--ds-mono); font-size: 26px; font-weight: 600; color: var(--ds-text); background: var(--ds-surface); border: 1.5px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
+.arena-panel--picked .arena-letter { color: var(--ds-accent-text); background: var(--ds-accent); border-color: var(--ds-accent); }
 
-.arena-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* The model's name leads once it is known; before the vote a mask holds its place. */
+.arena-name { display: grid; gap: 0; min-width: 0; }
+.arena-name__model { font-family: var(--ds-mono); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; overflow-wrap: anywhere; }
+.arena-name__meta { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+.arena-mask { display: block; width: 9ch; height: 1em; margin: 0.15em 0; border-radius: 3px; background: repeating-linear-gradient(135deg, var(--ds-border-strong) 0 5px, var(--ds-border) 5px 10px); }
+.arena-name--revealed .arena-name__model { animation: arena-reveal 520ms var(--ds-ease) both; }
+@keyframes arena-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 
-/* Colour only, so the panel does not shift when the run finishes. */
-.arena-panel--active {
-  border-color: var(--ds-accent);
-}
+.arena-marks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.arena-placeholder { padding: 4px 0; }
+.arena-answer { max-height: 320px; overflow-y: auto; padding: 12px; font-size: 15px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.arena-pick { width: 100%; margin-top: auto; }
+.arena-votebar { display: grid; gap: 8px; padding: 14px 16px; background: var(--ds-surface); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.arena-votebar__q { font-weight: 650; }
 
-.arena-panel__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 10px;
-}
+/* The reveal: what the vote did, above the revealed panels. */
+.arena-reveal { display: grid; gap: 8px; padding: 14px 16px; background: var(--ds-accent-soft); border-left: 3px solid var(--ds-accent); border-radius: 0 var(--ds-radius) var(--ds-radius) 0; }
+.arena-reveal__line { font-weight: 650; max-width: none; }
+.arena-reveal__line a { color: var(--ds-accent); font-weight: 650; }
+.arena-reveal__moves { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 
-.arena-panel__title {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.arena-marks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.arena-served {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.arena-served .ds-mono {
-  color: var(--ds-text);
-}
-
-.arena-placeholder {
-  padding: 4px 0;
-}
-
-.arena-answer {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 12px;
-  font-size: 15px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
+/* Rating changes: the sign and the arrow-free number carry the direction, colour backs it up. */
+.arena-delta { display: inline-flex; align-items: center; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.arena-delta--up { color: var(--ds-success); }
+.arena-delta--down { color: var(--ds-danger); }
+.ds-badge.arena-delta--up { background: var(--ds-success-soft); border-color: transparent; }
+.ds-badge.arena-delta--down { background: var(--ds-danger-soft); border-color: transparent; }
 
 /* Readout rows sit at the foot of each column, so one measure lines up across the three panels. */
-.arena-readouts {
-  display: grid;
-  margin-top: auto;
+.arena-readouts { display: grid; margin-top: auto; }
+.arena-readout { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 9px 0; border-top: 1px solid var(--ds-border); }
+.arena-readout__label { font-size: 13px; color: var(--ds-text-muted); }
+.arena-readout__value { font-family: var(--ds-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.arena-readout__hint { flex-basis: 100%; text-align: right; font-size: 13px; color: var(--ds-text-muted); }
+.arena-bar { flex-basis: 100%; height: 4px; overflow: hidden; background: var(--ds-border); border-radius: 2px; }
+.arena-bar > span { display: block; height: 100%; background: var(--ds-accent); }
+
+/* ---- Leaderboard: the rank numeral leads, the rating bar shows the gap to the start line ---- */
+.arena-board { padding: 8px 16px; }
+.arena-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.arena-row { display: grid; gap: 4px 12px; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "rank who rating" ". meter meter" ". record record" ". conf conf"; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--ds-border); background: transparent; }
+.arena-row:last-child { border-bottom: 0; }
+.arena-rank { grid-area: rank; font-family: var(--ds-mono); font-size: 36px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
+.arena-row:first-child .arena-rank { color: var(--ds-accent); }
+.arena-row__who { grid-area: who; display: grid; min-width: 0; }
+.arena-row__name { font-family: var(--ds-mono); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.arena-row__vendor { font-size: 13px; color: var(--ds-text-muted); }
+.arena-row__rating { grid-area: rating; display: grid; justify-items: end; }
+.arena-rating { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.arena-row--few .arena-rating { color: var(--ds-text-muted); font-weight: 400; }
+.arena-meter { grid-area: meter; position: relative; height: 8px; border-radius: 4px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); overflow: hidden; }
+.arena-meter__fill { position: absolute; inset: 0 auto 0 0; background: var(--ds-accent); border-radius: 0 3px 3px 0; transition: width 600ms var(--ds-ease); }
+.arena-row--few .arena-meter__fill { background: var(--ds-accent-dim); }
+.arena-meter__base { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ds-text); opacity: 0.55; }
+.arena-record { grid-area: record; display: flex; gap: 4px 16px; margin: 0; }
+.arena-record > div { display: flex; gap: 6px; align-items: baseline; }
+.arena-record dt { font-size: 13px; color: var(--ds-text-muted); }
+.arena-record dd { margin: 0; font-family: var(--ds-mono); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.arena-conf { grid-area: conf; justify-self: start; }
+.arena-conf--few { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
+.arena-conf--steady { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
+.arena-row--moved { background: linear-gradient(90deg, var(--ds-accent-soft), transparent 70%); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.arena-row--moved .arena-delta { font-size: 14px; animation: arena-reveal 520ms var(--ds-ease) both; }
+.arena-board__foot { max-width: var(--ds-measure); }
+@container (min-width: 700px) {
+  .arena-row { grid-template-columns: 52px minmax(160px, 1.1fr) minmax(120px, 1fr) 92px auto auto; grid-template-areas: "rank who meter rating record conf"; gap: 4px 18px; }
+  .arena-row__rating { justify-items: end; }
+  .arena-conf { justify-self: end; }
 }
 
-.arena-readout {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 2px 12px;
-  padding: 9px 0;
-  border-top: 1px solid var(--ds-border);
-}
-
-.arena-readout__label {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
-
-.arena-readout__value {
-  font-size: 18px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.arena-readout__hint {
-  flex-basis: 100%;
-  text-align: right;
-  font-size: 12px;
-  color: var(--ds-text-muted);
-}
-
-.arena-bar {
-  flex-basis: 100%;
-  height: 4px;
-  overflow: hidden;
-  background: var(--ds-border);
-  border-radius: 2px;
-}
-
-.arena-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--ds-accent);
-}
-
-/* Evidence: the summary lines, then measures down the rows and panels across the columns */
-.arena-verdicts {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 15px;
-}
-
-.arena-verdicts li {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--ds-border);
-}
-
-.arena-table {
-  width: 100%;
-  min-width: 520px;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.arena-table th,
-.arena-table td {
-  padding: 9px 10px;
-  text-align: right;
-  vertical-align: top;
-  border-bottom: 1px solid var(--ds-border);
-  overflow-wrap: anywhere;
-}
-
-.arena-table thead th {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.arena-table tbody th {
-  width: 30%;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ds-text-muted);
-}
-
-.arena-table td {
-  font-variant-numeric: tabular-nums;
-}
+/* ---- Evidence: the summary lines, then measures down the rows and panels across the columns ---- */
+.arena-verdicts { display: grid; margin: 0; padding: 0; list-style: none; font-size: 15px; }
+.arena-verdicts li { padding: 8px 0; border-bottom: 1px solid var(--ds-border); }
+.arena-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 14px; }
+.arena-table th, .arena-table td { padding: 9px 10px; text-align: right; vertical-align: top; border-bottom: 1px solid var(--ds-border); overflow-wrap: anywhere; }
+.arena-table thead th { font-size: 13px; font-weight: 650; }
+.arena-table tbody th { width: 30%; text-align: left; font-size: 13px; font-weight: 600; color: var(--ds-text-muted); }
+.arena-table td { font-variant-numeric: tabular-nums; }
 
 /* AI judge: a dashed panel, so the opinion looks tentative as well as being labelled */
-.arena-judge {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  min-width: 0;
-  background: var(--ds-surface);
-  border: 1px dashed var(--ds-text-muted);
-  border-radius: var(--ds-radius);
-}
+.arena-judge { display: grid; gap: 14px; padding: 16px; min-width: 0; background: var(--ds-surface); border: 1px dashed var(--ds-text-muted); border-radius: var(--ds-radius); }
+.arena-judge__headline { font-size: 18px; font-weight: 650; line-height: 1.35; }
+.arena-notes { display: grid; margin: 0; }
+.arena-notes > div { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--ds-border); }
+.arena-notes dt { font-size: 13px; font-weight: 650; }
+.arena-notes dd { margin: 0; font-size: 15px; line-height: 1.55; }
+.arena-meta > span { display: block; }
 
-.arena-judge__headline {
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.35;
-}
-
-.arena-notes {
-  display: grid;
-  margin: 0;
-}
-
-.arena-notes > div {
-  display: grid;
-  gap: 4px;
-  padding: 10px 0;
-  border-top: 1px solid var(--ds-border);
-}
-
-.arena-notes dt {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.arena-notes dd {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.55;
-}
-
-/* Run totals: two columns on a phone, three from 720px */
-.arena-strip {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-/* Items without a hint would otherwise stretch to the row height and sit lower than their neighbours. */
-.arena-strip .ds-strip__item {
-  align-content: start;
-}
-
-@media (min-width: 720px) {
-  .arena-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.arena-meta > span {
-  display: block;
-}
-
-/* Controls */
-.arena-field-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 12px;
-}
-
-.arena-hint-over {
-  color: var(--ds-danger);
-}
-
-.arena-sample {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.arena-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.arena-options summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-/* A chevron shows that Options opens, and turns when it is open. */
-.arena-options summary::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 0.15s;
-}
-
-.arena-options[open] summary::before {
-  transform: rotate(45deg);
-}
-
-.arena-options > .ds-stack {
-  margin-top: 12px;
-}
-
-.arena-fixed {
-  display: flex;
-  align-items: center;
-  min-height: 42px;
-  padding: 9px 12px;
-  font-family: var(--ds-mono);
-  font-size: 14px;
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-  overflow-wrap: anywhere;
-}
-
-.arena-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Phone width: the evidence table becomes one labelled block per measure, so all three panels stay readable.
-   The table and its body turn into blocks, so table layout can never make the box wider than the panel. */
+/* Phone width: the evidence table becomes one labelled block per measure, so all three panels stay readable. */
 @media (max-width: 560px) {
-  .arena-table,
-  .arena-table tbody { display: block; width: 100%; min-width: 0; }
+  .arena-table, .arena-table tbody { display: block; width: 100%; min-width: 0; }
   .arena-table thead { display: none; }
   .arena-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 8px 0; border-bottom: 1px solid var(--ds-border); }
   .arena-table tbody th { display: block; width: auto; padding: 0 0 4px; border-bottom: 0; text-align: left; }
@@ -369,3 +134,6 @@
   .arena-table td::before { content: attr(data-panel); flex: 0 0 auto; color: var(--ds-text-muted); font-size: 13px; text-align: left; }
   .arena-table td > * { min-width: 0; overflow-wrap: anywhere; }
 }
+
+.arena-answer code { font-size: 0.93em; padding: 1px 5px; background: var(--ds-surface-2); border-radius: 4px; }
+[data-result-focus]:focus-visible, [data-reveal-focus]:focus-visible { outline-offset: 4px; }
