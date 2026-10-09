@@ -110,3 +110,42 @@ export function restoreEnv(): void {
   }
   savedEnv.clear()
 }
+
+// Recorded OpenRouter streams (tests/fixtures): the raw network chunks, in arrival order.
+import { readFileSync } from 'node:fs'
+
+export function fixtureChunks(name: 'weather' | 'plain' | 'answer'): string[] {
+  const file = new URL(`./fixtures/openrouter-${name}.json`, import.meta.url)
+  return (JSON.parse(readFileSync(file, 'utf8')) as { chunks: string[] }).chunks
+}
+
+// A streamed event-stream response that delivers the given chunks one by one.
+export function sseResponse(chunks: string[], status = 200): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+      controller.close()
+    },
+  })
+  return new Response(body, { status, headers: { 'content-type': 'text/event-stream' } })
+}
+
+// A response whose headers arrive but whose body never produces a byte, until the request is aborted.
+export function silentResponse(signal: AbortSignal | null | undefined): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')), { once: true })
+    },
+  })
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+}
+
+// Every event of an event-stream body, parsed, in order.
+export async function readEvents(res: Response): Promise<Array<Record<string, unknown>>> {
+  const text = await res.text()
+  return text
+    .split('\n\n')
+    .filter(block => block.startsWith('data: ') && !block.startsWith('data: [DONE]'))
+    .map(block => JSON.parse(block.slice(6)) as Record<string, unknown>)
+}

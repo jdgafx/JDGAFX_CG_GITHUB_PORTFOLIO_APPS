@@ -1,4 +1,5 @@
-/* App-specific styles, layered on tokens.css. Anything shared belongs in tokens.css. */
+/* App-specific styles, layered on tokens.css and components.css. Shared pieces live there; this file keeps
+   only what is local to VoxAI: the sentence highlight, the time-to-first-audio bar and the tool rows. */
 
 .sr-only {
   position: absolute;
@@ -12,290 +13,156 @@
   border: 0;
 }
 
-.vox-brand {
-  display: grid;
-  gap: 2px;
+/* Rail */
+.vox-level {
+  flex: 1;
   min-width: 0;
-}
-
-/* On desktop the controls stay in view while the run scrolls. If they are taller than the window, they scroll inside. */
-@media (min-width: 1000px) {
-  .ds-controls {
-    max-height: calc(100vh - 32px);
-    overflow-y: auto;
-    padding: 4px;
-    margin: -4px;
-  }
-}
-
-.vox-control {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  min-width: 0;
-}
-
-/* Record names the action, with its icon beside the words */
-.vox-record {
-  width: 100%;
-  min-height: 52px;
-  font-size: 18px;
-}
-
-.vox-send {
-  width: 100%;
-}
-
-.vox-spin {
-  animation: vox-spin 0.9s linear infinite;
-}
-
-@keyframes vox-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.vox-status-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-}
-
-.vox-status {
-  margin: 0;
-  font-size: 15px;
-}
-
-/* Conversation: the live waveform sits above the messages */
-.vox-stage {
-  height: 72px;
+  height: 48px;
   overflow: hidden;
-  background: var(--ds-surface-2);
-  border-radius: var(--ds-radius);
+  border-radius: var(--ds-radius-sm);
 }
 
-.vox-stage canvas {
+.vox-level canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.vox-log {
+.vox-clock {
+  min-width: 40px;
+  text-align: right;
+  color: var(--ds-text-muted);
+}
+
+.vox-notice {
   display: grid;
-  gap: 10px;
-  max-height: 360px;
-  overflow-y: auto;
+  justify-items: start;
+  gap: 8px;
 }
 
-.vox-message {
-  max-width: 85%;
-  padding: 10px 12px;
-  border-radius: var(--ds-radius);
-}
-
-.vox-message p {
+.vox-status {
   margin: 0;
+}
+
+/* The answer: the sentence being spoken is tinted and underlined, so it is not shown by colour alone */
+.vox-s {
+  padding: 1px 0;
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.vox-s--active {
+  background: var(--ds-accent-soft);
+  box-shadow: 0 0 0 2px var(--ds-accent-soft);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.vox-asked {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 15px;
+  color: var(--ds-text-muted);
   overflow-wrap: anywhere;
 }
 
-.vox-message__model {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--ds-text-muted);
+.vox-asked__label {
+  margin-right: 8px;
+  font-weight: 650;
+  color: var(--ds-text);
 }
 
-.vox-message--user {
-  justify-self: end;
-  background: var(--ds-accent-soft);
+.vox-state-above {
+  margin-bottom: 12px;
 }
 
-.vox-message[data-unsent] {
-  background: transparent;
-  border: 1px dashed var(--ds-danger);
-}
-
-.vox-message__unsent {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--ds-danger);
-}
-
-.vox-over {
-  color: var(--ds-danger);
-}
-
-.vox-message--assistant {
-  justify-self: start;
-  background: var(--ds-surface-2);
-}
-
-/* Hero: the three stages. A node takes its state as a fill, and each edge names what passes along it. */
-.vox-panel-help {
-  margin-top: 12px;
-}
-
-.vox-chain {
+.vox-foot {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(64px, 0.7fr) minmax(0, 1fr) minmax(64px, 0.7fr) minmax(0, 1fr);
-  align-items: stretch;
-  min-width: 520px;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border);
 }
 
-.vox-node {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  min-width: 0;
-  padding: 12px 14px;
-  background: var(--ds-surface);
-  border-radius: var(--ds-radius);
+.vox-foot p {
+  margin: 0;
+  max-width: 62ch;
 }
 
-.vox-node[data-state="waiting"],
-.vox-node[data-state="notrun"],
-.vox-node[data-state="skipped"] {
-  color: var(--ds-text-muted);
+.vox-drift > summary {
+  min-height: 32px;
+  font-size: 13px;
 }
 
-.vox-node[data-state="ok"] {
-  background: var(--ds-accent-soft);
+.vox-drift p {
+  margin-top: 4px;
 }
 
-.vox-node[data-state="failed"] {
-  background: var(--ds-danger-soft);
+/* Time to first audio: five parts that add up to the headline figure */
+.ds-strip__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.vox-node[data-state="running"] {
-  color: var(--ds-accent-text);
+.vox-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.vox-swatch--transcribe {
+  background: var(--ds-series-2);
+}
+
+.vox-swatch--tools {
+  background: var(--ds-series-3);
+}
+
+.vox-swatch--firstToken {
+  background: var(--ds-border-strong);
+}
+
+.vox-swatch--firstSentence {
+  background: var(--ds-series-4);
+}
+
+.vox-swatch--speechStart {
   background: var(--ds-accent);
 }
 
-.vox-node[data-state="running"] .vox-node__where {
-  color: inherit;
-}
-
-.vox-node[data-state="running"] .ds-dot {
-  background: var(--ds-accent-text);
-}
-
-.vox-node__name {
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.2;
-}
-
-.vox-node__where {
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.vox-node__status {
+.vox-bar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  margin-top: 6px;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 2px;
+  height: 12px;
+  margin-top: 12px;
 }
 
-.vox-node__time {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+.vox-bar__part {
+  flex-basis: 0;
+  min-width: 4px;
+  border-radius: 2px;
 }
 
-.vox-edge {
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 4px;
-  min-width: 0;
-  color: var(--ds-text-muted);
-}
-
-.vox-edge__label {
-  font-size: 13px;
-  line-height: 1.2;
-}
-
-.vox-edge svg {
-  display: block;
-  width: 100%;
-  max-width: 96px;
-  height: auto;
-  overflow: visible;
-}
-
-.vox-edge line {
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-dasharray: 5 4;
-}
-
-.vox-edge path {
-  fill: currentColor;
-}
-
-.vox-edge--taken {
-  color: var(--ds-accent);
-}
-
-.vox-edge--taken line {
-  stroke-width: 3;
-  stroke-dasharray: none;
-}
-
-.vox-edge--taken .vox-edge__label {
-  color: var(--ds-text);
-  font-weight: 650;
-}
-
-/* Readout strip: the hint sits on its own line under the figure */
-.ds-strip__hint {
-  display: block;
-}
-
-/* Trace: the bar colour follows the step status as well as its width */
-.vox-trace-body {
-  min-width: 0;
-}
-
-.ds-trace__step[data-status="failed"] .ds-trace__bar {
-  background: var(--ds-danger);
-}
-
-.ds-trace__step[data-status="skipped"] .ds-trace__bar {
-  background: var(--ds-text-muted);
-}
-
-/* Tool calls: the step carries a rule down its left edge, the call in mono, and a link to its source */
-.ds-trace__step[data-kind="tool"] {
-  box-shadow: inset 3px 0 0 var(--ds-accent);
-}
-
-.ds-trace__step[data-kind="tool"][data-status="failed"] {
-  box-shadow: inset 3px 0 0 var(--ds-danger);
-}
-
+/* Trace rows: tool calls show the call in mono and a link to the page the data came from */
 .ds-trace__name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .vox-tool-icon {
   flex: none;
-  color: var(--ds-accent);
+  color: var(--ds-text-muted);
 }
 
 .vox-call {
   display: inline-block;
   max-width: 100%;
-  margin-top: 6px;
+  margin-top: 4px;
   padding: 2px 8px;
   font-size: 13px;
   color: var(--ds-text);
@@ -310,7 +177,7 @@
   flex-wrap: wrap;
   gap: 2px 8px;
   max-width: 100%;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 13px;
   color: var(--ds-accent);
   text-decoration: none;
@@ -333,7 +200,7 @@
 
 .vox-source__url {
   font-family: var(--ds-mono);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -342,87 +209,88 @@
   flex: none;
 }
 
-/* Examples: full-width rows, each with the live data it uses */
-.vox-examples {
-  display: grid;
-  gap: 6px;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.ds-trace__meta {
+  flex-direction: column;
+  align-items: flex-end;
 }
 
-.vox-example {
+/* Earlier turns */
+.vox-log {
   display: grid;
-  gap: 2px;
-  width: 100%;
-  min-height: 44px;
+  gap: 12px;
+  max-height: 360px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.vox-message {
+  max-width: 85%;
   padding: 8px 12px;
-  font: inherit;
-  font-size: 15px;
-  text-align: left;
-  color: var(--ds-text);
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius);
-  cursor: pointer;
 }
 
-.vox-example:hover:not(:disabled) {
-  border-color: var(--ds-accent);
-}
-
-.vox-example:focus-visible {
-  outline: 2px solid var(--ds-focus);
-  outline-offset: 2px;
-}
-
-.vox-example:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.vox-example__question {
-  min-width: 0;
+.vox-message p {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
-.vox-example__source {
-  font-size: 12px;
+.vox-message__note {
+  margin-top: 4px;
+  font-size: 13px;
   color: var(--ds-text-muted);
 }
 
-/* Notices and errors */
-.vox-banner {
+.vox-message--user {
+  justify-self: end;
+  background: var(--ds-accent-soft);
+}
+
+.vox-message--assistant {
+  justify-self: start;
+  background: var(--ds-surface-2);
+}
+
+.vox-message[data-unsent] {
+  background: transparent;
+  border: 1px dashed var(--ds-border-strong);
+}
+
+.vox-history__foot {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  margin-top: 16px;
 }
 
-.vox-banner p {
+/* While a run is live the answer is what the visitor watches, so it leads; the shared order puts it last until the run ends */
+[data-run="running"] .ds-run__result {
+  order: -1;
+}
+
+/* The headline figure is the one this app is about */
+.vox-readout .ds-strip__item:first-child .ds-strip__value {
+  font-size: 28px;
+  font-weight: 650;
+}
+
+/* Live data chip: hollow dot until a tool fetch succeeds, then a solid success dot with the fetch time */
+.live-data {
+  justify-self: start;
   margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: normal;
+  font-weight: 600;
+  background: var(--ds-surface);
 }
 
-/* Phone width: the three stages stack, and each edge becomes a short centred label between them. */
-@media (max-width: 560px) {
-  .vox-chain {
-    grid-template-columns: minmax(0, 1fr);
-    min-width: 0;
-    gap: 4px;
-  }
-  .vox-edge {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 28px;
-    padding: 2px 0;
-    background: none;
-    border: 0;
-  }
-  .vox-edge svg {
-    display: none;
-  }
+.live-data[data-state="live"] {
+  color: var(--ds-success);
+  border-color: var(--ds-success);
+}
+
+.live-data[data-state="failed"] {
+  color: var(--ds-danger);
+  border-color: var(--ds-danger);
+  background: var(--ds-danger-soft);
 }

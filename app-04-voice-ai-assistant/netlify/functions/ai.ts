@@ -1,5 +1,6 @@
 import { corsHeaders, guardRequest, jsonError, readJsonBody } from '../shared/http'
-import { MODEL, replyText, runModelCall, type Turn } from '../shared/provider'
+import { MODEL, runModelCall, type Turn } from '../shared/provider'
+import { DONE_EVENT, PING, encodeEvent } from '../shared/sse'
 import { createRecorder } from '../shared/trace'
 
 // Output cap sent with every chat call.
@@ -22,7 +23,10 @@ const SYSTEM_PROMPT =
   'wikipedia_summary for factual questions about a person, place, event or concept. ' +
   'Answer only from what a tool returns, with its units, and name the place or article. ' +
   'If a tool reports that it failed or found nothing, say so plainly and do not guess a value. ' +
-  'Do not use a tool for small talk or questions you can answer without live data.'
+  'Do not use a tool for small talk or questions you can answer without live data. ' +
+  'Your words are read aloud: write plain sentences with no markdown, lists or emoji. ' +
+  'When you are about to call a tool, first say one short sentence naming what you are checking, for example "Let me check the weather in Lisbon.", then call it. ' +
+  'Never state any value in that sentence.'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
@@ -42,19 +46,80 @@ function parseHistory(history: unknown): ChatMessage[] | null {
   return clean.slice(-MAX_HISTORY_MESSAGES)
 }
 
-// The model's served name is checked too: a safety or moderation model is never an answer.
-function unsuitableModel(model: string): boolean {
-  return /(content[- ]?safety|moderation|classifier|guard|toxicity|safety[- ]?model)/i.test(model)
-}
+// How often a comment line goes out while the model is thinking, so no proxy sees an idle connection.
+const PING_MS = 10_000
 
-// The shape a safety classifier returns, which is never a conversational answer.
-function labelShaped(text: string): boolean {
-  return /^(user\s+)?safety\s*:\s*(safe|unsafe)\b/i.test(text.trim().replace(/\s+/g, ' '))
+type Run = ReturnType<typeof createRecorder>
+
+// The reply as server-sent events: `step` for each trace step as it happens, `delta` for each piece of
+// the answer, then `done` (or `error`) and [DONE]. The visitor's Stop closes the connection, which
+// aborts the model call and any tool in flight.
+function answerStream(
+  apiKey: string,
+  turns: Turn[],
+  deadlineAt: number,
+  run: Run,
+  requestSignal: AbortSignal,
+  attach: (send: (event: unknown) => void) => void,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const stop = new AbortController()
+  let open = true
+  let ping: ReturnType<typeof setInterval> | undefined
+  const forward = () => stop.abort()
+  requestSignal.addEventListener('abort', forward, { once: true })
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (chunk: string) => {
+        if (open) controller.enqueue(encoder.encode(chunk))
+      }
+      const send = (event: unknown) => write(encodeEvent(event))
+      ping = setInterval(() => write(PING), PING_MS)
+      for (const step of run.steps) send({ type: 'step', step })
+      attach(send)
+      try {
+        const outcome = await runModelCall(
+          apiKey,
+          turns,
+          { maxTokens: MAX_OUTPUT_TOKENS, deadlineAt, cancel: stop.signal, onText: text => send({ type: 'delta', text }) },
+          run,
+        )
+        if (!outcome.ok) send({ type: 'error', error: outcome.message, totalMs: run.elapsed() })
+        else if (!outcome.text) {
+          run.add('parse and validate', 'failed', 'The reply had no text')
+          send({ type: 'error', error: 'The assistant returned an empty response. Try again.', totalMs: run.elapsed() })
+        } else {
+          const cut = outcome.finishReason === 'length'
+          run.add('parse and validate', 'ok', cut ? `${outcome.text.length} characters, cut off at the length limit` : `${outcome.text.length} characters`)
+          send({ type: 'done', result: outcome.text, model: outcome.model ?? MODEL, usage: outcome.usage, totalMs: run.elapsed() })
+        }
+      } catch (err) {
+        console.error('ai: stream failed', err)
+        run.add('server error', 'failed', 'Unexpected failure in the assistant function')
+        send({ type: 'error', error: 'The assistant failed. Try again in a moment.', totalMs: run.elapsed() })
+      } finally {
+        clearInterval(ping)
+        requestSignal.removeEventListener('abort', forward)
+        write(DONE_EVENT)
+        if (open) {
+          open = false
+          controller.close()
+        }
+      }
+    },
+    cancel() {
+      open = false
+      clearInterval(ping)
+      stop.abort()
+    },
+  })
 }
 
 export default async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin')
-  const run = createRecorder()
+  // Once the stream is open, every trace step goes out the moment it is recorded.
+  let emit: (event: unknown) => void = () => undefined
+  const run = createRecorder(step => emit({ type: 'step', step }))
   const reply = (message: string, status: number) =>
     jsonError(message, status, origin, { trace: run.steps, totalMs: run.elapsed() })
 
@@ -105,31 +170,17 @@ export default async (req: Request): Promise<Response> => {
     ]
     run.add('request built', 'ok', `${earlier.length} earlier messages, ${message.length} characters`)
 
-    const outcome = await runModelCall(apiKey, turns, { maxTokens: MAX_OUTPUT_TOKENS, deadlineAt }, run)
-    if (!outcome.ok) return reply(outcome.message, outcome.httpStatus)
-
-    const { completion } = outcome
-    const model = completion.model ?? MODEL
-    const text = replyText(completion)
-    if (unsuitableModel(model) || labelShaped(text)) {
-      console.error(`ai: rejected a label-shaped reply from ${model}`)
-      run.add('parse and validate', 'failed', 'The reply was a moderation label, not an answer')
-      return reply('The model returned a label instead of a reply. Try again.', 502)
-    }
-    if (!text) {
-      run.add('parse and validate', 'failed', 'The reply had no text')
-      return reply('The assistant returned an empty response. Try again.', 502)
-    }
-
-    const cut = completion.choices?.[0]?.finish_reason === 'length'
-    run.add(
-      'parse and validate',
-      'ok',
-      cut ? `${text.length} characters, cut off at the length limit` : `${text.length} characters`,
-    )
-    return Response.json(
-      { result: text, trace: run.steps, usage: outcome.usage, model, totalMs: run.elapsed() },
-      { headers: corsHeaders(origin) },
+    return new Response(
+      answerStream(apiKey, turns, deadlineAt, run, req.signal, send => {
+        emit = send
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          ...corsHeaders(origin),
+        },
+      },
     )
   } catch (err) {
     console.error('ai: unhandled failure', err)

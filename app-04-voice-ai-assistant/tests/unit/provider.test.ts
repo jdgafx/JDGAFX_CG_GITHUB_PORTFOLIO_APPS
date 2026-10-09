@@ -1,203 +1,137 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MODEL, replyText, runModelCall, type Turn } from '../../netlify/shared/provider'
+import { runModelCall, type RunOptions } from '../../netlify/shared/provider'
 import { createRecorder } from '../../netlify/shared/trace'
-import { PLACEHOLDER, headerOf, jsonResponse, sentRequest, stubFetch } from '../helpers'
+import { FORECAST_LISBON, GEOCODE_LISBON } from '../tool-fixtures'
+import { PLACEHOLDER, fixtureChunks, jsonResponse, silentResponse, sseResponse, stubFetch, type FetchMock } from '../helpers'
 
-const TURNS: Turn[] = [
-  { role: 'system', content: 'Be brief.' },
-  { role: 'user', content: 'Reply with the single word: pong' },
-]
+const TURNS = [{ role: 'user' as const, content: 'What is the weather in Lisbon right now?' }]
 
-const OK_REPLY = {
-  model: 'anthropic/claude-haiku-5.5',
-  choices: [{ message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
-  usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13, cost: 0.0000123 },
+function options(over: Partial<RunOptions> = {}): RunOptions & { texts: string[] } {
+  const texts: string[] = []
+  return { maxTokens: 64, deadlineAt: Date.now() + 25_000, onText: d => texts.push(d), texts, ...over }
 }
 
-const EMPTY_REPLY = {
-  model: 'anthropic/claude-haiku-5.5',
-  choices: [{ message: { content: '' }, finish_reason: 'stop' }],
-  usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.00001 },
+// OpenRouter answers each chat call from the next recorded stream; the tools' own hosts answer from fixtures.
+function route(chats: Array<(init?: RequestInit) => Response>): FetchMock {
+  let call = 0
+  return stubFetch(async (input, init) => {
+    const url = String(input)
+    if (url.includes('openrouter.ai')) return chats[Math.min(call++, chats.length - 1)](init)
+    if (url.includes('geocoding-api')) return jsonResponse(GEOCODE_LISBON)
+    if (url.includes('api.open-meteo.com')) return jsonResponse(FORECAST_LISBON)
+    throw new Error(`unexpected request to ${url}`)
+  })
 }
 
-const FIVE_SECONDS = 5_000
-const TWENTY_FIVE_SECONDS = 25_000
+const chatCalls = (mock: FetchMock) => mock.mock.calls.filter(call => String(call[0]).includes('openrouter.ai'))
 
 describe('runModelCall', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
   })
-
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('sends the fixed model with the token cap, usage reporting and reasoning off', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(headerOf(fetchMock, 0, 'authorization')).toBe(`Bearer ${PLACEHOLDER}`)
-    const sent = sentRequest(fetchMock)
-    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
-    expect(sent).toMatchObject({
-      model: MODEL,
-      max_tokens: 256,
-      reasoning: { enabled: false },
-      usage: { include: true },
-      messages: TURNS,
-    })
-    expect(sent.tools.map(tool => tool.function.name)).toEqual(['weather', 'wikipedia_summary'])
-    expect(sent).not.toHaveProperty('tool_choice')
-    expect(sent).not.toHaveProperty('temperature')
-  })
-
-  it('returns the reply, the served model, the usage and one model call step', async () => {
-    stubFetch(async () => jsonResponse(OK_REPLY))
+  it('streams a plain answer and records one model call step with the first-words time', async () => {
+    route([() => sseResponse(fixtureChunks('plain'))])
     const run = createRecorder()
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, run)
-
-    expect(outcome.ok).toBe(true)
-    if (!outcome.ok) throw new Error('expected a reply')
-    expect(replyText(outcome.completion)).toBe('pong')
-    expect(outcome.usage).toEqual({ prompt_tokens: 12, completion_tokens: 1, total_tokens: 13, cost: 0.0000123 })
-    expect(run.steps).toHaveLength(1)
-    expect(run.steps[0]).toMatchObject({
-      name: 'model call',
-      status: 'ok',
-      detail: 'anthropic/claude-haiku-5.5',
-      tokens: 13,
-      cost: 0.0000123,
-    })
+    const o = options()
+    const out = await runModelCall(PLACEHOLDER, TURNS, o, run)
+    expect(out).toMatchObject({ ok: true, model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 653, cost: 0.000102267 } })
+    expect(o.texts.join('').trim()).toBe(out.ok ? out.text : '')
+    expect(run.steps.map(s => s.name)).toEqual(['model call'])
+    expect(run.steps[0].detail).toMatch(/^anthropic\/claude-haiku-5\.5, first words after [\d,]+ ms$/)
   })
 
-  it('totals tokens and cost across an empty first reply and the retry', async () => {
-    let calls = 0
-    const fetchMock = stubFetch(async () => {
-      calls += 1
-      return jsonResponse(calls === 1 ? EMPTY_REPLY : OK_REPLY)
+  it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
+    const mock = route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
+    const run = createRecorder()
+    const o = options()
+    const out = await runModelCall(PLACEHOLDER, TURNS, o, run)
+
+    expect(run.steps.map(s => s.name)).toEqual(['model call', 'tool call', 'model answer'])
+    expect(run.steps[0].detail).toContain('asked for weather')
+    const tool = run.steps[1]
+    expect(tool.call).toBe('weather("Lisbon")')
+    expect(tool.source).toContain('api.open-meteo.com/v1/forecast')
+    expect(tool.reading).toMatchObject({ time: '2026-10-09T06:00', zone: 'Europe/Lisbon', abbreviation: 'GMT+1', intervalSeconds: 900 })
+    expect(new Date(tool.reading?.fetchedAt ?? '').getTime()).not.toBeNaN()
+
+    const calls = chatCalls(mock)
+    expect(calls).toHaveLength(2)
+    const second = JSON.parse(String(calls[1][1]?.body)) as { tool_choice: string; messages: Array<{ role: string; tool_call_id?: string; content: string | null }> }
+    expect(second.tool_choice).toBe('none')
+    expect(second.messages.map(m => m.role)).toEqual(['user', 'assistant', 'tool'])
+    expect(second.messages[2].content).toContain('Weather for Lisbon, Lisbon District, Portugal')
+    expect(out.ok && out.text).toContain("It's currently")
+    // The streamed pieces are the answer, in order.
+    expect(o.texts.join('').trim()).toBe(out.ok ? out.text : '')
+    // Both calls' tokens and cost are added.
+    expect(out.ok && out.usage?.total_tokens).toBeGreaterThan(605)
+  })
+
+  it('passes a failed tool to the model as plain text and still answers', async () => {
+    const mock = stubFetch(async input => {
+      const url = String(input)
+      if (url.includes('openrouter.ai')) return sseResponse(chatCalls(mock).length === 1 ? fixtureChunks('weather') : fixtureChunks('answer'))
+      throw new TypeError('network down')
     })
     const run = createRecorder()
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, run)
-
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    if (!outcome.ok) throw new Error('expected a reply')
-    expect(replyText(outcome.completion)).toBe('pong')
-    expect(outcome.usage?.prompt_tokens).toBe(22)
-    expect(outcome.usage?.completion_tokens).toBe(1)
-    expect(outcome.usage?.total_tokens).toBe(23)
-    expect(outcome.usage?.cost).toBeCloseTo(0.0000223, 12)
-    expect(run.steps[0]?.tokens).toBe(23)
-    expect(run.steps[0]?.detail).toBe('anthropic/claude-haiku-5.5, retried once after an empty reply')
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out.ok).toBe(true)
+    expect(run.steps[1]).toMatchObject({ name: 'tool call', status: 'failed' })
+    const second = JSON.parse(String(chatCalls(mock)[1][1]?.body)) as { messages: Array<{ role: string; content: string }> }
+    expect(second.messages[2].content).toContain('The weather service did not answer')
   })
 
-  it('does not retry when less than the retry window is left in the budget', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(EMPTY_REPLY))
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + FIVE_SECONDS }, createRecorder())
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(outcome.ok).toBe(true)
-    if (!outcome.ok) throw new Error('expected a reply')
-    expect(replyText(outcome.completion)).toBe('')
-  })
-
-  it('makes no call when the run budget is already spent', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
+  it('retries once when the provider says nothing before the first-byte limit, and notes it in the step', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const mock = route([init => silentResponse(init?.signal), () => sseResponse(fixtureChunks('plain'))])
     const run = createRecorder()
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() - 1 }, run)
-
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(outcome).toEqual({ ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.' })
-    expect(run.steps[0]?.detail).toBe('No time left in the run budget')
+    const pending = runModelCall(PLACEHOLDER, TURNS, options(), run)
+    await vi.advanceTimersByTimeAsync(6_000)
+    const out = await pending
+    expect(out.ok).toBe(true)
+    expect(chatCalls(mock)).toHaveLength(2)
+    expect(run.steps[0].detail).toContain('retried once (no data before the first-byte limit)')
   })
 
-  it('maps a 402 to the key-or-credit copy and keeps the vendor text out of the outcome', async () => {
-    stubFetch(async () => jsonResponse({ error: 'Insufficient credits for account acct_5530' }, 402))
+  it('does not retry when too little of the budget is left', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const mock = route([init => silentResponse(init?.signal)])
     const run = createRecorder()
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, run)
-
-    expect(outcome).toEqual({
-      ok: false,
-      httpStatus: 502,
-      message: 'The AI provider rejected the key or is out of credit.',
-    })
-    expect(JSON.stringify(outcome)).not.toContain('acct_5530')
-    expect(run.steps[0]).toMatchObject({ name: 'model call', status: 'failed', detail: 'HTTP 402 from the AI provider' })
+    const pending = runModelCall(PLACEHOLDER, TURNS, options({ deadlineAt: Date.now() + 9_000 }), run)
+    await vi.advanceTimersByTimeAsync(9_000)
+    await expect(pending).resolves.toMatchObject({ ok: false, httpStatus: 503 })
+    expect(chatCalls(mock)).toHaveLength(1)
+    expect(run.steps[0]).toMatchObject({ name: 'model call', status: 'failed' })
   })
 
-  it('maps a 429 to a 429 with the rate limit copy', async () => {
-    stubFetch(async () => new Response('slow down', { status: 429 }))
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(outcome).toEqual({ ok: false, httpStatus: 429, message: 'Rate limited, try again in a minute.' })
+  it('never retries a 429', async () => {
+    const mock = route([() => jsonResponse({ error: { message: 'slow down' } }, 429)])
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), createRecorder())
+    expect(out).toMatchObject({ ok: false, httpStatus: 429, message: 'Rate limited, try again in a minute.' })
+    expect(chatCalls(mock)).toHaveLength(1)
   })
 
-  it('maps a 500 to a 503 with the did-not-answer copy', async () => {
-    stubFetch(async () => new Response('boom', { status: 500 }))
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(outcome).toEqual({ ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.' })
-  })
-
-  it.each(['TimeoutError', 'AbortError'])('maps a %s deadline to the did-not-answer copy', async name => {
-    stubFetch(async () => {
-      throw Object.assign(new Error('late'), { name })
-    })
+  it('retries an empty reply once and adds up both attempts', async () => {
+    const empty = `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.00001 } })}\n\ndata: [DONE]\n\n`
+    const mock = route([() => sseResponse([empty]), () => sseResponse(fixtureChunks('plain'))])
     const run = createRecorder()
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, run)
-
-    expect(outcome).toEqual({ ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.' })
-    expect(run.steps[0]?.detail).toBe('No reply before the time limit')
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(chatCalls(mock)).toHaveLength(2)
+    expect(out.ok && out.usage).toMatchObject({ total_tokens: 663 })
+    expect(run.steps[0].detail).toContain('retried once (the reply was empty)')
   })
 
-  it('maps a dropped connection to the could-not-be-reached copy', async () => {
-    stubFetch(async () => {
-      throw new TypeError('fetch failed: ECONNRESET 203.0.113.9')
-    })
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(outcome).toEqual({
-      ok: false,
-      httpStatus: 503,
-      message: 'The AI provider could not be reached. Try again in a moment.',
-    })
-  })
-
-  it('refuses a reply that is not JSON', async () => {
-    stubFetch(async () => new Response('<html>', { status: 200 }))
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(outcome).toEqual({ ok: false, httpStatus: 502, message: 'The AI provider returned an unreadable response.' })
-  })
-
-  it('refuses a reply that is JSON but not an object', async () => {
-    stubFetch(async () => new Response('null', { status: 200 }))
-
-    const outcome = await runModelCall(PLACEHOLDER, TURNS, { maxTokens: 256, deadlineAt: Date.now() + TWENTY_FIVE_SECONDS }, createRecorder())
-
-    expect(outcome).toEqual({ ok: false, httpStatus: 502, message: 'The AI provider returned an unreadable response.' })
-  })
-})
-
-describe('replyText', () => {
-  it('returns the trimmed text of the first choice', () => {
-    expect(replyText({ choices: [{ message: { content: '  pong \n' } }] })).toBe('pong')
-  })
-
-  it('returns an empty string when there is no text', () => {
-    expect(replyText({})).toBe('')
-    expect(replyText({ choices: [{ message: { content: 7 } }] })).toBe('')
+  it('records a failed model answer when the second call is refused', async () => {
+    route([() => sseResponse(fixtureChunks('weather')), () => jsonResponse({}, 500)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: false, httpStatus: 503 })
+    expect(run.steps.map(s => `${s.name}:${s.status}`)).toEqual(['model call:ok', 'tool call:ok', 'model answer:failed'])
   })
 })

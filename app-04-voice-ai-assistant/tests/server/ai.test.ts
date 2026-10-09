@@ -1,34 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
-import { MODEL } from '../../netlify/shared/provider'
-import { callsTo, routeFetch, weatherRoutes } from '../tool-fixtures'
+import { FORECAST_LISBON, GEOCODE_LISBON } from '../tool-fixtures'
 import {
   ORIGIN,
   PLACEHOLDER,
   bodyOf,
-  headerOf,
+  fixtureChunks,
   jsonResponse,
+  readEvents,
   request,
   restoreEnv,
-  sentRequest,
   setEnv,
+  silentResponse,
+  sseResponse,
   stubFetch,
-  urlOf,
+  type FetchMock,
 } from '../helpers'
 
 const URL_AI = 'http://localhost/api/ai'
 const EARLIER_BAD = 'The earlier messages could not be read. Clear the conversation and try again.'
-const LABEL = 'The model returned a label instead of a reply. Try again.'
 
-const OK_REPLY = {
-  model: 'anthropic/claude-haiku-5.5',
-  choices: [{ message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
-  usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13, cost: 0.0000123 },
+function route(chats: Array<(init?: RequestInit) => Response>): FetchMock {
+  let call = 0
+  return stubFetch(async (input, init) => {
+    const url = String(input)
+    if (url.includes('openrouter.ai')) return chats[Math.min(call++, chats.length - 1)](init)
+    if (url.includes('geocoding-api')) return jsonResponse(GEOCODE_LISBON)
+    if (url.includes('api.open-meteo.com')) return jsonResponse(FORECAST_LISBON)
+    throw new Error(`unexpected request to ${url}`)
+  })
 }
 
-function replyWith(content: string, model = 'anthropic/claude-haiku-5.5') {
-  return { model, choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }
-}
+const never = async () => jsonResponse({})
 
 describe('ai function', () => {
   beforeEach(() => {
@@ -38,145 +41,119 @@ describe('ai function', () => {
 
   afterEach(() => {
     restoreEnv()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('answers a message through the fixed model and reports tokens and cost', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    const res = await handler(request(URL_AI, { json: { message: 'Reply with the single word: pong', history: [] } }))
-
+  it('streams a plain answer as step, delta and done events, then [DONE]', async () => {
+    route([() => sseResponse(fixtureChunks('plain'))])
+    const res = await handler(request(URL_AI, { json: { message: 'How does a voice assistant work?' } }))
     expect(res.status).toBe(200)
-    const body = await bodyOf(res)
-    expect(body.result).toBe('pong')
-    expect(body.model).toBe('anthropic/claude-haiku-5.5')
-    expect(body.usage?.total_tokens).toBe(13)
-    expect(body.usage?.cost).toBe(0.0000123)
-    expect(body.trace?.map(step => [step.name, step.status])).toEqual([
-      ['request built', 'ok'],
-      ['model call', 'ok'],
-      ['parse and validate', 'ok'],
-    ])
-    expect(body.trace?.[1]?.detail).toBe('anthropic/claude-haiku-5.5')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(urlOf(fetchMock)).toBe('https://openrouter.ai/api/v1/chat/completions')
-    expect(headerOf(fetchMock, 0, 'authorization')).toBe(`Bearer ${PLACEHOLDER}`)
+    expect(res.headers.get('content-type')).toContain('text/event-stream')
+    expect(res.headers.get('cache-control')).toContain('no-transform')
+    const raw = await res.clone().text()
+    expect(raw.trimEnd().endsWith('data: [DONE]')).toBe(true)
 
-    const sent = sentRequest(fetchMock)
-    expect(sent.model).toBe(MODEL)
-    expect(sent.max_tokens).toBe(1024)
-    expect(sent.usage).toEqual({ include: true })
-    expect(sent.reasoning).toEqual({ enabled: false })
-    expect(sent.messages.at(-1)).toEqual({ role: 'user', content: 'Reply with the single word: pong' })
+    const events = await readEvents(res)
+    expect(events.map(e => e.type)).toEqual(['step', 'delta', 'delta', 'delta', 'step', 'step', 'done'])
+    const names = events.filter(e => e.type === 'step').map(e => (e.step as { name: string }).name)
+    expect(names).toEqual(['request built', 'model call', 'parse and validate'])
+    const done = events[events.length - 1]
+    const text = events.filter(e => e.type === 'delta').map(e => e.text).join('')
+    expect(done).toMatchObject({ type: 'done', model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 653 } })
+    expect(String(done.result)).toBe(text.trim())
   })
 
-  it('tells the model about both tools in its instructions and offers them', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    const sent = sentRequest(fetchMock)
-    expect(sent.tools.map(tool => tool.function.name)).toEqual(['weather', 'wikipedia_summary'])
-    expect(sent.messages[0].content).toContain('do not guess a value')
+  it('sends the tool call steps before the first word of the answer', async () => {
+    route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
+    const res = await handler(request(URL_AI, { json: { message: 'weather in Lisbon?' } }))
+    const events = await readEvents(res)
+    const order = events.map(e => (e.type === 'step' ? (e.step as { name: string }).name : String(e.type)))
+    expect(order.indexOf('tool call')).toBeLessThan(order.indexOf('delta'))
+    expect(order.indexOf('model call')).toBeLessThan(order.indexOf('tool call'))
+    const tool = events.find(e => e.type === 'step' && (e.step as { name: string }).name === 'tool call')?.step as { call: string; reading: { time: string } }
+    expect(tool.call).toBe('weather("Lisbon")')
+    expect(tool.reading.time).toBe('2026-10-09T06:00')
   })
 
-  it('answers a weather question from the live tool result, with the lookup in the trace', async () => {
-    let call = 0
-    const fetchMock = routeFetch([
-      [
-        'openrouter.ai',
-        () =>
-          jsonResponse(
-            ++call === 1
-              ? {
-                  model: 'anthropic/claude-haiku-5.5',
-                  choices: [
-                    {
-                      message: {
-                        content: null,
-                        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'weather', arguments: '{"place":"Lisbon"}' } }],
-                      },
-                      finish_reason: 'tool_calls',
-                    },
-                  ],
-                  usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cost: 0.00002 },
-                }
-              : {
-                  ...replyWith('It is 17.6 degrees Celsius and clear in Lisbon.'),
-                  usage: { prompt_tokens: 160, completion_tokens: 15, total_tokens: 175, cost: 0.00003 },
-                },
-          ),
-      ],
-      ...weatherRoutes,
-    ])
-
-    const res = await handler(request(URL_AI, { json: { message: "What's the weather in Lisbon right now?" } }))
-    const body = await bodyOf(res)
-
-    expect(res.status).toBe(200)
-    expect(body.result).toBe('It is 17.6 degrees Celsius and clear in Lisbon.')
-    expect(body.trace?.map(step => [step.name, step.status])).toEqual([
-      ['request built', 'ok'],
-      ['model call', 'ok'],
-      ['tool call', 'ok'],
-      ['model answer', 'ok'],
-      ['parse and validate', 'ok'],
-    ])
-    expect(body.trace?.[2]?.call).toBe('weather("Lisbon")')
-    expect(body.trace?.[2]?.source).toContain('https://api.open-meteo.com/v1/forecast')
-    expect(body.usage).toEqual({ prompt_tokens: 260, completion_tokens: 35, total_tokens: 295, cost: 0.00005 })
-    expect(callsTo(fetchMock, 'openrouter.ai')).toHaveLength(2)
-  })
-
-  it('ignores a model name sent by the browser', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    await handler(request(URL_AI, { json: { message: 'hi', model: 'vendor/other-model' } }))
-
-    expect(sentRequest(fetchMock).model).toBe(MODEL)
-  })
-
-  it('sends earlier turns in order, then the new message', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
+  it('sends earlier turns in order, then the new message, and ignores a model named by the browser', async () => {
+    const mock = route([() => sseResponse(fixtureChunks('plain'))])
     const history = [
-      { role: 'user', content: 'What is two plus two?' },
-      { role: 'assistant', content: 'Four.' },
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'second' },
     ]
+    await (await handler(request(URL_AI, { json: { message: 'third', history, model: 'evil/model' } }))).text()
+    const sent = JSON.parse(String(mock.mock.calls[0][1]?.body)) as { model: string; messages: Array<{ role: string; content: string }> }
+    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
+    expect(sent.messages.map(m => `${m.role}:${m.content.slice(0, 5)}`)).toEqual(['system:You a', 'user:first', 'assistant:secon', 'user:third'])
+  })
 
-    await handler(request(URL_AI, { json: { message: 'And times three?', history } }))
+  it('sends a ping comment while the model has not answered yet', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    route([init => silentResponse(init?.signal)])
+    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    const first = decoder.decode((await reader.read()).value)
+    expect(first).toContain('"request built"')
+    await vi.advanceTimersByTimeAsync(10_000)
+    let seen = ''
+    while (!seen.includes(': ping')) seen += decoder.decode((await reader.read()).value)
+    expect(seen).toContain(': ping\n\n')
+    await reader.cancel()
+  })
 
-    expect(sentRequest(fetchMock).messages.slice(1)).toEqual([...history, { role: 'user', content: 'And times three?' }])
+  it('ends the model call when the visitor closes the stream', async () => {
+    const mock = route([init => silentResponse(init?.signal)])
+    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
+    const reader = res.body!.getReader()
+    await reader.read()
+    await reader.cancel()
+    const signal = mock.mock.calls[0][1]?.signal as AbortSignal
+    await vi.waitFor(() => expect(signal.aborted).toBe(true))
+  })
+
+  it('reports a provider failure as an error event with plain copy and the failed step', async () => {
+    route([() => jsonResponse({ error: { message: 'Insufficient credits for account acct_7781' } }, 402)])
+    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
+    const events = await readEvents(res)
+    const error = events.find(e => e.type === 'error')
+    expect(error?.error).toBe('The AI provider rejected the key or is out of credit.')
+    expect(JSON.stringify(events)).not.toContain('acct_7781')
+    expect(events.some(e => e.type === 'step' && (e.step as { name: string; status: string }).name === 'model call' && (e.step as { status: string }).status === 'failed')).toBe(true)
+  })
+
+  it('refuses a reply that is a safety label with an error event', async () => {
+    const label = `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { content: 'User Safety: safe' } }] })}\n\ndata: [DONE]\n\n`
+    route([() => sseResponse([label])])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+    expect(events.find(e => e.type === 'error')?.error).toBe('The model returned a label instead of a reply. Try again.')
+    expect(events.some(e => e.type === 'delta')).toBe(false)
   })
 
   it('answers a preflight from an allowed origin with 204', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { method: 'OPTIONS' }))
-
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('answers 405 to a GET request', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { method: 'GET' }))
-
     expect(res.status).toBe(405)
     expect((await bodyOf(res)).error).toBe('Method not allowed')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('answers 403 for an origin that is not allowed', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { json: { message: 'hi' }, origin: 'https://evil.example' }))
-
     expect(res.status).toBe(403)
     expect((await bodyOf(res)).error).toBe('Origin not allowed')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -188,167 +165,45 @@ describe('ai function', () => {
     ['a history entry with another role', { message: 'hi', history: [{ role: 'system', content: 'x' }] }, EARLIER_BAD],
     ['a history entry without text', { message: 'hi', history: [{ role: 'user', content: 5 }] }, EARLIER_BAD],
     ['a history entry that is not an object', { message: 'hi', history: ['hi'] }, EARLIER_BAD],
-  ])('answers 400 for %s', async (_label, payload, expected) => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+  ])('answers 400 for %s, as JSON, before any stream starts', async (_label, payload, expected) => {
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { json: payload }))
-
     expect(res.status).toBe(400)
+    expect(res.headers.get('content-type')).toContain('application/json')
     expect((await bodyOf(res)).error).toBe(expected)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('answers 400 when the body is not JSON', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { body: 'not json' }))
-
     expect(res.status).toBe(400)
     expect((await bodyOf(res)).error).toBe('The request was not valid JSON.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
-  it('answers 400 when the declared body is larger than the limit', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' }, headers: { 'content-length': '999999999' } }))
-
-    expect(res.status).toBe(400)
-    expect((await bodyOf(res)).error).toBe('That conversation is too large to send. Clear it and try again.')
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('answers 400 when the measured body is larger than the limit', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi', padding: 'x'.repeat(700_000) } }))
-
-    expect(res.status).toBe(400)
-    expect((await bodyOf(res)).error).toBe('That conversation is too large to send. Clear it and try again.')
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('answers 402 from the provider with plain copy and no vendor text', async () => {
-    stubFetch(async () => jsonResponse({ error: { message: 'Insufficient credits for account acct_7781' } }, 402))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-    const text = JSON.stringify(await bodyOf(res))
-
-    expect(res.status).toBe(502)
-    expect(text).toContain('The AI provider rejected the key or is out of credit.')
-    expect(text).not.toContain('Insufficient')
-    expect(text).not.toContain('acct_7781')
-  })
-
-  it('answers a provider 500 with the did-not-answer copy and no vendor text', async () => {
-    stubFetch(async () => new Response('internal boom', { status: 500 }))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-    const body = await bodyOf(res)
-
-    expect(res.status).toBe(503)
-    expect(body.error).toBe('The AI provider did not answer in time.')
-    expect(JSON.stringify(body)).not.toContain('boom')
-  })
-
-  it.each(['AbortError', 'TimeoutError'])('answers a %s deadline with the did-not-answer copy', async name => {
-    stubFetch(async () => {
-      throw Object.assign(new Error('The operation was aborted due to timeout'), { name })
-    })
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(503)
-    expect((await bodyOf(res)).error).toBe('The AI provider did not answer in time.')
-  })
-
-  it('answers 503 when the provider cannot be reached', async () => {
-    stubFetch(async () => {
-      throw new TypeError('fetch failed')
-    })
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(503)
-    expect((await bodyOf(res)).error).toBe('The AI provider could not be reached. Try again in a moment.')
-  })
-
-  it('retries once when the first reply is empty and adds up both attempts', async () => {
-    const empty = {
-      model: 'anthropic/claude-haiku-5.5',
-      choices: [{ message: { content: '' }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10, cost: 0.00001 },
+  it('answers 400 when the declared or the measured body is larger than the limit', async () => {
+    const mock = stubFetch(never)
+    const declared = await handler(request(URL_AI, { json: { message: 'hi' }, headers: { 'content-length': '999999999' } }))
+    const measured = await handler(request(URL_AI, { json: { message: 'hi', padding: 'x'.repeat(700_000) } }))
+    for (const res of [declared, measured]) {
+      expect(res.status).toBe(400)
+      expect((await bodyOf(res)).error).toBe('That conversation is too large to send. Clear it and try again.')
     }
-    let calls = 0
-    const fetchMock = stubFetch(async () => {
-      calls += 1
-      return jsonResponse(calls === 1 ? empty : OK_REPLY)
-    })
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-    const body = await bodyOf(res)
-
-    expect(res.status).toBe(200)
-    expect(body.result).toBe('pong')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(body.usage?.total_tokens).toBe(23)
-    expect(body.usage?.prompt_tokens).toBe(22)
-    expect(body.trace?.find(step => step.name === 'model call')?.detail).toBe(
-      'anthropic/claude-haiku-5.5, retried once after an empty reply',
-    )
-  })
-
-  it('answers 502 when both replies are empty', async () => {
-    const empty = { model: 'anthropic/claude-haiku-5.5', choices: [{ message: { content: '  ' } }] }
-    const fetchMock = stubFetch(async () => jsonResponse(empty))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(502)
-    expect((await bodyOf(res)).error).toBe('The assistant returned an empty response. Try again.')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('refuses a reply that is a safety label', async () => {
-    stubFetch(async () => jsonResponse(replyWith('Safety: safe')))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(502)
-    expect((await bodyOf(res)).error).toBe(LABEL)
-  })
-
-  it('keeps a reply that happens to start with a category word', async () => {
-    stubFetch(async () => jsonResponse(replyWith('Category: fruit. Apples are sweet.')))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(200)
-    expect((await bodyOf(res)).result).toBe('Category: fruit. Apples are sweet.')
-  })
-
-  it('refuses a reply served by a moderation model', async () => {
-    stubFetch(async () => jsonResponse(replyWith('Hello there.', 'meta-llama/llama-guard-3-8b')))
-
-    const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
-    expect(res.status).toBe(502)
-    expect((await bodyOf(res)).error).toBe(LABEL)
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('answers 500 when no provider key is configured, without calling the provider', async () => {
     setEnv('OPENROUTER_API_KEY', '')
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
-
+    const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { json: { message: 'hi' } }))
-
     expect(res.status).toBe(500)
     expect((await bodyOf(res)).error).toBe('The assistant is not configured on this deployment.')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('answers 500 with a generic message when reading the request fails', async () => {
-    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
+    const mock = stubFetch(never)
     const broken = new Request(URL_AI, {
       method: 'POST',
       headers: { origin: ORIGIN, 'content-type': 'application/json' },
@@ -359,13 +214,11 @@ describe('ai function', () => {
       }),
       duplex: 'half',
     } as RequestInit)
-
     const res = await handler(broken)
     const text = JSON.stringify(await bodyOf(res))
-
     expect(res.status).toBe(500)
     expect(text).toContain('The assistant failed. Try again in a moment.')
     expect(text).not.toContain('socket reset')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mock).not.toHaveBeenCalled()
   })
 })

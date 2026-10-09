@@ -99,21 +99,22 @@ function thinkView(phase: RunPhase, steps: TraceStep[] | null): StageView {
   return { state: call.status, ms: modelMs + toolMs }
 }
 
-function speakView(phase: RunPhase, steps: TraceStep[] | null): StageView {
-  if (phase === 'speaking') return { state: 'running' }
+function speakView(phase: RunPhase, steps: TraceStep[] | null, voiceLive: boolean): StageView {
+  if (phase === 'speaking' || voiceLive) return { state: 'running' }
   if (phase !== 'idle' || steps === null) return WAITING
   const speak = steps.find(step => step.name === 'speak reply')
   return speak ? { state: speak.status, ms: speak.ms } : NOT_RUN
 }
 
 // The three stages of the last question, and which edges the question passed along.
-export function pipelineView(phase: RunPhase, steps: TraceStep[] | null): PipelineView {
+// `voiceLive` is true while a sentence is being spoken, which can overlap the model still writing.
+export function pipelineView(phase: RunPhase, steps: TraceStep[] | null, voiceLive = false): PipelineView {
   const listen = listenView(phase, steps)
   const think = thinkView(phase, steps)
   return {
     listen,
     think,
-    speak: speakView(phase, steps),
+    speak: speakView(phase, steps, voiceLive),
     transcriptPassed: listen.state === 'ok',
     replyPassed: think.state === 'ok',
   }
@@ -131,7 +132,7 @@ export function liveStep(phase: RunPhase, steps: TraceStep[] | null): LiveStep |
         : { name: 'prepare audio', detail: 'Converting the recording to 16 kHz mono WAV in this browser' }
     }
     case 'thinking':
-      return { name: 'model call', detail: 'Waiting for the chat model to reply' }
+      return { name: 'model call', detail: 'The chat model is writing the reply' }
     case 'speaking':
       return { name: 'speak reply', detail: 'Reading the reply aloud in this browser' }
     default:

@@ -19,9 +19,12 @@ export const GEOCODE_LISBON = {
 export const FORECAST_LISBON = {
   latitude: 38.746044,
   longitude: -9.175565,
+  utc_offset_seconds: 3600,
   timezone: 'Europe/Lisbon',
+  timezone_abbreviation: 'GMT+1',
   current_units: {
     time: 'iso8601',
+    interval: 'seconds',
     temperature_2m: '°C',
     apparent_temperature: '°C',
     relative_humidity_2m: '%',
@@ -30,6 +33,7 @@ export const FORECAST_LISBON = {
   },
   current: {
     time: '2026-10-09T06:00',
+    interval: 900,
     temperature_2m: 17.6,
     apparent_temperature: 15,
     relative_humidity_2m: 47,

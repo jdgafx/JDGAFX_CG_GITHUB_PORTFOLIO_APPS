@@ -5,7 +5,7 @@
 
 type StepStatus = 'ok' | 'failed' | 'skipped'
 
-interface TraceStep {
+export interface TraceStep {
   name: string
   status: StepStatus
   ms: number
@@ -15,6 +15,18 @@ interface TraceStep {
   // A tool call, e.g. weather("Lisbon"), and the page or request its data came from.
   call?: string
   source?: string
+  // When the data of a weather call was read, so the answer can say how old the reading is.
+  reading?: Reading
+}
+
+// The reading behind a weather answer. `time` is the place's local time of the Open-Meteo
+// reading slot, `fetchedAt` the server clock when it was fetched (ISO, UTC).
+export interface Reading {
+  time: string
+  zone: string
+  abbreviation?: string
+  intervalSeconds?: number
+  fetchedAt: string
 }
 
 // Extra fields a step may carry. `ms` replaces the time since the previous step, for
@@ -24,6 +36,7 @@ interface StepExtras {
   cost?: number
   call?: string
   source?: string
+  reading?: Reading
   ms?: number
 }
 
@@ -33,7 +46,8 @@ export interface Recorder {
   elapsed: () => number
 }
 
-export function createRecorder(): Recorder {
+// `onStep` sees each step as it is recorded, so a stream can send it before the run ends.
+export function createRecorder(onStep?: (step: TraceStep) => void): Recorder {
   const startedAt = Date.now()
   const steps: TraceStep[] = []
   let mark = startedAt
@@ -41,7 +55,9 @@ export function createRecorder(): Recorder {
     steps,
     add(name, status, detail, { ms, ...extras } = {}) {
       const now = Date.now()
-      steps.push({ name, status, ms: ms ?? now - mark, detail, ...extras })
+      const step = { name, status, ms: ms ?? now - mark, detail, ...extras }
+      steps.push(step)
+      onStep?.(step)
       mark = now
     },
     elapsed: () => Date.now() - startedAt,

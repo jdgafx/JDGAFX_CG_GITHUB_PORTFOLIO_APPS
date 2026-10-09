@@ -228,3 +228,11 @@ describe('liveStep', () => {
     expect(liveStep('idle', voiceRun)).toBeNull()
   })
 })
+
+describe('pipelineView while the voice overlaps the model', () => {
+  it('lights Speak while a sentence is read and the model is still writing', () => {
+    const view = pipelineView('thinking', [], true)
+    expect(view.think.state).toBe('running')
+    expect(view.speak.state).toBe('running')
+  })
+})

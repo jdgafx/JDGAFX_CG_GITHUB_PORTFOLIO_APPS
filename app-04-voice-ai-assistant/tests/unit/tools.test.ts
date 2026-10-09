@@ -38,6 +38,8 @@ describe('weather tool', () => {
 
     expect(out.ok).toBe(true)
     expect(out.call).toBe('weather("Lisbon")')
+    // The reading slot of the data, so an answer can say how old it is.
+    expect(out.reading).toMatchObject({ time: '2026-10-09T06:00', zone: 'Europe/Lisbon', abbreviation: 'GMT+1', intervalSeconds: 900 })
     expect(out.content).toBe(
       'Weather for Lisbon, Lisbon District, Portugal (local time 2026-10-09T06:00). Now: 17.6 °C, clear sky. ' +
         "Feels like 15 °C. Humidity 47 %. Wind 10.9 km/h. Today's high 25.6 °C low 16.5 °C. Source: Open-Meteo.",

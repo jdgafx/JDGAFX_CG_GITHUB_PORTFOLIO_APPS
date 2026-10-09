@@ -3,6 +3,7 @@
 // back as plain text for the model to relay, never as a value it could mistake for data.
 
 import { withDeadline } from './deadline'
+import type { Reading } from './trace'
 
 const TOOL_TIMEOUT_MS = 3_000
 const MAX_ARGUMENT_CHARS = 80
@@ -64,6 +65,8 @@ export interface ToolOutcome {
   detail: string
   // The page or API request the data came from. Absent when nothing was fetched.
   source?: string
+  // For weather: which Open-Meteo reading slot the numbers belong to, and when it was fetched.
+  reading?: Reading
   ms: number
 }
 
@@ -160,7 +163,7 @@ async function geocode(place: string, signal: AbortSignal): Promise<Place | null
   return { name: found, label, latitude, longitude }
 }
 
-async function weather(place: string, signal: AbortSignal): Promise<Pick<ToolOutcome, 'content' | 'detail' | 'source'>> {
+async function weather(place: string, signal: AbortSignal): Promise<Pick<ToolOutcome, 'content' | 'detail' | 'source' | 'reading'>> {
   const found = await geocode(place, signal)
   if (!found) {
     return {
@@ -186,6 +189,16 @@ async function weather(place: string, signal: AbortSignal): Promise<Pick<ToolOut
 
   const temperature = measure(now.temperature_2m, nowUnits.temperature_2m)
   if (!temperature) throw new Error('forecast had no current temperature')
+  const readingTime = text(now.time)
+  const reading: Reading | undefined = readingTime
+    ? {
+        time: readingTime,
+        zone: text(data.timezone) ?? 'local time',
+        abbreviation: text(data.timezone_abbreviation),
+        intervalSeconds: num(now.interval),
+        fetchedAt: new Date().toISOString(),
+      }
+    : undefined
   const code = num(now.weather_code)
   const sky = code === undefined ? undefined : WMO_CODES[code]
   const parts = [
@@ -207,6 +220,7 @@ async function weather(place: string, signal: AbortSignal): Promise<Pick<ToolOut
     content: cap(parts.join(' '), MAX_RESULT_CHARS),
     detail: `${found.label}: ${temperature}${sky ? `, ${sky}` : ''}`,
     source: url.toString(),
+    reading,
   }
 }
 
@@ -264,7 +278,7 @@ const NO_DATA = 'No data is available, so tell the user that instead of guessing
 
 // Runs one tool call from the model. It never throws: a bad call, a timeout or a
 // failed upstream becomes a sentence the model can say aloud.
-export async function runTool(name: string, rawArguments: string, deadlineAt: number): Promise<ToolOutcome> {
+export async function runTool(name: string, rawArguments: string, deadlineAt: number, cancel?: AbortSignal): Promise<ToolOutcome> {
   const started = Date.now()
   const done = (outcome: Omit<ToolOutcome, 'ms'>): ToolOutcome => ({ ...outcome, ms: Date.now() - started })
 
@@ -287,7 +301,7 @@ export async function runTool(name: string, rawArguments: string, deadlineAt: nu
   }
   try {
     // One deadline for the whole tool, every lookup and body read in it included.
-    const result = await withDeadline(Math.min(TOOL_TIMEOUT_MS, remaining), undefined, signal =>
+    const result = await withDeadline(Math.min(TOOL_TIMEOUT_MS, remaining), cancel, signal =>
       name === 'weather' ? weather(argument, signal) : wikipediaSummary(argument, signal),
     )
     return done({ ok: true, call, ...result })

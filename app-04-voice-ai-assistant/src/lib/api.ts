@@ -14,6 +14,16 @@ export interface TraceStep {
   // A tool call such as weather("Lisbon"), and the page its data came from.
   call?: string
   source?: string
+  // For weather: the reading slot the numbers belong to, and when the server fetched it.
+  reading?: Reading
+}
+
+export interface Reading {
+  time: string
+  zone: string
+  abbreviation?: string
+  intervalSeconds?: number
+  fetchedAt: string
 }
 
 export interface Usage {
@@ -40,14 +50,6 @@ export interface ChatMessage extends Message {
 export interface EncodedAudio {
   data: string
   format: string
-}
-
-interface ChatResult {
-  text: string
-  model?: string
-  usage?: Usage
-  trace: TraceStep[]
-  totalMs?: number
 }
 
 interface TranscribeResult {
@@ -77,25 +79,25 @@ const UNREACHABLE = 'Could not reach the server. Check your connection and try a
 const TIMED_OUT = 'The server did not answer in time. Try again.'
 
 // The trace stage a call reports under, when it started, and the caller's cancel signal.
-interface CallContext {
+export interface CallContext {
   stage: string
   started: number
   signal?: AbortSignal
 }
 
-const STATUSES: readonly string[] = ['ok', 'failed', 'skipped']
+export const STATUSES: readonly string[] = ['ok', 'failed', 'skipped']
 
-function numberOrUndefined(value: unknown): number | undefined {
+export function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function errorName(err: unknown): string {
+export function errorName(err: unknown): string {
   return typeof err === 'object' && err !== null && 'name' in err && typeof err.name === 'string' ? err.name : ''
 }
 
 // The browser's own deadline ends a call with one of these names. A cancel from the
 // caller is checked separately, before this.
-function isDeadlineError(err: unknown): boolean {
+export function isDeadlineError(err: unknown): boolean {
   const name = errorName(err)
   return name === 'TimeoutError' || name === 'AbortError'
 }
@@ -110,16 +112,29 @@ function safeLink(value: string): string | undefined {
   }
 }
 
-function failedStep(name: string, started: number, detail: string): TraceStep {
+export function failedStep(name: string, started: number, detail: string): TraceStep {
   return { name, status: 'failed', ms: Date.now() - started, detail }
 }
 
-function timedOut(call: CallContext): RunError {
+export function timedOut(call: CallContext): RunError {
   return new RunError(TIMED_OUT, [failedStep(call.stage, call.started, 'No reply before the time limit')])
 }
 
+function parseReading(raw: unknown): Reading | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  if (typeof r.time !== 'string' || typeof r.fetchedAt !== 'string') return undefined
+  return {
+    time: r.time,
+    zone: typeof r.zone === 'string' ? r.zone : 'local time',
+    abbreviation: typeof r.abbreviation === 'string' ? r.abbreviation : undefined,
+    intervalSeconds: numberOrUndefined(r.intervalSeconds),
+    fetchedAt: r.fetchedAt,
+  }
+}
+
 // Only well-formed steps reach the UI, whatever the server sent.
-function parseTrace(raw: unknown): TraceStep[] {
+export function parseTrace(raw: unknown): TraceStep[] {
   if (!Array.isArray(raw)) return []
   const steps: TraceStep[] = []
   for (const item of raw) {
@@ -136,12 +151,13 @@ function parseTrace(raw: unknown): TraceStep[] {
       cost: numberOrUndefined(s.cost),
       call: typeof s.call === 'string' ? s.call : undefined,
       source: typeof s.source === 'string' ? safeLink(s.source) : undefined,
+      reading: parseReading(s.reading),
     })
   }
   return steps
 }
 
-function parseUsage(raw: unknown): Usage | undefined {
+export function parseUsage(raw: unknown): Usage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const u = raw as Record<string, unknown>
   const usage: Usage = {
@@ -156,7 +172,7 @@ function parseUsage(raw: unknown): Usage | undefined {
 // Reads the JSON body. A cancel from the caller is rethrown. A deadline during the read
 // is the timeout failure. Any other unreadable body returns null, so the caller can
 // fall back to its own copy.
-async function readBody(res: Response, call: CallContext): Promise<Record<string, unknown> | null> {
+export async function readBody(res: Response, call: CallContext): Promise<Record<string, unknown> | null> {
   try {
     const data: unknown = await res.json()
     return typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : null
@@ -169,7 +185,7 @@ async function readBody(res: Response, call: CallContext): Promise<Record<string
 
 // Used only when the function did not answer with JSON: a platform timeout (504), a
 // platform size limit (413), or a proxy page. The provider name is the subject.
-function statusFallback(status: number, provider: string): string {
+export function statusFallback(status: number, provider: string): string {
   if (status === 413) return 'That recording is too long to send. Try a shorter one.'
   if (status === 504) return `${provider} did not answer in time.`
   if (status === 429) return `${provider} is rate limited. Wait a moment and try again.`
@@ -180,7 +196,7 @@ function statusFallback(status: number, provider: string): string {
 
 // One call to a function. A cancel from the caller passes through untouched, so
 // Cancel keeps working. A deadline or a dropped connection becomes a failed step.
-async function send(call: CallContext, url: string, init: RequestInit): Promise<Response> {
+export async function send(call: CallContext, url: string, init: RequestInit): Promise<Response> {
   const deadline = AbortSignal.timeout(CLIENT_TIMEOUT_MS)
   const signal = AbortSignal.any(call.signal ? [call.signal, deadline] : [deadline])
   try {
@@ -193,7 +209,7 @@ async function send(call: CallContext, url: string, init: RequestInit): Promise<
   }
 }
 
-async function readFailure(res: Response, provider: string, call: CallContext): Promise<RunError> {
+export async function readFailure(res: Response, provider: string, call: CallContext): Promise<RunError> {
   const data = await readBody(res, call)
   const error = data?.error
   const message = typeof error === 'string' && error.trim() ? error : statusFallback(res.status, provider)
@@ -225,33 +241,5 @@ export async function transcribe(clip: EncodedAudio, signal?: AbortSignal): Prom
     model: typeof data.model === 'string' ? data.model : undefined,
     trace: parseTrace(data.trace),
     totalMs: numberOrUndefined(data.totalMs),
-  }
-}
-
-export async function chat(message: string, history: Message[], signal?: AbortSignal): Promise<ChatResult> {
-  const call: CallContext = { stage: 'model call', started: Date.now(), signal }
-  const res = await send(call, '/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
-  })
-  if (!res.ok) throw await readFailure(res, 'The AI provider', call)
-
-  const data = await readBody(res, call)
-  if (!data) {
-    throw new RunError('The assistant returned an unreadable response.', [
-      failedStep(call.stage, call.started, 'The reply was not JSON'),
-    ])
-  }
-  const trace = parseTrace(data.trace)
-  const totalMs = numberOrUndefined(data.totalMs)
-  const text = typeof data.result === 'string' ? data.result.trim() : ''
-  if (!text) throw new RunError('The assistant returned an empty response. Try again.', trace, totalMs)
-  return {
-    text,
-    model: typeof data.model === 'string' ? data.model : undefined,
-    usage: parseUsage(data.usage),
-    trace,
-    totalMs,
   }
 }
