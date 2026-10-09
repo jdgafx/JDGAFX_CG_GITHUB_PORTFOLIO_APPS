@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clipExtract, hackerNewsUrl, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
-  wikipediaPageUrl, wikipediaUrl,
+  clipExtract, hackerNewsUrl, isPersonLead, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
+  topicHits, wikipediaPageUrl, wikipediaUrl,
 } from '../../netlify/shared/sources'
 
 // Shapes recorded from en.wikipedia.org/w/api.php (formatversion=2, generator=search) and hn.algolia.com/api/v1/search.
@@ -10,7 +10,7 @@ const WIKIPEDIA_RESPONSE = {
   continue: { gsroffset: 5, continue: 'gsroffset||' },
   query: {
     pages: [
-      { pageid: 3, ns: 0, title: 'Memory safety', index: 3, extract: 'Memory safety is the state of being protected from various software bugs and security vulnerabilities when dealing with memory access.' },
+      { pageid: 3, ns: 0, title: 'Memory safety', index: 3, extract: 'Memory safety is the state of being protected from various software bugs and security vulnerabilities when dealing with memory access. By contrast, programming languages like C and Fortran allow arbitrary pointer arithmetic with no bounds checking.' },
       { pageid: 1, ns: 0, title: 'Rust (programming language)', index: 1, extract: 'Rust is a general-purpose programming language that emphasizes performance, type safety, concurrency, and memory safety.' },
       { pageid: 9, ns: 0, title: 'Rust', index: 2, extract: 'Rust may refer to: iron oxide, a plant disease, and a programming language, among other meanings of the word.' },
       { pageid: 4, ns: 0, title: 'Stub', index: 4, extract: 'Too short.' },
@@ -20,6 +20,8 @@ const WIKIPEDIA_RESPONSE = {
     ],
   },
 }
+
+const RUST_TERMS = ['rust', 'programming', 'language', 'memory', 'safety']
 
 describe('searchTerms', () => {
   it('keeps the meaningful words of a topic in order, lower-cased', () => {
@@ -100,14 +102,83 @@ describe('clipExtract', () => {
   })
 })
 
+// Search results as the API returned them for "the James Webb Space Telescope" and for "WebAssembly".
+const WEBB_RESPONSE = {
+  query: {
+    pages: [
+      { title: 'James E. Webb', index: 2, extract: 'James Edwin Webb (October 7, 1906 \u2013 March 27, 1992) was an American government official who served as the second administrator of NASA from 1961 to 1968.' },
+      { title: 'James Webb Space Telescope', index: 1, extract: 'The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy. It is the largest telescope in space.' },
+      { title: 'Hubble Space Telescope', index: 3, extract: 'The Hubble Space Telescope (HST) is a space telescope that was launched into low Earth orbit in 1990 and remains in operation.' },
+      { title: 'Webb (surname)', index: 4, extract: 'Webb is an English surname, a variant of Webber, a weaver, which is found in many families across the English-speaking world.' },
+    ],
+  },
+}
+const WASM_RESPONSE = {
+  query: {
+    pages: [
+      { title: 'Single-page application', index: 1, extract: 'A single-page application (SPA) is a web application that interacts with the user by dynamically rewriting the current web page with new data.' },
+      { title: 'WebAssembly', index: 2, extract: 'WebAssembly (Wasm) is a portable binary-code format and a corresponding text format for executable programs, defined as a web standard.' },
+    ],
+  },
+}
+
+describe('parseWikipedia: only articles about the topic', () => {
+  const webb = searchTerms('the James Webb Space Telescope')
+
+  it('drops the person the telescope is named after, and a surname page, when the topic is not a person', () => {
+    expect(parseWikipedia(WEBB_RESPONSE, webb).map(item => item.title)).toEqual(['James Webb Space Telescope', 'Hubble Space Telescope'])
+  })
+
+  it('keeps person pages when the best search hit is a person', () => {
+    const person = {
+      query: { pages: [
+        { title: 'James E. Webb', index: 1, extract: WEBB_RESPONSE.query.pages[0]?.extract },
+        { title: 'James Webb Space Telescope', index: 2, extract: WEBB_RESPONSE.query.pages[1]?.extract },
+      ] },
+    }
+    expect(parseWikipedia(person, searchTerms('James E. Webb')).map(item => item.title)).toEqual(['James E. Webb', 'James Webb Space Telescope'])
+  })
+
+  it('drops an article whose title shares no word with the topic, however high it ranks', () => {
+    expect(parseWikipedia(WASM_RESPONSE, searchTerms('WebAssembly')).map(item => item.title)).toEqual(['WebAssembly'])
+  })
+
+  it('drops an article whose opening shares too few topic words', () => {
+    const response = { query: { pages: [{ title: 'Rust', index: 1, extract: 'Rust is an iron oxide, a usually reddish-brown oxide formed by the reaction of iron and oxygen in the catalytic presence of water.' }] } }
+    expect(parseWikipedia(response, RUST_TERMS)).toEqual([])
+  })
+
+  it('puts the article whose title covers most of the topic first, whatever its search rank', () => {
+    const response = { query: { pages: [
+      { title: 'Memory safety', index: 1, extract: WIKIPEDIA_RESPONSE.query.pages[0]?.extract },
+      { title: 'Rust (programming language)', index: 2, extract: WIKIPEDIA_RESPONSE.query.pages[1]?.extract },
+    ] } }
+    expect(parseWikipedia(response, RUST_TERMS).map(item => item.title)).toEqual(['Rust (programming language)', 'Memory safety'])
+  })
+})
+
+describe('topicHits and isPersonLead', () => {
+  it('counts topic words by their first four letters', () => {
+    expect(topicHits('Rust (programming language)', RUST_TERMS)).toBe(3)
+    expect(topicHits('Cooking', RUST_TERMS)).toBe(0)
+  })
+
+  it('recognises a lifespan in the opening line and nothing else', () => {
+    expect(isPersonLead('James Edwin Webb (October 7, 1906 \u2013 March 27, 1992) was an American official.')).toBe(true)
+    expect(isPersonLead('Alan Turing (born 23 June 1912) was an English mathematician.')).toBe(true)
+    expect(isPersonLead('The sunshield cools to 40 kelvins (-233 \u00b0C) and was deployed on January 4, 2022.')).toBe(false)
+    expect(isPersonLead('Rust is a language first released in 2010 (version 1.0 in 2015).')).toBe(false)
+  })
+})
+
 describe('parseWikipedia', () => {
   it('orders articles by search rank and skips stubs, disambiguation pages and entries with no text', () => {
-    const titles = parseWikipedia(WIKIPEDIA_RESPONSE).map(item => item.title)
+    const titles = parseWikipedia(WIKIPEDIA_RESPONSE, RUST_TERMS).map(item => item.title)
     expect(titles).toEqual(['Rust (programming language)', 'Memory safety', 'Rust for Linux'])
   })
 
   it('returns title, link and extract for each article', () => {
-    expect(parseWikipedia(WIKIPEDIA_RESPONSE)[0]).toEqual({
+    expect(parseWikipedia(WIKIPEDIA_RESPONSE, RUST_TERMS)[0]).toEqual({
       kind: 'wikipedia',
       title: 'Rust (programming language)',
       url: 'https://en.wikipedia.org/wiki/Rust_%28programming_language%29',
@@ -116,11 +187,11 @@ describe('parseWikipedia', () => {
   })
 
   it('returns nothing for an answer without pages, such as no matches or an error body', () => {
-    expect(parseWikipedia({ batchcomplete: true })).toEqual([])
-    expect(parseWikipedia({ error: { code: 'x' } })).toEqual([])
-    expect(parseWikipedia(null)).toEqual([])
-    expect(parseWikipedia('text')).toEqual([])
-    expect(parseWikipedia({ query: { pages: 'no' } })).toEqual([])
+    expect(parseWikipedia({ batchcomplete: true }, RUST_TERMS)).toEqual([])
+    expect(parseWikipedia({ error: { code: 'x' } }, RUST_TERMS)).toEqual([])
+    expect(parseWikipedia(null, RUST_TERMS)).toEqual([])
+    expect(parseWikipedia('text', RUST_TERMS)).toEqual([])
+    expect(parseWikipedia({ query: { pages: 'no' } }, RUST_TERMS)).toEqual([])
   })
 })
 

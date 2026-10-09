@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CONTENT_TYPES, STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs } from '../netlify/shared/contract'
+import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs } from '../netlify/shared/contract'
 import { UNEXPECTED_MESSAGE, runPipeline, type CallRecord, type PipelineOutcome } from './lib/api'
 import { buildTrace, stageViews, summarize, type RunEnd, type TraceLine } from './lib/run'
 import Brief, { type Notice } from './components/Brief'
@@ -59,7 +59,7 @@ export default function App() {
 
   async function start(resume: boolean) {
     const trimmed = topic.trim()
-    if (!trimmed || running) return
+    if (!trimmed || running || trimmed.length > MAX_TOPIC_CHARS) return
 
     // Finished stages are reused only when a resume continues the same topic and format.
     const runKey = `${trimmed}\n${contentType}`

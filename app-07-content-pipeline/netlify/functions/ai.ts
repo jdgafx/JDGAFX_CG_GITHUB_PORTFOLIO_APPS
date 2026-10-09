@@ -1,9 +1,9 @@
 import { chat, MODEL, ProviderStatusError, type ChatReply } from '../shared/provider'
-import { CONTENT_TYPES, STAGE_IDS, STAGE_LABELS, wordCount, type ModelStageId, type StageId, type TraceRow, type Usage } from '../shared/contract'
+import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, TOPIC_TOO_LONG_MESSAGE, wordCount, type ModelStageId, type StageId, type TraceRow, type Usage } from '../shared/contract'
 import {
   MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput,
 } from '../shared/stages'
-import { gatherSources } from '../shared/sources'
+import { gatherSources, searchTerms } from '../shared/sources'
 import { formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
@@ -14,7 +14,6 @@ const MODEL_TIMEOUT_MS = 8_000
 const STAGE_MAX_TOKENS = 4_096
 // Four full stage outputs, with room for UTF-8 and JSON escapes.
 const MAX_BODY_BYTES = 128 * 1024
-const MAX_TOPIC_CHARS = 400
 
 const SLOW_MESSAGE = 'The AI provider did not answer in time.'
 const TOO_LARGE_MESSAGE = 'The request is too large.'
@@ -89,7 +88,7 @@ function parseRunRequest(body: unknown): RunRequest | string {
 
   const topic = typeof input.topic === 'string' ? input.topic.trim() : ''
   if (!topic) return 'Enter a topic first.'
-  if (topic.length > MAX_TOPIC_CHARS) return `Keep the topic to ${MAX_TOPIC_CHARS} characters or fewer.`
+  if (topic.length > MAX_TOPIC_CHARS) return TOPIC_TOO_LONG_MESSAGE
 
   const contentType = typeof input.contentType === 'string' ? input.contentType : ''
   if (!(CONTENT_TYPES as readonly string[]).includes(contentType)) return 'Choose a content type from the list.'
@@ -173,7 +172,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
 
     // The last stage ends the piece with its Sources list, built from the lookup and not from model text.
     const text = reply.content.trim()
-    const content = stage === 'polish' ? withSources(text, sources, run.contentType) : text
+    const content = stage === 'polish' ? withSources(text, sources, run.contentType, searchTerms(run.topic)) : text
     const row: TraceRow = {
       name: STAGE_LABELS[stage],
       status: 'ok',

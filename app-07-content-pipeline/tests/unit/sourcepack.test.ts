@@ -67,7 +67,7 @@ describe('formatSourcePack and parseSourcePack', () => {
 })
 
 describe('withSources', () => {
-  const BODY = 'Rust checks borrows at compile time [1]. Some argue the point is wider [2].'
+  const BODY = 'Rust is a general-purpose language [1]. Some argue it is not really about memory safety [2].'
 
   it('ends a blog post with a Sources list of the sources it cites, titles linked', () => {
     expect(withSources(BODY, PACK, 'Blog Post')).toBe([
@@ -81,7 +81,7 @@ describe('withSources', () => {
   })
 
   it('lists only cited sources', () => {
-    const text = withSources('Only the first matters [1].', PACK, 'Technical Article')
+    const text = withSources('Rust is a general-purpose language [1].', PACK, 'Technical Article')
     expect(text).toContain('- [1] [Rust (programming language)]')
     expect(text).not.toContain('[2]')
   })
@@ -94,11 +94,11 @@ describe('withSources', () => {
   })
 
   it('removes a marker that points at no source, with the space before it', () => {
-    expect(withSources('A claim [7]. Real [1].', PACK, 'Blog Post').startsWith('A claim. Real [1].')).toBe(true)
+    expect(withSources('A claim [7]. A general-purpose language [1].', PACK, 'Blog Post').startsWith('A claim. A general-purpose language [1].')).toBe(true)
   })
 
   it('leaves array indexes in code alone', () => {
-    expect(withSources('Use items[0] and [1].', PACK, 'Blog Post').startsWith('Use items[0] and [1].')).toBe(true)
+    expect(withSources('Use items[0] in a general-purpose language [1].', PACK, 'Blog Post').startsWith('Use items[0] in a general-purpose language [1].')).toBe(true)
   })
 
   it('replaces a source list the model wrote with the real one', () => {
@@ -112,6 +112,35 @@ describe('withSources', () => {
   it('keeps a body that merely has a Sources heading near the top', () => {
     const long = `Intro\n\n## Sources of friction\n${'line\n'.repeat(20)}end [1]`
     expect(withSources(long, PACK, 'Blog Post')).toContain('## Sources of friction')
+  })
+
+  it('removes a marker whose sentence shares no claim word with its source, and keeps the sentence', () => {
+    const text = withSources('Light from early galaxies is stretched to longer wavelengths [1]. Rust is a general-purpose language [1].', PACK, 'Blog Post')
+    expect(text.startsWith('Light from early galaxies is stretched to longer wavelengths. Rust is a general-purpose language [1].')).toBe(true)
+  })
+
+  it('does not let the topic words alone make a citation fit', () => {
+    const pack: SourcePack = { sources: [{ ...WIKI, title: 'James E. Webb', summary: 'James Webb led NASA from 1961 to 1968.' }], notes: [] }
+    const redshift = 'The James Webb telescope measures redshift in early galaxies [1].'
+    // Counting the topic's own words, the sentence looks backed by a page about the man.
+    expect(withSources(redshift, pack, 'Blog Post').startsWith(redshift)).toBe(true)
+    // Ignoring them, as the function does, nothing is shared and the marker goes.
+    expect(withSources(redshift, pack, 'Blog Post', ['james', 'webb', 'telescope']).startsWith('The James Webb telescope measures redshift in early galaxies.')).toBe(true)
+    expect(withSources('James Webb led NASA in 1961 [1].', pack, 'Blog Post', ['james', 'webb']).startsWith('James Webb led NASA in 1961 [1].')).toBe(true)
+  })
+
+  it('judges each marker of a run such as [1][2] on its own and keeps the ones that hold', () => {
+    const text = withSources('A general-purpose language [1][2].', PACK, 'Blog Post')
+    expect(text.startsWith('A general-purpose language [1].')).toBe(true)
+  })
+
+  it('removes a run of markers that all fail, with the space before it', () => {
+    expect(withSources('Bananas ripen quickly [1][2]. Rust is a general-purpose language [1].', PACK, 'Blog Post').startsWith('Bananas ripen quickly. Rust is')).toBe(true)
+  })
+
+  it('judges a marker by its own sentence, not the one before it', () => {
+    const text = withSources('Rust is a general-purpose language. Bananas ripen quickly [1].', PACK, 'Blog Post')
+    expect(text.startsWith('Rust is a general-purpose language. Bananas ripen quickly.')).toBe(true)
   })
 
   it('uses short, clickable links for a social thread', () => {

@@ -33,11 +33,11 @@ Retry and Resume reuse finished steps, the Sources step included, when the topic
 
 The step runs in the function, not in the browser, as `stage: "sources"` on `POST /api/ai`. It makes no model call, so its trace row shows no tokens or cost.
 
-- **Wikipedia.** One request to `en.wikipedia.org/w/api.php` (`generator=search` with plain-text introductions) returns the top articles. Stubs and disambiguation pages are skipped, and each extract is cut at a sentence end at about 520 characters.
+- **Wikipedia.** One request to `en.wikipedia.org/w/api.php` (`generator=search` with plain-text introductions) returns the top articles. Stubs and disambiguation pages are skipped, and each extract is cut at a sentence end at about 520 characters. An article is kept only if its title shares a topic word and its opening shares about half of them. A person's page is dropped unless the best search hit is a person too, so "James Webb Space Telescope" does not bring in the man it is named after. Articles whose titles cover more of the topic come first.
 - **Hacker News.** One request to `hn.algolia.com/api/v1/search` for stories with at least 20 points. A story is kept only if its title shares about half of the topic words, so Hacker News appears only when it discusses the topic. The three highest-scored are kept, with title, points, date and link. Hacker News gives headlines only, so the writing steps are told to cite one only for what its title shows. It is not searched for marketing copy.
 - **Limits.** Both requests run in parallel under one 4-second cap (`AbortSignal.timeout`), refuse redirects, and refuse an answer over 256 KB. The hosts are fixed constants, never taken from the topic.
 - **Failure.** A lookup that times out, errors or finds nothing adds a plain note, shown in the trace row and the Sources card list. If nothing is found, the writing continues, the prompts forbid specific figures, dates and quotes, and the finished piece ends with a line saying it has no sources and is unchecked. No source is ever invented.
-- **Citations.** Draft cites facts as [1], [2]. After Polish, the function removes any marker that points at no real source, removes any source list the model wrote, and appends the Sources list built from the lookup. A social thread gets short links, other types get linked titles with the site, points and date.
+- **Citations.** Draft cites facts as [1], [2], and the prompts say a [n] may only follow a claim the source text itself states. After Polish, the function removes any marker that points at no real source, and any marker whose sentence shares no claim word (outside the topic's own words) with its source's title and extract; the sentence stays, uncited. It also removes any source list the model wrote and appends the Sources list built from the lookup. A social thread gets short links, other types get linked titles with the site, points and date.
 - **Untrusted text.** Wikipedia and Hacker News text goes into the prompt as reference material, and the prompt says never to follow instructions inside it.
 
 ## Architecture
@@ -46,7 +46,7 @@ The browser (React and Vite) sends one `POST /api/ai` request per step. The Netl
 
 - **Keys.** `OPENROUTER_API_KEY` is read only by the function. It is never sent to the browser, logged, or shown in an error.
 - **Model.** One server constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned, in `netlify/shared/provider.ts`. The browser cannot choose a model, and no environment variable overrides it. The page shows the model the provider reports for each call.
-- **Requests.** Every request is checked: JSON shape, field types, a 400-character topic limit, the content type list, the stage name, stage order (a writing step needs the Sources output first), and an 8,000-character limit on each earlier output. The body is limited to 128 KB, both by declared length and by measured size.
+- **Requests.** Every request is checked: JSON shape, field types, a 400-character topic limit (the page shows a counter and turns Generate off over the limit), the content type list, the stage name, stage order (a writing step needs the Sources output first), and an 8,000-character limit on each earlier output. The body is limited to 128 KB, both by declared length and by measured size.
 - **Origin and rate.** Only the site and local dev origins are accepted. Each client may send 30 stage requests a minute, which is five full runs of six requests. The count is kept per warm function instance.
 - **Provider call.** Each model call has an 8-second timeout, a 4,096-token ceiling and `usage: { include: true }`, so OpenRouter reports tokens and cost.
 - **Output checks.** A reply is refused when it is a safety label such as "User Safety: safe", when a content-safety model served it, when it is empty, when it was cut off at the token limit, or when it has fewer than five words. Edit must keep at least half the words of the draft, and Polish at least half the words of the edit.
@@ -89,7 +89,7 @@ The tests never reach OpenRouter, Wikipedia or Hacker News. `vitest.config.ts` b
 
 - Stop aborts the browser request. A model call that already started still completes, and the provider still bills it.
 - Sources are only as good as the search: a topic written as a long sentence can match weakly on Wikipedia. Noun phrases such as "the James Webb Space Telescope" work best. Hacker News entries are headlines, so they support few claims.
-- A cited sentence is not checked against its source. The model can still add a claim the source does not make.
+- The citation check is lexical: it drops a marker whose sentence shares no claim word with its source, but it cannot tell that a sentence says more than its source. The model can still embellish after a Hacker News headline.
 - The page does not stream. Each step returns one reply when it finishes.
 - The label check recognises the label formats seen so far and any content-safety model name. It is not a content judge, and no output is fact-checked.
 - The rate limit is per warm function instance, so it is a cost guard, not a hard quota.

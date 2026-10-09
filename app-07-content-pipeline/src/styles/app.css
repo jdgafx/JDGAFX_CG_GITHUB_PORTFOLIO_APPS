@@ -411,3 +411,19 @@
     font-size: 12px;
   }
 }
+
+/* Topic length: a quiet count that turns into the server's own message when the topic is too long. */
+.topic-count {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.topic-count--over {
+  color: var(--ds-danger);
+  font-weight: 600;
+}
+
+.ds-input[aria-invalid="true"] {
+  border-color: var(--ds-danger);
+}

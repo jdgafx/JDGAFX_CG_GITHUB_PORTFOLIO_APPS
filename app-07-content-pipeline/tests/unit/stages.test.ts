@@ -85,6 +85,23 @@ describe('buildSystemPrompt: grounding', () => {
     expect(prompt).not.toContain('No live sources')
   })
 
+  it('tells research and draft that a [n] may only follow a claim the source text states, and that uncited sentences are fine', () => {
+    for (const stage of ['research', 'draft'] as const) {
+      const prompt = buildSystemPrompt(stage, TOPIC, 'Blog Post', 3)
+      expect(prompt).toContain('A [n] may only follow a sentence whose claim the text of source n itself states')
+      expect(prompt).toContain('never cite a source for a claim it does not make')
+      expect(prompt).toContain('uncited sentences are fine')
+    }
+  })
+
+  it('tells edit and polish not to move citations, add claims or keep a [n] that goes beyond its source', () => {
+    for (const stage of ['edit', 'polish'] as const) {
+      const prompt = buildSystemPrompt(stage, TOPIC, 'Blog Post', 3)
+      expect(prompt).toContain('Do not move a [n] to another sentence, and do not add factual claims')
+      expect(prompt).toContain('Remove a [n] from a sentence that goes beyond what that source is shown to say')
+    }
+  })
+
   it('tells every writing stage to avoid specifics and citations when no source was found', () => {
     for (const stage of ['research', 'outline', 'draft', 'edit', 'polish'] as const) {
       const prompt = buildSystemPrompt(stage, TOPIC, 'Blog Post', 0)

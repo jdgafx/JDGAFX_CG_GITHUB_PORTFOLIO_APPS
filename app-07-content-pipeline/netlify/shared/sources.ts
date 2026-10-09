@@ -93,10 +93,30 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
-export function parseWikipedia(json: unknown): Candidate[] {
+// How many topic words appear in the text. A word matches by its first four letters, so plurals
+// and endings still count.
+export function topicHits(text: string, terms: string[]): number {
+  const lower = text.toLowerCase()
+  return terms.filter(term => lower.includes(term.slice(0, 4))).length
+}
+
+// A lifespan in brackets in the opening line, as in "James Edwin Webb (October 7, 1906 - March 27, 1992) was".
+const PERSON_LEAD = /^[^.]{0,160}\((?:born\b[^)]*\d{4}|[^)]*\d{4}\s*[\u2013\u2014-]\s*[^)]*\d{4})\)/
+
+export function isPersonLead(summary: string): boolean {
+  return PERSON_LEAD.test(summary)
+}
+
+/**
+ * Picks the articles that are about the topic. The title must share a topic word, the opening must
+ * share about half of them, and a person's page is kept only when the best search hit is a person
+ * too (so "James Webb Space Telescope" does not bring in the man it is named after). Articles whose
+ * titles cover more of the topic come first; search rank breaks ties.
+ */
+export function parseWikipedia(json: unknown, terms: string[]): Candidate[] {
   const pages = asRecord(asRecord(json)?.query)?.pages
   if (!Array.isArray(pages)) return []
-  const ranked: Array<{ index: number; candidate: Candidate }> = []
+  const found: Array<{ index: number; titleHits: number; person: boolean; leadHits: number; candidate: Candidate }> = []
   for (const page of pages) {
     const record = asRecord(page)
     const title = record?.title
@@ -105,18 +125,29 @@ export function parseWikipedia(json: unknown): Candidate[] {
     const summary = clipExtract(extract, EXTRACT_CHARS)
     // A stub or a disambiguation page gives a writer nothing to cite.
     if (summary.length < MIN_EXTRACT_CHARS || /\bmay (?:also )?refer to\b/i.test(summary)) continue
-    const index = typeof record?.index === 'number' ? record.index : Number.MAX_SAFE_INTEGER
-    ranked.push({ index, candidate: { kind: 'wikipedia', title, url: wikipediaPageUrl(title), summary } })
+    found.push({
+      index: typeof record?.index === 'number' ? record.index : Number.MAX_SAFE_INTEGER,
+      titleHits: topicHits(title, terms),
+      leadHits: topicHits(summary, terms),
+      person: isPersonLead(summary),
+      candidate: { kind: 'wikipedia', title, url: wikipediaPageUrl(title), summary },
+    })
   }
-  return ranked.sort((a, b) => a.index - b.index).slice(0, MAX_WIKIPEDIA).map(entry => entry.candidate)
+  found.sort((a, b) => a.index - b.index)
+  const topicIsPerson = found[0]?.person ?? false
+  const minLeadHits = Math.ceil(terms.length / 2)
+  return found
+    .filter(page => terms.length === 0 || (page.titleHits >= 1 && page.leadHits >= minLeadHits))
+    .filter(page => topicIsPerson || !page.person)
+    .sort((a, b) => b.titleHits - a.titleHits || a.index - b.index)
+    .slice(0, MAX_WIKIPEDIA)
+    .map(page => page.candidate)
 }
 
 // A story must share about half the topic words with its title (at most three, at least one), so
 // Hacker News only appears when the topic is something it actually discusses.
 export function isRelevantTitle(title: string, terms: string[]): boolean {
-  const lower = title.toLowerCase()
-  const hits = terms.filter(term => lower.includes(term.slice(0, 4))).length
-  return hits >= Math.max(1, Math.min(3, Math.ceil(terms.length / 2)))
+  return topicHits(title, terms) >= Math.max(1, Math.min(3, Math.ceil(terms.length / 2)))
 }
 
 export function parseHackerNews(json: unknown, terms: string[]): Candidate[] {
@@ -211,7 +242,7 @@ export async function gatherSources(
 ): Promise<SourcePack> {
   const terms = searchTerms(topic)
   const [wikipedia, hackerNews] = await Promise.all([
-    lookup('Wikipedia', parent, timeoutMs, async signal => parseWikipedia(await fetchJson(wikipediaUrl(terms), signal))),
+    lookup('Wikipedia', parent, timeoutMs, async signal => parseWikipedia(await fetchJson(wikipediaUrl(terms), signal), terms)),
     searchesHackerNews(contentType)
       ? lookup('Hacker News', parent, timeoutMs, async signal => parseHackerNews(await fetchJson(hackerNewsUrl(terms), signal), terms))
       : Promise.resolve<Lookup>({ items: [], note: 'Hacker News is not searched for marketing copy.' }),

@@ -18,6 +18,9 @@ export const STAGE_LABELS: Record<StageId, string> = {
 export const CONTENT_TYPES = ['Blog Post', 'Technical Article', 'Marketing Copy', 'Newsletter', 'Social Thread'] as const
 export type ContentType = (typeof CONTENT_TYPES)[number]
 
+export const MAX_TOPIC_CHARS = 400
+export const TOPIC_TOO_LONG_MESSAGE = `Keep the topic to ${MAX_TOPIC_CHARS} characters or fewer.`
+
 export type StageOutputs = Partial<Record<StageId, string>>
 
 export interface Usage {

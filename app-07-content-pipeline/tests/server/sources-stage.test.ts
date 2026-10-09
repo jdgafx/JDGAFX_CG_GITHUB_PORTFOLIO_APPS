@@ -12,7 +12,7 @@ describe('Sources stage', () => {
     batchcomplete: true,
     query: {
       pages: [
-        { pageid: 2, ns: 0, title: 'Software testing', index: 2, extract: 'Software testing is the act of checking whether software satisfies expectations, found by running it on real inputs.' },
+        { pageid: 2, ns: 0, title: 'Software testing', index: 2, extract: 'Software testing includes unit tests: small checks of whether software satisfies expectations, found by running it on real inputs.' },
         { pageid: 1, ns: 0, title: 'Unit testing', index: 1, extract: 'Unit testing is a software testing method in which individual units of source code are tested to see whether they work.' },
       ],
     },
@@ -52,7 +52,7 @@ describe('Sources stage', () => {
       '',
       '[2] Wikipedia: Software testing',
       'URL: https://en.wikipedia.org/wiki/Software_testing',
-      'Summary: Software testing is the act of checking whether software satisfies expectations, found by running it on real inputs.',
+      'Summary: Software testing includes unit tests: small checks of whether software satisfies expectations, found by running it on real inputs.',
       '',
       '[3] Hacker News: Multiple assertions are fine in a unit test',
       'URL: https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/',
@@ -169,14 +169,14 @@ describe('Sources stage', () => {
 
 describe('Polish ends with the Sources list', () => {
   const EDIT = words(100)
-  const PIECE = `${words(70)} claim one [1]. Another claim [3]. Invented claim [9]. Code looks like items[0].`
+  const PIECE = `${words(70)} Individual units of source code are tested [1]. Multiple assertions are fine [3]. Invented claim [9]. Code looks like items[0]. Bananas ripen quickly [1].`
 
-  it('appends the list built from the lookup, keeps real citations and drops invented ones', async () => {
+  it('appends the list built from the lookup, keeps citations a source backs and drops invented or unbacked ones', async () => {
     providerWill(() => completion(PIECE))
     const res = await handler(request(stageBody('polish', { edit: EDIT })))
     const { result } = (await res.json()) as StageBody
     expect(result).toBe([
-      `${words(70)} claim one [1]. Another claim [3]. Invented claim. Code looks like items[0].`,
+      `${words(70)} Individual units of source code are tested [1]. Multiple assertions are fine [3]. Invented claim. Code looks like items[0]. Bananas ripen quickly.`,
       '',
       '### Sources',
       '',
@@ -186,7 +186,7 @@ describe('Polish ends with the Sources list', () => {
   })
 
   it('uses short links for a social thread', async () => {
-    providerWill(() => completion(`${words(70)} point [2].`))
+    providerWill(() => completion(`${words(70)} Writing tests first is a way of developing software [2].`))
     const res = await handler(request(stageBody('polish', { edit: EDIT }, { contentType: 'Social Thread' })))
     const { result } = (await res.json()) as StageBody
     expect(result.endsWith('**Sources**\n\n- [2] [en.wikipedia.org/wiki/Test-driven\\_development](https://en.wikipedia.org/wiki/Test-driven_development)')).toBe(true)

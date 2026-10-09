@@ -100,7 +100,37 @@ function stripSourcesSection(text: string): string {
 }
 
 // A marker is "[n]" not glued to a word, so array[0] in code is left alone.
-const CITATION = / ?(?<![\w\]])\[(\d{1,2})\]/g
+const CITATION = / ?(?<![\w\]])((?:\[\d{1,2}\])+)/g
+
+// Words of four letters or more that say nothing about a claim, so they never make a citation fit.
+const FILLER = new Set([
+  'that', 'this', 'with', 'from', 'have', 'been', 'were', 'also', 'more', 'most', 'such', 'than', 'into', 'about', 'over',
+  'only', 'many', 'other', 'which', 'their', 'there', 'these', 'those', 'while', 'where', 'when', 'what', 'will', 'would',
+  'could', 'should', 'being', 'both', 'each', 'some', 'them', 'they', 'then', 'very', 'just', 'like', 'make', 'makes',
+  'made', 'much', 'well', 'even', 'still', 'often', 'every', 'because', 'between', 'through', 'after', 'before',
+])
+
+// A word is compared by its first four letters. The topic's own words are left out: every
+// sentence about the topic has them, so they cannot show that a source backs the claim.
+function claimStems(text: string, ignore: ReadonlySet<string>): Set<string> {
+  const stems = (text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [])
+    .filter(word => !FILLER.has(word))
+    .map(word => word.slice(0, 4))
+  return new Set(stems.filter(stem => !ignore.has(stem)))
+}
+
+function sentenceBefore(text: string, index: number): string {
+  const head = text.slice(0, index).replace(/(?: ?\[\d{1,2}\])+$/, '')
+  const cut = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf('\n'))
+  return head.slice(cut + 1)
+}
+
+// True when the sentence shares at least one claim word with the source's title or extract.
+function backs(source: Source, sentence: string, ignore: ReadonlySet<string>): boolean {
+  const have = claimStems(`${source.title} ${source.summary}`, ignore)
+  for (const stem of claimStems(sentence, ignore)) if (have.has(stem)) return true
+  return false
+}
 
 function escapeMarkdown(text: string): string {
   return oneLine(text).replace(/([\\[\]*_`<>])/g, '\\$1')
@@ -134,22 +164,30 @@ function listEntry(source: Source, contentType: string): string {
 
 /**
  * Ends the finished piece with its Sources list. Markers that point at no real source are removed,
- * and the list is built from the lookup, never from model text. With no sources the piece says so.
+ * and so is a marker whose sentence shares no claim word with its source (the sentence stays, uncited).
+ * The list is built from the lookup, never from model text. With no sources the piece says so.
+ * `topicTerms` are the topic's words, which do not count as a match.
  */
-export function withSources(piece: string, pack: SourcePack, contentType: string): string {
+export function withSources(piece: string, pack: SourcePack, contentType: string, topicTerms: readonly string[] = []): string {
   const body = stripSourcesSection(piece).trimEnd()
   if (pack.sources.length === 0) {
     const unmarked = body.replace(CITATION, '')
     return `${unmarked}\n\n*No sources: the live lookups found nothing for this topic, so the facts above come from the model and are unchecked.*`
   }
 
-  const known = new Set(pack.sources.map(source => source.n))
+  const bySource = new Map(pack.sources.map(source => [source.n, source]))
+  const ignore = new Set(topicTerms.map(term => term.slice(0, 4)))
   const cited = new Set<number>()
-  const cleaned = body.replace(CITATION, (marker, digits: string) => {
-    const n = Number(digits)
-    if (!known.has(n)) return ''
-    cited.add(n)
-    return marker
+  // A run such as "[1][2]" is judged marker by marker, and the markers that hold stay together.
+  const cleaned = body.replace(CITATION, (match, run: string, offset: number) => {
+    const sentence = sentenceBefore(body, offset)
+    const kept = [...run.matchAll(/\[(\d+)\]/g)].flatMap(([marker, digits]) => {
+      const source = bySource.get(Number(digits))
+      if (!source || !backs(source, sentence, ignore)) return []
+      cited.add(source.n)
+      return [marker]
+    })
+    return kept.length > 0 ? `${match.startsWith(' ') ? ' ' : ''}${kept.join('')}` : ''
   })
 
   const listed = pack.sources.filter(source => cited.size === 0 || cited.has(source.n))

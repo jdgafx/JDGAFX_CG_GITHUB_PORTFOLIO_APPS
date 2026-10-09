@@ -68,12 +68,15 @@ function isSafetyLabel(text: string): boolean {
   return wordCount(text) <= MAX_LABEL_WORDS && SAFETY_LABEL.test(text.trim())
 }
 
+// A [n] is a claim that source n says this. It may follow a sentence only when the source text states it.
+const CITE_ONLY_WHAT_SAID = 'A [n] may only follow a sentence whose claim the text of source n itself states; never cite a source for a claim it does not make. General statements need no citation, and uncited sentences are fine.'
+
 const CITATION_RULES: Record<ModelStageId, string> = {
-  research: 'Use only facts that appear in the Sources section, and put the source number in square brackets after each, like [1]. Add nothing from memory.',
+  research: `Use only facts that appear in the Sources section, and put the source number in square brackets after each, like [1]. ${CITE_ONLY_WHAT_SAID} Add nothing from memory.`,
   outline: 'Where a bullet rests on a source, keep its [n] marker.',
-  draft: 'After each sentence that states a fact taken from a source, put its number in square brackets, like [1]. Use only numbers that appear in the Sources section. Do not state figures, dates or quotes that are not in the sources, and do not write a source list: it is added after the last step.',
-  edit: 'Keep every [n] citation with its sentence and add no new numbers. Do not write a source list.',
-  polish: 'Keep every [n] citation with its sentence and add no new numbers. Do not write a source list: it is added after this step.',
+  draft: `After each sentence that states a fact taken from a source, put its number in square brackets, like [1]. Use only numbers that appear in the Sources section. ${CITE_ONLY_WHAT_SAID} Do not state figures, dates or quotes that are not in the sources, and do not write a source list: it is added after the last step.`,
+  edit: 'Keep every [n] citation with its sentence and add no new numbers. Do not move a [n] to another sentence, and do not add factual claims. Remove a [n] from a sentence that goes beyond what that source is shown to say. Do not write a source list.',
+  polish: 'Keep every [n] citation with its sentence and add no new numbers. Do not move a [n] to another sentence, and do not add factual claims. Remove a [n] from a sentence that goes beyond what that source is shown to say. Do not write a source list: it is added after this step.',
 }
 
 const UNSOURCED_RULES: Record<ModelStageId, string> = {

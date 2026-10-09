@@ -1,4 +1,4 @@
-import { CONTENT_TYPES, type ContentType } from '../../netlify/shared/contract'
+import { CONTENT_TYPES, MAX_TOPIC_CHARS, TOPIC_TOO_LONG_MESSAGE, type ContentType } from '../../netlify/shared/contract'
 
 export type Notice =
   | { kind: 'failed'; label: string; message: string }
@@ -22,6 +22,8 @@ export default function Brief({
   topic, contentType, running, statusText, notice,
   onTopic, onContentType, onSubmit, onStop, onContinue,
 }: BriefProps) {
+  const topicLength = topic.trim().length
+  const tooLong = topicLength > MAX_TOPIC_CHARS
   return (
     <section className="ds-section" aria-labelledby="brief-title">
       <div className="ds-section__head">
@@ -43,14 +45,18 @@ export default function Brief({
             className="ds-input"
             type="text"
             value={topic}
-            maxLength={400}
             autoComplete="off"
             placeholder="For example: the James Webb Space Telescope"
-            aria-describedby="topic-help"
+            aria-describedby="topic-help topic-count"
+            aria-invalid={tooLong}
             disabled={running}
             onChange={event => onTopic(event.target.value)}
           />
           <p className="ds-help" id="topic-help">What the piece is about. Pick a topic Wikipedia covers, such as a technology, place, event or field; the facts come from those articles.</p>
+          <p className={tooLong ? 'topic-count topic-count--over' : 'topic-count'} id="topic-count" aria-live="polite">
+            <span className="ds-num">{topicLength} / {MAX_TOPIC_CHARS}</span>
+            {tooLong && <span role="alert"> {TOPIC_TOO_LONG_MESSAGE} Generate is off until it fits.</span>}
+          </p>
         </div>
 
         <div className="ds-field">
@@ -74,7 +80,7 @@ export default function Brief({
           <button
             type="submit"
             className="ds-button ds-button--primary"
-            disabled={running || !topic.trim()}
+            disabled={running || !topic.trim() || tooLong}
             aria-describedby="run-help"
           >
             Generate the piece
