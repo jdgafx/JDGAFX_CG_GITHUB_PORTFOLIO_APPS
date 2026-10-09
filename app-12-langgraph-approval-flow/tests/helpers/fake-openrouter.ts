@@ -4,6 +4,8 @@ import { REPLY_PROMPT } from '../../netlify/shared/nodes'
 import { classificationText, type FakeChatOptions } from './fake-chat'
 
 export interface FakeProviderOptions extends FakeChatOptions {
+  /** Items the GitHub issue search returns. None by default, so the duplicate check finds nothing. */
+  searchItems?: unknown[]
   /** Answer every call with this HTTP status and a raw body, to test the error mapping. */
   status?: number
 }
@@ -13,7 +15,8 @@ export interface FakeProviderOptions extends FakeChatOptions {
  * and answers by the role in the system prompt. The classify call reports a cost, and the others do not.
  */
 export function providerFetch(options: FakeProviderOptions = {}) {
-  return vi.fn(async (_url: string, init: RequestInit) => {
+  return vi.fn(async (url: string, init: RequestInit) => {
+    if (String(url).startsWith('https://api.github.com/search/issues')) return Response.json({ items: options.searchItems ?? [] })
     if (options.status !== undefined && options.status !== 200) {
       return new Response('{"error":"raw provider text that must never reach the browser"}', { status: options.status })
     }

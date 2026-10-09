@@ -3,11 +3,14 @@ import type { HumanDecision, IssueInput, ThreadEntry, ThreadView } from '../type
 
 /** The server must start answering within 15 s. */
 const CONNECT_TIMEOUT_MS = 15_000
-/** No bytes for 60 s means the connection is dead. */
-const READ_TIMEOUT_MS = 60_000
+/** No bytes for 30 s means the connection is dead: the server sends something at every step. */
+export const IDLE_TIMEOUT_MS = 30_000
+/** The server ends a request at 25 s, so a stream still open at 70 s is not coming back. */
+export const OVERALL_TIMEOUT_MS = 70_000
 
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
-const STALLED = 'The server stopped sending data. Try again.'
+const STALLED = 'The server sent nothing for 30 seconds. The thread may still be saved: open it from Saved threads, or try again.'
+const TOO_LONG = 'The run took longer than the server allows (25 seconds, plus a margin), so the page stopped waiting. The thread may still be saved: open it from Saved threads, or try again.'
 const NOT_A_RUN = 'The server did not start a run. Check that the site functions are deployed.'
 const GENERIC = 'The run stopped unexpectedly. Try again.'
 
@@ -72,12 +75,17 @@ export function processSSELines(lines: string[], onEvent: (event: StreamEvent) =
   return false
 }
 
-/** One read, abandoned after READ_TIMEOUT_MS of silence. The stalled read is cancelled, not left pending. */
-async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<ReadableStreamReadResult<Uint8Array>> {
+/**
+ * One read, abandoned after IDLE_TIMEOUT_MS of silence or when the whole stream passes `endsAt`, whichever is first.
+ * The stalled read is cancelled, not left pending.
+ */
+async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, endsAt: number): Promise<ReadableStreamReadResult<Uint8Array>> {
   const read = reader.read()
   let timer: ReturnType<typeof setTimeout> | undefined
+  const left = endsAt - Date.now()
+  const overall = left <= IDLE_TIMEOUT_MS
   const stalled = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new RequestFailure(STALLED)), READ_TIMEOUT_MS)
+    timer = setTimeout(() => reject(new RequestFailure(overall ? TOO_LONG : STALLED)), Math.max(0, Math.min(left, IDLE_TIMEOUT_MS)))
   })
   try {
     return await Promise.race([read, stalled])
@@ -100,10 +108,11 @@ async function readEvents(
   if (signal?.aborted) onStop()
 
   const decoder = new TextDecoder()
+  const endsAt = Date.now() + OVERALL_TIMEOUT_MS
   let buffer = ''
   try {
     for (;;) {
-      const { done, value } = await readWithTimeout(reader)
+      const { done, value } = await readWithTimeout(reader, endsAt)
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')

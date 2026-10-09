@@ -115,7 +115,7 @@ describe('resolveTriage', () => {
   const triage = decideTriage(plain, classified(CLASSIFIED_BUG))
 
   it('keeps the proposal on the auto path', () => {
-    expect(resolveTriage(triage, null)).toEqual({ outcome: 'auto', labels: ['bug', 'area: router'], priority: 'high', note: null })
+    expect(resolveTriage(triage, null)).toEqual({ outcome: 'auto', labels: ['bug', 'area: router'], priority: 'high', note: null, action: 'label', duplicateOf: null })
   })
 
   it('keeps the proposal on approve and carries the note', () => {
@@ -124,6 +124,8 @@ describe('resolveTriage', () => {
       labels: ['bug', 'area: router'],
       priority: 'high',
       note: 'ok',
+      action: 'label',
+      duplicateOf: null,
     })
   })
 
@@ -133,11 +135,13 @@ describe('resolveTriage', () => {
       labels: ['question'],
       priority: 'low',
       note: null,
+      action: 'label',
+      duplicateOf: null,
     })
   })
 
   it('applies nothing on reject', () => {
-    expect(resolveTriage(triage, { action: 'reject' })).toEqual({ outcome: 'rejected', labels: [], priority: null, note: null })
+    expect(resolveTriage(triage, { action: 'reject' })).toEqual({ outcome: 'rejected', labels: [], priority: null, note: null, action: 'label', duplicateOf: null })
   })
 })
 

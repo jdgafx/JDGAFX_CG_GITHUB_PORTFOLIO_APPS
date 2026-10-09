@@ -55,6 +55,8 @@ describe('applyEvent', () => {
       classification: CLASSIFIED_QUESTION,
       triage: { ...PROPOSAL.triage, requiresHuman: false, reasons: [], priority: 'low', labels: ['question'] },
       humanDecision: null,
+      action: 'label',
+      duplicates: null,
       reply: { body: 'Thanks.' },
       path: 'auto',
       trace: [{ node: 'classify', status: 'ok', ms: 5, detail: 'd' }],
@@ -87,6 +89,7 @@ describe('runFromView', () => {
     issue: BUG,
     updatedAt: '2026-10-09T12:00:00.000Z',
     storage: 'blobs' as const,
+    duplicates: null,
   }
 
   it('rebuilds a waiting thread with review waiting and the requiresHuman edge taken', () => {
@@ -96,22 +99,24 @@ describe('runFromView', () => {
       status: 'awaiting_approval',
       proposal: PROPOSAL,
       retryable: false,
-      trace: trace([['classify', 'ok'], ['decide', 'ok'], ['review', 'pending'], ['reply', 'pending']]),
+      trace: trace([['classify', 'ok'], ['duplicates', 'ok'], ['decide', 'ok'], ['review', 'pending'], ['reply', 'pending']]),
       result: null,
     }
     const run = runFromView(view)
-    expect(run.nodes).toEqual({ classify: 'done', decide: 'done', review: 'waiting', reply: 'idle' })
-    expect(run.taken).toEqual({ 'classify>decide': '', 'decide>review': 'requiresHuman' })
+    expect(run.nodes).toEqual({ classify: 'done', duplicates: 'done', decide: 'done', review: 'waiting', reply: 'idle' })
+    expect(run.taken).toEqual({ 'classify>duplicates': '', 'duplicates>decide': '', 'decide>review': 'requiresHuman' })
     expect(run.proposal).toEqual(PROPOSAL)
     expect(run.issue).toEqual(PROPOSAL.issue)
-    expect(run.trace.map((row) => row.node)).toEqual(['classify', 'decide'])
+    expect(run.trace.map((row) => row.node)).toEqual(['classify', 'duplicates', 'decide'])
   })
 
   it('shows a reloaded waiting thread exactly like the live paused run', () => {
     const live = apply([
       { type: 'thread', threadId: 't-6' },
       { type: 'node_end', node: 'classify', ms: 1, status: 'ok', detail: 'd' },
-      { type: 'edge', from: 'classify', to: 'decide' },
+      { type: 'edge', from: 'classify', to: 'duplicates' },
+      { type: 'node_end', node: 'duplicates', ms: 1, status: 'ok', detail: 'd' },
+      { type: 'edge', from: 'duplicates', to: 'decide' },
       { type: 'node_end', node: 'decide', ms: 1, status: 'ok', detail: 'd' },
       { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },
       { type: 'node_start', node: 'review', ms: 1 },
@@ -128,7 +133,7 @@ describe('runFromView', () => {
     })
     expect(reloaded.nodes).toEqual(live.nodes)
     expect(reloaded.taken).toEqual(live.taken)
-    expect(reloaded.trace.map((row) => row.node)).toEqual(['classify', 'decide'])
+    expect(reloaded.trace.map((row) => row.node)).toEqual(['classify', 'duplicates', 'decide'])
   })
 
   it('keeps review skipped and takes the otherwise edge on a finished automatic path', () => {
@@ -138,7 +143,7 @@ describe('runFromView', () => {
       status: 'completed',
       proposal: null,
       retryable: false,
-      trace: trace([['classify', 'ok'], ['decide', 'ok'], ['review', 'skipped'], ['reply', 'ok']]),
+      trace: trace([['classify', 'ok'], ['duplicates', 'ok'], ['decide', 'ok'], ['review', 'skipped'], ['reply', 'ok']]),
       result: null,
     }
     const run = runFromView(view)

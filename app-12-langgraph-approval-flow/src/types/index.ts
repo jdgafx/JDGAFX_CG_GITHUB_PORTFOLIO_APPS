@@ -1,7 +1,7 @@
 /** Domain types shared by the browser and the Netlify functions. */
 
 /** The graph's steps, in the order they run. Review is skipped when the rules need no maintainer. */
-export const NODES = ['classify', 'decide', 'review', 'reply'] as const
+export const NODES = ['classify', 'duplicates', 'decide', 'review', 'reply'] as const
 export type NodeName = (typeof NODES)[number]
 
 export const ISSUE_TYPES = ['bug', 'feature', 'question', 'docs', 'other'] as const
@@ -21,6 +21,7 @@ export const LABEL_VOCABULARY = [
   'documentation',
   'needs-info',
   'possible-duplicate',
+  'duplicate',
   'security',
   'good first issue',
   'help wanted',
@@ -81,6 +82,59 @@ export interface Classification {
   summary: string
 }
 
+/** What the model said about one candidate. A duplicate verdict stands only when both quotes were found in the texts. */
+export type DuplicateVerdict = 'duplicate' | 'related' | 'not'
+
+/** The model's judgement of one candidate, after the quotes were checked against the issue texts. */
+export interface DuplicateJudgement {
+  /** The accepted verdict. 'unverified' means the model claimed duplicate or related but a quote was not found. */
+  verdict: DuplicateVerdict | 'unverified'
+  /** What the model claimed, kept so an unverified claim can be shown as such. */
+  claimed: DuplicateVerdict
+  /** One line from the model. */
+  reason: string
+  /** A passage the model copied from the issue being triaged, and one from the candidate. Empty for a plain "not". */
+  issueQuote: string
+  candidateQuote: string
+  /** True when both quotes were found in the texts the model was given. */
+  quotesVerified: boolean
+}
+
+/** One earlier issue that overlaps the one being triaged, with the deterministic score that ranked it. */
+export interface DuplicateCandidate {
+  number: number
+  title: string
+  htmlUrl: string
+  state: 'open' | 'closed'
+  /** GitHub's close reason, such as "duplicate" or "completed". Null while open or when GitHub gave none. */
+  stateReason: string | null
+  createdAt: string
+  updatedAt: string
+  /** 0 to 1: cosine similarity of rare-term weights. */
+  score: number
+  /** The terms both issues share, rarest first. */
+  sharedTerms: string[]
+  /** Null when the candidate was ranked but not sent to the model. */
+  judgement: DuplicateJudgement | null
+}
+
+/**
+ * The duplicate check. checked: candidates were found and judged. none: the search found nothing close.
+ * skipped: no time was left in the request. unavailable: GitHub could not be searched, and `message` says why.
+ */
+export interface DuplicateReport {
+  status: 'checked' | 'none' | 'skipped' | 'unavailable'
+  message: string | null
+  /** The terms the search used. */
+  terms: string[]
+  /** Up to five, best first. */
+  candidates: DuplicateCandidate[]
+  /** The number of the candidate the maintainer is asked to close this issue as a duplicate of, or null. */
+  confirmed: number | null
+}
+
+export type TriageAction = 'label' | 'close_duplicate'
+
 /** The decide node's verdict: whether a maintainer must look, and the labels and priority it proposes. */
 export interface Triage {
   requiresHuman: boolean
@@ -90,6 +144,9 @@ export interface Triage {
   reason: string
   labels: string[]
   priority: Priority
+  /** close_duplicate when a verified duplicate was found. Older checkpoints have no action, which reads as label. */
+  action?: TriageAction
+  duplicateOf?: { number: number; htmlUrl: string; title: string } | null
 }
 
 export type HumanAction = 'approve' | 'edit' | 'reject'
@@ -135,6 +192,7 @@ export interface ReviewPayload {
   issue: IssueRef
   classification: Classification
   triage: Triage
+  duplicates?: DuplicateReport | null
 }
 
 export type ThreadStatus = 'awaiting_approval' | 'completed' | 'failed'
@@ -175,6 +233,9 @@ export interface RunResult {
   classification: Classification
   triage: Triage
   humanDecision: HumanDecision | null
+  /** close_duplicate only when a maintainer approved the proposal to close this issue as a duplicate. */
+  action: TriageAction
+  duplicates: DuplicateReport | null
   reply: Reply
   /** auto: the rules settled it. human: the graph paused and a maintainer answered. */
   path: 'auto' | 'human'
@@ -196,5 +257,6 @@ export interface ThreadView {
   /** True for a failed thread whose checkpoint still has a step to run. */
   retryable: boolean
   trace: TraceRow[]
+  duplicates: DuplicateReport | null
   result: RunResult | null
 }

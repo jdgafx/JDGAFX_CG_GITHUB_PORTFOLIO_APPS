@@ -50,7 +50,7 @@ describe('FrameMapper', () => {
       costSource: 'usage',
       detail: 'd',
     })
-    expect(events[2]).toEqual({ type: 'edge', from: 'classify', to: 'decide' })
+    expect(events[2]).toEqual({ type: 'edge', from: 'classify', to: 'duplicates' })
   })
 
   it('takes the requiresHuman edge to review, and the interrupt frame carries the proposal', () => {

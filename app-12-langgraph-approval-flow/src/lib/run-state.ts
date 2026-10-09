@@ -1,10 +1,10 @@
 import type { StreamEvent } from '../../netlify/shared/events'
-import { type IssueRef, type NodeName, type ReviewPayload, type RunResult, type ThreadView, type TraceRow, type TraceStatus } from '../types'
+import { type DuplicateReport, type IssueRef, type NodeName, type ReviewPayload, type RunResult, type ThreadView, type TraceRow, type TraceStatus } from '../types'
 
 export type NodeStatus = 'idle' | 'running' | 'waiting' | 'done' | 'failed' | 'skipped'
 
 /** Where the page is: nothing started, a run streaming, paused for a person, finished, or failed. */
-export type Phase = 'idle' | 'running' | 'paused' | 'done' | 'failed'
+export type Phase = 'idle' | 'running' | 'paused' | 'done' | 'failed' | 'stopped'
 
 /** The browser's picture of one run: node states, taken edges, trace rows, the proposal and the result. */
 export interface RunView {
@@ -16,6 +16,8 @@ export interface RunView {
   taken: Record<string, string>
   trace: TraceRow[]
   proposal: ReviewPayload | null
+  /** The duplicate check, once its step has finished. */
+  duplicates: DuplicateReport | null
   result: RunResult | null
   error: string | null
   /** True when the run failed after a thread was created, so the checkpoint may have a step to continue. */
@@ -23,11 +25,11 @@ export interface RunView {
 }
 
 function idleNodes(): Record<NodeName, NodeStatus> {
-  return { classify: 'idle', decide: 'idle', review: 'idle', reply: 'idle' }
+  return { classify: 'idle', duplicates: 'idle', decide: 'idle', review: 'idle', reply: 'idle' }
 }
 
 export function emptyRun(issue: IssueRef | null = null, threadId: string | null = null): RunView {
-  return { threadId, issue, nodes: idleNodes(), taken: {}, trace: [], proposal: null, result: null, error: null, retryable: false }
+  return { threadId, issue, nodes: idleNodes(), taken: {}, trace: [], proposal: null, duplicates: null, result: null, error: null, retryable: false }
 }
 
 function statusOf(status: TraceStatus): NodeStatus {
@@ -62,12 +64,14 @@ export function applyEvent(run: RunView, event: StreamEvent): RunView {
           },
         ],
       }
+    case 'duplicates':
+      return { ...run, duplicates: event.report }
     case 'edge':
       return { ...run, taken: { ...run.taken, [`${event.from}>${event.to}`]: event.label ?? '' } }
     case 'interrupt':
-      return { ...run, nodes: { ...run.nodes, review: 'waiting' }, proposal: event.payload }
+      return { ...run, nodes: { ...run.nodes, review: 'waiting' }, proposal: event.payload, duplicates: event.payload.duplicates ?? run.duplicates }
     case 'result':
-      return { ...run, result: event.result, trace: event.result.trace }
+      return { ...run, result: event.result, duplicates: event.result.duplicates ?? run.duplicates, trace: event.result.trace }
     case 'error':
       return { ...run, error: event.message, retryable: run.threadId !== null }
   }
@@ -81,7 +85,9 @@ export function runFromView(view: ThreadView): RunView {
 
   const taken: Record<string, string> = {}
   const ran = (node: NodeName) => view.trace.some((row) => row.node === node && row.status === 'ok')
-  if (ran('classify') && ran('decide')) taken['classify>decide'] = ''
+  // A run that got as far as decide went through the duplicate check, whether it found anything or not.
+  if (ran('classify') && (ran('duplicates') || ran('decide'))) taken['classify>duplicates'] = ''
+  if (ran('decide')) taken['duplicates>decide'] = ''
   const needsHuman = view.result ? view.result.triage.requiresHuman : (view.proposal?.triage.requiresHuman ?? false)
   if (ran('decide') && needsHuman) taken['decide>review'] = 'requiresHuman'
   if (ran('decide') && !needsHuman) taken['decide>reply'] = 'otherwise'
@@ -94,6 +100,7 @@ export function runFromView(view: ThreadView): RunView {
     taken,
     trace: view.trace.filter((row) => row.status !== 'skipped' && row.status !== 'pending'),
     proposal: view.proposal,
+    duplicates: view.duplicates,
     result: view.result,
     retryable: view.status === 'failed' && view.retryable,
     error: view.status === 'failed' ? 'This thread stopped before it finished. Its steps are listed in the trace.' : null,

@@ -14,69 +14,81 @@ const SHOWN_LABELS = 3
 interface IssueListProps {
   state: IssuesState
   busy: boolean
-  /** The issue the current run triages, as "owner/name#number", to mark its row. */
-  activeKey: string | null
-  onTriage: (issue: IssueInput) => void
+  /** The issue chosen to triage, as "owner/name#number". */
+  selectedKey: string | null
+  onSelect: (issue: IssueInput) => void
+  /** The list is a disclosure so a phone can fold it away when a run starts. */
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
 export const keyOf = (issue: Pick<IssueInput, 'repo' | 'number'>) => `${issue.repo}#${issue.number}`
 
-/** The newest open issues of the chosen repo. Each one can be sent to the graph. */
-export function IssueList({ state, busy, activeKey, onTriage }: IssueListProps) {
+/** The issues of the chosen repo. One is selected, and the Triage button in the dock sends it to the graph. */
+export function IssueList({ state, busy, selectedKey, onSelect, open, onOpenChange }: IssueListProps) {
+  const selected = state.items.find((issue) => keyOf(issue) === selectedKey) ?? null
   return (
     <section className="ds-section" aria-labelledby="issues-heading">
-      <div className="ds-section__head">
+      <div className="ds-section__head ds-section__head--bare">
         <h2 id="issues-heading" className="ds-section__title">
-          Open issues{state.repo ? `: ${state.repo}` : ''}
+          Issue
         </h2>
         <p className="ds-section__sub">
-          Pick one to triage. The page sends its title, text and labels to the graph. Nothing is posted to GitHub.
+          {selected ? (
+            <>
+              Selected: <strong>#{selected.number}</strong> {selected.title}
+            </>
+          ) : (
+            'Choose one to triage. The page sends its title, text and labels to the graph.'
+          )}
         </p>
       </div>
-
-      {state.loading ? <p className="ds-help">Loading issues from GitHub…</p> : null}
+      <details className="ds-disclosure" open={open} onToggle={(event) => onOpenChange(event.currentTarget.open)}>
+        <summary>{state.repo ? `Issues of ${state.repo}${state.items.length > 0 ? ` (${state.items.length})` : ''}` : 'Issues'}</summary>
+      {state.loading ? (
+        <div className="ds-state ds-state--loading" role="status">
+          <span className="ds-state__mark" aria-hidden="true" />
+          <p className="ds-state__title">Loading issues</p>
+          <p className="ds-state__body">Asking GitHub for the newest open issues.</p>
+        </div>
+      ) : null}
       {state.error ? (
         <p className="ds-notice ds-notice--error" role="alert">
           {state.error}
         </p>
       ) : null}
       {!state.loading && !state.error && state.repo && state.items.length === 0 ? (
-        <div className="ds-empty">No open issues in {state.repo}. Pick another repo.</div>
+        <p className="ds-help">No open issues in {state.repo}. Pick another repo.</p>
       ) : null}
-      {!state.loading && !state.error && !state.repo ? <div className="ds-empty">Pick a repo to list its issues.</div> : null}
+      {!state.loading && !state.error && !state.repo ? <p className="ds-help">Pick a repo to list its issues.</p> : null}
 
-      <ul className="gg-issues" aria-busy={state.loading}>
-        {state.items.map((issue) => (
-          <li key={issue.number} className={keyOf(issue) === activeKey ? 'gg-issue gg-issue--active' : 'gg-issue'}>
-            <div className="gg-issue__text">
-              <p className="gg-issue__title">
-                <span className="gg-issue__number">#{issue.number}</span> {issue.title}
-              </p>
-              <p className="ds-hint gg-issue__meta">
-                <span>{formatAge(issue.createdAt)}</span>
-                <span>
-                  {issue.comments} comment{issue.comments === 1 ? '' : 's'}
-                </span>
-                {issue.labels.slice(0, SHOWN_LABELS).map((label) => (
-                  <span key={label} className="gg-chip">
-                    {label}
+      {state.items.length > 0 ? (
+        <ul className="ds-choice-list" aria-busy={state.loading}>
+          {state.items.map((issue) => {
+            const chosen = keyOf(issue) === selectedKey
+            return (
+              <li key={issue.number}>
+                <button
+                  type="button"
+                  className={chosen ? 'ds-choice ds-choice--selected' : 'ds-choice'}
+                  aria-pressed={chosen}
+                  disabled={busy}
+                  onClick={() => onSelect(issue)}
+                >
+                  <span className="ds-choice__label">#{issue.number}</span>
+                  <span className="ds-choice__text">{issue.title}</span>
+                  <span className="ds-choice__meta">
+                    {formatAge(issue.createdAt)}, {issue.comments} comment{issue.comments === 1 ? '' : 's'}
+                    {issue.labels.length > 0 ? `, ${issue.labels.slice(0, SHOWN_LABELS).join(', ')}` : ''}
+                    {issue.labels.length > SHOWN_LABELS ? ` +${issue.labels.length - SHOWN_LABELS}` : ''}
                   </span>
-                ))}
-                {issue.labels.length > SHOWN_LABELS ? <span>+{issue.labels.length - SHOWN_LABELS} more</span> : null}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="ds-button"
-              disabled={busy}
-              onClick={() => onTriage(issue)}
-              aria-label={`Triage issue ${issue.number}: ${issue.title}`}
-            >
-              Triage
-            </button>
-          </li>
-        ))}
-      </ul>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+      </details>
     </section>
   )
 }

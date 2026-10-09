@@ -51,6 +51,7 @@ describe('GET /api/thread', () => {
     const trace = body.trace as Array<{ node: string; status: string }>
     expect(trace.map((row) => [row.node, row.status])).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
       ['review', 'pending'],
       ['reply', 'pending'],

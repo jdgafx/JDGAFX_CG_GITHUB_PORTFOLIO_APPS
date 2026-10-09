@@ -1,4 +1,4 @@
-import type { NodeName, ReviewPayload, RunResult, TokenUsage, TraceStatus } from '../../src/types'
+import type { DuplicateReport, NodeName, ReviewPayload, RunResult, TokenUsage, TraceStatus } from '../../src/types'
 
 /** The conditional edges out of decide. The graph and the browser both use these labels. */
 export type EdgeLabel = 'requiresHuman' | 'otherwise'
@@ -18,6 +18,7 @@ export type StreamEvent =
       costSource?: 'usage' | 'estimated'
       detail: string
     }
+  | { type: 'duplicates'; report: DuplicateReport }
   | { type: 'edge'; from: NodeName; to: NodeName; label?: EdgeLabel }
   | { type: 'interrupt'; node: 'review'; threadId: string; payload: ReviewPayload }
   | { type: 'result'; result: RunResult }

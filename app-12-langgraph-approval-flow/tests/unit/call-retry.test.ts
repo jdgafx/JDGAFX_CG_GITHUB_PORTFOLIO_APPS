@@ -83,15 +83,15 @@ describe('one automatic retry of a hung or disconnected model call', () => {
   })
 
   it('does not retry when the budget has no room for the retry and the reply call still to come', async () => {
-    // 8 s for the retry + 3 s for the reply + 1 s margin = 12 s needed.
+    // 8 s for the retry + 3 s each for the duplicate check and the reply + 1 s margin = 15 s needed.
     const chat = scripted([timeout()])
-    const { outcome } = await run(chat, () => 11_999)
+    const { outcome } = await run(chat, () => 14_999)
     expect(outcome).toMatchObject({ kind: 'timeout' })
     expect(outcome).toMatchObject({ retried: false })
     expect(chat).toHaveBeenCalledTimes(1)
 
     const roomy = scripted([timeout()])
-    expect((await run(roomy, () => 12_000)).outcome).toBeNull()
+    expect((await run(roomy, () => 15_000)).outcome).toBeNull()
     expect(roomy).toHaveBeenCalledTimes(3)
   })
 

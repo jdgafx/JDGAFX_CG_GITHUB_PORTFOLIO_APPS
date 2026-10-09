@@ -1,3 +1,4 @@
+import { searchIssues } from '../shared/github-search'
 import { RunBudget } from '../shared/budget'
 import {
   checkRequest,
@@ -46,7 +47,7 @@ export default async (req: Request): Promise<Response> => {
     if (!decision.ok) return fail(decision.message, 400)
 
     const { store, kind } = opened
-    const deps = { store, storage: kind, chat, now: () => new Date() }
+    const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date() }
     // One run at a time per thread, across function instances. The loser is told so, and nothing runs twice.
     claim = await claimThread(guardStore(store, budget.signal), threadId)
     if (!claim) return fail(THREAD_BUSY, 409)

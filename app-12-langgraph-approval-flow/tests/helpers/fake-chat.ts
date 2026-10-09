@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import { CLASSIFY_PROMPT } from '../../netlify/shared/classify'
+import { JUDGE_PROMPT } from '../../netlify/shared/duplicate-judge'
 import { MODEL } from '../../netlify/shared/models'
 import { REPLY_PROMPT } from '../../netlify/shared/nodes'
 import type { ChatFn, ChatRequest, ChatResult } from '../../netlify/shared/openrouter'
@@ -10,6 +11,8 @@ export interface FakeChatOptions {
   /** What the classify call returns: the classification as an object, or the raw text. Defaults to a clear question. */
   classification?: Partial<Classification> | string
   email?: string
+  /** What the duplicate judge returns, as the raw reply text. */
+  judge?: string
 }
 
 /** A provider reply as the chat function returns it. Cost is not reported unless a test sets it. */
@@ -34,6 +37,9 @@ export function fakeChat(options: FakeChatOptions = {}) {
     const system = request.messages[0]?.content
     if (request.model === MODEL && system === CLASSIFY_PROMPT) {
       return providerResult(classificationText(options.classification), request.model)
+    }
+    if (request.model === MODEL && system === JUDGE_PROMPT) {
+      return providerResult(options.judge ?? '{"verdicts": []}', request.model)
     }
     if (request.model === MODEL && system === REPLY_PROMPT) {
       return providerResult(options.email ?? 'Thanks for the report. We have triaged this issue.', request.model)

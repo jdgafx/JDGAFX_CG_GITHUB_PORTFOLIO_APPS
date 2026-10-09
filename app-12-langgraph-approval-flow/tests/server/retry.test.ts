@@ -51,6 +51,7 @@ describe('POST /api/retry', () => {
 
     expect(nodeEnds(again)).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
       ['review', 'skipped'],
       ['reply', 'ok'],
@@ -77,6 +78,7 @@ describe('POST /api/retry', () => {
     expect(failed).toMatchObject({ status: 'failed', retryable: true })
     expect((failed.trace as Array<{ node: string; status: string }>).map((row) => [row.node, row.status])).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
       ['review', 'ok'],
       ['reply', 'skipped'],

@@ -1,4 +1,4 @@
-import { NODES, PRIORITIES, type NodeName, type Priority, type ReviewPayload, type TraceRow } from '../../src/types'
+import { NODES, PRIORITIES, type DuplicateReport, type NodeName, type Priority, type ReviewPayload, type TraceRow } from '../../src/types'
 import { NOT_NEEDED_DETAIL, type EdgeLabel, type StreamEvent } from './events'
 import { isRecord } from './guard'
 
@@ -98,6 +98,9 @@ export class FrameMapper {
       this.requiresHuman = value.triage.requiresHuman === true
     }
     this.current = null
+    if (node === 'duplicates' && isRecord(value) && isRecord(value.duplicateReport)) {
+      this.send({ type: 'duplicates', report: value.duplicateReport as unknown as DuplicateReport })
+    }
     const row = traceRowsOf(value).at(-1)
     if (row) {
       this.send({
@@ -118,7 +121,10 @@ export class FrameMapper {
   private sendEdgesAfter(node: NodeName): void {
     switch (node) {
       case 'classify':
-        this.edge('classify', 'decide')
+        this.edge('classify', 'duplicates')
+        return
+      case 'duplicates':
+        this.edge('duplicates', 'decide')
         return
       case 'decide':
         if (this.requiresHuman) {

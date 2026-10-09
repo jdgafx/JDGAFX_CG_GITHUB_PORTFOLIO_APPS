@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GitHubError, LIST_SIZE, listOpenIssues, parseIssues, parseRepoInput, rateLimitMessage } from '../../src/lib/github'
+import { getIssue, GitHubError, LIST_SIZE, listOpenIssues, parseIssueRef, parseIssues, parseRepoInput, rateLimitMessage } from '../../src/lib/github'
 import { BODY_MAX_LENGTH } from '../../src/lib/limits'
 import { issueFrom } from '../../netlify/shared/issue-input'
 import { apiItem } from '../helpers/issues'
@@ -195,5 +195,36 @@ describe('listOpenIssues', () => {
     const failure = await pending
     expect(failure).not.toBeInstanceOf(GitHubError)
     expect((failure as Error).name).toBe('AbortError')
+  })
+})
+
+describe('parseIssueRef and getIssue', () => {
+  it.each([
+    ['microsoft/vscode#334721', { owner: 'microsoft', repo: 'vscode', number: 334721 }],
+    ['https://github.com/vitejs/vite/issues/22309', { owner: 'vitejs', repo: 'vite', number: 22309 }],
+    ['github.com/vitejs/vite/issues/22309#issuecomment-1', { owner: 'vitejs', repo: 'vite', number: 22309 }],
+    ['  react/react#1  ', { owner: 'react', repo: 'react', number: 1 }],
+  ])('reads %s as one issue', (text, expected) => {
+    expect(parseIssueRef(text)).toEqual(expected)
+  })
+
+  it.each(['react/react', 'vitejs/vite#', 'vitejs/vite#0', 'https://github.com/vitejs/vite/pull/5', 'a b/c#1', '#12'])('does not read %s as an issue', (text) => {
+    expect(parseIssueRef(text)).toBeNull()
+  })
+
+  it('loads a closed issue by number, and refuses a pull request', async () => {
+    const closed = apiItem({ number: 22309, state: 'closed', title: '[Vite 8] Error importing SASS module on Windows', html_url: 'https://github.com/vitejs/vite/issues/22309' })
+    const fetchStub = vi.fn(async () => Response.json(closed))
+    const issue = await getIssue({ owner: 'vitejs', repo: 'vite', number: 22309 }, undefined, fetchStub as unknown as typeof fetch)
+    expect(issue).toMatchObject({ repo: 'vitejs/vite', number: 22309, title: '[Vite 8] Error importing SASS module on Windows' })
+    expect((fetchStub.mock.calls[0] as unknown as [string])[0]).toBe('https://api.github.com/repos/vitejs/vite/issues/22309')
+
+    const pull = vi.fn(async () => Response.json({ ...closed, pull_request: {} }))
+    await expect(getIssue({ owner: 'vitejs', repo: 'vite', number: 22309 }, undefined, pull as unknown as typeof fetch)).rejects.toThrow('is a pull request')
+  })
+
+  it('answers a missing issue with the not-found message', async () => {
+    const missing = vi.fn(async () => new Response('{}', { status: 404 }))
+    await expect(getIssue({ owner: 'vitejs', repo: 'vite', number: 9 }, undefined, missing as unknown as typeof fetch)).rejects.toThrow('vitejs/vite was not found')
   })
 })

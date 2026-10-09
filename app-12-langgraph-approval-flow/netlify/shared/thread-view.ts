@@ -7,6 +7,7 @@ import type { StorageKind } from './store'
 import { resolveTriage } from './triage'
 
 function missingDetail(node: NodeName, status: ThreadStatus): string {
+  if (node === 'duplicates' && status === 'completed') return 'Not run: this thread was saved before the duplicate check existed.'
   if (status === 'failed') return 'Not run: an earlier step failed.'
   if (status === 'awaiting_approval') return node === 'review' ? 'Waiting for a maintainer.' : 'Not run yet.'
   return node === 'review' ? NOT_NEEDED_DETAIL : 'Not run on this path.'
@@ -45,6 +46,8 @@ export function buildResult(threadId: string, values: GraphValues): RunResult {
     classification,
     triage,
     humanDecision: values.humanDecision,
+    action: final.action,
+    duplicates: values.duplicateReport,
     reply,
     path: values.humanDecision ? 'human' : 'auto',
     trace: padTrace(values.trace, 'completed'),
@@ -78,6 +81,7 @@ export function threadViewOf(input: ThreadViewInput): ThreadView {
     proposal: !running && entry.status === 'awaiting_approval' ? input.proposal : null,
     retryable: input.retryable,
     trace: padTrace(values.trace, running ? 'awaiting_approval' : entry.status),
+    duplicates: values.duplicateReport,
     result: finished ? buildResult(input.threadId, values) : null,
   }
 }

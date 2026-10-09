@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchThread, processSSELines, RequestFailure, resumeThread, startIssue } from '../../src/lib/api'
+import { fetchThread, IDLE_TIMEOUT_MS, OVERALL_TIMEOUT_MS, processSSELines, RequestFailure, resumeThread, startIssue } from '../../src/lib/api'
 import type { StreamEvent } from '../../netlify/shared/events'
 import { QUESTION } from '../helpers/issues'
 
@@ -107,5 +107,47 @@ describe('startIssue', () => {
     await expect(fetchThread('t-1')).rejects.toThrow('could not read')
     vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200 })))
     await expect(fetchThread('t-1')).rejects.toThrow('could not read')
+  })
+})
+
+describe('the browser watchdog', () => {
+  const streamResponse = (body: ReadableStream<Uint8Array>) =>
+    new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+
+  afterEach(() => vi.useRealTimers())
+
+  it('gives up after 30 seconds without a byte and says the thread may still be saved', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(new ReadableStream({ start() {} }))))
+    const outcome = startIssue(QUESTION, () => {}).catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS)
+    expect(await outcome).toMatchObject({ name: 'RequestFailure', message: expect.stringContaining('sent nothing for 30 seconds') })
+  })
+
+  it('gives up at the overall cap even when bytes keep arriving', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    const encoder = new TextEncoder()
+    let beat: ReturnType<typeof setInterval> | undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        beat = setInterval(() => controller.enqueue(encoder.encode(': keep-alive\n')), 10_000)
+      },
+      cancel() {
+        clearInterval(beat)
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(body)))
+    const outcome = startIssue(QUESTION, () => {}).catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(OVERALL_TIMEOUT_MS + 1_000)
+    expect(await outcome).toMatchObject({ name: 'RequestFailure', message: expect.stringContaining('took longer than the server allows') })
+  })
+
+  it('stays silent when the visitor stops the stream', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(new ReadableStream({ start() {} }))))
+    const stop = new AbortController()
+    const outcome = startIssue(QUESTION, () => {}, stop.signal)
+    await Promise.resolve()
+    stop.abort()
+    await expect(outcome).resolves.toBeUndefined()
   })
 })

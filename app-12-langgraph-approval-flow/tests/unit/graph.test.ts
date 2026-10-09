@@ -77,8 +77,8 @@ describe('graph: auto-triage path', () => {
 
     const run = await start(graph, 'auto-1', QUESTION)
 
-    expect(run.nodes).toEqual(['classify', 'decide', 'reply'])
-    expect(run.starts).toEqual(['classify', 'decide', 'reply'])
+    expect(run.nodes).toEqual(['classify', 'duplicates', 'decide', 'reply'])
+    expect(run.starts).toEqual(['classify', 'duplicates', 'decide', 'reply'])
     expect(run.interrupts).toEqual([])
     const values = await stateOf(graph, 'auto-1')
     expect(values.triage).toMatchObject({ requiresHuman: false, reasons: [], labels: ['question', 'area: dev server'], priority: 'low' })
@@ -87,6 +87,7 @@ describe('graph: auto-triage path', () => {
     expect(values.status).toBe('completed')
     expect(values.trace.map((row: TraceRow) => [row.node, row.status])).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'skipped'],
       ['decide', 'ok'],
       ['reply', 'ok'],
     ])
@@ -148,7 +149,7 @@ describe('graph: pause for a maintainer', () => {
 
     const first = await start(graph, 'pause-1', BUG)
 
-    expect(first.nodes).toEqual(['classify', 'decide'])
+    expect(first.nodes).toEqual(['classify', 'duplicates', 'decide'])
     expect(first.interrupts).toHaveLength(1)
     const payload = (first.interrupts[0] as Array<{ value: unknown }>)[0].value
     expect(payload).toMatchObject({
@@ -168,8 +169,8 @@ describe('graph: pause for a maintainer', () => {
     expect(second.interrupts).toEqual([])
     const values = await stateOf(graph, 'pause-1')
     expect(values.humanDecision).toEqual({ action: 'approve' })
-    expect(values.trace.map((row: TraceRow) => row.node)).toEqual(['classify', 'decide', 'review', 'reply'])
-    expect(values.trace[2]).toMatchObject({ node: 'review', detail: 'Approved the proposed labels and priority.' })
+    expect(values.trace.map((row: TraceRow) => row.node)).toEqual(['classify', 'duplicates', 'decide', 'review', 'reply'])
+    expect(values.trace[3]).toMatchObject({ node: 'review', detail: 'Approved the proposed labels and priority.' })
     expect(values.status).toBe('completed')
     expect(lastUserPrompt(chat, MODEL)).toContain(
       'a maintainer approved the triage: labels bug, area: router, high priority.',
@@ -206,7 +207,7 @@ describe('graph: pause for a maintainer', () => {
     expect(prompt).toContain('A maintainer changed the labels. Describe the issue only by the labels given, and name no other type.')
     expect(prompt).not.toContain('Issue type: bug')
     expect(prompt).not.toContain(CLASSIFIED_BUG.summary)
-    expect(values.trace[2].detail).toBe('Set labels bug, good first issue and medium priority.')
+    expect(values.trace[3].detail).toBe('Set labels bug, good first issue and medium priority.')
   })
 
   it('reject applies nothing, and the draft is fixed wording with no model call', async () => {
@@ -220,14 +221,14 @@ describe('graph: pause for a maintainer', () => {
     expect(second.nodes).toEqual(['review', 'reply'])
     const values = await stateOf(graph, 'reject-1')
     expect(values.humanDecision).toEqual({ action: 'reject', note: 'Not reproducible' })
-    expect(values.trace[2].detail).toBe('Rejected the proposal. No labels or priority applied.')
+    expect(values.trace[3].detail).toBe('Rejected the proposal. No labels or priority applied.')
     expect(values.replyDraft).toEqual({ body: 'Thank you for the report. A maintainer has looked at this issue.' })
-    expect(values.trace[3]).toMatchObject({
+    expect(values.trace[4]).toMatchObject({
       node: 'reply',
       status: 'ok',
       detail: 'A maintainer rejected the proposal, so the standard wording is used. No model call.',
     })
-    expect(values.trace[3]).not.toHaveProperty('model')
+    expect(values.trace[4]).not.toHaveProperty('model')
     // Only the classify call was made: the rejection needs no draft from the model.
     expect(chat).toHaveBeenCalledTimes(1)
   })
@@ -260,7 +261,7 @@ describe('graph: pause for a maintainer', () => {
 
     const first = await start(graph, 'unreadable-1', QUESTION)
 
-    expect(first.nodes).toEqual(['classify', 'decide'])
+    expect(first.nodes).toEqual(['classify', 'duplicates', 'decide'])
     expect(first.interrupts).toHaveLength(1)
     const values = await stateOf(graph, 'unreadable-1')
     expect(values.trace[0]).toMatchObject({ node: 'classify', status: 'failed' })

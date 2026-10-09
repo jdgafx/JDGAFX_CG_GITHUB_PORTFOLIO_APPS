@@ -1,58 +1,66 @@
-/* App layer. Colour, type, the cards and buttons and the bench come from tokens.css. This file adds the
-   graph stage, the gate states and a few local rules. Type stays on the scale 13, 15, 18, 22, 27 and 32.
-   Borders mark panels and the trace only. */
+/* App layer (app 12). Colour, type, the bench, the rail dock, states, trace, graph and the approval card come from
+   tokens.css and components.css, which are copied unchanged. Only what is local to GraphGate lives here, written in
+   tokens and on the 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48 spacing scale. */
 
-/* Every grid keeps one track that cannot grow past the screen, so the scrolling graph stays in its panel. */
-.ds-main,
-.ds-controls,
-.ds-run,
-.ds-section,
-.gg-hero,
-.gg-approval,
-.gg-decision,
-.gg-draft,
-.gg-edit,
-.gg-presets,
-.gg-repo-form,
-.gg-issues,
-.gg-card-facts,
-.gg-facts,
-.gg-threads,
-.gg-node {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-/* Controls scroll with the page. A sticky column taller than the screen would hide its bottom. */
-.ds-controls {
-  position: static;
-}
-
-.gg-code {
+code {
   font-family: var(--ds-mono);
 }
 
-.gg-live {
-  min-height: 1.5em;
-  font-size: 15px;
-  color: var(--ds-text);
+/* Repository picker: presets as quiet buttons, then a one-line form */
+.gg-presets,
+.gg-repo-form {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+.gg-presets__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-/* Threads: rules between rows, no boxes */
+.gg-preset {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-family: var(--ds-mono);
+  font-weight: 600;
+}
+
+.gg-preset[aria-pressed="true"] {
+  background: var(--ds-accent-soft);
+  border-color: var(--ds-accent);
+  color: var(--ds-accent);
+}
+
+.gg-repo-form .ds-button {
+  justify-self: start;
+}
+
+/* A neutral line about a thread another maintainer holds, with a Refresh button beside it */
+.gg-notice-row {
+  display: grid;
+  gap: 8px;
+}
+
+.gg-notice-row .ds-button {
+  justify-self: start;
+}
+
+/* Saved threads: rules between rows, inside the disclosure */
+.gg-threads-body {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.gg-threads-body > .ds-button {
+  justify-self: start;
+}
+
 .gg-threads {
   display: grid;
-  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -65,11 +73,6 @@
   gap: 4px 12px;
   padding: 12px 0;
   border-top: 1px solid var(--ds-border);
-}
-
-.gg-thread:first-child {
-  padding-top: 0;
-  border-top: 0;
 }
 
 .gg-thread__text {
@@ -85,12 +88,10 @@
 
 .gg-thread__meta {
   display: flex;
-  flex-wrap: nowrap;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
 }
 
-/* The words wrap inside their own box, next to the dot, instead of the whole span dropping to a new line. */
 .gg-thread__meta > span:last-child {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -101,168 +102,16 @@
   margin-top: 0.4em;
 }
 
-/* The tokens have no dot for a waiting run, so the app adds one in the warning colour. */
-.gg-dot--waiting {
-  background: var(--ds-warning);
-}
-
-/* The readout keeps the tokens' strip. These rules only set three columns, with the models row across all three. */
-.gg-readout {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.gg-readout__wide {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 720px) {
-  .gg-readout {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* Repo picker: presets as quiet buttons, then a one-line form */
-.gg-presets {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.gg-presets__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.gg-preset {
-  min-height: 36px;
-  padding: 0 12px;
-  font-size: 13px;
-  font-family: var(--ds-mono);
-  font-weight: 600;
-}
-
-.gg-preset[aria-pressed="true"] {
-  background: var(--ds-accent-soft);
-  border-color: var(--ds-accent);
-  color: var(--ds-accent);
-}
-
-.gg-repo-form {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.gg-repo-form .ds-button {
-  justify-self: start;
-}
-
-/* Issue list: rules between rows, scrolls inside its own box so the page stays short */
-.gg-issues {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0 12px;
-  list-style: none;
-  max-height: 520px;
-  overflow-y: auto;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius);
-}
-
-.gg-issue {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 12px 0;
-  border-top: 1px solid var(--ds-border);
-}
-
-.gg-issue:first-child {
-  border-top: 0;
-}
-
-.gg-issue--active .gg-issue__title {
-  color: var(--ds-accent);
-}
-
-.gg-issue__text {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.gg-issue__title {
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.gg-issue__number {
-  font-family: var(--ds-mono);
-  font-weight: 600;
-  color: var(--ds-text-muted);
-}
-
-.gg-issue__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-}
-
-/* Chips: labels and priorities. A word in a pill, never colour alone. */
-.gg-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.gg-chip {
-  display: inline-block;
-  padding: 1px 8px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.5;
-  color: var(--ds-text);
-  background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border);
-  border-radius: 999px;
-  overflow-wrap: anywhere;
-}
-
-.gg-chip--high,
-.gg-chip--urgent {
-  color: var(--ds-danger);
-  background: var(--ds-danger-soft);
-  border-color: transparent;
-}
-
-.gg-chip--medium {
-  color: var(--ds-warning);
-  background: var(--ds-warning-soft);
-  border-color: transparent;
-}
-
-.gg-chip--low {
-  color: var(--ds-success);
-  background: var(--ds-success-soft);
-  border-color: transparent;
-}
-
 /* The issue the run is about */
 .gg-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 12px;
+  gap: 4px 12px;
   max-width: none;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
-  border-left: 3px solid var(--ds-accent);
   border-radius: var(--ds-radius-sm);
 }
 
@@ -285,15 +134,338 @@
   color: var(--ds-accent);
 }
 
-/* A neutral line about a thread another maintainer holds, with a Refresh button beside it */
-.gg-notice-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+/* Facts in the approval card and the triage card: the shared key-value list, with prose values */
+.gg-kv dd {
+  font-family: var(--ds-font);
+  font-size: 15px;
+}
+
+.gg-reasons {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+@media (max-width: 560px) {
+  .gg-kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .gg-kv dd {
+    margin-bottom: 8px;
+  }
+}
+
+/* The proposed or approved action: the one line a maintainer must not miss */
+.gg-proposal {
+  display: grid;
+  gap: 4px;
+  max-width: none;
+  padding: 12px 16px;
+  font-weight: 650;
+  background: var(--ds-accent-soft);
+  border: 1px solid var(--ds-accent-dim);
+  border-radius: var(--ds-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.gg-proposal__label {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ds-text-muted);
+}
+
+.gg-proposal a {
+  color: var(--ds-accent);
+}
+
+/* The edit form is a tint, not a box */
+.gg-edit {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius-sm);
+}
+
+.gg-edit .ds-button {
+  justify-self: start;
+}
+
+.gg-labels {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.gg-labels__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
   gap: 8px 12px;
 }
 
-.gg-notice-row .ds-notice {
-  flex: 1 1 280px;
+.gg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  overflow-wrap: anywhere;
+}
+
+.gg-check input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  accent-color: var(--ds-accent);
+}
+
+.gg-note {
+  min-height: 80px;
+}
+
+@media (max-width: 480px) {
+  .ds-approval__actions .ds-button {
+    flex: 1 1 100%;
+  }
+
+  .ds-approval__actions .ds-button--danger {
+    margin-left: 0;
+  }
+}
+
+/* The final triage card: the decision path and the draft */
+.gg-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.gg-path__step {
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gg-path__step + .gg-path__step::before {
+  content: "→";
+  margin-right: 8px;
+  color: var(--ds-text-muted);
+  font-weight: 400;
+}
+
+.gg-path__step--skipped {
+  font-weight: 400;
+  color: var(--ds-text-muted);
+  text-decoration: line-through;
+}
+
+.gg-path__step--paused {
+  color: var(--ds-warning);
+}
+
+.gg-path__why {
+  display: block;
+}
+
+.gg-draft {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+
+.gg-draft__label {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.gg-draft .ds-lead__text {
+  font-size: 15px;
+}
+
+.gg-draft .ds-lead__text > p:first-child {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+/* The duplicate check: the signature panel */
+.gg-dups {
+  gap: 16px;
+}
+
+.gg-terms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   max-width: none;
+}
+
+.gg-cands {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.gg-cand {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--ds-border);
+  min-width: 0;
+}
+
+.gg-cand:first-child {
+  border-top: 0;
+}
+
+.gg-cand--confirmed {
+  background: var(--ds-accent-soft);
+  border-radius: var(--ds-radius) var(--ds-radius) 0 0;
+}
+
+.gg-cand__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.gg-cand__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gg-cand__title {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-weight: 650;
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+
+.gg-cand__title:hover {
+  text-decoration-color: var(--ds-accent);
+}
+
+.gg-cand__number {
+  font-family: var(--ds-mono);
+  color: var(--ds-text-muted);
+}
+
+.gg-cand__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  max-width: none;
+}
+
+.gg-cand__reason {
+  max-width: none;
+  overflow-wrap: anywhere;
+}
+
+/* Similarity: a short track, filled to the score out of 0.5 */
+.gg-score {
+  position: relative;
+  display: inline-block;
+  width: 72px;
+  height: 8px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.gg-score > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ds-accent);
+}
+
+/* The two passages the model quoted, side by side when there is room */
+.gg-quotes {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.gg-quote {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gg-quote figcaption {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.gg-quote blockquote {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 15px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.gg-check-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: none;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.gg-check-line .ds-dot {
+  flex: none;
+  margin-top: 0.4em;
+}
+
+.gg-check-line--no {
+  color: var(--ds-warning);
+  font-weight: 600;
+}
+
+@media (min-width: 720px) {
+  .gg-quotes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The graph drawing scales with its stage; the narrow drawing is capped so a phone shows it at about 1:1 */
+.gg-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 752px;
+  margin: 0 auto;
+}
+
+.gg-graph--narrow {
+  max-width: 340px;
 }

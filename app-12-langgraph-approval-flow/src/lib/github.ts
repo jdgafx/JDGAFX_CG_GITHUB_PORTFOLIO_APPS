@@ -106,7 +106,7 @@ export function rateLimitMessage(status: number, headers: Headers, nowMs: number
 }
 
 /** One request and its whole reply, body included. Rejects with a GitHubError whose message is safe to show. */
-async function exchange(url: string, signal: AbortSignal, fetchImpl: typeof fetch): Promise<IssueInput[]> {
+async function exchange(url: string, signal: AbortSignal, fetchImpl: typeof fetch): Promise<unknown> {
   let response: Response
   try {
     response = await fetchImpl(url, { headers: { Accept: 'application/vnd.github+json' }, signal })
@@ -119,21 +119,16 @@ async function exchange(url: string, signal: AbortSignal, fetchImpl: typeof fetc
   if (response.status === 403 || response.status === 429) throw new GitHubError(rateLimitMessage(response.status, response.headers))
   if (!response.ok) throw new GitHubError(`GitHub answered with an error (${response.status}). Try again.`)
   const json: unknown = await response.json().catch(() => null)
-  if (!Array.isArray(json)) throw new GitHubError('GitHub sent a reply that could not be read.')
-  return parseIssues(json)
+  if (json === null || typeof json !== 'object') throw new GitHubError('GitHub sent a reply that could not be read.')
+  return json
 }
 
 /**
- * Lists a repo's latest open issues, newest first. The time limit is a timer that settles a race with
- * the whole exchange, the body read included, so a reply that stalls is cut at the limit. Rejects with a
- * GitHubError whose message is safe to show. A visitor's own abort rejects with the AbortError.
+ * One GET, bounded by a timer that settles a race with the whole exchange, the body read included, so a reply
+ * that stalls is cut at the limit. Rejects with a GitHubError whose message is safe to show. A visitor's own
+ * abort rejects with the AbortError.
  */
-export async function listOpenIssues(
-  repo: RepoRef,
-  signal?: AbortSignal,
-  fetchImpl: typeof fetch = fetch,
-): Promise<IssueInput[]> {
-  const url = `${API}/repos/${repo.owner}/${repo.repo}/issues?state=open&sort=created&direction=desc&per_page=${PAGE_SIZE}`
+async function fetchJson(url: string, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<unknown> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
@@ -158,6 +153,38 @@ export async function listOpenIssues(
     reply.catch(() => {})
     deadlines.catch(() => {})
   }
+}
+
+/** Lists a repo's latest open issues, newest first. */
+export async function listOpenIssues(repo: RepoRef, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<IssueInput[]> {
+  const json = await fetchJson(`${API}/repos/${repo.owner}/${repo.repo}/issues?state=open&sort=created&direction=desc&per_page=${PAGE_SIZE}`, signal, fetchImpl)
+  if (!Array.isArray(json)) throw new GitHubError('GitHub sent a reply that could not be read.')
+  return parseIssues(json)
+}
+
+export interface IssueRef {
+  owner: string
+  repo: string
+  number: number
+}
+
+const ISSUE_REF = /^(?:https?:\/\/)?(?:www\.)?(?:github\.com\/)?([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)(?:\/issues\/|#)(\d{1,9})(?:[/?#].*)?$/i
+
+/** "owner/name#123" or a link to an issue page as one issue, or null. */
+export function parseIssueRef(text: string): IssueRef | null {
+  const match = ISSUE_REF.exec(text.trim())
+  if (!match) return null
+  const repo = parseRepoInput(`${match[1]}/${match[2]}`)
+  const number = Number(match[3])
+  return repo && number >= 1 ? { ...repo, number } : null
+}
+
+/** One issue by number, open or closed, so a known duplicate can be triaged. A pull request is refused. */
+export async function getIssue(ref: IssueRef, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<IssueInput> {
+  const json = await fetchJson(`${API}/repos/${ref.owner}/${ref.repo}/issues/${ref.number}`, signal, fetchImpl)
+  const issue = issueFrom(json)
+  if (!issue) throw new GitHubError(`${ref.owner}/${ref.repo}#${ref.number} is a pull request, not an issue.`)
+  return issue
 }
 
 /** The repo's slug for display and for the picker. */

@@ -131,9 +131,9 @@ describe('draftProblem', () => {
 describe('fallbackBody', () => {
   it('states the final outcome and never describes anything as pending, claimed or linked', () => {
     const bodies = [
-      fallbackBody({ outcome: 'auto', labels: ['question'], priority: 'low', note: null }),
-      fallbackBody({ outcome: 'edited', labels: [], priority: 'high', note: 'x' }),
-      fallbackBody({ outcome: 'rejected', labels: [], priority: null, note: null }),
+      fallbackBody({ outcome: 'auto', labels: ['question'], priority: 'low', note: null, action: 'label' as const, duplicateOf: null }),
+      fallbackBody({ outcome: 'edited', labels: [], priority: 'high', note: 'x', action: 'label' as const, duplicateOf: null }),
+      fallbackBody({ outcome: 'rejected', labels: [], priority: null, note: null, action: 'label' as const, duplicateOf: null }),
     ]
     for (const body of bodies) expect(draftProblem(body, 'acme/widgets', ['question'])).toBeNull()
     expect(bodies).toEqual([
@@ -141,5 +141,21 @@ describe('fallbackBody', () => {
       'Thank you for the report. This issue is now triaged with high priority.',
       'Thank you for the report. A maintainer has looked at this issue.',
     ])
+  })
+})
+
+describe('a draft for a duplicate', () => {
+  it('must name the original issue by number, and #33 is not #334', () => {
+    expect(draftProblem('This issue duplicates #334403. Please follow #334403.', 'acme/widgets', ['duplicate'], 334403)).toBeNull()
+    expect(draftProblem('Thanks, we will look into it.', 'acme/widgets', ['duplicate'], 334403)).toBe('did not name the original issue #334403')
+    expect(draftProblem('This is a duplicate of #3344031.', 'acme/widgets', ['duplicate'], 334403)).toBe('did not name the original issue #334403')
+  })
+
+  it('still rejects a claim that the issue was closed, since nothing is posted', () => {
+    expect(draftProblem('We have closed this as a duplicate of #334403.', 'acme/widgets', ['duplicate'], 334403)).toBe('claimed work that has not been done')
+  })
+
+  it('does not ask for a number when the outcome is not a duplicate', () => {
+    expect(draftProblem('Thanks for the report.', 'acme/widgets', ['question'])).toBeNull()
   })
 })

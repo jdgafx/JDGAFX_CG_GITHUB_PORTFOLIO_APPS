@@ -1,3 +1,4 @@
+import { searchIssues } from '../shared/github-search'
 import { RunBudget } from '../shared/budget'
 import { checkRequest, clientKey, fail, rateLimit, readJsonBody, SERVER_ERROR } from '../shared/guard'
 import { issueFrom } from '../shared/issue-input'
@@ -37,7 +38,7 @@ export default async (req: Request): Promise<Response> => {
     streaming = true
     return streamResponse(budget, (send, signal) =>
       startRun(
-        { store, storage: kind, chat, now: () => new Date() },
+        { store, storage: kind, chat, search: searchIssues, now: () => new Date() },
         {
           issue: issue.value,
           threadId,

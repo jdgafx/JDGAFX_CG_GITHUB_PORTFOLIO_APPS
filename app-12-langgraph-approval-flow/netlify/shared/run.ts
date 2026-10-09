@@ -11,6 +11,7 @@ import { RUN_BUDGET_MS } from './budget'
 import { buildResult, threadViewOf } from './thread-view'
 import { describeError, getThreadEntry, hasWaitingMarker, titleFor, writeThread } from './thread-index'
 import { isClaimed } from './claim'
+import type { SearchFn } from './github-search'
 
 const GENERIC_RUN_FAILURE = 'The run stopped before it finished. The thread is marked failed.'
 
@@ -22,6 +23,8 @@ export interface RunDeps {
   storage: StorageKind
   chat: ChatFn
   now: () => Date
+  /** The GitHub issue search for the duplicates step. Tests pass a fake; the functions pass the real one. */
+  search?: SearchFn
 }
 
 type GraphInput = Parameters<GraphInstance['stream']>[0]
@@ -31,7 +34,7 @@ const NO_MODEL: ChatFn = () => Promise.reject(new Error('This read does not call
 
 /** The graph, with its checkpoints behind the store, bounded by `signal` and by the per-call limit. */
 function graphFor(deps: RunDeps, chat: ChatFn, signal?: AbortSignal, remainingMs: () => number = () => RUN_BUDGET_MS): GraphInstance {
-  return buildGraph({ chat, now: deps.now, remainingMs, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
+  return buildGraph({ chat, search: deps.search, now: deps.now, remainingMs, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
 }
 
 const SAVED = 'Finished steps are saved, so you can retry the thread.'

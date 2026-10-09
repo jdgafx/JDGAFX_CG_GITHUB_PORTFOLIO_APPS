@@ -1,29 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamEvent } from '../netlify/shared/events'
-import { ApprovalCard } from './components/ApprovalCard'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
-import { IssueBanner } from './components/IssueBanner'
 import { IssueList, keyOf, type IssuesState } from './components/IssueList'
 import { Readout } from './components/Readout'
 import { RepoPicker } from './components/RepoPicker'
-import { RetryCard } from './components/RetryCard'
+import { ResultCard } from './components/ResultCard'
 import { ThreadsCard, type ThreadsState } from './components/ThreadsCard'
 import { TraceCard } from './components/TraceCard'
-import { TriageCard, outcomeOf } from './components/TriageCard'
+import { outcomeOf } from './components/TriageCard'
 import { failureText, fetchThread, fetchThreads, type ThreadResponse as ThreadViewResponse, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
-import { GitHubError, listOpenIssues, parseRepoInput, slugOf } from './lib/github'
+import { getIssue, GitHubError, listOpenIssues, parseIssueRef, parseRepoInput, slugOf } from './lib/github'
+import { runAttr } from './lib/phase'
+import { useResultFocus } from './lib/useResultFocus'
 import { outcomeAfterFailure } from './lib/resume-failure'
 import { applyEvent, emptyRun, runFromView, type Phase, type RunView } from './lib/run-state'
-import { approvalVisible, NO_STREAM, runningLine, type StreamFlow } from './lib/stream-view'
+import { NO_STREAM, runningLine, type StreamFlow } from './lib/stream-view'
 import { PRESET_REPOS } from './constants'
 import { NODES, type HumanDecision, type IssueInput, type NodeName } from './types'
 
-/** The one status line under the header. */
-function statusLine(phase: Phase, run: RunView, current: NodeName | null, flow: StreamFlow): string {
+/** The one status line in the rail. */
+function statusLine(phase: Phase, run: RunView, current: NodeName | null, flow: StreamFlow, selected: IssueInput | null): string {
   switch (phase) {
     case 'idle':
-      return 'Ready. Pick an issue and start the triage to watch the graph work.'
+      return selected ? `Ready to triage #${selected.number}.` : 'Choose an issue, then press Triage to watch the graph work.'
     case 'running':
       return runningLine(current, flow)
     case 'paused':
@@ -31,7 +31,9 @@ function statusLine(phase: Phase, run: RunView, current: NodeName | null, flow: 
     case 'done':
       return run.result ? `Finished. ${outcomeOf(run.result)}.` : 'Finished.'
     case 'failed':
-      return 'The run stopped. The message on the page says why, and the trace marks the step.'
+      return 'The run stopped. The result panel says why, and the trace marks the step.'
+    case 'stopped':
+      return 'You stopped waiting. The server may still finish the thread.'
   }
 }
 
@@ -42,13 +44,6 @@ const WATCH_EVERY_MS = 2_000
 const WATCH_ATTEMPTS = 10
 
 const NO_ISSUES: IssuesState = { loading: false, repo: null, items: [], error: null }
-
-/** On a narrow screen the run sits below the lists, so a started run scrolls into view. */
-function showRun(element: HTMLElement | null): void {
-  if (!element || !window.matchMedia('(max-width: 999px)').matches) return
-  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  element.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
-}
 
 /** After a thread is opened from the list, bring its card into view at any width and move focus to it. */
 function revealOpenedThread(fallback: HTMLElement | null): void {
@@ -80,6 +75,12 @@ export default function App() {
   const streamRef = useRef<AbortController | null>(null)
   const issuesRef = useRef<AbortController | null>(null)
   const runRef = useRef<HTMLDivElement | null>(null)
+  const stopRef = useRef<HTMLButtonElement | null>(null)
+  /** The stream the visitor stopped, so its end reads as stopped and not as a failure. */
+  const stoppedRef = useRef<AbortController | null>(null)
+  const [selected, setSelected] = useState<IssueInput | null>(null)
+  const [listOpen, setListOpen] = useState(true)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
   const [opened, setOpened] = useState(0)
   // The thread id of the run on the page, readable inside stream() whatever render it was created in.
   const threadOf = useRef<string | null>(null)
@@ -95,11 +96,12 @@ export default function App() {
     }
   }, [])
 
-  /** Loads a repo's newest open issues from GitHub, straight from the browser. */
+  /** Loads a repo's newest open issues, or one issue by link or owner/name#number, straight from GitHub. */
   const loadIssues = useCallback(async (text: string) => {
-    const repo = parseRepoInput(text)
+    const ref = parseIssueRef(text)
+    const repo = ref ? { owner: ref.owner, repo: ref.repo } : parseRepoInput(text)
     if (!repo) {
-      setIssues((prev) => ({ ...prev, error: 'That is not a repo. Use owner/name, for example react/react.' }))
+      setIssues((prev) => ({ ...prev, error: 'That is not a repo or an issue. Use owner/name, owner/name#123, or a github.com link.' }))
       return
     }
     issuesRef.current?.abort()
@@ -107,8 +109,9 @@ export default function App() {
     issuesRef.current = controller
     setIssues({ loading: true, repo: slugOf(repo), items: [], error: null })
     try {
-      const items = await listOpenIssues(repo, controller.signal)
+      const items = ref ? [await getIssue(ref, controller.signal)] : await listOpenIssues(repo, controller.signal)
       setIssues({ loading: false, repo: slugOf(repo), items, error: null })
+      setSelected(ref ? items[0] : null)
     } catch (err) {
       if (isAbortError(err)) return
       const error = err instanceof GitHubError ? err.message : 'The issues could not be loaded. Try again.'
@@ -153,7 +156,10 @@ export default function App() {
     setNotice(null)
     stopWatching()
     setFlow({ resuming, eventsArrived: false })
+    setStartedAt(Date.now())
     setPhase('running')
+    // Stop takes focus through a ref, without scrolling the page.
+    requestAnimationFrame(() => stopRef.current?.focus({ preventScroll: true }))
 
     const outcome: { phase: Phase | null } = { phase: null }
     const onEvent = (event: StreamEvent) => {
@@ -174,12 +180,16 @@ export default function App() {
 
     try {
       await open(onEvent, controller.signal)
-      if (outcome.phase === null) {
+      if (controller.signal.aborted) {
+        if (stoppedRef.current === controller) setPhase('stopped')
+      } else if (outcome.phase === null) {
         setRequestError('The run ended without an answer. Try again.')
         setPhase('failed')
       }
     } catch (err) {
-      if (!isAbortError(err)) {
+      if (isAbortError(err) || controller.signal.aborted) {
+        if (stoppedRef.current === controller) setPhase('stopped')
+      } else {
         const after = outcomeAfterFailure({ from, eventsArrived, resuming, error: err })
         if (after.reopen && threadOf.current) {
           // Another maintainer got there first. Show the thread as it really is, with their result.
@@ -198,11 +208,18 @@ export default function App() {
     }
   }
 
-  const handleTriage = (issue: IssueInput) => {
+  const handleTriage = () => {
+    if (!selected) return
+    const issue = selected
     const { repo, number, title, htmlUrl } = issue
     setRun(emptyRun({ repo, number, title, htmlUrl }))
-    showRun(runRef.current)
     void stream((onEvent, signal) => startIssue(issue, onEvent, signal))
+  }
+
+  /** The visitor stops waiting. The server keeps its own claim on the thread and may still finish it. */
+  const handleStop = () => {
+    stoppedRef.current = streamRef.current
+    streamRef.current?.abort()
   }
 
   const handleDecide = (decision: HumanDecision) => {
@@ -272,63 +289,81 @@ export default function App() {
   }
 
   threadOf.current = run.threadId
+  useResultFocus(runAttr(phase), { onRunStart: (narrow) => narrow && setListOpen(false) })
 
   const busy = phase === 'running'
   const current = phase === 'running' ? (NODES.find((node) => run.nodes[node] === 'running') ?? null) : null
 
+  const triageLabel = selected ? `Triage #${selected.number}` : 'Triage'
+
   return (
-    <div className="ds-app">
+    <div className="ds-app" data-run={runAttr(phase)}>
       <Header phase={phase} />
 
       <main className="ds-main">
-        <p className="ds-hint gg-live" role="status" aria-live="polite">
-          {statusLine(phase, run, current, flow)}
-        </p>
-        {notice ? (
-          <div className="gg-notice-row">
-            <p className="ds-notice" role="status">
-              {notice.text}
-            </p>
-            {notice.threadId ? (
-              <button type="button" className="ds-button" onClick={() => void handleOpen(notice.threadId as string)}>
-                Refresh now
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {requestError ? (
-          <p className="ds-notice ds-notice--error" role="alert">
-            {requestError}
-          </p>
-        ) : null}
-
         <div className="ds-bench">
           <div className="ds-controls">
             <RepoPicker loaded={issues.repo} loading={issues.loading} busy={busy} onLoad={(text) => void loadIssues(text)} />
             <IssueList
               state={issues}
               busy={busy}
-              activeKey={run.issue ? keyOf(run.issue) : null}
-              onTriage={handleTriage}
+              selectedKey={selected ? keyOf(selected) : null}
+              onSelect={setSelected}
+              open={listOpen}
+              onOpenChange={setListOpen}
             />
+            <div className="ds-actions">
+              <button type="button" className="ds-button ds-button--primary" disabled={busy || !selected} onClick={handleTriage}>
+                {triageLabel}
+              </button>
+              {busy ? (
+                <button type="button" className="ds-button" ref={stopRef} onClick={handleStop}>
+                  Stop
+                </button>
+              ) : null}
+            </div>
+            <p className="ds-help" role="status" aria-live="polite">
+              {statusLine(phase, run, current, flow, selected)}
+            </p>
+            {notice ? (
+              <div className="gg-notice-row">
+                <p className="ds-notice" role="status">
+                  {notice.text}
+                </p>
+                {notice.threadId ? (
+                  <button type="button" className="ds-button" onClick={() => void handleOpen(notice.threadId as string)}>
+                    Refresh now
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {requestError ? (
+              <p className="ds-notice ds-notice--error" role="alert">
+                {requestError}
+              </p>
+            ) : null}
             <ThreadsCard state={threads} busy={busy} onRefresh={handleRefresh} onOpen={(id) => void handleOpen(id)} />
           </div>
 
           <div className="ds-run" ref={runRef}>
-            {run.issue ? <IssueBanner issue={run.issue} /> : null}
-            {run.error ? (
-              <p className="ds-notice ds-notice--error" role="alert">
-                {run.error}
-              </p>
-            ) : null}
-            {phase === 'failed' && run.retryable ? <RetryCard busy={busy} onRetry={handleRetry} /> : null}
+            <ResultCard
+              run={run}
+              phase={phase}
+              flow={flow}
+              busy={busy}
+              searching={current === 'duplicates'}
+              onDecide={handleDecide}
+              onRetry={handleRetry}
+              onAgain={() => {
+                setRun(emptyRun())
+                setPhase('idle')
+                setListOpen(true)
+              }}
+              onRefreshThreads={handleRefresh}
+            />
+            <Readout run={run} phase={phase} startedAt={startedAt} />
             <GraphView run={run} />
-            <Readout run={run} />
-            {approvalVisible(phase, flow, run.proposal !== null) && run.proposal ? (
-              <ApprovalCard key={run.threadId ?? 'proposal'} proposal={run.proposal} busy={busy} onDecide={handleDecide} />
-            ) : null}
-            {run.result ? <TriageCard result={run.result} /> : null}
-            <TraceCard run={run} current={current} />
+            <TraceCard run={run} current={current} phase={phase} />
           </div>
         </div>
       </main>

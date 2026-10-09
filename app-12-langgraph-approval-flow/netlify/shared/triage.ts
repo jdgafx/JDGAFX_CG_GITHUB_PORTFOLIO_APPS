@@ -1,5 +1,7 @@
 import type {
   Classification,
+  DuplicateReport,
+  TriageAction,
   HumanDecision,
   IssueInput,
   IssueType,
@@ -50,9 +52,13 @@ export function looksLikeSecurityReport(issue: IssueInput): boolean {
  * medium severity or worse, and anything that is not a bug, feature, question or docs issue.
  * Everything else is triaged by the rules alone.
  */
-export function decideTriage(issue: IssueInput, classification: Classification): Triage {
+export function decideTriage(issue: IssueInput, classification: Classification, duplicates: DuplicateReport | null = null): Triage {
   const security = classification.possibleSecurity || looksLikeSecurityReport(issue)
   const reasons: string[] = []
+  const original = duplicates?.candidates.find((candidate) => candidate.number === duplicates.confirmed) ?? null
+  if (original?.judgement) {
+    reasons.push(`It looks like a duplicate of #${original.number} (${quoteOf(original.title)}). ${original.judgement.reason}`.trim())
+  }
   if (security) reasons.push('It may be a security report, so a maintainer should read it before anything is said in public.')
   const aimed = assistantEvidence(issue, classification)
   if (aimed) reasons.push(`The issue text contains instructions aimed at an AI assistant. It says: "${quoteOf(aimed)}".`)
@@ -71,7 +77,8 @@ export function decideTriage(issue: IssueInput, classification: Classification):
   if (typeLabel) labels.push(typeLabel)
   if (classification.area) labels.push(`area: ${classification.area}`)
   if (classification.unclear) labels.push('needs-info')
-  if (classification.duplicateLikely) labels.push('possible-duplicate')
+  if (original) labels.push('duplicate')
+  else if (classification.duplicateLikely) labels.push('possible-duplicate')
   if (security) labels.push('security')
 
   const priority: Priority = security
@@ -89,6 +96,8 @@ export function decideTriage(issue: IssueInput, classification: Classification):
       : `A clear ${classification.type} at ${percent(classification.confidence)} confidence is low risk, so the rules triage it without a maintainer.`,
     labels,
     priority,
+    action: original ? 'close_duplicate' : 'label',
+    duplicateOf: original ? { number: original.number, htmlUrl: original.htmlUrl, title: original.title } : null,
   }
 }
 
@@ -97,6 +106,9 @@ export interface FinalTriage {
   labels: string[]
   priority: Priority | null
   note: string | null
+  /** close_duplicate only when a maintainer approved a proposal to close the issue as a duplicate. */
+  action: TriageAction
+  duplicateOf: Triage['duplicateOf']
 }
 
 /**
@@ -106,12 +118,21 @@ export interface FinalTriage {
  */
 export function resolveTriage(triage: Triage, human: HumanDecision | null): FinalTriage {
   const note = human?.note ?? null
-  if (!human) return { outcome: 'auto', labels: triage.labels, priority: triage.priority, note }
-  if (human.action === 'reject') return { outcome: 'rejected', labels: [], priority: null, note }
+  const none = { action: 'label' as const, duplicateOf: null }
+  if (!human) return { outcome: 'auto', labels: triage.labels, priority: triage.priority, note, ...none }
+  if (human.action === 'reject') return { outcome: 'rejected', labels: [], priority: null, note, ...none }
+  // An edit sets labels and priority only: it does not carry the proposal to close the issue.
   if (human.action === 'edit') {
-    return { outcome: 'edited', labels: human.labels ?? [], priority: human.priority ?? triage.priority, note }
+    return { outcome: 'edited', labels: human.labels ?? [], priority: human.priority ?? triage.priority, note, ...none }
   }
-  return { outcome: 'approved', labels: triage.labels, priority: triage.priority, note }
+  return {
+    outcome: 'approved',
+    labels: triage.labels,
+    priority: triage.priority,
+    note,
+    action: triage.action ?? 'label',
+    duplicateOf: triage.duplicateOf ?? null,
+  }
 }
 
 /** Null when every label is one the maintainer may use: the vocabulary, or a label this proposal offered. */

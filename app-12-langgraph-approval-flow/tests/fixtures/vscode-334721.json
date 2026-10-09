@@ -1,0 +1,240 @@
+{
+ "issue": {
+  "number": 334721,
+  "title": "Compact hamburger menu does not open when clicked",
+  "html_url": "https://github.com/microsoft/vscode/issues/334721",
+  "state": "closed",
+  "state_reason": "duplicate",
+  "created_at": "2026-09-05T15:29:48Z",
+  "updated_at": "2026-09-05T17:59:01Z",
+  "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\n\nDoes this issue occur when all extensions are disabled?: Yes\n\n- VS Code Version: 1.136.1 \n- OS Version: Windows_NT x64 10.0.26200\n\nSteps to Reproduce:\n\n1. Set `\"window.menuBarVisibility\": \"compact\"` in VS Code settings.\n2. Restart VS Code.\n3. Click the hamburger menu (\u2630) in the top-left corner.\n4. The button responds visually, but the menu does not open.\n\nExpected behavior:\n\nThe compact hamburger menu should open and show File, Edit, Selection, View, Go, Run, Terminal, Help, etc.\n\nActual behavior:\n\nNothing opens when the hamburger menu is clicked.\n\nAdditional information:\n\n- Setting `\"window.menuBarVisibility\": \"classic\"` works correctly and shows the normal File / Edit / Selection / View / Go / Run / Terminal / Help menu.\n- I tried reloading the window and fully restarting VS Code.\n- I also tried `\"window.titleBarStyle\": \""
+ },
+ "strict": {
+  "items": [
+   {
+    "number": 144716,
+    "title": "[Linux] Show hamburger menu when \"Show Menu Bar\" option is unchecked.",
+    "html_url": "https://github.com/microsoft/vscode/issues/144716",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2022-03-09T02:45:54Z",
+    "updated_at": "2025-02-16T20:10:31Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! feature_request_template \u26a0\ufe0f\u26a0\ufe0f -->\r\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\r\n<!-- Please search existing issues to avoid creating duplicates. -->\r\n\r\n<!-- Describe the feature you'd like. -->\r\nWhen the Title Bar style is set to _custom_, when unchecking the \"Show Menu Bar\" option in `View > Appearance > Show Menu Bar` or when the Menu Bar Visibility is set to compact a hamburger menu appears. It would be very interesting to have this same feature on Linux when the Title Bar is set to _native_ since even in github.dev it is possible to access this same feature.\r\n![Captura de tela de 2022-03-08 23-35-23](https://user-images.githubusercontent.com/54215258/157362401-a85e4d7e-31db-4e06-8c2d-ee9d45ce70f0.png)\r\n\r\n\r\n**Some screenshots of what it might look like.**\r\n\r\n![Captura de tela de 2022-03-09 00-09-53](https://user-images.githubusercontent.com/54215258/157365466-eda3ff1d-5a7d-4443-a1a8-1b24a5a64d93.png)\r\n![Captura de tela de 2022-03-09 00-10-08](https://user-images.githubusercontent.com/54215258/157365468-5ca044ab-57ac-4acc-9bed-36007ecee7e0.png)\r\n![Captura de tela de 2022-03-09 00-10-17](https://user-images.githubusercontent.com/54215258/157365471-e8444c58-ac39-4ce6-8916-14031191217d.png)\r\n![Captura de tela de 2022-03-09 00-10-50](https://user-images.githubusercontent.com/54215258/157365474-7d15f490-1c3c-45cb-9745-aab1e43ac514.png)\r\n![Captura de tela de 2022-03-09 00-10-53](https://user-images.githu"
+   },
+   {
+    "number": 334721,
+    "title": "Compact hamburger menu does not open when clicked",
+    "html_url": "https://github.com/microsoft/vscode/issues/334721",
+    "state": "closed",
+    "state_reason": "duplicate",
+    "created_at": "2026-09-05T15:29:48Z",
+    "updated_at": "2026-09-05T17:59:01Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\n\nDoes this issue occur when all extensions are disabled?: Yes\n\n- VS Code Version: 1.136.1 \n- OS Version: Windows_NT x64 10.0.26200\n\nSteps to Reproduce:\n\n1. Set `\"window.menuBarVisibility\": \"compact\"` in VS Code settings.\n2. Restart VS Code.\n3. Click the hamburger menu (\u2630) in the top-left corner.\n4. The button responds visually, but the menu does not open.\n\nExpected behavior:\n\nThe compact hamburger menu should open and show File, Edit, Selection, View, Go, Run, Terminal, Help, etc.\n\nActual behavior:\n\nNothing opens when the hamburger menu is clicked.\n\nAdditional information:\n\n- Setting `\"window.menuBarVisibility\": \"classic\"` works correctly and shows the normal File / Edit / Selection / View / Go / Run / Terminal / Help menu.\n- I tried reloading the window and fully restarting VS Code.\n- I also tried `\"window.titleBarStyle\": \""
+   },
+   {
+    "number": 334403,
+    "title": "Compact menu bar (hamburger) button does not open the menu \u2014 regression in 1.136.1",
+    "html_url": "https://github.com/microsoft/vscode/issues/334403",
+    "state": "closed",
+    "state_reason": "duplicate",
+    "created_at": "2026-09-04T03:13:44Z",
+    "updated_at": "2026-09-04T04:30:54Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes/No\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.136.1\n- OS Version: Windows 11 Pro 25H2, build 26200.9168 (x64)\n\nSteps to Reproduce:\n\n1. Set \"window.menuBarVisibility\": \"compact\".\n2. Click the hamburger (\u2630) menu button.\n\nExpected\nThe menu (File / Edit / Selection / View / \u2026) opens.\n\nActual\nNo menu appears. Focus visibly moves elsewhere in the workbench instead of\nopening the menu.\n\n<img width=\"30\" height=\"271\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/a2e7bce8-89db-4efe-a0ed-1dbb0ad1c4ba\" />\n"
+   },
+   {
+    "number": 334447,
+    "title": "Menu Bar Visibility set to compact broken",
+    "html_url": "https://github.com/microsoft/vscode/issues/334447",
+    "state": "closed",
+    "state_reason": "duplicate",
+    "created_at": "2026-09-04T08:48:36Z",
+    "updated_at": "2026-09-04T12:06:07Z",
+    "body": "\nType: <b>Bug</b>\n\nRendering of the menu when the Menu Bar Visibility is set to compact (`\"window.menuBarVisibility\": \"compact\"`) seems to be broken in 1.136.1.\n\nWhen trying to use the menu (clicking on the hamburger) nothing displays, but, navigating with the arrow keys, it seems to be rendering only over the icons in the side bar, see the image below.\n<img width=\"640\" height=\"559\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/23ba5d63-90f6-4218-8dee-19921176e791\" />\n\nVS Code version: Code 1.136.1 (a44adf7f53e00964ab890f9f8758a334f1fc15bc, 2026-09-03T05:06:41Z)\nOS version: Windows_NT x64 10.0.26100\nModes:\n\n<details>\n<summary>System Info</summary>\n\n|Item|Value|\n|---|---|\n|CPUs|Intel(R) Core(TM) i9-10885H CPU @ 2.40GHz (16 x 2400)|\n|GPU Status|2d_canvas: enabled<br>GPU0: VENDOR= 0x8086, DEVICE=0x9bc4 [Intel(R) UHD Graphics], DRIVER_VENDOR=Intel, DRIVER_VERSION=31.0.101.2130 *ACTIVE*<br>GPU1: VENDOR= 0x10de, DEVICE=0x1fb8 [NVIDIA Quadro T2000], DRIVER_VERSION=32.0.15.8092<br>GPU2: VENDOR= 0x1414, DEVICE=0x008c [Microsoft Basic Render Driver], DRIVER_VERSION=10.0.26100.8875<br>Machine model name: <br>Machine model version: <br>direct_rendering_display_compositor: disabled_off_ok<br>gpu_compositing: enabled<br>multiple_raster_threads: enabled_on<br>opengl: enabled_on<br>rasterization: enabled<br>raw_draw: disabled_off_ok<br>skia_graphite: disabled_off<br>trees_in_viz: disabled_off<br>video_decode: enabled<br>video_encode: enabled<br>webgl: enabled<br>webgpu: enabled"
+   },
+   {
+    "number": 334776,
+    "title": "Mini Menu Button unclickable",
+    "html_url": "https://github.com/microsoft/vscode/issues/334776",
+    "state": "closed",
+    "state_reason": "duplicate",
+    "created_at": "2026-09-06T08:29:54Z",
+    "updated_at": "2026-09-06T18:16:46Z",
+    "body": "\nType: <b>Bug</b>\n\n**Steps to Reproduce:**\n1. Open a workspace with the custom/compact title bar (menu bar hidden by default).\n2. Click the Mini Menu Button (\u2630 hamburger icon) at the top-left of the title bar.\n3. Observe that no dropdown menu appears.\n\n**Expected Behavior:**\nClicking the Mini Menu Button should open the application menu (File, Edit, Selection, View, etc.).\n\n**Actual Behavior:**\nNothing happens. The button is completely unresponsive, with no menu, dialog, or error shown to the user.\n\nVS Code version: Code 1.136.1 (a44adf7f53e00964ab890f9f8758a334f1fc15bc, 2026-09-03T05:06:41Z)\nOS version: Linux x64 7.1.13-200.fc44.x86_64\nModes:\n\n<details>\n<summary>System Info</summary>\n\n|Item|Value|\n|---|---|\n|CPUs|13th Gen Intel(R) Core(TM) i5-1340P (16 x 1694)|\n|GPU Status|2d_canvas: enabled<br>GPU0: VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0xa7a0 [ANGLE (Intel, Mesa Intel(R) Iris(R) Xe Graphics (RPL-P), OpenGL ES 3.2 Mesa 26.1.8)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.1.8 *ACTIVE*<br>Machine model name: <br>Machine model version: <br>direct_rendering_display_compositor: disabled_off_ok<br>gpu_compositing: enabled<br>multiple_raster_threads: enabled_on<br>opengl: enabled_on<br>rasterization: enabled<br>raw_draw: disabled_off_ok<br>skia_graphite: disabled_off<br>trees_in_viz: disabled_off<br>video_decode: enabled<br>video_encode: disabled_software<br>vulkan: enabled_on<br>webgl: enabled<br>webgpu: enabled<br>webgpu_on_vk_via_gl_interop: enabled<br>webnn: disabled_off|\n|L"
+   },
+   {
+    "number": 228416,
+    "title": "Menu Bar should become compact when not enough space",
+    "html_url": "https://github.com/microsoft/vscode/issues/228416",
+    "state": "closed",
+    "state_reason": "not_planned",
+    "created_at": "2024-09-13T05:42:48Z",
+    "updated_at": "2025-02-09T02:41:12Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! feature_request_template \u26a0\ufe0f\u26a0\ufe0f -->\r\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\r\n<!-- Please search existing issues to avoid creating duplicates. -->\r\n\r\n<!-- Describe the feature you'd like. -->\r\n\r\nI would like to turn off the menu bar folding feature in ver 1.7.0.\r\n\r\n  Visual Studio Code July 2022\r\n  https://code.visualstudio.com/updates/v1_70#_easier-title-bar-customization\r\n\r\nWhen using a custom title bar, this [menu bar folding] feature causes the menu to collapse depending on what is displayed in the title bar.\r\n\r\nSince the menu is collapsed when the Window is resized, I do not want to have to click the mouse twice or three times to push a certain menu item, depending on the subtle difference in Window size.\r\n\r\nIn my environment, the menu collapses even though the title is displayed in the center of the custom title bar and a blank space still exists on the right side.\r\n\r\nIt would be nice to have the option to switch to the hamburger menu button or not when the custom title bar menu is displayed.\r\n\r\nAlso, the menu bar is collapsed with a three-point leader, but the collapsing behavior is undesirable because there is a margin to the right of the title bar, and we would like to see this behavior improved.\r\n\r\nIt would be nice to have an option to right-align the title bar center, Window: Title, and command center.\r\n\r\n* I am not good at English, so sorry if I don't get the message. I am using machine"
+   },
+   {
+    "number": 208258,
+    "title": "ActivityBar bottom and Window: Menu Bar Visibility don't work well together",
+    "html_url": "https://github.com/microsoft/vscode/issues/208258",
+    "state": "closed",
+    "state_reason": "not_planned",
+    "created_at": "2024-03-20T21:27:32Z",
+    "updated_at": "2024-06-10T18:33:08Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\r\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\r\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\r\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\r\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\r\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\r\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\r\nDoes this issue occur when all extensions are disabled?: Yes/No\r\n\r\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\r\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\r\n\r\n@benibenj \r\n\r\nAs you can see in the gif below that if the \r\n\r\n```\r\nWindow: Menu Bar Visibility       // set to 'compact'\r\n```  \r\n\r\nand the Activity Bar location is `bottom`, the hamburger menu is very minimized when clicked on.\r\n\r\n![activityBarBottomMenuCompact](https://github.com/microsoft/vscode/assets/31813701/1bce3273-b2b7-4a35-a965-180b46a27f33)\r\n\r\nVersion: 1.88.0-insider\r\nCommit: f7c827a5e0ddbba66425ea54e33430bce8f53c84\r\nDate: 2024-03-20T05:49:22.227Z\r\nBrowser: Mozilla/5."
+   },
+   {
+    "number": 154774,
+    "title": "Menu stuck in compact mode",
+    "html_url": "https://github.com/microsoft/vscode/issues/154774",
+    "state": "closed",
+    "state_reason": "completed",
+    "created_at": "2022-07-11T08:39:41Z",
+    "updated_at": "2022-08-25T23:28:47Z",
+    "body": "\r\nIssue Type: <b>Bug</b>\r\n\r\nI don't know how it happened, but I was reading the June 2022 (version 1.69) Release Notes, and had just set the following in user Settings UI:\r\n```jason\r\nworkbench.preferredDarkColorTheme\r\nworkbench.preferredLightColorTheme\r\nworkbench.preferredHighContrastColorTheme\r\nworkbench.preferredHighContrastLightColorTheme\r\n```\r\n...when I looked up and saw the MenuBar had changed to a 'hamberger menu'!\r\n![image](https://user-images.githubusercontent.com/3543506/178220601-d7c61f93-8838-458f-8650-232d25678314.png)\r\n - I restored the defaults for those settings\r\n - I closed Settings UI\r\n - I restarted vscode\r\n - I opened Settings UI\r\n - I found the  `window.menuBarVisibility` was set to `classic`\r\n   - I set `window.menuBarVisibility` to `toggle`\r\n \r\nafter doing this, hitting `alt` key toggled the visibility of the hamburger menu from visible to invisible...but this did NOT restore the full menubar (classic menu)\r\n\r\n   - I restarted vscode\r\n - I tried every option for window.menuBarVisibility (hidden, toggle, etc)\r\n   - with vscode restarts between each change\r\n - I opened user settings.json\r\n   - I confirmed that  `\"window.menuBarVisibility\"` was NOT present \r\n   - I added item: \r\n     - `\"window.menuBarVisibility\": \"classic\"`\r\n   - restarted vscode\r\n\r\nI tried 15 different google searches, rewording the search text each time:\r\n```\r\nvscode menu bar compact\r\nvscode menu bar stuck in compact\r\nvscode menu bar hamburger menu broken\r\nvscode menu bar settings broken"
+   },
+   {
+    "number": 114949,
+    "title": "Test: Merged Web Menu and Web App Icon in Title Bar",
+    "html_url": "https://github.com/microsoft/vscode/issues/114949",
+    "state": "closed",
+    "state_reason": "completed",
+    "created_at": "2021-01-25T19:58:51Z",
+    "updated_at": "2021-03-12T23:36:41Z",
+    "body": "https://github.com/microsoft/vscode/issues/112237\r\n\r\n- [x] macOS @alexdima\r\n- [x] windows @digitarald\r\n- [x] linux @joaomoreno\r\n\r\nComplexity: 2\r\n\r\nAuthors: @sbatten\r\n\r\n\r\n[Create Issue](https://github.com/microsoft/vscode/issues/new?body=Testing+%23114949%0A%0A)\r\n\r\n---\r\n\r\n_Edit from @joaomoreno: This is about the `window.menuBarVisibility` setting on the **web**. Also, take this: https://vscode-web-test-playground.azurewebsites.net/?enter=true_\r\n\r\nWe removed the home indicator icon from the activity bar and merged the underlying menu with the recognizable hamburger menu in the activity bar. This is `compact` mode and the default on web.\r\n\r\nIf not using `compact` mode, the menu will appear in the title bar like it does on Windows Desktop. We have introduced the web app icon to the menu to act as a link to go home.\r\n\r\nPlease test in web: \r\n1. `compact` mode shows a single hamburger menu with both the app menu entries followed by the web contributed entries (such as Go Home)\r\n2. The remaining `window.menuBarVisibility` options show the title bar as appropriate with an app icon and menu bar. The web menu entries are added to the file menu at the end. The `Go Home` entry is replaced by the app icon which acts as a link to go home.\r\n3. Switching visibility works as expected.\r\n"
+   },
+   {
+    "number": 110720,
+    "title": "Web: saw 2 compact menus appear in activity bar",
+    "html_url": "https://github.com/microsoft/vscode/issues/110720",
+    "state": "closed",
+    "state_reason": "completed",
+    "created_at": "2020-11-16T10:46:38Z",
+    "updated_at": "2021-01-07T23:53:53Z",
+    "body": "I cannot reproduce anymore, but I have seen this today in web selfhost after enabling settings sync: 2 hamburger menus appeared in the top left corner of the activity bar.\r\n\r\nCan you do a check if there is the possibility of the compact menu registering itself more than once in the activity bar possibly? I guess somehwere here:\r\n\r\nhttps://github.com/microsoft/vscode/blob/8f9aeb83da26902e21ca41f8d17d204d2ac216cf/src/vs/base/browser/ui/menu/menubar.ts#L516-L520\r\n\r\nPS: I have seen this a while ago in a Codespace as well"
+   }
+  ]
+ },
+ "broad": {
+  "items": [
+   {
+    "number": 334721,
+    "title": "Compact hamburger menu does not open when clicked",
+    "html_url": "https://github.com/microsoft/vscode/issues/334721",
+    "state": "closed",
+    "state_reason": "duplicate",
+    "created_at": "2026-09-05T15:29:48Z",
+    "updated_at": "2026-09-05T17:59:01Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\n\nDoes this issue occur when all extensions are disabled?: Yes\n\n- VS Code Version: 1.136.1 \n- OS Version: Windows_NT x64 10.0.26200\n\nSteps to Reproduce:\n\n1. Set `\"window.menuBarVisibility\": \"compact\"` in VS Code settings.\n2. Restart VS Code.\n3. Click the hamburger menu (\u2630) in the top-left corner.\n4. The button responds visually, but the menu does not open.\n\nExpected behavior:\n\nThe compact hamburger menu should open and show File, Edit, Selection, View, Go, Run, Terminal, Help, etc.\n\nActual behavior:\n\nNothing opens when the hamburger menu is clicked.\n\nAdditional information:\n\n- Setting `\"window.menuBarVisibility\": \"classic\"` works correctly and shows the normal File / Edit / Selection / View / Go / Run / Terminal / Help menu.\n- I tried reloading the window and fully restarting VS Code.\n- I also tried `\"window.titleBarStyle\": \""
+   },
+   {
+    "number": 331838,
+    "title": "Touch: dragging inside a menu dismisses the open submenu instead of scrolling",
+    "html_url": "https://github.com/microsoft/vscode/issues/331838",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-08-20T16:51:15Z",
+    "updated_at": "2026-08-20T17:17:24Z",
+    "body": "Type: <b>Bug</b>\n\nOn a touch screen, dragging a finger inside a menu that has an open submenu dismisses the submenu instead of scrolling. Since a drag is the only way a touch user can scroll, any menu item below the fold of a submenu is unreachable by touch: the gesture for scrolling is the gesture for dismissal.\n\n### Steps to reproduce\n\n1. Open VS Code Web (or the desktop workbench with device emulation + touch) on a small viewport, so the menu bar collapses into the hamburger button and menus get a constrained max-height.\n2. Tap the hamburger, then tap **File** so its submenu opens. On a phone-sized viewport the File submenu overflows and shows a scrollbar.\n3. Drag a finger vertically inside the menu.\n\n**Actual:** the submenu closes at the first drag and focus returns to the parent item. Repeating the drag never scrolls.\n**Expected:** the drag scrolls the submenu; the submenu closes only when the parent menu has actually scrolled.\n\n### Root cause\n\nThree pieces interact, all reproducible on current `main` (32b97f54e2ec0341c32d665e1f6f136db29cfe79):\n\n1. `Gesture.dispatchEvent` delivers a gesture to **every** registered target that contains the initial touch point. A submenu is rendered as a DOM descendant of the parent menu's action item (`SubmenuMenuActionViewItem.createSubmenu`), and both the parent menu and each action item register gesture targets, so one finger movement inside the submenu also reaches the parent menu's `Gesture.Change` handler, which calls `setScrollPosi"
+   },
+   {
+    "number": 332309,
+    "title": "Markdown editor: in \"Open as Preview\", Find is unreachable until the preview is clicked, and the Edit > Find menu never works",
+    "html_url": "https://github.com/microsoft/vscode/issues/332309",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-08-24T12:26:50Z",
+    "updated_at": "2026-10-03T18:57:44Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.134.0 (110a328ea54b42367b803ec53ee0bf52ef26b419, x64)\n- OS Version: Windows 11 Pro, 10.0.26200.9168\n\nOpening a markdown file with the \"Open as Preview\" button leaves the preview without keyboard focus, so Find cannot be opened from the keyboard until the preview is clicked. The Edit > Find menu item never opens the Find widget at all, whether or not the preview has been clicked.\n\nSteps to Reproduce:\n\n1. Open a `.md` file.\n2. Click the \"Open as Preview\" button.\n3. Click the"
+   },
+   {
+    "number": 337503,
+    "title": "Modern UI - Left sidebar has double border in Compact layout",
+    "html_url": "https://github.com/microsoft/vscode/issues/337503",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-09-23T17:29:34Z",
+    "updated_at": "2026-09-24T12:35:19Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.140.0-insider (9cc2a44bf20ac6f4badef53bc9f33dfdb5803378)\n- OS Version: Windows 11\n\nSteps to reproduce:\n\n1. Set the Dark Modern theme\n2. Enable Compact layout\n3. Open the left sidebar (e.g., Files)\n\nSee screenshot below. It's very subtle when zoomed in, but it is visible with a normal zoom level.\n\n<img src=\"https://github.com/user-attachments/assets/ac06760c-7093-43ce-a875-aa818b4f68eb\" />"
+   },
+   {
+    "number": 340724,
+    "title": "Support Alt+click to open links beside the originating panel",
+    "html_url": "https://github.com/microsoft/vscode/issues/340724",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-10-09T13:23:23Z",
+    "updated_at": "2026-10-09T15:28:10Z",
+    "body": "## Feature request\n\nSupport **Alt+click to open a link in an editor to the side of the current panel/editor group**, leaving the originating view visible.\n\n## Motivation\n\nWhen exploring links in a chat response, opening a linked resource in the same editor group can replace the response being used as context. For example, clicking a GitHub issue link in a chat response can open the issue editor in place of the chat. It should be possible to explicitly open the linked resource beside the source instead.\n\n## Proposed behavior\n\n- Alt+click on a link opens its target in an editor group to the side of the group containing the clicked link.\n- Keep the originating panel/view visible and unchanged.\n- Reuse an appropriate adjacent editor group where possible instead of creating another split on every click.\n- Preserve ordinary-click behavior.\n- Propagate the side-opening intent through link handlers and contributed openers, including targets rendered as webview/custom editors, such as GitHub issue editors.\n- Leave external-browser-only targets unaffected when they cannot be opened inside VS Code.\n\nThe placement should be relative to the view containing the clicked link, not an unrelated previously active editor group.\n\n## Example\n\nWith a chat response containing a GitHub issue link visible, Alt+click the issue. The issue opens in an editor beside the chat, so both the response and the issue remain visible."
+   },
+   {
+    "number": 144716,
+    "title": "[Linux] Show hamburger menu when \"Show Menu Bar\" option is unchecked.",
+    "html_url": "https://github.com/microsoft/vscode/issues/144716",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2022-03-09T02:45:54Z",
+    "updated_at": "2025-02-16T20:10:31Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! feature_request_template \u26a0\ufe0f\u26a0\ufe0f -->\r\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\r\n<!-- Please search existing issues to avoid creating duplicates. -->\r\n\r\n<!-- Describe the feature you'd like. -->\r\nWhen the Title Bar style is set to _custom_, when unchecking the \"Show Menu Bar\" option in `View > Appearance > Show Menu Bar` or when the Menu Bar Visibility is set to compact a hamburger menu appears. It would be very interesting to have this same feature on Linux when the Title Bar is set to _native_ since even in github.dev it is possible to access this same feature.\r\n![Captura de tela de 2022-03-08 23-35-23](https://user-images.githubusercontent.com/54215258/157362401-a85e4d7e-31db-4e06-8c2d-ee9d45ce70f0.png)\r\n\r\n\r\n**Some screenshots of what it might look like.**\r\n\r\n![Captura de tela de 2022-03-09 00-09-53](https://user-images.githubusercontent.com/54215258/157365466-eda3ff1d-5a7d-4443-a1a8-1b24a5a64d93.png)\r\n![Captura de tela de 2022-03-09 00-10-08](https://user-images.githubusercontent.com/54215258/157365468-5ca044ab-57ac-4acc-9bed-36007ecee7e0.png)\r\n![Captura de tela de 2022-03-09 00-10-17](https://user-images.githubusercontent.com/54215258/157365471-e8444c58-ac39-4ce6-8916-14031191217d.png)\r\n![Captura de tela de 2022-03-09 00-10-50](https://user-images.githubusercontent.com/54215258/157365474-7d15f490-1c3c-45cb-9745-aab1e43ac514.png)\r\n![Captura de tela de 2022-03-09 00-10-53](https://user-images.githu"
+   },
+   {
+    "number": 332849,
+    "title": "Main Menu opens menus behind the Explorer and code",
+    "html_url": "https://github.com/microsoft/vscode/issues/332849",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-08-27T00:30:35Z",
+    "updated_at": "2026-08-27T06:32:22Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes/No\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.131.0\n- OS Version: Linux Debian 13 (trixie)\n\nSteps to Reproduce:\n\n1. ???\n2. Mouseover the menu bar\n3. Observe menus open _behind_ the Explorer and Code\n\n<img width=\"642\" height=\"389\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/c0275f2d-7390-46b3-99d3-94124f1eff2a\" />\n\nSorry that I don't have reproduction steps, I don't use this menu often and I just noticed it wasn't working today. I never saw this before the new UI refresh.\n\nI was able to see the menus"
+   },
+   {
+    "number": 334511,
+    "title": "UI dropdown menus render behind the main application window after toggling Developer Tools",
+    "html_url": "https://github.com/microsoft/vscode/issues/334511",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-09-04T14:39:23Z",
+    "updated_at": "2026-09-14T21:26:03Z",
+    "body": "### Type\nBug\n\n### Description\nAfter opening the Developer Tools, inspecting elements, and maximizing the Developer Tools view, closing or switching back to the main VS Code window breaks the Z-index/window layering of top-bar dropdown menus. Menu items render behind the main editor window instead of in the foreground.\n\n### Environment\n* **VS Code Version:** 1.88+\n* **OS:** Windows 10 / 11 (Git Bash terminal)\n* **Extensions Disabled:** Yes (`code --disable-extensions`)\n\n### Steps to Reproduce\n1. Launch VS Code with extensions disabled (`code --disable-extensions`).\n2. Open Developer Tools (`Help` > `Toggle Developer Tools` or press `F12`).\n3. Maximize or expand the Developer Tools window to full screen.\n4. Close the Developer Tools window (`F12` or click `X`).\n5. Click on any menu item in the top menu bar (e.g., `File`, `Edit`, `Selection`, `View`).\n\n### Expected Result\nThe dropdown menu opens directly below the clicked item, fully visible in the foreground on top of the main VS Code window.\n\n### Actual Result\nThe dropdown menu renders behind the main application window, hiding the menu choices behind the editor interface."
+   },
+   {
+    "number": 336045,
+    "title": "Second click after selecting from command center interpreted as double click on underlying UI",
+    "html_url": "https://github.com/microsoft/vscode/issues/336045",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-09-13T14:41:46Z",
+    "updated_at": "2026-09-21T13:22:01Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.132\n- OS Version: EndeavourOS current\n\nSteps to Reproduce:\n\n1. Open a fresh window with no files/tabs open\n2. Click the command center (or open the command palette with a keyboard shortcut)\n3. Double-click \"Search for Text\" (or any other entry that does not produce a second long list of options)\n4. Observe that in addition to the clicked menu item performing the correct behavior, a double-click event is sent to the UI behind it. When that UI is an empty main panel, or the "
+   },
+   {
+    "number": 338058,
+    "title": "Add setting to disable custom labels in quick open menu",
+    "html_url": "https://github.com/microsoft/vscode/issues/338058",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-09-25T21:22:31Z",
+    "updated_at": "2026-09-25T21:36:16Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! feature_request_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- Please search existing issues to avoid creating duplicates. -->\n\n<!-- Describe the feature you'd like. -->\n\n#209662 changed the quick open (ctrl+p) menu so that the file names displayed are always the custom labels defined with `workbench.editor.customLabels.patterns`. It would be great if there was a setting like `workbench.quickOpen.customLabels: boolean` to allow disabling this, since it's nice having custom labels in editor tabs, but sometimes it's annoying if they appear in the quick open menu.\n\nThank you\n"
+   },
+   {
+    "number": 340053,
+    "title": "Agents Window bottom-right content breaks the native frame curve",
+    "html_url": "https://github.com/microsoft/vscode/issues/340053",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-10-06T14:33:45Z",
+    "updated_at": "2026-10-06T14:43:43Z",
+    "body": "<!-- \u26a0\ufe0f\u26a0\ufe0f Do Not Delete This! bug_report_template \u26a0\ufe0f\u26a0\ufe0f -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- \ud83d\udd6e Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- \ud83d\udd0e Search existing issues to avoid creating duplicates. -->\n<!-- \ud83e\uddea Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- \ud83d\udca1 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- \ud83d\udd27 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes\n\n<!-- \ud83e\ude93 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- \ud83d\udce3 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist. -->\n- VS Code Version: Code - OSS 1.142.0 (current main)\n- OS Version: macOS 26.7.1\n\nSteps to Reproduce:\n\n1. Open the Agents Window on macOS with a detail editor at the right edge.\n2. Dock the secondary sidebar in the editor, or open an integrated browser in the rightmost editor group.\n3. Inspect the bottom-right corner in both Default and Compact layout density.\n\nThe docked secondary sidebar content can extend through the editor stroke. The integrated browser also keeps its control-tier corner radius where"
+   },
+   {
+    "number": 340741,
+    "title": "Editor Window Chat: section bar \"more\" needs to be double clicked to expand/collapse",
+    "html_url": "https://github.com/microsoft/vscode/issues/340741",
+    "state": "open",
+    "state_reason": null,
+    "created_at": "2026-10-09T15:09:51Z",
+    "updated_at": "2026-10-09T15:10:07Z",
+    "body": "Version: 1.142.0-insider\nCommit: ed380adfe6e65ec56c354a49622b844af3938878\nDate: 2026-10-09T04:19:40Z\nElectron: 43.7.7\nElectronBuildId: 15553055\nChromium: 150.0.7871.250\nNode.js: 24.21.0\nV8: 15.0.245.31-electron.0\n@github/copilot: 1.0.95-0\n@github/copilot-sdk: 1.0.19-preview.0\nOS: Darwin arm64 25.6.0\n\n1. Open a workspace in an Editor Window\n2. Open chat\n3. You need at least 4 chats in your chat history -> at least one of your chats is in the More section\n4. Single-click the More section title, nothing happens, I need to double-click to collapse/expand the section. In the Agents Window this works with single-click"
+   }
+  ]
+ }
+}

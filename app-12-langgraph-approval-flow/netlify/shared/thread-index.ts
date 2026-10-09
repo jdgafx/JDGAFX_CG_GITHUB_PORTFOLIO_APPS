@@ -1,5 +1,5 @@
 import { PRIORITIES, type IssueInput, type Priority, type ThreadEntry, type ThreadStatus } from '../../src/types'
-import type { KeyValueStore } from './store'
+import { storeTimeoutOf, type KeyValueStore } from './store'
 
 /**
  * Thread summaries, one small blob per thread. Each is written only by the run that owns its thread, so two
@@ -11,9 +11,15 @@ import type { KeyValueStore } from './store'
  * time is when its summary was first written. Either way the keys sort by recency, so "the newest 50" can be
  * chosen from the key listing alone. A thread that is waiting for a maintainer also has an empty marker at
  * `waiting/<id>`, so the list can show waiting threads first without reading every summary.
+ *
+ * Every write also leaves an empty marker `updated/<time of this write>-<id>` and removes the one the previous
+ * write left. The marker keys sort by update time, so the list picks the 50 most recently updated threads from
+ * the key listing, not the 50 most recently created. Like the summary, a marker is written only by the run that
+ * owns its thread, and nothing is read, changed and written back as a shared object.
  */
 export const SUMMARY_PREFIX = 'threads/'
 export const WAITING_PREFIX = 'waiting/'
+export const UPDATED_PREFIX = 'updated/'
 /** The single index document of earlier versions. It is read as a fallback for listing and never written. */
 export const LEGACY_INDEX_KEY = 'threads/index'
 /** The list shows this many threads: waiting ones first, then the newest. */
@@ -22,7 +28,12 @@ export const MAX_LISTED_THREADS = 50
 const READ_CONCURRENCY = 8
 /** The list stops starting reads after this long and returns what it has read. */
 const LIST_BUDGET_MS = 6_000
+/** A timed-out summary read is tried once more only when at least this much of the list budget is left. */
+const RETRY_MIN_LEFT_MS = 1_500
 const TITLE_MAX_LENGTH = 70
+
+/** The marker key for a thread whose summary was written at `at`. */
+export const updatedKey = (id: string, at: Date) => `${UPDATED_PREFIX}${at.getTime().toString(16).padStart(12, '0')}-${id}`
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const ID_KEY = new RegExp(`^threads/(${UUID})$`)
@@ -111,7 +122,18 @@ export async function writeThread(
   now: Date = new Date(),
 ): Promise<ThreadEntry> {
   const entry: ThreadEntry = { ...change, updatedAt: now.toISOString() }
-  await store.set(await keyFor(store, change.id, now), JSON.stringify(entry))
+  const key = await keyFor(store, change.id, now)
+  // The previous write's time, so its marker can be removed. A thread's summary is read only by its owner here.
+  const previous = parseEntry(await store.get(key))
+  await store.set(key, JSON.stringify(entry))
+  try {
+    const fresh = updatedKey(change.id, now)
+    await store.set(fresh, '1')
+    const stale = previous ? updatedKey(change.id, new Date(previous.updatedAt)) : null
+    if (stale && stale !== fresh) await store.delete(stale)
+  } catch (err) {
+    console.error(`GraphGate: could not update the recency marker of thread ${change.id}: ${describeError(err)}`)
+  }
   // A plain `threads/<id>` of a random id was written by an earlier version. The summary now lives at its
   // time-ordered key, so the old copy goes, and the thread is listed once.
   if (!startsWithTime(change.id)) {
@@ -236,18 +258,42 @@ export async function listThreadsDetailed(store: KeyValueStore): Promise<ThreadL
   } catch (err) {
     console.error(`GraphGate: could not list the waiting markers: ${describeError(err)}`)
   }
-  const chosen = [...new Set([...waitingKeys, ...keys])].slice(0, MAX_LISTED_THREADS)
+  // The most recently updated threads, by their markers. Threads written before markers existed follow in
+  // creation order, which is also their update order, since they have not been written since.
+  let recentKeys: string[] = []
+  try {
+    const seenIds = new Set<string>()
+    for (const marker of (await store.list(UPDATED_PREFIX)).sort().reverse()) {
+      const id = marker.slice(UPDATED_PREFIX.length + 13)
+      const summary = keyOfId.get(id)
+      if (summary !== undefined && !seenIds.has(id)) {
+        seenIds.add(id)
+        recentKeys.push(summary)
+      }
+    }
+  } catch (err) {
+    recentKeys = []
+    console.error(`GraphGate: could not list the recency markers: ${describeError(err)}`)
+  }
+  const chosen = [...new Set([...waitingKeys, ...recentKeys, ...keys])].slice(0, MAX_LISTED_THREADS)
   const plainChosen = plainKeys.slice(0, MAX_PLAIN_READS)
 
   const failures: unknown[] = []
   const deadline = Date.now() + LIST_BUDGET_MS
-  const readKey = async (key: string) => {
-    try {
-      return parseEntry(await store.get(key)) ?? null
-    } catch (err) {
-      failures.push(err)
-      console.error(`GraphGate: could not read the thread summary ${key}: ${describeError(err)}`)
-      return null
+  const readKey = async (key: string): Promise<ThreadEntry | null> => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return parseEntry(await store.get(key)) ?? null
+      } catch (err) {
+        // A read that timed out is tried once more, if the list budget has room, so one slow moment costs no row.
+        if (attempt === 1 && storeTimeoutOf(err) && deadline - Date.now() > RETRY_MIN_LEFT_MS) {
+          console.error(`GraphGate: the read of thread summary ${key} timed out, trying once more`)
+          continue
+        }
+        failures.push(err)
+        console.error(`GraphGate: could not read the thread summary ${key}: ${describeError(err)}`)
+        return null
+      }
     }
   }
   const read = await mapBounded([...chosen, ...plainChosen], READ_CONCURRENCY, deadline, readKey)

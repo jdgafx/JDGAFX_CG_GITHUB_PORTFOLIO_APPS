@@ -9,6 +9,7 @@ import { BUG, CLASSIFIED_BUG, CLASSIFIED_QUESTION, PROPOSAL, QUESTION } from '..
 
 const reply = { body: 'Thanks for the report.' }
 const classifyRow: TraceRow = { node: 'classify', status: 'ok', ms: 10, model: 'mimo', usage: { total_tokens: 100 }, cost: 0.00001, costSource: 'usage', detail: 'd' }
+const duplicatesRow: TraceRow = { node: 'duplicates', status: 'ok', ms: 15, detail: 'd' }
 const decideRow: TraceRow = { node: 'decide', status: 'ok', ms: 20, detail: 'd' }
 const replyRow: TraceRow = { node: 'reply', status: 'ok', ms: 30, model: 'haiku', usage: { total_tokens: 50 }, cost: 0.00002, costSource: 'estimated', detail: 'd' }
 
@@ -20,39 +21,41 @@ function values(overrides: Partial<GraphValues>): GraphValues {
     humanDecision: null,
     replyDraft: null,
     status: 'running',
-    trace: [classifyRow, decideRow],
+    trace: [classifyRow, duplicatesRow, decideRow],
+    duplicateReport: null,
     ...overrides,
   }
 }
 
 describe('padTrace', () => {
   it('lists every node in graph order, and marks the ones that have not run yet as pending on a waiting thread', () => {
-    const rows = padTrace([classifyRow, decideRow], 'awaiting_approval')
+    const rows = padTrace([classifyRow, duplicatesRow, decideRow], 'awaiting_approval')
     expect(rows.map((row) => [row.node, row.status])).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
       ['review', 'pending'],
       ['reply', 'pending'],
     ])
-    expect(rows[2].detail).toBe('Waiting for a maintainer.')
-    expect(rows[3].detail).toBe('Not run yet.')
+    expect(rows[3].detail).toBe('Waiting for a maintainer.')
+    expect(rows[4].detail).toBe('Not run yet.')
   })
 
   it('marks a node that never ran as skipped on a finished or failed thread, never as pending', () => {
     for (const status of ['completed', 'failed'] as const) {
-      expect(padTrace([classifyRow], status).map((row) => row.status)).toEqual(['ok', 'skipped', 'skipped', 'skipped'])
+      expect(padTrace([classifyRow], status).map((row) => row.status)).toEqual(['ok', 'skipped', 'skipped', 'skipped', 'skipped'])
     }
   })
 
   it('keeps the rows that ran, whatever the thread status', () => {
-    const rows = padTrace([classifyRow, decideRow], 'awaiting_approval')
+    const rows = padTrace([classifyRow, duplicatesRow, decideRow], 'awaiting_approval')
     expect(rows[0]).toBe(classifyRow)
-    expect(rows[1]).toBe(decideRow)
+    expect(rows[2]).toBe(decideRow)
   })
 
   it('explains an automatic path and a failed thread in plain words', () => {
-    expect(padTrace([], 'completed')[2].detail).toBe(NOT_NEEDED_DETAIL)
-    expect(padTrace([], 'failed')[3].detail).toBe('Not run: an earlier step failed.')
+    expect(padTrace([], 'completed')[3].detail).toBe(NOT_NEEDED_DETAIL)
+    expect(padTrace([], 'failed')[4].detail).toBe('Not run: an earlier step failed.')
   })
 })
 
@@ -78,7 +81,7 @@ describe('buildResult', () => {
       values({
         humanDecision: { action: 'edit', labels: ['bug', 'help wanted'], priority: 'medium', note: 'Only the legacy router' },
         replyDraft: reply,
-        trace: [classifyRow, decideRow, { node: 'review', status: 'ok', ms: 5, detail: 'd' }, replyRow],
+        trace: [classifyRow, duplicatesRow, decideRow, { node: 'review', status: 'ok', ms: 5, detail: 'd' }, replyRow],
       }),
     )
     expect(result).toMatchObject({
@@ -91,7 +94,7 @@ describe('buildResult', () => {
       reply,
     })
     expect(result.triage).toMatchObject({ labels: ['bug', 'area: router'], priority: 'high' })
-    expect(result.trace.map((row) => row.node)).toEqual(['classify', 'decide', 'review', 'reply'])
+    expect(result.trace.map((row) => row.node)).toEqual(['classify', 'duplicates', 'decide', 'review', 'reply'])
   })
 
   it('reports the auto path with the proposal as the card, and review skipped', () => {
@@ -100,11 +103,11 @@ describe('buildResult', () => {
       classification: CLASSIFIED_QUESTION,
       triage: decideTriage(QUESTION, CLASSIFIED_QUESTION),
       replyDraft: reply,
-      trace: [classifyRow, decideRow, replyRow],
+      trace: [classifyRow, duplicatesRow, decideRow, replyRow],
     })
     const result = buildResult('thread-2', quiet)
     expect(result).toMatchObject({ outcome: 'auto', path: 'auto', labels: ['question', 'area: dev server'], priority: 'low', humanDecision: null })
-    expect(result.trace[2]).toMatchObject({ node: 'review', status: 'skipped', detail: NOT_NEEDED_DETAIL })
+    expect(result.trace[3]).toMatchObject({ node: 'review', status: 'skipped', detail: NOT_NEEDED_DETAIL })
   })
 
   it('applies nothing on a reject', () => {
@@ -132,7 +135,7 @@ describe('threadViewOf', () => {
     const view = threadViewOf({ threadId: 'thread-5', entry, storage: 'memory', values: values({}), proposal: PROPOSAL, retryable: false })
     expect(view).toMatchObject({ status: 'awaiting_approval', storage: 'memory', result: null })
     expect(view.proposal).toEqual(PROPOSAL)
-    expect(view.trace.map((row) => row.status)).toEqual(['ok', 'ok', 'pending', 'pending'])
+    expect(view.trace.map((row) => row.status)).toEqual(['ok', 'ok', 'ok', 'pending', 'pending'])
   })
 
   it('passes the retryable flag of a failed thread through', () => {

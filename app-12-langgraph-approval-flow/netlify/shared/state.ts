@@ -1,5 +1,5 @@
 import { Annotation } from '@langchain/langgraph'
-import type { Classification, HumanDecision, IssueInput, Reply, RunStatus, TraceRow, Triage } from '../../src/types'
+import type { Classification, DuplicateReport, HumanDecision, IssueInput, Reply, RunStatus, TraceRow, Triage } from '../../src/types'
 
 /** A channel that keeps the value written last, starting from `fallback`. */
 function lastValue<T>(fallback: () => T) {
@@ -13,6 +13,7 @@ function lastValue<T>(fallback: () => T) {
 export const GraphState = Annotation.Root({
   issue: lastValue<IssueInput | null>(() => null),
   classification: lastValue<Classification | null>(() => null),
+  duplicateReport: lastValue<DuplicateReport | null>(() => null),
   triage: lastValue<Triage | null>(() => null),
   humanDecision: lastValue<HumanDecision | null>(() => null),
   replyDraft: lastValue<Reply | null>(() => null),

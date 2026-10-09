@@ -46,6 +46,7 @@ describe('POST /api/start', () => {
     expect(find(frames, 'thread')?.threadId).toMatch(/^[0-9a-f-]{36}$/)
     expect(nodeEnds(frames)).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
       ['review', 'skipped'],
       ['reply', 'ok'],
@@ -60,7 +61,7 @@ describe('POST /api/start', () => {
       reply: { body: 'Thanks for the report. We have triaged this issue.' },
       totals: { costSource: 'estimated', models: ['anthropic/claude-haiku-5.5'] },
     })
-    expect(fetchStub).toHaveBeenCalledTimes(2)
+    expect(fetchStub).toHaveBeenCalledTimes(4)
   })
 
   it('pauses a high-severity bug at review: an interrupt frame carries the proposal and there is no result', async () => {
@@ -70,6 +71,7 @@ describe('POST /api/start', () => {
 
     expect(nodeEnds(frames)).toEqual([
       ['classify', 'ok'],
+      ['duplicates', 'ok'],
       ['decide', 'ok'],
     ])
     expect(frames).toContainEqual({ type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' })
@@ -211,7 +213,7 @@ describe('POST /api/start', () => {
     const frames = parseFrames(await untilSettled(response.text()))
 
     expect(find(frames, 'error')).toBeUndefined()
-    expect(calls).toBe(3)
+    expect(calls).toBe(5)
     const classify = frames.find((frame): frame is Record<string, unknown> => frame !== '[DONE]' && frame.type === 'node_end' && frame.node === 'classify')
     expect(classify).toMatchObject({ status: 'ok', detail: expect.stringMatching(/^Retried once after 8 s timeout\. Read as question/) })
     expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'auto' })

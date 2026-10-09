@@ -103,7 +103,8 @@ export function contradictsLabels(text: string, labels: readonly string[]): bool
 }
 
 /** Why a draft was replaced, or null when it may stay. */
-export function draftProblem(text: string, repo: string, labels: readonly string[]): string | null {
+export function draftProblem(text: string, repo: string, labels: readonly string[], duplicateOf: number | null = null): string | null {
+  if (duplicateOf !== null && !new RegExp(`#${duplicateOf}(?!\\d)`).test(text)) return `did not name the original issue #${duplicateOf}`
   if (claimsPendingApproval(text)) return 'said a decision or review was still pending'
   if (claimsUnearnedWork(text)) return 'claimed work that has not been done'
   if (hasForeignLink(text, repo)) return 'linked outside the issue repository'
