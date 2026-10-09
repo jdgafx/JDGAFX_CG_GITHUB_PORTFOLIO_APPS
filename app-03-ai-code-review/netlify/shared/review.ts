@@ -101,7 +101,7 @@ export function parseReview(text: string): Record<string, unknown> | null {
 export function validateComments(
   raw: unknown,
   lineCount: number,
-  budget = MAX_COMMENTS,
+  budget: number,
 ): { comments: ReviewComment[]; dropped: number } {
   const list: unknown[] = Array.isArray(raw) ? raw : []
   const comments = list

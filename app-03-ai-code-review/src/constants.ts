@@ -11,6 +11,13 @@ export const LANGUAGES = [
   { value: 'go', label: 'Go' },
   { value: 'java', label: 'Java' },
   { value: 'cpp', label: 'C++' },
+  { value: 'c', label: 'C' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'ruby', label: 'Ruby' },
+  { value: 'php', label: 'PHP' },
+  { value: 'kotlin', label: 'Kotlin' },
+  { value: 'swift', label: 'Swift' },
+  { value: 'shell', label: 'Shell' },
   { value: 'css', label: 'CSS' },
   { value: 'html', label: 'HTML' },
   { value: 'sql', label: 'SQL' },
@@ -51,50 +58,31 @@ const FILE_EXTENSIONS: Record<string, string> = {
   cpp: 'cpp',
   java: 'java',
   go: 'go',
+  csharp: 'cs',
+  ruby: 'rb',
+  kotlin: 'kt',
+  shell: 'sh',
 }
 
 export function getFileExt(lang: string): string {
   return FILE_EXTENSIONS[lang] ?? lang
 }
 
-/** Deliberately flawed snippet so the demo has something to find on the first click. */
-export const SAMPLE_CODE = `// User service - sample snippet for CodeLens AI
-const users = []
-
-function addUser(name, email, password) {
-  var id = users.length + 1
-  users.push({ id: id, name: name, email: email, password: password })
-  return id
-}
-
-function findUser(email) {
-  for (var i = 0; i <= users.length; i++) {
-    if (users[i].email == email) {
-      return users[i]
-    }
-  }
-}
-
-async function loadProfile(id) {
-  const res = await fetch('https://api.example.com/users/' + id)
-  const data = await res.json()
-  return data
-}
-
-function renderProfile(user) {
-  const el = document.getElementById('profile')
-  el.innerHTML = '<h2>' + user.name + '</h2><p>' + user.email + '</p>'
-}
-
-function exportAll() {
-  let out = ''
-  users.forEach(function (u) {
-    out = out + JSON.stringify(u) + '\\n'
-  })
-  return out
-}
-
-module.exports = { addUser, findUser, loadProfile, renderProfile, exportAll }
-`
-
-export const SAMPLE_LANGUAGE = 'javascript'
+/**
+ * Public files offered as one-click starts. Only the links are kept here: each file is fetched from GitHub when
+ * chosen. They point at release tags, so the files stay the same size and the line numbers stay put.
+ */
+export const GITHUB_SUGGESTIONS: ReadonlyArray<{ link: string; blurb: string }> = [
+  {
+    link: 'https://github.com/psf/requests/blob/v2.32.3/src/requests/auth.py',
+    blurb: 'HTTP Basic and Digest authentication in the Python requests library.',
+  },
+  {
+    link: 'https://github.com/gorilla/mux/blob/v1.8.1/mux.go',
+    blurb: 'The request router and URL matcher of a widely used Go web toolkit.',
+  },
+  {
+    link: 'https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts',
+    blurb: 'The store at the core of Redux, written in TypeScript.',
+  },
+]

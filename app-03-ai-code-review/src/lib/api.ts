@@ -1,9 +1,8 @@
-import type { ReviewComment, ReviewRun, RunSummary, Severity, StepStatus, TraceStep, Usage } from '../types'
+import { SEVERITIES } from '../constants'
+import type { ReviewComment, ReviewResult, ReviewRun, RunSummary, Severity, StepStatus, TraceStep, Usage } from '../types'
 
 const REQUEST_TIMEOUT_MS = 45_000
-const SEVERITIES: Severity[] = ['critical', 'warning', 'info']
 const STEP_STATUSES: StepStatus[] = ['ok', 'failed', 'skipped']
-const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
 const GENERIC_ERROR = 'The review service is unavailable right now. Please try again.'
 const NETWORK_ERROR = 'Could not reach the server. Check your connection and try again.'
@@ -26,72 +25,51 @@ export function reviewErrorMessage(err: unknown): string {
   return err instanceof ReviewError ? err.message : GENERIC_ERROR
 }
 
-function finite(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function normaliseTrace(raw: unknown): TraceStep[] {
-  if (!Array.isArray(raw)) return []
-  return raw.flatMap((item: unknown): TraceStep[] => {
-    if (!item || typeof item !== 'object') return []
-    const step = item as Record<string, unknown>
-    if (typeof step.name !== 'string' || !STEP_STATUSES.includes(step.status as StepStatus)) return []
-    return [
-      {
-        name: step.name,
-        status: step.status as StepStatus,
-        ms: finite(step.ms),
-        detail: typeof step.detail === 'string' ? step.detail : '',
-        ...(typeof step.tokens === 'number' ? { tokens: step.tokens } : {}),
-        ...(typeof step.cost === 'number' ? { cost: step.cost } : {}),
-      },
-    ]
-  })
+const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+function isComment(value: unknown): value is ReviewComment {
+  return (
+    isRecord(value) &&
+    isNumber(value.line) &&
+    SEVERITIES.includes(value.severity as Severity) &&
+    typeof value.message === 'string' &&
+    typeof value.suggestion === 'string'
+  )
 }
 
-function normaliseUsage(raw: unknown): Usage | null {
-  if (!raw || typeof raw !== 'object') return null
-  const source = raw as Record<string, unknown>
-  const usage: Usage = {}
-  for (const field of USAGE_FIELDS) {
-    const value = source[field]
-    if (typeof value === 'number') usage[field] = value
-  }
-  return Object.keys(usage).length > 0 ? usage : null
+function isStep(value: unknown): value is TraceStep {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    STEP_STATUSES.includes(value.status as StepStatus) &&
+    isNumber(value.ms) &&
+    typeof value.detail === 'string'
+  )
 }
 
-function toComment(item: unknown): ReviewComment[] {
-  if (!item || typeof item !== 'object') return []
-  const c = item as Record<string, unknown>
-  const valid =
-    typeof c.line === 'number' &&
-    typeof c.message === 'string' &&
-    typeof c.suggestion === 'string' &&
-    SEVERITIES.includes(c.severity as Severity)
-  if (!valid) return []
-  return [
-    {
-      line: c.line as number,
-      severity: c.severity as Severity,
-      message: c.message as string,
-      suggestion: c.suggestion as string,
-    },
-  ]
+/** The one check on a successful reply. The server already validated every comment; this keeps a malformed reply from reaching the UI. */
+function isReviewResult(value: unknown): value is ReviewResult {
+  return (
+    isRecord(value) &&
+    isNumber(value.lineCount) &&
+    typeof value.truncated === 'boolean' &&
+    Array.isArray(value.comments) &&
+    value.comments.every(isComment)
+  )
 }
 
-function normaliseRun(raw: unknown): ReviewRun {
-  const payload = (raw ?? {}) as Record<string, unknown>
-  const result = (payload.result ?? {}) as Record<string, unknown>
+/** The trace, usage and timing of a run, or empty values where the reply carried none that could be read. */
+function summaryOf(data: unknown): RunSummary {
+  const reply = isRecord(data) ? data : {}
   return {
-    result: {
-      comments: Array.isArray(result.comments) ? result.comments.flatMap(toComment) : [],
-      lineCount: finite(result.lineCount),
-      truncated: result.truncated === true,
-    },
-    trace: normaliseTrace(payload.trace),
-    usage: normaliseUsage(payload.usage),
-    model: typeof payload.model === 'string' ? payload.model : null,
-    totalMs: finite(payload.totalMs),
+    trace: Array.isArray(reply.trace) && reply.trace.every(isStep) ? reply.trace : [],
+    usage: isRecord(reply.usage) && Object.values(reply.usage).every(isNumber) ? (reply.usage as Usage) : null,
+    model: typeof reply.model === 'string' ? reply.model : null,
+    totalMs: isNumber(reply.totalMs) ? reply.totalMs : 0,
   }
 }
 
@@ -150,17 +128,12 @@ export async function reviewCode(code: string, language: string, signal?: AbortS
       })
     }
 
-    const data = (await response.json().catch(() => null)) as { success?: boolean; error?: unknown } | null
-    const run = normaliseRun(data)
-    if (!response.ok || !data?.success) {
-      throw new ReviewError(serverMessage(response.status, data?.error), {
-        trace: run.trace,
-        usage: run.usage,
-        model: run.model,
-        totalMs: run.totalMs,
-      })
+    const data: unknown = await response.json().catch(() => null)
+    if (!response.ok || !isRecord(data) || data.success !== true) {
+      throw new ReviewError(serverMessage(response.status, isRecord(data) ? data.error : undefined), summaryOf(data))
     }
-    return run
+    if (!isReviewResult(data.result)) throw new ReviewError(GENERIC_ERROR, summaryOf(data))
+    return { result: data.result, ...summaryOf(data) }
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)

@@ -1,10 +1,21 @@
 # CodeLens AI
 
-CodeLens AI reviews a snippet of code. You paste the code, pick its language and run a review. The app returns comments, each with a line number, a severity, a message and a suggested change. Select Line to jump to that line in the editor. The run figures show how long the review took, and the tokens and cost the provider reported. The run trace lists each stage of the review in order.
+CodeLens AI reviews a source file. You paste code or load a public file from GitHub, pick its language and run a review. The app returns comments, each with a line number, a severity, a message and a suggested change. Select Line to jump to that line in the editor. The run figures show how long the review took, and the tokens and cost the provider reported. The run trace lists each stage of the review in order.
 
 What this showcases: a structured JSON review whose line citations are validated against the real file before anything is shown.
 
 Severity levels are `critical`, `warning` and `info`. Critical covers security holes, crashes and data loss risks. Warning covers likely bugs, performance problems and code smells. Info covers style, best practice and refactoring notes.
+
+## Load from GitHub
+
+The visitor enters a public file as a link (`https://github.com/owner/repo/blob/ref/path`, a `raw.githubusercontent.com` link, or `owner/repo/path` for the default branch). The browser fetches it from `api.github.com/repos/{owner}/{repo}/contents/{path}?ref=`, which allows cross-origin calls without a key. The editor is filled with the file, the language is set from the file extension, and a source card shows the repository, branch or tag, path, size, line count and a link to the file on GitHub.
+
+- Three suggested files are offered with one click: `psf/requests` `auth.py` (Python), `gorilla/mux` `mux.go` (Go) and `reduxjs/redux` `createStore.ts` (TypeScript). They point at release tags and are fetched live each time. Nothing is stored in the app.
+- Only `github.com`, `www.github.com` and `raw.githubusercontent.com` links are accepted. Folder links and other hosts are refused with a message.
+- A file over the 50,000 character limit, a binary file, an empty file and a folder are refused with a message that gives the size and the limit. A file is never cut.
+- The text is loaded unchanged except for three things: a byte order mark is dropped, line breaks become LF, and the final line break is dropped. The editor then shows the same line numbers as GitHub, and a review cites the same lines. If the visitor edits the text, the card says so.
+- GitHub allows 60 anonymous requests an hour from one address. When that is used up the page says so and gives the reset time from the `X-RateLimit-Reset` header. Every fetch times out after 15 seconds.
+- A branch name that contains `/` cannot be told apart from a folder in a link. Link to a tag or a commit instead.
 
 ## Pipeline
 
@@ -23,7 +34,7 @@ The review panel shows each comment beside the line it cites, with that line's t
 
 ## Architecture
 
-- **Browser**: a React and Vite app in `src/`. It posts `{ code, language }` to `/api/ai`.
+- **Browser**: a React and Vite app in `src/`. It posts `{ code, language }` to `/api/ai`. It checks the shape of the reply once, in `src/lib/api.ts`, and shows a plain error for a reply that does not match. The GitHub loader is `src/lib/github.ts` (link parsing, extension to language, reply decoding) and `src/components/GitHubLoader.tsx`.
 - **Server**: the Netlify Function `netlify/functions/ai.ts`, served at `/api/ai`. Shared code sits in `netlify/shared/`. `provider.ts` makes the chat call, and `review.ts` builds the prompt and parses and checks the reply.
 - **Provider**: OpenRouter chat completions. The model is one constant, `~anthropic/claude-haiku-latest`, in `netlify/shared/provider.ts`. There is no model picker, and a model field sent by the client is ignored.
 - **Key**: `OPENROUTER_API_KEY` is read only on the server. The browser never receives it.
@@ -51,7 +62,7 @@ Environment variable names:
 Checks:
 
 ```bash
-npm test           # unit and server smoke tests; no test calls a provider
+npm test           # unit and server smoke tests; no test calls a provider or GitHub
 npm run lint
 npm run typecheck
 npm run build

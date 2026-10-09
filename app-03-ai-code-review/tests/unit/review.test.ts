@@ -78,7 +78,7 @@ describe('validateComments', () => {
       { line: 1, severity: 'praise', message: 'unknown severity', suggestion: 's' },
       'junk',
     ]
-    const { comments, dropped } = validateComments(raw, 3)
+    const { comments, dropped } = validateComments(raw, 3, 15)
     expect(comments).toEqual([
       { line: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Guard b === 0' },
     ])
@@ -86,7 +86,7 @@ describe('validateComments', () => {
   })
 
   it('treats a non-array as an empty list', () => {
-    expect(validateComments({ comments: [] }, 10)).toEqual({ comments: [], dropped: 0 })
+    expect(validateComments({ comments: [] }, 10, 15)).toEqual({ comments: [], dropped: 0 })
   })
 
   it('drops a line that is zero, fractional or not a number', () => {
@@ -95,7 +95,7 @@ describe('validateComments', () => {
       { line: 1.5, severity: 'info', message: 'm', suggestion: 's' },
       { line: '2', severity: 'info', message: 'm', suggestion: 's' },
     ]
-    expect(validateComments(raw, 3)).toEqual({ comments: [], dropped: 3 })
+    expect(validateComments(raw, 3, 15)).toEqual({ comments: [], dropped: 3 })
   })
 
   it('drops a comment with an empty message or suggestion', () => {
@@ -103,7 +103,7 @@ describe('validateComments', () => {
       { line: 1, severity: 'warning', message: '   ', suggestion: 'fix' },
       { line: 1, severity: 'warning', message: 'problem', suggestion: '' },
     ]
-    expect(validateComments(raw, 3)).toEqual({ comments: [], dropped: 2 })
+    expect(validateComments(raw, 3, 15)).toEqual({ comments: [], dropped: 2 })
   })
 
   it('keeps no more comments than the budget', () => {
@@ -113,15 +113,8 @@ describe('validateComments', () => {
     expect(dropped).toBe(2)
   })
 
-  it('keeps at most fifteen comments when no budget is given', () => {
-    const raw = Array.from({ length: 16 }, (_, i) => ({ line: i + 1, severity: 'info', message: 'm', suggestion: 's' }))
-    const { comments, dropped } = validateComments(raw, 20)
-    expect(comments).toHaveLength(15)
-    expect(dropped).toBe(1)
-  })
-
   it('caps long text at 600 characters', () => {
     const raw = [{ line: 1, severity: 'info', message: 'x'.repeat(700), suggestion: 's' }]
-    expect(validateComments(raw, 1).comments[0].message).toHaveLength(600)
+    expect(validateComments(raw, 1, 15).comments[0].message).toHaveLength(600)
   })
 })

@@ -119,26 +119,31 @@ describe('reviewErrorMessage', () => {
 })
 
 describe('reviewCode: a completed run', () => {
-  it('normalises the comments, trace, usage and model the server returned', async () => {
+  const okRun = (overrides: Record<string, unknown> = {}) => ({
+    success: true,
+    result: { comments: [], lineCount: 1, truncated: false },
+    trace: [],
+    usage: null,
+    model: null,
+    totalMs: 1,
+    ...overrides,
+  })
+
+  it('returns the comments, trace, usage and model the server sent', async () => {
     fetchStub.mockResolvedValueOnce(
-      jsonResponse({
-        success: true,
-        result: {
-          comments: [
-            { line: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Check b first' },
-            { line: 1, severity: 'praise', message: 'Not a severity we show', suggestion: 'n/a' },
-          ],
-          lineCount: 2,
-          truncated: false,
-        },
-        trace: [
-          { name: 'Model call', status: 'ok', ms: 1200, detail: 'Reply received', tokens: 150, cost: 0.00015 },
-          { name: 'Made up', status: 'done', ms: 1, detail: '' },
-        ],
-        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015, extra: 'ignored' },
-        model: '~anthropic/claude-haiku-latest',
-        totalMs: 1300,
-      }),
+      jsonResponse(
+        okRun({
+          result: {
+            comments: [{ line: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Check b first' }],
+            lineCount: 2,
+            truncated: false,
+          },
+          trace: [{ name: 'Model call', status: 'ok', ms: 1200, detail: 'Reply received', tokens: 150, cost: 0.00015 }],
+          usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015 },
+          model: '~anthropic/claude-haiku-latest',
+          totalMs: 1300,
+        }),
+      ),
     )
     const run = await reviewCode('def divide(a, b):\n    return a / b', 'python')
     expect(run.result).toEqual({
@@ -154,21 +159,30 @@ describe('reviewCode: a completed run', () => {
     expect(run.totalMs).toBe(1300)
   })
 
-  it('reports no usage and no model when the provider sent no numbers or name', async () => {
-    fetchStub.mockResolvedValueOnce(
-      jsonResponse({
-        success: true,
-        result: { comments: [], lineCount: 1, truncated: false },
-        trace: [],
-        usage: { total_tokens: 'many' },
-        model: null,
-        totalMs: 9,
-      }),
-    )
+  it('reports no usage when a figure is not a number', async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse(okRun({ usage: { total_tokens: 'many' } })))
     const run = await reviewCode('x = 1', 'python')
     expect(run.usage).toBeNull()
     expect(run.model).toBeNull()
     expect(run.result.comments).toEqual([])
+  })
+
+  it.each([
+    ['a comment with a severity the page does not show', { comments: [{ line: 1, severity: 'praise', message: 'm', suggestion: 's' }], lineCount: 2, truncated: false }],
+    ['a comment whose line is not a number', { comments: [{ line: '1', severity: 'info', message: 'm', suggestion: 's' }], lineCount: 2, truncated: false }],
+    ['a result without a line count', { comments: [], truncated: false }],
+    ['a result whose comments are not a list', { comments: 'none', lineCount: 1, truncated: false }],
+  ])('refuses a reply with %s, so it never reaches the screen', async (_name, result) => {
+    fetchStub.mockResolvedValueOnce(jsonResponse(okRun({ result })))
+    const err = await failureOf(reviewCode('x = 1', 'python'))
+    expect(err).toBeInstanceOf(ReviewError)
+    expect((err as ReviewError).message).toBe(GENERIC)
+  })
+
+  it('refuses a success reply that carries no result at all', async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ success: true }))
+    const err = await failureOf(reviewCode('x = 1', 'python'))
+    expect((err as ReviewError).message).toBe(GENERIC)
   })
 
   it('sends only the code and language, never a model choice', async () => {

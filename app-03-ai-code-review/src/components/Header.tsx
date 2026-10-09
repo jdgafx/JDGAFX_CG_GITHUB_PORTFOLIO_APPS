@@ -34,7 +34,7 @@ export function Header({ badge }: HeaderProps) {
       <div className="ds-header__inner">
         <div>
           <h1 className="ds-title">CodeLens AI</h1>
-          <p className="ds-subtitle">Paste code, get a line-by-line review with a suggested fix for each comment.</p>
+          <p className="ds-subtitle">Paste code or load a public GitHub file, get a line-by-line review with a suggested fix for each comment.</p>
         </div>
         <span className={`ds-badge ${badge.tone}`}>
           <span className={`ds-dot ${badge.dot}`} aria-hidden="true" />

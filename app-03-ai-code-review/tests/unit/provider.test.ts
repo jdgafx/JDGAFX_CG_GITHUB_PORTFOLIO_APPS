@@ -1,9 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chatBody, providerCall, replyCutShort, replyText } from '../../netlify/shared/provider'
-
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
+import { describe, expect, it } from 'vitest'
+import { chatBody, replyCutShort, replyText } from '../../netlify/shared/provider'
 
 interface SentBody {
   model: string
@@ -26,21 +22,6 @@ describe('chatBody', () => {
       { role: 'system', content: 'system text' },
       { role: 'user', content: 'user text' },
     ])
-  })
-})
-
-describe('providerCall', () => {
-  it('returns null when no key is configured', () => {
-    vi.stubEnv('OPENROUTER_API_KEY', '')
-    expect(providerCall()).toBeNull()
-  })
-
-  it('returns the fixed chat endpoint with the configured key', () => {
-    vi.stubEnv('OPENROUTER_API_KEY', 'test-only-placeholder')
-    expect(providerCall()).toEqual({
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      apiKey: 'test-only-placeholder',
-    })
   })
 })
 

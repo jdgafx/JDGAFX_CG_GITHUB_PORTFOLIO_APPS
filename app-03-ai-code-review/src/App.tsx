@@ -6,7 +6,8 @@ import { ReviewPanel } from './components/ReviewPanel'
 import { RunTrace } from './components/RunTrace'
 import { ReviewError, reviewCode, reviewErrorMessage } from './lib/api'
 import { MAX_CODE_LENGTH } from './lib/limits'
-import { LINE_HEIGHT, SAMPLE_CODE, SAMPLE_LANGUAGE, SEVERITY_CONFIG, SEVERITY_ORDER } from './constants'
+import { LINE_HEIGHT, SEVERITY_CONFIG, SEVERITY_ORDER } from './constants'
+import type { GitHubFile } from './lib/github'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
 
 const ALL_SEVERITIES_ON: Record<Severity, boolean> = { critical: true, warning: true, info: true }
@@ -31,6 +32,8 @@ export default function App() {
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null)
   const [filters, setFilters] = useState<Record<Severity, boolean>>(ALL_SEVERITIES_ON)
   const [copied, setCopied] = useState(false)
+  /** The GitHub file the editor was filled from. Its text is the editor text until the visitor edits it. */
+  const [source, setSource] = useState<GitHubFile | null>(null)
   /** The exact code the shown result was reviewed from. Cited lines are read from this, not from the editor. */
   const [reviewedCode, setReviewedCode] = useState<string | null>(null)
 
@@ -131,15 +134,18 @@ export default function App() {
     setHighlightedLine(null)
   }
 
-  const handleLoadSample = () => {
-    setLanguage(SAMPLE_LANGUAGE)
-    setCode(SAMPLE_CODE)
+  const handleLoaded = (file: GitHubFile, detected: string | null) => {
+    if (detected) setLanguage(detected)
+    setCode(file.text)
+    setSource(file)
     clearResults()
-    textareaRef.current?.focus()
+    textareaRef.current?.scrollTo(0, 0)
+    lineNumbersRef.current?.scrollTo(0, 0)
   }
 
   const handleClear = () => {
     setCode('')
+    setSource(null)
     clearResults()
     textareaRef.current?.focus()
   }
@@ -182,13 +188,14 @@ export default function App() {
             language={language}
             phase={phase}
             highlightedLine={highlightedLine}
+            source={source}
             textareaRef={textareaRef}
             lineNumbersRef={lineNumbersRef}
             onCodeChange={handleCodeChange}
             onLanguageChange={setLanguage}
+            onLoaded={handleLoaded}
             onReview={() => void handleReview()}
             onCancel={handleCancel}
-            onSample={handleLoadSample}
             onClear={handleClear}
           />
 

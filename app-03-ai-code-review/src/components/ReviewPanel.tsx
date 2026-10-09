@@ -138,7 +138,7 @@ export function ReviewPanel({
     content = <div className="ds-empty">No comments were kept from the stopped run.</div>
   } else {
     content = (
-      <div className="ds-empty">No review yet. Load the sample or paste code, then select Review code.</div>
+      <div className="ds-empty">No review yet. Load a file from GitHub or paste code, then select Review code.</div>
     )
   }
 

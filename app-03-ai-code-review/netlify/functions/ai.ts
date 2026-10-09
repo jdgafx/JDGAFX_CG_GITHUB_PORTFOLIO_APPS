@@ -2,13 +2,11 @@ import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
 import type { StepStatus, TraceStep, Usage } from '../../src/types'
 import {
   MAX_OUTPUT_TOKENS,
+  OPENROUTER_CHAT_URL,
   chatBody,
-  providerCall,
   replyCutShort,
   replyText,
-  type ProviderCall,
   type ProviderReply,
-  type ProviderUsage,
 } from '../shared/provider'
 import { buildSystemPrompt, commentBudget, parseReview, validateComments } from '../shared/review'
 
@@ -51,12 +49,12 @@ interface Run {
   headers: Record<string, string>
   started: number
   trace: TraceStep[]
-  usages: ProviderUsage[]
+  usages: Usage[]
   model: string | null
 }
 
 type Checked =
-  | { ok: true; code: string; lang: string; call: ProviderCall }
+  | { ok: true; code: string; lang: string; apiKey: string }
   | { ok: false; status: number; error: string; headers?: Record<string, string> }
 
 type Attempt =
@@ -122,7 +120,7 @@ function record(
   status: StepStatus,
   startedAt: number,
   detail: string,
-  usage?: ProviderUsage,
+  usage?: Usage,
 ): void {
   trace.push({
     name,
@@ -142,7 +140,7 @@ function padSkipped(trace: TraceStep[]): void {
 }
 
 /** Adds up provider-reported usage. A field stays absent unless at least one call reported it. */
-function sumUsage(reports: ProviderUsage[]): Usage | null {
+function sumUsage(reports: Usage[]): Usage | null {
   const total: Usage = {}
   for (const field of USAGE_FIELDS) {
     const values = reports.map((r) => r[field]).filter((v): v is number => typeof v === 'number')
@@ -178,8 +176,8 @@ async function checkRequest(req: Request): Promise<Checked> {
     }
   }
 
-  const call = providerCall()
-  if (!call) return { ok: false, status: 500, error: 'The review service is not configured.' }
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) return { ok: false, status: 500, error: 'The review service is not configured.' }
 
   const declaredLength = Number(req.headers.get('content-length') ?? '0')
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
@@ -206,7 +204,7 @@ async function checkRequest(req: Request): Promise<Checked> {
   }
 
   const lang = typeof language === 'string' && /^[a-z0-9+#. -]{1,24}$/i.test(language) ? language : 'code'
-  return { ok: true, code, lang, call }
+  return { ok: true, code, lang, apiKey }
 }
 
 function providerFailure(status: number): Attempt {
@@ -238,12 +236,12 @@ function providerFailure(status: number): Attempt {
   }
 }
 
-async function callModel(call: ProviderCall, body: string, signal: AbortSignal): Promise<Attempt> {
+async function callModel(apiKey: string, body: string, signal: AbortSignal): Promise<Attempt> {
   try {
-    const response = await fetch(call.url, {
+    const response = await fetch(OPENROUTER_CHAT_URL, {
       method: 'POST',
       signal,
-      headers: { Authorization: `Bearer ${call.apiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body,
     })
     if (!response.ok) return providerFailure(response.status)
@@ -275,11 +273,6 @@ async function callModel(call: ProviderCall, body: string, signal: AbortSignal):
   }
 }
 
-function replyProblem(reply: ProviderReply): 'empty' | 'cut short' | null {
-  if (!replyText(reply)) return 'empty'
-  return replyCutShort(reply) ? 'cut short' : null
-}
-
 function noteReply(run: Run, reply: ProviderReply): void {
   run.usages.push(reply.usage ?? {})
   run.model = reply.model ?? run.model
@@ -295,7 +288,7 @@ async function runReview(
   lines: string[],
   signal: AbortSignal,
 ): Promise<Response> {
-  const { lang, call } = checked
+  const { lang, apiKey } = checked
   const lineCount = lines.length
   const maxComments = commentBudget(lineCount)
 
@@ -313,7 +306,7 @@ async function runReview(
   )
 
   const callAt = Date.now()
-  const first = await callModel(call, body, signal)
+  const first = await callModel(apiKey, body, signal)
   if (!first.ok) {
     record(run.trace, 'Model call', 'failed', callAt, first.detail)
     return endWithError(run, first.message, first.status, first.headers)
@@ -322,10 +315,10 @@ async function runReview(
   noteReply(run, first.reply)
 
   let reply = first.reply
-  const problem = replyProblem(reply)
+  const problem = !replyText(reply) ? 'empty' : replyCutShort(reply) ? 'cut short' : null
   const retryAt = Date.now()
   if (problem) {
-    const retried = await callModel(call, body, signal)
+    const retried = await callModel(apiKey, body, signal)
     if (!retried.ok) {
       record(run.trace, 'Retry', 'failed', retryAt, `First reply was ${problem}. Retry failed: ${retried.detail}`)
       return endWithError(run, retried.message, retried.status, retried.headers)

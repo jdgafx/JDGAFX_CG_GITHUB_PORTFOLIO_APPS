@@ -2,20 +2,24 @@ import type { RefObject } from 'react'
 import { LANGUAGES, getFileExt } from '../constants'
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../lib/limits'
 import type { RunPhase } from '../types'
+import type { GitHubFile } from '../lib/github'
 import { CodeEditor } from './CodeEditor'
+import { GitHubLoader } from './GitHubLoader'
 
 interface ReviewFormProps {
   code: string
   language: string
   phase: RunPhase
   highlightedLine: number | null
+  /** The GitHub file in the editor, if any. */
+  source: GitHubFile | null
   textareaRef: RefObject<HTMLTextAreaElement | null>
   lineNumbersRef: RefObject<HTMLDivElement | null>
   onCodeChange: (value: string) => void
   onLanguageChange: (value: string) => void
+  onLoaded: (file: GitHubFile, detected: string | null) => void
   onReview: () => void
   onCancel: () => void
-  onSample: () => void
   onClear: () => void
 }
 
@@ -24,13 +28,14 @@ export function ReviewForm({
   language,
   phase,
   highlightedLine,
+  source,
   textareaRef,
   lineNumbersRef,
   onCodeChange,
   onLanguageChange,
+  onLoaded,
   onReview,
   onCancel,
-  onSample,
   onClear,
 }: ReviewFormProps) {
   const isRunning = phase === 'running'
@@ -45,8 +50,16 @@ export function ReviewForm({
           <h2 id="code-title" className="ds-section__title">
             Code
           </h2>
-          <p className="ds-section__sub">The snippet to review, and the language it is written in.</p>
+          <p className="ds-section__sub">Load a public file from GitHub or paste code, then set its language.</p>
         </div>
+
+        <GitHubLoader
+          disabled={isRunning}
+          language={language}
+          source={source}
+          edited={source !== null && code !== source.text}
+          onLoaded={onLoaded}
+        />
 
         <div className="ds-field">
           <label className="ds-label" htmlFor="language-select">
@@ -72,13 +85,12 @@ export function ReviewForm({
 
         <CodeEditor
           code={code}
-          fileLabel={`code.${getFileExt(language)}`}
+          fileLabel={source ? source.path.slice(source.path.lastIndexOf('/') + 1) : `code.${getFileExt(language)}`}
           lineCount={lineCount}
           highlightedLine={highlightedLine}
           textareaRef={textareaRef}
           lineNumbersRef={lineNumbersRef}
           onChange={onCodeChange}
-          onSubmit={onReview}
         />
 
         {isOverLimit && (
@@ -90,22 +102,11 @@ export function ReviewForm({
 
         <div className="ds-field">
           <div className="ds-row">
-            <button
-              type="button"
-              className="ds-button"
-              onClick={onSample}
-              disabled={isRunning}
-              aria-describedby="sample-help"
-            >
-              Load sample
-            </button>
             <button type="button" className="ds-button" onClick={onClear} disabled={isRunning || !code}>
               Clear
             </button>
           </div>
-          <p id="sample-help" className="ds-help">
-            Fills the editor with a snippet that has known problems. Clear empties it.
-          </p>
+          <p className="ds-help">Clear empties the editor and the review.</p>
         </div>
 
         <div className="ds-field">
