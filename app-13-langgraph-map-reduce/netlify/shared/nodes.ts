@@ -303,12 +303,29 @@ export function makeNodes(deps: NodeDeps) {
     }
 
     // The review is advisory: coverage comes from key points and citations alone, and flags only add a note.
-    const coverage = computeCoverage({ chunkIds, withPoints, cited })
-    const reviewFlags = [...new Set(flagged)].filter((id) => coverage.covered.includes(id)).sort((a, b) => a - b)
+    const secondCoverage = computeCoverage({ chunkIds, withPoints, cited })
+    const secondFlags = [...new Set(flagged)].filter((id) => secondCoverage.covered.includes(id)).sort((a, b) => a - b)
+
+    // After a retry the second summary replaces the first only if it covers more chunks. Never return less than
+    // the run already had: on a tie or a loss the first-pass summary, coverage and flags are kept.
+    const first = state.retries > 0 ? state.draft : null
+    const keepFirst = first !== null && secondCoverage.covered.length <= first.coverage.covered.length
+    const coverage = keepFirst ? first.coverage : secondCoverage
+    const reviewFlags = keepFirst ? first.reviewFlags : secondFlags
+    const keptSummary = keepFirst ? first.summary : summary
+    let keptNotice: string | null = null
+    if (keepFirst) {
+      const total = chunkIds.length
+      const before = `${first.coverage.covered.length} of ${total}`
+      const after = `${secondCoverage.covered.length} of ${total}`
+      keptNotice = `The retry pass covered ${after} chunks against ${before} in the first pass, so the first-pass summary is kept.`
+      done = { ...done, detail: `${done.detail}. Kept the first-pass summary: it covers ${before} chunks, the retry pass ${after}.` }
+    }
+
     const wantsRetry = coverage.missing.length > 0 && state.retries < MAX_RETRIES
     const skipRetry = wantsRetry && budget.remaining() < MIN_RETRY_BUDGET_MS
     const willRetry = wantsRetry && !skipRetry
-    const notice = skipRetry ? RETRY_SKIPPED_NOTICE : null
+    const notice = skipRetry ? RETRY_SKIPPED_NOTICE : keptNotice
     emit({ type: 'node_end', ...done })
     if (willRetry) {
       emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing ${chunkWord(coverage.missing.length)}` })
@@ -326,7 +343,7 @@ export function makeNodes(deps: NodeDeps) {
       })
     }
     const draft: Outcome = {
-      summary,
+      summary: keptSummary,
       coverage,
       entities: merged.entities,
       retries: state.retries,
@@ -336,6 +353,7 @@ export function makeNodes(deps: NodeDeps) {
       notice,
     }
     return {
+      summary: keptSummary,
       coverage,
       reviewFlags,
       notice,

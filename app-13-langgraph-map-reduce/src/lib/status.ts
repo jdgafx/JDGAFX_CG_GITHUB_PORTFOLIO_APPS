@@ -52,7 +52,8 @@ function hasStarted(view: RunView): boolean {
   return Object.values(view.stages).some((s) => s !== 'idle') || view.branches.some((b) => b.status !== 'idle')
 }
 
-function runningStep(view: RunView): string {
+/** What the run is doing right now, or an empty string in the gap between two steps. */
+export function runningStep(view: RunView): string {
   if (view.stages.split === 'running') return 'Splitting the text into chunks.'
   const retried = view.branches.filter((b) => b.status === 'running' && b.attempts > 1).length
   if (retried > 0) return `Retrying ${formatCount(retried, 'missing chunk')}.`
@@ -71,7 +72,7 @@ function runningStep(view: RunView): string {
 export function statusLine(view: RunView, length: number, valid: boolean): string {
   switch (view.phase) {
     case 'running':
-      return `Analyzing. ${runningStep(view)}`.trim()
+      return `Analyzing. ${runningStep(view) || view.lastStep}`.trim()
     case 'done': {
       const { covered, missing } = view.result?.coverage ?? { covered: [], missing: [] }
       return `Finished. ${covered.length} of ${formatCount(covered.length + missing.length, 'chunk')} covered.`

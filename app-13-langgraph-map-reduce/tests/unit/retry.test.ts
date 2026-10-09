@@ -11,6 +11,7 @@ import type { Frame, RunResult } from '../../src/types/frames'
 const paragraph = (n: number): string => Array.from({ length: 120 }, (_, i) => `term${n}w${i}`).join(' ') + '.'
 const document = (count: number): string => Array.from({ length: count }, (_, i) => paragraph(i + 1)).join('\n')
 const THREE = document(3)
+const FIVE = document(5)
 
 const reply = (text: string, model: string): ChatReply => ({
   text,
@@ -24,10 +25,10 @@ const chunkOf = (user: string): number => Number(/^Chunk (\d+) of/.exec(user)?.[
 const citedIds = (user: string): number[] => [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
 const extractReply = (id: number): ChatReply =>
   reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), MODEL)
-const synthReply = (ids: number[]): ChatReply =>
+const synthReply = (ids: number[], overview = 'First pass summary.'): ChatReply =>
   reply(
     JSON.stringify({
-      overview: 'First pass summary.',
+      overview,
       sections: [{ heading: 'Terms', points: ids.map((id) => ({ text: `Rule ${id} holds.`, chunks: [id] })) }],
     }),
     MODEL,
@@ -41,6 +42,8 @@ interface Script {
   flags?: number[]
   /** the summary cites only these chunks, whatever it is given */
   cite?: number[]
+  /** the second synthesis call cites only these chunks (its overview reads 'Second pass summary.') */
+  citeSecond?: number[]
   /** the second synthesis call fails with a timeout */
   failSecondSynthesis?: boolean
 }
@@ -70,6 +73,7 @@ function scripted(script: Script, seen: Seen): ChatFn {
     }
     seen.synthCalls += 1
     if (script.failSecondSynthesis && seen.synthCalls > 1) throw new ProviderError('timeout')
+    if (script.citeSecond && seen.synthCalls > 1) return synthReply(script.citeSecond, 'Second pass summary.')
     return synthReply(script.cite ?? citedIds(user))
   }
 }
@@ -194,6 +198,46 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
 
     expect(result?.notice).toBe('The retry did not finish in time, so the summary is from the first pass.')
     expect(result?.notice).not.toContain('shorter')
+  })
+})
+
+describe('the retry never lowers coverage', () => {
+  // Chunk 2 times out once, so the first summary cites 1 and 3 (2 of 3). The retry brings chunk 2 back.
+  const first = { failExtract: { 2: 1 } }
+
+  it('keeps the second summary when it covers more chunks', async () => {
+    const { result } = await run(THREE, { ...first })
+
+    expect(result).toMatchObject({ coverage: { covered: [1, 2, 3], missing: [] }, notice: null, retries: 1 })
+    expect(result?.summary.overview).toBe('First pass summary.')
+  })
+
+  it('keeps the first summary when the second covers fewer chunks, and says so in the notice and the trace', async () => {
+    const { result, frames } = await run(THREE, { ...first, citeSecond: [2] })
+
+    expect(result?.summary.overview).toBe('First pass summary.')
+    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
+    expect(result?.notice).toBe('The retry pass covered 1 of 3 chunks against 2 of 3 in the first pass, so the first-pass summary is kept.')
+    const check = frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)
+    expect(check).toMatchObject({ detail: expect.stringContaining('Kept the first-pass summary: it covers 2 of 3 chunks, the retry pass 1 of 3.') })
+    expect(edgeLabels(frames).at(-1)).toBe('1 chunk still missing after the retry')
+  })
+
+  it('keeps the first summary on a tie', async () => {
+    const { result } = await run(THREE, { ...first, citeSecond: [2, 3] })
+
+    expect(result?.summary.overview).toBe('First pass summary.')
+    expect(result?.coverage.covered).toEqual([1, 3])
+    expect(result?.notice).toContain('2 of 3 chunks against 2 of 3')
+  })
+
+  it('takes the second summary when it is better, even if it dropped a chunk the first one cited', async () => {
+    const { result } = await run(FIVE, { failExtract: { 2: 1, 4: 1 }, citeSecond: [2, 3, 4, 5] })
+
+    // First pass cites 1, 3, 5 (3 of 5). The second cites 2, 3, 4, 5 (4 of 5), losing chunk 1.
+    expect(result?.summary.overview).toBe('Second pass summary.')
+    expect(result?.coverage.covered).toEqual([2, 3, 4, 5])
+    expect(result?.notice).toBeNull()
   })
 })
 

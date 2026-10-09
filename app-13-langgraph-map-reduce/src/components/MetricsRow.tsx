@@ -78,14 +78,14 @@ export function MetricsRow({ metrics, phase, rows }: { metrics: RunMetrics | nul
         />
         <Readout label="Total cost" value={metrics ? costValue(metrics.totalCost) : pending} hint={costHint(metrics)} />
         <Readout
-          label="Cheap calls"
+          label="Extract and check calls"
           value={metrics ? costValue(metrics.cheapCost) : pending}
-          hint={metrics ? `${formatCount(metrics.cheapCalls, 'call')}, extract and check` : 'Extract and check'}
+          hint={metrics ? `${formatCount(metrics.cheapCalls, 'call')}, one per chunk plus the review` : 'One per chunk plus the review'}
         />
         <Readout
           label="Synthesis call"
           value={metrics ? costValue(metrics.synthesisCost) : pending}
-          hint="One stronger call per pass"
+          hint="One call per pass, writes the cited summary"
         />
         <div className="ds-strip__item">
           <dt className="ds-strip__label">Models used</dt>

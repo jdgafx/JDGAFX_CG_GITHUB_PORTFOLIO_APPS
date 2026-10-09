@@ -1,4 +1,5 @@
 import type { Frame, RunResult, TraceRow } from '../types/frames'
+import { runningStep } from './status'
 
 export type Status = 'idle' | 'running' | 'ok' | 'failed' | 'stopped'
 export type Phase = 'idle' | 'running' | 'done' | 'error' | 'stopped'
@@ -22,6 +23,8 @@ export interface RunView {
   result: RunResult | null
   error: string | null
   live: string
+  /** The last specific step the status line named, kept through the short gaps between steps. */
+  lastStep: string
 }
 
 export function initialView(): RunView {
@@ -35,6 +38,7 @@ export function initialView(): RunView {
     result: null,
     error: null,
     live: '',
+    lastStep: '',
   }
 }
 
@@ -49,7 +53,14 @@ function upsertBranch(branches: Branch[], chunk: number, patch: Partial<Branch>)
 }
 
 /** Applies one server frame to the view. Pure, so the page and its tests share one reading of the stream. */
+/** Applies one frame, and remembers the step it leaves running so the status line never drops back to a bare verb. */
 export function applyFrame(view: RunView, frame: Frame): RunView {
+  const next = applyFrameToView(view, frame)
+  const step = runningStep(next)
+  return step && step !== next.lastStep ? { ...next, lastStep: step } : next
+}
+
+function applyFrameToView(view: RunView, frame: Frame): RunView {
   switch (frame.type) {
     case 'node_start': {
       if (frame.node === 'extract' && frame.chunk !== undefined) {

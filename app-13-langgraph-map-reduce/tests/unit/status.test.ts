@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stageWord, statusLine } from '../../src/lib/status'
+import { runningStep, stageWord, statusLine } from '../../src/lib/status'
 import { applyFrame, initialView, type RunView } from '../../src/lib/view'
 import type { Frame, TraceRow } from '../../src/types/frames'
 
@@ -17,19 +17,37 @@ describe('the running status line', () => {
     expect(statusLine(running(), 0, true)).toBe('Analyzing. Starting the run.')
   })
 
-  it('does not fall back to the start wording between the check and the retry calls', () => {
+  it('keeps the last specific step through the gap between the check and the retry calls', () => {
     const view = [
       { type: 'node_start', node: 'split', ms: 1, detail: 'Splitting' } as Frame,
       end({ node: 'split' }),
       { type: 'node_start', node: 'extract', ms: 2, detail: 'chunk 1 of 1', chunk: 1 } as Frame,
       end({ node: 'extract', chunk: 1 }),
       end({ node: 'reduce' }),
+      { type: 'node_start', node: 'synthesize', ms: 3, detail: 'Writing' } as Frame,
       end({ node: 'synthesize' }),
+      { type: 'node_start', node: 'check', ms: 4, detail: 'Checking' } as Frame,
       end({ node: 'check' }),
       { type: 'edge', from: 'check', to: 'extract', label: 'retry 1 missing chunk' } as Frame,
     ].reduce(applyFrame, running())
 
-    expect(statusLine(view, 0, true)).toBe('Analyzing.')
+    expect(runningStep(view)).toBe('')
+    expect(statusLine(view, 0, true)).toBe('Analyzing. Checking coverage.')
+  })
+
+  it('keeps the last step between extract and reduce, and between reduce and synthesis', () => {
+    const extracting = [
+      { type: 'node_start', node: 'split', ms: 1, detail: 'Splitting' } as Frame,
+      end({ node: 'split' }),
+      { type: 'edge', from: 'split', to: 'extract', label: 'fan out: 2 chunks', count: 2 } as Frame,
+      { type: 'node_start', node: 'extract', ms: 2, detail: 'chunk 1 of 2', chunk: 1 } as Frame,
+      { type: 'node_start', node: 'extract', ms: 2, detail: 'chunk 2 of 2', chunk: 2 } as Frame,
+    ].reduce(applyFrame, running())
+    const gap = [end({ node: 'extract', chunk: 1 }), end({ node: 'extract', chunk: 2 })].reduce(applyFrame, extracting)
+
+    expect(statusLine(extracting, 0, true)).toBe('Analyzing. 0 of 2 chunks extracted.')
+    expect(runningStep(gap)).toBe('')
+    expect(statusLine(gap, 0, true)).toBe('Analyzing. 1 of 2 chunks extracted.')
   })
 
   it('still names the step that is running', () => {

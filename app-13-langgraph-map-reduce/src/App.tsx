@@ -85,8 +85,8 @@ export default function App() {
             {PHASE_WORD[view.phase]}
           </span>
           <p className="ds-showcase">
-            <strong>What this showcases:</strong> a LangGraph map-reduce: many cheap parallel extractions, one stronger
-            synthesis, and a coverage check that re-runs only what was missed.
+            <strong>What this showcases:</strong> a LangGraph map-reduce: many parallel extractions, one synthesis that
+            cites its chunks, and a coverage check that re-runs only what was missed.
           </p>
         </div>
       </header>
