@@ -5,7 +5,7 @@ import { ProviderError, RunBudgetError, type ProviderKind } from './errors'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 /** Each model call times out after this long. The run budget is the outer limit. */
-export const CALL_TIMEOUT_MS = 12_000
+export const CALL_TIMEOUT_MS = 10_000
 
 export interface ChatMessage {
   role: 'system' | 'user'

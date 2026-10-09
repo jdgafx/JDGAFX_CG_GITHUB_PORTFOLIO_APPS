@@ -43,14 +43,14 @@ export const CHECK: RoleSettings = {
 }
 export const SYNTH: RoleSettings = {
   model: SYNTH_MODEL,
-  maxTokens: 900,
+  maxTokens: 1_200,
   jsonMode: true,
   reasoning: { enabled: false },
   requireParameters: true,
 }
 
-/** Chunk calls that run at once. The rest wait in a queue inside the request. */
-export const EXTRACT_CONCURRENCY = 4
+/** Chunk calls that run at once. 12 is the chunk cap, so every chunk runs together. Any beyond the limit wait in a queue. */
+export const EXTRACT_CONCURRENCY = 12
 /**
  * The coverage retry starts only when at least this much of the run budget is left. A retry needs a
  * pause, a model call and a second synthesis and check, so a shorter remainder would only run out.
@@ -59,4 +59,4 @@ export const MIN_RETRY_BUDGET_MS = 10_000
 /** The graph's own cycle: missing chunks are re-run at most this many times. */
 export const MAX_RETRIES = 1
 /** Pause before each retry call. The retry calls run together, so the pause is paid once. */
-export const RETRY_PAUSE_MS = 1_500
+export const RETRY_PAUSE_MS = 500

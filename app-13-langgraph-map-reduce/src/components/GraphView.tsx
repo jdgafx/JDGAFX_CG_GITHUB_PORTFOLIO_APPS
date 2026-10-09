@@ -63,7 +63,7 @@ export function GraphView({ view }: { view: RunView }) {
         <h2 id="graph-title" className="ds-section__title">
           Graph
         </h2>
-        <p className="ds-section__sub">Each chunk is one extract call, at most four at once. A missed chunk loops back once.</p>
+        <p className="ds-section__sub">Each chunk is one extract call, and the calls run at the same time. A missed chunk loops back once.</p>
       </div>
       <div className="ds-panel graph-panel">
         <p className="graph-scroll-hint">Scroll the graph sideways to see every step.</p>

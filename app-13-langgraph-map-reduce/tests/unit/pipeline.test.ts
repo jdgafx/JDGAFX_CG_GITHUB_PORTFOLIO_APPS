@@ -62,7 +62,12 @@ interface Collected {
 }
 
 /** Runs the pipeline against a scripted model layer and collects every frame it sends. */
-async function run(source: string, chat: ChatFn, budget: RunBudget = new RunBudget(60_000)): Promise<Collected> {
+async function run(
+  source: string,
+  chat: ChatFn,
+  budget: RunBudget = new RunBudget(60_000),
+  limits: { extractConcurrency?: number } = { extractConcurrency: 4 },
+): Promise<Collected> {
   const frames: Frame[] = []
   try {
     await runPipeline({
@@ -70,6 +75,7 @@ async function run(source: string, chat: ChatFn, budget: RunBudget = new RunBudg
       budget,
       chat,
       retryPauseMs: 0,
+      extractConcurrency: limits.extractConcurrency,
       sink: (frame) => {
         frames.push(frame)
       },
@@ -250,7 +256,7 @@ describe('the coverage retry needs enough budget', () => {
 })
 
 describe('chunks are announced as started only when a slot opens', () => {
-  it('never has more than four extract calls started and not yet ended, with nine chunks', async () => {
+  it('never has more than four extract calls started and not yet ended when the limit is four, with nine chunks', async () => {
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
       if (request.model === EXTRACT_MODEL) {
@@ -283,6 +289,38 @@ describe('chunks are announced as started only when a slot opens', () => {
     expect(peak).toBe(4)
     expect(started.size).toBe(9)
     expect(open).toBe(0)
+  })
+
+  it('runs every one of nine chunks at once with the default limit', async () => {
+    let inFlight = 0
+    let peak = 0
+    const chat: ChatFn = async (request) => {
+      const user = lastMessage(request)
+      if (request.model === EXTRACT_MODEL) {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise<void>((resolve) => setTimeout(resolve, 20))
+        inFlight -= 1
+        return extractReply(chunkOf(user))
+      }
+      if (request.model === CHECK_MODEL) return noOmissions()
+      const all = citedIds(user)
+      const body = { overview: 'Summary.', sections: [{ heading: 'Terms', points: [{ text: 'All rules hold.', chunks: all }] }] }
+      return reply(JSON.stringify(body), SYNTH_MODEL)
+    }
+
+    const { frames, errors } = await run(document(9), chat, undefined, {})
+
+    let open = 0
+    let peakOpen = 0
+    for (const frame of frames) {
+      if (frame.type === 'node_start' && frame.node === 'extract') open += 1
+      peakOpen = Math.max(peakOpen, open)
+      if (frame.type === 'node_end' && frame.node === 'extract') open -= 1
+    }
+    expect(errors).toEqual([])
+    expect(peak).toBe(9)
+    expect(peakOpen).toBe(9)
   })
 
   it('tells the page how many chunks the split made, so waiting chunks can be shown', async () => {
@@ -367,8 +405,8 @@ describe('a rate limit on one chunk costs that chunk only', () => {
     expect(errors).toEqual(['Rate limited, try again in a minute.'])
   })
 
-  it('keeps the pause before a retry at 1.5 seconds', () => {
-    expect(RETRY_PAUSE_MS).toBe(1_500)
+  it('keeps the pause before a retry at half a second', () => {
+    expect(RETRY_PAUSE_MS).toBe(500)
   })
 })
 

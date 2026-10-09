@@ -108,8 +108,8 @@ export function makeNodes(deps: NodeDeps) {
 
   /**
    * One chunk. It is announced as started when the limiter hands it a slot, and its row is written before
-   * the slot is given up, so a waiting chunk is never shown as running and at most EXTRACT_CONCURRENCY
-   * chunks are open at once. A rate limit, a timeout, a server error or a refused request costs this
+   * the slot is given up, so a waiting chunk is never shown as running and no more chunks than the limiter
+   * allows are open at once. A rate limit, a timeout, a server error or a refused request costs this
    * chunk only, and the coverage check may retry it once after a pause. A rejected key halts every
    * parallel call.
    */

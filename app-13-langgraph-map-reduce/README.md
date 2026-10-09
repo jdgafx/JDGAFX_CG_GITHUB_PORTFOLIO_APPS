@@ -13,7 +13,7 @@ START
   |
 split ---- fan out: one Send per chunk (conditional edge) ----+
   |                                                           |
-  |        extract x N, parallel, at most 4 model calls <-----+
+  |        extract x N, parallel, all at once           <-----+
   |                                                           |
   +<----------------------------------------------------------+
   |
@@ -38,10 +38,10 @@ Conditional edges:
 
 Cycles and limits:
 
-- One cycle only. The retry runs at most once, after a 1.5 s pause, and only for chunks that are missing. It starts only if at least 10 s of the run budget remain. Otherwise the first-pass summary is kept and a notice says the retry was skipped to stay inside the time limit.
+- One cycle only. The retry runs at most once, after a 0.5 s pause, and only for chunks that are missing. It starts only if at least 10 s of the run budget remain. Otherwise the first-pass summary is kept and a notice says the retry was skipped to stay inside the time limit.
 - At most 12 chunks. A long text gets larger chunks, not more of them.
-- At most 4 extract calls run at once. The rest wait inside the request.
-- Each model call times out after 12 s. The whole run has a 25 s budget, so the server always ends the stream itself, with a result or an error message and then [DONE], before the platform closes the function. The live Netlify site was seen closing it at about 30 s, although the documented limit is 60 s.
+- Up to 12 extract calls run at once. 12 is also the chunk cap, so every chunk runs at the same time. A lower limit would make the rest wait inside the request.
+- Each model call times out after 10 s. The whole run has a 23 s budget, so the server always ends the stream itself, with a result or an error message and then [DONE], before the platform closes the function. The live Netlify site was seen closing it at about 30 s, although the documented limit is 60 s. The budget clock starts after about 3 s of start-up and network, so 23 s ends near 26 s as the browser sees it.
 
 Which node uses which model, and why. Prices are OpenRouter list prices per 1M tokens, checked 2026-10-08.
 
@@ -49,7 +49,7 @@ Which node uses which model, and why. Prices are OpenRouter list prices per 1M t
 | --- | --- | --- | --- | --- |
 | extract (one call per chunk) | meta-llama/llama-3.1-8b-instruct | 400 | $0.05 / $0.08 | Many calls, so it must be cheap and fast. It does not reason, so the whole 400 tokens go to the answer. openai/gpt-oss-20b was rejected: its reasoning cannot be turned off, it spent nearly all 400 tokens on hidden reasoning and returned no JSON |
 | check (one call per run) | xiaomi/mimo-v2.6-flash | 300 | $0.14 / $0.28 | Short review of the summary, cheap |
-| synthesize (one call per pass) | ~anthropic/claude-haiku-latest | 900 | $0.10 / $0.50 | The one stronger call, for the cited summary |
+| synthesize (one call per pass) | ~anthropic/claude-haiku-latest | 1200 | $0.10 / $0.50 | The one stronger call, for the cited summary |
 
 Every call sets `usage: { include: true }`, so OpenRouter reports its cost. When a call reports no cost, the app estimates it from the list prices above and labels the figure "estimated".
 

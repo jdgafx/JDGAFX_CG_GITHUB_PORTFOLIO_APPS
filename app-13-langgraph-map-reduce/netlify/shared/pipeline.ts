@@ -9,20 +9,23 @@ import { CALL_TIMEOUT_MS, chat, type ChatFn } from './openrouter'
 
 /**
  * One run's budget. The live Netlify site closed the function at about 30 s, not at the documented 60 s,
- * so the run ends itself at 25 s and always has time to write an error frame or the result, then [DONE].
+ * so the run ends itself and always has time to write an error frame or the result, then [DONE]. The clock
+ * starts only after about 3 s of live start-up and network, so 23 s lands near 26 s on the client.
  */
-export const RUN_BUDGET_MS = 25_000
+export const RUN_BUDGET_MS = 23_000
 
 export interface PipelineOptions {
   text: string
   budget: RunBudget
   sink: (frame: Frame) => void
-  /** Timeout for each model call. Defaults to 12 s. */
+  /** Timeout for each model call. Defaults to 10 s. */
   callTimeoutMs?: number
   /** Replaces the provider call. Tests use it to script the model layer. */
   chat?: ChatFn
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
+  /** Extract calls that run at once. Defaults to EXTRACT_CONCURRENCY. */
+  extractConcurrency?: number
 }
 
 /** The check update as the stream carries it. */
@@ -55,7 +58,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
   try {
     const graph = buildGraph({
       chat: call,
-      limiter: createLimiter(EXTRACT_CONCURRENCY),
+      limiter: createLimiter(options.extractConcurrency ?? EXTRACT_CONCURRENCY),
       budget,
       retryPauseMs: options.retryPauseMs ?? RETRY_PAUSE_MS,
     })

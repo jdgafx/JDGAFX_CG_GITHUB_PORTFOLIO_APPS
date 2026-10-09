@@ -239,7 +239,7 @@ describe('chat', () => {
     expect(error.message).toBe('Could not reach the AI provider.')
   })
 
-  it('gives up after 12 seconds with a non-fatal timeout', async () => {
+  it('gives up after 10 seconds with a non-fatal timeout', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
 
@@ -247,7 +247,7 @@ describe('chat', () => {
     await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)
     const error = (await pending) as ProviderError
 
-    expect(CALL_TIMEOUT_MS).toBe(12_000)
+    expect(CALL_TIMEOUT_MS).toBe(10_000)
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
   })
