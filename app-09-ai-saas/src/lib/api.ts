@@ -1,4 +1,4 @@
-import type { SummaryStats } from './mockData'
+import type { Summary } from '../../netlify/shared/contract'
 
 const INSIGHTS_ENDPOINT = '/api/ai'
 const SSE_PREFIX = 'data: '
@@ -23,10 +23,10 @@ export interface TraceStep {
 
 /** The five stages the server runs, in order, each with what it does in plain words. */
 export const TRACE_STAGES: ReadonlyArray<{ name: string; does: string }> = [
-  { name: 'Build request', does: 'Builds the prompt from the five summary figures.' },
+  { name: 'Build request', does: 'Builds the prompt from the summary figures.' },
   { name: 'Call model', does: 'Sends one chat request to the model, with a fixed output limit.' },
   { name: 'Stream answer', does: 'Passes each piece of the answer to this page as it arrives.' },
-  { name: 'Check figures', does: 'Matches each percentage, millisecond and dollar figure to the snapshot.' },
+  { name: 'Check figures', does: 'Matches each percentage and download count to the summary.' },
   { name: 'Validate output', does: 'Fails an empty answer, or one cut off before it finished.' },
 ]
 
@@ -47,7 +47,6 @@ export interface RunOutcome {
 }
 
 export interface RunHandlers {
-  onStage: (stage: string) => void
   onStep: (step: TraceStep) => void
   onText: (text: string) => void
   onComplete: (outcome: RunOutcome) => void
@@ -65,7 +64,7 @@ export class RunError extends Error {
 }
 
 interface Frame extends Partial<RunOutcome> {
-  stage?: string
+  stage?: 'complete'
   step?: TraceStep
   text?: string
   error?: string
@@ -110,8 +109,6 @@ function consumeSseLine(line: string, handlers: RunHandlers): boolean {
       model: frame.model ?? null,
       totalMs: frame.totalMs ?? 0,
     })
-  } else if (frame.stage) {
-    handlers.onStage(frame.stage)
   }
   return false
 }
@@ -123,12 +120,12 @@ function messageForStatus(status: number): string {
   return GENERIC_MESSAGE
 }
 
-async function send(metrics: SummaryStats, signal: AbortSignal): Promise<Response> {
+async function send(summary: Summary, signal: AbortSignal): Promise<Response> {
   try {
     return await fetch(INSIGHTS_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metrics }),
+      body: JSON.stringify({ summary }),
       signal,
     })
   } catch (err) {
@@ -164,10 +161,10 @@ async function readStream(body: ReadableStream<Uint8Array>, handlers: RunHandler
 }
 
 /**
- * Posts the summary and streams the answer to the handlers. Resolves when the stream ends.
+ * Posts the summary figures and streams the answer to the handlers. Resolves when the stream ends.
  * Rejects with a RunError (plain words) or an AbortError (the viewer stopped the run).
  */
-export async function getInsights(metrics: SummaryStats, handlers: RunHandlers): Promise<void> {
+export async function getInsights(summary: Summary, handlers: RunHandlers): Promise<void> {
   // Cancel any in-flight request before starting a new one
   abortInsights()
 
@@ -180,7 +177,7 @@ export async function getInsights(metrics: SummaryStats, handlers: RunHandlers):
   }, CLIENT_TIMEOUT_MS)
 
   try {
-    const response = await send(metrics, controller.signal)
+    const response = await send(summary, controller.signal)
     if (!response.ok) throw new RunError(messageForStatus(response.status))
     if (!response.body) throw new RunError('The insights service returned no response. Please try again.')
     await readStream(response.body, handlers)

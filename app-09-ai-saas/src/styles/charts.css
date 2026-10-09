@@ -1,0 +1,111 @@
+/* Charts for InsightHub. */
+
+/* Charts: sections separated by rules. Each series takes its colour from the package's place in the selection. */
+.hub-charts {
+  display: grid;
+  gap: 32px;
+  min-width: 0;
+}
+
+.hub-chart {
+  min-height: 260px;
+  min-width: 0;
+}
+
+.hub-chart .recharts-cartesian-grid line {
+  stroke: var(--ds-border, #d3dae4);
+}
+
+.hub-chart .recharts-cartesian-axis-tick-value {
+  fill: var(--ds-text-muted, #56637a);
+}
+
+.hub-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.hub-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hub-share-chart {
+  display: grid;
+  gap: 16px;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 720px) {
+  .hub-share-chart {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+.hub-donut {
+  position: relative;
+  min-width: 0;
+}
+
+.hub-donut__center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+  font-size: 22px;
+  font-weight: 750;
+}
+
+.hub-share-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hub-share-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 64px;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.hub-share-list__name {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.hub-share-list .ds-help {
+  text-align: right;
+}
+
+.hub-scale {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.hub-scale input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--ds-accent);
+}
+
+.hub-scale > span {
+  display: grid;
+  gap: 2px;
+}

@@ -95,7 +95,6 @@ export async function readProviderStream(
 
     const delta = choice?.delta?.content
     if (typeof delta !== 'string' || delta === '') return
-    if (answer.chunks === 0) emit({ stage: 'streaming' })
     answer.chunks += 1
     answer.text += delta
     emit({ text: delta })

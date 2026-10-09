@@ -4,12 +4,11 @@ interface AppShellProps {
   /** One line under the app name saying what this screen does. */
   purpose: string
   badge?: ReactNode
-  actions?: ReactNode
   children: ReactNode
 }
 
 /** Header with the showcase callout, main, and the byline footer shared by every screen. */
-export default function AppShell({ purpose, badge, actions, children }: AppShellProps) {
+export default function AppShell({ purpose, badge, children }: AppShellProps) {
   return (
     <div className="ds-app">
       <header className="ds-header">
@@ -29,15 +28,10 @@ export default function AppShell({ purpose, badge, actions, children }: AppShell
               <p className="ds-subtitle">{purpose}</p>
             </div>
           </div>
-          {(badge || actions) && (
-            <div className="ds-row">
-              {badge}
-              {actions}
-            </div>
-          )}
+          {badge && <div className="ds-row">{badge}</div>}
           <p className="ds-showcase">
-            <strong>What this showcases:</strong> a streamed AI analysis whose numbers are checked against the
-            dashboard's own figures. The data is a seeded demo dataset, not customer data.
+            <strong>What this showcases:</strong> a live analytics dashboard on public npm download data, with a
+            streamed AI analysis whose numbers are checked against the dashboard's own figures.
           </p>
         </div>
       </header>

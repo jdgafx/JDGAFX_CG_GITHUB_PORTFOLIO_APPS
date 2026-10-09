@@ -1,113 +1,65 @@
-/** Summary figures the dashboard sends. Every field is a finite number once checked by parseInsightRequest. */
-export interface Metrics {
-  totalApiCalls: number
-  totalTokens: number
-  avgResponseTime: number
-  totalCost: number
-  avgErrorRate: number
-  apiCallsTrend: number
-  tokensTrend: number
-  responseTimeTrend: number
-  costTrend: number
-  errorRateTrend: number
-}
-
-/** Days on each side of the metric comparison. */
-export const COMPARISON_DAYS = 15
-
-/** Figures the prompt carries: five values and five trends. */
-export const METRIC_COUNT = 10
+import { halfWindow, isValidPackageName, MAX_PACKAGES, type PackageFigures, type Summary } from './contract'
 
 function signed(value: number): string {
   return `${value > 0 ? '+' : ''}${value}%`
 }
 
-
-/** Whole-number count with thousands separators, for derived per-call figures. */
+/** Whole-number count with thousands separators, the form the figure check reads back. */
 function count(value: number): string {
   return Math.round(value).toLocaleString('en-US')
 }
 
-/** The relative change of a ratio whose numerator grew by `top` percent and denominator by `bottom` percent. */
-function ratioChange(top: number, bottom: number): number {
-  return ((1 + top / 100) / (1 + bottom / 100) - 1) * 100
+/** Rounds to a number of decimal places, halves up. */
+function roundTo(value: number, decimals: number): number {
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
 }
 
-/** "slightly", "moderately" or "sharply", by the size of a percentage change. */
-function adverbFor(change: number): string {
-  const size = Math.abs(change)
-  return size < 2 ? 'slightly' : size < 10 ? 'moderately' : 'sharply'
+/** How far weekends sit below (or above) weekdays, in percent of the weekday level. */
+function weekendGap(weekendPct: number): number {
+  return roundTo(Math.abs(100 - weekendPct), 1)
 }
 
-/** Compares two growth rates in words and gives the derived change, so the model cannot get direction or size wrong. */
-function compareGrowth(a: string, aTrend: number, b: string, bTrend: number, ratio: string): string {
-  const change = ratioChange(aTrend, bTrend)
-  if (aTrend === bTrend) return `${a} and ${b} grew at the same rate, so ${ratio} is unchanged.`
-  const faster = aTrend > bTrend ? a : b
-  const slower = aTrend > bTrend ? b : a
-  const direction = change > 0 ? 'rose' : 'fell'
-  return `${faster} grew faster than ${slower}, so ${ratio} ${direction} ${adverbFor(change)} (about ${Math.abs(change).toFixed(1)}%).`
+function packageLine(p: PackageFigures, withShare: boolean): string {
+  const change = p.changePct === null ? 'not available (the earlier half had no downloads)' : signed(p.changePct)
+  const weekend =
+    p.weekendPct === null
+      ? 'not available'
+      : `weekend days run at ${p.weekendPct}% of weekday downloads (${weekendGap(p.weekendPct)}% ${p.weekendPct <= 100 ? 'lower' : 'higher'})`
+  const share = withShare ? `; ${p.sharePct}% of the selection's downloads` : ''
+  return `- ${p.name}: ${count(p.total)} downloads in total; ${count(p.avgPerDay)} per day on average; change ${change}; ${weekend}${share}`
 }
 
-/** The derived ratio changes the prompt states, so a quoted derived percentage counts as a snapshot figure. */
-export function derivedTrends(m: Metrics): number[] {
-  return [
-    ratioChange(m.tokensTrend, m.apiCallsTrend),
-    ratioChange(m.costTrend, m.tokensTrend),
-    ratioChange(m.costTrend, m.apiCallsTrend),
-  ]
-}
+/** The prompt. It states only the summary figures and asks for plain text. */
+export function buildPrompt(s: Summary): string {
+  const half = halfWindow(s.windowDays)
+  const noun = s.packages.length === 1 ? 'this npm package' : `these ${s.packages.length} npm packages`
+  return `You are an expert in the JavaScript ecosystem. Analyze the daily download figures for ${noun} from the public npm registry and give 4-5 concise, specific insights.
 
-/**
- * Per-call figures now and before, and which rate grew faster, with the derived change in percent. The derived
- * percentages are part of the snapshot pool, so the figure check accepts them when the model quotes them.
- */
-export function derivedNotes(m: Metrics): string {
-  const callsBefore = m.totalApiCalls / (1 + m.apiCallsTrend / 100)
-  const tokensBefore = m.totalTokens / (1 + m.tokensTrend / 100)
-  const perCallNow = m.totalApiCalls > 0 ? m.totalTokens / m.totalApiCalls : 0
-  const perCallBefore = callsBefore > 0 ? tokensBefore / callsBefore : 0
-  return [
-    `- Tokens per call: about ${count(perCallNow)} now, about ${count(perCallBefore)} before.`,
-    `- ${compareGrowth('Tokens', m.tokensTrend, 'API calls', m.apiCallsTrend, 'tokens per call')}`,
-    `- ${compareGrowth('Cost', m.costTrend, 'tokens', m.tokensTrend, 'cost per token')}`,
-    `- ${compareGrowth('Cost', m.costTrend, 'API calls', m.apiCallsTrend, 'cost per call')}`,
-  ].join('\n')
-}
+Window: ${s.startDate} to ${s.endDate} (${s.windowDays} days, ${s.observedDays} of them with data from npm). "Change" compares the last ${half} days with the ${half} days before them, per day with data.
 
-/** The prompt. It names only the snapshot figures and asks for plain text. */
-export function buildPrompt(m: Metrics): string {
-  const vs = `vs prev ${COMPARISON_DAYS} days`
-  return `You are an expert SaaS analytics consultant. Analyze these API usage metrics from the last ${COMPARISON_DAYS} days and provide 4-5 concise, actionable insights:
+Packages:
+${s.packages.map((p) => packageLine(p, s.packages.length > 1)).join('\n')}
 
-Metrics:
-- Total API Calls: ${m.totalApiCalls.toLocaleString('en-US')} (${signed(m.apiCallsTrend)} ${vs})
-- Total Tokens: ${m.totalTokens.toLocaleString('en-US')} (${signed(m.tokensTrend)} ${vs})
-- Average Response Time: ${m.avgResponseTime}ms (${signed(m.responseTimeTrend)} ${vs})
-- Error Rate: ${m.avgErrorRate}% of requests (${signed(m.errorRateTrend)} ${vs})
-- Total Cost: $${m.totalCost} (${signed(m.costTrend)} ${vs})
-
-Derived comparisons (already worked out from the figures above; when you mention one, use its direction, its size word and its percentage exactly as given):
-${derivedNotes(m)}
-
-Note that lower response time, error rate and cost are improvements. Provide specific, data-driven insights, using only the figures listed above. Do not invent percentages, rankings, or per-endpoint or per-customer numbers. When you compare two growth rates, say which one is larger using the derived comparisons. Be direct and actionable. Format as numbered insights with brief explanations.
+Use only the figures listed above. Do not invent numbers, rankings, versions, release dates or reasons stated as fact; explain a pattern only as a possibility. Quote a download count in full or in millions or billions (for example 1.2 billion). You may state how many times larger one package is than another, using the listed figures. When you compare packages, say which one is growing fastest and which slowest using the change figures. Downloads count installs, including CI and mirrors, so they measure install volume, not users. Be direct and actionable. Format as numbered insights with brief explanations.
 
 Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
 }
 
-type Unit = '%' | 'ms' | '$'
-
 type Sign = 1 | -1 | 0
 
 /**
- * A figure the check can match: a dollar amount, or a number followed by % or ms. Plain counts
- * and the day window are not figures to check.
+ * A figure the check can match: a percentage, a count with a scale word (1.2 billion, 41k), a count
+ * with thousands separators (35,968,597), or a multiple (4.3 times, 11x). Plain small numbers and the day window are not figures to check.
  */
-const FIGURE = /\$\s?(\d[\d,]*(?:\.\d+)?)(?![A-Za-z])|(\d[\d,]*(?:\.\d+)?)\s?(%|ms)(?![A-Za-z])/g
+const FIGURE =
+  /(?<![\d.,])(?:(\d[\d,]*(?:\.\d+)?)\s?%(?![A-Za-z])|(\d[\d,]*(?:\.\d+)?)\s?(billion|million|thousand|bn|[kKMB])(?![A-Za-z])|(\d{1,3}(?:,\d{3})+)(?![\d,])|(\d+(?:\.\d+)?)\s?(?:times|x)(?![A-Za-z]))/g
+
+const SCALES: Record<string, number> = { thousand: 1e3, k: 1e3, million: 1e6, m: 1e6, billion: 1e9, bn: 1e9, b: 1e9 }
 
 /** Words that say a trend rose, and words that say it fell. Only these set the direction of a figure. */
-const RISE_WORDS = new Set(['up', 'rose', 'rise', 'rises', 'rising', 'grew', 'grow', 'grows', 'increased', 'increase', 'higher', 'climbed', 'jumped'])
-const FALL_WORDS = new Set(['down', 'fell', 'fall', 'falls', 'dropped', 'drop', 'decreased', 'decrease', 'declined', 'decline', 'lower', 'reduced'])
+const RISE_WORDS = new Set(['up', 'rose', 'rise', 'rises', 'rising', 'grew', 'grow', 'grows', 'growing', 'increased', 'increase', 'higher', 'climbed', 'jumped', 'gained'])
+const FALL_WORDS = new Set(['down', 'fell', 'fall', 'falls', 'falling', 'dropped', 'drop', 'decreased', 'decrease', 'declined', 'decline', 'lower', 'reduced', 'lost', 'shrank'])
 
 /** How many words before a figure, in the same sentence, are read for its direction. */
 const DIRECTION_WORDS = 4
@@ -118,31 +70,33 @@ interface FigureCheck {
   unmatched: string[]
 }
 
-interface SnapshotFigure {
-  unit: Unit
+interface SummaryFigure {
+  unit: '%' | 'count' | 'times'
   value: number
-  /** A trend carries a sign. A level, such as an error rate, is never negative, so its sign is not checked. */
+  /** A trend carries a sign. A level, such as a share, is never negative, so its sign is not checked. */
   trend: boolean
 }
 
-function snapshotFigures(m: Metrics): SnapshotFigure[] {
-  return [
-    { unit: '%', value: m.avgErrorRate, trend: false },
-    { unit: '%', value: m.apiCallsTrend, trend: true },
-    { unit: '%', value: m.tokensTrend, trend: true },
-    { unit: '%', value: m.responseTimeTrend, trend: true },
-    { unit: '%', value: m.costTrend, trend: true },
-    { unit: '%', value: m.errorRateTrend, trend: true },
-    ...derivedTrends(m).map((value) => ({ unit: '%' as const, value, trend: true })),
-    { unit: 'ms', value: m.avgResponseTime, trend: false },
-    { unit: '$', value: m.totalCost, trend: false },
-  ]
-}
-
-/** Rounds to a number of decimal places, halves up. */
-function roundTo(value: number, decimals: number): number {
-  const factor = 10 ** decimals
-  return Math.round(value * factor) / factor
+/** Every number the prompt states, plus the derived ones it spells out. */
+function summaryFigures(s: Summary): SummaryFigure[] {
+  const figures: SummaryFigure[] = [{ unit: 'count', value: s.packages.reduce((sum, p) => sum + p.total, 0), trend: false }]
+  for (const p of s.packages) {
+    figures.push({ unit: 'count', value: p.total, trend: false }, { unit: 'count', value: p.avgPerDay, trend: false })
+    figures.push({ unit: '%', value: p.sharePct, trend: false })
+    if (p.changePct !== null) figures.push({ unit: '%', value: p.changePct, trend: true })
+    if (p.weekendPct !== null) {
+      figures.push({ unit: '%', value: p.weekendPct, trend: false }, { unit: '%', value: weekendGap(p.weekendPct), trend: false })
+    }
+  }
+  // Multiples between packages, by total and by per-day average, in both directions.
+  for (const [i, a] of s.packages.entries()) {
+    for (const [k, b] of s.packages.entries()) {
+      if (i === k) continue
+      if (b.total > 0) figures.push({ unit: 'times', value: a.total / b.total, trend: false })
+      if (b.avgPerDay > 0) figures.push({ unit: 'times', value: a.avgPerDay / b.avgPerDay, trend: false })
+    }
+  }
+  return figures
 }
 
 /**
@@ -164,46 +118,52 @@ function signOf(text: string, start: number): Sign {
   return 0
 }
 
+interface Quoted {
+  unit: SummaryFigure['unit']
+  value: number
+  decimals: number
+  /** 1 for a figure written out in full, 1e6 for "million", and so on. */
+  scale: number
+  sign: Sign
+}
+
 /**
- * Whether a figure, with its digits and sign, matches the snapshot. The figure must equal a snapshot value
- * rounded to the figure's own number of decimals. A trend must also carry the sign the text gives it.
+ * Whether a quoted figure matches the summary. It must equal a summary value, divided by the figure's own
+ * scale and rounded to the figure's own decimals. A trend must also carry the sign the text gives it.
  * wrongDirection is set when a trend matches in size only.
  */
-function judge(
-  value: number,
-  decimals: number,
-  sign: Sign,
-  unit: Unit,
-  pool: SnapshotFigure[],
-): { matched: boolean; wrongDirection: boolean } {
+function judge(q: Quoted, pool: SummaryFigure[]): { matched: boolean; wrongDirection: boolean } {
   let sizeMatched = false
   for (const figure of pool) {
-    if (figure.unit !== unit || roundTo(Math.abs(figure.value), decimals) !== value) continue
+    if (figure.unit !== q.unit || roundTo(Math.abs(figure.value) / q.scale, q.decimals) !== q.value) continue
     sizeMatched = true
-    const signMatches = !figure.trend || sign === 0 || (sign < 0 ? figure.value <= 0 : figure.value >= 0)
+    const signMatches = !figure.trend || q.sign === 0 || (q.sign < 0 ? figure.value <= 0 : figure.value >= 0)
     if (signMatches) return { matched: true, wrongDirection: false }
   }
   return { matched: false, wrongDirection: sizeMatched }
 }
 
 /**
- * Matches each checkable figure in the answer against the snapshot. A figure matches when it equals the
- * snapshot value rounded to the figure's own decimals, so "253 ms" matches 253.4 and "254 ms" does not
- * match 253. A trend figure also needs the direction the text gives it. This shows which numbers come
- * from the data. It does not judge the conclusion drawn from them.
+ * Matches each checkable figure in the answer against the summary. A figure matches when it equals the
+ * summary value rounded to the figure's own decimals, so "1.2 billion" matches 1,150,000,000 and
+ * "1.1 billion" does not. A multiple such as "4.3 times" matches the ratio of two packages' totals or per-day averages. A trend figure also needs the direction the text gives it. This shows which
+ * numbers come from the data. It does not judge the conclusion drawn from them.
  */
-export function checkFigures(text: string, m: Metrics): FigureCheck {
-  const pool = snapshotFigures(m)
+export function checkFigures(text: string, s: Summary): FigureCheck {
+  const pool = summaryFigures(s)
   const result: FigureCheck = { checked: 0, matched: 0, unmatched: [] }
   for (const match of text.matchAll(FIGURE)) {
-    const [whole, dollar, plain, unit] = match
-    const isDollar = dollar !== undefined
-    const digits = (isDollar ? dollar : plain).replace(/,/g, '')
-    const value = Number(digits)
-    const decimals = digits.split('.')[1]?.length ?? 0
-    const figureUnit: Unit = isDollar ? '$' : unit === 'ms' ? 'ms' : '%'
-    const sign: Sign = figureUnit === '%' ? signOf(text, match.index ?? 0) : 0
-    const verdict = judge(value, decimals, sign, figureUnit, pool)
+    const [whole, percent, scaled, word, grouped, multiple] = match
+    const digits = (percent ?? scaled ?? grouped ?? multiple).replace(/,/g, '')
+    const unit = percent !== undefined ? '%' : multiple !== undefined ? 'times' : 'count'
+    const quoted: Quoted = {
+      unit,
+      value: Number(digits),
+      decimals: digits.split('.')[1]?.length ?? 0,
+      scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
+      sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
+    }
+    const verdict = judge(quoted, pool)
     result.checked += 1
     if (verdict.matched) result.matched += 1
     else result.unmatched.push(verdict.wrongDirection ? `${whole.trim()} (direction does not match)` : whole.trim())
@@ -213,65 +173,114 @@ export function checkFigures(text: string, m: Metrics): FigureCheck {
 
 /** The one-line result the run trace shows for a figure check. */
 export function describeFigureCheck(check: FigureCheck): string {
-  if (check.checked === 0) return 'No %, ms or $ figures in the answer to check'
+  if (check.checked === 0) return 'No percentage or download-count figures in the answer to check'
   const noun = check.checked === 1 ? 'figure' : 'figures'
   const verb = check.checked === 1 ? 'matches' : 'match'
-  const head = `${check.matched} of ${check.checked} ${noun} ${verb} the snapshot`
+  const head = `${check.matched} of ${check.checked} ${noun} ${verb} the summary`
   if (check.unmatched.length === 0) return head
-  return `${head}. Not in the snapshot: ${check.unmatched.join(', ')}`
+  return `${head}. Not in the summary: ${check.unmatched.join(', ')}`
 }
 
-const REQUIRED_MESSAGE = 'metrics object with totalApiCalls is required'
+const REQUIRED_MESSAGE = 'summary object with packages is required'
 
-interface Range {
-  min: number
-  max: number
-}
+const MAX_WINDOW_DAYS = 400
+const MAX_COUNT = 1e13
+const DATE = /^\d{4}-\d{2}-\d{2}$/
 
-const TOTAL: Range = { min: 0, max: Infinity }
-const RATE: Range = { min: 0, max: 100 }
-const TREND: Range = { min: -Infinity, max: Infinity }
+type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 
-type InsightRequest = { ok: true; metrics: Metrics } | { ok: false; error: string }
-
-class FieldError extends Error {}
+export type InsightRequest = { ok: true; summary: Summary } | { ok: false; error: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readNumber(source: Record<string, unknown>, field: keyof Metrics, range: Range): number {
+/** Midnight UTC of a YYYY-MM-DD date, or NaN when the text is not a real calendar date. */
+function dayNumber(date: string): number {
+  const time = DATE.test(date) ? Date.parse(`${date}T00:00:00Z`) : NaN
+  return Number.isNaN(time) || new Date(time).toISOString().slice(0, 10) !== date ? NaN : time / 86_400_000
+}
+
+function readNumber(source: Record<string, unknown>, field: string, path: string, min: number, max: number): Checked<number> {
   const value = source[field]
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new FieldError(`metrics.${field} must be a number`)
-  if (value < range.min || value > range.max) throw new FieldError(`metrics.${field} is out of range`)
-  return value
+  if (typeof value !== 'number' || !Number.isFinite(value)) return { ok: false, error: `${path}.${field} must be a number` }
+  if (value < min || value > max) return { ok: false, error: `${path}.${field} is out of range` }
+  return { ok: true, value }
+}
+
+/** Like readNumber, but null is a valid answer: the figure could not be worked out. */
+function readNullable(source: Record<string, unknown>, field: string, path: string, min: number, max: number): Checked<number | null> {
+  return source[field] === null ? { ok: true, value: null } : readNumber(source, field, path, min, max)
+}
+
+function readPackage(raw: unknown, index: number): Checked<PackageFigures> {
+  const path = `summary.packages[${index}]`
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` }
+  if (typeof raw.name !== 'string' || !isValidPackageName(raw.name)) {
+    return { ok: false, error: `${path}.name must be a valid npm package name` }
+  }
+  const total = readNumber(raw, 'total', path, 0, MAX_COUNT)
+  if (!total.ok) return total
+  const avgPerDay = readNumber(raw, 'avgPerDay', path, 0, MAX_COUNT)
+  if (!avgPerDay.ok) return avgPerDay
+  const changePct = readNullable(raw, 'changePct', path, -100, 1e7)
+  if (!changePct.ok) return changePct
+  const weekendPct = readNullable(raw, 'weekendPct', path, 0, 1e5)
+  if (!weekendPct.ok) return weekendPct
+  const sharePct = readNumber(raw, 'sharePct', path, 0, 100)
+  if (!sharePct.ok) return sharePct
+  return {
+    ok: true,
+    value: {
+      name: raw.name,
+      total: total.value,
+      avgPerDay: avgPerDay.value,
+      changePct: changePct.value,
+      weekendPct: weekendPct.value,
+      sharePct: sharePct.value,
+    },
+  }
+}
+
+function readDates(raw: Record<string, unknown>): Checked<Pick<Summary, 'startDate' | 'endDate' | 'windowDays'>> {
+  const { startDate, endDate } = raw
+  if (typeof startDate !== 'string' || Number.isNaN(dayNumber(startDate))) {
+    return { ok: false, error: 'summary.startDate must be a date as YYYY-MM-DD' }
+  }
+  if (typeof endDate !== 'string' || Number.isNaN(dayNumber(endDate))) {
+    return { ok: false, error: 'summary.endDate must be a date as YYYY-MM-DD' }
+  }
+  const windowDays = dayNumber(endDate) - dayNumber(startDate) + 1
+  if (windowDays < 2 || windowDays > MAX_WINDOW_DAYS) return { ok: false, error: 'summary dates must span 2 to 400 days' }
+  if (raw.windowDays !== windowDays) return { ok: false, error: 'summary.windowDays must match the dates' }
+  return { ok: true, value: { startDate, endDate, windowDays } }
 }
 
 /**
- * Checks the request body the browser sends. Unknown fields are dropped, and no model name is
- * read from the body. Each figure must be a finite number inside its range.
+ * Checks the request body the browser sends. Unknown fields are dropped, and no model name is read
+ * from the body. Names must be valid npm names, the arrays are capped, and each figure must be a
+ * finite number inside its range.
  */
 export function parseInsightRequest(body: unknown): InsightRequest {
-  const raw = isRecord(body) ? body.metrics : undefined
-  if (!isRecord(raw) || typeof raw.totalApiCalls !== 'number') return { ok: false, error: REQUIRED_MESSAGE }
-  try {
-    return {
-      ok: true,
-      metrics: {
-        totalApiCalls: readNumber(raw, 'totalApiCalls', TOTAL),
-        totalTokens: readNumber(raw, 'totalTokens', TOTAL),
-        avgResponseTime: readNumber(raw, 'avgResponseTime', TOTAL),
-        totalCost: readNumber(raw, 'totalCost', TOTAL),
-        avgErrorRate: readNumber(raw, 'avgErrorRate', RATE),
-        apiCallsTrend: readNumber(raw, 'apiCallsTrend', TREND),
-        tokensTrend: readNumber(raw, 'tokensTrend', TREND),
-        responseTimeTrend: readNumber(raw, 'responseTimeTrend', TREND),
-        costTrend: readNumber(raw, 'costTrend', TREND),
-        errorRateTrend: readNumber(raw, 'errorRateTrend', TREND),
-      },
-    }
-  } catch (err) {
-    if (err instanceof FieldError) return { ok: false, error: err.message }
-    throw err
+  const raw = isRecord(body) ? body.summary : undefined
+  if (!isRecord(raw) || !Array.isArray(raw.packages)) return { ok: false, error: REQUIRED_MESSAGE }
+  if (raw.packages.length < 1 || raw.packages.length > MAX_PACKAGES) {
+    return { ok: false, error: `summary.packages needs 1 to ${MAX_PACKAGES} entries` }
   }
+  const dates = readDates(raw)
+  if (!dates.ok) return dates
+  const observed = readNumber(raw, 'observedDays', 'summary', 1, dates.value.windowDays)
+  if (!observed.ok) return observed
+  if (!Number.isInteger(observed.value)) return { ok: false, error: 'summary.observedDays must be a whole number' }
+
+  const packages: PackageFigures[] = []
+  for (const [index, entry] of raw.packages.entries()) {
+    const figures = readPackage(entry, index)
+    if (!figures.ok) return figures
+    packages.push(figures.value)
+  }
+  if (new Set(packages.map((p) => p.name)).size !== packages.length) {
+    return { ok: false, error: 'summary.packages must not repeat a package' }
+  }
+  return { ok: true, summary: { ...dates.value, observedDays: observed.value, packages } }
 }

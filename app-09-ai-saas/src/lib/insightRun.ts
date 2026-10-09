@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { Summary } from '../../netlify/shared/contract'
 import { abortInsights, getInsights, isAbortError, RunError, type RunOutcome, type TraceStep } from './api'
-import type { SummaryStats } from './mockData'
 
 export type RunStatus = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
 
@@ -19,55 +19,50 @@ export interface InsightRun {
   stop: () => void
 }
 
-export function useInsightRun(stats: SummaryStats): InsightRun {
-  const [status, setStatus] = useState<RunStatus>('idle')
-  const [steps, setSteps] = useState<TraceStep[]>([])
-  const [answer, setAnswer] = useState('')
-  const [outcome, setOutcome] = useState<RunOutcome | null>(null)
-  const [totalMs, setTotalMs] = useState<number | null>(null)
-  const [errorMessage, setErrorMessage] = useState('')
-  const completedRef = useRef(false)
+type RunState = Omit<InsightRun, 'generate' | 'stop'>
 
-  // Leaving the dashboard (Exit demo, sign out) must not leave a stream running against the function.
-  useEffect(() => abortInsights, [])
+const IDLE: RunState = { status: 'idle', steps: [], answer: '', outcome: null, totalMs: null, errorMessage: '' }
+
+/**
+ * Runs the analysis for one summary. The state is tagged with the summary it was started for, so when the
+ * selection or window changes the old answer reads as idle instead of describing data that is gone, and a
+ * stream still in flight is cancelled.
+ */
+export function useInsightRun(summary: Summary | null): InsightRun {
+  const key = summary ? JSON.stringify(summary) : ''
+  const [tagged, setTagged] = useState<{ key: string; state: RunState }>({ key: '', state: IDLE })
+  const state = tagged.key === key ? tagged.state : IDLE
+
+  // Leaving the dashboard, or changing what it shows, must not leave a stream running against the function.
+  useEffect(() => abortInsights, [key])
 
   const generate = async () => {
-    completedRef.current = false
-    setStatus('running')
-    setSteps([])
-    setAnswer('')
-    setOutcome(null)
-    setTotalMs(null)
-    setErrorMessage('')
+    if (!summary) return
+    let completed = false
+    // An update from a run started for an earlier summary finds a different key and is dropped.
+    const update = (patch: (prev: RunState) => Partial<RunState>) =>
+      setTagged((prev) => (prev.key === key ? { key, state: { ...prev.state, ...patch(prev.state) } } : prev))
 
+    setTagged({ key, state: { ...IDLE, status: 'running' } })
     try {
-      await getInsights(stats, {
-        // The trace is the progress display, so the stage label needs no handling here.
-        onStage: () => undefined,
-        onStep: (step) => setSteps((prev) => [...prev, step]),
-        onText: (chunk) => setAnswer((prev) => prev + chunk),
+      await getInsights(summary, {
+        onStep: (step) => update((prev) => ({ steps: [...prev.steps, step] })),
+        onText: (chunk) => update((prev) => ({ answer: prev.answer + chunk })),
         onComplete: (run) => {
-          completedRef.current = true
-          setOutcome(run)
-          setAnswer(run.result)
-          setTotalMs(run.totalMs)
-          setStatus('done')
+          completed = true
+          update(() => ({ outcome: run, answer: run.result, totalMs: run.totalMs, status: 'done' }))
         },
       })
-      if (!completedRef.current) {
-        setStatus('failed')
-        setErrorMessage(INCOMPLETE_MESSAGE)
-      }
+      if (!completed) update(() => ({ status: 'failed', errorMessage: INCOMPLETE_MESSAGE }))
     } catch (err) {
-      if (isAbortError(err)) {
-        setStatus('stopped')
-        return
-      }
-      setStatus('failed')
-      setErrorMessage(err instanceof RunError ? err.message : GENERIC_FAILURE_MESSAGE)
-      setTotalMs(err instanceof RunError ? err.totalMs : null)
+      if (isAbortError(err)) return update(() => ({ status: 'stopped' }))
+      update(() => ({
+        status: 'failed',
+        errorMessage: err instanceof RunError ? err.message : GENERIC_FAILURE_MESSAGE,
+        totalMs: err instanceof RunError ? err.totalMs : null,
+      }))
     }
   }
 
-  return { status, steps, answer, outcome, totalMs, errorMessage, generate, stop: abortInsights }
+  return { ...state, generate, stop: abortInsights }
 }

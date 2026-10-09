@@ -13,8 +13,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["netlify/functions"]
+  "include": ["netlify", "vite.config.ts"]
 }

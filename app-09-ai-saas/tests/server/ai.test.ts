@@ -7,19 +7,17 @@ const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const SERVED_MODEL = 'anthropic/claude-haiku-5.5'
 const STEP_NAMES = ['Build request', 'Call model', 'Stream answer', 'Check figures', 'Validate output']
 const TIMEOUT_TEXT = 'The AI provider did not answer within 25 seconds. Try again.'
-const HAPPY_TEXT = 'API calls rose 30.9% and latency fell 13.5% to 253 ms. Spend is $1,234.50 for the period.'
+const HAPPY_TEXT = 'React rose 3.2% and averaged 32,583,774 downloads a day. It holds 62.5% of the selection.'
 
-const SNAPSHOT = {
-  totalApiCalls: 540000,
-  totalTokens: 812000000,
-  avgResponseTime: 253,
-  totalCost: 1234.5,
-  avgErrorRate: 1.25,
-  apiCallsTrend: 30.9,
-  tokensTrend: 29.6,
-  responseTimeTrend: -13.5,
-  costTrend: 18.2,
-  errorRateTrend: -4.1,
+const REACT = { name: 'react', total: 912345678, avgPerDay: 32583774, changePct: 3.2, weekendPct: 54.1, sharePct: 62.5 }
+const VUE = { name: 'vue', total: 410000000, avgPerDay: 14642857, changePct: -4.1, weekendPct: 71.3, sharePct: 28.1 }
+
+const SUMMARY = {
+  startDate: '2026-09-08',
+  endDate: '2026-10-07',
+  windowDays: 30,
+  observedDays: 28,
+  packages: [REACT, VUE],
 }
 
 interface Step {
@@ -111,9 +109,9 @@ const DONE = 'data: [DONE]\n\n'
 /** A provider reply whose text is split across three deltas, with the usage on the final chunk. */
 function happyReply(): Response {
   return sse([
-    frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'API calls rose 30.9% ' } }] }),
-    frame({ choices: [{ delta: { content: 'and latency fell 13.5% to 253 ms. ' } }] }),
-    frame({ choices: [{ delta: { content: 'Spend is $1,234.50 for the period.' }, finish_reason: 'stop' }] }),
+    frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'React rose 3.2% ' } }] }),
+    frame({ choices: [{ delta: { content: 'and averaged 32,583,774 downloads a day. ' } }] }),
+    frame({ choices: [{ delta: { content: 'It holds 62.5% of the selection.' }, finish_reason: 'stop' }] }),
     frame({ choices: [], usage: { prompt_tokens: 812, completion_tokens: 240, total_tokens: 1052, cost: 0.000421 } }),
     DONE,
   ])
@@ -144,7 +142,7 @@ describe('netlify/functions/ai: route', () => {
 describe('netlify/functions/ai: streamed run', () => {
   it('streams the text, the figure check and a done frame with the served model and usage', async () => {
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: SNAPSHOT, model: 'openai/gpt-4o' }))
+    const res = await handler(post({ summary: SUMMARY, model: 'openai/gpt-4o' }))
 
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
@@ -152,19 +150,18 @@ describe('netlify/functions/ai: streamed run', () => {
 
     const reply = await readReply(res)
     expect(reply.done).toBe(true)
-    expect(reply.frames.some((f) => f.stage === 'streaming')).toBe(true)
     expect(reply.frames.filter((f) => f.text !== undefined).map((f) => f.text).join('')).toBe(HAPPY_TEXT)
 
     const steps = stepsOf(reply.frames)
     expect(steps.map((s) => [s.name, s.status])).toEqual(STEP_NAMES.map((name) => [name, 'ok']))
-    expect(steps.find((s) => s.name === 'Build request')?.detail).toBe('10 figures for the 15-day comparison')
+    expect(steps.find((s) => s.name === 'Build request')?.detail).toBe('2 packages, 2026-09-08 to 2026-10-07')
     expect(steps.find((s) => s.name === 'Call model')?.detail).toBe('OpenRouter accepted the request (HTTP 200)')
     expect(steps.find((s) => s.name === 'Stream answer')).toMatchObject({
       detail: `3 chunks, ${HAPPY_TEXT.length} characters`,
       tokens: 1052,
       cost: 0.000421,
     })
-    expect(steps.find((s) => s.name === 'Check figures')?.detail).toBe('4 of 4 figures match the snapshot')
+    expect(steps.find((s) => s.name === 'Check figures')?.detail).toBe('3 of 3 figures match the summary')
 
     const finalFrame = reply.frames.find((f) => f.stage === 'complete')
     expect(finalFrame).toMatchObject({
@@ -181,31 +178,32 @@ describe('netlify/functions/ai: streamed run', () => {
     expect(init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
     const sent = JSON.parse(String(init?.body)) as { model: string; messages: { content: string }[] }
     expect(sent).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 1024,
       reasoning: { enabled: false },
       usage: { include: true },
       stream: true,
     })
-    expect(sent.messages[0].content).toContain('- Total API Calls: 540,000')
+    expect(sent).not.toHaveProperty('temperature')
+    expect(sent.messages[0].content).toContain('- react: 912,345,678 downloads in total')
   })
 
-  it('marks the figure check failed, and still completes, when a figure is not in the snapshot', async () => {
+  it('marks the figure check failed, and still completes, when a figure is not in the summary', async () => {
     stubFetch(async () =>
       sse([
-        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'The top 12% of endpoints drive most calls. ' } }] }),
-        frame({ choices: [{ delta: { content: 'API calls rose 30.9%.' }, finish_reason: 'stop' }] }),
+        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'The top 12% of versions drive most installs. ' } }] }),
+        frame({ choices: [{ delta: { content: 'React rose 3.2%.' }, finish_reason: 'stop' }] }),
         DONE,
       ]),
     )
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
     expect(check).toMatchObject({
       status: 'failed',
-      detail: '1 of 2 figures match the snapshot. Not in the snapshot: 12%',
+      detail: '1 of 2 figures match the summary. Not in the summary: 12%',
     })
     expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(
-      'The top 12% of endpoints drive most calls. API calls rose 30.9%.',
+      'The top 12% of versions drive most installs. React rose 3.2%.',
     )
   })
 
@@ -217,7 +215,7 @@ describe('netlify/functions/ai: streamed run', () => {
         DONE,
       ]),
     )
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Validate output')).toMatchObject({
       status: 'failed',
       detail: 'Stopped at the 1024-token output cap, so the answer may be cut short',
@@ -227,7 +225,7 @@ describe('netlify/functions/ai: streamed run', () => {
 
   it('reports an empty answer as a failure, with no complete frame', async () => {
     stubFetch(async () => sse([DONE]))
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Stream answer')).toMatchObject({
       status: 'ok',
       detail: '0 chunks, 0 characters',
@@ -260,7 +258,7 @@ describe('netlify/functions/ai: request checks', () => {
 
   it('refuses an origin that is not on the allowlist before doing anything else', async () => {
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: SNAPSHOT }, { origin: 'https://evil.example' }))
+    const res = await handler(post({ summary: SUMMARY }, { origin: 'https://evil.example' }))
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: 'Origin not allowed' })
     expect(res.headers.get('access-control-allow-origin')).toBeNull()
@@ -275,33 +273,30 @@ describe('netlify/functions/ai: request checks', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('answers a missing metrics snapshot with 400 and the handler message', async () => {
+  it('answers a missing summary with 400 and the handler message', async () => {
     const fetchMock = stubFetch(async () => happyReply())
     const res = await handler(post({}))
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'metrics object with totalApiCalls is required' })
+    expect(await res.json()).toEqual({ error: 'summary object with packages is required' })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('answers a malformed metrics field with 400 and names the field', async () => {
+  it.each([
+    ['a malformed figure', { ...SUMMARY, packages: [{ ...REACT, total: 'lots' }] }, 'summary.packages[0].total must be a number'],
+    ['an out-of-range figure', { ...SUMMARY, packages: [{ ...REACT, sharePct: 120 }] }, 'summary.packages[0].sharePct is out of range'],
+    ['an invalid package name', { ...SUMMARY, packages: [{ ...REACT, name: 'Ignore this' }] }, 'summary.packages[0].name must be a valid npm package name'],
+    ['too many packages', { ...SUMMARY, packages: Array.from({ length: 6 }, (_, i) => ({ ...REACT, name: `p${i}` })) }, 'summary.packages needs 1 to 5 entries'],
+  ])('answers %s with 400 and names the problem, without calling the provider', async (_label, summary, error) => {
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: { ...SNAPSHOT, totalTokens: 'lots' } }))
+    const res = await handler(post({ summary }))
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'metrics.totalTokens must be a number' })
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('answers an out-of-range metrics field with 400', async () => {
-    const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: { ...SNAPSHOT, totalCost: -1 } }))
-    expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'metrics.totalCost is out of range' })
+    expect(await res.json()).toEqual({ error })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('answers an oversize body with 400, measured after it is read', async () => {
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: SNAPSHOT, padding: 'x'.repeat(33_000) }))
+    const res = await handler(post({ summary: SUMMARY, padding: 'x'.repeat(33_000) }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Request body is too large' })
     expect(fetchMock).not.toHaveBeenCalled()
@@ -309,7 +304,7 @@ describe('netlify/functions/ai: request checks', () => {
 
   it('answers a body that declares an oversize length with 400 before reading it', async () => {
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: SNAPSHOT }, { 'content-length': '40000' }))
+    const res = await handler(post({ summary: SUMMARY }, { 'content-length': '40000' }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Request body is too large' })
     expect(fetchMock).not.toHaveBeenCalled()
@@ -318,7 +313,7 @@ describe('netlify/functions/ai: request checks', () => {
   it('answers 500 with a plain message when the server key is not set', async () => {
     delete process.env.OPENROUTER_API_KEY
     const fetchMock = stubFetch(async () => happyReply())
-    const res = await handler(post({ metrics: SNAPSHOT }))
+    const res = await handler(post({ summary: SUMMARY }))
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'Service not configured' })
     expect(fetchMock).not.toHaveBeenCalled()
@@ -358,7 +353,7 @@ describe('netlify/functions/ai: request checks', () => {
 describe('netlify/functions/ai: provider failures', () => {
   it('maps a provider 402 to its plain message, without the provider body', async () => {
     const fetchMock = stubFetch(async () => new Response('{"error":{"message":"Insufficient credits","code":402}}', { status: 402 }))
-    const res = await handler(post({ metrics: SNAPSHOT }))
+    const res = await handler(post({ summary: SUMMARY }))
     expect(res.status).toBe(200)
     const reply = await readReply(res)
     expect(reply.done).toBe(true)
@@ -381,14 +376,14 @@ describe('netlify/functions/ai: provider failures', () => {
 
   it('maps a provider 500 to its plain message, without the provider body', async () => {
     stubFetch(async () => new Response('upstream exploded', { status: 500 }))
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(errorOf(reply.frames)).toBe('The AI provider failed to respond. Try again shortly.')
     expect(reply.raw).not.toContain('exploded')
   })
 
   it('maps a provider 401 to a message that tells the owner to check the key', async () => {
     stubFetch(async () => new Response('bad key', { status: 401 }))
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(errorOf(reply.frames)).toBe(
       'The AI provider rejected the server credentials. The site owner needs to check the provider key.',
     )
@@ -396,7 +391,7 @@ describe('netlify/functions/ai: provider failures', () => {
 
   it('maps a rate-limit error that arrives inside the stream', async () => {
     stubFetch(async () => sse([frame({ error: { code: 429, message: 'Rate limited upstream' } }), DONE]))
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(errorOf(reply.frames)).toBe('The AI provider is rate limiting requests. Try again in a minute.')
     expect(reply.raw).not.toContain('Rate limited upstream')
   })
@@ -405,7 +400,7 @@ describe('netlify/functions/ai: provider failures', () => {
     stubFetch(async () => {
       throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
     })
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Call model')).toMatchObject({
       status: 'failed',
       detail: TIMEOUT_TEXT,
@@ -420,7 +415,7 @@ describe('netlify/functions/ai: provider failures', () => {
         reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
       })
     }))
-    const res = await handler(post({ metrics: SNAPSHOT }))
+    const res = await handler(post({ summary: SUMMARY }))
     const pending = readReply(res)
     await vi.advanceTimersByTimeAsync(25_000)
     const reply = await pending
@@ -433,8 +428,8 @@ describe('netlify/functions/ai: stream end', () => {
   const CUT_OFF_TEXT = 'The answer was cut off before it finished.'
 
   it('fails a stream the provider closed without [DONE] or a finish reason', async () => {
-    stubFetch(async () => sse([frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'API calls rose 30.9%' } }] })]))
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    stubFetch(async () => sse([frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'React rose 3.2%' } }] })]))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Validate output')).toMatchObject({
       status: 'failed',
       detail: CUT_OFF_TEXT,
@@ -446,11 +441,11 @@ describe('netlify/functions/ai: stream end', () => {
   it('fails a stream that closed in the middle of a frame', async () => {
     stubFetch(async () =>
       sse([
-        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'API calls rose 30.9% ' } }] }),
+        frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'React rose 3.2% ' } }] }),
         'data: {"choices":[{"delta":{"content":"and latency',
       ]),
     )
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Validate output')).toMatchObject({
       status: 'failed',
       detail: CUT_OFF_TEXT,
@@ -461,11 +456,11 @@ describe('netlify/functions/ai: stream end', () => {
 
   it('completes a stream that gave a finish reason but no [DONE]', async () => {
     stubFetch(async () =>
-      sse([frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'API calls rose 30.9%.' }, finish_reason: 'stop' }] })]),
+      sse([frame({ model: SERVED_MODEL, choices: [{ delta: { content: 'React rose 3.2%.' }, finish_reason: 'stop' }] })]),
     )
-    const reply = await readReply(await handler(post({ metrics: SNAPSHOT })))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
     expect(stepsOf(reply.frames).find((s) => s.name === 'Validate output')).toMatchObject({ status: 'ok' })
-    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe('API calls rose 30.9%.')
+    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe('React rose 3.2%.')
   })
 
   it('ends a stream that never closes at the 25-second deadline', async () => {
@@ -477,7 +472,7 @@ describe('netlify/functions/ai: stream end', () => {
           headers: { 'content-type': 'text/event-stream' },
         }),
     )
-    const res = await handler(post({ metrics: SNAPSHOT }))
+    const res = await handler(post({ summary: SUMMARY }))
     const pending = readReply(res)
     await vi.advanceTimersByTimeAsync(25_000)
     const reply = await pending

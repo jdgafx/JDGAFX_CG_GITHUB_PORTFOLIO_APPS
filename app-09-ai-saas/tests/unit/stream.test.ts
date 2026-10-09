@@ -46,7 +46,7 @@ describe('readProviderStream', () => {
       providerError: null,
       done: true,
     })
-    expect(emitted).toEqual([{ stage: 'streaming' }, { text: 'Net' }, { text: 'ix up 30.9%' }])
+    expect(emitted).toEqual([{ text: 'Net' }, { text: 'ix up 30.9%' }])
   })
 
   it('reports a provider error frame as its status code and emits no text', async () => {

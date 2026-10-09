@@ -7,8 +7,8 @@ interface InsightsPanelProps {
   run: InsightRun
 }
 
-// The server's own wording, for example "2 of 3 figures match the snapshot" or "1 of 1 figure matches the snapshot".
-const COUNT_LINE = /^(\d+) of (\d+) (figures? match(?:es)? the snapshot[\s\S]*)$/
+// The server's own wording, for example "2 of 3 figures match the summary" or "1 of 1 figure matches the summary".
+const COUNT_LINE = /^(\d+) of (\d+) (figures? match(?:es)? the summary[\s\S]*)$/
 
 const CHECK_WORD: Record<TraceStep['status'], string> = {
   ok: 'Figures match',
@@ -96,7 +96,7 @@ export default function InsightsPanel({ run }: InsightsPanelProps) {
             Insights
           </h2>
           <p className="ds-section__sub">
-            Each figure the model quotes is checked against the summary. A failed check does not fail the run.
+            Each percentage and download count the model quotes is checked against the figures above. A failed check does not fail the run.
           </p>
         </div>
 
@@ -112,8 +112,8 @@ export default function InsightsPanel({ run }: InsightsPanelProps) {
 
         {status === 'idle' ? (
           <div className="ds-empty">
-            No analysis yet. Generate insights sends the five summary figures to the model. The answer streams in here,
-            and the figure check then reports how many figures match the snapshot.
+            No analysis yet. Generate insights sends the computed figures to the model. The answer streams in here, and
+            the figure check then reports how many of its numbers match those figures.
           </div>
         ) : (
           <div className="ds-panel hub-result">

@@ -1,13 +1,6 @@
-import { chatRequest, getProvider, type Provider } from '../shared/provider'
-import {
-  buildPrompt,
-  checkFigures,
-  COMPARISON_DAYS,
-  describeFigureCheck,
-  METRIC_COUNT,
-  parseInsightRequest,
-  type Metrics,
-} from '../shared/insights'
+import { CHAT_URL, chatRequest } from '../shared/provider'
+import type { Summary } from '../shared/contract'
+import { buildPrompt, checkFigures, describeFigureCheck, parseInsightRequest } from '../shared/insights'
 import { DONE_FRAME, encodeFrame, readProviderStream, type Emit } from '../shared/stream'
 
 export const config = { path: '/api/ai' }
@@ -115,7 +108,7 @@ function isTimeoutError(err: unknown): boolean {
  * One insight run. Each stage is timed here with Date.now() and sent as a step frame as soon as
  * it finishes, so the browser can draw the trace while the answer streams in.
  */
-async function runInsight(metrics: Metrics, provider: Provider, upstream: AbortController, emit: Emit): Promise<void> {
+async function runInsight(summary: Summary, apiKey: string, upstream: AbortController, emit: Emit): Promise<void> {
   const started = Date.now()
   const steps: TraceStep[] = []
   // A property rather than a let, so the catch block reads the live stage without TypeScript narrowing it.
@@ -151,13 +144,14 @@ async function runInsight(metrics: Metrics, provider: Provider, upstream: AbortC
   }, UPSTREAM_TIMEOUT_MS)
 
   try {
-    const prompt = buildPrompt(metrics)
-    finishStage('ok', `${METRIC_COUNT} figures for the ${COMPARISON_DAYS}-day comparison`)
+    const prompt = buildPrompt(summary)
+    const packages = summary.packages.length
+    finishStage('ok', `${packages} ${packages === 1 ? 'package' : 'packages'}, ${summary.startDate} to ${summary.endDate}`)
 
     beginStage('Call model')
-    const response = await fetch(provider.url, {
+    const response = await fetch(CHAT_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(chatRequest(prompt, MAX_OUTPUT_TOKENS)),
       signal: upstream.signal,
     })
@@ -166,7 +160,7 @@ async function runInsight(metrics: Metrics, provider: Provider, upstream: AbortC
       console.error(`ai function: provider HTTP ${response.status}`)
       return failRun(providerFailure(response.status))
     }
-    finishStage('ok', `${provider.name} accepted the request (HTTP ${response.status})`)
+    finishStage('ok', `OpenRouter accepted the request (HTTP ${response.status})`)
 
     beginStage('Stream answer')
     if (!response.body) return failRun('The AI provider returned an empty response. Try again.')
@@ -183,7 +177,7 @@ async function runInsight(metrics: Metrics, provider: Provider, upstream: AbortC
     })
 
     beginStage('Check figures')
-    const check = checkFigures(answer.text, metrics)
+    const check = checkFigures(answer.text, summary)
     finishStage(check.unmatched.length > 0 ? 'failed' : 'ok', describeFigureCheck(check))
 
     beginStage('Validate output')
@@ -226,7 +220,7 @@ function jsonResponse(status: number, body: { error: string }, headers: HeaderMa
   })
 }
 
-function streamInsight(metrics: Metrics, provider: Provider, headers: HeaderMap): Response {
+function streamInsight(summary: Summary, apiKey: string, headers: HeaderMap): Response {
   const encoder = new TextEncoder()
   const upstream = new AbortController()
 
@@ -240,7 +234,7 @@ function streamInsight(metrics: Metrics, provider: Provider, headers: HeaderMap)
         }
       }
       try {
-        await runInsight(metrics, provider, upstream, emit)
+        await runInsight(summary, apiKey, upstream, emit)
       } catch (err) {
         console.error('ai function: run failed', err)
         emit({ error: GENERIC_FAILURE })
@@ -288,8 +282,8 @@ async function respond(req: Request): Promise<Response> {
   if (text === null) return jsonResponse(400, { error: 'Could not read the request body' }, headers)
   if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return jsonResponse(400, { error: TOO_LARGE }, headers)
 
-  const provider = getProvider()
-  if (!provider) {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
     // The missing variable's name is a deployment detail -- log it, don't ship it.
     console.error('ai function: no server-side AI provider is configured')
     return jsonResponse(500, { error: 'Service not configured' }, headers)
@@ -304,7 +298,7 @@ async function respond(req: Request): Promise<Response> {
 
   const parsed = parseInsightRequest(body)
   if (!parsed.ok) return jsonResponse(400, { error: parsed.error }, headers)
-  return streamInsight(parsed.metrics, provider, headers)
+  return streamInsight(parsed.summary, apiKey, headers)
 }
 
 export default async function handler(req: Request): Promise<Response> {

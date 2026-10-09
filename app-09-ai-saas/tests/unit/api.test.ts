@@ -8,19 +8,14 @@ import {
   type RunOutcome,
   type TraceStep,
 } from '../../src/lib/api'
-import type { SummaryStats } from '../../src/lib/mockData'
+import type { Summary } from '../../netlify/shared/contract'
 
-const STATS: SummaryStats = {
-  totalApiCalls: 540000,
-  totalTokens: 812000000,
-  avgResponseTime: 253,
-  totalCost: 1234.5,
-  avgErrorRate: 1.25,
-  apiCallsTrend: 30.9,
-  tokensTrend: 29.6,
-  responseTimeTrend: -13.5,
-  costTrend: 18.2,
-  errorRateTrend: -4.1,
+const STATS: Summary = {
+  startDate: '2026-09-08',
+  endDate: '2026-10-07',
+  windowDays: 30,
+  observedDays: 28,
+  packages: [{ name: 'react', total: 912345678, avgPerDay: 32583774, changePct: 3.2, weekendPct: 54.1, sharePct: 100 }],
 }
 
 const NETWORK_MESSAGE = "Couldn't reach the insights service. Check your connection and try again."
@@ -65,18 +60,14 @@ function dropAfter(chunk: string): Response {
 }
 
 interface Seen {
-  stages: string[]
   steps: TraceStep[]
   text: string[]
   completes: RunOutcome[]
 }
 
 function collect(): { seen: Seen; handlers: RunHandlers } {
-  const seen: Seen = { stages: [], steps: [], text: [], completes: [] }
+  const seen: Seen = { steps: [], text: [], completes: [] }
   const handlers: RunHandlers = {
-    onStage: (stage) => {
-      seen.stages.push(stage)
-    },
     onStep: (step) => {
       seen.steps.push(step)
     },
@@ -114,10 +105,10 @@ afterEach(() => {
 })
 
 describe('getInsights: streamed frames', () => {
-  it('posts the summary, then delivers stages, steps, text and the final outcome in order', async () => {
+  it('posts the summary, then delivers steps, text and the final outcome in order', async () => {
     const mock = stubFetch(async () =>
       sseResponse([
-        'data: {"stage":"streaming"}\n\ndata: {"text":"Hel',
+        'data: {"text":"Hel',
         'lo"}\n\ndata: {"step":{"name":"Stream answer","status":"ok","ms":12,"detail":"2 chunks, 5 characters","tokens":1052}}\n\n',
         'data: {"stage":"complete","result":"Hello","trace":[{"name":"Stream answer","status":"ok","ms":12,"detail":"2 chunks, 5 characters","tokens":1052}],"usage":{"prompt_tokens":812,"completion_tokens":240,"total_tokens":1052,"cost":0.000421},"model":"anthropic/claude-haiku-5.5","totalMs":640}\n\ndata: [DONE]\n\n',
       ]),
@@ -129,8 +120,7 @@ describe('getInsights: streamed frames', () => {
     const [url, init] = mock.mock.calls[0]
     expect(url).toBe('/api/ai')
     expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toEqual({ metrics: STATS })
-    expect(seen.stages).toEqual(['streaming'])
+    expect(JSON.parse(String(init?.body))).toEqual({ summary: STATS })
     // The frame was cut across two network chunks and is delivered whole, as one text delta.
     expect(seen.text).toEqual(['Hello'])
     expect(seen.steps).toEqual([
@@ -170,10 +160,10 @@ describe('getInsights: streamed frames', () => {
   })
 
   it('resolves quietly when the stream ends without a complete frame', async () => {
-    stubFetch(async () => sseResponse(['data: {"stage":"streaming"}\n\n']))
+    stubFetch(async () => sseResponse(['data: {"text":"partial"}\n\n']))
     const { seen, handlers } = collect()
     await getInsights(STATS, handlers)
-    expect(seen.stages).toEqual(['streaming'])
+    expect(seen.text).toEqual(['partial'])
     expect(seen.completes).toEqual([])
   })
 
