@@ -1,5 +1,6 @@
 import { PlainError } from './errors'
-import { isAbortError, isRecord } from './json'
+import { withLimit } from './limit'
+import { isAbortError, isRecord, isTimeoutError } from './json'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -13,6 +14,7 @@ const REASONING_OFF = { enabled: false }
 export const MODEL_CALL_TIMEOUT_MS = 12_000
 
 export const SLOW_MESSAGE = 'The AI provider did not answer in time.'
+export const BUDGET_MESSAGE = 'The run reached its time limit before this step finished.'
 export const UNREACHABLE_MESSAGE = 'Could not reach the AI provider.'
 export const UNREADABLE_MESSAGE = 'The AI provider sent a reply that could not be read.'
 export const NOT_CONFIGURED_MESSAGE = 'The AI provider is not configured.'
@@ -59,9 +61,8 @@ export interface ChatRequest {
   model: string
   messages: ChatMessage[]
   max_tokens: number
-  temperature: number
   tools?: ToolDefinition[]
-  tool_choice?: 'auto'
+  tool_choice?: 'auto' | 'required'
   response_format?: { type: 'json_object' }
 }
 
@@ -75,6 +76,11 @@ export interface ChatReply {
 
 /** The model layer. Tests inject a scripted one; the function uses `chat`. */
 export type ChatFn = (request: ChatRequest, signal: AbortSignal) => Promise<ChatReply>
+
+/** True for a model call that hit its own time limit, as opposed to one cut off by the run budget. */
+export function isCallTimeout(err: unknown): boolean {
+  return err instanceof ProviderError && err.status === 504 && err.message === SLOW_MESSAGE
+}
 
 /** Plain text for an HTTP status. The provider's own body is never shown or logged. */
 export function messageForStatus(status: number): string {
@@ -91,40 +97,34 @@ export async function chat(request: ChatRequest, signal: AbortSignal): Promise<C
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) throw new ProviderError(503, NOT_CONFIGURED_MESSAGE)
 
-  // The call ends when the run budget aborts or after the per-call limit, whichever comes first.
-  const callSignal = AbortSignal.any([signal, AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS)])
-  let response: Response
+  // The whole call, body read included, ends when the run budget aborts or after the per-call limit.
   try {
-    response = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...request, reasoning: REASONING_OFF, usage: { include: true } }),
-      signal: callSignal,
+    return await withLimit(signal, MODEL_CALL_TIMEOUT_MS, async (callSignal) => {
+      const response = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...request, reasoning: REASONING_OFF, usage: { include: true } }),
+        signal: callSignal,
+      })
+      if (!response.ok) throw new ProviderError(response.status, messageForStatus(response.status))
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = JSON.parse(text) as unknown
+      } catch {
+        throw new ProviderError(502, UNREADABLE_MESSAGE)
+      }
+      return parseReply(json)
     })
   } catch (err) {
-    throw transportError(err)
+    throw err instanceof ProviderError ? err : transportError(err, signal)
   }
-  if (!response.ok) throw new ProviderError(response.status, messageForStatus(response.status))
-
-  let text: string
-  try {
-    text = await response.text()
-  } catch (err) {
-    throw transportError(err)
-  }
-  let json: unknown
-  try {
-    json = JSON.parse(text) as unknown
-  } catch {
-    throw new ProviderError(502, UNREADABLE_MESSAGE)
-  }
-  return parseReply(json)
 }
 
-function transportError(err: unknown): ProviderError {
-  return isAbortError(err)
-    ? new ProviderError(504, SLOW_MESSAGE)
-    : new ProviderError(502, UNREACHABLE_MESSAGE)
+/** The call's own limit raises a TimeoutError. An abort from the run signal means the run budget ended it. */
+function transportError(err: unknown, runSignal: AbortSignal): ProviderError {
+  if (!isAbortError(err)) return new ProviderError(502, UNREACHABLE_MESSAGE)
+  return new ProviderError(504, runSignal.aborted && !isTimeoutError(err) ? BUDGET_MESSAGE : SLOW_MESSAGE)
 }
 
 /** Reads one chat completion reply. Throws ProviderError when no choice is present. */

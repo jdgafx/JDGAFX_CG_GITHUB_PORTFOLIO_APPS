@@ -30,6 +30,7 @@ const hangUntilAborted = (_url: string, init?: RequestInit) =>
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe('Wikipedia request URLs', () => {
@@ -153,18 +154,33 @@ describe('Wikipedia calls', () => {
     await expect(searchWikipedia('Lisbon', new AbortController().signal)).rejects.toThrow('Could not reach Wikipedia.')
   })
 
-  it('gives up after six seconds and reports the timeout', async () => {
-    // Fake timers do not drive AbortSignal.timeout, so the six-second limit is checked as the value
-    // asked for, and the timeout itself is shortened to 20 ms and fires for real with a TimeoutError.
-    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(20))
+  it('gives up after six seconds and reports the timeout, and not a moment sooner', async () => {
+    vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
+    let settled = false
+    const pending = searchWikipedia('Lisbon', new AbortController().signal).catch((err: unknown) => {
+      settled = true
+      return err
+    })
 
-    await expect(searchWikipedia('Lisbon', new AbortController().signal)).rejects.toThrow(
-      'The Wikipedia search timed out.',
-    )
-    expect(timeoutSpy).toHaveBeenCalledWith(TOOL_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MS - 1)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(await pending).toMatchObject({ status: 504, message: 'The Wikipedia search timed out.' })
     expect(TOOL_TIMEOUT_MS).toBe(6_000)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cuts a lookup whose reply body never finishes at the call limit', async () => {
+    vi.useFakeTimers()
+    const stalled = new ReadableStream<Uint8Array>({ start() {} })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stalled, { status: 200 })))
+    const pending = readWikipediaPage('Lisbon', new AbortController().signal).catch((err: unknown) => err)
+
+    await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MS)
+
+    expect(await pending).toMatchObject({ status: 504, message: 'The Wikipedia page lookup timed out.' })
   })
 
   it('stops when the run budget signal aborts, without waiting for the timer', async () => {
@@ -172,6 +188,7 @@ describe('Wikipedia calls', () => {
     vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
     const pending = searchWikipedia('Lisbon', budget.signal)
     budget.abort()
+    await expect(pending).rejects.toThrow("The run's time limit ended the Wikipedia search.")
     await expect(pending).rejects.toBeInstanceOf(WikiError)
   })
 })

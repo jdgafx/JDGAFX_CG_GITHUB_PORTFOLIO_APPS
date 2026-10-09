@@ -3,9 +3,9 @@ import { QUESTION_MAX_CHARS as SERVER_QUESTION_MAX_CHARS, validateQuestion } fro
 import { QUESTION_MAX_CHARS, SAMPLE_QUESTIONS } from '../../src/lib/constants'
 
 describe('example questions', () => {
-  it('offers three different questions, each with a label and the path it is expected to take', () => {
-    expect(SAMPLE_QUESTIONS.map((sample) => sample.label)).toEqual(['Quick lookup', 'Follow a link', 'Critic pushback'])
-    expect(new Set(SAMPLE_QUESTIONS.map((sample) => sample.question)).size).toBe(3)
+  it('offers four different questions, each with a label and the path it is expected to take', () => {
+    expect(SAMPLE_QUESTIONS.map((sample) => sample.label)).toEqual(['Quick lookup', 'Follow a link', 'Compare two pages', 'Three details'])
+    expect(new Set(SAMPLE_QUESTIONS.map((sample) => sample.question)).size).toBe(4)
     for (const sample of SAMPLE_QUESTIONS) expect(sample.path).not.toBe('')
   })
 

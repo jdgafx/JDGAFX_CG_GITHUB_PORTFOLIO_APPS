@@ -21,6 +21,10 @@ export interface GraphDeps {
   wiki: WikiTools
   /** One signal for the whole run. Aborting it ends the run's in-flight call. */
   signal: AbortSignal
+  /** When the run budget ends, as a Date.now() value. The steps skip work that no longer fits. */
+  deadline?: number
+  /** The clock the steps read. Tests replace it. */
+  now?: () => number
 }
 
 /** Written to the custom stream while a node runs. */
@@ -41,7 +45,8 @@ export interface FailedChunk {
 export type CustomChunk = StartChunk | FailedChunk
 
 function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult): TraceRow {
-  const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail: result.detail }
+  const detail = result.call?.retried ? `${result.detail} The first call timed out, so it was tried once more.` : result.detail
+  const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail }
   if (result.route) row.next = result.route.label
   if (result.call) {
     const { model, reply } = result.call

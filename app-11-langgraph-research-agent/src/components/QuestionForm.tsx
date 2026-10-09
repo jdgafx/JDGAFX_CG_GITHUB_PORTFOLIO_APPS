@@ -37,7 +37,6 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
             id="question-input"
             className="ds-textarea"
             rows={4}
-            maxLength={QUESTION_MAX_CHARS}
             value={question}
             aria-describedby="question-help question-count"
             onChange={(event) => onChange(event.target.value)}
@@ -51,8 +50,9 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
           <p id="question-help" className="ds-help">
             A factual question. The agent searches Wikipedia for it and cites what it finds.
           </p>
-          <p id="question-count" className="ds-help">
+          <p id="question-count" className={length > QUESTION_MAX_CHARS ? 'ds-help ds-help--error' : 'ds-help'}>
             {count(length)} of {count(QUESTION_MAX_CHARS)} characters
+            {length > QUESTION_MAX_CHARS && `. Too long by ${count(length - QUESTION_MAX_CHARS)}: shorten it to start the research.`}
           </p>
         </div>
         <div className="ds-row">

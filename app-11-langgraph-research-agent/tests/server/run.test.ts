@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RUN_BUDGET_MS } from '../../netlify/functions/run'
 import type { Frame, NodeEndFrame } from '../../netlify/shared/events'
-import { CRITIC_MODEL, PLAN_MODEL } from '../../netlify/shared/models'
+import { NODE_MODEL } from '../../netlify/shared/models'
+import { roleOf } from '../helpers/roles'
 
 // Smoke tests for netlify/functions/run.ts. Both upstreams are stubbed: every fetch is
 // replaced before the handler runs, and the key is a placeholder for the test only.
@@ -12,7 +13,6 @@ type Handler = (req: Request) => Promise<Response>
 interface SentBody {
   model: string
   max_tokens: number
-  temperature: number
   usage: { include: boolean }
   reasoning?: { enabled: boolean }
   response_format?: { type: string }
@@ -27,6 +27,7 @@ const SAMPLE = 'In what year did Lisbon host a World Exposition, and what was it
 const ANSWER = 'Lisbon hosted Expo \'98 in 1998 [1]. Its theme was "The Oceans: A Heritage for the Future" [1].'
 const PROVIDER_REJECTED = 'The AI provider rejected the key or is out of credit.'
 const PROVIDER_SLOW = 'The AI provider did not answer in time.'
+const BUDGET_MESSAGE = 'The run reached its time limit before this step finished.'
 
 const pageFixture: unknown = JSON.parse(
   readFileSync(new URL('../fixtures/wikipedia-page.json', import.meta.url), 'utf8'),
@@ -66,7 +67,7 @@ function post(body: unknown, origin: string | null = ORIGIN): Request {
 
 function modelReply(content: string | null, toolCalls?: unknown[]): Response {
   return Response.json({
-    model: 'xiaomi/mimo-v2.6-pro',
+    model: 'anthropic/claude-haiku-5.5',
     choices: [
       {
         message: { role: 'assistant', content, ...(toolCalls ? { tool_calls: toolCalls } : {}) },
@@ -81,8 +82,9 @@ function modelReply(content: string | null, toolCalls?: unknown[]): Response {
 function sampleOpenRouter(): (body: SentBody) => Response {
   let agentTurn = 0
   return (body) => {
-    if (body.model === PLAN_MODEL) return modelReply('{"queries": ["Expo 98 Lisbon"]}')
-    if (body.model === CRITIC_MODEL) return modelReply('{"verdict": "accept", "notes": "Matches source [1]."}')
+    const role = roleOf(body)
+    if (role === 'plan') return modelReply('{"queries": ["Expo 98 Lisbon"]}')
+    if (role === 'critic') return modelReply('{"verdict": "accept", "issues": []}')
     if (body.tools) {
       agentTurn += 1
       if (agentTurn === 1) {
@@ -138,7 +140,7 @@ describe('POST /api/run', () => {
 
     const ends = frames.filter((frame): frame is NodeEndFrame => frame.type === 'node_end')
     expect(ends.map((end) => end.status)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok'])
-    expect(ends[0]).toMatchObject({ node: 'plan', model: PLAN_MODEL, servedModel: 'xiaomi/mimo-v2.6-pro', cost: 0.0001 })
+    expect(ends[0]).toMatchObject({ node: 'plan', model: NODE_MODEL, servedModel: 'anthropic/claude-haiku-5.5', cost: 0.0001 })
 
     expect(frames.flatMap((frame) => (frame.type === 'edge' ? [frame.label] : []))).toEqual([
       'tools (round 1 of 4)',
@@ -166,9 +168,8 @@ describe('POST /api/run', () => {
     expect(planUrl).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(planInit?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
     expect(JSON.parse(String(planInit?.body)) as SentBody).toMatchObject({
-      model: PLAN_MODEL,
+      model: NODE_MODEL,
       max_tokens: 400,
-      temperature: 0.2,
       usage: { include: true },
       response_format: { type: 'json_object' },
     })
@@ -179,6 +180,12 @@ describe('POST /api/run', () => {
       .map(([, init]) => JSON.parse(String(init?.body)) as SentBody)
     expect(modelBodies).toHaveLength(5)
     for (const body of modelBodies) expect(body.reasoning).toEqual({ enabled: false })
+
+    // Every node uses Haiku 5.5, which rejects a temperature, so no request body carries one.
+    for (const body of modelBodies) {
+      expect(body.model).toBe('anthropic/claude-haiku-5.5')
+      expect('temperature' in body).toBe(false)
+    }
   })
 
   it('answers a GET with 405 and makes no upstream call', async () => {
@@ -255,10 +262,10 @@ describe('POST /api/run', () => {
     expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
   })
 
-  it('sends a provider 500 inside the draft node as a plain error frame, and still ends with [DONE]', async () => {
+  it('keeps the pages read when a provider 500 fails the draft, says no answer was written, and still ends with [DONE]', async () => {
     const answerTurn = sampleOpenRouter()
     const fetchStub = stubUpstreams((body) =>
-      body.tools || body.model === PLAN_MODEL || body.model === CRITIC_MODEL
+      roleOf(body) !== 'draft'
         ? answerTurn(body)
         : Response.json({ error: 'internal provider detail' }, { status: 500 }),
     )
@@ -270,7 +277,13 @@ describe('POST /api/run', () => {
       (frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.node === 'draft',
     )
     expect(draftEnd).toMatchObject({ status: 'failed', detail: PROVIDER_SLOW })
-    expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
+    expect(frames.at(-1)).toMatchObject({
+      type: 'result',
+      answer: '',
+      sources: [{ n: 1, title: "Expo '98", url: "https://en.wikipedia.org/wiki/Expo_'98" }],
+      ending: { kind: 'no_answer' },
+    })
+    expect(frames.some((frame) => frame.type === 'error')).toBe(false)
     expect(frames.some((frame) => frame.type === 'node_start' && frame.node === 'critic')).toBe(false)
     expect(JSON.stringify(frames)).not.toContain('internal provider detail')
     expect(JSON.stringify(frames)).not.toContain('AggregateError')
@@ -287,7 +300,7 @@ describe('POST /api/run', () => {
     expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
   })
 
-  it('ends a run that outlasts the run budget with the slow message and [DONE], before the platform cut-off', async () => {
+  it('ends a run that outlasts the run budget with the pages read, the budget message and [DONE], before the platform cut-off', async () => {
     vi.useFakeTimers()
     try {
       // Every provider call takes 9 s, inside the per-call limit, so only the budget for the whole run can stop the chain.
@@ -314,8 +327,10 @@ describe('POST /api/run', () => {
 
       expect(RUN_BUDGET_MS).toBeLessThan(30_000)
       expect(lastRecord).toBe('data: [DONE]')
-      expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
-      expect(frames.some((frame) => frame.type === 'result')).toBe(false)
+      // Plan and agent took 18 s, so the agent turn was skipped for time and the 9 s draft hit the budget.
+      expect(frames.at(-1)).toMatchObject({ type: 'result', answer: '', ending: { kind: 'no_answer' } })
+      const stopped = frames.find((frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.status === 'failed')
+      expect(stopped).toMatchObject({ node: 'draft', detail: BUDGET_MESSAGE })
     } finally {
       vi.useRealTimers()
     }

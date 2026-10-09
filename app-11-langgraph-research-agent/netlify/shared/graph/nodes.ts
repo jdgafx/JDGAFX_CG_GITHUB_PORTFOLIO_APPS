@@ -1,10 +1,18 @@
 import { citedNumbers, sanitizeCitations, sourcesFor } from '../citations'
-import type { NodeStatus } from '../events'
+import type { EndingView, NodeStatus } from '../events'
 import { PlainError } from '../errors'
-import { AGENT_MODEL, CRITIC_MODEL, DRAFT_MODEL, MAX_TOKENS, PLAN_MODEL, TEMPERATURE } from '../models'
-import type { AssistantToolCall, ChatFn, ChatMessage, ChatReply, ChatRequest, ToolCall } from '../openrouter'
+import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
+import {
+  isCallTimeout,
+  type AssistantToolCall,
+  type ChatFn,
+  type ChatMessage,
+  type ChatReply,
+  type ChatRequest,
+  type ToolCall,
+} from '../openrouter'
 import type { WikiTools } from '../wikipedia'
-import { parseCritic, parseQueries } from './parse'
+import { groundedIssues, issueNotes, parseCritic, parseQueries } from './parse'
 import {
   agentSystem,
   CRITIC_SYSTEM,
@@ -21,13 +29,29 @@ export interface NodeContext {
   chat: ChatFn
   wiki: WikiTools
   signal: AbortSignal
+  /** When the run budget ends, as a Date.now() value. Unset means no limit. */
+  deadline?: number
+  /** The clock. Tests replace it. */
+  now?: () => number
 }
 
 /** A model call a node made, kept so the trace can show its model, tokens and cost. */
 export interface NodeCall {
   model: string
   reply: ChatReply
+  /** True when the first attempt timed out and this reply came from the one retry. */
+  retried: boolean
 }
+
+/** Milliseconds left in the run budget. */
+export function timeLeft(ctx: NodeContext): number {
+  return ctx.deadline === undefined ? Infinity : ctx.deadline - (ctx.now ?? Date.now)()
+}
+
+const secondsLeft = (ctx: NodeContext) => `${Math.max(0, Math.floor(timeLeft(ctx) / 1000))} s`
+
+const OUT_OF_TIME = 'out of time'
+const NEEDS = STEP_NEEDS_MS
 
 /** What a node returns. The wrapper in build.ts adds the trace row and the route key. */
 export interface NodeResult {
@@ -39,27 +63,36 @@ export interface NodeResult {
 }
 
 interface CallOptions {
-  model: string
   maxTokens: number
   messages: ChatMessage[]
-  tools?: boolean
+  /** Offer the tools. 'required' makes the model call one, so it cannot stop before it has read a page. */
+  tools?: 'auto' | 'required'
   json?: boolean
+  /** The time that must be left for a retry to be worth it: this step again plus what must still follow. */
+  retryNeedsMs: number
 }
 
+/**
+ * One model call. A call that hits its own time limit is tried once more, but only when the time
+ * left still covers this step again and the steps that must follow. A run-budget stop is never retried.
+ */
 async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCall> {
   const request: ChatRequest = {
-    model: options.model,
+    model: NODE_MODEL,
     messages: options.messages,
     max_tokens: options.maxTokens,
-    temperature: TEMPERATURE,
   }
   if (options.tools) {
     request.tools = TOOL_DEFINITIONS
-    request.tool_choice = 'auto'
+    request.tool_choice = options.tools
   }
   if (options.json) request.response_format = { type: 'json_object' }
-  const reply = await ctx.chat(request, ctx.signal)
-  return { model: options.model, reply }
+  try {
+    return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: false }
+  } catch (err) {
+    if (!isCallTimeout(err) || timeLeft(ctx) < options.retryNeedsMs) throw err
+    return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: true }
+  }
 }
 
 function toAssistantCall(call: ToolCall): AssistantToolCall {
@@ -69,8 +102,8 @@ function toAssistantCall(call: ToolCall): AssistantToolCall {
 /** Turns the question into one to three search queries. An unreadable reply falls back to the question. */
 export async function planStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
   const call = await callModel(ctx, {
-    model: PLAN_MODEL,
     maxTokens: MAX_TOKENS.plan,
+    retryNeedsMs: NEEDS.plan + NEEDS.agent + NEEDS.tools + NEEDS.draft,
     messages: [
       { role: 'system', content: PLAN_SYSTEM },
       { role: 'user', content: `Question: ${state.question}` },
@@ -102,16 +135,26 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
       route: { to: 'draft', label: 'draft (tool round limit reached)' },
     }
   }
+  // With a page already read, another agent turn is worth it only if a draft and its review still fit.
+  if (state.evidence.length > 0 && timeLeft(ctx) < NEEDS.agent + NEEDS.draft + NEEDS.critic) {
+    return {
+      update: {},
+      status: 'skipped',
+      detail: `Time left ${secondsLeft(ctx)}: finishing with the ${state.evidence.length} page(s) already read.`,
+      route: { to: 'draft', label: `draft (${OUT_OF_TIME})` },
+    }
+  }
 
   const intro: ChatMessage[] =
     state.messages.length === 0
       ? [{ role: 'user', content: introText(state.question, state.searchQueries) }]
       : []
   const call = await callModel(ctx, {
-    model: AGENT_MODEL,
     maxTokens: MAX_TOKENS.agent,
+    retryNeedsMs: NEEDS.agent + NEEDS.draft,
     messages: [{ role: 'system', content: agentSystem(roundsLeft) }, ...state.messages, ...intro],
-    tools: true,
+    // A search result is not a source, so until one page is read the model must keep calling tools.
+    tools: state.evidence.length === 0 ? 'required' : 'auto',
   })
 
   const { text, toolCalls: requested } = call.reply
@@ -120,6 +163,18 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
       update: {},
       detail: 'No tool call. Moving to the draft.',
       route: { to: 'draft', label: 'draft (no more searches)' },
+      call,
+    }
+  }
+  // Another round costs the tools, a new agent turn, a draft and its review. With nothing read yet, the
+  // round is the only way to get a source, so it needs only the tools and a draft.
+  const roundNeedsMs =
+    state.evidence.length > 0 ? NEEDS.tools + NEEDS.agent + NEEDS.draft + NEEDS.critic : NEEDS.tools + NEEDS.draft
+  if (timeLeft(ctx) < roundNeedsMs) {
+    return {
+      update: {},
+      detail: `Time left ${secondsLeft(ctx)}: no more searches. Drafting with what has been read.`,
+      route: { to: 'draft', label: `draft (${OUT_OF_TIME})` },
       call,
     }
   }
@@ -168,8 +223,8 @@ export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promis
 export async function draftStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
   const notes = state.critique?.verdict === 'revise' ? state.critique.notes : null
   const call = await callModel(ctx, {
-    model: DRAFT_MODEL,
     maxTokens: MAX_TOKENS.draft,
+    retryNeedsMs: NEEDS.draft,
     messages: [
       { role: 'system', content: DRAFT_SYSTEM },
       { role: 'user', content: draftUserText(state.question, state.evidence, notes, state.draftText) },
@@ -181,17 +236,28 @@ export async function draftStep(state: ResearchValues, ctx: NodeContext): Promis
   const detail = truncated
     ? 'The reply hit the token limit and may be cut short.'
     : `Drafted an answer citing ${citedNumbers(text).length} source number(s).`
-  return { update: { draftText: text, draftTruncated: truncated }, detail, call }
+  return { update: { draftText: text, draftTruncated: truncated, draftReviewed: false }, detail, call }
 }
 
 /**
  * Accepts the draft or asks for one revision. The revision counter moves only when the
- * draft is sent back, so the cap allows exactly MAX_REVISIONS sends back to the draft.
+ * draft is sent back, so the cap allows exactly MAX_REVISIONS sends back to the draft. A revision
+ * needs the critic to name at least one concrete issue, and enough time for a draft and its review.
  */
 export async function criticStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
+  if (timeLeft(ctx) < NEEDS.critic) {
+    return {
+      update: {
+        critique: { verdict: 'accept', notes: 'Unreviewed: the time limit ended the review.', reviewed: false },
+      },
+      status: 'skipped',
+      detail: `Time left ${secondsLeft(ctx)}: skipping the review. The draft goes out unreviewed.`,
+      route: { to: 'final', label: `final (${OUT_OF_TIME})` },
+    }
+  }
   const call = await callModel(ctx, {
-    model: CRITIC_MODEL,
     maxTokens: MAX_TOKENS.critic,
+    retryNeedsMs: NEEDS.critic,
     messages: [
       { role: 'system', content: CRITIC_SYSTEM },
       { role: 'user', content: criticUserText(state.question, state.draftText, state.evidence) },
@@ -199,8 +265,8 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
     json: true,
   })
 
-  const verdict = parseCritic(call.reply.text)
-  if (verdict === null) {
+  const parsed = parseCritic(call.reply.text)
+  if (parsed === null) {
     return {
       update: {
         critique: { verdict: 'accept', notes: 'Not reviewed: the critic reply could not be read.', reviewed: false },
@@ -211,28 +277,54 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
     }
   }
 
+  // An issue counts only when it quotes words that are really in the draft or the question.
+  const issues = groundedIssues(parsed.issues, state.draftText, state.question)
+  const verdict = { verdict: parsed.verdict, notes: issues.length > 0 ? issueNotes(issues) : parsed.notes }
+  if (verdict.verdict === 'revise' && issues.length === 0) {
+    return {
+      update: { critique: { verdict: 'accept', notes: verdict.notes, reviewed: true }, draftReviewed: true },
+      detail: 'The critic asked for changes but quoted no problem from the draft, so the draft is accepted.',
+      route: { to: 'final', label: 'final (accepted)' },
+      call,
+    }
+  }
+
   if (verdict.verdict === 'accept') {
     return {
-      update: { critique: { verdict: 'accept', notes: verdict.notes, reviewed: true } },
+      update: { critique: { verdict: 'accept', notes: verdict.notes, reviewed: true }, draftReviewed: true },
       detail: verdict.notes || 'Accepted.',
       route: { to: 'final', label: 'final (accepted)' },
       call,
     }
   }
 
+  const reviewed = { verdict: 'revise', notes: verdict.notes, reviewed: true } as const
   if (state.revisions >= MAX_REVISIONS) {
     return {
-      update: { critique: { verdict: 'revise', notes: verdict.notes, reviewed: true } },
+      update: { critique: reviewed, draftReviewed: true },
       detail: `Asked for changes, but ${MAX_REVISIONS} revisions have been used. ${verdict.notes}`.trim(),
       route: { to: 'final', label: 'final (revision limit reached)' },
       call,
     }
   }
 
+  if (timeLeft(ctx) < NEEDS.draft + NEEDS.critic) {
+    return {
+      update: {
+        critique: reviewed,
+        draftReviewed: true,
+        ending: { kind: 'partial', message: 'The critic asked for changes, but there was no time left for a revision.' },
+      },
+      detail: `Time left ${secondsLeft(ctx)}: no time for a revision. ${verdict.notes}`.trim(),
+      route: { to: 'final', label: `final (${OUT_OF_TIME})` },
+      call,
+    }
+  }
+
   const revisions = state.revisions + 1
   return {
-    update: { critique: { verdict: 'revise', notes: verdict.notes, reviewed: true }, revisions },
-    detail: verdict.notes || 'Asked for a revision.',
+    update: { critique: reviewed, revisions, draftReviewed: true },
+    detail: verdict.notes,
     route: { to: 'draft', label: `revise (${revisions} of ${MAX_REVISIONS})` },
     call,
   }
@@ -242,8 +334,11 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
 export function finalStep(state: ResearchValues): NodeResult {
   const answer = sanitizeCitations(state.draftText, state.evidence)
   const sources = sourcesFor(answer, state.evidence)
+  const unreviewed = state.critique !== null && !state.critique.reviewed
+  const ending: EndingView =
+    state.ending ?? (unreviewed ? { kind: 'partial', message: state.critique?.notes ?? '' } : { kind: 'complete', message: '' })
   return {
-    update: { finalAnswer: { answer, sources, truncated: state.draftTruncated } },
+    update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending } },
     detail: sources.length > 0 ? `${sources.length} cited source(s).` : 'No source is cited.',
   }
 }

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  BUDGET_MESSAGE,
   chat,
+  isCallTimeout,
   MODEL_CALL_TIMEOUT_MS,
   messageForStatus,
   NOT_CONFIGURED_MESSAGE,
@@ -17,7 +19,6 @@ const REQUEST: ChatRequest = {
   model: 'xiaomi/mimo-v2.6-flash',
   messages: [{ role: 'user', content: 'Plan the search.' }],
   max_tokens: 400,
-  temperature: 0.2,
 }
 
 /** A fetch that never answers and rejects with the signal's reason when it aborts, as the real fetch does. */
@@ -37,6 +38,7 @@ afterEach(() => {
   else process.env.OPENROUTER_API_KEY = originalKey
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const replyBody = (overrides: Record<string, unknown> = {}) => ({
@@ -206,18 +208,46 @@ describe('chat', () => {
     expect(error).toMatchObject({ status: 504, message: SLOW_MESSAGE })
   })
 
-  it('gives up after twelve seconds with the slow message', async () => {
-    // Fake timers do not drive AbortSignal.timeout, so the twelve-second limit is checked as the value
-    // asked for, and the timeout itself is shortened to 20 ms and fires for real with a TimeoutError.
-    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(20))
+  it('gives up after twelve seconds with the slow message, and not a moment sooner', async () => {
+    vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
+    let settled = false
+    const pending = chat(REQUEST, new AbortController().signal).catch((err: unknown) => {
+      settled = true
+      return err
+    })
 
-    const error: unknown = await chat(REQUEST, new AbortController().signal).catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(MODEL_CALL_TIMEOUT_MS - 1)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
 
+    const error = await pending
     expect(error).toMatchObject({ status: 504, message: SLOW_MESSAGE })
-    expect(timeoutSpy).toHaveBeenCalledWith(MODEL_CALL_TIMEOUT_MS)
+    expect(isCallTimeout(error)).toBe(true)
     expect(MODEL_CALL_TIMEOUT_MS).toBe(12_000)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cuts a call whose reply body never finishes at the call limit', async () => {
+    vi.useFakeTimers()
+    // The headers arrive at once, then the body stalls. The stream ignores the abort signal.
+    const stalled = new ReadableStream<Uint8Array>({ start() {} })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stalled, { status: 200 })))
+    const pending = chat(REQUEST, new AbortController().signal).catch((err: unknown) => err)
+
+    await vi.advanceTimersByTimeAsync(MODEL_CALL_TIMEOUT_MS)
+
+    expect(await pending).toMatchObject({ status: 504, message: SLOW_MESSAGE })
+  })
+
+  it('cuts a fetch that ignores its signal at the call limit', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+    const pending = chat(REQUEST, new AbortController().signal).catch((err: unknown) => err)
+
+    await vi.advanceTimersByTimeAsync(MODEL_CALL_TIMEOUT_MS)
+
+    expect(await pending).toMatchObject({ status: 504, message: SLOW_MESSAGE })
   })
 
   it('stops at once when the run budget signal aborts', async () => {
@@ -225,7 +255,10 @@ describe('chat', () => {
     vi.stubGlobal('fetch', vi.fn(hangUntilAborted))
     const pending = chat(REQUEST, budget.signal).catch((err: unknown) => err)
     budget.abort()
-    expect(await pending).toMatchObject({ status: 504, message: SLOW_MESSAGE })
+    // The run budget ending the call is not the provider being slow, so the message says so.
+    const error = await pending
+    expect(error).toMatchObject({ status: 504, message: BUDGET_MESSAGE })
+    expect(isCallTimeout(error)).toBe(false)
   })
 
   it('reports a reply that is not JSON as unreadable', async () => {

@@ -2,7 +2,7 @@ import { DONE_FRAME, encodeFrame, type Frame } from '../shared/events'
 import { allowedOrigins, clientKey, corsHeaders, createRateLimiter, originAllowed, readJsonBody, validateQuestion } from '../shared/guard'
 import { SERVER_ERROR } from '../shared/errors'
 import { runResearch } from '../shared/graph/stream'
-import { chat, NOT_CONFIGURED_MESSAGE } from '../shared/openrouter'
+import { BUDGET_MESSAGE, chat, NOT_CONFIGURED_MESSAGE } from '../shared/openrouter'
 import { liveWiki } from '../shared/wikipedia'
 
 /**
@@ -10,6 +10,9 @@ import { liveWiki } from '../shared/wikipedia'
  * live site closed streams near 30 seconds, so the run ends itself well before that and says why.
  */
 export const RUN_BUDGET_MS = 25_000
+
+/** If the run has not returned this long after its budget aborted, the stream is closed with the budget message anyway. */
+export const HARD_STOP_GRACE_MS = 2_000
 
 const limiter = createRateLimiter()
 
@@ -21,7 +24,9 @@ function fail(message: string, status: number, headers: Record<string, string>):
 function streamRun(question: string, headers: Record<string, string>): Response {
   const encoder = new TextEncoder()
   const budget = new AbortController()
+  const deadline = Date.now() + RUN_BUDGET_MS
   const timer = setTimeout(() => budget.abort(), RUN_BUDGET_MS)
+  let hardStop: ReturnType<typeof setTimeout> | undefined
   let closed = false
 
   const stream = new ReadableStream<Uint8Array>({
@@ -33,16 +38,22 @@ function streamRun(question: string, headers: Record<string, string>): Response 
         if (closed) return
         closed = true
         clearTimeout(timer)
+        clearTimeout(hardStop)
         controller.enqueue(encoder.encode(DONE_FRAME))
         controller.close()
       }
-      void runResearch(question, { chat, wiki: liveWiki, signal: budget.signal }, emit)
+      hardStop = setTimeout(() => {
+        emit({ type: 'error', message: BUDGET_MESSAGE })
+        finish()
+      }, RUN_BUDGET_MS + HARD_STOP_GRACE_MS)
+      void runResearch(question, { chat, wiki: liveWiki, signal: budget.signal, deadline }, emit)
         .catch(() => emit({ type: 'error', message: SERVER_ERROR }))
         .finally(finish)
     },
     cancel() {
       closed = true
       clearTimeout(timer)
+      clearTimeout(hardStop)
       budget.abort()
     },
   })

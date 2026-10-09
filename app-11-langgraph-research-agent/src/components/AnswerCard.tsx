@@ -2,7 +2,8 @@ import type { ResultFrame } from '../../netlify/shared/events'
 import { plural } from '../lib/format'
 import type { Phase } from '../lib/runState'
 
-function criticBadge(result: ResultFrame): { text: string; tone: string } {
+function badgeFor(result: ResultFrame): { text: string; tone: string } {
+  if (result.ending.kind === 'no_answer') return { text: 'No answer written', tone: 'ds-badge--warning' }
   if (!result.critic.reviewed) return { text: 'Not reviewed', tone: 'ds-badge--warning' }
   if (result.critic.verdict === 'accept') return { text: 'Critic accepted', tone: 'ds-badge--success' }
   return { text: 'Critic asked for changes', tone: 'ds-badge--warning' }
@@ -39,7 +40,8 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
     )
   }
 
-  const badge = criticBadge(result)
+  const badge = badgeFor(result)
+  const noAnswer = result.ending.kind === 'no_answer'
   return (
     <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
       <div className="ds-section__head">
@@ -53,14 +55,17 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
         </span>
       </div>
       <div className="ds-stack">
+        {result.ending.kind !== 'complete' && <p className="ds-notice ds-notice--warning">{result.ending.message}</p>}
         {result.truncated && <p className="ds-notice">The answer was cut short at its length limit.</p>}
-        <div className="answer-text">
-          {paragraphs(result.answer).map((part, i) => (
-            <p key={i}>{part}</p>
-          ))}
-        </div>
+        {!noAnswer && (
+          <div className="answer-text">
+            {paragraphs(result.answer).map((part, i) => (
+              <p key={i}>{part}</p>
+            ))}
+          </div>
+        )}
         <div>
-          <h3 className="answer-subhead">Sources</h3>
+          <h3 className="answer-subhead">{noAnswer ? 'Pages read' : 'Sources'}</h3>
           {result.sources.length === 0 ? (
             <p className="ds-help">The answer cites no source.</p>
           ) : (
@@ -81,7 +86,7 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
         </div>
         <p className="ds-help">
           {`Read ${plural(result.evidenceCount, 'page')}. Revised ${plural(result.revisions, 'time')}.`}
-          {result.critic.notes ? ` Critic notes: ${result.critic.notes}` : ''}
+          {result.critic.reviewed && result.critic.notes ? ` Critic notes: ${result.critic.notes}` : ''}
         </p>
       </div>
     </section>

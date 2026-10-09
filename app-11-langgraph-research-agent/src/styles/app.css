@@ -58,6 +58,8 @@
 .ds-badge .ds-dot { background: currentColor; }
 .ds-dot--stopped { background: var(--ds-warning); }
 .ds-notice > p + p { margin-top: 4px; }
+.ds-notice--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
+.ds-help--error { color: var(--ds-danger); font-weight: 600; }
 
 /* Trace heads: the step name, then its state with the state's dot */
 .trace-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }

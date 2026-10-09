@@ -1,24 +1,31 @@
 import type { CostSource } from './events'
 import type { TokenUsage } from './openrouter'
 
-/** Model per graph node. Prices below are list prices in USD per 1M tokens, checked 2026-10-08. */
-export const PLAN_MODEL = 'xiaomi/mimo-v2.6-flash'
-export const AGENT_MODEL = 'xiaomi/mimo-v2.6-pro'
-export const DRAFT_MODEL = 'xiaomi/mimo-v2.6-pro'
-export const CRITIC_MODEL = '~anthropic/claude-haiku-latest'
+/**
+ * The one model every node uses. Chris named Claude Haiku 5.5 for all four nodes on 2026-10-09, so the
+ * version is pinned on purpose. Change it here and the price table below follows.
+ * Haiku 5.5 rejects a temperature, so no call sends one.
+ */
+export const NODE_MODEL = 'anthropic/claude-haiku-5.5'
 
 export const MAX_TOKENS = { plan: 400, agent: 800, draft: 1200, critic: 400 } as const
-export const TEMPERATURE = 0.2
+
+/**
+ * What one step needs, in ms: its p95 on 54 local runs with Haiku 5.5 on 2026-10-09, rounded up to the
+ * next half second (plan p50 1.6 s, p95 3.8 s; agent 1.4 / 2.7; draft 1.7 / 3.6; critic 1.8 / 2.9, and 3.5 s
+ * p95 on a 32-call check of the critic alone). The tools figure is a ceiling for the three Wikipedia calls in
+ * parallel, which took 0.1 to 0.9 s. The graph reads these to decide whether another step fits in the budget.
+ */
+export const STEP_NEEDS_MS = { plan: 4_000, agent: 3_000, tools: 1_500, draft: 4_000, critic: 3_500 } as const
 
 interface ListPrice {
   inPerMillion: number
   outPerMillion: number
 }
 
+/** List prices checked on 2026-10-09. */
 const LIST_PRICES: Record<string, ListPrice> = {
-  [PLAN_MODEL]: { inPerMillion: 0.14, outPerMillion: 0.28 },
-  [AGENT_MODEL]: { inPerMillion: 0.44, outPerMillion: 0.87 },
-  [CRITIC_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
+  [NODE_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
 }
 
 /** Rounds away floating-point noise from summed or estimated costs. */

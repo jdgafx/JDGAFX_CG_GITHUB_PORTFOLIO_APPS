@@ -1,5 +1,6 @@
 import { PlainError } from './errors'
-import { isAbortError, isRecord } from './json'
+import { withLimit } from './limit'
+import { isAbortError, isRecord, isTimeoutError } from './json'
 
 const API = 'https://en.wikipedia.org/w/api.php'
 const SITE = 'https://en.wikipedia.org'
@@ -95,20 +96,30 @@ export function parsePage(json: unknown, requestedTitle: string): PageText {
 }
 
 async function getJson(url: string, signal: AbortSignal, action: string): Promise<unknown> {
-  // The call ends when the run budget aborts or after the per-call limit, whichever comes first.
-  const callSignal = AbortSignal.any([signal, AbortSignal.timeout(TOOL_TIMEOUT_MS)])
-  const timedOut = () => new WikiError(504, `The ${action} timed out.`)
-  let response: Response
+  const timedOut = (err: unknown) =>
+    new WikiError(
+      504,
+      signal.aborted && !isTimeoutError(err) ? `The run's time limit ended the ${action}.` : `The ${action} timed out.`,
+    )
+  // The whole call, body read included, ends when the run budget aborts or after the per-call limit.
   try {
-    response = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: callSignal })
+    return await withLimit(signal, TOOL_TIMEOUT_MS, async (callSignal) => {
+      let response: Response
+      try {
+        response = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: callSignal })
+      } catch (err) {
+        throw isAbortError(err) ? err : new WikiError(502, 'Could not reach Wikipedia.')
+      }
+      if (!response.ok) throw new WikiError(502, 'Wikipedia returned an error.')
+      try {
+        return (await response.json()) as unknown
+      } catch (err) {
+        throw isAbortError(err) ? err : new WikiError(502, 'Wikipedia sent a reply that could not be read.')
+      }
+    })
   } catch (err) {
-    throw isAbortError(err) ? timedOut() : new WikiError(502, 'Could not reach Wikipedia.')
-  }
-  if (!response.ok) throw new WikiError(502, 'Wikipedia returned an error.')
-  try {
-    return (await response.json()) as unknown
-  } catch (err) {
-    throw isAbortError(err) ? timedOut() : new WikiError(502, 'Wikipedia sent a reply that could not be read.')
+    if (err instanceof WikiError) throw err
+    throw isAbortError(err) ? timedOut(err) : new WikiError(502, 'Could not reach Wikipedia.')
   }
 }
 

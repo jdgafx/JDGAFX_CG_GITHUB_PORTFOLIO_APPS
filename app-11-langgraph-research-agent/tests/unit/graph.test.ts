@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Frame, NodeEndFrame, ResultFrame } from '../../netlify/shared/events'
-import { CRITIC_MODEL, PLAN_MODEL } from '../../netlify/shared/models'
+import { NODE_MODEL } from '../../netlify/shared/models'
+import { roleOf } from '../helpers/roles'
 import { ProviderError, type ChatFn, type ChatReply, type ChatRequest, type ToolCall } from '../../netlify/shared/openrouter'
 import { runResearch } from '../../netlify/shared/graph/stream'
 import { WikiError, type PageText, type WikiTools } from '../../netlify/shared/wikipedia'
@@ -77,15 +78,16 @@ function scriptedChat(script: Script) {
     calls.push(request)
     const usage = { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 }
     const base = { finishReason: 'stop', servedModel: request.model, usage }
-    if (request.model === PLAN_MODEL) {
+    const role = roleOf(request)
+    if (role === 'plan') {
       return { ...base, text: script.plan ?? '{"queries": ["Expo 98 Lisbon"]}', toolCalls: [] } satisfies ChatReply
     }
-    if (request.model === CRITIC_MODEL) {
-      return { ...base, text: take(critic, 'critic'), toolCalls: [] } satisfies ChatReply
-    }
-    if (request.tools) {
+    if (role === 'agent') {
       const step = take(agent, 'agent')
       return { ...base, text: step.text ?? '', toolCalls: step.tools ?? [] } satisfies ChatReply
+    }
+    if (role === 'critic') {
+      return { ...base, text: take(critic, 'critic'), toolCalls: [] } satisfies ChatReply
     }
     return {
       ...base,
@@ -133,12 +135,16 @@ describe('graph: the path taken', () => {
       toolRounds: 1,
       revisions: 0,
       path: out.path,
-      models: ['xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro', '~anthropic/claude-haiku-latest'],
+      models: [NODE_MODEL],
       critic: { verdict: 'accept', reviewed: true, notes: 'Every claim matches source [1].' },
       truncated: false,
     })
     expect(out.result?.totals.tokens).toBe(5 * 140)
     expect(out.errors).toEqual([])
+    // No call sends a temperature, which Haiku 5.5 rejects.
+    expect(out.calls.every((call) => !('temperature' in call))).toBe(true)
+    // Until a page is read the agent must call a tool. Once one is read it may stop.
+    expect(out.calls.filter((call) => call.tools).map((call) => call.tool_choice)).toEqual(['required', 'auto'])
   })
 
   it('(b) the critic sends the draft back once, and the second draft gets the notes', async () => {
@@ -147,8 +153,8 @@ describe('graph: the path taken', () => {
       agent: [{ tools: [readPage('call_1', "Expo '98")] }, { text: 'Enough sources.' }],
       draft: [DRAFT_CITED.replace(/ Its theme.*$/, ''), improved],
       critic: [
-        '{"verdict": "revise", "notes": "State the theme, which is in source [1]."}',
-        '{"verdict": "accept", "notes": ""}',
+        '{"verdict": "revise", "issues": [{"quote": "Lisbon hosted Expo \'98 in 1998", "fix": "State the theme, which is in source [1]."}]}',
+        '{"verdict": "accept", "issues": []}',
       ],
     })
 
@@ -161,9 +167,9 @@ describe('graph: the path taken', () => {
     ])
     expect(out.result).toMatchObject({ answer: improved, revisions: 1, critic: { verdict: 'accept', reviewed: true } })
 
-    const secondDraft = out.calls.filter((call) => call.model !== PLAN_MODEL && call.model !== CRITIC_MODEL && !call.tools)
+    const secondDraft = out.calls.filter((call) => roleOf(call) === 'draft')
     const notesText = secondDraft[1]?.messages.map((message) => message.content).join('\n') ?? ''
-    expect(notesText).toContain('State the theme, which is in source [1].')
+    expect(notesText).toContain('"Lisbon hosted Expo \'98 in 1998": State the theme, which is in source [1].')
   })
 
   it('(c) the tool loop stops at four rounds and evidence is numbered once per page', async () => {
@@ -242,9 +248,9 @@ describe('graph: the path taken', () => {
       agent: [{ text: 'Enough.' }],
       draft: ['First draft.', 'Second draft.', 'Third draft.'],
       critic: [
-        '{"verdict": "revise", "notes": "Add more detail."}',
-        '{"verdict": "revise", "notes": "Still missing detail."}',
-        '{"verdict": "revise", "notes": "Still not enough."}',
+        '{"verdict": "revise", "issues": [{"quote": "First draft", "fix": "Add more detail."}]}',
+        '{"verdict": "revise", "issues": [{"quote": "Second draft", "fix": "Still missing detail."}]}',
+        '{"verdict": "revise", "issues": [{"quote": "Third draft", "fix": "Still not enough."}]}',
       ],
     })
 
@@ -258,7 +264,7 @@ describe('graph: the path taken', () => {
     expect(out.result).toMatchObject({
       answer: 'Third draft.',
       revisions: 2,
-      critic: { verdict: 'revise', reviewed: true, notes: 'Still not enough.' },
+      critic: { verdict: 'revise', reviewed: true, notes: '"Third draft": Still not enough.' },
     })
   })
 
@@ -365,7 +371,7 @@ describe('graph: the path taken', () => {
 
   it('(k) a provider error wrapped in an AggregateError inside the draft reaches the client as the plain message', async () => {
     const chat: ChatFn = async (request) => {
-      if (request.model === PLAN_MODEL) return idleReply('{"queries": ["Lisbon"]}')
+      if (roleOf(request) === 'plan') return idleReply('{"queries": ["Lisbon"]}')
       if (request.tools) return idleReply('Enough.')
       throw new AggregateError(
         [new ProviderError(500, 'The AI provider did not answer in time.')],
@@ -389,13 +395,13 @@ describe('graph: the path taken', () => {
     expect(JSON.stringify(frames)).not.toContain('AggregateError')
   })
 
-  it('(l) a provider failure inside the critic node ends the run with the plain message', async () => {
+  it('(l) a provider failure inside the critic node keeps the draft and labels it unreviewed', async () => {
     const chat: ChatFn = async (request) => {
-      if (request.model === PLAN_MODEL) return idleReply('{"queries": ["Lisbon"]}')
-      if (request.model === CRITIC_MODEL) {
+      if (roleOf(request) === 'plan') return idleReply('{"queries": ["Lisbon"]}')
+      if (request.tools) return idleReply('Enough.')
+      if (roleOf(request) === 'critic') {
         throw new ProviderError(402, 'The AI provider rejected the key or is out of credit.')
       }
-      if (request.tools) return idleReply('Enough.')
       return idleReply('A plain answer.')
     }
     const frames: Frame[] = []
@@ -411,7 +417,12 @@ describe('graph: the path taken', () => {
         detail: 'The AI provider rejected the key or is out of credit.',
       }),
     )
-    expect(frames.at(-1)).toEqual({ type: 'error', message: 'The AI provider rejected the key or is out of credit.' })
-    expect(frames.some((frame) => frame.type === 'result')).toBe(false)
+    expect(frames.at(-1)).toMatchObject({
+      type: 'result',
+      answer: 'A plain answer.',
+      critic: { reviewed: false },
+      ending: { kind: 'partial', message: 'Unreviewed: a failed step ended the review.' },
+    })
+    expect(frames.some((frame) => frame.type === 'error')).toBe(false)
   })
 })

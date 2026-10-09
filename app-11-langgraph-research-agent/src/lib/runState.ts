@@ -143,7 +143,10 @@ export function statusText(view: RunView): string {
     if (view.active) return `Running: ${view.active}`
     return view.trace.length === 0 ? 'Starting the run' : 'Running'
   }
-  if (view.phase === 'done') return 'Answer ready'
+  if (view.phase === 'done') {
+    if (view.result?.ending.kind === 'partial') return 'Partial answer'
+    return view.result?.ending.kind === 'no_answer' ? 'No answer' : 'Answer ready'
+  }
   if (view.phase === 'failed') return 'Failed'
   if (view.phase === 'stopped') return 'Stopped'
   return 'Ready'
@@ -155,7 +158,12 @@ export function researchStatus(view: RunView): string {
     if (view.active) return `Research running. Current step: ${view.active}.`
     return view.trace.length === 0 ? 'Starting research.' : 'Research running.'
   }
-  if (view.phase === 'done') return 'Research finished. The cited answer is ready.'
+  if (view.phase === 'done') {
+    const { ending, sources } = view.result ?? { ending: { kind: 'complete' }, sources: [] }
+    if (ending.kind === 'no_answer') return 'Research stopped early. No answer was written. The pages read are listed.'
+    if (ending.kind === 'partial') return 'Research stopped early. The answer is the last draft, labelled below.'
+    return sources.length === 0 ? 'Research finished. The answer cites no source.' : 'Research finished. The cited answer is ready.'
+  }
   if (view.phase === 'failed') return 'Research failed. The message above says why.'
   if (view.phase === 'stopped') return 'Research stopped. Steps that finished are still in the trace.'
   return 'Ready. Start research when the question is set.'

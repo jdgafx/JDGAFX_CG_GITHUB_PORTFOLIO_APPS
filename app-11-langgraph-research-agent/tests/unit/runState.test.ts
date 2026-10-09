@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ResultFrame } from '../../netlify/shared/events'
-import { applyFrame, emptyRun, startRun, statusText } from '../../src/lib/runState'
+import { applyFrame, emptyRun, researchStatus, startRun, statusText } from '../../src/lib/runState'
 
 describe('run view', () => {
   it('starts ready, then says it is starting, then names the running node', () => {
@@ -64,23 +64,44 @@ describe('run view', () => {
     expect(view.taken).toEqual({ 'agent>tools': 'tools (round 2 of 4)' })
   })
 
+  const resultFrame = (overrides: Partial<ResultFrame> = {}): ResultFrame => ({
+    type: 'result',
+    answer: 'Answer [1].',
+    sources: [{ n: 1, title: 'Expo 98', url: 'https://en.wikipedia.org/wiki/Expo_98' }],
+    critic: { verdict: 'accept', notes: '', reviewed: true },
+    ending: { kind: 'complete', message: '' },
+    path: ['plan', 'agent', 'draft', 'critic', 'final'],
+    evidenceCount: 1,
+    toolRounds: 0,
+    revisions: 0,
+    truncated: false,
+    totals: { ms: 4000, unpricedRows: 0 },
+    models: ['qwen/qwen3.7-flash'],
+    ...overrides,
+  })
+
   it('stores the result and marks the run done', () => {
-    const result: ResultFrame = {
-      type: 'result',
-      answer: 'Answer [1].',
-      sources: [{ n: 1, title: 'Expo 98', url: 'https://en.wikipedia.org/wiki/Expo_98' }],
-      critic: { verdict: 'accept', notes: '', reviewed: true },
-      path: ['plan', 'agent', 'draft', 'critic', 'final'],
-      evidenceCount: 1,
-      toolRounds: 0,
-      revisions: 0,
-      truncated: false,
-      totals: { ms: 4000, unpricedRows: 0 },
-      models: ['xiaomi/mimo-v2.6-flash'],
-    }
+    const result = resultFrame()
     const view = applyFrame(startRun(), result)
     expect(view).toMatchObject({ phase: 'done', result, error: null })
     expect(statusText(view)).toBe('Answer ready')
+    expect(researchStatus(view)).toBe('Research finished. The cited answer is ready.')
+  })
+
+  it('says what is true when the answer cites nothing, and when the run stopped early', () => {
+    const noSource = applyFrame(startRun(), resultFrame({ answer: 'The sources do not say.', sources: [] }))
+    expect(researchStatus(noSource)).toBe('Research finished. The answer cites no source.')
+
+    const partial = applyFrame(
+      startRun(),
+      resultFrame({ ending: { kind: 'partial', message: 'Unreviewed: the time limit ended the review.' } }),
+    )
+    expect(statusText(partial)).toBe('Partial answer')
+    expect(researchStatus(partial)).toBe('Research stopped early. The answer is the last draft, labelled below.')
+
+    const none = applyFrame(startRun(), resultFrame({ answer: '', ending: { kind: 'no_answer', message: 'No answer was written.' } }))
+    expect(statusText(none)).toBe('No answer')
+    expect(researchStatus(none)).toBe('Research stopped early. No answer was written. The pages read are listed.')
   })
 
   it('shows a visit still running as failed when the error arrives, and leaves finished visits alone', () => {

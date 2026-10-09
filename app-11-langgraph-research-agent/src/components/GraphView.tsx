@@ -127,6 +127,7 @@ export function GraphView({ view }: GraphViewProps) {
         <p className="ds-section__sub">Each box is one step. Arrows the run took are in signal colour.</p>
       </div>
       <div className="ds-panel graph-panel">
+        <p className="ds-help graph-hint">Swipe the graph sideways to see the tools loop on the right.</p>
         <div className="ds-scroll-x">
           <svg
             className="graph-svg"
@@ -157,7 +158,6 @@ export function GraphView({ view }: GraphViewProps) {
             ))}
           </svg>
         </div>
-        <p className="ds-help graph-hint">Swipe sideways to see the tools loop on the right.</p>
         {decisions.length > 0 && (
           <ul className="edge-log" aria-label="Decisions taken">
             {decisions.map(([key, label]) => (

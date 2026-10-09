@@ -24,6 +24,17 @@ export interface CriticView {
   reviewed: boolean
 }
 
+/**
+ * How the run ended. `complete`: the path ran to its end. `partial`: the run stopped early or a step
+ * was skipped for time, and the answer is the last draft. `no_answer`: it stopped before any draft
+ * existed, and `sources` lists the pages read.
+ */
+export interface EndingView {
+  kind: 'complete' | 'partial' | 'no_answer'
+  /** Plain words for the page. Empty when the run is complete. */
+  message: string
+}
+
 export interface Totals {
   ms: number
   tokens?: number
@@ -60,6 +71,7 @@ export interface ResultFrame {
   evidenceCount: number
   toolRounds: number
   revisions: number
+  ending: EndingView
   /** True when the final draft hit its length limit, so the answer may stop mid-sentence. */
   truncated: boolean
   totals: Totals

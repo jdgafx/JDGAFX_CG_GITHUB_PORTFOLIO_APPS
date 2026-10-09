@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Evidence } from '../../netlify/shared/citations'
-import { extractJson, parseCritic, parseQueries } from '../../netlify/shared/graph/parse'
+import { clipText, extractJson, groundedIssues, parseCritic, parseQueries } from '../../netlify/shared/graph/parse'
 import { numberSources, runToolCall, type ToolOutcome } from '../../netlify/shared/graph/tools'
 import type { ToolCall } from '../../netlify/shared/openrouter'
 import { WikiError, type WikiTools } from '../../netlify/shared/wikipedia'
@@ -38,20 +38,44 @@ describe('parseQueries', () => {
 })
 
 describe('parseCritic', () => {
-  it('reads an accept verdict with its notes', () => {
+  it('reads an accept verdict with no issues, keeping an old-style note as the summary', () => {
+    expect(parseCritic('{"verdict": "accept", "issues": []}')).toEqual({ verdict: 'accept', issues: [], notes: '' })
     expect(parseCritic('{"verdict": "accept", "notes": "Every claim matches source [1]."}')).toEqual({
       verdict: 'accept',
+      issues: [],
       notes: 'Every claim matches source [1].',
     })
   })
 
-  it('reads a revise verdict and treats missing notes as empty', () => {
-    expect(parseCritic('{"verdict": "revise"}')).toEqual({ verdict: 'revise', notes: '' })
+  it('reads a revise verdict with quoted issues, trimmed, blanks dropped, joined into the notes', () => {
+    expect(
+      parseCritic(
+        '{"checks": [{"claim": "gap", "ok": false}], "verdict": "revise", "issues": [{"quote": "  45 years ", "fix": " Say 42. "}, {}, "Cite [2]."]}',
+      ),
+    ).toEqual({
+      verdict: 'revise',
+      issues: [
+        { quote: '45 years', fix: 'Say 42.' },
+        { quote: '', fix: 'Cite [2].' },
+      ],
+      notes: '"45 years": Say 42. Cite [2].',
+    })
   })
 
-  it('cuts long notes to 600 characters', () => {
-    const verdict = parseCritic(`{"verdict": "revise", "notes": "${'n'.repeat(900)}"}`)
-    expect(verdict?.notes).toHaveLength(600)
+  it('reads a revise verdict that names no issue, so the graph can decline to act on it', () => {
+    expect(parseCritic('{"verdict": "revise"}')).toEqual({ verdict: 'revise', issues: [], notes: '' })
+    expect(parseCritic('{"verdict": "revise", "issues": ["  "]}')?.issues).toEqual([])
+  })
+
+  it('keeps at most five issues', () => {
+    const issues = Array.from({ length: 8 }, (_, i) => ({ quote: `Quote ${i + 1}`, fix: 'Fix.' }))
+    expect(parseCritic(JSON.stringify({ verdict: 'revise', issues }))?.issues).toEqual(issues.slice(0, 5))
+  })
+
+  it('cuts long notes at a word boundary with an ellipsis, never in the middle of a word', () => {
+    const verdict = parseCritic(JSON.stringify({ verdict: 'revise', issues: [{ quote: 'q', fix: `${'alpha beta gamma '.repeat(60)}` }] }))
+    expect(verdict?.notes.length).toBeLessThanOrEqual(601)
+    expect(verdict?.notes.endsWith('gamma…') || verdict?.notes.endsWith('beta…') || verdict?.notes.endsWith('alpha…')).toBe(true)
   })
 
   it('returns null for an unknown verdict or a reply that is not JSON', () => {
@@ -182,5 +206,37 @@ describe('numberSources', () => {
     expect(batch.messages).toEqual([
       { role: 'tool', tool_call_id: 'x', content: 'No Wikipedia page has the title "Nope".' },
     ])
+  })
+})
+
+describe('clipText', () => {
+  it('leaves short text alone', () => {
+    expect(clipText('Short note.', 600)).toBe('Short note.')
+  })
+
+  it('cuts at the last sentence end when one falls in the second half', () => {
+    expect(clipText('First sentence here. Second sentence goes on and on', 30)).toBe('First sentence here.')
+  })
+
+  it('cuts at the last space otherwise and adds an ellipsis', () => {
+    expect(clipText('one two three four five six seven', 20)).toBe('one two three four…')
+  })
+})
+
+describe('groundedIssues', () => {
+  const issues = [
+    { quote: 'The difference is 45 years', fix: 'Say 42.' },
+    { quote: 'a claim that is not there', fix: 'Remove it.' },
+    { quote: '', fix: 'No quote.' },
+    { quote: 'ab', fix: 'Too short to count.' },
+  ]
+
+  it('keeps only the issues whose quote is in the draft or the question, ignoring case and spacing', () => {
+    expect(groundedIssues(issues, 'The  difference is\n45 YEARS [1][2].', 'Which came first?')).toEqual([issues[0]])
+    expect(groundedIssues([{ quote: 'which came first', fix: 'Answer it.' }], 'The draft.', 'Which came first?')).toHaveLength(1)
+  })
+
+  it('keeps nothing when no text holds a quote', () => {
+    expect(groundedIssues(issues, 'Unrelated text.')).toEqual([])
   })
 })

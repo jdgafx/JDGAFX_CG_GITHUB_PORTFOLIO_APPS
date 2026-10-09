@@ -1,6 +1,6 @@
 import { Annotation } from '@langchain/langgraph'
 import type { Evidence } from '../citations'
-import type { CostSource, NodeName, NodeStatus, SourceView } from '../events'
+import type { CostSource, EndingView, NodeName, NodeStatus, SourceView } from '../events'
 import type { ChatMessage, TokenUsage, ToolCall } from '../openrouter'
 
 /** The most tool rounds the agent may run before it must draft. */
@@ -47,6 +47,7 @@ export interface FinalAnswer {
   sources: SourceView[]
   /** True when the draft behind this answer hit its length limit. */
   truncated: boolean
+  ending: EndingView
 }
 
 /** A field the latest update replaces. `initial` builds the starting value, so no run shares an array. */
@@ -67,6 +68,10 @@ export const ResearchState = Annotation.Root({
   draftText: last(() => ''),
   /** Whether the latest draft hit its length limit. */
   draftTruncated: last(() => false),
+  /** Whether the critic has read the latest draft. */
+  draftReviewed: last(() => false),
+  /** Set by a step that skipped work for lack of time, so the final answer says so. */
+  ending: last<EndingView | null>(() => null),
   critique: last<Critique | null>(() => null),
   revisions: last(() => 0),
   route: last<Route | null>(() => null),

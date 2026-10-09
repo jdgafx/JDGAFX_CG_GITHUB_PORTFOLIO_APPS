@@ -1,10 +1,10 @@
 # GraphScout
 
-GraphScout answers a factual question from Wikipedia and lists its sources. You type a question or load one of three examples. A planner writes search queries. An agent calls two Wikipedia tools in a loop, reads the pages it chooses, and stops when it has enough. A draft writes the answer with numbered citations. A critic accepts the draft or sends it back for up to two revisions. The final answer lists the sources it cites, as links.
+GraphScout answers a factual question from Wikipedia and lists its sources. You type a question or load one of four examples. A planner writes search queries. An agent calls two Wikipedia tools in a loop, reads the pages it chooses, and stops when it has enough. A draft writes the answer with numbered citations. A critic accepts the draft or sends it back for up to two revisions, and only when it names a concrete fault. The final answer lists the sources it cites, as links. The graph watches the clock: when the time left cannot cover another step, it skips that step and says so on the edge, and a run that is stopped still shows its last draft, labelled.
 
 **What this showcases:** a LangGraph agent whose tool loop and critic loop are real cycles in a state graph, each bounded and shown as it runs.
 
-A plain chain cannot do this, because the path depends on what the model finds. The agent may need one tool round or four. The critic may accept, or ask for up to two revisions, and each new draft must see the critic's notes. LangGraph.js holds the state, runs the conditional edges and enforces the limits, so each decision is an explicit edge with a label. The run trace shows every visit, which edge was taken and why.
+A plain chain cannot do this, because the path depends on what the model finds. The agent may need one tool round or four. The critic may accept, or ask for up to two revisions, and each new draft must see the critic's issues. The time left decides whether another tool round or another revision is worth starting. LangGraph.js holds the state, runs the conditional edges and enforces the limits, so each decision is an explicit edge with a label. The run trace shows every visit, which edge was taken and why.
 
 ## The graph
 
@@ -16,10 +16,12 @@ flowchart TD
   tools --> agent
   agent -- "draft (no more searches)" --> draft
   agent -- "draft (tool round limit reached)" --> draft
+  agent -- "draft (out of time)" --> draft
   draft --> critic
   critic -- "final (accepted)" --> final
   critic -- "final (revision limit reached)" --> final
   critic -- "final (critic reply unreadable)" --> final
+  critic -- "final (out of time)" --> final
   critic -- "revise (k of 2)" --> draft
   final --> END
 ```
@@ -27,17 +29,20 @@ flowchart TD
 - **agent to tools** runs when the model asked for tool calls and fewer than 4 rounds have run. The tools loop back to the agent.
 - **agent to draft** runs when the model asked for no tools, or when the 4-round budget is spent. In the second case the agent visit is marked skipped and makes no model call.
 - **critic to final** runs when the critic accepts, or when the draft has already been sent back twice.
-- **critic to draft** runs when the critic asks for changes and fewer than 2 revisions have been used. The critic's notes go to the next draft.
+- **critic to draft** runs when the critic says revise, names at least one issue that quotes words really found in the draft or the question, fewer than 2 revisions have been used, and the time left covers a draft and a review. The issues go to the next draft. A revise verdict with no such issue is accepted, and the trace says why.
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
+- **out of time** edges (agent to draft, critic to final) are taken when the time left is below what the next step needs. The node detail says how many seconds were left, for example "Time left 6 s: no more searches. Drafting with what has been read." A skipped review leaves the answer labelled "Unreviewed: the time limit ended the review."
 
-| Node | Model | List price per 1M tokens (in / out) | Why this model |
+Every node uses one model, `anthropic/claude-haiku-5.5`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. Its list price is $0.10 in and $0.50 out per 1M tokens, checked on 2026-10-09. Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
+
+| Node | What it does | Reply cap | p50 / p95 (ms) |
 | --- | --- | --- | --- |
-| plan | `xiaomi/mimo-v2.6-flash` | $0.14 / $0.28 | Writes one to three short queries. |
-| agent | `xiaomi/mimo-v2.6-pro` | $0.44 / $0.87 | Tool calling needs the stronger model. |
-| draft | `xiaomi/mimo-v2.6-pro` | $0.44 / $0.87 | Writes cited prose from the sources. |
-| critic | `~anthropic/claude-haiku-latest` | $0.10 / $0.50 | Returns a strict JSON verdict. |
+| plan | Writes one to three short queries as JSON. | 400 tokens | 1,644 / 3,769 |
+| agent | Calls the Wikipedia tools. It must call a tool until it has read one page (`tool_choice: required`). | 800 tokens | 1,436 / 2,652 |
+| draft | Writes cited prose from the numbered sources. | 1,200 tokens | 1,689 / 3,576 |
+| critic | Lists its checks, then returns a verdict and issues that quote the draft, as JSON. Accept is the default. | 400 tokens | 1,829 / 2,923 |
 
-Prices were checked on 2026-10-08. Every call sends a `max_tokens` cap (plan 400, agent 800, draft 1200, critic 400) and temperature 0.2.
+The latency figures are from 54 local runs through OpenRouter on 2026-10-09 (54 plan, 163 agent, 77 draft and 77 critic calls). The slowest agent call took 14.8 s: it hit the 12 s limit and its retry succeeded. The deployed function is slower or faster by what its network adds, so the time thresholds below keep a margin.
 
 Sources are the pages the agent read with `wikipedia_page`. Each page gets one number, and a page read twice keeps its number. A search result alone is not a source. The tools are:
 
@@ -48,12 +53,12 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 
 ## What the page shows
 
-- **Controls**: the question field, the Start research and Stop buttons, and three example questions that each fill the field. The line under them says what the run is doing.
-- **Examples**: a quick lookup (Lisbon's World Exposition), a question that follows a link from one page to the next (the novel behind Blade Runner), and one the critic often sends back (the Eiffel Tower against the Empire State Building). Each has an answer on English Wikipedia. The path a run takes is decided by the models at run time, so an example may take another path, and a slow provider can end a run at the 25-second budget.
+- **Controls**: the question field, the Start research and Stop buttons, and four example questions that each fill the field. A question over 500 characters is not cut: the count turns red and says how many to remove. The line under them says what the run is doing.
+- **Examples**: a quick lookup (Lisbon's World Exposition), a question that follows a link from one page to the next (the novel behind Blade Runner), a comparison of two pages with a sum (the Eiffel Tower and the Empire State Building), and a three-part question about one person (the first woman to win a Nobel Prize). Each has an answer on English Wikipedia. The path a run takes is decided by the models at run time, so an example may take another path.
 - **Graph**: each box shows its state as a dot and a word, and the running step pulses. Each arrow the run took turns signal colour. The two loops show their bounds before a run and their counts during it.
 - **Run totals**: total time, total tokens, total cost, and the models used.
 - **Cost**: a cost OpenRouter reports is shown as reported. Otherwise the cost is estimated from the list prices and labelled as estimated. A value that cannot be known shows as not reported. If some model calls have no price, the total is labelled partial and says how many.
-- **Answer**: the cited answer, the critic's verdict and notes, and the sources as numbered links. If the draft hit its length limit, the answer carries a notice that it was cut short.
+- **Answer**: the cited answer, the critic's verdict and issues, and the sources as numbered links. If the draft hit its length limit, the answer carries a notice that it was cut short. If the run ended early, a notice says how far the review got: "Unreviewed: the time limit ended the review.", "Reviewed once: the critic asked for changes, but the time limit ended the revision. This is the reviewed draft.", or, with no draft, "No answer was written" and the pages read.
 - **Run trace**: one numbered row per node visit, with its status, time in milliseconds, the served model, tokens, and cost.
 
 ## Architecture
@@ -61,9 +66,11 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/functions/run.ts`. The function checks the method, the origin, a rate limit of 20 requests a minute per client, the body size and the question (1 to 500 characters). It then starts the graph and streams the run as server-sent events. The graph calls OpenRouter through `netlify/shared/openrouter.ts` and Wikipedia through `netlify/shared/wikipedia.ts`.
 
 - **Key**: `OPENROUTER_API_KEY` is read only on the server. The browser never receives it, and no error message contains a provider body.
-- **Budget**: one 25-second budget covers every model and tool call in a run, so the run ends itself before the roughly 30-second cut-off seen on the live Netlify site. Each model call also has a 12-second timeout. Each Wikipedia call has a 6-second timeout.
-- **Errors**: each failure becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
-- **Checkpointer**: an in-memory checkpointer is created for each request, and the final state is read back from it. Nothing is saved between requests.
+- **Budget**: one 25-second budget covers every model and tool call in a run, so the run ends itself before the roughly 30-second cut-off seen on the live Netlify site. Each model call also has a 12-second timeout. Each Wikipedia call has a 6-second timeout. Each limit is a timer that aborts the request and also ends the wait, body read included, so a reply that stalls after its headers is cut too (`netlify/shared/limit.ts`). If the run has not returned 2 seconds after its budget, the stream is closed with the budget message anyway. The messages differ: "The AI provider did not answer in time." is the provider's own timeout, and "The run reached its time limit before this step finished." is the run budget.
+- **Time-aware steps**: the run carries its deadline, and each step has a need in `STEP_NEEDS_MS` in `netlify/shared/models.ts` (plan 4 s, agent 3 s, tools 1.5 s, draft 4 s, critic 3.5 s: the measured p95, rounded up to the next half second). The agent skips its next turn when a page is read and the time left is below an agent turn, a draft and a review. It routes to the draft instead of another tool round when the time left is below the round and what follows it. The critic is skipped when under its need, and a revision is not started when under a draft and a review. A model call that times out on its own limit is tried once more, only when the time left covers that step again and what must follow.
+- **A stopped run keeps its work**: when a step fails or the budget ends the run, the last saved state is read back from the checkpointer. With a draft, the result carries that draft and its cited sources with an `ending` that says what was skipped. With no draft but pages read, it lists the pages and says no answer was written. With neither, it is an error frame. The step that was running gets a failed `node_end` frame with its real duration.
+- **Errors**: each failure that leaves nothing to show becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
+- **Checkpointer**: an in-memory checkpointer is created for each request. Its saved state is read back for the result and for a stopped run. Nothing is saved between requests.
 
 Source files live in `netlify/shared/graph/` (state, prompts, parsing, tools, nodes, graph assembly and the stream mapping) and `src/` (the page).
 
@@ -92,8 +99,8 @@ https://jdgafx-app-11-langgraph-research-agent.netlify.app
 - `node_start`: `node`, `visit`, `ms` (offset from the start of the run).
 - `node_end`: `node`, `visit`, `ms` (duration), `status` (`ok`, `failed` or `skipped`), `detail`, and when a model was called, `model`, `servedModel`, `usage`, `cost`, `costSource`.
 - `edge`: `from`, `to`, `label`.
-- `result`: `answer`, `sources`, `critic`, `path`, `evidenceCount`, `toolRounds`, `revisions`, `truncated`, `totals`, `models`.
-- `error`: `message`.
+- `result`: `answer`, `sources`, `critic`, `ending`, `path`, `evidenceCount`, `toolRounds`, `revisions`, `truncated`, `totals`, `models`. `ending` is `{ kind, message }`: `complete`, `partial` (the last draft of a run that stopped early or skipped a step for time) or `no_answer` (`answer` is empty and `sources` lists the pages read).
+- `error`: `message`. Sent only when the run stopped with no draft and no page read.
 
 The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "success": false, "error": "..." }` with status 400, 403, 405, 413, 429, 500 or 503. A 500 is an unexpected server error.
 
@@ -101,8 +108,8 @@ The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "s
 
 - Only English Wikipedia is searched. The agent reads the first 2,500 characters of a page, so a fact further down the article is not seen.
 - The critic is a model. It can miss an unsupported claim, and an accepted answer is not proof of correctness.
-- If the agent makes no tool call before it reads a page, the draft has no sources. The draft prompt asks the model to say so, but the model may not.
+- The agent must call a tool until it has read one page, but it can read a page that does not hold the fact. The draft prompt asks the model to say when the sources do not answer, but the model may not.
 - Every request turns reasoning off. A model can still return an empty reply, and then the run falls back, accepts the draft unreviewed, or reports a plain error.
 - The rate limit is kept per warm function instance, so it is not a quota.
-- The run budget is 25 seconds. A slow provider ends the run with a timeout message.
+- The run budget is 25 seconds. A slow provider can make the graph skip steps, and a run that cannot draft in time ends with the pages read and no answer. Time left decides, so the same question can take different paths on different days.
 - Runs are not saved, so a run cannot be resumed or reopened.
