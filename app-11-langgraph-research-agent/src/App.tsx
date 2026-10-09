@@ -8,11 +8,13 @@ import { Header } from './components/Header'
 import { QuestionForm } from './components/QuestionForm'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
+import { useForkReveal } from './lib/useForkReveal'
 import { useResultFocus } from './lib/useResultFocus'
 import { INTERRUPTED_MESSAGE, streamResearch, streamResume } from './lib/research'
 import { applyFrame, emptyRun, failRun, researchStatus, startRun, stopRun, type RunView } from './lib/runState'
 
 const RETRY_HINT = 'Press Start research to try again.'
+const FORK_RETRY_HINT = 'Press Re-run to try again, or go back to the original run.'
 
 type Action =
   | { type: 'start' }
@@ -50,6 +52,7 @@ export default function App() {
   const offers = base.checkpoints
 
   useResultFocus(view.phase)
+  useForkReveal(fork.phase)
 
   // Leaving the page ends the run, so no request keeps billing after the visitor is gone.
   useEffect(() => {
@@ -145,7 +148,7 @@ export default function App() {
             {view.error && (
               <div className="ds-notice ds-notice--error" role="alert">
                 <p>{view.error}</p>
-                <p>{RETRY_HINT}</p>
+                <p>{forking ? FORK_RETRY_HINT : RETRY_HINT}</p>
               </div>
             )}
           </div>

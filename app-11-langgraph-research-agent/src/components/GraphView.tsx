@@ -195,6 +195,14 @@ export function GraphView({ view, pickable, onPick }: GraphViewProps) {
             failed
           </li>
           <li>
+            <span className="ds-dot ds-dot--skipped" aria-hidden="true" />
+            kept
+          </li>
+          <li>
+            <span className="ds-dot ds-dot--ok" aria-hidden="true" />
+            set by you
+          </li>
+          <li>
             <span className="ds-legend__edge" aria-hidden="true" />
             path taken
           </li>

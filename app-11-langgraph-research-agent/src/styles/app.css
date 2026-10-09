@@ -25,9 +25,10 @@
 @media (max-width: 859px) { .fork__grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* Steps a resumed run kept are drawn quieter than the ones it ran again. */
-.trace-step--reused { opacity: 0.72; }
+.trace-step--reused .ds-trace__index { color: var(--ds-text-muted); }
 .trace-step--edited { background: var(--ds-accent-soft); }
 .trace__bar--reused { background: var(--ds-border-strong); opacity: 0.55; }
+.fork__badge { justify-self: start; }
 .g-node--reused { stroke: var(--ds-border-strong); stroke-dasharray: 2 4; fill: var(--ds-surface-2); }
 .g-node--edited { stroke: var(--ds-accent); stroke-width: 2.5; fill: var(--ds-accent-soft); }
 .g-pick { cursor: pointer; }

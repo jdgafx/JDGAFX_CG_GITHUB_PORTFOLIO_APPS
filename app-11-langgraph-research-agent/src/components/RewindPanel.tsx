@@ -20,7 +20,7 @@ function QueryEditor({ offer, queries, setQueries }: { offer: CheckpointOffer; q
   return (
     <div className="ds-stack">
       <p className="ds-help">
-        The plan chose these searches. Change them and the agent searches with yours: every step after the plan runs again.
+        The plan chose these searches. Change them and the agent searches with yours, though it may still read a page your question names. Every step after the plan runs again.
       </p>
       {queries.map((query, i) => {
         const id = `rewind-query-${offer.visit}-${i}`

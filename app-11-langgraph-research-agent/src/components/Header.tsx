@@ -11,7 +11,7 @@ function toneFor(view: RunView): Tone {
     case 'running':
       return { badge: 'ds-badge--accent', dot: 'ds-dot--running' }
     case 'done':
-      return view.result?.ending.kind === 'complete'
+      return view.result?.ending.kind === 'complete' && !(view.result.fork && !(view.result.critic.reviewed && view.result.critic.verdict === 'accept'))
         ? { badge: 'ds-badge--success', dot: 'ds-dot--ok' }
         : { badge: 'ds-badge--warning', dot: 'ds-dot--stopped' }
     case 'failed':

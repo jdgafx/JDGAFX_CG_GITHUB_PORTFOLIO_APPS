@@ -79,7 +79,7 @@ function TraceRow({ index, entry, lane, rewind, onRewind }: TraceRowProps) {
         )}
       </div>
       <div className="ds-trace__meta">
-        <span>{entry.ms === undefined ? '—' : entry.reused ? `${milliseconds(entry.ms)} (original)` : milliseconds(entry.ms)}</span>
+        <span>{entry.edited ? 'set by you' : entry.ms === undefined ? '—' : entry.reused ? `${milliseconds(entry.ms)} (original)` : milliseconds(entry.ms)}</span>
         {tokens !== undefined && <span>{`${count(tokens)} tok`}</span>}
         {entry.model && (
           <span title={entry.costSource ? costSourceText[entry.costSource] : undefined}>{costLine(entry)}</span>

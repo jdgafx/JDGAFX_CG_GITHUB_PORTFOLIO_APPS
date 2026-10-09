@@ -59,6 +59,13 @@ describe('sourcesFor', () => {
   })
 })
 
+describe('removeReviewTalk, guidance sentences', () => {
+  it('drops a sentence that talks about the guidance the model was given', () => {
+    const answer = "I can't quote the guidance I was given, but here is the answer. Lisbon hosted Expo '98 in 1998 [1]."
+    expect(removeReviewTalk(answer)).toEqual({ text: "Lisbon hosted Expo '98 in 1998 [1].", removed: 1 })
+  })
+})
+
 describe('removeReviewTalk', () => {
   it('removes the sentences that speak about the reviewer, the previous draft or the notes, and keeps the answer', () => {
     const answer =

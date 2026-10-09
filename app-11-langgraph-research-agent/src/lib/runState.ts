@@ -155,7 +155,9 @@ export function failRun(view: RunView, message: string): RunView {
 /** The word for the header badge. */
 export function statusText(view: RunView): string {
   if (view.phase === 'done' && view.result?.fork) {
-    return view.result.ending.kind === 'complete' ? 'New answer ready' : 'Partial new answer'
+    const { ending, critic } = view.result
+    if (ending.kind !== 'complete') return 'Partial new answer'
+    return critic.reviewed && critic.verdict === 'accept' ? 'New answer ready' : 'New answer, critic not satisfied'
   }
   if (view.phase === 'running') {
     if (view.active) return `Running: ${view.active}`

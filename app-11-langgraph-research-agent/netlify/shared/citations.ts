@@ -35,7 +35,7 @@ export function sourcesFor(answer: string, evidence: Evidence[]): SourceView[] {
 
 /** Wording that only a draft which has seen the reviewer's notes would use. */
 const REVIEW_TALK =
-  /\b(?:the|a|that|this|your) (?:reviewers?|critics?)\b|\b(?:reviewer|critic)['’]s\b|\b(?:previous|earlier|prior) draft\b|\bthe feedback\b|\bthe notes\b|\b(?:as|per) (?:requested|instructed)\b/i
+  /\b(?:the|a|that|this|your) (?:reviewers?|critics?)\b|\b(?:reviewer|critic)['’]s\b|\b(?:previous|earlier|prior) draft\b|\bthe feedback\b|\bthe notes\b|\b(?:as|per) (?:requested|instructed)\b|\b(?:the|your|my|given) (?:guidance|instructions?)\b|\bI (?:can't|can’t|cannot) (?:quote|share|reveal)\b/i
 
 /**
  * Removes the sentences of a revised answer that talk about the review itself. The draft prompt forbids

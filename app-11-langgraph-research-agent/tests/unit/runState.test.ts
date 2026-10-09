@@ -151,4 +151,14 @@ describe('a resumed run', () => {
     const view = applyFrame(startRun(), { type: 'checkpoints', items: [{ kind: 'plan', visit: 1, token: 't', queries: ['q'], sources: [] }] })
     expect(view.checkpoints).toHaveLength(1)
   })
+
+  it('does not call a re-run answer ready when the critic still asked for changes', () => {
+    const frame = (verdict: 'accept' | 'revise'): ResultFrame => ({
+      type: 'result', answer: 'A [1].', sources: [], critic: { verdict, notes: 'n', reviewed: true }, ending: { kind: 'complete', message: '' },
+      path: [], evidenceCount: 1, toolRounds: 1, revisions: 2, truncated: false, totals: { ms: 1, unpricedRows: 0 }, models: [],
+      fork: { kind: 'plan', visit: 1, reused: 0, rerun: 8 },
+    })
+    expect(statusText(applyFrame(startRun(), frame('accept')))).toBe('New answer ready')
+    expect(statusText(applyFrame(startRun(), frame('revise')))).toBe('New answer, critic not satisfied')
+  })
 })

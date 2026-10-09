@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ResultFrame } from '../../netlify/shared/events'
+import { badgeFor } from './AnswerCard'
 import { countParts, diffWords, sameAnswer, sourceDelta } from '../lib/fork'
 import { count, milliseconds, plural } from '../lib/format'
 import type { RunView } from '../lib/runState'
@@ -32,6 +33,16 @@ function Answer({ text, parts, kind }: { text: string; parts: ReturnType<typeof 
   )
 }
 
+function Verdict({ result }: { result: ResultFrame }) {
+  const badge = badgeFor(result)
+  return (
+    <span className={`ds-badge ${badge.tone} fork__badge`}>
+      <span className="ds-dot" aria-hidden="true" />
+      {badge.text}
+    </span>
+  )
+}
+
 function SourceList({ result }: { result: ResultFrame }) {
   if (result.sources.length === 0) return <p className="ds-help">The answer cites no source.</p>
   return (
@@ -50,8 +61,9 @@ function SourceList({ result }: { result: ResultFrame }) {
 export function ForkCompare({ original, fork, onBack }: Props) {
   const [showDiff, setShowDiff] = useState(true)
   const next = fork.result
-  const parts = next && showDiff ? diffWords(plainText(original.answer), plainText(next.answer)) : null
-  const counts = parts ? countParts(parts) : null
+  const all = next ? diffWords(plainText(original.answer), plainText(next.answer)) : null
+  const parts = showDiff ? all : null
+  const counts = all ? countParts(all) : null
   const delta = next ? sourceDelta(original.sources, next.sources) : null
   const info = next?.fork
   const running = fork.phase === 'running'
@@ -68,7 +80,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
         </div>
         {info && next && (
           <p className="fork__summary">
-            {`Kept ${plural(info.reused, 'step')} from the original run and ran ${plural(info.rerun, 'step')} again in ${milliseconds(next.totals.ms)}. `}
+            {`Kept ${plural(info.reused, 'step')} from the original run and ran ${plural(info.rerun, 'step')} again in ${milliseconds(next.totals.ms)}. `.trimEnd()}{' '}
             {identical
               ? 'The new answer reads the same as the original.'
               : counts && `The new answer adds ${plural(counts.added, 'word')} and drops ${plural(counts.removed, 'word')}.`}
@@ -84,6 +96,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
         <div className="fork__grid">
           <article className="fork__col" aria-label="Original answer">
             <h3 className="fork__head">Original answer</h3>
+            <Verdict result={original} />
             <div className="ds-lead__text"><Answer text={original.answer} parts={parts} kind="del" /></div>
             <SourceList result={original} />
             <p className="ds-lead__foot">{`${milliseconds(original.totals.ms)}. Read ${plural(original.evidenceCount, 'page')}.`}</p>
@@ -92,6 +105,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
             <h3 className="fork__head">After your edit</h3>
             {next ? (
               <>
+                <Verdict result={next} />
                 <div className="ds-lead__text"><Answer text={next.answer} parts={parts} kind="add" /></div>
                 <SourceList result={next} />
                 {delta && (delta.added.length > 0 || delta.dropped.length > 0) && (
