@@ -264,6 +264,18 @@ describe('ai function: a completed review', () => {
     expect(payload.trace[5].detail).toBe('Kept 1 comment, dropped 2 (bad line, severity or text, or over the limit)')
   })
 
+  it('moves, drops and reports comments that cite blank or misplaced lines', async () => {
+    const code = 'def f(x):\n    y = x.strip()\n\n    return eval(y)\n\n\n\n\nprint(f("1"))'
+    const make = (line: number, quote: string) => ({ line, quote, severity: 'warning', message: `m${line}`, suggestion: 's' })
+    fetchStub.mockResolvedValueOnce(
+      providerReply(reviewJson([make(3, 'return eval(y)'), make(6, 'y = x.strip()'), make(2, 'y = x.strip()')])),
+    )
+    const payload = await readPayload(await handler(post({ code, language: 'python' })))
+    expect(payload.result?.comments.map((c) => c.line)).toEqual([4, 2])
+    expect(payload.trace[5].detail).toBe('Kept 2 comments, moved 1 to the line it quotes, dropped 1 that cited a blank line')
+    expect(sentBody().messages[0].content).toContain('"quote"')
+  })
+
   it('keeps no more comments than the budget for a two-line file', async () => {
     const comments = [
       { line: 1, severity: 'warning', message: 'm1', suggestion: 's1' },

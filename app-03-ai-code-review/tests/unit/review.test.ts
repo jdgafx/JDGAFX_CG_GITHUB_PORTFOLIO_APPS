@@ -70,6 +70,9 @@ describe('parseReview', () => {
   })
 })
 
+/** A file of `n` code lines: "line 1", "line 2", ... */
+const file = (n: number): string[] => Array.from({ length: n }, (_, i) => `line ${i + 1}`)
+
 describe('validateComments', () => {
   it('keeps only comments that cite a real line with valid fields, and counts the rest as dropped', () => {
     const raw = [
@@ -78,7 +81,7 @@ describe('validateComments', () => {
       { line: 1, severity: 'praise', message: 'unknown severity', suggestion: 's' },
       'junk',
     ]
-    const { comments, dropped } = validateComments(raw, 3, 15)
+    const { comments, dropped } = validateComments(raw, file(3), 15)
     expect(comments).toEqual([
       { line: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Guard b === 0' },
     ])
@@ -86,7 +89,7 @@ describe('validateComments', () => {
   })
 
   it('treats a non-array as an empty list', () => {
-    expect(validateComments({ comments: [] }, 10, 15)).toEqual({ comments: [], dropped: 0 })
+    expect(validateComments({ comments: [] }, file(10), 15)).toEqual({ comments: [], dropped: 0, droppedBlank: 0, moved: 0 })
   })
 
   it('drops a line that is zero, fractional or not a number', () => {
@@ -95,7 +98,7 @@ describe('validateComments', () => {
       { line: 1.5, severity: 'info', message: 'm', suggestion: 's' },
       { line: '2', severity: 'info', message: 'm', suggestion: 's' },
     ]
-    expect(validateComments(raw, 3, 15)).toEqual({ comments: [], dropped: 3 })
+    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 3, droppedBlank: 0, moved: 0 })
   })
 
   it('drops a comment with an empty message or suggestion', () => {
@@ -103,18 +106,84 @@ describe('validateComments', () => {
       { line: 1, severity: 'warning', message: '   ', suggestion: 'fix' },
       { line: 1, severity: 'warning', message: 'problem', suggestion: '' },
     ]
-    expect(validateComments(raw, 3, 15)).toEqual({ comments: [], dropped: 2 })
+    expect(validateComments(raw, file(3), 15)).toEqual({ comments: [], dropped: 2, droppedBlank: 0, moved: 0 })
   })
 
   it('keeps no more comments than the budget', () => {
     const raw = [1, 2, 3, 4].map((line) => ({ line, severity: 'info', message: `m${line}`, suggestion: 's' }))
-    const { comments, dropped } = validateComments(raw, 4, 2)
+    const { comments, dropped } = validateComments(raw, file(4), 2)
     expect(comments.map((c) => c.line)).toEqual([1, 2])
     expect(dropped).toBe(2)
   })
 
   it('caps long text at 600 characters', () => {
     const raw = [{ line: 1, severity: 'info', message: 'x'.repeat(700), suggestion: 's' }]
-    expect(validateComments(raw, 1, 15).comments[0].message).toHaveLength(600)
+    expect(validateComments(raw, file(1), 15).comments[0].message).toHaveLength(600)
+  })
+})
+
+describe('validateComments: blank and misplaced lines', () => {
+  const lines = ['def f(x):', '    y = x.strip()', '', '    return eval(y)', '', '', '', 'print(f("1"))']
+  const comment = (line: number, quote?: string) => ({
+    line,
+    ...(quote === undefined ? {} : { quote }),
+    severity: 'warning',
+    message: 'm',
+    suggestion: 's',
+  })
+
+  it('drops a comment on a blank line when it has no quote', () => {
+    expect(validateComments([comment(3)], lines, 15)).toEqual({ comments: [], dropped: 1, droppedBlank: 1, moved: 0 })
+  })
+
+  it('drops a comment on a blank line when no nearby line holds its quote', () => {
+    const result = validateComments([comment(6, 'y = x.strip()')], lines, 15)
+    expect(result).toEqual({ comments: [], dropped: 1, droppedBlank: 1, moved: 0 })
+  })
+
+  it('moves a blank-line comment to the nearby line that holds its quote, ignoring spacing', () => {
+    const result = validateComments([comment(3, 'return   eval(y)')], lines, 15)
+    expect(result.comments.map((c) => c.line)).toEqual([4])
+    expect(result).toMatchObject({ dropped: 0, droppedBlank: 0, moved: 1 })
+  })
+
+  it('looks only two lines either way', () => {
+    // Line 8 holds the quote and is three lines from the blank line 5.
+    expect(validateComments([comment(5, 'print(f("1"))')], lines, 15).comments).toEqual([])
+    expect(validateComments([comment(6, 'print(f("1"))')], lines, 15).comments.map((c) => c.line)).toEqual([8])
+  })
+
+  it('moves a comment off a code line when it quotes code that sits two lines away', () => {
+    const result = validateComments([comment(2, 'return eval(y)')], lines, 15)
+    expect(result.comments.map((c) => c.line)).toEqual([4])
+    expect(result.moved).toBe(1)
+  })
+
+  it('keeps a comment where it is when the quote matches, is missing or matches nothing near', () => {
+    const kept = validateComments([comment(2, 'y = x.strip()'), comment(4), comment(4, 'something else entirely')], lines, 15)
+    expect(kept.comments.map((c) => c.line)).toEqual([2, 4, 4])
+    expect(kept).toMatchObject({ dropped: 0, droppedBlank: 0, moved: 0 })
+  })
+
+  it('does not treat a one or two character quote as a match', () => {
+    expect(validateComments([comment(3, '(')], lines, 15).comments).toEqual([])
+  })
+})
+
+describe('buildSystemPrompt: severity and quoting', () => {
+  const prompt = buildSystemPrompt('go', 100, 7)
+
+  it('defines critical as exploitable, crashing, data-losing or a definite reachable bug', () => {
+    expect(prompt).toContain('only an exploitable security hole, a crash, data loss, or a definite bug')
+    expect(prompt).toContain('A type cast, a style problem')
+  })
+
+  it('tells the model that a comment concluding the code is fine is not a finding', () => {
+    expect(prompt).toContain('concludes the code is fine, safe or correct is not a finding')
+  })
+
+  it('asks for the quoted code and says blank lines are never cited', () => {
+    expect(prompt).toContain('"quote"')
+    expect(prompt).toContain('never a blank line')
   })
 })

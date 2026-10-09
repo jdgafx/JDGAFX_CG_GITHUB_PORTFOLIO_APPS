@@ -10,6 +10,8 @@ interface GitHubLoaderProps {
   language: string
   /** The file now in the editor, if it came from GitHub. */
   source: GitHubFile | null
+  /** The editor text. A load error belongs to the text it was shown over, and goes when that changes. */
+  code: string
   /** True once the editor text differs from the loaded file. */
   edited: boolean
   /** `detected` is the review language taken from the file name, or null when it is not recognised. */
@@ -24,10 +26,10 @@ const SUGGESTIONS = GITHUB_SUGGESTIONS.flatMap(({ link, blurb }) => {
   return parsed.ok ? [{ link, blurb, ref: parsed.value, language: languageForPath(parsed.value.path) }] : []
 })
 
-export function GitHubLoader({ disabled, language, source, edited, onLoaded }: GitHubLoaderProps) {
+export function GitHubLoader({ disabled, language, source, code, edited, onLoaded }: GitHubLoaderProps) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<{ message: string; code: string } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -36,7 +38,7 @@ export function GitHubLoader({ disabled, language, source, edited, onLoaded }: G
   const load = async (text: string) => {
     const parsed = parseGitHubRef(text)
     if (!parsed.ok) {
-      setError(parsed.error)
+      setFailure({ message: parsed.error, code })
       setNote(null)
       return
     }
@@ -44,14 +46,14 @@ export function GitHubLoader({ disabled, language, source, edited, onLoaded }: G
     const controller = new AbortController()
     abortRef.current = controller
     setLoading(true)
-    setError(null)
+    setFailure(null)
     setNote(null)
     try {
       // Only an abort rejects: a newer load or leaving the page. That one has nothing to show.
       const result = await fetchGitHubFile(parsed.value, controller.signal).catch(() => null)
       if (result === null) return
       if (!result.ok) {
-        setError(result.error)
+        setFailure({ message: result.error, code })
         return
       }
       const detected = languageForPath(result.value.path)
@@ -79,6 +81,7 @@ export function GitHubLoader({ disabled, language, source, edited, onLoaded }: G
     void load(link)
   }
 
+  const error = failure !== null && failure.code === code ? failure.message : null
   const locked = disabled || loading
 
   return (

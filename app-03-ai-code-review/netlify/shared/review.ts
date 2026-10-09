@@ -53,6 +53,7 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
   "comments": [
     {
       "line": <integer between 1 and ${lineCount}>,
+      "quote": "<the exact code of that line, copied verbatim without the line number prefix>",
       "severity": "critical" | "warning" | "info",
       "message": "<what is wrong, one or two sentences>",
       "suggestion": "<the specific change to make>"
@@ -60,8 +61,10 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
   ]
 }
 
-Severity guidelines:
-- critical: security vulnerabilities, bugs that throw or corrupt data, data loss risks
+Severity guidelines. Judge what the code does today, not what it could become:
+- critical: only an exploitable security hole, a crash, data loss, or a definite bug on a path the
+  code can actually reach. If you cannot name the input that triggers the harm, it is not critical.
+  A type cast, a style problem, a missing check on a safe path or a theoretical risk is never critical.
 - warning: performance problems, deprecated patterns, likely bugs, code smells
 - info: style, best practice and refactoring opportunities
 
@@ -73,6 +76,9 @@ Coverage rules:
 - Sort the comments by line number, ascending. Never file two comments on the same line.
 - Only cite lines that exist, from 1 to ${lineCount}. A comment carrying any other line number is
   discarded before the user sees it.
+- Every comment is about code on the line it cites, never a blank line. Copy that line into "quote".
+  A comment whose line is blank, or does not hold the quoted code, is moved or discarded.
+- A comment that concludes the code is fine, safe or correct is not a finding. Leave it out.
 - If the code has no real issues anywhere, return {"comments": []}.`
 }
 
@@ -97,35 +103,81 @@ export function parseReview(text: string): Record<string, unknown> | null {
   return review && Array.isArray(review.comments) ? review : null
 }
 
-/** Keeps only comments that cite a real line and carry valid fields, at most `budget` of them. */
-export function validateComments(
-  raw: unknown,
-  lineCount: number,
-  budget: number,
-): { comments: ReviewComment[]; dropped: number } {
+export interface ValidatedComments {
+  comments: ReviewComment[]
+  /** Every candidate that was not kept: invalid, on a blank line, or over the budget. */
+  dropped: number
+  /** Of those, the ones that cited a blank line the quote could not place. */
+  droppedBlank: number
+  /** Kept comments moved to the nearby line that holds the code they quote. */
+  moved: number
+}
+
+const NEARBY_OFFSETS = [1, -1, 2, -2]
+const MIN_QUOTE_CHARS = 3
+
+const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+/** True when the quote and the line hold the same code, ignoring spacing. Very short strings never match. */
+function holdsQuote(lineText: string, quote: unknown): boolean {
+  if (typeof quote !== 'string') return false
+  const a = collapse(lineText)
+  const b = collapse(quote)
+  return Math.min(a.length, b.length) >= MIN_QUOTE_CHARS && (a.includes(b) || b.includes(a))
+}
+
+/**
+ * Where a comment should sit. A cited line that holds code stays unless the comment quotes other code that
+ * sits within two lines, and then it moves there. A blank line is only replaced by a nearby line that holds
+ * the quote, and is otherwise null, so a comment never points at nothing.
+ */
+function anchorLine(lines: string[], line: number, quote: unknown): number | null {
+  const cited = lines[line - 1]
+  const blank = cited.trim() === ''
+  if (!blank && (typeof quote !== 'string' || collapse(quote) === '' || holdsQuote(cited, quote))) return line
+  for (const offset of NEARBY_OFFSETS) {
+    const near = line + offset
+    if (near >= 1 && near <= lines.length && holdsQuote(lines[near - 1], quote)) return near
+  }
+  return blank ? null : line
+}
+
+/** Keeps only comments that cite a real line of `lines` and carry valid fields, at most `budget` of them. */
+export function validateComments(raw: unknown, lines: string[], budget: number): ValidatedComments {
+  const lineCount = lines.length
   const list: unknown[] = Array.isArray(raw) ? raw : []
-  const comments = list
-    .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+  let droppedBlank = 0
+  let moved = 0
+  const comments: ReviewComment[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const c = item as Record<string, unknown>
     // A line outside the file is a hallucinated citation, not a roundable value: drop it.
-    .filter(
-      (c) =>
-        typeof c.line === 'number' &&
-        Number.isInteger(c.line) &&
-        c.line >= 1 &&
-        c.line <= lineCount &&
-        typeof c.severity === 'string' &&
-        SEVERITIES.includes(c.severity as Severity) &&
-        typeof c.message === 'string' &&
-        c.message.trim().length > 0 &&
-        typeof c.suggestion === 'string' &&
-        c.suggestion.trim().length > 0,
-    )
-    .slice(0, budget)
-    .map((c) => ({
-      line: c.line as number,
+    const valid =
+      typeof c.line === 'number' &&
+      Number.isInteger(c.line) &&
+      c.line >= 1 &&
+      c.line <= lineCount &&
+      typeof c.severity === 'string' &&
+      SEVERITIES.includes(c.severity as Severity) &&
+      typeof c.message === 'string' &&
+      c.message.trim().length > 0 &&
+      typeof c.suggestion === 'string' &&
+      c.suggestion.trim().length > 0
+    if (!valid) continue
+    const line = anchorLine(lines, c.line as number, c.quote)
+    if (line === null) {
+      droppedBlank += 1
+      continue
+    }
+    if (line !== c.line) moved += 1
+    comments.push({
+      line,
       severity: c.severity as Severity,
       message: (c.message as string).trim().slice(0, MAX_TEXT_CHARS),
       suggestion: (c.suggestion as string).trim().slice(0, MAX_TEXT_CHARS),
-    }))
-  return { comments, dropped: list.length - comments.length }
+    })
+  }
+  const kept = comments.slice(0, budget)
+  return { comments: kept, dropped: list.length - kept.length, droppedBlank, moved }
 }

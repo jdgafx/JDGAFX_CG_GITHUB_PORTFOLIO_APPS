@@ -40,7 +40,8 @@ export function ReviewForm({
 }: ReviewFormProps) {
   const isRunning = phase === 'running'
   const lineCount = code.split('\n').length
-  const isOverLimit = code.length > MAX_CODE_LENGTH
+  const overBy = code.length - MAX_CODE_LENGTH
+  const isOverLimit = overBy > 0
   const canReview = !isRunning && code.trim().length > 0 && !isOverLimit
 
   return (
@@ -57,6 +58,7 @@ export function ReviewForm({
           disabled={isRunning}
           language={language}
           source={source}
+          code={code}
           edited={source !== null && code !== source.text}
           onLoaded={onLoaded}
         />
@@ -95,8 +97,7 @@ export function ReviewForm({
 
         {isOverLimit && (
           <p role="alert" className="ds-notice ds-notice--error">
-            {OVER_LIMIT_MESSAGE}. Remove {(code.length - MAX_CODE_LENGTH).toLocaleString('en-US')} characters to review
-            it.
+            {OVER_LIMIT_MESSAGE}. Remove {overBy.toLocaleString('en-US')} character{overBy === 1 ? '' : 's'} to review it.
           </p>
         )}
 
