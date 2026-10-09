@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchCatalogue, isAbortError } from './lib/api'
 import { blockedReason, chooseOption, DEFAULT_PICKS, statusText, type Mode, type Picks, type RunView } from './lib/run'
+import { liveIndicator } from './lib/liveData'
 import { useArena } from './lib/useArena'
 import { useResultFocus } from './lib/useResultFocus'
 import type { CatalogueResponse } from '../netlify/shared/contract'
@@ -86,7 +87,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={phase} data-vote={run?.vote.state === 'counted' ? 'counted' : undefined}>
-      <Header catalogue={catalogue} catalogueFailed={catalogueFailed} run={run} />
+      <Header catalogue={catalogue} catalogueFailed={catalogueFailed} run={run} live={liveIndicator(catalogue, catalogueFailed, arena.board)} />
       <main className="ds-main">
         <div className="ds-bench">
           <div className="ds-controls">

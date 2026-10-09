@@ -1,10 +1,12 @@
 import type { CatalogueResponse } from '../../netlify/shared/contract'
+import type { LiveIndicator } from '../lib/liveData'
 import type { RunView } from '../lib/run'
 
 interface HeaderProps {
   catalogue: CatalogueResponse | null
   catalogueFailed: boolean
   run: RunView | null
+  live: LiveIndicator
 }
 
 interface Tone {
@@ -42,6 +44,7 @@ function toneFor({ catalogue, catalogueFailed, run }: HeaderProps): Tone {
 
 export function Header(props: HeaderProps) {
   const tone = toneFor(props)
+  const { live } = props
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -56,6 +59,10 @@ export function Header(props: HeaderProps) {
               {tone.label}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.label}
+          </p>
           <p className="ds-subtitle">
             Put one prompt to three models, vote for the best answer without knowing who wrote it, and watch the shared
             leaderboard move.
