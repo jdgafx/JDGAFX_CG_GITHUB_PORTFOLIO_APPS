@@ -176,3 +176,25 @@ export function averageRows(span: DownloadWindow, days: number = AVERAGE_SPAN): 
     return row
   })
 }
+
+/**
+ * Rows for a log axis, which cannot draw zero. A zero or negative value becomes null, so the line breaks there
+ * like an unreported day. npm can report zero for one package on a day when the others have downloads.
+ */
+export function logRows(rows: ChartRow[]): ChartRow[] {
+  return rows.map((row) => {
+    const next: ChartRow = {}
+    for (const [key, value] of Object.entries(row)) next[key] = typeof value === 'number' && value <= 0 ? null : value
+    return next
+  })
+}
+
+/**
+ * The log axis range: the power of ten at or below the smallest positive value to the one at or above the
+ * largest. Null when no value is positive, and the chart then stays linear.
+ */
+export function logDomain(rows: ChartRow[]): [number, number] | null {
+  const positives = rows.flatMap((row) => Object.entries(row).flatMap(([key, v]) => (key !== 'date' && typeof v === 'number' && v > 0 ? [v] : [])))
+  if (positives.length === 0) return null
+  return [10 ** Math.floor(Math.log10(Math.min(...positives))), 10 ** Math.ceil(Math.log10(Math.max(...positives)))]
+}

@@ -72,12 +72,12 @@ describe('checkFigures', () => {
   })
 
   it('checks multiples between packages against the ratio of totals or per-day averages', () => {
-    // react / vue: total 912,345,678 / 410,000,000 = 2.2252, per day 32,583,774 / 14,642,857 = 2.2252. react / svelte = 6.61 by total.
+    // react / vue: total 912,345,678 / 410,000,000 = 2.2252, per day 32,583,774 / 14,642,857 = 2.2252. react / svelte = 6.61 by total (vue / svelte is 2.97, so "3 times" would also match).
     expect(checkFigures('React draws 2.2 times vue and 6.6x svelte.', SUMMARY)).toEqual({ checked: 2, matched: 2, unmatched: [] })
-    expect(checkFigures('React draws 3 times vue and 2.5x svelte, 2 times is not it.', SUMMARY)).toEqual({
+    expect(checkFigures('React draws 4 times vue and 2.5x svelte, 9 times is not it.', SUMMARY)).toEqual({
       checked: 3,
       matched: 0,
-      unmatched: ['3 times', '2.5x', '2 times'],
+      unmatched: ['4 times', '2.5x', '9 times'],
     })
   })
 

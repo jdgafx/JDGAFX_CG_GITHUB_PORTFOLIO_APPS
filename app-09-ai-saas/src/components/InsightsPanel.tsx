@@ -126,7 +126,7 @@ export default function InsightsPanel({ run }: InsightsPanelProps) {
       </section>
 
       <RunMetrics ready={finished} totalMs={totalMs} usage={outcome?.usage ?? null} model={outcome?.model ?? null} />
-      <RunTrace steps={steps} status={status} />
+      <RunTrace steps={steps} status={status} partialAnswer={answer !== ''} />
     </div>
   )
 }

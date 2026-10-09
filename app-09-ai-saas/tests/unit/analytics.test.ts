@@ -4,6 +4,8 @@ import {
   buildWindow,
   dailyRows,
   halfWindowChange,
+  logDomain,
+  logRows,
   movingAverage,
   observedDays,
   summarize,
@@ -155,5 +157,33 @@ describe('chart rows', () => {
     expect(rows[0]).toEqual({ date: '2026-09-21', p0: null, p1: null })
     expect(rows[6].p0).toBeCloseTo(6200 / 7, 6)
     expect(rows[6].p1).toBeCloseTo(600 / 7, 6)
+  })
+})
+
+describe('log axis rows', () => {
+  // The 365-day case: npm reported zero for one package on a day when the other had downloads.
+  const rows = [
+    { date: '2026-06-02', p0: 31_000_000, p1: 240 },
+    { date: '2026-06-03', p0: 0, p1: 251 },
+    { date: '2026-06-04', p0: 30_500_000, p1: 0 },
+    { date: '2026-06-05', p0: null, p1: 12 },
+  ]
+
+  it('turns zero and negative values into gaps and leaves everything else alone', () => {
+    expect(logRows(rows)).toEqual([
+      { date: '2026-06-02', p0: 31_000_000, p1: 240 },
+      { date: '2026-06-03', p0: null, p1: 251 },
+      { date: '2026-06-04', p0: 30_500_000, p1: null },
+      { date: '2026-06-05', p0: null, p1: 12 },
+    ])
+  })
+
+  it('sets the range from the smallest and largest positive values, to whole powers of ten', () => {
+    expect(logDomain(logRows(rows))).toEqual([10, 100_000_000])
+    expect(logDomain([{ date: 'x', p0: 5 }, { date: 'y', p0: 1000 }])).toEqual([1, 1000])
+  })
+
+  it('has no range when nothing is positive, so the chart stays linear', () => {
+    expect(logDomain(logRows([{ date: '2026-06-03', p0: 0, p1: null }]))).toBeNull()
   })
 })

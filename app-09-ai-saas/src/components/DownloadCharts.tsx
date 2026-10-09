@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { PackageFigures } from '../../netlify/shared/contract'
-import { AVERAGE_SPAN, averageRows, dailyRows, type DownloadWindow } from '../lib/analytics'
+import { AVERAGE_SPAN, averageRows, dailyRows, logDomain, logRows, type DownloadWindow } from '../lib/analytics'
 import { compact, full, seriesColor, shortDate } from '../lib/format'
 
 interface DownloadChartsProps {
@@ -46,11 +46,14 @@ interface LinesProps {
 
 /** One line per package over the window. A null value breaks the line, so an unreported day is a visible gap. */
 function Lines({ span, colorIndex, rows, label, log }: LinesProps) {
+  // A log axis cannot draw zero, so zeros become gaps and the range comes from the positive values.
+  const data = log ? logRows(rows) : rows
+  const domain = log ? logDomain(data) : null
   const names = span.series.map((s) => s.name).join(', ')
   return (
     <div className="hub-chart" role="img" aria-label={`${label} for ${names}, ${span.start} to ${span.end}`}>
       <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={32} tickFormatter={shortDate} />
           <YAxis
@@ -58,9 +61,9 @@ function Lines({ span, colorIndex, rows, label, log }: LinesProps) {
             axisLine={false}
             width={52}
             tickFormatter={compact}
-            scale={log ? 'log' : 'auto'}
-            domain={log ? ['auto', 'auto'] : [0, 'auto']}
-            allowDataOverflow={log}
+            scale={domain ? 'log' : 'auto'}
+            domain={domain ?? [0, 'auto']}
+            allowDataOverflow={domain !== null}
           />
           <Tooltip
             {...tooltipProps}

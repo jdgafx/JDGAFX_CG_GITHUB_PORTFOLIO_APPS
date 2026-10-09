@@ -13,11 +13,10 @@ import InsightsPanel from './InsightsPanel'
 import PackageCards from './PackageCards'
 import PackagePicker from './PackagePicker'
 
-/** The dates of unreported days, as a short list: the first few, then how many more. */
-function listDates(dates: string[]): string {
-  const shown = dates.slice(0, 4).map(shortDate).join(', ')
-  return dates.length > 4 ? `${shown} and ${dates.length - 4} more` : shown
-}
+/** Dates beyond this many are folded into an expandable list. */
+const GAP_DATES_INLINE = 4
+
+const listDates = (dates: string[]): string => dates.map(shortDate).join(', ')
 
 export default function Dashboard() {
   const [names, setNames] = useState(DEFAULT_NAMES)
@@ -104,7 +103,9 @@ export default function Dashboard() {
                 <div className="ds-strip__item">
                   <dt className="ds-strip__label">Dates shown</dt>
                   <dd className="ds-strip__value ds-num">
-                    {shortDate(span.start)} – {shortDate(span.end)}
+                    {span.start.slice(0, 4) === span.end.slice(0, 4)
+                      ? `${shortDate(span.start)} – ${shortDate(span.end)}`
+                      : `${longDate(span.start)} – ${longDate(span.end)}`}
                   </dd>
                   <dd className="ds-strip__hint ds-num">
                     {span.start} to {span.end}
@@ -119,10 +120,17 @@ export default function Dashboard() {
                 </div>
               </dl>
               {span.gapDates.length > 0 && (
-                <p className="ds-notice hub-gap">
-                  npm reported no downloads for any package on {listDates(span.gapDates)}. Those days are left out of
-                  the averages and the change figures, and show as gaps in the charts.
-                </p>
+                <div className="ds-notice hub-gap">
+                  {span.gapDates.length > GAP_DATES_INLINE ? (
+                    <details>
+                      <summary>npm reported no downloads for any package on {span.gapDates.length} days. Show the dates.</summary>
+                      <p>{listDates(span.gapDates)}.</p>
+                    </details>
+                  ) : (
+                    <p>npm reported no downloads for any package on {listDates(span.gapDates)}.</p>
+                  )}
+                  <p>Those days are left out of the averages and the change figures, and show as gaps in the charts.</p>
+                </div>
               )}
               <PackageCards packages={summary.packages} colorIndex={colorIndex} windowDays={summary.windowDays} />
               <p className="ds-help">

@@ -35,7 +35,7 @@ const WORD: Record<RowState, string> = {
  * One row per stage, in the server's order. A received step is matched by name. A stage not yet received is
  * waiting before a run, running or stopped at the point the run is at, and not run after that.
  */
-function buildRows(steps: TraceStep[], status: RunStatus): Row[] {
+function buildRows(steps: TraceStep[], status: RunStatus, partialAnswer: boolean): Row[] {
   const firstOpen = TRACE_STAGES.find((stage) => !steps.some((step) => step.name === stage.name))?.name
   const rows: Row[] = TRACE_STAGES.map((stage): Row => {
     const step = steps.find((candidate) => candidate.name === stage.name)
@@ -45,7 +45,12 @@ function buildRows(steps: TraceStep[], status: RunStatus): Row[] {
       return { name: stage.name, state: 'running', detail: 'In progress' }
     }
     if (stage.name === firstOpen && status === 'stopped') {
-      return { name: stage.name, state: 'stopped', detail: 'Stopped before this stage ran' }
+      const streaming = stage.name === 'Stream answer' && partialAnswer
+      return {
+        name: stage.name,
+        state: 'stopped',
+        detail: streaming ? 'Stopped while the answer was streaming. The text that arrived is kept.' : 'Stopped before this stage ran',
+      }
     }
     return { name: stage.name, state: 'notRun', detail: 'Not run' }
   })
@@ -62,11 +67,13 @@ function buildRows(steps: TraceStep[], status: RunStatus): Row[] {
 interface RunTraceProps {
   steps: TraceStep[]
   status: RunStatus
+  /** True when some of the answer arrived, so a stop during streaming can say so. */
+  partialAnswer: boolean
 }
 
 /** The stages of one run, in order. Before a run each row says what its stage does; then the server's own timings. */
-export default function RunTrace({ steps, status }: RunTraceProps) {
-  const rows = buildRows(steps, status)
+export default function RunTrace({ steps, status, partialAnswer }: RunTraceProps) {
+  const rows = buildRows(steps, status, partialAnswer)
   const totalMs = rows.reduce((sum, row) => sum + (row.ms ?? 0), 0)
 
   return (
