@@ -1,7 +1,6 @@
 import './styles/tokens.css'
+import './styles/components.css'
 import './styles/app.css'
-import './styles/packages.css'
-import './styles/charts.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'

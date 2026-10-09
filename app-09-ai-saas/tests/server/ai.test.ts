@@ -484,3 +484,99 @@ describe('netlify/functions/ai: stream end', () => {
     expect(reply.done).toBe(true)
   })
 })
+
+describe('netlify/functions/ai: one retry', () => {
+  const callDetail = (reply: Reply) => stepsOf(reply.frames).find((s) => s.name === 'Call model')?.detail
+
+  it('retries once after a connection failure and says so in the trace', async () => {
+    let calls = 0
+    const fetchMock = stubFetch(async () => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return happyReply()
+    })
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(callDetail(reply)).toBe('OpenRouter accepted the request (HTTP 200). Retried once: the first attempt could not connect')
+    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(HAPPY_TEXT)
+  })
+
+  it('retries once when the first attempt takes longer than 10 seconds to be accepted', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let calls = 0
+    const fetchMock = stubFetch((_url, init) => {
+      calls += 1
+      if (calls > 1) return Promise.resolve(happyReply())
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+      })
+    })
+    const pending = readReply(await handler(post({ summary: SUMMARY })))
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    const reply = await pending
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(callDetail(reply)).toBe('OpenRouter accepted the request (HTTP 200). Retried once: the first attempt timed out after 10 seconds')
+    expect(errorOf(reply.frames)).toBeUndefined()
+  })
+
+  it('makes no third attempt: two connection failures end the run', async () => {
+    const fetchMock = stubFetch(async () => {
+      throw new TypeError('fetch failed')
+    })
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(errorOf(reply.frames)).toBe('Could not reach the AI provider. Try again shortly.')
+  })
+
+  it.each([401, 402, 429, 500, 503])('never retries a provider HTTP %i', async (status) => {
+    const fetchMock = stubFetch(async () => new Response('no', { status }))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(errorOf(reply.frames)).toBeDefined()
+  })
+
+  it('does not retry when the viewer has already left', async () => {
+    const fetchMock = stubFetch((_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+    }))
+    const res = await handler(post({ summary: SUMMARY }))
+    await res.body?.cancel()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('netlify/functions/ai: spike evidence', () => {
+  const SPIKE = {
+    name: 'react',
+    date: '2026-09-28',
+    downloads: 52_000_000,
+    baseline: 36_000_000,
+    sizePct: 44,
+    releases: [{ version: '19.2.1', date: '2026-09-27', kind: 'patch' }],
+    moreReleases: 0,
+    releasesKnown: true,
+  }
+
+  it('puts the evidence in the prompt and checks the dates and versions of the answer against it', async () => {
+    const text = 'Spikes: React reached 52,000,000 downloads on 2026-09-28, 44% over usual, just after 19.2.1 on September 20.'
+    const fetchMock = stubFetch(async () =>
+      sse([frame({ model: SERVED_MODEL, choices: [{ delta: { content: text }, finish_reason: 'stop' }] }), DONE]),
+    )
+    const reply = await readReply(await handler(post({ summary: { ...SUMMARY, spikes: [SPIKE] } })))
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { messages: { content: string }[] }
+    expect(sent.messages[0].content).toContain('- react on 2026-09-28: 52,000,000 downloads, +44% against the usual 36,000,000 for that weekday')
+    const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
+    expect(check).toMatchObject({ status: 'failed' })
+    expect(check?.detail).toBe('4 of 5 figures match the summary and spike evidence. Not in the summary: September 20')
+  })
+
+  it('rejects evidence that does not fit the summary before any model call', async () => {
+    const fetchMock = stubFetch(async () => happyReply())
+    const res = await handler(post({ summary: { ...SUMMARY, spikes: [{ ...SPIKE, name: 'angular' }] } }))
+    expect(res.status).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

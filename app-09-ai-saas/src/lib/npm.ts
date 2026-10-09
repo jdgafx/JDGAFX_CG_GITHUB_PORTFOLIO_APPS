@@ -11,6 +11,8 @@ const RANGE_ENDPOINT = 'https://api.npmjs.org/downloads/range'
 const REQUEST_TIMEOUT_MS = 10_000
 /** npm publishes a day or two late, so the request reaches back this many days past the window to find the latest published day. */
 const LAG_ALLOWANCE_DAYS = 7
+/** Days of history always requested, whatever the window, so spike detection has weeks of same-weekday baseline behind a 30-day view. */
+export const HISTORY_DAYS = 365
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export type NpmErrorKind = 'not-found' | 'rate-limit' | 'timeout' | 'network' | 'unexpected'
@@ -34,9 +36,9 @@ export function rangeUrl(name: string, start: string, end: string): string {
   return `${RANGE_ENDPOINT}/${start}:${end}/${encodeURIComponent(name)}`
 }
 
-/** The first and last date to request for a window of `days` days, given today's UTC date. */
+/** The first and last date to request for a window of `days` days, given today's UTC date. Never shorter than HISTORY_DAYS. */
 export function requestRange(days: number, today: string): { start: string; end: string } {
-  return { start: addDays(today, -(days + LAG_ALLOWANCE_DAYS - 1)), end: today }
+  return { start: addDays(today, -(Math.max(days, HISTORY_DAYS) + LAG_ALLOWANCE_DAYS - 1)), end: today }
 }
 
 /**

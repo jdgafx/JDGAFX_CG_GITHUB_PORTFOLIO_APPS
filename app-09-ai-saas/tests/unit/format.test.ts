@@ -25,8 +25,8 @@ describe('format', () => {
   })
 
   it('gives each package place its own colour variable, wrapping after five', () => {
-    expect(seriesColor(0)).toBe('var(--hub-s1, #0e7c86)')
-    expect(seriesColor(4)).toBe('var(--hub-s5, #667a0f)')
+    expect(seriesColor(0)).toBe('var(--hub-s1)')
+    expect(seriesColor(4)).toBe('var(--hub-s5)')
     expect(seriesColor(5)).toBe(seriesColor(0))
   })
 })

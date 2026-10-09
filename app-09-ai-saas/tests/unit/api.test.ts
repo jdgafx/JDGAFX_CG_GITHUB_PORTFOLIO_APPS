@@ -218,12 +218,35 @@ describe('getInsights: error mapping', () => {
     expect(isAbortError(await run)).toBe(true)
   })
 
-  it('gives up at the client deadline when the server never answers', async () => {
+  it('gives up when no byte arrives for 30 seconds', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     stubFetch(abortOnSignal)
     const { handlers } = collect()
     const run = failureOf(getInsights(STATS, handlers))
-    await vi.advanceTimersByTimeAsync(40_000)
+    await vi.advanceTimersByTimeAsync(29_999)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await run).toMatchObject({ message: 'The insights service went quiet for 30 seconds, so the run was ended. Try again.' })
+  })
+
+  it('caps a stream that keeps sending bytes but never finishes at 60 seconds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    stubFetch(async (_url, init) => {
+      const encoder = new TextEncoder()
+      let ticker: ReturnType<typeof setInterval> | undefined
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          ticker = setInterval(() => controller.enqueue(encoder.encode('\n')), 10_000)
+          init?.signal?.addEventListener('abort', () => {
+            clearInterval(ticker)
+            controller.error(new DOMException('aborted', 'AbortError'))
+          })
+        },
+      })
+      return new Response(body, { status: 200 })
+    })
+    const { handlers } = collect()
+    const run = failureOf(getInsights(STATS, handlers))
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(await run).toMatchObject({ message: 'The insights service did not answer in time. Try again.' })
   })
 

@@ -1,4 +1,5 @@
 import { halfWindow, isValidPackageName, MAX_PACKAGES, type PackageFigures, type Summary } from './contract'
+import { checkEvidence, parseSpikes, spikePrompt } from './evidence'
 
 function signed(value: number): string {
   return `${value > 0 ? '+' : ''}${value}%`
@@ -40,7 +41,7 @@ Window: ${s.startDate} to ${s.endDate} (${s.windowDays} days, ${s.observedDays} 
 
 Packages:
 ${s.packages.map((p) => packageLine(p, s.packages.length > 1)).join('\n')}
-
+${spikePrompt(s)}
 Use only the figures listed above. Do not invent numbers, rankings, versions, release dates or reasons stated as fact; explain a pattern only as a possibility. Quote a download count in full or in millions or billions (for example 1.2 billion). You may state how many times larger one package is than another, using the listed figures. When you compare packages, say which one is growing fastest and which slowest using the change figures. Downloads count installs, including CI and mirrors, so they measure install volume, not users. Be direct and actionable. Format as numbered insights with brief explanations.
 
 Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
@@ -53,7 +54,7 @@ type Sign = 1 | -1 | 0
  * with thousands separators (35,968,597), or a multiple (4.3 times, 11x). Plain small numbers and the day window are not figures to check.
  */
 const FIGURE =
-  /(?<![\d.,])(?:(\d[\d,]*(?:\.\d+)?)\s?%(?![A-Za-z])|(\d[\d,]*(?:\.\d+)?)\s?(billion|million|thousand|bn|[kKMB])(?![A-Za-z])|(\d{1,3}(?:,\d{3})+)(?![\d,])|(\d+(?:\.\d+)?)\s?(?:times|x)(?![A-Za-z]))/g
+  /(?<![\d.,])(?:(\d[\d,]*(?:\.\d+)?)\s?%(?![A-Za-z])|(\d[\d,]*(?:\.\d+)?)\s?(billion|million|thousand|bn|[kKMB])(?![A-Za-z])|(\d{1,3}(?:,\d{3})+)(?!\d|,\d)|(\d+(?:\.\d+)?)\s?(?:times|x)(?![A-Za-z]))/g
 
 const SCALES: Record<string, number> = { thousand: 1e3, k: 1e3, million: 1e6, m: 1e6, billion: 1e9, bn: 1e9, b: 1e9 }
 
@@ -68,6 +69,8 @@ interface FigureCheck {
   checked: number
   matched: number
   unmatched: string[]
+  /** True when the request carried spike evidence, so dates and versions were checked too. */
+  withEvidence?: boolean
 }
 
 interface SummaryFigure {
@@ -75,6 +78,8 @@ interface SummaryFigure {
   value: number
   /** A trend carries a sign. A level, such as a share, is never negative, so its sign is not checked. */
   trend: boolean
+  /** For a multiple: the two packages it compares, so it only matches in a sentence that names them. */
+  pair?: [string, string]
 }
 
 /** Every number the prompt states, plus the derived ones it spells out. */
@@ -92,9 +97,18 @@ function summaryFigures(s: Summary): SummaryFigure[] {
   for (const [i, a] of s.packages.entries()) {
     for (const [k, b] of s.packages.entries()) {
       if (i === k) continue
-      if (b.total > 0) figures.push({ unit: 'times', value: a.total / b.total, trend: false })
-      if (b.avgPerDay > 0) figures.push({ unit: 'times', value: a.avgPerDay / b.avgPerDay, trend: false })
+      const pair: [string, string] = [a.name, b.name]
+      if (b.total > 0) figures.push({ unit: 'times', value: a.total / b.total, trend: false, pair })
+      if (b.avgPerDay > 0) figures.push({ unit: 'times', value: a.avgPerDay / b.avgPerDay, trend: false, pair })
     }
+  }
+  // A spike is stated as a day's count, the weekday's usual count and the percentage between them.
+  for (const spike of s.spikes ?? []) {
+    figures.push(
+      { unit: 'count', value: spike.downloads, trend: false },
+      { unit: 'count', value: spike.baseline, trend: false },
+      { unit: '%', value: spike.sizePct, trend: true },
+    )
   }
   return figures
 }
@@ -127,15 +141,41 @@ interface Quoted {
   sign: Sign
 }
 
+/** The whole sentence a figure sits in, split the way signOf reads the part before it. */
+function sentenceAround(text: string, index: number): string {
+  const boundary = /[;:!?\n]|\.(?=\s|$)/
+  const before = text.slice(0, index).split(new RegExp(boundary, 'g')).pop() ?? ''
+  const after = text.slice(index).split(boundary)[0] ?? ''
+  return before + after
+}
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The packages whose names appear in `sentence`. A name inside a longer one (react in react-dom) does not count. */
+function namedIn(sentence: string, names: string[]): Set<string> {
+  return new Set(names.filter((name) => new RegExp(`(?<![\\w@/.-])${escapeRegExp(name)}(?![\\w/-])`, 'i').test(sentence)))
+}
+
+/**
+ * A multiple compares two packages, so it must be one the sentence's own packages can produce: with two or more
+ * named, both of its packages are named; with one named, it involves that one; with none named, any pair will do.
+ */
+function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean {
+  if (named.size >= 2) return named.has(pair[0]) && named.has(pair[1])
+  if (named.size === 1) return named.has(pair[0]) || named.has(pair[1])
+  return true
+}
+
 /**
  * Whether a quoted figure matches the summary. It must equal a summary value, divided by the figure's own
  * scale and rounded to the figure's own decimals. A trend must also carry the sign the text gives it.
  * wrongDirection is set when a trend matches in size only.
  */
-function judge(q: Quoted, pool: SummaryFigure[]): { matched: boolean; wrongDirection: boolean } {
+function judge(q: Quoted, pool: SummaryFigure[], named: ReadonlySet<string>): { matched: boolean; wrongDirection: boolean } {
   let sizeMatched = false
   for (const figure of pool) {
     if (figure.unit !== q.unit || roundTo(Math.abs(figure.value) / q.scale, q.decimals) !== q.value) continue
+    if (figure.pair && !pairNamed(figure.pair, named)) continue
     sizeMatched = true
     const signMatches = !figure.trend || q.sign === 0 || (q.sign < 0 ? figure.value <= 0 : figure.value >= 0)
     if (signMatches) return { matched: true, wrongDirection: false }
@@ -151,6 +191,7 @@ function judge(q: Quoted, pool: SummaryFigure[]): { matched: boolean; wrongDirec
  */
 export function checkFigures(text: string, s: Summary): FigureCheck {
   const pool = summaryFigures(s)
+  const names = s.packages.map((p) => p.name)
   const result: FigureCheck = { checked: 0, matched: 0, unmatched: [] }
   for (const match of text.matchAll(FIGURE)) {
     const [whole, percent, scaled, word, grouped, multiple] = match
@@ -163,20 +204,31 @@ export function checkFigures(text: string, s: Summary): FigureCheck {
       scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
       sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
     }
-    const verdict = judge(quoted, pool)
+    const named = unit === 'times' ? namedIn(sentenceAround(text, match.index ?? 0), names) : new Set<string>()
+    const verdict = judge(quoted, pool, named)
     result.checked += 1
     if (verdict.matched) result.matched += 1
     else result.unmatched.push(verdict.wrongDirection ? `${whole.trim()} (direction does not match)` : whole.trim())
   }
+  // Dates and versions are checked only against spike evidence the request carried.
+  const evidence = checkEvidence(text, s)
+  result.checked += evidence.checked
+  result.matched += evidence.matched
+  result.unmatched.push(...evidence.unmatched)
+  if (s.spikes !== undefined) result.withEvidence = true
   return result
 }
 
 /** The one-line result the run trace shows for a figure check. */
 export function describeFigureCheck(check: FigureCheck): string {
-  if (check.checked === 0) return 'No percentage or download-count figures in the answer to check'
+  if (check.checked === 0) {
+    return check.withEvidence
+      ? 'No percentage, download-count, date or version figures in the answer to check'
+      : 'No percentage or download-count figures in the answer to check'
+  }
   const noun = check.checked === 1 ? 'figure' : 'figures'
   const verb = check.checked === 1 ? 'matches' : 'match'
-  const head = `${check.matched} of ${check.checked} ${noun} ${verb} the summary`
+  const head = `${check.matched} of ${check.checked} ${noun} ${verb} the summary${check.withEvidence ? ' and spike evidence' : ''}`
   if (check.unmatched.length === 0) return head
   return `${head}. Not in the summary: ${check.unmatched.join(', ')}`
 }
@@ -282,5 +334,10 @@ export function parseInsightRequest(body: unknown): InsightRequest {
   if (new Set(packages.map((p) => p.name)).size !== packages.length) {
     return { ok: false, error: 'summary.packages must not repeat a package' }
   }
-  return { ok: true, summary: { ...dates.value, observedDays: observed.value, packages } }
+  const spikes = parseSpikes(raw.spikes, new Set(packages.map((p) => p.name)), { start: dates.value.startDate, end: dates.value.endDate })
+  if (!spikes.ok) return spikes
+  return {
+    ok: true,
+    summary: { ...dates.value, observedDays: observed.value, packages, ...(spikes.value ? { spikes: spikes.value } : {}) },
+  }
 }

@@ -9,6 +9,10 @@ export const config = { path: '/api/ai' }
 const MAX_OUTPUT_TOKENS = 1024
 const MAX_BODY_BYTES = 32_000
 const UPSTREAM_TIMEOUT_MS = 25_000
+/** How long one request to the provider may take to be accepted: about 1.5 times a healthy call's wait for response headers. */
+const CALL_LIMIT_MS = 10_000
+/** A second attempt needs at least this much of the run's budget left, so it can still stream an answer. */
+const RETRY_MIN_BUDGET_MS = 8_000
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
 
@@ -104,6 +108,46 @@ function isTimeoutError(err: unknown): boolean {
   return name === 'AbortError' || name === 'TimeoutError'
 }
 
+interface ProviderCall {
+  response: Response
+  /** Why the first attempt was repeated, or null when the first attempt was accepted. */
+  retriedAfter: string | null
+}
+
+/**
+ * Sends the chat request. Each attempt has its own time limit. One automatic retry follows a timeout or a
+ * connection failure when the run's budget allows. An HTTP error status is returned as a response, never
+ * retried, and neither is the viewer leaving or the run's deadline.
+ */
+async function callProvider(body: string, apiKey: string, upstream: AbortController, deadlineAt: number): Promise<ProviderCall> {
+  let retriedAfter: string | null = null
+  for (let attempt = 1; ; attempt++) {
+    const call = new AbortController()
+    const forward = () => call.abort()
+    upstream.signal.addEventListener('abort', forward, { once: true })
+    let limited = false
+    const timer = setTimeout(() => {
+      limited = true
+      call.abort()
+    }, CALL_LIMIT_MS)
+    try {
+      const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body,
+        signal: call.signal,
+      })
+      return { response, retriedAfter }
+    } catch (err) {
+      upstream.signal.removeEventListener('abort', forward)
+      if (upstream.signal.aborted || attempt === 2 || deadlineAt - Date.now() < RETRY_MIN_BUDGET_MS) throw err
+      retriedAfter = limited ? `the first attempt timed out after ${CALL_LIMIT_MS / 1000} seconds` : 'the first attempt could not connect'
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
 /**
  * One insight run. Each stage is timed here with Date.now() and sent as a step frame as soon as
  * it finishes, so the browser can draw the trace while the answer streams in.
@@ -149,18 +193,21 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
     finishStage('ok', `${packages} ${packages === 1 ? 'package' : 'packages'}, ${summary.startDate} to ${summary.endDate}`)
 
     beginStage('Call model')
-    const response = await fetch(CHAT_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(chatRequest(prompt, MAX_OUTPUT_TOKENS)),
-      signal: upstream.signal,
-    })
+    const { response, retriedAfter } = await callProvider(
+      JSON.stringify(chatRequest(prompt, MAX_OUTPUT_TOKENS)),
+      apiKey,
+      upstream,
+      started + UPSTREAM_TIMEOUT_MS,
+    )
     if (!response.ok) {
       // Status only: the provider body names the account, so it is never logged or sent.
       console.error(`ai function: provider HTTP ${response.status}`)
       return failRun(providerFailure(response.status))
     }
-    finishStage('ok', `OpenRouter accepted the request (HTTP ${response.status})`)
+    finishStage(
+      'ok',
+      `OpenRouter accepted the request (HTTP ${response.status})${retriedAfter ? `. Retried once: ${retriedAfter}` : ''}`,
+    )
 
     beginStage('Stream answer')
     if (!response.body) return failRun('The AI provider returned an empty response. Try again.')

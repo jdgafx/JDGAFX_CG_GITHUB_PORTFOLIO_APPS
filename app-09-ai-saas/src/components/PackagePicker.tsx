@@ -23,7 +23,7 @@ function addProblem(input: string, names: string[]): string | null {
   return null
 }
 
-/** The controls column: which packages to compare, and over how many days. */
+/** The rail's main input: add a package, see the selection, pick the window. */
 export default function PackagePicker({ names, days, onNamesChange, onDaysChange }: PackagePickerProps) {
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
@@ -39,111 +39,101 @@ export default function PackagePicker({ names, days, onNamesChange, onDaysChange
   }
 
   return (
-    <section className="ds-section hub-picker" aria-labelledby="picker-title">
-      <div className="ds-section__head">
-        <h2 id="picker-title" className="ds-section__title">
-          Packages
-        </h2>
-        <p className="ds-section__sub">Choose what to compare. Daily downloads load live from the npm registry.</p>
+    <section className="ds-stack" aria-label="Packages">
+      <form className="ds-field" onSubmit={add} noValidate>
+        <label className="ds-label" htmlFor="package-input">
+          Add a package
+        </label>
+        <div className="hub-add">
+          <input
+            id="package-input"
+            className="ds-input ds-mono"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="zod or @tanstack/react-query"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            aria-invalid={problem !== null}
+            aria-describedby="package-help package-problem"
+          />
+          <button type="submit" className="ds-button">
+            Add
+          </button>
+        </div>
+        <p id="package-help" className="ds-help">
+          Any package on npm, scoped names included. Up to {MAX_PACKAGES} at a time.
+        </p>
+        <p id="package-problem" className={problem ? 'ds-help ds-help--error' : 'ds-sr-only'} role="alert">
+          {problem}
+        </p>
+      </form>
+
+      <div className="ds-field" role="group" aria-labelledby="chosen-label">
+        <p id="chosen-label" className="ds-label">
+          Selected ({names.length} of {MAX_PACKAGES})
+        </p>
+        <ul className="hub-chips">
+          {names.map((name, index) => (
+            <li key={name} className="hub-chip">
+              <span className="hub-swatch" style={{ background: seriesColor(index) }} aria-hidden="true" />
+              <span className="ds-mono hub-chip__name">{name}</span>
+              <button
+                type="button"
+                className="hub-chip__remove"
+                aria-label={`Remove ${name}`}
+                disabled={names.length === 1}
+                onClick={() => onNamesChange(names.filter((n) => n !== name))}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div className="ds-stack">
-        <div className="hub-group" role="group" aria-labelledby="presets-label">
-          <p id="presets-label" className="ds-label">
-            Ready-made comparisons
-          </p>
-          <div className="hub-presets">
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className="ds-button hub-preset"
-                aria-pressed={sameSet(names, preset.names)}
-                onClick={() => {
-                  setProblem(null)
-                  onNamesChange(preset.names)
-                }}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <p className="ds-help">One click replaces the selection with a set of well-known packages.</p>
-        </div>
-
-        <form className="ds-field" onSubmit={add} noValidate>
-          <label className="ds-label" htmlFor="package-input">
-            Add a package
-          </label>
-          <div className="hub-add">
-            <input
-              id="package-input"
-              className="ds-input ds-mono"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="zod or @tanstack/react-query"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              aria-invalid={problem !== null}
-              aria-describedby="package-help package-problem"
-            />
-            <button type="submit" className="ds-button">
-              Add
+      <div className="ds-field" role="group" aria-labelledby="window-label">
+        <p id="window-label" className="ds-label">
+          Time window
+        </p>
+        <div className="ds-seg hub-windows">
+          {WINDOWS.map((option) => (
+            <button key={option} type="button" aria-pressed={days === option} onClick={() => onDaysChange(option)}>
+              {option} days
             </button>
-          </div>
-          <p id="package-help" className="ds-help">
-            Any package on npm, scoped names included. Up to {MAX_PACKAGES} at a time.
-          </p>
-          <p id="package-problem" className="hub-problem" role="alert">
-            {problem}
-          </p>
-        </form>
-
-        <div className="hub-group" role="group" aria-labelledby="chosen-label">
-          <p id="chosen-label" className="ds-label">
-            Selected ({names.length} of {MAX_PACKAGES})
-          </p>
-          <ul className="hub-chips">
-            {names.map((name, index) => (
-              <li key={name} className="hub-chip">
-                <span className="hub-swatch" style={{ background: seriesColor(index) }} aria-hidden="true" />
-                <span className="ds-mono hub-chip__name">{name}</span>
-                <button
-                  type="button"
-                  className="hub-chip__remove"
-                  aria-label={`Remove ${name}`}
-                  disabled={names.length === 1}
-                  onClick={() => onNamesChange(names.filter((n) => n !== name))}
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="ds-help">Each package keeps its colour in every chart. At least one stays selected.</p>
-        </div>
-
-        <div className="hub-group" role="group" aria-labelledby="window-label">
-          <p id="window-label" className="ds-label">
-            Time window
-          </p>
-          <div className="hub-windows">
-            {WINDOWS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                className="ds-button"
-                aria-pressed={days === option}
-                onClick={() => onDaysChange(option)}
-              >
-                {option} days
-              </button>
-            ))}
-          </div>
-          <p className="ds-help">How far back to look. The window ends on the latest day npm has published.</p>
+          ))}
         </div>
       </div>
     </section>
+  )
+}
+
+interface PresetsProps {
+  names: string[]
+  onPick: (names: string[]) => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+/** Ready-made comparisons. The page closes the list when a run starts on a narrow screen, so the result is not pushed down. */
+export function Presets({ names, onPick, open, onOpenChange }: PresetsProps) {
+  return (
+    <details className="ds-disclosure" open={open} onToggle={(event) => onOpenChange(event.currentTarget.open)}>
+      <summary>Ready-made comparisons</summary>
+      <ul className="ds-choice-list">
+        {PRESETS.map((preset) => (
+          <li key={preset.label}>
+            <button
+              type="button"
+              className={sameSet(names, preset.names) ? 'ds-choice ds-choice--selected' : 'ds-choice'}
+              aria-pressed={sameSet(names, preset.names)}
+              onClick={() => onPick(preset.names)}
+            >
+              <span className="ds-choice__label">{preset.label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }

@@ -1,205 +1,114 @@
-/* Header: the mark is outlined so the signal colour stays on the one primary action */
-.hub-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
+/* App layer for InsightHub. Colour, type, states, readout, trace, the lead card and the chart frame come from tokens.css and components.css. */
 
-.hub-brand__text {
-  min-width: 0;
-}
-
-.hub-mark {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  color: var(--ds-text);
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-/* Series colours, one per package in the selection. Light and dark both clear 3:1 on their surface. */
+/* Series colours, one per package in the selection: the shared chart series, then a fifth that is also dashed. */
 :root {
-  --hub-s1: #0e7c86;
-  --hub-s2: #c4510b;
-  --hub-s3: #4b5bd0;
-  --hub-s4: #b02f78;
-  --hub-s5: #667a0f;
+  --hub-s1: var(--ds-accent);
+  --hub-s2: var(--ds-series-2);
+  --hub-s3: var(--ds-series-3);
+  --hub-s4: var(--ds-series-4);
+  --hub-s5: var(--ds-text);
 }
+.hub-c-s5 { stroke: var(--ds-text); fill: var(--ds-text); }
+.hub-swatch { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --hub-s1: #4fc3cb;
-    --hub-s2: #ff9a5c;
-    --hub-s3: #9aa4ff;
-    --hub-s4: #f08ac0;
-    --hub-s5: #b9d24a;
-  }
+/* Run column order: what is wrong with the data, the chart with its unusual days, then the shared order of explanation,
+   readout and trace, then the per-package figures and the secondary charts. */
+.ds-run > .ds-run__notices { order: -7; }
+.ds-run > .ds-run__stage { order: -6; }
+.ds-run > .hub-figures { order: 5; }
+.ds-run > .hub-more { order: 9; }
+.ds-run__notices:empty { display: none; }
+.hub-status { max-width: none; }
+.hub-data { container-type: inline-size; display: grid; gap: 16px; min-width: 0; }
+.hub-data--stale { opacity: 0.55; transition: opacity 120ms var(--ds-ease); }
+.hub-figures { display: grid; gap: 16px; min-width: 0; }
+
+/* Rail */
+.hub-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.hub-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hub-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 0 4px 0 12px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px; }
+.hub-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.hub-chip__remove { display: grid; place-items: center; width: 32px; height: 32px; font: inherit; font-size: 18px; line-height: 1; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.hub-chip__remove:hover:not(:disabled) { color: var(--ds-text); background: var(--ds-border); }
+.hub-chip__remove:disabled { opacity: 0.35; cursor: not-allowed; }
+.hub-windows { display: flex; width: 100%; }
+.hub-windows > button { flex: 1; padding: 0 8px; }
+
+/* Chart frame additions */
+.hub-chart .ds-chart__head { align-items: center; }
+.hub-plot { position: relative; min-width: 0; border-radius: var(--ds-radius-sm); }
+.hub-plot svg { touch-action: pan-y; }
+.hub-log { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 650; cursor: pointer; }
+.hub-log input { width: 18px; height: 18px; accent-color: var(--ds-accent); }
+.hub-tip { position: absolute; top: 8px; z-index: 2; display: grid; gap: 2px; padding: 8px 10px; font-size: 13px; white-space: nowrap; pointer-events: none; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
+.hub-tip > span { display: flex; align-items: center; gap: 6px; }
+.hub-guide { stroke: var(--ds-text); stroke-width: 1; }
+.hub-tag .ds-c-label { fill: var(--ds-text); stroke: var(--ds-surface); stroke-width: 5px; }
+.hub-spike { cursor: pointer; outline: none; }
+.hub-spike:focus-visible > circle:last-child { stroke: var(--ds-focus); stroke-width: 3.5; }
+.hub-spike__dot { fill: currentColor; stroke: var(--ds-surface); stroke-width: 2; transition: r 120ms var(--ds-ease); }
+.hub-spike__dot--open { fill: var(--ds-surface); stroke: currentColor; stroke-width: 2.5; }
+.hub-spike:hover circle.hub-spike__dot, .hub-spike--active circle.hub-spike__dot { r: 7.5; }
+.hub-spike:hover rect.hub-spike__dot, .hub-spike--active rect.hub-spike__dot { x: -7; y: -7; width: 14px; height: 14px; }
+.hub-spike--active .hub-spike__dot { stroke: var(--ds-text); stroke-width: 3; }
+.hub-spike--active .hub-spike__dot--open { fill: var(--ds-surface); stroke: var(--ds-text); }
+
+/* The hero: the chart, with the unusual days listed beside it once there is room */
+.hub-stage { display: grid; gap: 16px; min-width: 0; }
+.hub-stage__aside { display: grid; gap: 10px; align-content: start; min-width: 0; }
+@container (min-width: 760px) {
+  .hub-stage { grid-template-columns: minmax(0, 1fr) 290px; align-items: start; }
 }
+.hub-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.hub-keys__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ds-text); box-shadow: 0 0 0 2px var(--ds-surface); }
+.hub-keys__dot--open { margin-left: 8px; width: 11px; height: 11px; border-radius: 1px; transform: rotate(45deg); background: var(--ds-surface); box-shadow: inset 0 0 0 2.5px var(--ds-text); }
+.hub-spikes { display: grid; gap: 8px; min-width: 0; }
+.hub-spikes__head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
+.hub-spikes__list { display: grid; gap: 6px; margin: 0; padding: 0 2px 0 0; list-style: none; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.hub-spike-row { display: grid; gap: 4px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.hub-spike-row:hover { border-color: var(--ds-accent); }
+.hub-spike-row--active { background: var(--ds-accent-soft); border-color: var(--ds-accent); box-shadow: inset 3px 0 0 var(--ds-accent); }
+.hub-spike-row__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hub-spike-row__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.hub-spike-row__size { font-family: var(--ds-mono); font-weight: 600; }
+.hub-spike-row__size .ds-help { font-family: var(--ds-font); font-weight: 400; margin-left: 4px; }
+.hub-spike-row__none { font-size: 13px; color: var(--ds-text-muted); }
+.hub-kind { padding: 0 6px; font-family: var(--ds-font); font-size: 12px; font-weight: 650; border-radius: 4px; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); }
+.hub-kind--major { color: var(--ds-surface); background: var(--ds-text); border-color: var(--ds-text); }
+.hub-kind--minor { border-style: solid; }
+.hub-kind--patch { border-style: dashed; color: var(--ds-text-muted); }
+.hub-result-title { font-size: 15px; font-weight: 650; margin-right: 4px; }
+.hub-result-title:focus-visible { outline-offset: 4px; border-radius: 2px; }
+.ds-lead__text code { font-family: var(--ds-mono); font-size: 0.9em; padding: 0 4px; background: var(--ds-surface-2); border-radius: 3px; }
+.hub-release-notice { display: grid; gap: 8px; justify-items: start; }
+.hub-missing { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
 
-:root[data-theme="dark"] {
-  --hub-s1: #4fc3cb;
-  --hub-s2: #ff9a5c;
-  --hub-s3: #9aa4ff;
-  --hub-s4: #f08ac0;
-  --hub-s5: #b9d24a;
-}
+/* Package cards */
+.hub-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.hub-card { display: grid; gap: 10px; align-content: start; padding: 16px; }
+.hub-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hub-card__name { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.hub-card__total { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
+.hub-card__unit { font-family: var(--ds-font); font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--ds-text-muted); }
+.hub-card__rows { display: grid; gap: 6px; margin: 0; }
+.hub-card__rows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--ds-border); }
+.hub-card__rows dt { font-size: 13px; color: var(--ds-text-muted); }
+.hub-card__rows dd { text-align: right; font-size: 14px; font-weight: 600; }
+.hub-share__bar { height: 6px; overflow: hidden; background: var(--ds-surface-2); border-radius: 3px; }
+.hub-share__bar > span { display: block; height: 100%; }
+.hub-share__text { margin-top: 4px; font-size: 13px; color: var(--ds-text-muted); }
 
-/* The bench. On a phone the order is packages, figures, analysis controls, insights, charts. From 1000px the
-   controls (.hub-side) stay in a sticky left column and the rest scrolls on the right. */
-.hub-bench > * {
-  min-width: 0;
-}
+/* Secondary charts */
+.hub-more { gap: 16px; }
+.hub-stack { display: flex; height: 18px; overflow: hidden; border-radius: 4px; gap: 2px; }
+.hub-stack > span { min-width: 3px; }
+.hub-share-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hub-share-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; }
+.hub-share-list__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-share-list .ds-help { text-align: right; }
 
-.hub-side {
-  display: contents;
-}
-
-.hub-picker { order: 0; }
-.hub-figures { order: 1; }
-.hub-controls { order: 2; }
-.hub-insights { order: 3; }
-.hub-charts { order: 4; }
-
-@media (min-width: 1000px) {
-  .hub-side {
-    display: grid;
-    gap: 32px;
-    grid-column: 1;
-    grid-row: 1 / span 3;
-    position: sticky;
-    top: 16px;
-    max-height: calc(100vh - 32px);
-    overflow-y: auto;
-    padding: 2px 6px 2px 2px;
-    margin: -2px -6px -2px -2px;
-  }
-
-  .hub-figures {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .hub-insights {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .hub-charts {
-    grid-column: 2;
-    grid-row: 3;
-  }
-}
-
-/* Insights: the hero. The figure check sits above the streamed answer in the same panel. */
-.hub-insights {
-  display: grid;
-  gap: 32px;
-  min-width: 0;
-  align-content: start;
-}
-
-.hub-status {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.hub-result {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
-.hub-check {
-  display: grid;
-  gap: 6px;
-}
-
-.hub-check__line {
-  font-size: 15px;
-  line-height: 1.4;
-}
-
-.hub-check__count {
-  font-size: 32px;
-  font-weight: 750;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.hub-check__state {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--ds-text-muted);
-}
-
-.hub-check__state--ok {
-  color: var(--ds-success);
-}
-
-.hub-check__state--failed {
-  color: var(--ds-danger);
-}
-
-.hub-check__state--running {
-  color: var(--ds-accent);
-}
-
-.hub-answer {
-  min-height: 96px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-/* Run metrics: six readouts, two across on a phone and three across beside the trace */
-.hub-metrics {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (min-width: 720px) {
-  .hub-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-/* Trace rows: the state is a dot and a word, never colour alone */
-.hub-trace__body {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.hub-trace__extra {
-  display: block;
-}
-
-.hub-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-.hub-state--ok {
-  color: var(--ds-success);
-}
-
-.hub-state--failed {
-  color: var(--ds-danger);
-}
-
-.hub-state--running {
-  color: var(--ds-accent);
+@media (max-width: 720px) {
+  .hub-spike-row { min-height: 48px; }
+  .hub-add { grid-template-columns: minmax(0, 1fr); }
+  .hub-card__total { font-size: 22px; }
 }

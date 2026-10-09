@@ -36,9 +36,10 @@ describe('rangeUrl', () => {
 })
 
 describe('requestRange', () => {
-  it('reaches back the window plus a week of allowance, ending today', () => {
-    expect(requestRange(30, '2026-10-09')).toEqual({ start: '2026-09-03', end: '2026-10-09' })
+  it('always reaches back a year of history plus a week of allowance, ending today', () => {
+    expect(requestRange(30, '2026-10-09')).toEqual({ start: '2025-10-03', end: '2026-10-09' })
     expect(requestRange(365, '2026-10-09')).toEqual({ start: '2025-10-03', end: '2026-10-09' })
+    expect(requestRange(400, '2026-10-09')).toEqual({ start: '2025-08-29', end: '2026-10-09' })
   })
 })
 
@@ -132,9 +133,9 @@ describe('loadDownloads', () => {
     const outcomes = await loadDownloads(['react', '@angular/core', 'missing-pkg'], 30, '2026-10-09')
 
     expect(mock.mock.calls.map((c) => c[0])).toEqual([
-      'https://api.npmjs.org/downloads/range/2026-09-03:2026-10-09/react',
-      'https://api.npmjs.org/downloads/range/2026-09-03:2026-10-09/%40angular%2Fcore',
-      'https://api.npmjs.org/downloads/range/2026-09-03:2026-10-09/missing-pkg',
+      'https://api.npmjs.org/downloads/range/2025-10-03:2026-10-09/react',
+      'https://api.npmjs.org/downloads/range/2025-10-03:2026-10-09/%40angular%2Fcore',
+      'https://api.npmjs.org/downloads/range/2025-10-03:2026-10-09/missing-pkg',
     ])
     expect(outcomes.map((o) => o.name)).toEqual(['react', '@angular/core', 'missing-pkg'])
     expect('days' in outcomes[0] && outcomes[0].days).toHaveLength(4)

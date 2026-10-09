@@ -3,10 +3,13 @@ import type { Summary } from '../../netlify/shared/contract'
 const INSIGHTS_ENDPOINT = '/api/ai'
 const SSE_PREFIX = 'data: '
 const SSE_TERMINATOR = '[DONE]'
-/** Backstop for a server that stops answering without closing the stream. The server's own deadline is shorter. */
-const CLIENT_TIMEOUT_MS = 40_000
+/** The browser gives up when no byte has arrived for this long. A healthy run sends a frame every few seconds. */
+const IDLE_TIMEOUT_MS = 30_000
+/** Backstop for a stream that trickles bytes but never closes: the server's 25-second budget plus a generous margin. */
+const OVERALL_TIMEOUT_MS = 60_000
 const NETWORK_MESSAGE = "Couldn't reach the insights service. Check your connection and try again."
 const TIMEOUT_MESSAGE = 'The insights service did not answer in time. Try again.'
+const IDLE_MESSAGE = 'The insights service went quiet for 30 seconds, so the run was ended. Try again.'
 const GENERIC_MESSAGE = 'The insights request could not be completed. Please try again.'
 
 let activeController: AbortController | null = null
@@ -135,7 +138,7 @@ async function send(summary: Summary, signal: AbortSignal): Promise<Response> {
   }
 }
 
-async function readStream(body: ReadableStream<Uint8Array>, handlers: RunHandlers): Promise<void> {
+async function readStream(body: ReadableStream<Uint8Array>, handlers: RunHandlers, onBytes: () => void): Promise<void> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -143,6 +146,7 @@ async function readStream(body: ReadableStream<Uint8Array>, handlers: RunHandler
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
+      onBytes()
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
@@ -170,22 +174,30 @@ export async function getInsights(summary: Summary, handlers: RunHandlers): Prom
 
   const controller = new AbortController()
   activeController = controller
-  let timedOut = false
-  const watchdog = setTimeout(() => {
-    timedOut = true
+  // Two watchdogs: one that restarts on every byte, and one cap on the whole run. A viewer's Stop sets neither.
+  let timedOut: string | null = null
+  const expire = (message: string) => () => {
+    timedOut = message
     controller.abort()
-  }, CLIENT_TIMEOUT_MS)
+  }
+  let idle = setTimeout(expire(IDLE_MESSAGE), IDLE_TIMEOUT_MS)
+  const overall = setTimeout(expire(TIMEOUT_MESSAGE), OVERALL_TIMEOUT_MS)
+  const onBytes = () => {
+    clearTimeout(idle)
+    idle = setTimeout(expire(IDLE_MESSAGE), IDLE_TIMEOUT_MS)
+  }
 
   try {
     const response = await send(summary, controller.signal)
     if (!response.ok) throw new RunError(messageForStatus(response.status))
     if (!response.body) throw new RunError('The insights service returned no response. Please try again.')
-    await readStream(response.body, handlers)
+    await readStream(response.body, handlers, onBytes)
   } catch (err) {
-    if (timedOut && isAbortError(err)) throw new RunError(TIMEOUT_MESSAGE)
+    if (timedOut !== null && isAbortError(err)) throw new RunError(timedOut)
     throw err
   } finally {
-    clearTimeout(watchdog)
+    clearTimeout(idle)
+    clearTimeout(overall)
     if (activeController === controller) activeController = null
   }
 }
