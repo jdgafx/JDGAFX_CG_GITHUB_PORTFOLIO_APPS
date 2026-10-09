@@ -11,6 +11,7 @@ import { citeKey } from './components/AnswerBody'
 import { useDocumentLoader } from './hooks/useDocumentLoader'
 import { askQuestion, AskError } from './lib/api'
 import type { Retrieval } from './lib/bm25'
+import { liveData } from './lib/liveData'
 import { useResultFocus } from './lib/useResultFocus'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
@@ -24,6 +25,7 @@ function newId(): string {
 export default function App() {
   const [doc, setDoc] = useState<DocumentState | null>(null)
   const [docVersion, setDocVersion] = useState(0)
+  const [loadedAt, setLoadedAt] = useState<number | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
   const [question, setQuestion] = useState('')
   const [running, setRunning] = useState(false)
@@ -66,6 +68,7 @@ export default function App() {
     (next: DocumentState) => {
       setDoc(next)
       setDocVersion(v => v + 1)
+      setLoadedAt(Date.now())
       clearConversation()
       setQuestion('')
     },
@@ -177,6 +180,7 @@ export default function App() {
     }
     cancelRun()
     setDoc(null)
+    setLoadedAt(null)
     clearConversation()
     setQuestion('')
     clearLoadError()
@@ -229,7 +233,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={phase}>
-      <Header badge={badge} />
+      <Header badge={badge} live={liveData(doc, loadedAt, loader.failedKind)} />
 
       <main className="ds-main">
         <div className="ds-bench">

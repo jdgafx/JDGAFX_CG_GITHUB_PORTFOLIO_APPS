@@ -10,6 +10,8 @@ interface DocumentLoader {
   error: string | null
   /** True when the last request failed and can be run again. */
   canRetry: boolean
+  /** Which source the last failed request was reading, for the live-data chip. */
+  failedKind: SourceRequest['kind'] | null
   load: (request: SourceRequest) => void
   retry: () => void
   /** Shows a problem found before loading, such as an unsupported file type. */
@@ -72,5 +74,5 @@ export function useDocumentLoader(onLoaded: (doc: DocumentState) => void, onStar
     setFailed(null)
   }, [])
 
-  return { loading: activity !== null, activity, error, canRetry: failed !== null, load, retry, fail, clearError }
+  return { loading: activity !== null, activity, error, canRetry: failed !== null, failedKind: failed?.kind ?? null, load, retry, fail, clearError }
 }

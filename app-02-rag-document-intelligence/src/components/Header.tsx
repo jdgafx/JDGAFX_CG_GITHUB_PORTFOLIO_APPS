@@ -1,3 +1,5 @@
+import type { LiveData } from '../lib/liveData'
+
 export interface Badge {
   label: string
   tone: string
@@ -6,10 +8,11 @@ export interface Badge {
 
 interface HeaderProps {
   badge: Badge
+  live: LiveData
 }
 
 /** The masthead: number plate, name, a status lamp that follows the run, and the one line on what this app shows. */
-export function Header({ badge }: HeaderProps) {
+export function Header({ badge, live }: HeaderProps) {
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -24,6 +27,10 @@ export function Header({ badge }: HeaderProps) {
               {badge.label}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.label}
+          </p>
           <p className="ds-subtitle">
             Ask a Wikipedia article, an arXiv paper or your own file. Click a citation to read its sentence.
           </p>
