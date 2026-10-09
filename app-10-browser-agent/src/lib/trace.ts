@@ -72,7 +72,11 @@ export function buildTraceRows(state: RunState): TraceRow[] {
         planned: step.thought,
       }]))
 
-  return [...planRows, ...runRows, ...pending]
+  // The session release closes the run, so it stays last even when steps that never ran follow it.
+  const releaseLast = runRows[runRows.length - 1]?.name === 'Release browser session'
+  return releaseLast
+    ? [...planRows, ...runRows.slice(0, -1), ...pending, ...runRows.slice(-1)]
+    : [...planRows, ...runRows, ...pending]
 }
 
 export type PlanStatus = 'waiting' | 'running' | 'ok' | 'failed' | 'skipped'

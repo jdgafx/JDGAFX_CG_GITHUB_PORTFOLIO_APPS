@@ -122,6 +122,16 @@ describe('buildTraceRows', () => {
       ['skipped', 'Not run: the run was stopped.'],
     ])
 
+    const afterRelease = buildTraceRows(stateWith({
+      phase: 'stopped',
+      steps: [navigate, click, extract],
+      rows: [
+        { index: 0, name: 'Navigate: Google home page', status: 'ok', ms: 900, detail: 'Opened www.google.com.' },
+        { index: null, name: 'Release browser session', status: 'skipped', ms: 0, detail: 'Released when the current step ends.' },
+      ],
+    }))
+    expect(afterRelease.map((row) => row.key)).toEqual(['run-0', 'pending-1', 'pending-2', 'run-1'])
+
     const live = buildTraceRows(stateWith({ phase: 'running', steps: [navigate, extract], rows: [] }))
     expect(live.map((row) => [row.status, row.detail])).toEqual([
       ['waiting', 'Waits for the steps before it.'],
