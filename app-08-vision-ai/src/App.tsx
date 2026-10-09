@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatSeconds } from './lib/format'
+import { liveIndicator } from './lib/liveData'
 import { scopeOf } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
 import { useNarrow } from './lib/useNarrow'
 import { useResultFocus, type RunPhase } from './lib/useResultFocus'
 import type { TraceStep } from './lib/api'
+import type { CommonsImage } from './lib/commons'
 import ActionDock from './components/ActionDock'
 import AskPanel from './components/AskPanel'
 import Header from './components/Header'
@@ -49,6 +51,7 @@ export default function App() {
   const comparing = scope === 'compare'
   const hasB = vision.imageUrlB !== ''
   const narrow = useNarrow()
+  const [commonsFailed, setCommonsFailed] = useState(false)
 
   useResultFocus(PHASE[status])
 
@@ -89,7 +92,14 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={PHASE[status]}>
-      <Header status={status} />
+      <Header
+        status={status}
+        live={liveIndicator({
+          loaded: [hasImage ? vision.source : undefined, hasB ? vision.sourceB : undefined].filter((slot): slot is CommonsImage | null => slot !== undefined),
+          at: vision.loadedAt,
+          commonsFailed,
+        })}
+      />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -102,6 +112,7 @@ export default function App() {
               uploadError={vision.uploadError}
               onFile={chooseFile}
               onRemove={vision.removeImage}
+              onCommonsFailure={setCommonsFailed}
             />
             <AskPanel
               mode={mode}

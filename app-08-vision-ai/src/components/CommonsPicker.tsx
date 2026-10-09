@@ -14,6 +14,8 @@ interface CommonsPickerProps {
   /** Names the slot a pick goes into, when there is more than one. */
   label: string
   onPick: (file: File, image: CommonsImage) => void
+  /** Reports whether the last search or download failed, for the live-data chip. */
+  onFailure: (failed: boolean) => void
 }
 
 const PLACEHOLDER_CARDS = Array.from({ length: 6 }, (_, index) => index)
@@ -21,7 +23,7 @@ const PICK_FAILED = 'The image could not be loaded. Try again or pick another.'
 
 // "Pick a public image": search Wikimedia Commons, choose a result, and the thumbnail is downloaded
 // in the browser and handed to the same pipeline as an upload.
-export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPick }: CommonsPickerProps) {
+export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPick, onFailure }: CommonsPickerProps) {
   const { state, search } = useCommonsSearch()
   const [text, setText] = useState('')
   const [open, setOpen] = useState(slotsLeft > 0)
@@ -32,6 +34,9 @@ export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPi
   const pickAbort = useRef<AbortController | null>(null)
 
   useEffect(() => () => pickAbort.current?.abort(), [])
+
+  const failed = state.status === 'error' || pickError !== null
+  useEffect(() => onFailure(failed), [failed, onFailure])
 
 
   const runSearch = (query: string) => {

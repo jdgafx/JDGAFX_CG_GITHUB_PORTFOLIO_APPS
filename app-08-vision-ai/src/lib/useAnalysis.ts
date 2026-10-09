@@ -55,6 +55,8 @@ export function useAnalysis() {
   const [fileB, setFileB] = useState<File | null>(null)
   const [sourceB, setSourceB] = useState<CommonsImage | null>(null)
   const [imageUrlB, setImageUrlB] = useState('')
+  // When a picture was last loaded, for the live-data chip.
+  const [loadedAt, setLoadedAt] = useState<number | null>(null)
   const [mode, setMode] = useState<AnalysisMode>('describe')
   const [lastWhole, setLastWhole] = useState<AnalysisMode>('describe')
   const [question, setQuestion] = useState('')
@@ -115,6 +117,7 @@ export function useAnalysis() {
     if (urlsRef.current[slot]) URL.revokeObjectURL(urlsRef.current[slot])
     const url = URL.createObjectURL(next)
     urlsRef.current[slot] = url
+    setLoadedAt(Date.now())
     if (slot === 'a') {
       setImageUrl(url)
       setFile(next)
@@ -390,6 +393,7 @@ export function useAnalysis() {
 
   return {
     file,
+    loadedAt,
     source,
     imageUrl,
     fileB,

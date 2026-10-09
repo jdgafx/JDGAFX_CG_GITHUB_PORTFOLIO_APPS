@@ -148,3 +148,7 @@ dialog.zoom::backdrop { background: color-mix(in srgb, var(--ds-text) 90%, trans
 .vl-box--top .ds-box__tag { top: 0; bottom: auto; border-radius: 0 0 3px 0; }
 .vl-question { resize: vertical; min-height: 96px; }
 .vl-answer__body { display: grid; gap: 16px; min-width: 0; align-content: start; }
+
+/* Live-data chip in the masthead: lit by a Commons picture, or "Your file" for the visitor's own. */
+.live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
+.live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
