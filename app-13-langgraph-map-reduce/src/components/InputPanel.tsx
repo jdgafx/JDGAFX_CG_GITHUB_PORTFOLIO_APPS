@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { formatTokens } from '../lib/format'
 import { MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../lib/limits'
+import type { WikiFetch } from '../lib/liveData'
 import { WikipediaLoader } from './WikipediaLoader'
 
 interface InputPanelProps {
@@ -8,12 +9,13 @@ interface InputPanelProps {
   running: boolean
   valid: boolean
   onChange: (text: string) => void
+  onFetch: (fetched: WikiFetch) => void
   onRun: () => void
   onStop: () => void
   collapseKey: number
 }
 
-export function InputPanel({ text, running, valid, onChange, onRun, onStop, collapseKey }: InputPanelProps) {
+export function InputPanel({ text, running, valid, onChange, onFetch, onRun, onStop, collapseKey }: InputPanelProps) {
   // Stop takes focus when it appears, without scrolling the page.
   const stopRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -32,7 +34,7 @@ export function InputPanel({ text, running, valid, onChange, onRun, onStop, coll
         <p className="ds-section__sub">The graph splits this text into chunks, then reads every chunk in parallel.</p>
       </div>
 
-      <WikipediaLoader text={text} disabled={running} onLoad={onChange} collapseKey={collapseKey} />
+      <WikipediaLoader text={text} disabled={running} onLoad={onChange} onFetch={onFetch} collapseKey={collapseKey} />
 
       <div className="ds-field">
         <label className="ds-label" htmlFor="doc-text">

@@ -6,6 +6,7 @@ import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
+import { liveIndicator, type WikiFetch } from './lib/liveData'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { statusLine } from './lib/status'
 import { useResultFocus } from './lib/useResultFocus'
@@ -46,6 +47,7 @@ export default function App() {
   const [view, dispatch] = useReducer(reduce, undefined, initialView)
   /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
   const [analyzed, setAnalyzed] = useState('')
+  const [fetched, setFetched] = useState<WikiFetch | null>(null)
   const [collapseKey, setCollapseKey] = useState(0)
   const [railScrolled, setRailScrolled] = useState(false)
   const busy = useRef(false)
@@ -85,7 +87,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={view.phase === 'error' ? 'failed' : view.phase}>
-      <Header phase={view.phase} />
+      <Header phase={view.phase} live={liveIndicator(text, fetched)} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -95,6 +97,7 @@ export default function App() {
               running={running}
               valid={valid}
               onChange={setText}
+              onFetch={setFetched}
               onRun={() => void analyze(text)}
               onStop={() => controller.current?.abort()}
               collapseKey={collapseKey}

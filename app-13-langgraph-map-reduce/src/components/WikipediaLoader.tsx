@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { fetchedNow, type WikiFetch } from '../lib/liveData'
 import { formatTokens } from '../lib/format'
 import { LOADER_MAX_CHARS } from '../lib/limits'
 import { SUGGESTED_TITLES, WikiError, type Article } from '../lib/wikipedia'
@@ -18,11 +19,13 @@ interface WikipediaLoaderProps {
   /** True while an analysis runs. The loader cannot change the text then. */
   disabled: boolean
   onLoad: (text: string) => void
+  /** What the last fetch did, for the live-data chip. */
+  onFetch: (fetched: WikiFetch) => void
   /** Changes when a run completes on a narrow screen: the suggestion list folds away so the result is not pushed down. */
   collapseKey: number
 }
 
-export function WikipediaLoader({ text, disabled, onLoad, collapseKey }: WikipediaLoaderProps) {
+export function WikipediaLoader({ text, disabled, onLoad, onFetch, collapseKey }: WikipediaLoaderProps) {
   // Open beside the run on a wide screen, closed on a phone where it would push the run down.
   const [suggestOpen, setSuggestOpen] = useState(() => window.matchMedia('(min-width: 1000px)').matches)
   const [seenKey, setSeenKey] = useState(collapseKey)
@@ -71,6 +74,7 @@ export function WikipediaLoader({ text, disabled, onLoad, collapseKey }: Wikiped
     const controller = new AbortController()
     loading.current = controller
     setLoad({ phase: 'loading', title: wanted })
+    onFetch({ kind: 'loading' })
     try {
       const loaded = await loadArticle(wanted, controller.signal)
       if (controller.signal.aborted) return
@@ -78,8 +82,10 @@ export function WikipediaLoader({ text, disabled, onLoad, collapseKey }: Wikiped
       setQuery(loaded.title)
       setLoad({ phase: 'idle' })
       onLoad(loaded.text)
+      onFetch({ kind: 'loaded', text: loaded.text, at: fetchedNow() })
     } catch (err) {
       if (controller.signal.aborted) return
+      onFetch({ kind: 'failed' })
       const error = err instanceof WikiError ? err : new WikiError('network', 'Something went wrong while loading the article. Try again.')
       // A page that does not exist, or only lists others, still has useful neighbours to offer.
       const similar =
