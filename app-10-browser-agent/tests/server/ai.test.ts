@@ -28,6 +28,7 @@ interface PlanBody {
   usage?: typeof USAGE
   model?: string
   error?: string
+  totalMs?: number
 }
 
 const fetchMock = vi.fn<typeof fetch>()
@@ -101,6 +102,27 @@ describe('planner function: a plan', () => {
     expect(body.trace?.[1]?.detail).toContain(`Served by ${SERVED}. Finish reason: stop.`)
     expect(body.trace?.[2]).toMatchObject({ status: 'ok', detail: '2 steps. Every address is on an allowed site.' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a total equal to the sum of its trace rows, even when the clock ticks between rows', async () => {
+    // Every clock read moves time on, so any span measured outside a row would show up in a wall-clock total.
+    let now = 1_700_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 7))
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com and report the page title.' })))
+
+    const rows = body.trace?.map((entry) => entry.ms) ?? []
+    expect(rows).toHaveLength(3)
+    expect(rows.every((ms) => ms > 0)).toBe(true)
+    expect(body.totalMs).toBe(rows.reduce((total, ms) => total + ms, 0))
+  })
+
+  it('keeps the total equal to the rows on a failed plan too', async () => {
+    fetchMock.mockImplementation(async () => reply('{"steps":[{"action":"navigate"', 'length'))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    const rows = body.trace?.map((entry) => entry.ms) ?? []
+    expect(rows).toHaveLength(2)
+    expect(body.totalMs).toBe(rows.reduce((total, ms) => total + ms, 0))
   })
 
   it('sends the fixed model, the token cap, usage reporting and the allowlist to the provider', async () => {

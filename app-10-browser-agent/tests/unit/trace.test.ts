@@ -210,7 +210,7 @@ describe('planItems', () => {
 
 describe('expectationOf', () => {
   it('uses the last extract or verify step, target and value together', () => {
-    expect(expectationOf([navigate, click, extract])).toBe('page title The page title')
+    expect(expectationOf([navigate, click, extract])).toBe('page title: The page title')
   })
 
   it('is null when the plan has no extract or verify step', () => {

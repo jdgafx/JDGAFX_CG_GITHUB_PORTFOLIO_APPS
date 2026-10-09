@@ -168,5 +168,5 @@ export function metricsFor(state: RunState): Metric[] {
 /** The planner's stated expectation: the last extract or verify step, in its own words. */
 export function expectationOf(steps: BotStep[]): string | null {
   const last = [...steps].reverse().find((step) => step.action === 'extract' || step.action === 'verify')
-  return last ? [last.target, last.value].filter(Boolean).join(' ') : null
+  return last ? [last.target, last.value].filter(Boolean).join(': ') : null
 }

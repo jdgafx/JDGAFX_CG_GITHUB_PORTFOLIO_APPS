@@ -98,6 +98,11 @@ function sumOf(values: Array<number | null>): number | null {
   return values.reduce<number>((total, value) => total + (value ?? 0), 0)
 }
 
+/** The run figure is the sum of the rows it stands beside, so the two always agree. Gaps between rows are not counted. */
+function tracedMs(trace: TraceEntry[]): number {
+  return trace.reduce((total, entry) => total + entry.ms, 0)
+}
+
 function aggregateUsage(attempts: Attempt[]): UsageReport {
   const pick = (field: keyof UsageReport) => sumOf(attempts.map((attempt) => attempt.usage[field]))
   return {
@@ -254,7 +259,7 @@ async function handle(req: Request): Promise<Response> {
     detail: `Task of ${task.length} characters. Allowed sites: ${domains.join(', ')}.`,
   }]
   const fail = (message: string, status: number): Response =>
-    jsonResponse({ error: message, trace, totalMs: Date.now() - startedAt }, status, headers)
+    jsonResponse({ error: message, trace, totalMs: tracedMs(trace) }, status, headers)
 
   const modelStarted = Date.now()
   let attempts: Attempt[]
@@ -323,7 +328,7 @@ async function handle(req: Request): Promise<Response> {
     trace,
     usage,
     model: last.model,
-    totalMs: Date.now() - startedAt,
+    totalMs: tracedMs(trace),
   }, 200, headers)
 }
 
