@@ -135,6 +135,22 @@
   overflow-wrap: anywhere;
 }
 
+.picture__credit {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-top: 8px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  border-top: 1px solid var(--ds-border);
+  overflow-wrap: anywhere;
+}
+
+.picture__credit a {
+  font-weight: 650;
+  color: var(--ds-accent);
+}
+
 .picture.is-dragging .ds-panel,
 .picture.is-dragging .ds-empty {
   border-color: var(--ds-accent);
@@ -320,14 +336,25 @@
   color: var(--ds-text-muted);
 }
 
-/* Full-size view of the picture */
-.zoom {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
+/* Full-size view of the picture: a native modal dialog, so the browser traps focus and handles Escape */
+dialog.zoom {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 56px 16px 16px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+dialog.zoom[open] {
   display: grid;
   place-items: center;
-  padding: 56px 16px 16px;
+}
+
+dialog.zoom::backdrop {
   background: rgba(8, 10, 16, 0.92);
 }
 

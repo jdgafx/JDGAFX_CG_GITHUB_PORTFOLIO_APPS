@@ -1,7 +1,9 @@
+import { isRecord } from './guards'
 import { fileProblem, parseDataUrl, type DataUrlParts } from './image'
 
 export type AnalysisMode = 'describe' | 'analyze' | 'qa' | 'extract'
-export type StepStatus = 'running' | 'ok' | 'failed' | 'skipped'
+const STEP_STATUSES = ['running', 'ok', 'failed', 'skipped'] as const
+export type StepStatus = (typeof STEP_STATUSES)[number]
 
 export interface TraceStep {
   name: string
@@ -46,7 +48,6 @@ export const MAX_QUESTION_CHARS = 1000
 // The server stops every provider call at 25 seconds and always sends a final frame,
 // so this limit only guards a connection that stalls.
 const REQUEST_TIMEOUT_MS = 60_000
-const STEP_STATUSES: readonly string[] = ['running', 'ok', 'failed', 'skipped']
 const TIMED_OUT_MESSAGE = 'The AI provider did not answer in time.'
 const TIMED_OUT_DETAIL = 'No answer within 60 seconds'
 const STOPPED_DETAIL = 'Stopped by you before it finished'
@@ -54,19 +55,6 @@ const DROPPED_MESSAGE = 'The connection dropped before the analysis finished. Th
 const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
 const UNREADABLE_MESSAGE = 'This image could not be read in the browser. Try another file.'
 const NO_RESULT_MESSAGE = 'The vision service returned no usable analysis. Please retry with the same image.'
-
-interface StreamFrame {
-  stage?: unknown
-  step?: unknown
-  text?: unknown
-  result?: unknown
-  error?: unknown
-  truncated?: unknown
-  trace?: unknown
-  usage?: unknown
-  model?: unknown
-  totalMs?: unknown
-}
 
 function fileToBase64(file: File): Promise<DataUrlParts> {
   return new Promise((resolve, reject) => {
@@ -81,53 +69,60 @@ function fileToBase64(file: File): Promise<DataUrlParts> {
   })
 }
 
-// Keeps the steps of one run and reports each change, so the trace updates live.
+// Replaces the step with the same name, or appends it. Used for the live trace and the history view alike.
+export function upsertStep(steps: TraceStep[], step: TraceStep): TraceStep[] {
+  const index = steps.findIndex(existing => existing.name === step.name)
+  if (index === -1) return [...steps, step]
+  const next = steps.slice()
+  next[index] = step
+  return next
+}
+
+// The steps of one run, reported as each changes so the trace updates live.
 // Running steps are timed from the moment they were first reported.
-class TraceRecorder {
-  readonly steps: TraceStep[] = []
-  private readonly startedAt = Date.now()
-  private readonly since = new Map<string, number>()
-  private readonly onStep: (step: TraceStep) => void
+interface Trace {
+  steps: TraceStep[]
+  readonly startedAt: number
+  readonly since: Map<string, number>
+  readonly onStep: (step: TraceStep) => void
+}
 
-  constructor(onStep: (step: TraceStep) => void) {
-    this.onStep = onStep
-  }
+function newTrace(onStep: (step: TraceStep) => void): Trace {
+  return { steps: [], startedAt: Date.now(), since: new Map(), onStep }
+}
 
-  record(step: TraceStep): void {
-    if (step.status === 'running') this.since.set(step.name, Date.now())
-    const index = this.steps.findIndex(existing => existing.name === step.name)
-    if (index === -1) this.steps.push(step)
-    else this.steps[index] = step
-    this.onStep(step)
-  }
+function record(trace: Trace, step: TraceStep): void {
+  if (step.status === 'running') trace.since.set(step.name, Date.now())
+  trace.steps = upsertStep(trace.steps, step)
+  trace.onStep(step)
+}
 
-  // Ends every step still running, so a stopped run never shows a step in progress.
-  settle(detail: string): void {
-    for (const step of this.steps.filter(s => s.status === 'running')) {
-      this.record({ name: step.name, status: 'failed', ms: this.elapsed(step.name), detail })
-    }
-  }
+function elapsed(trace: Trace, name: string): number {
+  return Date.now() - (trace.since.get(name) ?? trace.startedAt)
+}
 
-  fail(name: string, detail: string, message: string): RunOutcome {
-    this.record({ name, status: 'failed', ms: this.elapsed(name), detail })
-    return { status: 'failed', message, truncated: false, summary: this.localSummary() }
-  }
+function localSummary(trace: Trace): RunSummary {
+  return { trace: trace.steps, usage: null, model: null, totalMs: Date.now() - trace.startedAt }
+}
 
-  activeName(): string {
-    return this.steps.find(step => step.status === 'running')?.name ?? 'Request checked'
-  }
-
-  localSummary(): RunSummary {
-    return { trace: this.steps.slice(), usage: null, model: null, totalMs: Date.now() - this.startedAt }
-  }
-
-  private elapsed(name: string): number {
-    return Date.now() - (this.since.get(name) ?? this.startedAt)
+// Ends every step still running, so a stopped run never shows a step in progress.
+function settle(trace: Trace, detail: string): void {
+  for (const step of trace.steps.filter(s => s.status === 'running')) {
+    record(trace, { name: step.name, status: 'failed', ms: elapsed(trace, step.name), detail })
   }
 }
 
+function fail(trace: Trace, name: string, detail: string, message: string): RunOutcome {
+  record(trace, { name, status: 'failed', ms: elapsed(trace, name), detail })
+  return { status: 'failed', message, truncated: false, summary: localSummary(trace) }
+}
+
+function activeName(trace: Trace): string {
+  return trace.steps.find(step => step.status === 'running')?.name ?? 'Request checked'
+}
+
 export async function analyzeImage(opts: AnalyzeOptions): Promise<RunOutcome> {
-  const trace = new TraceRecorder(opts.onStep)
+  const trace = newTrace(opts.onStep)
   const controller = new AbortController()
   let timedOut = false
   const timer = setTimeout(() => {
@@ -143,29 +138,29 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<RunOutcome> {
   } catch (err) {
     if (!isAbortError(err)) {
       const message = 'The analysis stopped unexpectedly. Please try again.'
-      return trace.fail(trace.activeName(), message, message)
+      return fail(trace, activeName(trace), message, message)
     }
     if (timedOut) {
-      trace.settle(TIMED_OUT_DETAIL)
-      return { status: 'failed', message: TIMED_OUT_MESSAGE, truncated: false, summary: trace.localSummary() }
+      settle(trace, TIMED_OUT_DETAIL)
+      return { status: 'failed', message: TIMED_OUT_MESSAGE, truncated: false, summary: localSummary(trace) }
     }
-    trace.settle(STOPPED_DETAIL)
-    return { status: 'cancelled', summary: trace.localSummary() }
+    settle(trace, STOPPED_DETAIL)
+    return { status: 'cancelled', summary: localSummary(trace) }
   } finally {
     clearTimeout(timer)
     opts.signal?.removeEventListener('abort', stopFromCaller)
   }
 }
 
-async function runRequest(opts: AnalyzeOptions, trace: TraceRecorder, signal: AbortSignal): Promise<RunOutcome> {
+async function runRequest(opts: AnalyzeOptions, trace: Trace, signal: AbortSignal): Promise<RunOutcome> {
   const problem = fileProblem(opts.file)
-  if (problem) return trace.fail('Request checked', problem, problem)
+  if (problem) return fail(trace, 'Request checked', problem, problem)
 
   let encoded: DataUrlParts
   try {
     encoded = await fileToBase64(opts.file)
   } catch {
-    return trace.fail('Request checked', UNREADABLE_MESSAGE, UNREADABLE_MESSAGE)
+    return fail(trace, 'Request checked', UNREADABLE_MESSAGE, UNREADABLE_MESSAGE)
   }
 
   let response: Response
@@ -183,17 +178,17 @@ async function runRequest(opts: AnalyzeOptions, trace: TraceRecorder, signal: Ab
     })
   } catch (err) {
     if (isAbortError(err)) throw err
-    return trace.fail('Request checked', NETWORK_MESSAGE, NETWORK_MESSAGE)
+    return fail(trace, 'Request checked', NETWORK_MESSAGE, NETWORK_MESSAGE)
   }
 
   if (!response.ok) return rejectedRequest(response, trace)
-  if (!response.body) return trace.fail('Request checked', NO_RESULT_MESSAGE, NO_RESULT_MESSAGE)
+  if (!response.body) return fail(trace, 'Request checked', NO_RESULT_MESSAGE, NO_RESULT_MESSAGE)
   return readStream(response.body, opts, trace)
 }
 
 // The server answers before streaming starts with a JSON error. When it includes
 // a trace, the failed step is shown exactly as the server recorded it.
-async function rejectedRequest(response: Response, trace: TraceRecorder): Promise<RunOutcome> {
+async function rejectedRequest(response: Response, trace: Trace): Promise<RunOutcome> {
   const body: unknown = await response.json().catch(() => null)
   const fields: Record<string, unknown> = isRecord(body) ? body : {}
   const message =
@@ -201,15 +196,15 @@ async function rejectedRequest(response: Response, trace: TraceRecorder): Promis
       ? fields.error
       : `The analysis could not start (HTTP ${response.status}). Please try again.`
   const steps = fields.trace
-  if (!Array.isArray(steps)) return trace.fail('Request checked', message, message)
-  for (const step of steps.filter(isTraceStep)) trace.record(step)
-  return { status: 'failed', message, truncated: false, summary: trace.localSummary() }
+  if (!Array.isArray(steps)) return fail(trace, 'Request checked', message, message)
+  for (const step of steps.filter(isTraceStep)) record(trace, step)
+  return { status: 'failed', message, truncated: false, summary: localSummary(trace) }
 }
 
 async function readStream(
   body: ReadableStream<Uint8Array>,
   opts: AnalyzeOptions,
-  trace: TraceRecorder,
+  trace: Trace,
 ): Promise<RunOutcome> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -222,7 +217,7 @@ async function readStream(
       } catch (err) {
         // A socket that dies mid-stream throws a bare network error; say what happened instead.
         if (isAbortError(err)) throw err
-        return trace.fail('Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
+        return fail(trace, 'Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
       }
       if (chunk.done) break
       buffer += decoder.decode(chunk.value, { stream: true })
@@ -235,14 +230,14 @@ async function readStream(
     }
     buffer += decoder.decode()
     // No terminal frame means the connection dropped mid-analysis: never treat a partial answer as complete.
-    return handleLine(buffer, opts, trace) ?? trace.fail('Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
+    return handleLine(buffer, opts, trace) ?? fail(trace, 'Model call', DROPPED_MESSAGE, DROPPED_MESSAGE)
   } finally {
     void reader.cancel().catch(() => undefined)
   }
 }
 
 // Returns the outcome when the line is the terminal frame, otherwise null.
-function handleLine(line: string, opts: AnalyzeOptions, trace: TraceRecorder): RunOutcome | null {
+function handleLine(line: string, opts: AnalyzeOptions, trace: Trace): RunOutcome | null {
   const trimmed = line.trim()
   if (!trimmed.startsWith('data:')) return null
   const payload = trimmed.slice(5).trim()
@@ -254,10 +249,10 @@ function handleLine(line: string, opts: AnalyzeOptions, trace: TraceRecorder): R
     return null
   }
   if (!isRecord(parsed)) return null
-  const frame = parsed as StreamFrame
+  const frame = parsed
 
   if (frame.stage === 'step' && isTraceStep(frame.step)) {
-    trace.record(frame.step)
+    record(trace, frame.step)
     return null
   }
   if (typeof frame.text === 'string') {
@@ -282,12 +277,12 @@ function handleLine(line: string, opts: AnalyzeOptions, trace: TraceRecorder): R
   return null
 }
 
-function summaryFrom(frame: StreamFrame, trace: TraceRecorder): RunSummary {
+function summaryFrom(frame: Record<string, unknown>, trace: Trace): RunSummary {
   return {
-    trace: Array.isArray(frame.trace) ? frame.trace.filter(isTraceStep) : trace.steps.slice(),
+    trace: Array.isArray(frame.trace) ? frame.trace.filter(isTraceStep) : trace.steps,
     usage: isRecord(frame.usage) ? (frame.usage as RunUsage) : null,
     model: typeof frame.model === 'string' ? frame.model : null,
-    totalMs: typeof frame.totalMs === 'number' ? frame.totalMs : trace.localSummary().totalMs,
+    totalMs: typeof frame.totalMs === 'number' ? frame.totalMs : localSummary(trace).totalMs,
   }
 }
 
@@ -297,12 +292,8 @@ function isTraceStep(value: unknown): value is TraceStep {
     typeof value.name === 'string' &&
     typeof value.detail === 'string' &&
     typeof value.status === 'string' &&
-    STEP_STATUSES.includes(value.status)
+    (STEP_STATUSES as readonly string[]).includes(value.status)
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function isAbortError(err: unknown): boolean {

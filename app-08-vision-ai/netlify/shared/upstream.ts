@@ -1,6 +1,7 @@
 // Reads the chat stream from the provider: absorbs each data line, decides whether the
 // reply is usable, and turns provider failures into plain words. The provider's own
 // error body is never forwarded to the browser.
+import { isRecord } from './guards'
 
 interface Usage {
   prompt_tokens?: number
@@ -124,8 +125,4 @@ function firstChoice(value: unknown): Record<string, unknown> | null {
   if (!Array.isArray(value)) return null
   const first: unknown = value[0]
   return isRecord(first) ? first : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }

@@ -2,9 +2,18 @@
 
 Live: https://jdgafx-app-08-vision-ai.netlify.app
 
-VisionLab answers questions about one image. Choose a JPG, PNG, WebP or GIF up to 4 MB, pick a mode, and analyze it. Describe gives a full description of the scene. Analyze covers composition, colour, objects, visible text and image quality. Question answers one question you type. Extract pulls out text, numbers and tables in their original structure. The answer streams in as it arrives, and a run trace shows each step with its time, tokens and cost.
+VisionLab answers questions about one image. Upload a JPG, PNG, WebP or GIF up to 4 MB, or pick a public image from Wikimedia Commons, then pick a mode and analyze it. Describe gives a full description of the scene. Analyze covers composition, colour, objects, visible text and image quality. Question answers one question you type. Extract pulls out text, numbers and tables in their original structure. The answer streams in as it arrives, and a run trace shows each step with its time, tokens and cost.
 
 **What this showcases:** a multimodal call, one image and one prompt in, a streamed answer out, with the reply checked for completeness before it is marked done.
+
+## Pick a public image
+
+The Image section has a "Pick a public image" panel. Three one-click searches fit the modes: a chart (Extract), a busy street (Describe and Analyze) and a sign with text (Question). A search box takes any other words.
+
+- **Data source:** the Wikimedia Commons API (`commons.wikimedia.org/w/api.php`, file namespace, JPEG, PNG, WebP and GIF only). The browser calls it live with `origin=*`; nothing goes through the server. Each search asks for up to 24 matches and shows the best 12.
+- **The image:** the chosen result is downloaded as a 1,280 px wide thumbnail from `upload.wikimedia.org` or `thumb.wikimedia.org`, which keeps it under the 4 MB limit. It then goes through the same type and size checks as an uploaded file.
+- **Attribution:** the title, author and licence from Commons, with links to the licence and to the Commons file page, show under the picture and are kept with the entry in Recent analyses. Every image keeps its own licence.
+- **Failures:** a search or download that times out (12 and 25 seconds), is rate limited or cannot be reached shows a plain sentence with a retry. A search with no usable results says so.
 
 ## The pipeline
 
@@ -18,7 +27,7 @@ The page shows the trace with each step's status and time. Below it, a readout s
 
 ## Architecture
 
-- The browser posts the image and the request fields to `/api/ai`.
+- The browser posts the image and the request fields to `/api/ai`. The page and the function share one origin, so the function sends no CORS headers.
 - The Netlify Function `netlify/functions/ai.ts` validates the request, then calls OpenRouter's chat completions endpoint.
 - The model is one fixed constant, `~anthropic/claude-haiku-latest`, in `netlify/shared/provider.ts`. The client cannot send a model, the page has no picker, and no environment variable changes it.
 - `OPENROUTER_API_KEY` lives only in the function's environment on the server. The browser never receives it.
@@ -48,7 +57,7 @@ npm run typecheck
 npm run build
 ```
 
-The tests stub the provider with `vi.stubGlobal`. They set no real key and never call OpenRouter.
+The tests stub the provider and the Commons API with `vi.stubGlobal`. They set no real key, never call OpenRouter and never call Wikimedia. The Commons parser tests use a reply cut to the real response shape.
 
 ## Known limits
 
@@ -58,4 +67,5 @@ The tests stub the provider with `vi.stubGlobal`. They set no real key and never
 - Cost is the figure the provider reports for each call. The app does not calculate it.
 - The "Parse and validate" step confirms that the reply is not empty or cut off. It does not confirm that the answer is correct.
 - Recent analyses are kept in page memory, up to 12, and are lost on reload.
-- The test suite stubs the provider. It checks code paths, not the model's answers.
+- The test suite stubs the provider and Commons. It checks code paths, not the model's answers.
+- Commons search is only as good as its keyword match: a result can be off topic. Some results are dropped because they are not JPEG, PNG, WebP or GIF, or are over 4 MB.

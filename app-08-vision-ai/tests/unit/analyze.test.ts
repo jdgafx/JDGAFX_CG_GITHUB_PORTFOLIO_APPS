@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeImage, type TraceStep } from '../../src/lib/api'
+import { analyzeImage, upsertStep, type TraceStep } from '../../src/lib/api'
 
 // Node has no FileReader. This stand-in reads the File's bytes the same way the browser does.
 class FakeFileReader {
@@ -290,5 +290,20 @@ describe('analyzeImage timing and cancel', () => {
 
     expect(outcome.status).toBe('cancelled')
     expect(outcome.summary.trace).toEqual([])
+  })
+})
+
+describe('upsertStep', () => {
+  it('appends a new step and replaces one with the same name without changing the order or the input', () => {
+    const running: TraceStep = { name: 'Model call', status: 'running', detail: 'sent' }
+    const done: TraceStep = { name: 'Model call', status: 'ok', ms: 800, detail: 'answered' }
+    const start = [CHECKED]
+
+    const withRunning = upsertStep(start, running)
+    const withDone = upsertStep(withRunning, done)
+
+    expect(start).toEqual([CHECKED])
+    expect(withRunning.map(step => step.status)).toEqual(['ok', 'running'])
+    expect(withDone).toEqual([CHECKED, done])
   })
 })

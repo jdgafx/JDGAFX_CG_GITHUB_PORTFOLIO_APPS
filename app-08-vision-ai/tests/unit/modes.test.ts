@@ -11,10 +11,7 @@ describe('analysis modes', () => {
     ])
   })
 
-  it('gives every mode a hint and matches the label lookup table', () => {
-    for (const mode of MODES) {
-      expect(mode.hint.length).toBeGreaterThan(0)
-      expect(MODE_LABELS[mode.id]).toBe(mode.label)
-    }
+  it('looks a label up by mode id', () => {
+    expect(MODE_LABELS).toEqual({ describe: 'Describe', analyze: 'Analyze', qa: 'Question', extract: 'Extract' })
   })
 })

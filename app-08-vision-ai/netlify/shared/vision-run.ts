@@ -28,7 +28,6 @@ export interface VisionRun {
   maxTokens: number
   startedAt: number
   checked: TraceStep
-  headers: Record<string, string>
 }
 
 // One deadline covers the whole provider call, connecting and reading the answer alike.
@@ -60,8 +59,8 @@ export function streamVisionRun(run: VisionRun): Response {
         trace.push(step)
         emit({ stage: 'step', step })
       }
-      const conclude = (frame: Record<string, unknown>, state: ReadState) => {
-        emit({ ...frame, trace, usage: state.usage, model: state.served, totalMs: Date.now() - run.startedAt })
+      const conclude = (frame: Record<string, unknown>, state?: ReadState) => {
+        emit({ ...frame, trace, usage: state?.usage ?? null, model: state?.served ?? null, totalMs: Date.now() - run.startedAt })
       }
 
       const runCall = async (): Promise<void> => {
@@ -147,15 +146,7 @@ export function streamVisionRun(run: VisionRun): Response {
         await runCall()
       } catch (err) {
         if (!upstreamAbort.signal.aborted) console.error('Vision run failed:', err instanceof Error ? err.name : 'unknown')
-        emit({
-          stage: 'failed',
-          error: UNEXPECTED_MESSAGE,
-          truncated: false,
-          trace,
-          usage: null,
-          model: null,
-          totalMs: Date.now() - run.startedAt,
-        })
+        conclude({ stage: 'failed', error: UNEXPECTED_MESSAGE, truncated: false })
       } finally {
         if (open) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
@@ -171,12 +162,7 @@ export function streamVisionRun(run: VisionRun): Response {
   })
 
   return new Response(stream, {
-    headers: {
-      ...run.headers,
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
 

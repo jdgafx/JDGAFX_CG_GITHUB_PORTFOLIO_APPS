@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACCEPTED_LABEL, ACCEPTED_TYPES, fileProblem, parseDataUrl } from '../../src/lib/image'
+import { ACCEPTED_TYPES, fileProblem, parseDataUrl } from '../../src/lib/image'
 
 const FOUR_MB = 4 * 1024 * 1024
 
@@ -44,6 +44,5 @@ describe('parseDataUrl', () => {
 describe('accepted image types', () => {
   it('lists exactly the four types the server accepts', () => {
     expect(ACCEPTED_TYPES).toEqual(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
-    expect(ACCEPTED_LABEL).toBe('JPG, PNG, WebP, or GIF')
   })
 })

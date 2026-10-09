@@ -1,40 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatSeconds } from './lib/format'
+import { MODE_LABELS } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
 import type { TraceStep } from './lib/api'
 import AnalysisPanel from './components/AnalysisPanel'
-import AnswerStage from './components/AnswerStage'
 import HistoryStrip from './components/HistoryStrip'
 import ImagePicker from './components/ImagePicker'
 import ModeChoice from './components/ModeChoice'
+import PicturePanel from './components/PicturePanel'
 import ReadoutStrip from './components/ReadoutStrip'
+import ResultPanel from './components/ResultPanel'
 import RunTrace from './components/RunTrace'
 import ZoomOverlay from './components/ZoomOverlay'
 
-const STATUS_LABEL: Record<RunStatus, string> = {
-  idle: 'Ready',
-  running: 'Analyzing',
-  complete: 'Complete',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-}
-
-const STATUS_BADGE: Record<RunStatus, string> = {
-  idle: '',
-  running: 'ds-badge--accent',
-  complete: 'ds-badge--success',
-  failed: 'ds-badge--danger',
-  cancelled: 'ds-badge--warning',
-}
-
 // The dot repeats the badge's state as a mark, so the status never relies on colour alone.
-const STATUS_DOT: Record<RunStatus, string> = {
-  idle: '',
-  running: 'ds-dot--running',
-  complete: 'ds-dot--ok',
-  failed: 'ds-dot--failed',
-  cancelled: '',
+const STATUS_DISPLAY: Record<RunStatus, { label: string; badge: string; dot: string }> = {
+  idle: { label: 'Ready', badge: '', dot: '' },
+  running: { label: 'Analyzing', badge: 'ds-badge--accent', dot: 'ds-dot--running' },
+  complete: { label: 'Complete', badge: 'ds-badge--success', dot: 'ds-dot--ok' },
+  failed: { label: 'Failed', badge: 'ds-badge--danger', dot: 'ds-dot--failed' },
+  cancelled: { label: 'Cancelled', badge: 'ds-badge--warning', dot: '' },
 }
 
 function statusLine(status: RunStatus, steps: TraceStep[], totalMs: number | undefined, hasImage: boolean): string {
@@ -75,6 +61,7 @@ export default function App() {
   const running = vision.status === 'running'
   const hasImage = vision.imageUrl !== ''
   const fileName = vision.file?.name ?? ''
+  const display = STATUS_DISPLAY[vision.status]
 
   return (
     <div className="ds-app">
@@ -84,9 +71,9 @@ export default function App() {
             <h1 className="ds-title">VisionLab</h1>
             <p className="ds-subtitle">Choose one image, pick a mode, and read the answer as it streams in.</p>
           </div>
-          <span className={`ds-badge ${STATUS_BADGE[vision.status]}`}>
-            <span className={`ds-dot ${STATUS_DOT[vision.status]}`} aria-hidden="true" />
-            {STATUS_LABEL[vision.status]}
+          <span className={`ds-badge ${display.badge}`}>
+            <span className={`ds-dot ${display.dot}`} aria-hidden="true" />
+            {display.label}
           </span>
           <p className="ds-showcase">
             <strong>What this showcases:</strong> a multimodal call, one image and one prompt in, a streamed answer out,
@@ -125,17 +112,32 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <AnswerStage
-              mode={vision.mode}
-              imageUrl={vision.imageUrl}
-              fileName={fileName}
-              result={vision.result}
-              status={vision.status}
-              truncated={vision.truncated}
-              notice={vision.notice}
-              onFile={vision.chooseFile}
-              onZoom={() => setZoomed(true)}
-            />
+            {/* The hero: the picture beside the reply that streams in for it. The mode's name leads. */}
+            <section className="ds-section" aria-labelledby="answer-title">
+              <div className="ds-section__head">
+                <h2 id="answer-title" className="answer-title">
+                  {MODE_LABELS[vision.mode]}
+                </h2>
+                <p className="ds-section__sub">The picture and the reply, which streams in as the model writes it.</p>
+              </div>
+
+              <div className="answer-stage">
+                <PicturePanel
+                  imageUrl={vision.imageUrl}
+                  fileName={fileName}
+                  credit={vision.source}
+                  disabled={running}
+                  onFile={vision.chooseFile}
+                  onZoom={() => setZoomed(true)}
+                />
+                <ResultPanel
+                  result={vision.result}
+                  status={vision.status}
+                  truncated={vision.truncated}
+                  notice={vision.notice}
+                />
+              </div>
+            </section>
             <ReadoutStrip summary={vision.summary} />
             <RunTrace steps={vision.steps} summary={vision.summary} />
             <HistoryStrip

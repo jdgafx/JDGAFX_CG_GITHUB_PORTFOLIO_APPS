@@ -8,9 +8,4 @@ export const MODES: Array<{ id: AnalysisMode; label: string; hint: string }> = [
   { id: 'extract', label: 'Extract', hint: 'Asks for text, numbers and tables, as laid out.' },
 ]
 
-export const MODE_LABELS: Record<AnalysisMode, string> = {
-  describe: 'Describe',
-  analyze: 'Analyze',
-  qa: 'Question',
-  extract: 'Extract',
-}
+export const MODE_LABELS = Object.fromEntries(MODES.map(mode => [mode.id, mode.label])) as Record<AnalysisMode, string>

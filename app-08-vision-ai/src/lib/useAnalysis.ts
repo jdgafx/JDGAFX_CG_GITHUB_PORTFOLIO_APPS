@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { analyzeImage } from './api'
+import { analyzeImage, upsertStep } from './api'
 import type { AnalysisMode, RunSummary, TraceStep } from './api'
+import type { CommonsImage } from './commons'
 import { createThumbnailUrl, fileProblem } from './image'
 
 export type RunStatus = 'idle' | 'running' | 'complete' | 'failed' | 'cancelled'
@@ -9,32 +10,25 @@ export interface GalleryItem {
   id: string
   previewUrl: string
   file: File
-  name: string
+  source: CommonsImage | null
   mode: AnalysisMode
   question: string
   result: string
-  truncated: boolean
   summary: RunSummary
 }
 
-type GalleryDraft = Omit<GalleryItem, 'id' | 'previewUrl' | 'name'>
+type GalleryDraft = Omit<GalleryItem, 'id' | 'previewUrl'>
 
 const HISTORY_LIMIT = 12
 const CANCELLED_NOTICE = 'Analysis cancelled. Anything above is only a partial answer.'
 const QUESTION_REQUIRED = 'Type a question before you analyze the image.'
 
-function upsertStep(steps: TraceStep[], step: TraceStep): TraceStep[] {
-  const index = steps.findIndex(existing => existing.name === step.name)
-  if (index === -1) return [...steps, step]
-  const next = steps.slice()
-  next[index] = step
-  return next
-}
-
 // Owns the state of one VisionLab page: the image, the controls, the run, and the
 // recent analyses. Nothing here is stored outside the page.
 export function useAnalysis() {
   const [file, setFile] = useState<File | null>(null)
+  // Set when the image came from Wikimedia Commons, so its credit stays beside it.
+  const [source, setSource] = useState<CommonsImage | null>(null)
   const [imageUrl, setImageUrl] = useState('')
   const [mode, setMode] = useState<AnalysisMode>('describe')
   const [question, setQuestion] = useState('')
@@ -64,12 +58,13 @@ export function useAnalysis() {
     }
   }, [])
 
-  const showImage = useCallback((next: File) => {
+  const showImage = useCallback((next: File, credit: CommonsImage | null) => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current)
     const url = URL.createObjectURL(next)
     imageUrlRef.current = url
     setImageUrl(url)
     setFile(next)
+    setSource(credit)
   }, [])
 
   const clearResult = useCallback(() => {
@@ -82,13 +77,14 @@ export function useAnalysis() {
     setStatus('idle')
   }, [])
 
+  // An uploaded, dropped or pasted file has no credit; a Commons pick passes its own.
   const chooseFile = useCallback(
-    (next: File) => {
+    (next: File, credit: CommonsImage | null = null) => {
       if (running) return
       const problem = fileProblem(next)
       setUploadError(problem ?? '')
       if (problem) return
-      showImage(next)
+      showImage(next, credit)
       clearResult()
       setQuestionError('')
       setActiveId(null)
@@ -102,6 +98,7 @@ export function useAnalysis() {
     imageUrlRef.current = ''
     setImageUrl('')
     setFile(null)
+    setSource(null)
     setUploadError('')
     setQuestionError('')
     setActiveId(null)
@@ -130,7 +127,6 @@ export function useAnalysis() {
     const item: GalleryItem = {
       ...draft,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: draft.file.name,
       previewUrl,
     }
     const previous = galleryRef.current
@@ -158,12 +154,7 @@ export function useAnalysis() {
     }
     setQuestionError('')
     setUploadError('')
-    resultRef.current = ''
-    setResult('')
-    setTruncated(false)
-    setNotice('')
-    setSteps([])
-    setSummary(null)
+    clearResult()
     setStatus('running')
 
     const controller = new AbortController()
@@ -190,10 +181,10 @@ export function useAnalysis() {
       // A history thumbnail that cannot be made must not change the answer shown above.
       addToGallery({
         file,
+        source,
         mode,
         question: mode === 'qa' ? asked : '',
         result: outcome.result,
-        truncated: false,
         summary: outcome.summary,
       }).catch(() => undefined)
       return
@@ -208,7 +199,7 @@ export function useAnalysis() {
     setStatus('failed')
     setTruncated(outcome.truncated)
     setNotice(outcome.message)
-  }, [file, mode, question, running, addToGallery])
+  }, [file, source, mode, question, running, addToGallery, clearResult])
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -217,25 +208,25 @@ export function useAnalysis() {
   const reopen = useCallback(
     (item: GalleryItem) => {
       if (running) return
-      showImage(item.file)
+      showImage(item.file, item.source)
       setMode(item.mode)
       setQuestion(item.question)
       setQuestionError('')
       setUploadError('')
+      clearResult()
       resultRef.current = item.result
       setResult(item.result)
-      setTruncated(item.truncated)
-      setNotice('')
       setSteps(item.summary.trace)
       setSummary(item.summary)
       setStatus('complete')
       setActiveId(item.id)
     },
-    [running, showImage],
+    [running, showImage, clearResult],
   )
 
   return {
     file,
+    source,
     imageUrl,
     mode,
     question,

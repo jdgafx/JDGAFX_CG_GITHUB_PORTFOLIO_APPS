@@ -1,14 +1,16 @@
 import { useRef } from 'react'
 import type { ChangeEvent } from 'react'
-import { ACCEPTED_TYPES } from '../lib/image'
+import type { CommonsImage } from '../lib/commons'
+import { ACCEPTED_LABEL, ACCEPTED_TYPES, MAX_FILE_SIZE } from '../lib/image'
 import { useFileDrop } from '../lib/useFileDrop'
+import CommonsPicker from './CommonsPicker'
 
 interface ImagePickerProps {
   imageUrl: string
   fileName: string
   disabled: boolean
   uploadError: string
-  onFile: (file: File) => void
+  onFile: (file: File, credit?: CommonsImage) => void
   onRemove: () => void
 }
 
@@ -59,7 +61,11 @@ export default function ImagePicker({
           <span className="dropzone__prompt">Drop a file here, or paste a screenshot with Ctrl+V.</span>
         </button>
       )}
-      <p className="ds-help">JPG, PNG, WebP or GIF up to 4 MB, sent once to the server.</p>
+      <p className="ds-help">
+        {ACCEPTED_LABEL} up to {MAX_FILE_SIZE / (1024 * 1024)} MB, sent once to the server.
+      </p>
+
+      <CommonsPicker disabled={disabled} hasImage={imageUrl !== ''} onPick={onFile} />
 
       {uploadError && (
         <p className="ds-notice ds-notice--error" role="alert">

@@ -1,6 +1,6 @@
 const THUMBNAIL_MAX_EDGE = 96
 const THUMBNAIL_QUALITY = 0.7
-const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+export const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
 
 export const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 export const ACCEPTED_LABEL = 'JPG, PNG, WebP, or GIF'

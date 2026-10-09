@@ -239,11 +239,14 @@ describe('POST /api/ai request checks', () => {
     expect(provider).not.toHaveBeenCalled()
   })
 
-  it('answers the CORS preflight from an allowed origin', async () => {
-    const res = await handler(new Request('http://localhost:5173/api/ai', { method: 'OPTIONS', headers: { origin: ORIGIN } }))
+  it('sends no CORS headers: the page and the function share one origin', async () => {
+    const preflight = await handler(new Request('http://localhost:5173/api/ai', { method: 'OPTIONS', headers: { origin: ORIGIN } }))
+    expect(preflight.status).toBe(405)
+    expect(preflight.headers.get('access-control-allow-origin')).toBeNull()
 
-    expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN)
+    const rejected = await handler(post({ image: '', mediaType: 'image/png', mode: 'describe' }))
+    expect(rejected.status).toBe(400)
+    expect(rejected.headers.get('access-control-allow-origin')).toBeNull()
   })
 
   it('answers a generic 500 when something unexpected fails, without leaking the cause', async () => {

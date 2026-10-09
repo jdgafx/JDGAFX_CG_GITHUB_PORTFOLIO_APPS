@@ -18,7 +18,6 @@ function makeRun(overrides: Partial<VisionRun> = {}): VisionRun {
     maxTokens: 4096,
     startedAt: Date.now(),
     checked: CHECKED,
-    headers: {},
     ...overrides,
   }
 }

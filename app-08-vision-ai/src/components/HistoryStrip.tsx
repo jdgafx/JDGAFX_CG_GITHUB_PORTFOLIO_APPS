@@ -36,10 +36,10 @@ export default function HistoryStrip({ items, activeId, disabled, onSelect, onCl
                 onClick={() => onSelect(item)}
                 disabled={disabled}
                 aria-current={item.id === activeId ? 'true' : undefined}
-                aria-label={`Reopen ${item.name}, ${MODE_LABELS[item.mode]} analysis`}
+                aria-label={`Reopen ${item.file.name}, ${MODE_LABELS[item.mode]} analysis`}
               >
                 <img src={item.previewUrl} alt="" />
-                <span className="history__name">{item.name}</span>
+                <span className="history__name">{item.file.name}</span>
                 <span className="history__mode">{MODE_LABELS[item.mode]}</span>
               </button>
             </li>

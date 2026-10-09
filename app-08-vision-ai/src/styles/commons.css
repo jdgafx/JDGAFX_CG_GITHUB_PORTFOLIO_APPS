@@ -1,0 +1,206 @@
+/* Public image picker: a disclosure with one-click searches, a search box and a grid of Commons results */
+.commons {
+  min-width: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.commons__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.commons__summary::-webkit-details-marker {
+  display: none;
+}
+
+.commons__summary::after {
+  content: '';
+  grid-row: 1;
+  grid-column: 2;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--ds-text-muted);
+  border-bottom: 2px solid var(--ds-text-muted);
+  transform: rotate(45deg);
+}
+
+.commons[open] > .commons__summary::after {
+  transform: rotate(-135deg);
+}
+
+.commons__summary:focus-visible,
+.commons__preset:focus-visible,
+.commons__card:focus-visible {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+}
+
+.commons__title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.commons__sub {
+  grid-column: 1;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.commons__body {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--ds-border);
+}
+
+.commons__presets {
+  display: grid;
+  gap: 8px;
+}
+
+.commons__preset {
+  display: grid;
+  gap: 1px;
+  padding: 9px 12px;
+  font: inherit;
+  color: var(--ds-text);
+  text-align: left;
+  cursor: pointer;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-accent);
+  border-radius: var(--ds-radius-sm);
+}
+
+.commons__preset:hover:not(:disabled) {
+  background: var(--ds-accent-soft);
+}
+
+.commons__preset:disabled,
+.commons__card:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.commons__preset-label {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.commons__preset-sub {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.commons__search {
+  display: grid;
+  gap: 6px;
+}
+
+.commons__field {
+  display: flex;
+  gap: 8px;
+}
+
+.commons__field .ds-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.commons__problem {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.commons__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.commons__card {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ds-text);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.commons__card img,
+.commons__card--placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.commons__card:hover:not(:disabled) img {
+  border-color: var(--ds-accent);
+}
+
+.commons__card[aria-busy='true'] img {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 2px;
+}
+
+.commons__card--placeholder {
+  animation: commons-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes commons-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commons__card--placeholder {
+    animation: none;
+  }
+}
+
+.commons__card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.commons__card-licence {
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
+/* The controls column sticks from 1000px, so the result grid scrolls inside itself to keep the column short */
+@media (min-width: 1000px) {
+  .commons__grid {
+    max-height: 340px;
+    padding-right: 4px;
+    overflow-y: auto;
+  }
+}

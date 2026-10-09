@@ -27,37 +27,32 @@ const rateBuckets = new Map<string, number[]>()
 type BodyRead = { ok: true; value: unknown } | { ok: false; message: string }
 
 export default async function handler(req: Request): Promise<Response> {
-  const startedAt = Date.now()
-  let origin: string | null = null
   try {
-    origin = req.headers.get('origin')
-    return await respond(req, origin, startedAt)
+    return await respond(req, Date.now())
   } catch (err) {
     console.error('Analysis request failed unexpectedly:', err instanceof Error ? err.name : 'unknown')
-    return jsonError(GENERIC_FAILURE, 500, origin)
+    return jsonError(GENERIC_FAILURE, 500)
   }
 }
 
-async function respond(req: Request, origin: string | null, startedAt: number): Promise<Response> {
-  if (req.method === 'OPTIONS') {
-    if (!isOriginAllowed(origin)) return new Response(null, { status: 403 })
-    return new Response(null, { status: 204, headers: baseHeaders(origin) })
-  }
-  if (!isOriginAllowed(origin)) return jsonError('Origin not allowed', 403, origin)
-  if (req.method !== 'POST') return jsonError('Method not allowed', 405, origin)
+// The page and this function share one origin, so no CORS headers are sent. The Origin
+// allow-list still stops a page on another site from using the endpoint.
+async function respond(req: Request, startedAt: number): Promise<Response> {
+  if (!isOriginAllowed(req.headers.get('origin'))) return jsonError('Origin not allowed', 403)
+  if (req.method !== 'POST') return jsonError('Method not allowed', 405)
   if (isRateLimited(clientKey(req))) {
-    return checkFailed('Too many requests. Please wait a minute and try again.', 429, origin, startedAt)
+    return checkFailed('Too many requests. Please wait a minute and try again.', 429, startedAt)
   }
 
   const body = await readJsonBody(req)
-  if (!body.ok) return checkFailed(body.message, 400, origin, startedAt)
+  if (!body.ok) return checkFailed(body.message, 400, startedAt)
   const checked = checkBody(body.value)
-  if (!checked.ok) return checkFailed(checked.message, 400, origin, startedAt)
+  if (!checked.ok) return checkFailed(checked.message, 400, startedAt)
 
   const provider = getProvider()
   if (!provider) {
     console.error('OPENROUTER_API_KEY is not set')
-    return checkFailed('The AI provider is not configured on the server.', 500, origin, startedAt)
+    return checkFailed('The AI provider is not configured on the server.', 500, startedAt)
   }
 
   const request = checked.value
@@ -73,7 +68,6 @@ async function respond(req: Request, origin: string | null, startedAt: number): 
     maxTokens: maxTokensFor(request.mode),
     startedAt,
     checked: checkedStep,
-    headers: baseHeaders(origin),
   })
 }
 
@@ -95,33 +89,18 @@ async function readJsonBody(req: Request): Promise<BodyRead> {
   }
 }
 
-function baseHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    Vary: 'Origin',
-  }
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers['Access-Control-Allow-Origin'] = origin
-  }
-  return headers
-}
-
-function jsonError(message: string, status: number, origin: string | null): Response {
-  return new Response(JSON.stringify({ error: message }), {
+function jsonError(message: string, status: number, extra: Record<string, unknown> = {}): Response {
+  return new Response(JSON.stringify({ error: message, ...extra }), {
     status,
-    headers: { ...baseHeaders(origin), 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
   })
 }
 
 // Failures before the model call carry a one-step trace, so the UI can mark the failed step.
-function checkFailed(message: string, status: number, origin: string | null, startedAt: number): Response {
+function checkFailed(message: string, status: number, startedAt: number): Response {
   const totalMs = Date.now() - startedAt
   const trace: TraceStep[] = [{ name: 'Request checked', status: 'failed', ms: totalMs, detail: message }]
-  return new Response(JSON.stringify({ error: message, trace, totalMs }), {
-    status,
-    headers: { ...baseHeaders(origin), 'Content-Type': 'application/json' },
-  })
+  return jsonError(message, status, { trace, totalMs })
 }
 
 function isOriginAllowed(origin: string | null): boolean {

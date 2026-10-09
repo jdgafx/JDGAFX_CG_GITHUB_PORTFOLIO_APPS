@@ -1,3 +1,4 @@
+import { isRecord } from './guards'
 import type { ChatMessage } from './provider'
 
 const ANALYSIS_MODES = ['describe', 'analyze', 'qa', 'extract'] as const
@@ -102,8 +103,4 @@ function rejected(message: string): Checked {
 
 function isAnalysisMode(value: unknown): value is AnalysisMode {
   return typeof value === 'string' && (ANALYSIS_MODES as readonly string[]).includes(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
