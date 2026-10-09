@@ -523,3 +523,6 @@ code {
   background: var(--ds-danger-soft);
   border-color: transparent;
 }
+
+/* Keep the live-data dot round when the chip label wraps. */
+.live-data .ds-dot { flex: none; }
