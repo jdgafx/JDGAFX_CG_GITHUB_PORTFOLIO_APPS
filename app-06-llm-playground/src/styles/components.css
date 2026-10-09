@@ -58,7 +58,7 @@
 .ds-chip--add::before, .ds-chip--change::before, .ds-chip--remove::before { font-weight: 800; }
 .ds-chip--add { color: var(--ds-success); border-color: var(--ds-success); }
 .ds-chip--add::before { content: "+"; }
-.ds-chip--change { color: var(--ds-warning); border-color: var(--ds-warning); }
+.ds-chip--change { color: var(--ds-text-muted); border-color: var(--ds-border-strong); }
 .ds-chip--change::before { content: "~"; }
 .ds-chip--remove { color: var(--ds-danger); border-color: var(--ds-danger); }
 .ds-chip--remove::before { content: "-"; }
@@ -234,7 +234,6 @@
 [data-app="4"] .ds-g-halo, [data-app="5"] .ds-g-halo, [data-app="6"] .ds-g-halo { stroke: var(--ds-text-muted); }
 [data-app="4"] .ds-g-dot--active, [data-app="5"] .ds-g-dot--active, [data-app="6"] .ds-g-dot--active { fill: var(--ds-text); }
 [data-app="4"] .ds-g-state--active, [data-app="5"] .ds-g-state--active, [data-app="6"] .ds-g-state--active { fill: var(--ds-text); }
-[data-app="4"] .ds-chip--change, [data-app="5"] .ds-chip--change, [data-app="6"] .ds-chip--change { color: var(--ds-text-muted); border-color: var(--ds-border-strong); }
 
 @media (max-width: 720px) {
   .ds-trace__step { grid-template-columns: 24px minmax(0, 1fr); }
