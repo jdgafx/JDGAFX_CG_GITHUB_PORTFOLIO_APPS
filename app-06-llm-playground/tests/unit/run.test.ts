@@ -10,12 +10,16 @@ import {
   type Usage,
 } from '../../netlify/shared/contract'
 import {
+  blockedReason,
   chooseOption,
+  DEFAULT_PICKS,
   failedJudgeStep,
   listed,
+  panelNote,
   panelStatus,
   runTotals,
   statusLine,
+  statusText,
   traceSteps,
   verdictSentences,
   type JudgeView,
@@ -254,5 +258,48 @@ describe('failedJudgeStep', () => {
       tokens: null,
       cost: null,
     })
+  })
+})
+
+describe('blockedReason and the idle status line', () => {
+  const picks = { B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5' }
+  const IDLE = 'Ready. Choose Compare models to send the prompt to all three panels.'
+
+  it('names what stops Compare, in the order a visitor can fix it', () => {
+    expect(blockedReason(null, picks, 'Hi')).toBe('Wait for the model list to load.')
+    expect(blockedReason(catalogue, { ...picks, C: 'vendor/none' }, 'Hi')).toBe('Choose panel B and C models from the list.')
+    expect(blockedReason(catalogue, picks, '   ')).toBe('Enter a prompt, or choose a sample prompt.')
+    expect(blockedReason(catalogue, picks, 'x'.repeat(4001))).toBe('Shorten the prompt to 4,000 characters or fewer.')
+    expect(blockedReason(catalogue, picks, 'x'.repeat(4000))).toBeNull()
+  })
+
+  it('shows the blocked reason before a run, and the ready line only when Compare can run', () => {
+    const empty = blockedReason(catalogue, picks, '')
+    expect(statusText(null, empty)).toBe('Enter a prompt, or choose a sample prompt.')
+    expect(statusText(null, blockedReason(catalogue, picks, 'x'.repeat(4001)))).toBe(
+      'Shorten the prompt to 4,000 characters or fewer.',
+    )
+    expect(statusText(null, blockedReason(catalogue, picks, 'Hi'))).toBe(IDLE)
+  })
+
+  it('leaves the status of a finished or failed run to the run itself', () => {
+    const base = { compare: null, judge: idle, error: null }
+    expect(statusText({ ...base, status: 'error', error: 'x' }, 'Enter a prompt, or choose a sample prompt.')).toBe(
+      'Comparison did not finish.',
+    )
+    expect(statusText({ ...base, status: 'stopped' }, null)).toBe('Stopped.')
+  })
+
+  it('starts from picks the catalogue fixture lists', () => {
+    expect(DEFAULT_PICKS).toEqual(picks)
+  })
+})
+
+describe('panelNote', () => {
+  it('shows a note as written and says so when the judge left it blank', () => {
+    expect(panelNote('Correct sum.')).toBe('Correct sum.')
+    expect(panelNote('')).toBe('The judge gave no note for this panel.')
+    expect(panelNote('  \n')).toBe('The judge gave no note for this panel.')
+    expect(panelNote(undefined)).toBe('The judge gave no note for this panel.')
   })
 })

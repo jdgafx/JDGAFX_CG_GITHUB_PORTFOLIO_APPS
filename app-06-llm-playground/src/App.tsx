@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
+import { MODEL, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
 import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
-import { chooseOption, DEFAULT_PICKS, failedJudgeStep, listed, statusLine, type RunView } from './lib/run'
+import { blockedReason, chooseOption, DEFAULT_PICKS, failedJudgeStep, statusText, type Picks, type RunView } from './lib/run'
 import { Header } from './components/Header'
 import { PromptCard, SAMPLES } from './components/PromptCard'
-import { PanelSetup, type Picks } from './components/PanelSetup'
+import { PanelSetup } from './components/PanelSetup'
 import { RunActions } from './components/RunActions'
 import { ResultCard, type CardPhase } from './components/ResultCard'
 import { EvidenceCard } from './components/EvidenceCard'
@@ -12,28 +12,8 @@ import { JudgeCard } from './components/JudgeCard'
 import { RunTotalsStrip } from './components/RunTotals'
 import { TraceCard } from './components/TraceCard'
 
-const IDLE_STATUS = 'Ready. Choose Compare models to send the prompt to all three panels.'
-
 function messageFor(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
-}
-
-// The first thing that stops a run, so the disabled button can say what to do next.
-function blockedReason(catalogue: CatalogueResponse | null, picks: Picks, prompt: string): string | null {
-  if (catalogue === null) return 'Wait for the model list to load.'
-  if (!listed(catalogue, picks.B) || !listed(catalogue, picks.C)) return 'Choose panel B and C models from the list.'
-  if (prompt.trim() === '') return 'Enter a prompt, or choose a sample prompt.'
-  if (prompt.length > PROMPT_MAX_CHARS) {
-    return `Shorten the prompt to ${PROMPT_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
-  }
-  return null
-}
-
-// The status line's words. After an error the alert carries the message, so the line does not repeat it.
-function statusText(run: RunView | null): string {
-  if (!run) return IDLE_STATUS
-  if (run.status === 'error') return 'Comparison did not finish.'
-  return statusLine(run)
 }
 
 // The status dot follows the run's state, and the status line's words say the same thing.
@@ -210,7 +190,7 @@ export default function App() {
           <div className="ds-run">
             <p className="arena-status" role="status" aria-live="polite">
               {dot && <span className={`ds-dot ${dot}`} aria-hidden="true" />}
-              {statusText(run)}
+              {statusText(run, blocked)}
             </p>
             {run?.error && (
               <div className="ds-notice ds-notice--error" role="alert">

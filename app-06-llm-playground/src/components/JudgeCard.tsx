@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { SLOTS, type CompareResponse, type JudgeVerdict, type Slot } from '../../netlify/shared/contract'
-import type { JudgeView } from '../lib/run'
+import { panelNote, type JudgeView } from '../lib/run'
 
 interface JudgeCardProps {
   judge: JudgeView
@@ -77,7 +77,7 @@ function Verdict({ verdict, compare }: { verdict: JudgeVerdict; compare: Compare
               Panel {slot}
               {nameTag(slot, compare)}
             </dt>
-            <dd>{verdict.perPanel[slot]}</dd>
+            <dd>{panelNote(verdict.perPanel[slot])}</dd>
           </div>
         ))}
       </dl>

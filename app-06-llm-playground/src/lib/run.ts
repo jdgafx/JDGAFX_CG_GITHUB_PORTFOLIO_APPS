@@ -1,5 +1,6 @@
 import {
   COMPARE_MAX_TOKENS,
+  PROMPT_MAX_CHARS,
   SLOTS,
   type CatalogueResponse,
   type CompareResponse,
@@ -12,6 +13,9 @@ import {
   type Usage,
 } from '../../netlify/shared/contract'
 import { formatUsd } from './format'
+
+const IDLE_STATUS = 'Ready. Choose Compare models to send the prompt to all three panels.'
+const NO_NOTE = 'The judge gave no note for this panel.'
 
 type RunStatus = 'running' | 'done' | 'stopped' | 'error'
 
@@ -43,8 +47,10 @@ export function panelStatus(panel: PanelResult): { label: string; dot: string } 
   return { label: 'Complete', dot: 'ds-dot--ok' }
 }
 
+export type Picks = Record<'B' | 'C', string>
+
 // The picker's starting models for panels B and C. Both must be curated IDs (see curated.ts).
-export const DEFAULT_PICKS: Record<'B' | 'C', string> = {
+export const DEFAULT_PICKS: Picks = {
   B: 'google/gemini-2.5-flash-lite',
   C: 'anthropic/claude-sonnet-5',
 }
@@ -62,6 +68,30 @@ export function listed(catalogue: CatalogueResponse, id: string): boolean {
 export function chooseOption(catalogue: CatalogueResponse, current: string): string {
   if (listed(catalogue, current)) return current
   return allOptions(catalogue)[0]?.id ?? current
+}
+
+// The first thing that stops a run, so the disabled button can say what to do next.
+export function blockedReason(catalogue: CatalogueResponse | null, picks: Picks, prompt: string): string | null {
+  if (catalogue === null) return 'Wait for the model list to load.'
+  if (!listed(catalogue, picks.B) || !listed(catalogue, picks.C)) return 'Choose panel B and C models from the list.'
+  if (prompt.trim() === '') return 'Enter a prompt, or choose a sample prompt.'
+  if (prompt.length > PROMPT_MAX_CHARS) {
+    return `Shorten the prompt to ${PROMPT_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
+  }
+  return null
+}
+
+// The status line's words. Before a run it says what stops Compare, or that it is ready. After an
+// error the alert carries the message, so the line does not repeat it.
+export function statusText(run: RunView | null, blocked: string | null): string {
+  if (!run) return blocked ?? IDLE_STATUS
+  if (run.status === 'error') return 'Comparison did not finish.'
+  return statusLine(run)
+}
+
+// A judge note is shown as written, and a blank one says so instead of leaving a heading with nothing under it.
+export function panelNote(note: string | undefined): string {
+  return note?.trim() ? note : NO_NOTE
 }
 
 export function statusLine(run: RunView | null): string {

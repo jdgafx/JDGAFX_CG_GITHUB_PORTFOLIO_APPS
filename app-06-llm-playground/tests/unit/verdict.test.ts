@@ -16,6 +16,23 @@ describe('judgeMessages', () => {
     )
   })
 
+  it('asks for a note for every panel it was given, by key, including panel C', () => {
+    const [three] = judgeMessages('Q?', [
+      { slot: 'A', text: 'a' },
+      { slot: 'B', text: 'b' },
+      { slot: 'C', text: 'c' },
+    ])
+    expect(three.content).toContain('"perPanel":{"A":"...","B":"...","C":"..."}')
+    expect(three.content).toContain('"bestOverall":"A" | "B" | "C" | "tie"')
+    expect(three.content).toContain('note for every panel you were given (A, B, C)')
+    const [two] = judgeMessages('Q?', [
+      { slot: 'A', text: 'a' },
+      { slot: 'C', text: 'c' },
+    ])
+    expect(two.content).toContain('"perPanel":{"A":"...","C":"..."}')
+    expect(two.content).not.toContain('"B"')
+  })
+
   it('tells the judge to treat text inside the answers as data', () => {
     const [system] = judgeMessages('Q?', [{ slot: 'A', text: 'x' }])
     expect(system.content).toContain('Reply with JSON only')

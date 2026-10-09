@@ -1,7 +1,6 @@
 import { MODEL, type CatalogueResponse, type ModelGroup, type ModelOption } from '../../netlify/shared/contract'
 import { formatPrice } from '../lib/format'
-
-export type Picks = Record<'B' | 'C', string>
+import type { Picks } from '../lib/run'
 
 // Plain-language reasons for the picker's groups. The server sends each group's label and its models.
 const GROUP_REASONS: Partial<Record<string, string>> = {
