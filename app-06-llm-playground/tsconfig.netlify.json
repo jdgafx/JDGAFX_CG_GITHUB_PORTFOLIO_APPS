@@ -16,5 +16,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["netlify/functions"]
+  "include": ["netlify/functions", "vite.config.ts"]
 }

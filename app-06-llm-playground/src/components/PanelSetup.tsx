@@ -1,8 +1,20 @@
 import { MODEL, type CatalogueResponse, type ModelGroup, type ModelOption } from '../../netlify/shared/contract'
-import { groupReason } from '../lib/categories'
 import { formatPrice } from '../lib/format'
 
 export type Picks = Record<'B' | 'C', string>
+
+// Plain-language reasons for the picker's groups. The server sends each group's label and its models.
+const GROUP_REASONS: Partial<Record<string, string>> = {
+  'Speed and latency': 'Small models that answer quickly and cost little.',
+  Reasoning: 'Models built to work through multi-step problems before they answer.',
+  'Agentic and coding': 'Models that call tools and write code for agent-style tasks.',
+  'Price and value': 'Capable models with a low price per token.',
+  'Frontier quality': 'Top general models, chosen for answer quality rather than price.',
+  'All other live text models': 'Other text models from the live list, with at least 32,000 tokens of context.',
+}
+
+// A group label this page does not know still gets a sentence.
+const UNKNOWN_GROUP = 'A text model from the model list.'
 
 interface PanelSetupProps {
   catalogue: CatalogueResponse | null
@@ -60,7 +72,7 @@ function optionText(option: ModelOption): string {
 function pickerHelp(group: ModelGroup, option: ModelOption): string {
   const note = option.why || option.label
   const sentence = note.charAt(0).toUpperCase() + note.slice(1)
-  return `${groupReason(group.label)} ${sentence}. ${formatPrice(option.inPerM, option.outPerM)}.`
+  return `${GROUP_REASONS[group.label] ?? UNKNOWN_GROUP} ${sentence}. ${formatPrice(option.inPerM, option.outPerM)}.`
 }
 
 interface ModelPickerProps {

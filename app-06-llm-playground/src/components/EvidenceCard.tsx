@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { COMPARE_MAX_TOKENS, SLOTS, type CompareResponse, type PanelResult } from '../../netlify/shared/contract'
 import { formatCost, formatCount, formatMs, tokensPerSecond } from '../lib/format'
 import { panelStatus, verdictSentences } from '../lib/run'
-import { toneDot } from '../lib/state'
 
 interface Measure {
   label: string
@@ -19,7 +18,7 @@ const MEASURES: Measure[] = [
       const status = panelStatus(p)
       return (
         <span className="ds-badge">
-          <span className={`ds-dot ${toneDot(status.tone)}`} aria-hidden="true" />
+          <span className={`ds-dot ${status.dot}`} aria-hidden="true" />
           {status.label}
         </span>
       )

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { DEFAULT_PICKS, MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
+import { MODEL, PROMPT_MAX_CHARS, SLOTS, type CatalogueResponse, type Slot } from '../netlify/shared/contract'
 import { ApiError, fetchCatalogue, isAbortError, runCompare, runJudge } from './lib/api'
-import { chooseOption, failedJudgeStep, listed, statusLine, type RunView } from './lib/run'
+import { chooseOption, DEFAULT_PICKS, failedJudgeStep, listed, statusLine, type RunView } from './lib/run'
 import { Header } from './components/Header'
-import { PromptCard, SAMPLE_PROMPT } from './components/PromptCard'
+import { PromptCard, SAMPLES } from './components/PromptCard'
 import { PanelSetup, type Picks } from './components/PanelSetup'
 import { RunActions } from './components/RunActions'
 import { ResultCard, type CardPhase } from './components/ResultCard'
@@ -12,7 +12,7 @@ import { JudgeCard } from './components/JudgeCard'
 import { RunTotalsStrip } from './components/RunTotals'
 import { TraceCard } from './components/TraceCard'
 
-const IDLE_STATUS = 'Enter a prompt, then choose Compare models.'
+const IDLE_STATUS = 'Ready. Choose Compare models to send the prompt to all three panels.'
 
 function messageFor(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Something went wrong. Try again.'
@@ -22,7 +22,7 @@ function messageFor(err: unknown): string {
 function blockedReason(catalogue: CatalogueResponse | null, picks: Picks, prompt: string): string | null {
   if (catalogue === null) return 'Wait for the model list to load.'
   if (!listed(catalogue, picks.B) || !listed(catalogue, picks.C)) return 'Choose panel B and C models from the list.'
-  if (prompt.trim() === '') return 'Enter a prompt, or use the sample prompt.'
+  if (prompt.trim() === '') return 'Enter a prompt, or choose a sample prompt.'
   if (prompt.length > PROMPT_MAX_CHARS) {
     return `Shorten the prompt to ${PROMPT_MAX_CHARS.toLocaleString('en-US')} characters or fewer.`
   }
@@ -54,7 +54,7 @@ function judgePickOf(run: RunView | null): Slot | null {
 }
 
 export default function App() {
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(SAMPLES[0].prompt)
   const [system, setSystem] = useState('')
   // null leaves the model's own temperature in place, so the default request matches the spec.
   const [temperature, setTemperature] = useState<number | null>(null)
@@ -176,13 +176,22 @@ export default function App() {
             <PromptCard
               prompt={prompt}
               onPrompt={setPrompt}
-              onSample={() => setPrompt(SAMPLE_PROMPT)}
+              onSample={setPrompt}
               system={system}
               onSystem={setSystem}
               temperature={temperature}
               onTemperature={setTemperature}
               running={running}
               onRun={handleRun}
+            />
+            <RunActions
+              canRun={canRun}
+              running={running}
+              hasRun={run !== null}
+              blockedBy={running ? null : blocked}
+              onRun={handleRun}
+              onStop={handleStop}
+              onClear={handleClear}
             />
             {catalogueFailed && (
               <div className="ds-notice ds-notice--error" role="alert">
@@ -195,15 +204,6 @@ export default function App() {
               picks={picks}
               onPick={(slot, id) => setPicks(prev => ({ ...prev, [slot]: id }))}
               disabled={running || catalogue === null}
-            />
-            <RunActions
-              canRun={canRun}
-              running={running}
-              hasRun={run !== null}
-              blockedBy={running ? null : blocked}
-              onRun={handleRun}
-              onStop={handleStop}
-              onClear={handleClear}
             />
           </div>
 

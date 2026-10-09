@@ -23,12 +23,6 @@ export const MODEL_ID_MAX_CHARS = 200
 export const COMPARE_BODY_MAX_BYTES = (PROMPT_MAX_CHARS + SYSTEM_MAX_CHARS) * 6 + 4_096
 export const JUDGE_BODY_MAX_BYTES = (PROMPT_MAX_CHARS + JUDGE_TOTAL_MAX_CHARS) * 6 + 4_096
 
-// The picker's starting models for panels B and C. Both must be curated IDs (see curated.ts).
-export const DEFAULT_PICKS: Record<'B' | 'C', string> = {
-  B: 'google/gemini-2.5-flash-lite',
-  C: 'anthropic/claude-sonnet-5',
-}
-
 export interface ModelOption {
   id: string
   label: string

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { gate, readJson } from '../../netlify/shared/guard'
+import { gate, readJson, REQUEST_BUDGET_MS, remainingMs } from '../../netlify/shared/guard'
 
 const URL_POST = 'http://localhost:8888/api/compare'
 const ORIGIN = 'http://localhost:5173'
@@ -86,5 +86,18 @@ describe('gate', () => {
       expect(refused.response.status).toBe(429)
       expect(await refused.response.json()).toEqual({ error: 'Too many requests. Wait a minute and try again.' })
     })
+  })
+})
+
+describe('remainingMs', () => {
+  it('leaves the 24 second request budget less the time already used', () => {
+    expect(REQUEST_BUDGET_MS).toBe(24_000)
+    const left = remainingMs(Date.now() - 10_000)
+    expect(left).toBeGreaterThan(13_900)
+    expect(left).toBeLessThanOrEqual(14_000)
+  })
+
+  it('never goes below zero once the budget is spent', () => {
+    expect(remainingMs(Date.now() - 60_000)).toBe(0)
   })
 })

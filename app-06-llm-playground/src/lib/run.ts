@@ -36,17 +36,17 @@ interface ViewStep extends Omit<TraceStep, 'status'> {
   status: StepStatus
 }
 
-export type Tone = 'success' | 'warning' | 'danger' | 'accent' | 'muted'
-
-export interface Status {
-  label: string
-  tone: Tone
+// The panel's state word, with the dot class that matches it, so colour is never the only signal.
+export function panelStatus(panel: PanelResult): { label: string; dot: string } {
+  if (!panel.ok) return { label: 'Failed', dot: 'ds-dot--failed' }
+  if (panel.finishReason === 'length') return { label: `Capped at ${COMPARE_MAX_TOKENS} tokens`, dot: 'arena-dot--warn' }
+  return { label: 'Complete', dot: 'ds-dot--ok' }
 }
 
-export function panelStatus(panel: PanelResult): Status {
-  if (!panel.ok) return { label: 'Failed', tone: 'danger' }
-  if (panel.finishReason === 'length') return { label: `Capped at ${COMPARE_MAX_TOKENS} tokens`, tone: 'warning' }
-  return { label: 'Complete', tone: 'success' }
+// The picker's starting models for panels B and C. Both must be curated IDs (see curated.ts).
+export const DEFAULT_PICKS: Record<'B' | 'C', string> = {
+  B: 'google/gemini-2.5-flash-lite',
+  C: 'anthropic/claude-sonnet-5',
 }
 
 function allOptions(catalogue: CatalogueResponse): ModelOption[] {

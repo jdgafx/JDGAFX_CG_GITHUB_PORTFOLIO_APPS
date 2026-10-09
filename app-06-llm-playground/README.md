@@ -6,7 +6,9 @@ What this showcases: the same prompt measured on three models at once, with cost
 
 ## Screen
 
-From 1000px wide, the controls sit on the left and the results on the right. Below that, the controls stack above the results. The controls are the prompt (with a sample prompt, the options and the system prompt), the models (Panel A is fixed, and B and C come from the grouped picker), and the Compare, Stop and Clear buttons. The results hold, in order: the status line, Answers (three panels, each with its served model, answer, latency, output tokens and cost), Evidence (summary lines and a table of measures), AI judge (one model's opinion, in a dashed panel), Run totals, and Run trace.
+From 1000px wide, the controls sit on the left and the results on the right. Below that, the controls stack above the results. The controls are, in order, the prompt (with three sample prompts, the options and the system prompt), the Compare, Stop and Clear buttons, and the models (Panel A is fixed, and B and C come from the grouped picker). Compare sits right under the prompt so it is in view without scrolling. The results hold, in order: the status line, Answers (three panels, each with its served model, answer, latency, output tokens and cost), Evidence (summary lines and a table of measures), AI judge (one model's opinion, in a dashed panel), Run totals, and Run trace.
+
+The page opens with the first sample prompt already in the box, so one click on Compare models runs it. The three samples are a sentence task with exact word counts (`Word counts`), an apple count that does not divide evenly (`Messy arithmetic`) and a capitals question with a same-first-letter rule (`Same first letter`). Each has a rule you can check by hand, and models tend to differ on whether they keep it. Choosing a sample replaces the text in the box and does not start a run.
 
 ## Agentic steps
 

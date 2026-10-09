@@ -8,6 +8,7 @@ const RETRY_MS = 60 * 1000
 const FETCH_TIMEOUT_MS = 10_000
 const OTHER_MIN_CONTEXT = 32_000
 const OTHER_LABEL = 'All other live text models'
+const CURATED_IDS = new Set(CURATED_GROUPS.flatMap(group => group.items.map(([id]) => id)))
 
 export interface LiveModel {
   id: string
@@ -93,10 +94,10 @@ export async function liveModels(): Promise<Map<string, LiveModel> | null> {
 }
 
 // An other-model the picker offers outside the curated groups. Compare accepts the same set.
-function isOtherOffer(model: LiveModel, curated: Set<string>): boolean {
+function isOtherOffer(model: LiveModel): boolean {
   return (
     model.textOutput &&
-    !curated.has(model.id) &&
+    !CURATED_IDS.has(model.id) &&
     !model.id.startsWith('openrouter/') &&
     !model.id.includes(':free') &&
     !model.id.includes(':batch') &&
@@ -107,14 +108,13 @@ function isOtherOffer(model: LiveModel, curated: Set<string>): boolean {
 // The IDs a compare may call, and exactly the IDs the picker offers. Live: the curated IDs the
 // list still shows, plus the other-model offers. Fallback: the curated IDs, the only options in that mode.
 export function acceptedIds(live: Map<string, LiveModel> | null): Set<string> {
-  const curated = new Set(curatedIds())
-  if (!live) return curated
+  if (!live) return new Set(CURATED_IDS)
   const ids = new Set<string>()
-  for (const id of curated) {
+  for (const id of CURATED_IDS) {
     if (live.get(id)?.textOutput) ids.add(id)
   }
   for (const model of live.values()) {
-    if (isOtherOffer(model, curated)) ids.add(model.id)
+    if (isOtherOffer(model)) ids.add(model.id)
   }
   return ids
 }
@@ -134,10 +134,6 @@ export async function catalogueView(): Promise<CatalogueResponse> {
   }
 }
 
-function curatedIds(): string[] {
-  return CURATED_GROUPS.flatMap(group => group.items.map(([id]) => id))
-}
-
 function curatedGroups(models: Map<string, LiveModel> | null): ModelGroup[] {
   return CURATED_GROUPS.map(group => ({
     label: group.label,
@@ -150,10 +146,9 @@ function curatedGroups(models: Map<string, LiveModel> | null): ModelGroup[] {
 }
 
 function otherGroups(models: Map<string, LiveModel>): ModelGroup[] {
-  const curated = new Set(curatedIds())
   const options: ModelOption[] = []
   for (const model of models.values()) {
-    if (isOtherOffer(model, curated)) options.push(option(model.id, model, ''))
+    if (isOtherOffer(model)) options.push(option(model.id, model, ''))
   }
   if (options.length === 0) return []
   options.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))

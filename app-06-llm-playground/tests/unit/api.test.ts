@@ -36,7 +36,7 @@ describe('client error messages', () => {
 
   it('lets an abort through unchanged, so Stop is not shown as an error', async () => {
     const stub = stubFetch(async () => {
-      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+      throw new DOMException('aborted', 'AbortError')
     })
     await expect(runCompare(REQUEST)).rejects.toMatchObject({ name: 'AbortError' })
     expect(stub).toHaveBeenCalledTimes(1)
@@ -66,8 +66,9 @@ describe('client error messages', () => {
     expect(stub).toHaveBeenCalledTimes(1)
   })
 
-  it('recognises an abort by its name only', () => {
-    expect(isAbortError(Object.assign(new Error('x'), { name: 'AbortError' }))).toBe(true)
+  it('recognises the DOMException a browser throws on abort, and nothing else', () => {
+    expect(isAbortError(new DOMException('x', 'AbortError'))).toBe(true)
+    expect(isAbortError(new DOMException('x', 'TimeoutError'))).toBe(false)
     expect(isAbortError(new Error('x'))).toBe(false)
     expect(isAbortError(null)).toBe(false)
   })

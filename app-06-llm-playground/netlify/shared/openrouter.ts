@@ -44,16 +44,9 @@ function providerFailure(status: number): string {
 }
 
 // The signal ends at the call's own timeout or when the caller's signal aborts, whichever is first.
-// AbortSignal.any is avoided because it needs Node 20.3 or later.
 function callSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
   const timeout = AbortSignal.timeout(Math.max(0, timeoutMs))
-  if (!caller) return timeout
-  const linked = new AbortController()
-  for (const source of [caller, timeout]) {
-    if (source.aborted) linked.abort(source.reason)
-    else source.addEventListener('abort', () => linked.abort(source.reason), { once: true })
-  }
-  return linked.signal
+  return caller ? AbortSignal.any([caller, timeout]) : timeout
 }
 
 // One non-streaming chat call. usage.include makes OpenRouter report the billed cost.

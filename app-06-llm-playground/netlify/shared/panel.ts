@@ -34,7 +34,7 @@ export async function runPanel(input: PanelInput): Promise<PanelResult> {
   )
   const base = { slot: input.slot, requestedModel: input.model, latencyMs: result.latencyMs }
   if (!result.ok) {
-    return { ...base, servedModel: null, ok: false, error: result.error, text: '', finishReason: null, usage: emptyUsage(), cost: null }
+    return failed(input.slot, input.model, result.error, result.latencyMs)
   }
   const served = strOrNull(result.data.model)
   const { text, finishReason } = replyOf(result.data)
@@ -61,17 +61,21 @@ export function panelStep(panel: PanelResult): TraceStep {
   }
 }
 
-export function failedPanel(slot: Slot, model: string): PanelResult {
+function failed(slot: Slot, model: string, error: string, latencyMs: number | null): PanelResult {
   return {
     slot,
     requestedModel: model,
     servedModel: null,
     ok: false,
-    error: 'The panel stopped unexpectedly',
+    error,
     text: '',
     finishReason: null,
-    latencyMs: null,
+    latencyMs,
     usage: emptyUsage(),
     cost: null,
   }
+}
+
+export function failedPanel(slot: Slot, model: string): PanelResult {
+  return failed(slot, model, 'The panel stopped unexpectedly', null)
 }

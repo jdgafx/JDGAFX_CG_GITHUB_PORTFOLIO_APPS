@@ -1,9 +1,26 @@
-import { useEffect, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { PanelResult, Slot } from '../../netlify/shared/contract'
 import { barPercent, formatCount, formatMs, formatUsd } from '../lib/format'
 import { panelStatus } from '../lib/run'
-import { toneDot } from '../lib/state'
+
+// The two 14px icons on the copy button, drawn on a 24px grid in the current text colour.
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
 
 export type CardPhase = 'idle' | 'running' | 'stopped' | 'error' | 'done'
 
@@ -24,7 +41,7 @@ interface StateView {
 function stateView(panel: PanelResult | null, phase: CardPhase): StateView {
   if (panel) {
     const status = panelStatus(panel)
-    return { label: status.label, dot: toneDot(status.tone) }
+    return status
   }
   if (phase === 'running') return { label: 'Running', dot: 'ds-dot--running' }
   if (phase === 'stopped') return { label: 'Stopped', dot: 'ds-dot--skipped' }
@@ -137,7 +154,16 @@ export function ResultCard(props: ResultCardProps) {
           </div>
           <div className="ds-row">
             <button type="button" className="ds-button" onClick={copyAnswer}>
-              {copyState === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+              <Icon>
+                {copyState === 'copied' ? (
+                  <polyline points="20 6 9 17 4 12" />
+                ) : (
+                  <>
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </>
+                )}
+              </Icon>
               {copyState === 'copied' ? 'Copied' : 'Copy answer'}
             </button>
             <span className="sr-only" role="status">

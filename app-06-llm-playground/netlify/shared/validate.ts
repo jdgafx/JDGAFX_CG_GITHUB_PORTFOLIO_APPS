@@ -5,6 +5,8 @@ import {
   PROMPT_MAX_CHARS,
   SLOTS,
   SYSTEM_MAX_CHARS,
+  type CompareRequest,
+  type JudgeRequest,
   type Slot,
 } from './contract'
 import { isRecord } from './parse'
@@ -15,14 +17,7 @@ function fail(error: string): { ok: false; error: string } {
   return { ok: false, error }
 }
 
-interface CompareInput {
-  prompt: string
-  models: [string, string, string]
-  system?: string
-  temperature?: number
-}
-
-export function parseCompare(body: unknown): Parsed<CompareInput> {
+export function parseCompare(body: unknown): Parsed<CompareRequest> {
   if (!isRecord(body)) return fail('Request body must be a JSON object')
   const { prompt, models, system, temperature } = body
   if (!isPrompt(prompt)) return fail(`Prompt must be 1 to ${PROMPT_MAX_CHARS} characters`)
@@ -45,12 +40,7 @@ export function parseCompare(body: unknown): Parsed<CompareInput> {
   }
 }
 
-interface JudgeInput {
-  prompt: string
-  answers: { slot: Slot; text: string }[]
-}
-
-export function parseJudge(body: unknown): Parsed<JudgeInput> {
+export function parseJudge(body: unknown): Parsed<JudgeRequest> {
   if (!isRecord(body)) return fail('Request body must be a JSON object')
   const { prompt, answers } = body
   if (!isPrompt(prompt)) return fail(`Prompt must be 1 to ${PROMPT_MAX_CHARS} characters`)
@@ -58,7 +48,7 @@ export function parseJudge(body: unknown): Parsed<JudgeInput> {
     return fail(`Send between 1 and ${SLOTS.length} answers`)
   }
   const seen = new Set<string>()
-  const list: { slot: Slot; text: string }[] = []
+  const list: JudgeRequest['answers'] = []
   let total = 0
   for (const raw of answers) {
     if (!isRecord(raw) || !isSlot(raw.slot) || seen.has(raw.slot) || typeof raw.text !== 'string' || raw.text.trim() === '') {

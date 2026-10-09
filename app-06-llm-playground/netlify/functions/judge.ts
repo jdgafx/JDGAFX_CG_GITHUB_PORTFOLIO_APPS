@@ -1,6 +1,5 @@
 import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type JudgeResponse } from '../shared/contract'
-import { remainingMs } from '../shared/deadline'
-import { gate, json, readJson, SERVER_ERROR } from '../shared/guard'
+import { gate, json, readJson, remainingMs, SERVER_ERROR } from '../shared/guard'
 import { usageFrom } from '../shared/measure'
 import { chat, providerKey, replyOf } from '../shared/openrouter'
 import { errorName, strOrNull } from '../shared/parse'

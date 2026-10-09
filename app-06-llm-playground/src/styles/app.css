@@ -265,6 +265,11 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Items without a hint would otherwise stretch to the row height and sit lower than their neighbours. */
+.arena-strip .ds-strip__item {
+  align-content: start;
+}
+
 @media (min-width: 720px) {
   .arena-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -289,9 +294,9 @@
 }
 
 .arena-sample {
-  display: grid;
-  justify-items: start;
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .arena-check {
@@ -306,10 +311,26 @@
 .arena-options summary {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-height: 40px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* A chevron shows that Options opens, and turns when it is open. */
+.arena-options summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+
+.arena-options[open] summary::before {
+  transform: rotate(45deg);
 }
 
 .arena-options > .ds-stack {

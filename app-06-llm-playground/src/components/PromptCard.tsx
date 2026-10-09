@@ -1,13 +1,36 @@
 import { COMPARE_MAX_TOKENS, PROMPT_MAX_CHARS } from '../../netlify/shared/contract'
 
-export const SAMPLE_PROMPT = 'Explain how a hash map handles collisions, in under 150 words.'
+interface Sample {
+  label: string
+  prompt: string
+}
+
+// Each prompt has a rule that can be checked by counting or by arithmetic. Run against live models,
+// the answers differ in whether they keep the rule, and the first one is in the box when the page opens.
+export const SAMPLES: Sample[] = [
+  {
+    label: 'Word counts',
+    prompt:
+      'Write exactly three sentences about the ocean. The first must have exactly five words, the second exactly eight words, and the third exactly three words. Add nothing else.',
+  },
+  {
+    label: 'Messy arithmetic',
+    prompt:
+      'I have 3 apples. I eat one, buy two dozen more, then give away a third of what I have. How many apples are left? Answer with just the number and one line of working.',
+  },
+  {
+    label: 'Same first letter',
+    prompt:
+      'Name three countries whose capital city starts with the same letter as the country, and give the capitals. One line each, nothing else.',
+  },
+]
 
 const DEFAULT_TEMPERATURE = 0.7
 
 interface PromptCardProps {
   prompt: string
   onPrompt: (value: string) => void
-  onSample: () => void
+  onSample: (prompt: string) => void
   system: string
   onSystem: (value: string) => void
   temperature: number | null
@@ -53,18 +76,23 @@ export function PromptCard(props: PromptCardProps) {
           </p>
         </div>
 
-        <div className="arena-sample">
-          <button
-            type="button"
-            className="ds-button ds-button--quiet"
-            onClick={onSample}
-            disabled={running}
-            aria-describedby="sample-help"
-          >
-            Use a sample prompt
-          </button>
+        <div className="ds-field">
+          <span className="ds-label" id="sample-label">Sample prompts</span>
+          <div className="arena-sample" role="group" aria-labelledby="sample-label" aria-describedby="sample-help">
+            {SAMPLES.map(sample => (
+              <button
+                key={sample.label}
+                type="button"
+                className="ds-button"
+                onClick={() => onSample(sample.prompt)}
+                disabled={running}
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
           <p className="ds-help" id="sample-help">
-            Fills the box with a short technical question, so you can run a comparison straight away.
+            Each has a rule you can check by hand, so you can see which model keeps it. Choosing one replaces the text above.
           </p>
         </div>
 

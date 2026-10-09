@@ -10,7 +10,7 @@ import type {
 export class ApiError extends Error {}
 
 export function isAbortError(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'AbortError'
+  return err instanceof DOMException && err.name === 'AbortError'
 }
 
 function postJson(body: unknown, signal?: AbortSignal): RequestInit {

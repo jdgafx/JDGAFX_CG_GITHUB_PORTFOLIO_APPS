@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { CURATED_GROUPS } from '../../netlify/shared/curated'
+import { DEFAULT_PICKS } from '../../src/lib/run'
 import {
   ANSWER_MAX_CHARS,
   COMPARE_BODY_MAX_BYTES,
   COMPARE_MAX_TOKENS,
-  DEFAULT_PICKS,
   JUDGE_BODY_MAX_BYTES,
   JUDGE_MAX_TOKENS,
   JUDGE_TOTAL_MAX_CHARS,

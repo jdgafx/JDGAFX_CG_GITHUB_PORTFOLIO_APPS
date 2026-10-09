@@ -108,9 +108,9 @@ describe('model picks', () => {
 
 describe('panelStatus', () => {
   it('reads a complete, capped and failed panel', () => {
-    expect(panelStatus(panel('A'))).toEqual({ label: 'Complete', tone: 'success' })
-    expect(panelStatus(panel('A', { finishReason: 'length' }))).toEqual({ label: 'Capped at 2048 tokens', tone: 'warning' })
-    expect(panelStatus(panel('A', { ok: false, error: 'x' }))).toEqual({ label: 'Failed', tone: 'danger' })
+    expect(panelStatus(panel('A'))).toEqual({ label: 'Complete', dot: 'ds-dot--ok' })
+    expect(panelStatus(panel('A', { finishReason: 'length' }))).toEqual({ label: 'Capped at 2048 tokens', dot: 'arena-dot--warn' })
+    expect(panelStatus(panel('A', { ok: false, error: 'x' }))).toEqual({ label: 'Failed', dot: 'ds-dot--failed' })
   })
 })
 
