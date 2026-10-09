@@ -7,6 +7,9 @@ export const milliseconds = (value: number): string => `${count(value)} ms`
 /** Six decimals, because most calls cost a fraction of a cent. */
 export const usd = (value: number): string => `$${value.toFixed(6)}`
 
+/** A model id without its provider prefix, so a chip stays short. The full id goes in the title. */
+export const shortModel = (id: string): string => id.slice(id.indexOf('/') + 1)
+
 export const plural = (value: number, word: string): string => `${value} ${word}${value === 1 ? '' : 's'}`
 
 /** Where a cost came from, in words for the trace and the metrics. */

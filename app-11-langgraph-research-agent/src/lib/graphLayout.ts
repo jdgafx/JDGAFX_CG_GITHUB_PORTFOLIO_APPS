@@ -2,12 +2,6 @@ import type { NodeName } from '../../netlify/shared/events'
 import { MAX_REVISIONS, MAX_TOOL_ROUNDS } from './constants'
 import type { NodeMark, TraceEntry } from './runState'
 
-/**
- * The graph as a column of five steps, with the tools loop beside the agent and the revise loop
- * beside the draft and critic. Units are SVG user units, drawn at 1:1 so the text keeps its size.
- */
-export const VIEW = { width: 560, height: 492 }
-
 export interface NodeBox {
   x: number
   y: number
@@ -15,15 +9,6 @@ export interface NodeBox {
   h: number
   title: string
   sub: string
-}
-
-export const BOXES: Record<NodeName, NodeBox> = {
-  plan: { x: 170, y: 24, w: 180, h: 60, title: 'plan', sub: 'search queries' },
-  agent: { x: 170, y: 116, w: 180, h: 60, title: 'agent', sub: 'decides on tools' },
-  tools: { x: 420, y: 116, w: 120, h: 60, title: 'tools', sub: 'Wikipedia' },
-  draft: { x: 170, y: 208, w: 180, h: 60, title: 'draft', sub: 'cited answer' },
-  critic: { x: 170, y: 300, w: 180, h: 60, title: 'critic', sub: 'accept or revise' },
-  final: { x: 170, y: 392, w: 180, h: 60, title: 'final', sub: 'sources listed' },
 }
 
 export interface EdgeShape {
@@ -35,42 +20,128 @@ export interface EdgeShape {
   label?: { x: number; y: number; anchor: 'start' | 'middle' | 'end'; base: string }
 }
 
-/** Every edge drawn. The unconditional edges carry no label, and the run marks them taken from the trace. */
-export const EDGES: EdgeShape[] = [
-  { key: 'plan>agent', path: 'M260 84 V116', conditional: false },
-  {
-    key: 'agent>tools',
-    path: 'M330 116 C330 80 480 80 480 116',
-    conditional: true,
-    label: { x: 362, y: 66, anchor: 'start', base: `tools, up to ${MAX_TOOL_ROUNDS} rounds` },
-  },
-  { key: 'tools>agent', path: 'M480 176 C480 212 330 212 330 176', conditional: false },
-  {
-    key: 'agent>draft',
-    path: 'M260 176 V208',
-    conditional: true,
-    label: { x: 250, y: 196, anchor: 'end', base: 'draft' },
-  },
-  { key: 'draft>critic', path: 'M260 268 V300', conditional: false },
-  {
-    key: 'critic>final',
-    path: 'M260 360 V392',
-    conditional: true,
-    label: { x: 250, y: 380, anchor: 'end', base: 'final' },
-  },
-  {
-    key: 'critic>draft',
-    path: 'M350 330 H392 V238 H350',
-    conditional: true,
-    label: { x: 402, y: 286, anchor: 'start', base: `revise, up to ${MAX_REVISIONS} times` },
-  },
-]
+export interface Layout {
+  view: { width: number; height: number }
+  boxes: Record<NodeName, NodeBox>
+  edges: EdgeShape[]
+  endPath: string
+  startLabel: { x: number; y: number }
+  endLabel: { x: number; y: number }
+}
 
-/** The arrow from the final node to the end of the run, and the key the run view uses for it. */
+const NODE_TEXT: Record<NodeName, { title: string; sub: string }> = {
+  plan: { title: 'plan', sub: 'search queries' },
+  agent: { title: 'agent', sub: 'decides on tools' },
+  tools: { title: 'tools', sub: 'Wikipedia' },
+  draft: { title: 'draft', sub: 'cited answer' },
+  critic: { title: 'critic', sub: 'accept or revise' },
+  final: { title: 'final', sub: 'sources listed' },
+}
+
+const box = (name: NodeName, x: number, y: number, w: number): NodeBox => ({ x, y, w, h: 64, ...NODE_TEXT[name] })
+const TOOLS_BASE = `tools, up to ${MAX_TOOL_ROUNDS} rounds`
+const REVISE_BASE = `revise, up to ${MAX_REVISIONS} times`
+
+/**
+ * Two drawings of one graph, units are SVG user units and the page scales them to the stage. The wide one is a
+ * row of five steps with the tools loop under the agent and the revise loop under the draft and critic. The
+ * narrow one is a column, with the tools loop beside the agent and the revise loop beside the critic, so a
+ * phone shows the whole graph with its text at full size.
+ */
+export const LAYOUTS: Record<'wide' | 'narrow', Layout> = {
+  wide: {
+    view: { width: 880, height: 226 },
+    boxes: {
+      plan: box('plan', 10, 40, 124),
+      agent: box('agent', 194, 40, 124),
+      tools: box('tools', 194, 150, 124),
+      draft: box('draft', 378, 40, 124),
+      critic: box('critic', 562, 40, 124),
+      final: box('final', 746, 40, 124),
+    },
+    edges: [
+      { key: 'plan>agent', path: 'M134 72 H194', conditional: false },
+      {
+        key: 'agent>tools',
+        path: 'M236 104 V150',
+        conditional: true,
+        label: { x: 226, y: 132, anchor: 'end', base: TOOLS_BASE },
+      },
+      { key: 'tools>agent', path: 'M276 150 V104', conditional: false },
+      {
+        key: 'agent>draft',
+        path: 'M318 72 H378',
+        conditional: true,
+        label: { x: 348, y: 28, anchor: 'middle', base: 'draft' },
+      },
+      { key: 'draft>critic', path: 'M502 72 H562', conditional: false },
+      {
+        key: 'critic>final',
+        path: 'M686 72 H746',
+        conditional: true,
+        label: { x: 716, y: 28, anchor: 'middle', base: 'final' },
+      },
+      {
+        key: 'critic>draft',
+        path: 'M648 104 C648 160 460 160 460 104',
+        conditional: true,
+        label: { x: 554, y: 180, anchor: 'middle', base: REVISE_BASE },
+      },
+    ],
+    endPath: 'M808 104 V148',
+    startLabel: { x: 72, y: 28 },
+    endLabel: { x: 808, y: 166 },
+  },
+  narrow: {
+    view: { width: 340, height: 500 },
+    boxes: {
+      plan: box('plan', 8, 30, 150),
+      agent: box('agent', 8, 120, 150),
+      tools: box('tools', 190, 120, 142),
+      draft: box('draft', 8, 210, 150),
+      critic: box('critic', 8, 300, 150),
+      final: box('final', 8, 390, 150),
+    },
+    edges: [
+      { key: 'plan>agent', path: 'M83 94 V120', conditional: false },
+      {
+        key: 'agent>tools',
+        path: 'M158 142 H190',
+        conditional: true,
+        label: { x: 190, y: 110, anchor: 'start', base: TOOLS_BASE },
+      },
+      { key: 'tools>agent', path: 'M190 164 H158', conditional: false },
+      {
+        key: 'agent>draft',
+        path: 'M83 184 V210',
+        conditional: true,
+        label: { x: 95, y: 202, anchor: 'start', base: 'draft' },
+      },
+      { key: 'draft>critic', path: 'M83 274 V300', conditional: false },
+      {
+        key: 'critic>final',
+        path: 'M83 364 V390',
+        conditional: true,
+        label: { x: 95, y: 382, anchor: 'start', base: 'final' },
+      },
+      {
+        key: 'critic>draft',
+        path: 'M158 332 H184 V242 H158',
+        conditional: true,
+        label: { x: 194, y: 290, anchor: 'start', base: REVISE_BASE },
+      },
+    ],
+    endPath: 'M83 454 V476',
+    startLabel: { x: 83, y: 16 },
+    endLabel: { x: 83, y: 492 },
+  },
+}
+
+/** The wide drawing's edges, kept under the old name for the tests and the label helpers. */
+export const EDGES: EdgeShape[] = LAYOUTS.wide.edges
+
+/** The key the run view uses for the arrow from the final step to the end of the run. */
 export const END_KEY = 'final>end'
-export const END_PATH = 'M260 452 V470'
-export const START_LABEL = { x: 260, y: 14 }
-export const END_LABEL = { x: 260, y: 486 }
 
 /** The edges a run has moved along, read from the trace in visit order. A finished final step ends at the end. */
 export function traversedEdges(trace: readonly TraceEntry[]): Set<string> {

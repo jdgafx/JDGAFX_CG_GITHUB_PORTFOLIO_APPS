@@ -16,26 +16,81 @@ function paragraphs(text: string): string[] {
     .filter((part) => part !== '')
 }
 
+/** The host and path of a source, without the scheme, so a citation row stays short. */
+function shownUrl(url: string): string {
+  return decodeURI(url.replace(/^https?:\/\//, ''))
+}
+
+interface StateProps {
+  tone: 'empty' | 'loading' | 'error' | 'stopped'
+  title: string
+  body: string
+  action?: { label: string; onClick: () => void }
+}
+
+function AnswerState({ tone, title, body, action }: StateProps) {
+  return (
+    <div className={`ds-state ds-state--${tone}`}>
+      <span className="ds-state__mark" aria-hidden="true" />
+      <p className="ds-state__title">{title}</p>
+      <p className="ds-state__body">{body}</p>
+      {tone === 'loading' && (
+        <div className="ds-skeleton" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      )}
+      {action && (
+        <div className="ds-state__actions">
+          <button type="button" className="ds-button" onClick={action.onClick}>
+            {action.label}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface AnswerCardProps {
   result: ResultFrame | null
   phase: Phase
+  error: string | null
+  onRetry: () => void
 }
 
-export function AnswerCard({ result, phase }: AnswerCardProps) {
+/** The answer is the page's lead: once a run has ended it comes first, whatever the outcome. */
+export function AnswerCard({ result, phase, error, onRetry }: AnswerCardProps) {
   if (!result) {
     return (
-      <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
-        <div className="ds-section__head">
-          <h2 id="answer-title" className="ds-section__title">
-            Answer
-          </h2>
-          <p className="ds-section__sub">The draft the critic reviewed. Bracketed numbers match the sources.</p>
-        </div>
-        <div className="ds-empty">
-          {phase === 'running'
-            ? 'Researching. The cited answer appears here when the critic is done.'
-            : 'Start research to see a cited answer, with its sources, here.'}
-        </div>
+      <section className="ds-section ds-run__result" aria-label="Answer" aria-live="polite">
+        {phase === 'running' ? (
+          <AnswerState
+            tone="loading"
+            title="Researching"
+            body="The cited answer appears here when the critic is done."
+          />
+        ) : phase === 'failed' ? (
+          <AnswerState
+            tone="error"
+            title="The run failed"
+            body={`${error ?? 'No answer was written.'} The steps that ran are in the trace.`}
+            action={{ label: 'Try again', onClick: onRetry }}
+          />
+        ) : phase === 'stopped' ? (
+          <AnswerState
+            tone="stopped"
+            title="Run stopped"
+            body="You stopped it before an answer was written. The steps that finished stay in the trace."
+            action={{ label: 'Start again', onClick: onRetry }}
+          />
+        ) : (
+          <AnswerState
+            tone="empty"
+            title="No answer yet"
+            body="Start research to see a cited answer, with its sources, here."
+          />
+        )}
       </section>
     )
   }
@@ -43,48 +98,46 @@ export function AnswerCard({ result, phase }: AnswerCardProps) {
   const badge = badgeFor(result)
   const noAnswer = result.ending.kind === 'no_answer'
   return (
-    <section className="ds-section" aria-labelledby="answer-title" aria-live="polite">
-      <div className="ds-section__head">
-        <h2 id="answer-title" className="ds-section__title">
-          Answer
-        </h2>
-        <p className="ds-section__sub">The draft the critic reviewed. Bracketed numbers match the sources.</p>
-        <span className={`ds-badge answer-verdict ${badge.tone}`}>
-          <span className="ds-dot" aria-hidden="true" />
-          {badge.text}
-        </span>
-      </div>
-      <div className="ds-stack">
-        {result.ending.kind !== 'complete' && <p className="ds-notice ds-notice--warning">{result.ending.message}</p>}
+    <section className="ds-section ds-run__result" aria-label="Answer" aria-live="polite">
+      <div className="ds-lead">
+        <div className="ds-lead__meta">
+          <h2 className="ds-section__title">{noAnswer ? 'Pages read' : 'Answer'}</h2>
+          <span className={`ds-badge ${badge.tone}`}>
+            <span className="ds-dot" aria-hidden="true" />
+            {badge.text}
+          </span>
+        </div>
+        {result.ending.kind !== 'complete' && (
+          <div className="ds-state ds-state--partial">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title">{noAnswer ? 'No answer written' : 'Partial answer'}</p>
+            <p className="ds-state__body">{result.ending.message}</p>
+          </div>
+        )}
         {result.truncated && <p className="ds-notice">The answer was cut short at its length limit.</p>}
         {!noAnswer && (
-          <div className="answer-text">
+          <div className="ds-lead__text">
             {paragraphs(result.answer).map((part, i) => (
               <p key={i}>{part}</p>
             ))}
           </div>
         )}
-        <div>
-          <h3 className="answer-subhead">{noAnswer ? 'Pages read' : 'Sources'}</h3>
-          {result.sources.length === 0 ? (
-            <p className="ds-help">The answer cites no source.</p>
-          ) : (
-            <ol className="source-list">
-              {result.sources.map((source) => (
-                <li key={source.n} className="source-item">
-                  <span className="source-n">{`[${source.n}]`}</span>
-                  <span>
-                    <a className="source-title" href={source.url} target="_blank" rel="noopener noreferrer">
-                      {source.title}
-                    </a>
-                    <span className="source-url">{source.url}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-        <p className="ds-help">
+        {result.sources.length === 0 ? (
+          <p className="ds-help">The answer cites no source.</p>
+        ) : (
+          <ol className="ds-cite" aria-label="Sources">
+            {result.sources.map((source) => (
+              <li key={source.n}>
+                <span className="ds-cite__n">{`[${source.n}]`}</span>
+                <a className="ds-cite__title" href={source.url} target="_blank" rel="noopener noreferrer">
+                  {source.title}
+                </a>
+                <span className="ds-cite__url">{shownUrl(source.url)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="ds-lead__foot">
           {`Read ${plural(result.evidenceCount, 'page')}. Revised ${plural(result.revisions, 'time')}.`}
           {result.critic.reviewed && result.critic.notes ? ` Critic notes: ${result.critic.notes}` : ''}
         </p>

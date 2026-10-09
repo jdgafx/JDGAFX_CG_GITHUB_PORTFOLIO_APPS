@@ -81,7 +81,7 @@ export default function App() {
   }
 
   return (
-    <div className="ds-app">
+    <div className="ds-app" data-run={view.phase}>
       <Header view={view} />
 
       <main className="ds-main">
@@ -107,9 +107,9 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            <AnswerCard result={view.result} phase={view.phase} error={view.error} onRetry={() => void submit()} />
+            <ReadoutStrip view={view} />
             <GraphView view={view} />
-            <ReadoutStrip result={view.result} />
-            <AnswerCard result={view.result} phase={view.phase} />
             <RunTrace view={view} />
           </div>
         </div>
