@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { AGENT_META, MODEL_ORDER, statusView, wasTruncated } from '../lib/agents'
 import type { AgentRole, AgentState } from '../types'
 import { Markdown } from './Markdown'
@@ -32,7 +32,11 @@ function EmptyState({ agent }: { agent: AgentState }) {
 }
 
 /** What each step before the report produced, one tab per step. */
+/** Open at start on a wide screen; folded on a phone, where it is the longest block on the page. */
+const openAtStart = () => window.matchMedia('(min-width: 1000px)').matches
+
 export function StageOutputs({ agents, active, onSelect }: StageOutputsProps) {
+  const [open, setOpen] = useState(openAtStart)
   const current = agents[TABS.includes(active) ? active : 'retriever']
   const sources = agents.retriever.sources ?? []
   const hasText = current.output.trim().length > 0
@@ -50,42 +54,42 @@ export function StageOutputs({ agents, active, onSelect }: StageOutputsProps) {
   }
 
   return (
-    <section className="ds-section ds-run__trace" aria-labelledby="stages-title">
-      <div className="ds-section__head ds-section__head--bare">
-        <h2 id="stages-title" className="ds-section__title">
-          Stage outputs
-        </h2>
-        <p className="ds-section__sub">What each step before the report produced. Each tab fills when its step finishes.</p>
-      </div>
-      <div className="ds-seg stage-tabs" role="tablist" aria-label="Stage outputs" onKeyDown={onKeyDown}>
-        {TABS.map(role => {
-          const view = statusView(agents[role])
-          return (
-            <button key={role} id={`tab-${role}`} type="button" role="tab" aria-selected={role === current.id} aria-controls="stage-panel" tabIndex={role === current.id ? 0 : -1} onClick={() => onSelect(role)}>
-              {AGENT_META[role].name}
-              <span className="stage-tabs__state">
-                <span className={view.dot} aria-hidden="true" />
-                {view.word}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      <div id="stage-panel" role="tabpanel" aria-labelledby={`tab-${current.id}`} aria-busy={current.status === 'working'} tabIndex={0} className="stage-panel">
-        {showSources ? (
-          <>
-            <p className="app-note">{current.detail} The Researcher cites them as [1], [2] and so on.</p>
-            <SourceList sources={sources} />
-          </>
-        ) : hasText ? (
-          <>
-            <Markdown text={current.output} sources={sources} />
-            {wasTruncated(current) && <p className="app-note">This stage was cut off before {AGENT_META[current.id].name} finished.</p>}
-          </>
-        ) : (
-          <EmptyState agent={current} />
-        )}
-      </div>
+    <section className="ds-section ds-run__trace" aria-label="Stage outputs">
+      <details className="ds-disclosure stage-fold" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+        <summary>Stage outputs</summary>
+        <div className="stage-fold__body">
+          <p className="ds-section__sub">What each step before the report produced. Each tab fills when its step finishes.</p>
+          <div className="ds-seg stage-tabs" role="tablist" aria-label="Stage outputs" onKeyDown={onKeyDown}>
+            {TABS.map(role => {
+              const view = statusView(agents[role])
+              return (
+                <button key={role} id={`tab-${role}`} type="button" role="tab" aria-selected={role === current.id} aria-controls="stage-panel" tabIndex={role === current.id ? 0 : -1} onClick={() => onSelect(role)}>
+                  {AGENT_META[role].name}
+                  <span className="stage-tabs__state">
+                    <span className={view.dot} aria-hidden="true" />
+                    {view.word}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <div id="stage-panel" role="tabpanel" aria-labelledby={`tab-${current.id}`} aria-busy={current.status === 'working'} tabIndex={0} className="stage-panel">
+            {showSources ? (
+              <>
+                <p className="app-note">{current.detail} The Researcher cites them as [1], [2] and so on.</p>
+                <SourceList sources={sources} />
+              </>
+            ) : hasText ? (
+              <>
+                <Markdown text={current.output} sources={sources} />
+                {wasTruncated(current) && <p className="app-note">This stage was cut off before {AGENT_META[current.id].name} finished.</p>}
+              </>
+            ) : (
+              <EmptyState agent={current} />
+            )}
+          </div>
+        </div>
+      </details>
     </section>
   )
 }

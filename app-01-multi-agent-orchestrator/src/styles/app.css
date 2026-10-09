@@ -46,19 +46,18 @@
 .claim:hover { background: color-mix(in srgb, var(--claim-line, var(--ds-border-strong)) 16%, transparent); }
 .claim:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
 .claim[data-selected="true"] { outline: 2px solid var(--ds-accent); outline-offset: 2px; background: var(--ds-accent-soft); }
-.claim[data-verdict="supported"] { --claim-line: var(--ds-success); --claim-tint: color-mix(in srgb, var(--ds-success) 7%, transparent); }
+.claim[data-verdict="supported"] { --claim-line: var(--ds-border-strong); --claim-tint: transparent; }
 .claim[data-verdict="partly"] { --claim-line: var(--ds-warning); --claim-tint: color-mix(in srgb, var(--ds-warning) 9%, transparent); text-decoration-style: dashed; }
 .claim[data-verdict="unsupported"] { --claim-line: var(--ds-danger); --claim-tint: color-mix(in srgb, var(--ds-danger) 10%, transparent); text-decoration-style: wavy; }
 .claim[data-verdict="unchecked"], .claim[data-verdict="checking"] { text-decoration-style: dotted; }
 .claim__tail { white-space: nowrap; }
 .claim__tail > .verdict { margin-left: 4px; vertical-align: 1px; }
 /* Routine is quiet, exceptions are loud: a supported sentence has a hairline underline, the others a thick one */
-.claim[data-verdict="supported"] { text-decoration-thickness: 1px; --claim-tint: color-mix(in srgb, var(--ds-success) 5%, transparent); }
+.claim[data-verdict="supported"] { text-decoration-thickness: 1px; }
 .md-cite { font-family: var(--ds-mono); font-size: 0.82em; color: var(--ds-accent); font-variant-numeric: tabular-nums; }
 
 /* The source panel: beside the report on a wide stage, below it on a narrow one */
 .panel { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 16px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.panel--empty { display: none; }
 .panel__title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 18px; font-weight: 650; }
 .panel__claim { margin: 0; padding: 12px; font-size: 15px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
 .panel__claim .md { font-size: inherit; line-height: 1.5; }
@@ -77,9 +76,8 @@
 .panel__pre-row[data-ok="false"] dd { color: var(--ds-danger); font-weight: 650; }
 
 @container (min-width: 760px) {
-  .audit__body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  .audit__body[data-open="true"] { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; align-items: start; }
   .panel { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
-  .panel--empty { display: grid; }
 }
 
 /* Stage outputs */
@@ -120,8 +118,21 @@
 .md a.md-cite:hover { text-decoration: underline; }
 
 @media (max-width: 720px) {
+  .ds-trace__lane { display: none; }
+  .ds-trace__detail { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .ds-stage .ds-path { display: none; }
+  .report-text { line-height: 1.7; }
   .audit-summary__line { font-size: 22px; }
   .report-text { font-size: 16px; }
   .panel__pre-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .stage-tabs > button { min-height: 48px; }
 }
+
+/* Export: in the rail on a wide screen, after the report on a phone, so the report comes before it */
+.export--run { display: none; }
+@media (max-width: 999px) {
+  .export--rail { display: none; }
+  .export--run { display: block; padding-top: 16px; border-top: 1px solid var(--ds-border); }
+}
+.stage-fold > summary { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.stage-fold__body { display: grid; gap: 12px; padding-top: 12px; }

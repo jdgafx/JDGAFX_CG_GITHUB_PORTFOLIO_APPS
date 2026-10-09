@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { reportBody } from '../lib/audit'
 import type { AuditView } from '../lib/auditState'
 import type { RunPhase } from '../lib/pipeline'
@@ -51,15 +51,31 @@ interface ReportCardProps {
   audit: AuditView
   onRetryRun: () => void
   onRetryAudit: () => void
+  /** Rendered after the source list; the page puts the export group here on a phone. */
+  after?: ReactNode
 }
 
 /** On a wide screen the source panel sits beside the report; on a narrow one it follows the report and is scrolled to. */
 const WIDE = '(min-width: 1000px)'
 
+/** The source list is open on a wide screen and folded on a phone, where the panel shows each source on selection. */
+const sourcesOpenAtStart = () => typeof window === 'undefined' || window.matchMedia(WIDE).matches
+
 /** The page's lead: the final report with every cited sentence badged, the audit summary above it and the source panel beside it. */
-export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit }: ReportCardProps) {
+export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit, after }: ReportCardProps) {
   const [selected, setSelected] = useState<number | null>(null)
+  const [sourcesOpen, setSourcesOpen] = useState(sourcesOpenAtStart)
   const panelRef = useRef<HTMLDivElement>(null)
+  const lastPhase = useRef(audit.phase)
+
+  // When the audit ends, Stop audit disappears and focus would fall to the page: move it to the audit summary instead.
+  useEffect(() => {
+    const was = lastPhase.current
+    lastPhase.current = audit.phase
+    if (was !== 'running' || audit.phase === 'running') return
+    if (document.activeElement && document.activeElement !== document.body) return
+    document.querySelector<HTMLElement>('[data-audit-focus]')?.focus({ preventScroll: true })
+  }, [audit.phase])
   const text = synthesizer.output.trim()
 
   const select = (id: number) => {
@@ -123,7 +139,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
           {wasTruncated(synthesizer) && <span className="ds-badge ds-badge--warning">Cut off</span>}
         </div>
         <AuditSummary view={audit} onRetry={onRetryAudit} />
-        <div className="audit__body">
+        <div className="audit__body" data-open={claim ? 'true' : undefined}>
           <div className="audit__report">
             {audit.claims.length > 0 && (
               <p className="ds-help audit__hint">Select a badge or a sentence to read the source text behind it.</p>
@@ -132,24 +148,28 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
               <Markdown text={body} sources={sources} audit={audit.claims.length > 0 ? { claims: audit.claims, selected, onSelect: select } : undefined} />
             </div>
           </div>
-          <SourcePanel ref={panelRef} claim={claim} sources={sources} />
+          {claim && <SourcePanel ref={panelRef} claim={claim} sources={sources} />}
         </div>
         {sources.length === 0 ? (
           <p className="ds-help">No sources were retrieved, so the report cites none.</p>
         ) : (
-          <ol className="ds-cite" aria-label="Sources">
-            {sources.map(source => (
-              <li key={source.n}>
-                <span className="ds-cite__n">{`[${source.n}]`}</span>
-                <a className="ds-cite__title" href={source.url} target="_blank" rel="noopener noreferrer">
-                  {source.title}
-                </a>
-                <span className="ds-cite__url">{source.note ? `${source.site}, ${source.note}` : source.site}</span>
-              </li>
-            ))}
-          </ol>
+          <details className="ds-disclosure" open={sourcesOpen} onToggle={event => setSourcesOpen(event.currentTarget.open)}>
+            <summary>Sources ({sources.length})</summary>
+            <ol className="ds-cite" aria-label="Sources">
+              {sources.map(source => (
+                <li key={source.n}>
+                  <span className="ds-cite__n">{`[${source.n}]`}</span>
+                  <a className="ds-cite__title" href={source.url} target="_blank" rel="noopener noreferrer">
+                    {source.title}
+                  </a>
+                  <span className="ds-cite__url">{source.note ? `${source.site}, ${source.note}` : source.site}</span>
+                </li>
+              ))}
+            </ol>
+          </details>
         )}
         <p className="ds-lead__foot">{foot}</p>
+        {after}
       </div>
     </section>
   )

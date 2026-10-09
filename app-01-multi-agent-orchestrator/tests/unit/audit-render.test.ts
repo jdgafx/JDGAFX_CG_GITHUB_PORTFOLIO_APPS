@@ -43,6 +43,7 @@ describe('report with claims', () => {
     expect(out).toContain('>Supported<')
     expect(out).toContain('>Not supported<')
     expect(out).toContain('This is not cited.')
+    expect(out).toContain('Claim 1, Supported. JWST is designed for infrared astronomy. Opens its source.')
     expect(out).toContain('role="button"')
     expect(out).toContain('aria-pressed="false"')
   })
@@ -100,7 +101,7 @@ describe('AuditSummary states', () => {
 describe('SourcePanel', () => {
   it('marks the verified quote in the cited source', () => {
     const [first] = settled()
-    const out = html(createElement(SourcePanel, { claim: first ?? null, sources: SOURCES }))
+    const out = html(createElement(SourcePanel, { claim: first as AuditClaim, sources: SOURCES }))
     expect(out).toContain('<mark class="quote">designed to conduct infrared astronomy</mark>')
     expect(out).toContain('Supported')
     expect(out).toContain('Words shared')
@@ -108,13 +109,9 @@ describe('SourcePanel', () => {
 
   it('says no sentence backs an unsupported claim and shows the extract unmarked', () => {
     const second = settled()[1]
-    const out = html(createElement(SourcePanel, { claim: second ?? null, sources: SOURCES }))
+    const out = html(createElement(SourcePanel, { claim: second as AuditClaim, sources: SOURCES }))
     expect(out).toContain('No sentence of the cited source backs this claim')
     expect(out).not.toContain('<mark')
-  })
-
-  it('invites a selection when nothing is selected', () => {
-    expect(html(createElement(SourcePanel, { claim: null, sources: SOURCES }))).toContain('Select a claim in the report')
   })
 })
 
@@ -139,6 +136,16 @@ describe('ReportCard states', () => {
     expect(out).toContain('data-result-focus')
     expect(out).toContain('1 of 2 cited claims supported')
     expect(out).toContain('Audited by claude-haiku-5.5 in 3,200 ms')
+    expect(out).not.toContain('class="panel')
+    expect(out).not.toContain('data-open')
     expect(out).not.toContain('### Sources')
+  })
+})
+
+describe('report headings', () => {
+  it('shows a Title Case heading in sentence case and keeps the names the sources carry', () => {
+    const rust: Source = { n: 1, title: 'Rust (programming language)', site: 'Wikipedia', url: 'https://x.test', snippet: 's' }
+    const out = html(createElement(Markdown, { text: '## Why Developers Are Adopting Rust for Systems Programming', sources: [rust] }))
+    expect(out).toContain('Why developers are adopting Rust for systems programming')
   })
 })

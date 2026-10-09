@@ -9,6 +9,8 @@ interface ExportBarProps {
   state: ExportState
   busy: ExportKind | null
   onExport: (kind: ExportKind) => void
+  /** 'rail' sits in the control rail (wide screens), 'run' after the report (phones); CSS shows one. */
+  variant: 'rail' | 'run'
 }
 
 const BUTTONS: Array<{ kind: ExportKind; label: string; title: string; icon: typeof Download }> = [
@@ -25,18 +27,18 @@ const HELP: Record<ExportState, string> = {
 }
 
 /** The export section: one button per format, with one line on what gets exported. */
-export function ExportBar({ state, busy, onExport }: ExportBarProps) {
+export function ExportBar({ state, busy, onExport, variant }: ExportBarProps) {
   const locked = busy !== null || state === 'running' || state === 'empty'
 
   return (
-    <section className="ds-section" aria-labelledby="export-heading">
+    <section className={`ds-section export--${variant}`} aria-labelledby={`export-heading-${variant}`}>
       <div className="ds-section__head">
-        <h2 id="export-heading" className="ds-section__title">
+        <h2 id={`export-heading-${variant}`} className="ds-section__title">
           Export report
         </h2>
         <p className="ds-section__sub">Save the report as a file.</p>
       </div>
-      <div className="ds-row" role="group" aria-labelledby="export-heading" aria-describedby="export-help">
+      <div className="ds-row" role="group" aria-labelledby={`export-heading-${variant}`} aria-describedby={`export-help-${variant}`}>
         {BUTTONS.map(({ kind, label, title, icon: Icon }) => (
           <button key={kind} type="button" className="ds-button" onClick={() => onExport(kind)} disabled={locked} title={title}>
             <Icon size={14} aria-hidden="true" />
@@ -44,7 +46,7 @@ export function ExportBar({ state, busy, onExport }: ExportBarProps) {
           </button>
         ))}
       </div>
-      <p id="export-help" className="ds-help">
+      <p id={`export-help-${variant}`} className="ds-help">
         {HELP[state]}
       </p>
     </section>

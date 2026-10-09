@@ -62,6 +62,14 @@ export interface ClaimDraft {
   cites: number[]
 }
 
+/**
+ * A sentence about the research itself ("the research rests on a single source", "no source names the climbers") cites a
+ * source but is not a claim of fact the source could state, so the audit does not judge it.
+ */
+export function isAboutResearch(text: string): boolean {
+  return /\b(this|the|these|our) (research|evidence|report|sources?|excerpts?|retrieved)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
+}
+
 const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
 
 /**
@@ -74,7 +82,7 @@ export function extractClaims(body: string): ClaimDraft[] {
     if (!LIST_BLOCKS.has(block.kind) || !('text' in block)) return
     sentencePieces(block.text).forEach((piece, p) => {
       const cites = citesOf(piece)
-      if (cites.length === 0) return
+      if (cites.length === 0 || isAboutResearch(piece)) return
       claims.push({ id: claims.length + 1, block: b, piece: p, text: piece.trim(), cites })
     })
   })
@@ -116,9 +124,25 @@ export function contentWords(text: string): Set<string> {
   return words
 }
 
-/** Numbers as written, without thousands commas: "1,200" and "1200" are the same number. */
+/** One number as a comparable value: no thousands commas, no leading zeros, no trailing decimal zeros ("05" is "5", "6.50" is "6.5"). */
+function normalNumber(raw: string): string {
+  const [whole = '', fraction] = raw.replace(/,/g, '').replace(/\.$/, '').split('.')
+  const int = whole.replace(/^0+(?=\d)/, '')
+  const frac = fraction?.replace(/0+$/, '')
+  return frac ? `${int}.${frac}` : int
+}
+
+/**
+ * The numbers in a text as comparable values. A time such as 05:12 or 5:12:30 is one value, so "5:12" and "05:12" are
+ * the same; other numbers drop thousands commas, leading zeros and trailing decimal zeros.
+ */
 export function numbersIn(text: string): string[] {
-  const found = (text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map(value => value.replace(/,/g, '').replace(/\.$/, ''))
+  const found: string[] = []
+  const rest = text.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, time => {
+    found.push(time.split(':').map(part => String(Number(part))).join(':'))
+    return ' '
+  })
+  for (const value of rest.match(/\d[\d,]*(?:\.\d+)?/g) ?? []) found.push(normalNumber(value))
   return [...new Set(found)]
 }
 

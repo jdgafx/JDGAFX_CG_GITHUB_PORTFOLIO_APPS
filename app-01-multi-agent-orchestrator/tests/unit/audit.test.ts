@@ -3,6 +3,7 @@ import {
   citesOf,
   decidedWithoutModel,
   extractClaims,
+  isAboutResearch,
   findQuote,
   namesIn,
   numbersIn,
@@ -74,7 +75,23 @@ describe('citesOf and extractClaims', () => {
   })
 })
 
+describe('claims about the research itself', () => {
+  it('are not extracted as claims, and the sentence stays plain in the report', () => {
+    const body = 'The wall is long [1]. The research rests on a single source [1]. One source [4] names no climber. Independent corroboration would help [2].'
+    expect(extractClaims(body).map(claim => claim.text)).toEqual(['The wall is long [1].'])
+    expect(isAboutResearch('No source names the climbers [3].')).toBe(false)
+    expect(isAboutResearch('The sources do not agree [3].')).toBe(true)
+  })
+})
+
 describe('numbersIn and namesIn', () => {
+  it('treats 5:12 and 05:12 as one time, and 05 as 5, and 6.50 as 6.5', () => {
+    expect(numbersIn('At 05:12 and again at 5:12:30.')).toEqual(['5:12', '5:12:30'])
+    expect(numbersIn('On 05 May the span was 6.50 and 8.0 metres.')).toEqual(['5', '6.5', '8'])
+    const source: Source = { n: 1, title: 'T', site: 'Wikipedia', url: '', snippet: 'The call came at 5:12 on 05 May.' }
+    expect(preCheck('The call came at 05:12 on 5 May [1].', [1], [source]).missingNumbers).toEqual([])
+  })
+
   it('compares numbers without thousands commas', () => {
     expect(numbersIn('about 1,200 stars and 6.5 metres in 2021.')).toEqual(['1200', '6.5', '2021'])
   })

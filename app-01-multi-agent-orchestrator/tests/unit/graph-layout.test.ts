@@ -26,7 +26,7 @@ describe('layouts', () => {
 
   it('stacks the six steps in one column on a narrow stage', () => {
     const narrow = narrowLayout()
-    expect(narrow.boxes.map(box => box.y)).toEqual([8, 116, 224, 332, 440, 548])
+    expect(narrow.boxes.map(box => box.y)).toEqual([8, 108, 208, 308, 408, 508])
     expect(new Set(narrow.edges.map(edge => edge.path.startsWith('M170 ')))).toEqual(new Set([true]))
   })
 })

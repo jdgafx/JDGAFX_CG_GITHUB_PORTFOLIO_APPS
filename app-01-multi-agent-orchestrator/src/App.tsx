@@ -285,7 +285,7 @@ export default function App() {
               onStop={handleStop}
               onExample={handleExample}
             />
-            <ExportBar state={exportState} busy={exporting} onExport={handleExport} />
+            <ExportBar variant="rail" state={exportState} busy={exporting} onExport={handleExport} />
           </div>
 
           <div className="ds-run">
@@ -299,6 +299,7 @@ export default function App() {
               audit={audit.view}
               onRetryRun={() => void startRun(ranQuery || query)}
               onRetryAudit={audit.retry}
+              after={<ExportBar variant="run" state={exportState} busy={exporting} onExport={handleExport} />}
             />
             <ReadoutStrip state={readoutState} totalMs={totalMs} totalIsStageSum={totalIsStageSum} usage={usage} model={model} summary={summary} audit={audit.view} />
             <GraphView steps={steps} />

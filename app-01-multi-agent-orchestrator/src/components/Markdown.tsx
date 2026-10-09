@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { sentencePieces } from '../lib/audit'
 import { parseBlocks, type Block } from '../lib/blocks'
 import { parseInline } from '../lib/markdown'
+import { sentenceCase } from '../lib/titles'
 import { VERDICT_VIEW } from '../lib/verdict'
 import type { AuditClaim, Source } from '../types'
 import { VerdictBadge } from './VerdictMark'
@@ -16,6 +17,15 @@ interface ClaimsValue {
   onSelect: (id: number) => void
 }
 const ClaimsContext = createContext<ClaimsValue | null>(null)
+
+/**
+ * Words that keep their capitals in a heading: names the retrieved sources carry (Rust, Everest, Berners-Lee), meaning
+ * words that start with a capital in a source title and are never written in lower case anywhere in the sources.
+ */
+const namesOf = (sources: Source[]) => {
+  const text = sources.map(source => `${source.title} ${source.snippet}`).join(' ')
+  return sources.flatMap(source => (source.title.match(/\p{Lu}[\p{L}\p{N}-]+/gu) ?? []).filter(word => !text.includes(word.toLowerCase())))
+}
 
 const CITATION = /(\[\d{1,3}\])/
 
@@ -72,7 +82,7 @@ function Claim({ claim, text }: { claim: AuditClaim; text: string }) {
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      aria-label={`Claim ${claim.id}, ${VERDICT_VIEW[claim.verdict].word}. ${text.replace(/\[\d+(?:\s*[,;]\s*\d+)*\]/g, '').trim()} Opens its source.`}
+      aria-label={`Claim ${claim.id}, ${VERDICT_VIEW[claim.verdict].word}. ${text.replace(/\s*\[\d+(?:\s*[,;]\s*\d+)*\]/g, '').trim()} Opens its source.`}
       onClick={select}
       onKeyDown={event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -112,12 +122,13 @@ function Sentences({ text, block }: { text: string; block: number }) {
 }
 
 function BlockView({ block, index }: { block: Block; index: number }) {
+  const keep = namesOf(useContext(SourcesContext))
   switch (block.kind) {
     case 'heading': {
       const Tag = block.level === 1 ? 'h3' : block.level === 2 ? 'h4' : 'h5'
       return (
         <Tag>
-          <InlineText text={block.text} />
+          <InlineText text={sentenceCase(block.text, keep)} />
         </Tag>
       )
     }

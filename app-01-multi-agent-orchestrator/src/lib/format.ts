@@ -1,6 +1,6 @@
-/** Elapsed time as the page prints it: "1,234 ms" under ten seconds, "12.3 s" above. */
+/** Elapsed time as the page prints it everywhere, running or finished: "11,200 ms". */
 export function milliseconds(ms: number): string {
-  return ms < 10_000 ? `${Math.round(ms).toLocaleString('en-US')} ms` : `${(ms / 1000).toFixed(1)} s`
+  return `${Math.round(ms).toLocaleString('en-US')} ms`
 }
 
 /** The model id without its provider prefix: "anthropic/claude-haiku-5.5" shows as "claude-haiku-5.5". */

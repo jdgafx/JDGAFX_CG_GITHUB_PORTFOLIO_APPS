@@ -19,7 +19,7 @@ export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
     return (
       <div className="ds-state ds-state--partial audit-state" role="status">
         <span className="ds-state__mark" aria-hidden="true" />
-        <p className="ds-state__title">{phase === 'stopped' ? 'Audit stopped' : 'Audit did not finish'}</p>
+        <p className="ds-state__title" tabIndex={-1} data-audit-focus>{phase === 'stopped' ? 'Audit stopped' : 'Audit did not finish'}</p>
         <p className="ds-state__body">
           {phase === 'stopped' ? 'You stopped it.' : view.error}{' '}
           {summary.total} cited {summary.total === 1 ? 'sentence is' : 'sentences are'} listed as not checked. The pre-check beside each one still ran.
@@ -39,7 +39,7 @@ export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
 
   return (
     <section className="audit-summary" aria-label="Citation audit" data-phase={phase}>
-      <p className="audit-summary__line" role="status">
+      <p className="audit-summary__line" role="status" tabIndex={-1} data-audit-focus>
         {running ? (
           <>
             <span className="ds-num">Auditing {summary.total}</span> cited {summary.total === 1 ? 'claim' : 'claims'}

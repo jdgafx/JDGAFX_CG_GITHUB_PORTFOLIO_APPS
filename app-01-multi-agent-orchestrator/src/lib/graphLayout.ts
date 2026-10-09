@@ -132,7 +132,7 @@ export function wideLayout(): Layout {
 
 /** Narrow: one column of full-width boxes, so a phone shows the whole pipeline with text at full size. */
 export function narrowLayout(): Layout {
-  const gap = 32
+  const gap = 24
   const boxes = STEP_ORDER.map<Box>((id, i) => ({ id, x: 8, y: 8 + i * (BOX_H + gap), w: 324, h: BOX_H }))
   return layoutOf(boxes, 340, 8 + STEP_ORDER.length * BOX_H + (STEP_ORDER.length - 1) * gap + 8)
 }

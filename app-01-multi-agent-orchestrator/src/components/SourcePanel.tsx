@@ -6,7 +6,7 @@ import { Markdown } from './Markdown'
 import { VerdictBadge } from './VerdictMark'
 
 interface SourcePanelProps {
-  claim: AuditClaim | null
+  claim: AuditClaim
   sources: Source[]
 }
 
@@ -40,14 +40,6 @@ function Extract({ source, claim }: { source: Source; claim: AuditClaim }) {
 
 /** The source behind one claim: the verdict and why, the pre-pass, and each cited extract with the quote marked. */
 export const SourcePanel = forwardRef<HTMLDivElement, SourcePanelProps>(function SourcePanel({ claim, sources }, ref) {
-  if (!claim) {
-    return (
-      <div className="panel panel--empty" ref={ref} role="region" aria-label="Source text">
-        <p className="panel__title">Source text</p>
-        <p className="ds-help">Select a claim in the report to read the sentence of its source that backs it, or the source text that does not.</p>
-      </div>
-    )
-  }
   const cited = claim.cites
     .map(n => sources.find(source => source.n === n))
     .filter((source): source is Source => source !== undefined)
