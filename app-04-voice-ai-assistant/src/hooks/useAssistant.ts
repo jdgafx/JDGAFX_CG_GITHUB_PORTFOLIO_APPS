@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import { NoSpeechError, encodeForUpload, micErrorMessage } from '../lib/audio'
 import { UserFacingError } from '../lib/errors'
+import { historyFor, markUnsent } from '../lib/history'
 import { cancelSpeech, isSpeechAvailable, speak, type SpeakHandle } from '../lib/speech'
 import { isLikelySilence } from '../lib/transcript'
 import { useRecorder } from './useRecorder'
@@ -31,7 +32,6 @@ export interface RunRecord {
 // Ends the speech step exactly once: finished, failed or stopped.
 type SpeakFinisher = (status: StepStatus, detail: string, message?: string) => void
 
-const MAX_HISTORY_MESSAGES = 20
 const SILENCE_MESSAGE = 'No speech detected. Try speaking louder or closer to the microphone.'
 const ASSISTANT_FAILED = 'The assistant failed. Try again in a moment.'
 const UNEXPECTED = 'Something went wrong. Try again.'
@@ -135,13 +135,10 @@ export function useAssistant() {
   // the server for this run (speech to text, for a voice question).
   const askAndSpeak = useCallback(
     async (text: string, runId: number, steps: TraceStep[], serverMs: number, controller: AbortController) => {
-      const updated = [...messagesRef.current, newMessage('user', text)]
-      commitMessages(updated)
+      const history = historyFor(messagesRef.current)
+      const question = newMessage('user', text)
+      commitMessages([...messagesRef.current, question])
       setAppState('thinking')
-      const history = updated
-        .slice(-MAX_HISTORY_MESSAGES)
-        .slice(0, -1)
-        .map(({ role, content }) => ({ role, content }))
       const started = Date.now()
       try {
         const result = await chat(text, history, controller.signal)
@@ -157,12 +154,14 @@ export function useAssistant() {
         speakReply(runId, result.text)
       } catch (err) {
         if (isAbort(err)) {
+          commitMessages(markUnsent(messagesRef.current, question.id, 'You cancelled it.'))
           steps.push(step('model call', 'skipped', Date.now() - started, 'Cancelled by you'))
           setLastRun({ id: runId, steps: [...steps] })
           setAppState('idle')
           return
         }
         const message = messageOf(err, ASSISTANT_FAILED)
+        commitMessages(markUnsent(messagesRef.current, question.id, message))
         if (err instanceof RunError) {
           steps.push(...err.trace)
         } else {

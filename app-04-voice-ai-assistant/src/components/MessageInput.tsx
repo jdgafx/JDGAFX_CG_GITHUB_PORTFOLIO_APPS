@@ -1,6 +1,5 @@
 import { useRef } from 'react'
-
-const MAX_TEXT_INPUT_LENGTH = 2000
+import { tooLongMessage } from '../lib/history'
 
 // Examples that fill the box. `source` names the live data the question draws on.
 const EXAMPLES = [
@@ -20,6 +19,8 @@ interface MessageInputProps {
 export default function MessageInput({ value, onChange, onSubmit, disabled }: MessageInputProps) {
   const composingRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Nothing is cut: a question that is too long is named as such, and cannot be sent.
+  const tooLong = tooLongMessage(value)
 
   // An example fills the box and takes focus. It never sends on its own.
   const fillExample = (question: string) => {
@@ -45,10 +46,10 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
           className="ds-input"
           type="text"
           value={value}
-          maxLength={MAX_TEXT_INPUT_LENGTH}
           disabled={disabled}
           autoComplete="off"
-          aria-describedby="vox-text-help"
+          aria-describedby={tooLong ? 'vox-text-help vox-text-over' : 'vox-text-help'}
+          aria-invalid={tooLong ? true : undefined}
           onChange={event => onChange(event.target.value)}
           onCompositionStart={() => {
             composingRef.current = true
@@ -58,7 +59,7 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
           }}
           onKeyDown={event => {
             // Enter confirms an IME candidate; don't send mid-composition.
-            if (event.key === 'Enter' && !composingRef.current && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && !tooLong && !composingRef.current && !event.nativeEvent.isComposing) {
               onSubmit()
             }
           }}
@@ -66,13 +67,18 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
         <p id="vox-text-help" className="ds-help">
           Type instead of speaking. Press Enter to send the question.
         </p>
+        {tooLong && (
+          <p id="vox-text-over" className="ds-help vox-over" role="alert">
+            {tooLong}
+          </p>
+        )}
       </div>
       <div className="ds-stack">
         <button
           type="button"
           className="ds-button ds-button--primary vox-send"
           onClick={onSubmit}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || !value.trim() || tooLong !== null}
           aria-describedby="send-help"
         >
           Send question

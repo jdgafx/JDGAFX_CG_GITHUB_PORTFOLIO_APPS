@@ -112,6 +112,21 @@
   background: var(--ds-accent-soft);
 }
 
+.vox-message[data-unsent] {
+  background: transparent;
+  border: 1px dashed var(--ds-danger);
+}
+
+.vox-message__unsent {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ds-danger);
+}
+
+.vox-over {
+  color: var(--ds-danger);
+}
+
 .vox-message--assistant {
   justify-self: start;
   background: var(--ds-surface-2);

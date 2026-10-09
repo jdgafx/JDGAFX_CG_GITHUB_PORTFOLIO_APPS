@@ -28,10 +28,12 @@ export interface Message {
   content: string
 }
 
-// What the UI keeps: the wire shape, a stable key, and the model that answered.
+// What the UI keeps: the wire shape, a stable key, and the model that answered. A
+// question that got no answer carries the reason in `unsent`.
 export interface ChatMessage extends Message {
   id: string
   model?: string
+  unsent?: string
 }
 
 // Recorded audio, ready for the transcribe endpoint.

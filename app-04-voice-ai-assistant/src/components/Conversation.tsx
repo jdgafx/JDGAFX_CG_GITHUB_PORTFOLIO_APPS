@@ -38,11 +38,20 @@ export default function Conversation({ messages, recording, analyserRef }: Conve
       ) : (
         <div ref={logRef} className="vox-log" role="log" aria-live="polite" aria-label="Messages" tabIndex={0}>
           {messages.map(message => (
-            <div key={message.id} className={`vox-message vox-message--${message.role}`}>
+            <div
+              key={message.id}
+              className={`vox-message vox-message--${message.role}`}
+              data-unsent={message.unsent === undefined ? undefined : 'true'}
+            >
               <p>
                 <span className="sr-only">{message.role === 'user' ? 'You said: ' : 'VoxAI replied: '}</span>
                 {message.content}
               </p>
+              {message.unsent !== undefined && (
+                <p className="vox-message__unsent">
+                  <strong>Not sent.</strong> {message.unsent} It is not part of the next question.
+                </p>
+              )}
               {message.role === 'assistant' && message.model && (
                 <p className="vox-message__model">
                   Answered by <span className="ds-mono">{message.model}</span>
