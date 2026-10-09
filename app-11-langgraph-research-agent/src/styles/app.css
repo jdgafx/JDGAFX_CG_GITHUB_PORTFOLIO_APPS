@@ -48,3 +48,6 @@
 
 .live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
 .live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
+
+/* Keep the live-data dot round when the chip label wraps. */
+.live-data .ds-dot { flex: none; }
