@@ -1,11 +1,13 @@
+import type { LiveIndicator } from '../lib/liveData'
 import type { Phase } from '../lib/run'
 
 interface HeaderProps {
   phase: Phase
   badge: { text: string; tone: string; dot: string }
+  live: LiveIndicator
 }
 
-export default function Header({ badge }: HeaderProps) {
+export default function Header({ badge, live }: HeaderProps) {
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -18,6 +20,10 @@ export default function Header({ badge }: HeaderProps) {
               {badge.text}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.label}
+          </p>
           <p className="ds-subtitle">A live source lookup and five AI steps turn a topic into a cited piece, and show every change on the way.</p>
         </div>
         <p className="ds-showcase">

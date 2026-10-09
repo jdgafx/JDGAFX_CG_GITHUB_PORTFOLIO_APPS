@@ -7,6 +7,7 @@ import { buildTrace, stageViews, summarize, type Phase, type RunEnd, type TraceL
 import { useResultFocus } from './lib/useResultFocus'
 import Brief, { EXAMPLES } from './components/Brief'
 import Header from './components/Header'
+import { liveIndicator } from './lib/liveData'
 import { namesFor } from './lib/names'
 import { parseSourcePack } from '../netlify/shared/sourcepack'
 import Piece from './components/Piece'
@@ -48,6 +49,7 @@ export default function App() {
   const [notes, setNotes] = useState<Partial<Record<ChangeStage, ChangeNote[]>>>({})
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [startedAt, setStartedAt] = useState(0)
+  const [sourcesAt, setSourcesAt] = useState<number | null>(null)
   const [copyNote, setCopyNote] = useState('')
   const runKeyRef = useRef('')
   const outputsRef = useRef<StageOutputs>({})
@@ -77,6 +79,7 @@ export default function App() {
       setOutputs({})
       setNotes({})
       setCalls([])
+      setSourcesAt(null)
     }
 
     const controller = new AbortController()
@@ -100,6 +103,7 @@ export default function App() {
           onCall: record => setCalls(previous => [...previous, record]),
           onStageDone: (done, content, stageNotes) => {
             outputsRef.current = { ...outputsRef.current, [done]: content }
+            if (done === 'sources') setSourcesAt(Date.now())
             setOutputs(outputsRef.current)
             if (done === 'edit' || done === 'polish') {
               notesRef.current = { ...notesRef.current, [done]: stageNotes }
@@ -164,7 +168,16 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={phase}>
-      <Header phase={phase} badge={badgeFor(running, runningStage, outcome)} />
+      <Header
+        phase={phase}
+        badge={badgeFor(running, runningStage, outcome)}
+        live={liveIndicator({
+          sources: outputs.sources,
+          at: sourcesAt,
+          contentType,
+          failedAtSources: !running && outcome?.kind === 'failed' && outcome.stage === 'sources',
+        })}
+      />
 
       <main className="ds-main">
         <div className="ds-bench">
