@@ -70,3 +70,13 @@ describe('rankCandidates on the recorded search', () => {
     expect(worthJudging({ ...ranked[0], sharedTerms: ['one'] })).toBe(false)
   })
 })
+
+describe('shared words are shown as written, not as stems', () => {
+  it('lists macos and getting, not maco and gett', () => {
+    const item = { number: 2, title: 'Sidebar width is getting reset on macOS', body: '', htmlUrl: 'https://github.com/a/b/issues/2', state: 'open' as const, stateReason: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }
+    const [candidate] = rankCandidates({ number: 1, title: 'Explorer width getting reset, macOS', body: '' }, [item])
+    expect(candidate.sharedTerms).toEqual(expect.arrayContaining(['macos', 'getting', 'width', 'reset']))
+    expect(candidate.sharedTerms).not.toContain('maco')
+    expect(candidate.sharedTerms).not.toContain('gett')
+  })
+})

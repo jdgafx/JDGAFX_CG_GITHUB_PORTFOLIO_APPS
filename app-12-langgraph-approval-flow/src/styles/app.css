@@ -494,3 +494,32 @@ code {
 .gg-graph--narrow {
   max-width: 340px;
 }
+
+/* Live data indicator in the masthead: a chip that is hollow until GitHub has answered, then lit with the time */
+.live-data {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: 999px;
+}
+
+.live-data[data-state="live"] {
+  color: var(--ds-success);
+  background: var(--ds-success-soft);
+  border-color: transparent;
+}
+
+.live-data[data-state="failed"] {
+  color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+  border-color: transparent;
+}

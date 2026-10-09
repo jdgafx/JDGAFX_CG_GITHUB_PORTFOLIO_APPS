@@ -45,6 +45,21 @@ export function looksLikeSecurityReport(issue: IssueInput): boolean {
 }
 
 /**
+ * The issue text without the sentences that hold the words aimed at the assistant (the quote, widened to the
+ * whole sentence or line, whatever spacing it was written with), so those sentences cannot add a keyword.
+ */
+function withoutInjection(issue: IssueInput, injected: string): string {
+  const text = `${issue.title}\n${issue.body}`
+  const flexible = injected.trim().split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')
+  const found = new RegExp(flexible, 'i').exec(text)
+  if (!found) return text
+  const before = Math.max(text.lastIndexOf('\n', found.index), text.lastIndexOf('. ', found.index) + 1, text.lastIndexOf('! ', found.index) + 1, text.lastIndexOf('? ', found.index) + 1)
+  const ends = [text.indexOf('\n', found.index + found[0].length), text.indexOf('. ', found.index + found[0].length), text.indexOf('! ', found.index + found[0].length), text.indexOf('? ', found.index + found[0].length)].filter((i) => i >= 0)
+  const after = ends.length > 0 ? Math.min(...ends) + 1 : text.length
+  return `${text.slice(0, Math.max(0, before))} ${text.slice(after)}`
+}
+
+/**
  * The gate. Pure and deterministic: the same issue and classification always give the same verdict.
  * A maintainer must look at a possible security report, issue text aimed at an assistant (by the model's
  * verified quote or by a pattern, see assistant-address.ts), a
@@ -53,15 +68,22 @@ export function looksLikeSecurityReport(issue: IssueInput): boolean {
  * Everything else is triaged by the rules alone.
  */
 export function decideTriage(issue: IssueInput, classification: Classification, duplicates: DuplicateReport | null = null): Triage {
-  const security = classification.possibleSecurity || looksLikeSecurityReport(issue)
+  const aimed = assistantEvidence(issue, classification)
+  // Text aimed at the assistant must not be able to raise the priority by containing a keyword: the security
+  // words are looked for in the rest of the issue. The reason then says so.
+  const keywordInText = looksLikeSecurityReport(issue)
+  const keywordOutsideInjection = aimed ? SECURITY_WORDS.test(withoutInjection(issue, aimed)) : keywordInText
+  const security = classification.possibleSecurity || keywordOutsideInjection
   const reasons: string[] = []
   const original = duplicates?.candidates.find((candidate) => candidate.number === duplicates.confirmed) ?? null
   if (original?.judgement) {
     reasons.push(`It looks like a duplicate of #${original.number} (${quoteOf(original.title)}). ${original.judgement.reason}`.trim())
   }
   if (security) reasons.push('It may be a security report, so a maintainer should read it before anything is said in public.')
-  const aimed = assistantEvidence(issue, classification)
-  if (aimed) reasons.push(`The issue text contains instructions aimed at an AI assistant. It says: "${quoteOf(aimed)}".`)
+  if (aimed) {
+    const ignored = keywordInText && !keywordOutsideInjection ? ' A security word appears only inside that text, so it was not counted as a security report.' : ''
+    reasons.push(`The issue text contains instructions aimed at an AI assistant. It says: "${quoteOf(aimed)}".${ignored}`)
+  }
   if (classification.confidence < CONFIDENCE_FLOOR) {
     reasons.push(`The classifier was not sure (confidence ${percent(classification.confidence)}).`)
   }

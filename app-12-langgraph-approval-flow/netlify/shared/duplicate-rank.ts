@@ -47,7 +47,12 @@ function stem(word: string): string {
 
 /** Lowercase terms in order of appearance, stopwords and very short words dropped, stemmed. Duplicates are kept. */
 export function tokenize(text: string): string[] {
-  const terms: string[] = []
+  return tokenizeWithSurface(text).map((entry) => entry.term)
+}
+
+/** The same terms, each with the word as it was written (lowercased), so a stem can be shown as a real word. */
+export function tokenizeWithSurface(text: string): Array<{ term: string; surface: string }> {
+  const terms: Array<{ term: string; surface: string }> = []
   for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
     if (!raw) continue
     const mixed = /[a-z]/.test(raw) && /\d/.test(raw)
@@ -56,7 +61,7 @@ export function tokenize(text: string): string[] {
     if (/^(?=.*\d)[0-9a-f]{7,}$/.test(raw) || (mixed && letterDigitRuns(raw) > 2)) continue
     if (/^\d+$/.test(raw) && (raw.length < 3 || raw.length > 4)) continue
     if (STOPWORDS.has(raw)) continue
-    terms.push(stem(raw))
+    terms.push({ term: stem(raw), surface: raw })
   }
   return terms
 }
@@ -133,13 +138,22 @@ const BODY_TERMS_CHARS = 1500
 interface Doc {
   /** term -> 2 when it is in the title, 1 when only in the body */
   weights: Map<string, number>
+  /** term -> the first word it was written as, so "maco" is shown as "macos" */
+  surfaces: Map<string, string>
 }
 
 function docOf(title: string, body: string): Doc {
   const weights = new Map<string, number>()
-  for (const term of tokenize(proseOf(body).slice(0, BODY_TERMS_CHARS))) weights.set(term, 1)
-  for (const term of tokenize(title)) weights.set(term, 2)
-  return { weights }
+  const surfaces = new Map<string, string>()
+  const read = (text: string, weight: number) => {
+    for (const { term, surface } of tokenizeWithSurface(text)) {
+      weights.set(term, weight)
+      if (!surfaces.has(term)) surfaces.set(term, surface)
+    }
+  }
+  read(proseOf(body).slice(0, BODY_TERMS_CHARS), 1)
+  read(title, 2)
+  return { weights, surfaces }
 }
 
 /** The best candidates first. Rare shared words count most, and a shared title word counts double. */
@@ -173,7 +187,7 @@ export function rankCandidates(
     const denominator = goalNorm * norm(vec)
     const score = denominator === 0 ? 0 : dot / denominator
     shared.sort((a, b) => (goalVec.get(b) ?? 0) * (vec.get(b) ?? 0) - (goalVec.get(a) ?? 0) * (vec.get(a) ?? 0) || a.localeCompare(b))
-    return { item, score: Math.round(score * 1000) / 1000, shared: shared.slice(0, 6) }
+    return { item, score: Math.round(score * 1000) / 1000, shared: shared.slice(0, 6).map((term) => goal.surfaces.get(term) ?? term) }
   })
   ranked.sort((a, b) => b.score - a.score || (a.item.updatedAt < b.item.updatedAt ? 1 : a.item.updatedAt > b.item.updatedAt ? -1 : 0) || b.item.number - a.item.number)
   return ranked.slice(0, limit).map(({ item, score, shared }) => ({

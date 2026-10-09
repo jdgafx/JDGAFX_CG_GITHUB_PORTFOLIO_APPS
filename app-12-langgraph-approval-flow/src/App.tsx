@@ -5,12 +5,14 @@ import { Header } from './components/Header'
 import { IssueList, keyOf, type IssuesState } from './components/IssueList'
 import { Readout } from './components/Readout'
 import { RepoPicker } from './components/RepoPicker'
+import { RunBoundary } from './components/RunBoundary'
 import { ResultCard } from './components/ResultCard'
 import { ThreadsCard, type ThreadsState } from './components/ThreadsCard'
 import { TraceCard } from './components/TraceCard'
 import { outcomeOf } from './components/TriageCard'
 import { failureText, fetchThread, fetchThreads, type ThreadResponse as ThreadViewResponse, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
 import { getIssue, GitHubError, listOpenIssues, parseIssueRef, parseRepoInput, slugOf } from './lib/github'
+import { liveDataOf } from './lib/live-data'
 import { runAttr } from './lib/phase'
 import { useResultFocus } from './lib/useResultFocus'
 import { outcomeAfterFailure } from './lib/resume-failure'
@@ -81,6 +83,8 @@ export default function App() {
   const [selected, setSelected] = useState<IssueInput | null>(null)
   const [listOpen, setListOpen] = useState(true)
   const [startedAt, setStartedAt] = useState<number | null>(null)
+  /** When GitHub last answered an issue fetch and it parsed. Only a real answer sets it. */
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null)
   const [opened, setOpened] = useState(0)
   // The thread id of the run on the page, readable inside stream() whatever render it was created in.
   const threadOf = useRef<string | null>(null)
@@ -111,6 +115,7 @@ export default function App() {
     try {
       const items = ref ? [await getIssue(ref, controller.signal)] : await listOpenIssues(repo, controller.signal)
       setIssues({ loading: false, repo: slugOf(repo), items, error: null })
+      setFetchedAt(Date.now())
       setSelected(ref ? items[0] : null)
     } catch (err) {
       if (isAbortError(err)) return
@@ -306,7 +311,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={runAttr(phase)}>
-      <Header phase={phase} />
+      <Header phase={phase} live={liveDataOf({ loading: issues.loading, issuesError: issues.error, fetchedAt, duplicates: run.duplicates })} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -354,6 +359,12 @@ export default function App() {
           </div>
 
           <div className="ds-run" ref={runRef}>
+            <RunBoundary
+              onReset={() => {
+                setRun(emptyRun())
+                setPhase('idle')
+              }}
+            >
             <ResultCard
               run={run}
               phase={phase}
@@ -372,6 +383,7 @@ export default function App() {
             <Readout run={run} phase={phase} startedAt={startedAt} />
             <GraphView run={run} />
             <TraceCard run={run} current={current} phase={phase} />
+            </RunBoundary>
           </div>
         </div>
       </main>

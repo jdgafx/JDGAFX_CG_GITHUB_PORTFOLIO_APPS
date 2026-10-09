@@ -8,6 +8,10 @@ The graph needs LangGraph because the pause has to survive a reload. The run sto
 
 What this showcases: duplicate detection that shows its evidence, and a graph that pauses for a human with `interrupt()`, saves its checkpoint, and resumes from it after a reload.
 
+## Live data
+
+The masthead carries a chip "Live data: GitHub". It is hollow until GitHub has answered, lights up green with the fetch time ("fetched 14:32") once an issue list or issue was fetched and parsed, and turns red ("Live data unavailable: GitHub") when the issue fetch fails or the duplicate search cannot reach GitHub. Its tooltip names the host: `api.github.com`, fetched by the browser for issues and by the server for the search. The model's text is never counted as data. Nothing canned is reachable: there are no sample issues, demo results or fallback data in `src/` or `netlify/` (a test scans for them), and a failed fetch shows an error with a way to retry. The preset repositories are only inputs.
+
 ## Duplicate detection
 
 Before the rules decide, a `duplicates` step looks for earlier issues in the same repository that say the same thing. It has three parts, and only the last uses a model.
@@ -20,7 +24,7 @@ Before the rules decide, a `duplicates` step looks for earlier issues in the sam
 
 **What a confirmed duplicate changes.** When the best accepted duplicate exists, the rules add the reason and the label `duplicate`, and the proposal becomes "close as duplicate of #N". That always pauses for a maintainer, even for a low-severity bug. Approve keeps the action; Edit sets labels and priority only and drops it; Reject applies nothing. The draft comment must name `#N` as plain text, and the existing draft guard still rejects any claim that something was closed, because nothing is posted. A candidate that GitHub itself closed as a duplicate is used only when no other accepted duplicate exists, since its original is one step further.
 
-**Rate limits.** `GITHUB_TOKEN` is read on the server when it is set (30 searches a minute). Without it the search runs unauthenticated: 10 a minute for the whole address, which Netlify functions share. A 403 or 429 reads "GitHub's search limit (...) is used up. Try again in about N seconds.", the step is marked failed, and the triage continues without a duplicate check. The step also skips itself when under 10 seconds of the 25-second budget remain.
+**Rate limits.** With `GITHUB_TOKEN` set on the site, the server searches as that account: 30 searches a minute, and the message says "30 searches a minute". Without it the search is unauthenticated: 10 a minute per egress address, and the message says "10 searches a minute without a token". Netlify functions may share an address, though a live test with 24 searches inside a minute did not reach the limit, so how shared it is varies. A 403 or 429 reads "GitHub's search limit (...) is used up. Try again in about N seconds.", the step is marked failed, and the triage continues without a duplicate check. The step also skips itself when under 10 seconds of the 25-second budget remain.
 
 You can triage any public issue, open or closed: type `owner/name#123` or paste an issue link in the repository field. That is how a known duplicate pair can be tried.
 
@@ -172,7 +176,7 @@ Live URL: https://jdgafx-app-12-langgraph-approval-flow.netlify.app
 - Duplicate search is lexical. GitHub matches words, so two issues that describe one problem in different words are not found. In the live runs, vscode #334679 and #334690 (closed as duplicates of #334106) and vite #21893 (closed as a duplicate of #21849, which never uses its words) did not reach the candidates.
 - The model is cautious. It answered "related" for pairs that maintainers closed as duplicates (vscode #286505 of #183972, for instance) when the reports gave different symptoms. A missed duplicate costs nothing; a wrong one would cost a maintainer's time, so it leans that way.
 - A verified quote proves the words exist, not that they prove the claim. The quotes are shown so a maintainer can judge them. A candidate that GitHub closed as a duplicate may point at an issue that is itself part of a cluster; the page says "Closed as a duplicate on GitHub".
-- Candidates are the best 30 matches of each search over all time, not only recent issues, and only the top three are judged. Unauthenticated, the search limit is 10 a minute for every visitor on the same function address. Set `GITHUB_TOKEN` on the site to lift it.
+- Candidates are the best 30 matches of each search over all time, not only recent issues, and only the top three are judged. Unauthenticated, the search limit is 10 a minute per egress address, and visitors may share one. Set `GITHUB_TOKEN` on the site for 30 a minute.
 - The classification is a model's reading of text a stranger wrote. A crafted issue may push the model to call itself confident. The rules catch security wording and text aimed at an assistant, and the draft is checked, but a clear-looking issue can still be triaged without a maintainer. The result is a draft that nothing posts.
 - The page has no sign-in. Anyone with the URL can run issues and answer reviews.
 - GitHub's anonymous limit is 60 requests an hour per visitor address, for the browser's issue lists. Loading a repo or one issue costs one request.
