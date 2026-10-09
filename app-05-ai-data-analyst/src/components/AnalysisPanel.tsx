@@ -1,5 +1,6 @@
-import { answerSentence, describePlan } from '../lib/answer'
+import { describePlan, describeResult } from '../lib/answer'
 import { topGroup } from '../lib/dataEngine'
+import { answerDirection } from '../lib/queryPlan'
 import type { AnalysisResult } from '../types'
 import ChartView from './ChartView'
 
@@ -13,18 +14,30 @@ const PLAN_PARTS = [
 /** The hero: the one-sentence answer, the plan in plain words, then the chart it came from. */
 export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
   const { queryPlan: plan } = result
-  const answer = answerSentence(plan, topGroup(result))
+  const headline = describeResult(plan, topGroup(result, answerDirection(plan)))
   const words = describePlan(plan)
 
   return (
     <section className="ds-section app-result" aria-labelledby="result-title">
       <div className="ds-section__head ds-section__head--row">
         <h2 id="result-title" className="ds-section__title">{plan.title}</h2>
-        <span className="ds-badge">{plan.chartType} chart</span>
+        <span className={`ds-badge ${headline.substitute ? 'ds-badge--warning' : ''}`}>
+          {headline.substitute ? 'Substitute chart' : `${plan.chartType} chart`}
+        </span>
       </div>
       <p className="ds-section__sub">Question: {result.question}</p>
 
-      {answer && <p className="app-answer ds-num">{answer}</p>}
+      {headline.notice && (
+        <p className="app-notice app-notice--lead" role="note">
+          <strong>Not in this data.</strong> {headline.notice}
+        </p>
+      )}
+      {headline.answer && (
+        <p className={`app-answer ds-num ${headline.substitute ? 'app-answer--substitute' : ''}`}>
+          {headline.substitute && <span className="ds-badge ds-badge--warning">Substitute result</span>}
+          {headline.answer}
+        </p>
+      )}
 
       <dl className="app-plan-words">
         {PLAN_PARTS.map(([label, part]) => (
@@ -37,7 +50,6 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
 
       <ChartView result={result} />
 
-      {plan.notice && <p className="app-notice">{plan.notice}</p>}
       {result.warnings.map((warning) => (
         <p key={warning} className="ds-help">{warning}</p>
       ))}

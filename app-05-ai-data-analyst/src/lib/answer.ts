@@ -1,4 +1,4 @@
-import { isValueSort } from './queryPlan'
+import { answerDirection, isValueSort } from './queryPlan'
 import type { AggregateFn, FilterOp, QueryPlan } from '../types'
 
 const MEASURE: Record<AggregateFn, (field: string) => string> = {
@@ -26,12 +26,26 @@ function measureWords(plan: QueryPlan): string {
 
 /**
  * The answer in one sentence, built from the engine's top group rather than from the model.
- * Digits use en-US so the sentence reads the same on every device.
+ * It says "lowest" when the plan ranks the measure ascending, and "highest" otherwise. Digits use en-US so the sentence reads the same on every device.
  */
 export function answerSentence(plan: QueryPlan, top: { label: string; value: number } | null): string | null {
   if (!top) return null
   const value = top.value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  return `${top.label} has the highest ${measureWords(plan)}: ${value}.`
+  return `${top.label} has the ${answerDirection(plan)} ${measureWords(plan)}: ${value}.`
+}
+
+export interface ResultHeadline {
+  /** The model's note that the data lacks what the question asked for. Null when it did not say so. */
+  notice: string | null
+  answer: string | null
+  /** True when the notice is present: the chart answers a stand-in question, not the one asked. */
+  substitute: boolean
+}
+
+/** What the result leads with: the notice first when there is one, then the computed sentence. */
+export function describeResult(plan: QueryPlan, top: { label: string; value: number } | null): ResultHeadline {
+  const notice = plan.notice ?? null
+  return { notice, answer: answerSentence(plan, top), substitute: notice !== null }
 }
 
 interface PlanWords {

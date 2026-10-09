@@ -93,6 +93,14 @@ describe('executeQuery on a recorded USGS excerpt', () => {
     expect(result.datasets[0]?.values).toEqual([1, 2, 2])
   })
 
+  it('picks the smallest group when asked for the lowest', () => {
+    const plan = planWith('magType', 'avg', { aggregate: { field: 'mag', fn: 'avg' } })
+    const result = executeQuery(quakes, plan)
+    expect(topGroup(result, 'lowest')?.label).toBe('ml')
+    expect(topGroup(result, 'lowest')?.value).toBeCloseTo(1.511, 6)
+    expect(topGroup(result)?.label).toBe('mb')
+  })
+
   it('sorts by the group label when asked', () => {
     const result = executeQuery(quakes, planWith('type', 'count', { sortBy: { field: 'type', dir: 'desc' } }))
     expect(result.labels).toEqual(['quarry blast', 'explosion', 'earthquake'])
@@ -126,6 +134,7 @@ describe('executeQuery on a recorded Open-Meteo excerpt', () => {
     const plan = planWith('month', 'min', { aggregate: { field: 'temp_min_c', fn: 'min' } })
     const result = executeQuery(weather, plan)
     expect(result.datasets[0]?.values).toEqual([4.9, 4.0])
+    expect(topGroup(result, 'lowest')).toEqual({ label: '2025-11', value: 4.0 })
   })
 })
 

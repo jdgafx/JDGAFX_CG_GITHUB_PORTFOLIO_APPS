@@ -98,6 +98,21 @@
   color: var(--ds-text);
 }
 
+.app-answer--substitute {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.app-notice--lead {
+  font-size: 17px;
+  font-weight: 600;
+}
+
 .app-plan-words {
   display: grid;
   gap: 12px 20px;

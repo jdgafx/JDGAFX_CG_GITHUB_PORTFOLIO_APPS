@@ -133,3 +133,11 @@ export function isValueSort(plan: QueryPlan, field: string): boolean {
   if (field === plan.groupBy) return false
   return field === plan.aggregate.field || VALUE_SORT_FIELDS.includes(field.toLowerCase())
 }
+
+/**
+ * Which end of the ranking the one-sentence answer reports. A plan that sorts the measured
+ * value ascending asks for the lowest group; every other plan reports the highest.
+ */
+export function answerDirection(plan: QueryPlan): 'highest' | 'lowest' {
+  return plan.sortBy && isValueSort(plan, plan.sortBy.field) && plan.sortBy.dir === 'asc' ? 'lowest' : 'highest'
+}

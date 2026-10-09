@@ -56,8 +56,28 @@ export function clientRun(detail: string, startedAt: number, status: RunStep['st
   }
 }
 
+function isStep(value: unknown): value is RunStep {
+  if (typeof value !== 'object' || value === null) return false
+  const step = value as Partial<Record<keyof RunStep, unknown>>
+  return (
+    typeof step.name === 'string' &&
+    typeof step.detail === 'string' &&
+    typeof step.ms === 'number' &&
+    (step.status === 'ok' || step.status === 'failed' || step.status === 'skipped')
+  )
+}
+
+/** A run the page can render: steps, a measured total and a usage object, all present. */
 function isRun(value: unknown): value is RunSummary {
-  return typeof value === 'object' && value !== null && Array.isArray((value as RunSummary).trace)
+  if (typeof value !== 'object' || value === null) return false
+  const run = value as Partial<Record<keyof RunSummary, unknown>>
+  return (
+    Array.isArray(run.trace) &&
+    run.trace.every(isStep) &&
+    typeof run.totalMs === 'number' &&
+    typeof run.usage === 'object' &&
+    run.usage !== null
+  )
 }
 
 function isAnalysisResponse(value: unknown): value is AnalysisResponse {

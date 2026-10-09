@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { answerSentence } from './lib/answer'
+import { describeResult } from './lib/answer'
 import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
-import { validateQueryPlan } from './lib/queryPlan'
+import { answerDirection, validateQueryPlan } from './lib/queryPlan'
 import { askData, AnalysisRunError, CancelledError, clientRun, sampleFor } from './lib/api'
 import {
   CITIES,
@@ -40,8 +40,11 @@ function statusMessage(
 ): string {
   if (isLoading) return 'Planning and running your question.'
   if (run?.outcome === 'done' && current) {
-    const answer = answerSentence(current.queryPlan, topGroup(current))
-    return `Plan and run complete. ${answer ?? current.queryPlan.title}`
+    const { notice, answer } = describeResult(
+      current.queryPlan,
+      topGroup(current, answerDirection(current.queryPlan)),
+    )
+    return `Plan and run complete. ${notice ?? answer ?? current.queryPlan.title}`
   }
   if (run?.outcome === 'failed') return 'Plan and run failed. The message at the top says why.'
   if (run?.outcome === 'stopped') return 'Plan and run stopped before a reply.'
@@ -220,13 +223,14 @@ export default function App() {
 
       const executeAt = Date.now()
       const engine: EngineResult = executeQuery(parsedData, validation.plan)
-      const top = topGroup(engine)
+      const direction = answerDirection(validation.plan)
+      const top = topGroup(engine, direction)
       const runStep: RunStep = {
         name: 'Run plan on the rows',
         status: 'ok',
         ms: Date.now() - executeAt,
         detail: top
-          ? `${engine.labels.length} groups. Highest: ${top.label}.`
+          ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}.`
           : 'No rows matched, so there are no groups.',
       }
       const done: RunView = {

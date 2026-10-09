@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
+import { answerDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan } from '../../src/types'
 
 const HEADERS = ['date', 'product', 'revenue', 'units', 'region']
@@ -136,5 +136,26 @@ describe('isValueSort', () => {
     expect(isValueSort(plan, 'revenue')).toBe(true)
     expect(isValueSort(plan, 'value')).toBe(true)
     expect(isValueSort(plan, 'product')).toBe(false)
+  })
+})
+
+describe('answerDirection', () => {
+  const plan: QueryPlan = {
+    chartType: 'bar',
+    groupBy: 'product',
+    aggregate: { field: 'revenue', fn: 'sum' },
+    title: 'T',
+    explanation: '',
+  }
+
+  it('asks for the lowest group only when the measure is sorted ascending', () => {
+    expect(answerDirection({ ...plan, sortBy: { field: 'revenue', dir: 'asc' } })).toBe('lowest')
+    expect(answerDirection({ ...plan, sortBy: { field: 'count', dir: 'asc' } })).toBe('lowest')
+  })
+
+  it('asks for the highest group for a descending sort, a label sort or no sort', () => {
+    expect(answerDirection({ ...plan, sortBy: { field: 'revenue', dir: 'desc' } })).toBe('highest')
+    expect(answerDirection({ ...plan, sortBy: { field: 'product', dir: 'asc' } })).toBe('highest')
+    expect(answerDirection(plan)).toBe('highest')
   })
 })

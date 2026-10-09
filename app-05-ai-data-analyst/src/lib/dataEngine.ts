@@ -204,12 +204,16 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
   }
 }
 
-/** The group with the largest value, read from the full result before any chart limiting. */
-export function topGroup(result: EngineResult): { label: string; value: number } | null {
+/** The group with the largest (or smallest) value, read from the full result before any chart limiting. */
+export function topGroup(
+  result: EngineResult,
+  direction: 'highest' | 'lowest' = 'highest',
+): { label: string; value: number } | null {
   const values = result.datasets[0]?.values ?? []
+  const beats = (a: number, b: number) => (direction === 'highest' ? a > b : a < b)
   let best = -1
   values.forEach((value, index) => {
-    if (best === -1 || value > (values[best] ?? Number.NEGATIVE_INFINITY)) best = index
+    if (best === -1 || beats(value, values[best] ?? 0)) best = index
   })
   if (best === -1) return null
   return { label: result.labels[best] ?? '', value: values[best] ?? 0 }

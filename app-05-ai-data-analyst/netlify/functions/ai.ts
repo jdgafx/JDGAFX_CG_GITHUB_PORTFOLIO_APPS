@@ -138,6 +138,7 @@ Rules:
 - If the question does not explicitly name a filter condition, omit "filter" entirely. Never invent a filter field or use a placeholder such as "missing".
 - groupBy, aggregate.field and filter.field MUST be exact column names copied from the dataset. Never invent a column.
 - sortBy.field must be either the groupBy column or the aggregate field — nothing else is plotted
+- When the question asks for the lowest, least, smallest, coldest, fewest or bottom group, sort the aggregate field with dir "asc". When it asks for the highest, most, largest or top group, use dir "desc".
 - For count queries, aggregate.field must still be a real column name (count ignores its value)
 - Choose the most appropriate chartType for the data pattern
 - "notice": if the question asks about a column, measure or category that is not in the dataset, say so in one sentence and name the real column you used instead. Otherwise set it to null.`

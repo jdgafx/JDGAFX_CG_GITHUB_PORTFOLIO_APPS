@@ -136,6 +136,25 @@ describe('askData error mapping', () => {
     expect(failure.message).toBe('The analysis service returned an unreadable response. Please try again.')
   })
 
+  it('treats a 200 reply missing the timing or usage as unreadable', async () => {
+    const unreadable = 'The analysis service returned an unreadable response. Please try again.'
+    for (const run of [
+      { trace: RUN.trace, usage: RUN.usage, model: RUN.model },
+      { trace: RUN.trace, totalMs: RUN.totalMs, model: RUN.model },
+      { ...RUN, usage: null },
+    ]) {
+      stubFetch(async () => jsonResponse({ ...run, result: PLAN }))
+      const failure = await failureOf(askData(REQUEST))
+      expect(failure.message).toBe(unreadable)
+    }
+  })
+
+  it('treats a 200 reply with a malformed trace step as unreadable', async () => {
+    stubFetch(async () => jsonResponse({ ...RUN, trace: [{ name: 'Model call', status: 'ok' }], result: PLAN }))
+    const failure = await failureOf(askData(REQUEST))
+    expect(failure.message).toBe('The analysis service returned an unreadable response. Please try again.')
+  })
+
   it('stops waiting after 30 seconds and says the service did not answer in time', async () => {
     vi.useFakeTimers()
     stubFetch(abortingFetch())
