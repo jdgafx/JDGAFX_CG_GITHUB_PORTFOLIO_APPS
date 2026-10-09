@@ -136,3 +136,6 @@
 }
 .stage-fold > summary { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
 .stage-fold__body { display: grid; gap: 12px; padding-top: 12px; }
+
+.live-data { margin: 0; width: fit-content; max-width: 100%; white-space: normal; }
+.live-data[data-state='failed'] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }

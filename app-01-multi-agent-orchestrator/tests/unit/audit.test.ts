@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type Judgment,
   citesOf,
   decidedWithoutModel,
   extractClaims,
   admitsGap,
-  contradicts,
   unstatedSuperlatives,
   isAboutResearch,
   findQuote,
@@ -86,6 +86,7 @@ describe('claims about the research itself', () => {
     expect(isAboutResearch('The sources do not agree [3].')).toBe(true)
     expect(isAboutResearch('The sources consulted mention these but offer no detail on what causal evidence supports them [3][4].')).toBe(true)
     expect(isAboutResearch('Python 3.0 was released as a major version, but the sources cut off before giving its release date [1].')).toBe(true)
+    expect(isAboutResearch('Two supplied sources contained no substantive content on causation [4][5].')).toBe(true)
     expect(isAboutResearch('Popular "unsinkable" claims about the ship are treated in the sources as legends rather than established facts [3].')).toBe(false)
   })
 })
@@ -253,6 +254,7 @@ describe('a supported verdict that the reason contradicts', () => {
     'Source extrapolates beyond the series.',
     'The source does not explicitly state this.',
     'The claim is an addition to the source.',
+    'The claim adds a detail not in the source.',
     'A reasonable inference from the source.',
     'The claim goes beyond the source.',
     'Cause not mentioned in the source.',
@@ -351,18 +353,51 @@ describe('true claims about order and direction keep the model\'s supported verd
   })
 })
 
-describe('a partly verdict whose reason says the source contradicts it', () => {
-  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 on 14 April.' }
-  const text = 'The Titanic struck a mine on 14 April [1].'
-  const settle = (reason: string) => settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', reason })
+describe('a verdict is lowered to unsupported only by the conflict field', () => {
+  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 on 14 April. They often follow speculation and bubbles.' }
+  const settle = (text: string, judgment: Partial<Judgment>) =>
+    settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', source: 1, quote: 'RMS Titanic struck an iceberg at 23:40 on 14 April.', ...judgment })
 
-  it.each(['Source contradicts the cause.', 'Source gives an iceberg rather than a mine.', 'Source says the opposite.', 'Source says iceberg, not a mine.'])('lowers to unsupported: %s', reason => {
-    expect(settle(reason).verdict).toBe('unsupported')
+  it('lowers to unsupported on conflict true and drops the quote', () => {
+    const claim = settle('The Titanic struck a mine on 14 April [1].', { reason: 'Source says iceberg.', conflict: true })
+    expect(claim.verdict).toBe('unsupported')
+    expect(claim.quote).toBeUndefined()
+    expect(claim.reason).toContain('The source states something incompatible with this claim.')
   })
 
-  it.each(['Source gives the date but does not say what it struck.', 'Source says the date; the cause is cut off.'])('leaves partly: %s', reason => {
-    expect(contradicts(reason)).toBe(false)
-    expect(settle(reason).verdict).toBe('partly')
+  it.each([
+    "Source says 'often', not 'typically'; the claim's framing adds emphasis the source does not state.",
+    "Source says 'tallest', not 'highest'; otherwise the same.",
+    'Not stated, rather than wrong; the source is silent on the cause.',
+    'The source does not contradict this, but only implies it.',
+    'No contradiction, but the source gives only the date, not the cause.',
+    'The source says legends rather than facts.',
+  ])('stays partly when the reason only says wording differs: %s', reason => {
+    const claim = settle('Crashes typically follow speculation and bubbles [1].', { reason })
+    expect(claim.verdict).toBe('partly')
+    expect(claim.quote).toBeDefined()
+  })
+
+  it('treats supported with conflict true as the contradiction it is, and ignores conflict false', () => {
+    expect(settle('RMS Titanic struck a mine [1].', { verdict: 'supported', reason: 'Stated.', conflict: true }).verdict).toBe('unsupported')
+    expect(settle('RMS Titanic struck an iceberg [1].', { verdict: 'supported', reason: 'Stated.' }).verdict).toBe('supported')
+  })
+})
+
+describe('gap admissions that affirm support are not gaps (admitsGap)', () => {
+  it.each([
+    'Source adds that it was finished in 1889, matching the claim.',
+    'The claim adds nothing beyond it.',
+    'No inference needed; the source states it.',
+    'In addition to the magnitude, both match.',
+    'Nothing goes beyond the source.',
+  ])('%s', reason => {
+    expect(admitsGap(reason)).toBe(false)
+  })
+
+  it('still catches real admissions', () => {
+    expect(admitsGap('The claim adds a cause the source does not give.')).toBe(true)
+    expect(admitsGap('Source adds nothing on that; the claim goes beyond the source.')).toBe(true)
   })
 })
 

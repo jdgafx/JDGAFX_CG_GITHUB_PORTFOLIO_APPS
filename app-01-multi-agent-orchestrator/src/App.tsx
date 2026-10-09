@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ExportBar, type ExportKind, type ExportState } from './components/ExportBar'
 import { GraphView } from './components/GraphView'
+import { liveDataView } from './lib/liveData'
 import { Header, type BadgeTone } from './components/Header'
 import { QueryBar } from './components/QueryBar'
 import { ReadoutStrip, type ReadoutState } from './components/ReadoutStrip'
@@ -58,6 +59,7 @@ export default function App() {
   const [pipelineError, setPipelineError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
   const [noticesHidden, setNoticesHidden] = useState(false)
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
   const [exporting, setExporting] = useState<ExportKind | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -84,6 +86,7 @@ export default function App() {
         case 'retrieve_complete': {
           const { ms, sources, detail } = event
           sourcesRef.current = sources
+          setFetchedAt(new Date())
           setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'complete', ms, sources, detail } }))
           setAnnouncement(sources.length > 0 ? `Retrieve found ${sources.length} sources.` : 'Retrieve found no sources.')
           return
@@ -138,6 +141,7 @@ export default function App() {
 
       audit.reset()
       sourcesRef.current = []
+      setFetchedAt(null)
       setAgents(createAgents())
       setRanQuery(text)
       setRunId(id => id + 1)
@@ -268,7 +272,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={FOCUS_PHASE[phase]}>
-      <Header badgeLabel={badge.label} badgeTone={badge.tone} />
+      <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt)} />
 
       <main className="ds-main">
         <div className="ds-bench">

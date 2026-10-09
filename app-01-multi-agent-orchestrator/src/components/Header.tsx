@@ -1,8 +1,11 @@
+import type { LiveDataView } from '../lib/liveData'
+
 export type BadgeTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
 interface HeaderProps {
   badgeLabel: string
   badgeTone: BadgeTone
+  live: LiveDataView
 }
 
 const DOT: Record<BadgeTone, string> = {
@@ -13,7 +16,7 @@ const DOT: Record<BadgeTone, string> = {
   danger: 'ds-dot--failed',
 }
 
-export function Header({ badgeLabel, badgeTone }: HeaderProps) {
+export function Header({ badgeLabel, badgeTone, live }: HeaderProps) {
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -28,6 +31,10 @@ export function Header({ badgeLabel, badgeTone }: HeaderProps) {
               {badgeLabel}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : ''}`} aria-hidden="true" />
+            {live.text}
+          </p>
           <p className="ds-subtitle">Looks a question up on Wikipedia and Hacker News, answers it with four agents, then checks every cited sentence against its source.</p>
         </div>
         <p className="ds-showcase">

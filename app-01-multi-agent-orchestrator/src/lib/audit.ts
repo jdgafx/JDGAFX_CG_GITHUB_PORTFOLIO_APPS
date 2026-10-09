@@ -67,7 +67,7 @@ export interface ClaimDraft {
  * source but is not a claim of fact the source could state, so the audit does not judge it.
  */
 export function isAboutResearch(text: string): boolean {
-  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\bthe sources?(?: (?:consulted|retrieved|used|cited|here))? (?:do not|don't|disagree|differ|are limited|are thin|offer no|give no|cut off|say nothing|mention\b[^.]{0,40}\bbut)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
+  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\b(?:supplied|cited|retrieved) sources? (?:contain|contained|give|gave|offer|offered) no\b|\bthe sources?(?: (?:consulted|retrieved|used|cited|here))? (?:do not|don't|disagree|differ|are limited|are thin|offer no|give no|cut off|say nothing|mention\b[^.]{0,40}\bbut)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
 }
 
 const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
@@ -284,6 +284,8 @@ export interface Judgment {
   source?: number
   quote?: string
   reason?: string
+  /** True only when the source states something incompatible with the claim. */
+  conflict?: boolean
 }
 
 const cleanReason = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
@@ -321,9 +323,11 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
     verdict = 'partly'
     notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
   }
-  if (verdict === 'partly' && contradicts(judgment.reason)) {
+  // The model marks a real conflict with a field, never in prose, so a wording gap ("often" for "typically") cannot trigger this.
+  if (verdict !== 'unsupported' && judgment.conflict === true) {
     verdict = 'unsupported'
-    notes.push("The model's own reason says the source contradicts it.")
+    quote = undefined
+    notes.push('The source states something incompatible with this claim.')
   }
   if (verdict === 'supported' && admitsGap(judgment.reason)) {
     verdict = 'partly'
@@ -384,13 +388,8 @@ export function unstatedSuperlatives(claim: string, cited: Source[]): string[] {
  * A reason that says the source does not state it, calls the claim an extension, or says it is only implied contradicts a
  * supported verdict. "The source states X, which does not differ from the claim" is not such a reason.
  */
-/** A reason that says the source states the opposite: such a claim is unsupported, not partly. */
-export function contradicts(reason: string | undefined): boolean {
-  return /\bcontradict\w*|\brather than\b|\bthe opposite\b|\bsays\b[^.;]{0,60}?,\s*not\b/i.test(reason ?? '')
-}
-
 export function admitsGap(reason: string | undefined): boolean {
-  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\badditions?\b|\badds\b|\binferen\w*|\binferred\b|\bgoes beyond\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
+  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\bis an? (?:\w+ )?(?:addition|inference)\b|\b(?:reasonable|fair) inference\b|\bclaim adds (?!nothing)|\badds [^.;]{0,40}(?:not in|beyond) the source|(?<!nothing )\bgoes beyond the source\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {

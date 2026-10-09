@@ -168,6 +168,12 @@ describe('report headings', () => {
     expect(html(createElement(Markdown, { text: '## The Tallest Mountain in the World: Mount Everest', sources: [everest] }))).toContain('The tallest mountain in the world: Mount Everest')
   })
 
+  it('lowers a common word a snippet capitalises only inside a proper name, but keeps a name', () => {
+    const crash: Source = { n: 1, title: 'Wall Street crash of 1929', site: 'Wikipedia', url: 'https://x.test', snippet: 'It hit the New York Stock Exchange. Also known as the Great Crash. A stock market crash is a drop.' }
+    expect(html(createElement(Markdown, { text: '## What Caused the 1929 Stock Market Crash?', sources: [crash] }))).toContain('What caused the 1929 stock market crash?')
+    expect(html(createElement(Markdown, { text: '## Wall Street in 1929', sources: [crash] }))).toContain('Wall Street in 1929')
+  })
+
   it('collapses the double full stop an abbreviation leaves in a claim label', () => {
     const claim: AuditClaim = { id: 1, block: 0, piece: 0, text: 'It struck at 5:12 a.m. [1].', cites: [1], pre: { overlap: 1, best: 1, missingNumbers: [], missingNames: [], level: 'ok' }, verdict: 'supported', reason: 'ok' }
     const out = html(createElement(Markdown, { text: 'It struck at 5:12 a.m. [1].', audit: { claims: [claim], selected: null, onSelect: () => undefined } }))

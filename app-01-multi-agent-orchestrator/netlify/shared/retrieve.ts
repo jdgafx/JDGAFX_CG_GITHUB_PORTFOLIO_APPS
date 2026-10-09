@@ -2,7 +2,7 @@ import type { Source } from '../../src/types'
 import { withDeadline } from './deadline'
 
 /** Wikimedia asks API clients to identify themselves. */
-const USER_AGENT = 'AgentFlow-demo/1.0 (https://jdgafx-app-01-multi-agent-orchestrator.netlify.app; portfolio demo)'
+const USER_AGENT = 'AgentFlow/1.0 (https://jdgafx-app-01-multi-agent-orchestrator.netlify.app; portfolio project)'
 
 /** Both lookups run in parallel under this one ceiling. The run budget can shorten it. */
 export const RETRIEVE_TIMEOUT_MS = 4_000

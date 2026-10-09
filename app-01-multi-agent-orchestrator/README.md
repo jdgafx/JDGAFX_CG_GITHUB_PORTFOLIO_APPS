@@ -142,6 +142,8 @@ Tests live in `tests/unit` (the audit's claim extraction, pre-pass, quote verifi
 
 https://jdgafx-app-01-multi-agent-orchestrator.netlify.app
 
+The masthead shows a "Live data: Wikipedia + Hacker News" chip. It lights up, with the fetch time, only when the retrieval step returned sources, and reads "Live data unavailable" when it failed or found nothing. Nothing canned is reachable: a failed lookup is an error, never substitute data.
+
 ## Known limits
 
 - Output arrives one stage at a time, when that stage ends. It does not arrive token by token.
