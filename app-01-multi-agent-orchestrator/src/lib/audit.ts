@@ -67,7 +67,7 @@ export interface ClaimDraft {
  * source but is not a claim of fact the source could state, so the audit does not judge it.
  */
 export function isAboutResearch(text: string): boolean {
-  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\bthe sources? (do not|don't|disagree|differ|are limited|are thin|offer no|give no)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
+  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\bthe sources?(?: (?:consulted|retrieved|used|cited|here))? (?:do not|don't|disagree|differ|are limited|are thin|offer no|give no|cut off|say nothing|mention\b[^.]{0,40}\bbut)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
 }
 
 const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
@@ -215,7 +215,11 @@ export function preCheck(claim: string, cites: number[], sources: Source[]): Pre
   const missingNumbers = numbersIn(plain).filter(value => !haveNumbers.has(value))
   // A name is missing only when none of its words is in the cited text, so "Ukrainian SSR" is backed by "Ukrainian Soviet Socialist Republic".
   const missingNames = namesIn(plain).filter(name =>
-    name.split(' ').every(part => !unionWords.has(stem(part.toLowerCase())) && !union.toLowerCase().includes(part.toLowerCase())),
+    name.split(' ').every(part => {
+      const lower = part.toLowerCase()
+      // The singular counts too: "Suns" is backed by "the Sun".
+      return !unionWords.has(stem(lower)) && ![lower, lower.replace(/(?<=\w{2})e?s$/, '')].some(form => union.toLowerCase().includes(form))
+    }),
   )
   const level = overlap < FAIL_BELOW ? 'fail' : overlap < WEAK_BELOW || missingNumbers.length > 0 || missingNames.length > 0 ? 'weak' : 'ok'
   return { overlap, best: best?.n ?? null, missingNumbers, missingNames, level }
@@ -317,9 +321,22 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
     verdict = 'partly'
     notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
   }
+  // The one upgrade: "unsupported" whose own reason says the source states the core fact, on a sentence that shares
+  // most of its words and numbers with the source, is a hedged or widened claim, which is partly.
+  if (verdict === 'unsupported' && statesCore(judgment.reason) && pre.overlap >= 0.5 && pre.missingNumbers.length === 0) {
+    verdict = 'partly'
+    notes.push('The source states the core of it, so it is partly supported.')
+  }
   if (verdict === 'supported' && admitsGap(judgment.reason)) {
     verdict = 'partly'
     notes.push("The model's own reason says the source does not state all of the claim.")
+  }
+  if (verdict === 'supported') {
+    const unstated = unstatedSuperlatives(draft.text, draft.cites.map(n => sources.find(source => source.n === n)).filter((source): source is Source => source !== undefined))
+    if (unstated.length > 0) {
+      verdict = 'partly'
+      notes.push(`The source text does not state ${listOf(unstated.map(word => `"${word}"`))}.`)
+    }
   }
   if (verdict === 'supported' && pre.missingNumbers.length > 0) {
     verdict = 'partly'
@@ -333,12 +350,32 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
   return { ...base, verdict, reason: reason || 'No reason given.', ...(quote ? { quote } : {}) }
 }
 
+/** A reason that opens by saying what the source states, without saying it differs from the claim. */
+export function statesCore(reason: string | undefined): boolean {
+  const text = reason ?? ''
+  return /^(the )?source \d* ?(says|states|describes|gives|mentions|notes)\b/i.test(text) && !/\b(instead|contradict\w*|opposite|different\w*|rather than|however)\b/i.test(text)
+}
+
+/** Words that rank or bound something. A claim that uses one must find it, or a synonym, in the source it cites. */
+const SUPERLATIVES: Array<[claim: string, source: string]> = [
+  ['highest', 'highest|greatest'], ['largest', 'largest|biggest|greatest'], ['first', 'first|earliest|initial'], ['only', 'only|sole|solely'],
+  ['most', 'most|majority'], ['record', 'record'], ['ever', 'ever'], ['top', 'top'], ['best', 'best'], ['worst', 'worst'], ['never', 'never|no one'],
+  ['deadliest', 'deadliest|deadly'], ['longest', 'longest'], ['tallest', 'tallest'], ['lowest', 'lowest'], ['smallest', 'smallest'], ['oldest', 'oldest'],
+]
+
+/** The superlative words the claim uses that none of its cited sources states (whole words, so "almost" is not "most"). */
+export function unstatedSuperlatives(claim: string, cited: Source[]): string[] {
+  const text = plainText(claim)
+  const source = cited.map(sourceText).join(' ')
+  return SUPERLATIVES.filter(([word, backing]) => new RegExp(`\\b${word}\\b`, 'i').test(text) && !new RegExp(`\\b(?:${backing})\\b`, 'i').test(source)).map(([word]) => word)
+}
+
 /**
  * A reason that says the source does not state it, calls the claim an extension, or says it is only implied contradicts a
  * supported verdict. "The source states X, which does not differ from the claim" is not such a reason.
  */
 export function admitsGap(reason: string | undefined): boolean {
-  return /\b(does not|doesn't|do not|not) (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bextension\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
+  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {

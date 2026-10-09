@@ -156,6 +156,11 @@ describe('report headings', () => {
     expect(html(createElement(Markdown, { text: '## The History of the Python Programming Language', sources: [python] }))).toContain('The history of the Python programming language')
   })
 
+  it('keeps Tower in a proper name a snippet capitalises mid-sentence', () => {
+    const eiffel: Source = { n: 1, title: 'Eiffel Tower', site: 'Wikipedia', url: 'https://x.test', snippet: 'The Eiffel Tower is a lattice tower in Paris.' }
+    expect(html(createElement(Markdown, { text: '## History of the Eiffel Tower', sources: [eiffel] }))).toContain('History of the Eiffel Tower')
+  })
+
   it('collapses the double full stop an abbreviation leaves in a claim label', () => {
     const claim: AuditClaim = { id: 1, block: 0, piece: 0, text: 'It struck at 5:12 a.m. [1].', cites: [1], pre: { overlap: 1, best: 1, missingNumbers: [], missingNames: [], level: 'ok' }, verdict: 'supported', reason: 'ok' }
     const out = html(createElement(Markdown, { text: 'It struck at 5:12 a.m. [1].', audit: { claims: [claim], selected: null, onSelect: () => undefined } }))

@@ -25,11 +25,11 @@ const ClaimsContext = createContext<ClaimsValue | null>(null)
 const namesOf = (sources: Source[]) => {
   const text = sources.map(source => `${source.title} ${source.snippet}`).join(' ')
   const snippets = sources.map(source => source.snippet).join(' ')
-  // A title's first word is capitalised whatever it is ("Did", "History"), so it counts only when a snippet capitalises it mid-sentence.
+  // A capital in a snippet mid-sentence ("On the Eiffel Tower, ...") makes the word a name. A title's first word is capitalised whatever it is ("Did", "History"), so it needs that proof.
   const midSentence = (word: string) => new RegExp(`[^.!?\\s]\\s+${word}\\b`).test(snippets)
   return sources.flatMap(source =>
     [...source.title.matchAll(/\p{Lu}[\p{L}\p{N}-]+/gu)]
-      .filter(match => (match.index > 0 || midSentence(match[0])) && !text.includes(match[0].toLowerCase()))
+      .filter(match => midSentence(match[0]) || (match.index > 0 && !text.includes(match[0].toLowerCase())))
       .map(match => match[0]),
   )
 }

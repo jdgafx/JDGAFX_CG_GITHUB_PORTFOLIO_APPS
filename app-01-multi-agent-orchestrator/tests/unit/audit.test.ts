@@ -4,6 +4,8 @@ import {
   decidedWithoutModel,
   extractClaims,
   admitsGap,
+  statesCore,
+  unstatedSuperlatives,
   isAboutResearch,
   findQuote,
   namesIn,
@@ -82,6 +84,8 @@ describe('claims about the research itself', () => {
     expect(extractClaims(body).map(claim => claim.text)).toEqual(['The wall is long [1].'])
     expect(isAboutResearch('No source names the climbers [3].')).toBe(false)
     expect(isAboutResearch('The sources do not agree [3].')).toBe(true)
+    expect(isAboutResearch('The sources consulted mention these but offer no detail on what causal evidence supports them [3][4].')).toBe(true)
+    expect(isAboutResearch('Python 3.0 was released as a major version, but the sources cut off before giving its release date [1].')).toBe(true)
     expect(isAboutResearch('Popular "unsinkable" claims about the ship are treated in the sources as legends rather than established facts [3].')).toBe(false)
   })
 })
@@ -247,6 +251,8 @@ describe('a supported verdict that the reason contradicts', () => {
     "it describes a documentary, not all accounts, so close paraphrase",
     'The source does not mention the cause.',
     'Source extrapolates beyond the series.',
+    'The source does not explicitly state this.',
+    'Cause not mentioned in the source.',
   ])('flags the reason: %s', reason => {
     expect(admitsGap(reason)).toBe(true)
   })
@@ -261,6 +267,61 @@ describe('a supported verdict that the reason contradicts', () => {
   ])('leaves a true supported reason alone: %s', reason => {
     expect(admitsGap(reason)).toBe(false)
     expect(settle('The series emphasizes perceived mistakes by those in command [2].', reason).verdict).toBe('supported')
+  })
+})
+
+describe('superlatives the source does not state', () => {
+  const quake: Source = {
+    n: 1, title: 'San Francisco earthquake', site: 'Wikipedia', url: 'https://x.test',
+    snippet: 'With a maximum Mercalli intensity of XI (Extreme), it created high-intensity shaking from Eureka on the North Coast to the Salinas Valley.',
+  }
+  const text = 'The shaking reached the highest category on the Mercalli intensity scale, XI (Extreme), and was strong along a long stretch of coast from Eureka to the Salinas Valley [1].'
+
+  it('caps the Mercalli claim to partly and names the word', () => {
+    const draft = { id: 1, block: 0, piece: 0, text, cites: [1] }
+    const claim = settleClaim(draft, preCheck(text, [1], [quake]), [quake], {
+      id: 1, verdict: 'supported', source: 1, quote: 'With a maximum Mercalli intensity of XI (Extreme), it created high-intensity shaking from Eureka on the North Coast to the Salinas Valley.',
+      reason: 'Intensity XI and the Eureka to Salinas Valley range are both stated.',
+    })
+    expect(claim.verdict).toBe('partly')
+    expect(claim.reason).toContain('The source text does not state "highest".')
+  })
+
+  it('finds the word, or a synonym, in the cited source', () => {
+    const src = (snippet: string): Source[] => [{ ...quake, snippet }]
+    expect(unstatedSuperlatives(text, src('XI was the highest category reached.'))).toEqual([])
+    expect(unstatedSuperlatives('It was the first described in 1906 [1].', src('It was first described in 1906.'))).toEqual([])
+    expect(unstatedSuperlatives('Almost every galaxy has one [1].', src('Every galaxy has one.'))).toEqual([])
+    expect(unstatedSuperlatives('It was the largest city [1].', src('It was the biggest city.'))).toEqual([])
+    expect(unstatedSuperlatives('It is the only survivor, and the most notable [1].', src('A survivor.'))).toEqual(['only', 'most'])
+  })
+})
+
+describe('a hedged claim the model called unsupported', () => {
+  const source: Source = { n: 2, title: 'Photosynthesis', site: 'Wikipedia', url: '', snippet: 'Unlike oxygenic phototrophs that only use the Calvin cycle, some bacteria use other pathways.' }
+  const text = 'Oxygenic phototrophs are generally described as using only the Calvin cycle [2].'
+  const settle = (reason: string, claimText = text) =>
+    settleClaim({ id: 1, block: 0, piece: 0, text: claimText, cites: [2] }, preCheck(claimText, [2], [source]), [source], { id: 1, verdict: 'unsupported', reason })
+
+  it('is raised to partly when the reason says the source states the fact', () => {
+    expect(settle("Source says oxygenic phototrophs use only the Calvin cycle, but does not say 'generally described'.").verdict).toBe('partly')
+  })
+
+  it('stays unsupported when the reason says the source differs, or does not open with a statement', () => {
+    expect(settle('Source says bacteria use other pathways instead.').verdict).toBe('unsupported')
+    expect(settle('Not stated in the source.').verdict).toBe('unsupported')
+    expect(statesCore('Source states a different date.')).toBe(false)
+  })
+
+  it('stays unsupported when the sentence shares little with the source', () => {
+    expect(settle('Source says oxygenic phototrophs use the Calvin cycle.', 'Bananas are grown in Ecuador, a country in South America [2].').verdict).toBe('unsupported')
+  })
+})
+
+describe('names in plural form', () => {
+  it('accepts "Suns" when the source says "the Sun"', () => {
+    const source: Source = { n: 2, title: 'Black hole', site: 'Wikipedia', url: '', snippet: 'Masses of millions to billions of times the mass of the Sun. Almost every large galaxy has one at its center.' }
+    expect(preCheck('Black holes have masses of millions to billions of Suns, at the centers of large galaxies [2].', [2], [source]).missingNames).toEqual([])
   })
 })
 
