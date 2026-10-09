@@ -215,7 +215,7 @@ export function preCheck(claim: string, cites: number[], sources: Source[]): Pre
   const missingNumbers = numbersIn(plain).filter(value => !haveNumbers.has(value))
   // A name is missing only when none of its words is in the cited text, so "Ukrainian SSR" is backed by "Ukrainian Soviet Socialist Republic".
   const missingNames = namesIn(plain).filter(name =>
-    name.split(' ').every(part => {
+    name.split(/[\s-]+/).every(part => {
       const lower = part.toLowerCase()
       // The singular counts too: "Suns" is backed by "the Sun".
       return !unionWords.has(stem(lower)) && ![lower, lower.replace(/(?<=\w{2})e?s$/, '')].some(form => union.toLowerCase().includes(form))
@@ -321,12 +321,6 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
     verdict = 'partly'
     notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
   }
-  // The one upgrade: "unsupported" whose own reason says the source states the core fact, on a sentence that shares
-  // most of its words and numbers with the source, is a hedged or widened claim, which is partly.
-  if (verdict === 'unsupported' && statesCore(judgment.reason) && pre.overlap >= 0.5 && pre.missingNumbers.length === 0) {
-    verdict = 'partly'
-    notes.push('The source states the core of it, so it is partly supported.')
-  }
   if (verdict === 'supported' && admitsGap(judgment.reason)) {
     verdict = 'partly'
     notes.push("The model's own reason says the source does not state all of the claim.")
@@ -350,24 +344,36 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
   return { ...base, verdict, reason: reason || 'No reason given.', ...(quote ? { quote } : {}) }
 }
 
-/** A reason that opens by saying what the source states, without saying it differs from the claim. */
-export function statesCore(reason: string | undefined): boolean {
-  const text = reason ?? ''
-  return /^(the )?source \d* ?(says|states|describes|gives|mentions|notes)\b/i.test(text) && !/\b(instead|contradict\w*|opposite|different\w*|rather than|however)\b/i.test(text)
-}
-
-/** Words that rank or bound something. A claim that uses one must find it, or a synonym, in the source it cites. */
-const SUPERLATIVES: Array<[claim: string, source: string]> = [
-  ['highest', 'highest|greatest'], ['largest', 'largest|biggest|greatest'], ['first', 'first|earliest|initial'], ['only', 'only|sole|solely'],
-  ['most', 'most|majority'], ['record', 'record'], ['ever', 'ever'], ['top', 'top'], ['best', 'best'], ['worst', 'worst'], ['never', 'never|no one'],
-  ['deadliest', 'deadliest|deadly'], ['longest', 'longest'], ['tallest', 'tallest'], ['lowest', 'lowest'], ['smallest', 'smallest'], ['oldest', 'oldest'],
+/**
+ * Ranking words. Each has the pattern that makes it a ranking in a claim ("the only", not "not only"; "the first", not
+ * "at first"; "ever" beside a superlative, not "ever since") and the wording that backs it in a source.
+ */
+const SUPERLATIVES: Array<[word: string, inClaim: string, inSource: string]> = [
+  ['highest', 'highest', 'highest|tallest|top|peak|greatest'],
+  ['tallest', 'tallest', 'tallest|highest|top|peak'],
+  ['largest', 'largest', 'largest|biggest|greatest'],
+  ['first', 'the first', 'first|maiden|earliest|inaugural|initial'],
+  ['only', 'the only', 'only|exclusively|sole|solely|alone'],
+  ['most', 'the most (?!of\\b|likely\\b)\\w+', 'most|majority|more than half|(?:5[1-9]|[6-9]\\d|100)(?:\\.\\d+)?\\s?%'],
+  ['record', 'record', 'record'],
+  ['ever', '(?<=\\w{3}est\\b[^.]{0,40})ever(?! since)', 'ever'],
+  ['top', 'top', 'top|highest|peak'],
+  ['best', 'best', 'best'],
+  ['worst', 'worst', 'worst'],
+  ['never', 'never', 'never|no one|at any time|not once'],
+  ['deadliest', 'deadliest', 'deadliest|deadly'],
+  ['longest', 'longest', 'longest'],
+  ['lowest', 'lowest', 'lowest'],
+  ['smallest', 'smallest', 'smallest'],
+  ['oldest', 'oldest', 'oldest'],
 ]
 
-/** The superlative words the claim uses that none of its cited sources states (whole words, so "almost" is not "most"). */
+/** The ranking words the claim uses that none of its cited sources states (whole words, so "almost" is not "most"). */
 export function unstatedSuperlatives(claim: string, cited: Source[]): string[] {
   const text = plainText(claim)
   const source = cited.map(sourceText).join(' ')
-  return SUPERLATIVES.filter(([word, backing]) => new RegExp(`\\b${word}\\b`, 'i').test(text) && !new RegExp(`\\b(?:${backing})\\b`, 'i').test(source)).map(([word]) => word)
+  const found = (pattern: string, within: string) => new RegExp(`(?<!\\w)(?:${pattern})(?!\\w)`, 'i').test(within)
+  return SUPERLATIVES.filter(([, inClaim, inSource]) => found(inClaim, text) && !found(inSource, source)).map(([word]) => word)
 }
 
 /**

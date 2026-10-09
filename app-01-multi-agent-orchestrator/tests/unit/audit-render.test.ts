@@ -161,6 +161,13 @@ describe('report headings', () => {
     expect(html(createElement(Markdown, { text: '## History of the Eiffel Tower', sources: [eiffel] }))).toContain('History of the Eiffel Tower')
   })
 
+  it('ignores the capitals of a title a snippet repeats, and keeps names a snippet capitalises', () => {
+    const hn: Source = { n: 1, title: 'Largest Volcanic Eruption in Recorded History', site: 'Hacker News', url: 'https://x.test', snippet: 'Hacker News story "Largest Volcanic Eruption in Recorded History", linking to x.test. 38 points.' }
+    const everest: Source = { n: 2, title: 'Everest', site: 'Wikipedia', url: 'https://x.test', snippet: 'The tallest peak is Mount Everest in the Himalayas.' }
+    expect(html(createElement(Markdown, { text: '## Largest Volcanic Eruption in Recorded History', sources: [hn] }))).toContain('Largest volcanic eruption in recorded history')
+    expect(html(createElement(Markdown, { text: '## The Tallest Mountain in the World: Mount Everest', sources: [everest] }))).toContain('The tallest mountain in the world: Mount Everest')
+  })
+
   it('collapses the double full stop an abbreviation leaves in a claim label', () => {
     const claim: AuditClaim = { id: 1, block: 0, piece: 0, text: 'It struck at 5:12 a.m. [1].', cites: [1], pre: { overlap: 1, best: 1, missingNumbers: [], missingNames: [], level: 'ok' }, verdict: 'supported', reason: 'ok' }
     const out = html(createElement(Markdown, { text: 'It struck at 5:12 a.m. [1].', audit: { claims: [claim], selected: null, onSelect: () => undefined } }))

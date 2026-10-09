@@ -24,14 +24,17 @@ const ClaimsContext = createContext<ClaimsValue | null>(null)
  */
 const namesOf = (sources: Source[]) => {
   const text = sources.map(source => `${source.title} ${source.snippet}`).join(' ')
-  const snippets = sources.map(source => source.snippet).join(' ')
-  // A capital in a snippet mid-sentence ("On the Eiffel Tower, ...") makes the word a name. A title's first word is capitalised whatever it is ("Did", "History"), so it needs that proof.
-  const midSentence = (word: string) => new RegExp(`[^.!?\\s]\\s+${word}\\b`).test(snippets)
-  return sources.flatMap(source =>
-    [...source.title.matchAll(/\p{Lu}[\p{L}\p{N}-]+/gu)]
-      .filter(match => midSentence(match[0]) || (match.index > 0 && !text.includes(match[0].toLowerCase())))
-      .map(match => match[0]),
-  )
+  // A Hacker News snippet quotes its story title, so that title is dropped before looking for capitals inside sentences.
+  const snippets = sources.map(source => (source.site === 'Hacker News' ? source.snippet.split(source.title).join(' ') : source.snippet))
+  // A capital in a snippet mid-sentence ("On the Eiffel Tower, ...") marks a name. A title's first word is capitalised whatever it is ("Did", "History"), so it needs that proof.
+  const inSentences = snippets.flatMap(snippet => [...snippet.matchAll(/(?<=[^.!?\s]\s+)(\p{Lu}[\p{L}\p{N}-]+)/gu)].map(match => match[1] ?? ''))
+  // A Title Case title capitalises every word, so its capitals say nothing; only a title with some lower-case long word does.
+  const isTitleCase = (title: string) => {
+    const long = title.split(' ').filter(word => word.replace(/[^\p{L}]/gu, '').length > 3)
+    return long.length >= 2 && long.every(word => /^[^\p{L}]*\p{Lu}/u.test(word))
+  }
+  const inTitles = sources.filter(source => !isTitleCase(source.title)).flatMap(source => [...source.title.matchAll(/\p{Lu}[\p{L}\p{N}-]+/gu)].filter(match => match.index > 0 && !text.includes(match[0].toLowerCase())).map(match => match[0]))
+  return [...inSentences, ...inTitles]
 }
 
 const CITATION = /(\[\d{1,3}\])/

@@ -4,7 +4,6 @@ import {
   decidedWithoutModel,
   extractClaims,
   admitsGap,
-  statesCore,
   unstatedSuperlatives,
   isAboutResearch,
   findQuote,
@@ -287,6 +286,18 @@ describe('superlatives the source does not state', () => {
     expect(claim.reason).toContain('The source text does not state "highest".')
   })
 
+  it('counts a word only where it ranks, and accepts synonyms', () => {
+    const src = (snippet: string): Source[] => [{ ...quake, snippet }]
+    for (const claim of ['Fires not only broke out but also lasted days [1].', 'At first the tower was red [1].', 'Named for him ever since [1].', 'Most of the city was destroyed [1].', 'It was most likely a fire [1].', 'She was designed first and then built [1].'])
+      expect(unstatedSuperlatives(claim, src('Fires lasted days.'))).toEqual([])
+    expect(unstatedSuperlatives('It is the tallest structure [1].', src('It is the highest structure.'))).toEqual([])
+    expect(unstatedSuperlatives('It was her first voyage, the first of three [1].', src('A voyage.'))).toEqual(['first'])
+    expect(unstatedSuperlatives('It is the only one [1].', src('It is exclusively theirs.'))).toEqual([])
+    expect(unstatedSuperlatives('The most damaged city [1].', src('Over 80% of the city was destroyed.'))).toEqual([])
+    expect(unstatedSuperlatives('The most damaged city [1].', src('Over 30% of the city was destroyed.'))).toEqual(['most'])
+    expect(unstatedSuperlatives('The largest storm ever recorded [1].', src('A storm.'))).toEqual(['largest', 'ever'])
+  })
+
   it('finds the word, or a synonym, in the cited source', () => {
     const src = (snippet: string): Source[] => [{ ...quake, snippet }]
     expect(unstatedSuperlatives(text, src('XI was the highest category reached.'))).toEqual([])
@@ -297,24 +308,19 @@ describe('superlatives the source does not state', () => {
   })
 })
 
-describe('a hedged claim the model called unsupported', () => {
-  const source: Source = { n: 2, title: 'Photosynthesis', site: 'Wikipedia', url: '', snippet: 'Unlike oxygenic phototrophs that only use the Calvin cycle, some bacteria use other pathways.' }
-  const text = 'Oxygenic phototrophs are generally described as using only the Calvin cycle [2].'
-  const settle = (reason: string, claimText = text) =>
-    settleClaim({ id: 1, block: 0, piece: 0, text: claimText, cites: [2] }, preCheck(claimText, [2], [source]), [source], { id: 1, verdict: 'unsupported', reason })
-
-  it('is raised to partly when the reason says the source states the fact', () => {
-    expect(settle("Source says oxygenic phototrophs use only the Calvin cycle, but does not say 'generally described'.").verdict).toBe('partly')
-  })
-
-  it('stays unsupported when the reason says the source differs, or does not open with a statement', () => {
-    expect(settle('Source says bacteria use other pathways instead.').verdict).toBe('unsupported')
-    expect(settle('Not stated in the source.').verdict).toBe('unsupported')
-    expect(statesCore('Source states a different date.')).toBe(false)
-  })
-
-  it('stays unsupported when the sentence shares little with the source', () => {
-    expect(settle('Source says oxygenic phototrophs use the Calvin cycle.', 'Bananas are grown in Ecuador, a country in South America [2].').verdict).toBe('unsupported')
+describe('a verdict is never raised in code', () => {
+  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 and sank two hours later. She was the largest ship afloat.' }
+  it.each([
+    ['The Titanic struck a mine and sank [1].', 'Source 1 says Titanic struck an iceberg, not a mine.'],
+    ['The fault is left-lateral [1].', 'Source describes a right-lateral fault, but the claim says left-lateral.'],
+    ['She did not strike an iceberg [1].', 'Source states she struck an iceberg.'],
+    ['Gas mains started the fires on the ship [1].', 'Source says nothing about gas mains starting the fires.'],
+    ['The ship was built by the company of Thomas Edison [1].', 'Source states the company of Gustave Eiffel designed and built it.'],
+    ['The ship sank slowly over three days [1].', 'Source says the reverse: she sank two hours later.'],
+    ['The ship hit a mine and an iceberg [1].', 'Source 1 states she hit an iceberg; no mine is mentioned.'],
+  ])('keeps unsupported: %s', (text, reason) => {
+    const draft = { id: 1, block: 0, piece: 0, text, cites: [1] }
+    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'unsupported', reason })).toMatchObject({ verdict: 'unsupported', reason })
   })
 })
 
@@ -322,6 +328,13 @@ describe('names in plural form', () => {
   it('accepts "Suns" when the source says "the Sun"', () => {
     const source: Source = { n: 2, title: 'Black hole', site: 'Wikipedia', url: '', snippet: 'Masses of millions to billions of times the mass of the Sun. Almost every large galaxy has one at its center.' }
     expect(preCheck('Black holes have masses of millions to billions of Suns, at the centers of large galaxies [2].', [2], [source]).missingNames).toEqual([])
+  })
+})
+
+describe('hyphenated names', () => {
+  it('treats Polish-born as its parts', () => {
+    const source: Source = { n: 1, title: 'Marie Curie', site: 'Wikipedia', url: '', snippet: 'Marie Curie was a Polish and naturalised-French physicist.' }
+    expect(preCheck('Marie Curie was a Polish-born physicist [1].', [1], [source]).missingNames).toEqual([])
   })
 })
 
