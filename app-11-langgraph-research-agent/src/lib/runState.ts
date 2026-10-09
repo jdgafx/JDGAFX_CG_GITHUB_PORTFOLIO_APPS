@@ -51,7 +51,12 @@ export interface RunView {
   /** Client clock, Date.now(): when the run started and when it failed or was stopped. */
   startedAt: number | null
   endedAt: number | null
+  /** Client clock when the first live Wikipedia page of this run arrived. Null until a page was read. */
+  liveAt: number | null
 }
+
+/** How the server words a tools step that read at least one page (nodes.ts toolsStep). */
+export const NEW_SOURCES = 'New sources:'
 
 const keyOf = (node: NodeName, visit: number) => `${node}-${visit}`
 
@@ -65,7 +70,7 @@ const idleMarks = (): Record<NodeName, NodeMark> => ({
 })
 
 export function emptyRun(): RunView {
-  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null, checkpoints: [], startedAt: null, endedAt: null }
+  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null, checkpoints: [], startedAt: null, endedAt: null, liveAt: null }
 }
 
 export function startRun(): RunView {
@@ -110,6 +115,8 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
     }
     case 'node_end': {
       const entry = entryFor(frame)
+      // The tools step names the pages it read. A kept (reused) row was read in the original run, not now.
+      const readPage = frame.node === 'tools' && !frame.reused && frame.status === 'ok' && frame.detail.startsWith(NEW_SOURCES)
       // A reused or edited step shows its own mark, so the graph tells the kept steps from the ones that ran again.
       const mark: NodeMark = frame.reused ? 'reused' : frame.edited ? 'edited' : frame.status
       return {
@@ -117,6 +124,7 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
         active: null,
         marks: { ...view.marks, [frame.node]: mark },
         trace: withEntry(view.trace, entry),
+        liveAt: view.liveAt ?? (readPage ? Date.now() : null),
       }
     }
     case 'edge':
@@ -206,4 +214,19 @@ export function researchStatus(view: RunView): string {
   if (view.phase === 'failed') return 'Research failed. The answer panel says why.'
   if (view.phase === 'stopped') return 'Research stopped. Steps that finished are still in the trace.'
   return 'Ready. Start research when the question is set.'
+}
+
+export type LiveState = 'idle' | 'live' | 'failed'
+
+/**
+ * The live-data indicator. It lights only once a Wikipedia page was really read, so it never claims data the run did
+ * not fetch. It reads failed when the tools ran and none of them returned a page. `earlier` is the original run's
+ * time, used while a re-run shows pages that were read earlier and fetches none of its own.
+ */
+export function liveData(view: RunView, earlier: number | null = null): { state: LiveState; at: number | null } {
+  const at = view.liveAt ?? earlier
+  if (at !== null) return { state: 'live', at }
+  const toolsRan = view.trace.some((entry) => entry.node === 'tools' && !entry.reused && entry.status !== 'running')
+  const ended = view.phase === 'done' || view.phase === 'failed' || view.phase === 'stopped'
+  return { state: toolsRan && ended ? 'failed' : 'idle', at: null }
 }

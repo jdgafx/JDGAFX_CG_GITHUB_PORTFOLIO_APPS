@@ -1,4 +1,4 @@
-import { statusText, type RunView } from '../lib/runState'
+import { liveData, statusText, type RunView } from '../lib/runState'
 
 interface Tone {
   badge: string
@@ -25,10 +25,16 @@ function toneFor(view: RunView): Tone {
 
 interface HeaderProps {
   view: RunView
+  /** When the original run first read a page, for a re-run that reads none of its own. */
+  earlierLiveAt: number | null
 }
 
-export function Header({ view }: HeaderProps) {
+const clock = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+export function Header({ view, earlierLiveAt }: HeaderProps) {
   const tone = toneFor(view)
+  const live = liveData(view, earlierLiveAt)
+  const dot = live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -43,6 +49,14 @@ export function Header({ view }: HeaderProps) {
               {statusText(view)}
             </span>
           </div>
+          <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title="en.wikipedia.org">
+            <span className={`ds-dot ${dot}`} aria-hidden="true" />
+            {live.state === 'failed'
+              ? 'Live data unavailable: Wikipedia'
+              : live.state === 'live' && live.at !== null
+                ? `Live data: Wikipedia · fetched ${clock(live.at)}`
+                : 'Live data: Wikipedia'}
+          </p>
           <p className="ds-subtitle">
             Ask a factual question. An agent searches Wikipedia, drafts a cited answer, and a critic checks it.
           </p>

@@ -129,7 +129,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={view.phase}>
-      <Header view={view} />
+      <Header view={view} earlierLiveAt={forking ? base.liveAt : null} />
 
       <main className="ds-main">
         <div className="ds-bench">

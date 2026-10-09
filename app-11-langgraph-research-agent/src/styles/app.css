@@ -45,3 +45,6 @@
 .g-dot--edit { fill: var(--ds-accent); }
 .trace__state--edit { color: var(--ds-accent); }
 .legend__kept { width: 8px; height: 8px; border-radius: 50%; border: 1.5px dotted var(--ds-text-muted); }
+
+.live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
+.live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
