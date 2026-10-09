@@ -170,27 +170,3 @@ export function expectationOf(steps: BotStep[]): string | null {
   const last = [...steps].reverse().find((step) => step.action === 'extract' || step.action === 'verify')
   return last ? [last.target, last.value].filter(Boolean).join(' ') : null
 }
-
-const STOPWORDS = new Set([
-  'about', 'after', 'again', 'their', 'there', 'these', 'this', 'that', 'those', 'which', 'what', 'when',
-  'with', 'from', 'into', 'will', 'should', 'have', 'been', 'page', 'pages', 'text', 'value', 'shows',
-  'show', 'report', 'observe', 'observed', 'read', 'first', 'lines', 'result', 'results',
-  // Process words from a plan's own description: they describe the browser's work, never page content.
-  'reported', 'browser', 'shown', 'display', 'displayed', 'current', 'content', 'return', 'returns',
-  'extract', 'extracted', 'loaded', 'visible', 'heading', 'string', 'exact', 'exactly',
-])
-
-/**
- * Keyword overlap between the plan's expectation and what the browser observed. It is a
- * lookup aid, not a verdict: the run never fails or passes on this.
- */
-export function overlapWith(expectation: string, observed: ObservedPage): { found: string[]; missing: string[] } {
-  const terms = [...new Set(expectation.toLowerCase().match(/[a-z]{4,}/g) ?? [])].filter((term) => !STOPWORDS.has(term))
-  const haystack = `${observed.title}\n${observed.excerpt}`.toLowerCase()
-  // "title" names the page title, which the observed page carries apart from its text.
-  const seen = (term: string) => haystack.includes(term) || (term === 'title' && observed.title.trim() !== '')
-  return {
-    found: terms.filter(seen),
-    missing: terms.filter((term) => !seen(term)),
-  }
-}

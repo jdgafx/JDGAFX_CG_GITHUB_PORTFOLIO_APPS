@@ -57,7 +57,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   // The run total is the sum of the timed rows, so the figures on screen reconcile with the trace.
   let timedMs = 0
   const send: Send = (event) => {
-    if ((event.type === 'stage' || event.type === 'step_complete') && typeof event.ms === 'number') timedMs += event.ms
+    if ((event.type === 'stage' || event.type === 'step_complete' || event.type === 'result') && typeof event.ms === 'number') timedMs += event.ms
     sendRaw(event)
   }
   const projectId = process.env.BROWSERBASE_PROJECT_ID ?? ''

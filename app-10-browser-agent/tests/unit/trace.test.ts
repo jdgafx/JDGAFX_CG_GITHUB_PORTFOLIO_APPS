@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, metricsFor, overlapWith, planItems, statusSummary, stepLabel } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, metricsFor, planItems, statusSummary, stepLabel } from '../../src/lib/trace'
 import type { BotStep } from '../../src/types'
 
 const navigate: BotStep = { action: 'navigate', target: 'Google home page', thought: 'Open the home page.', url: 'https://www.google.com/' }
@@ -218,31 +218,3 @@ describe('expectationOf', () => {
   })
 })
 
-describe('overlapWith', () => {
-  it('counts "title" as found when the observed page has a title', () => {
-    const overlap = overlapWith('Google title shows the page', {
-      url: 'https://www.google.com/',
-      title: 'Google',
-      excerpt: 'Search results',
-    })
-    expect(overlap).toEqual({ found: ['google', 'title'], missing: [] })
-  })
-
-  it('lists the expected terms that do not appear anywhere on the page', () => {
-    const overlap = overlapWith('Google title shows the page', {
-      url: 'https://www.google.com/',
-      title: '',
-      excerpt: 'Search results',
-    })
-    expect(overlap).toEqual({ found: [], missing: ['google', 'title'] })
-  })
-
-  it('finds an expected term in the page text', () => {
-    const overlap = overlapWith('Google title shows the page', {
-      url: 'https://www.google.com/',
-      title: 'Untitled',
-      excerpt: 'Google results for the title',
-    })
-    expect(overlap).toEqual({ found: ['google', 'title'], missing: [] })
-  })
-})

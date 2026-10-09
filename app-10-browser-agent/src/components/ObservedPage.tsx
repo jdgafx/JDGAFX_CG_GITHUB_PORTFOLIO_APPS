@@ -1,5 +1,4 @@
 import type { ObservedPage as Observed } from '../types'
-import { overlapWith } from '../lib/trace'
 
 interface ObservedPageProps {
   observed: Observed | null
@@ -7,11 +6,8 @@ interface ObservedPageProps {
   expectation: string | null
 }
 
-/** The page the browser last read, in a browser window: address, title, text, the keyword check, then the session. */
+/** The page the browser last read, in a browser window: address, title, text, what the plan expected, then the session. */
 export default function ObservedPage({ observed, sessionId, expectation }: ObservedPageProps) {
-  const overlap = observed && expectation ? overlapWith(expectation, observed) : null
-  const expectedCount = overlap ? overlap.found.length + overlap.missing.length : 0
-
   return (
     <section className="bb-window" aria-labelledby="observed-heading">
       <h3 className="bb-subhead" id="observed-heading">Observed page</h3>
@@ -35,15 +31,10 @@ export default function ObservedPage({ observed, sessionId, expectation }: Obser
               </dd>
             </div>
           </dl>
-          {overlap && expectation && expectedCount > 0 && (
+          {expectation && (
             <div className="bb-check">
               <p className="ds-help">Plan expected: {expectation}</p>
-              <p>
-                {overlap.missing.length === 0
-                  ? `Every expected term appears on the page (${overlap.found.join(', ')}).`
-                  : `${overlap.found.length} of ${expectedCount} expected terms appear on the page. Not found: ${overlap.missing.join(', ')}.`}
-              </p>
-              <p className="ds-help">Keyword match only. BrowseBot does not judge whether the result is right.</p>
+              <p className="ds-help">BrowseBot shows what the browser observed. It does not judge whether the result is right.</p>
             </div>
           )}
         </div>
