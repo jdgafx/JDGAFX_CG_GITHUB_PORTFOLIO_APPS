@@ -48,7 +48,7 @@ function Banner({ issue }: { issue: IssueRef }) {
       </span>
       <span className="gg-banner__title">{issue.title}</span>
       {issue.htmlUrl.startsWith('https://github.com/') ? (
-        <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer">
+        <a className="gg-banner__link" href={issue.htmlUrl} target="_blank" rel="noopener noreferrer">
           Open on GitHub
         </a>
       ) : null}

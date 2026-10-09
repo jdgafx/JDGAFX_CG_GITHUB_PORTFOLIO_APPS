@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { StreamEvent } from '../../netlify/shared/events'
 import { NOT_NEEDED_DETAIL } from '../../netlify/shared/events'
-import { applyEvent, emptyRun, runFromView } from '../../src/lib/run-state'
+import { applyEvent, emptyRun, runFromView, settleRunning } from '../../src/lib/run-state'
 import { padTrace } from '../../netlify/shared/thread-view'
 import { formatAge, formatCost, formatMs, formatTokens } from '../../src/lib/format'
 import type { RunResult, ThreadView } from '../../src/types'
@@ -192,5 +192,30 @@ describe('formatting', () => {
     expect(formatAge('2026-07-09T12:00:00Z', now)).toBe('3 months ago')
     expect(formatAge('2023-10-09T12:00:00Z', now)).toBe('3 years ago')
     expect(formatAge('not a date', now)).toBe('unknown age')
+  })
+})
+
+describe('settleRunning', () => {
+  const running = apply([
+    { type: 'thread', threadId: 't-9' },
+    { type: 'node_end', node: 'classify', ms: 1, status: 'ok', detail: 'd' },
+    { type: 'node_start', node: 'duplicates', ms: 2 },
+  ])
+
+  it('turns the step in flight into stopped after a stop, and leaves finished steps alone', () => {
+    const stopped = settleRunning(running, 'stopped')
+    expect(stopped.nodes).toMatchObject({ classify: 'done', duplicates: 'stopped', decide: 'idle' })
+    expect(Object.values(stopped.nodes)).not.toContain('running')
+  })
+
+  it('turns it into failed on an error frame that came without a node_end, so no halo is left', () => {
+    const failed = applyEvent(running, { type: 'error', message: 'The connection dropped.' })
+    expect(failed.nodes.duplicates).toBe('failed')
+    expect(failed).toMatchObject({ error: 'The connection dropped.', retryable: true })
+  })
+
+  it('returns the same object when nothing is running', () => {
+    const idle = emptyRun()
+    expect(settleRunning(idle, 'stopped')).toBe(idle)
   })
 })

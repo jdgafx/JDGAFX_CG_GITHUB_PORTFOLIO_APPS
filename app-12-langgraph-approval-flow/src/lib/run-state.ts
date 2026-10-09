@@ -1,7 +1,7 @@
 import type { StreamEvent } from '../../netlify/shared/events'
 import { type DuplicateReport, type IssueRef, type NodeName, type ReviewPayload, type RunResult, type ThreadView, type TraceRow, type TraceStatus } from '../types'
 
-export type NodeStatus = 'idle' | 'running' | 'waiting' | 'done' | 'failed' | 'skipped'
+export type NodeStatus = 'idle' | 'running' | 'waiting' | 'done' | 'failed' | 'skipped' | 'stopped'
 
 /** Where the page is: nothing started, a run streaming, paused for a person, finished, or failed. */
 export type Phase = 'idle' | 'running' | 'paused' | 'done' | 'failed' | 'stopped'
@@ -30,6 +30,17 @@ function idleNodes(): Record<NodeName, NodeStatus> {
 
 export function emptyRun(issue: IssueRef | null = null, threadId: string | null = null): RunView {
   return { threadId, issue, nodes: idleNodes(), taken: {}, trace: [], proposal: null, duplicates: null, result: null, error: null, retryable: false }
+}
+
+/**
+ * The steps that were running when the run ended can run no more: after a stop they read stopped, after a failure
+ * failed. So no node keeps its halo once the run is over.
+ */
+export function settleRunning(run: RunView, to: 'stopped' | 'failed'): RunView {
+  if (!Object.values(run.nodes).includes('running')) return run
+  const nodes = { ...run.nodes }
+  for (const name of Object.keys(nodes) as NodeName[]) if (nodes[name] === 'running') nodes[name] = to
+  return { ...run, nodes }
 }
 
 function statusOf(status: TraceStatus): NodeStatus {
@@ -73,7 +84,7 @@ export function applyEvent(run: RunView, event: StreamEvent): RunView {
     case 'result':
       return { ...run, result: event.result, duplicates: event.result.duplicates ?? run.duplicates, trace: event.result.trace }
     case 'error':
-      return { ...run, error: event.message, retryable: run.threadId !== null }
+      return { ...settleRunning(run, 'failed'), error: event.message, retryable: run.threadId !== null }
   }
 }
 

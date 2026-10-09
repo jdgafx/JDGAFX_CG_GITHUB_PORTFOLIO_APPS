@@ -15,6 +15,7 @@ const WORD: Record<NodeStatus, string> = {
   done: 'done',
   failed: 'failed',
   skipped: 'skipped',
+  stopped: 'stopped',
 }
 const NODE_CLASS: Record<NodeStatus, string> = {
   idle: '',
@@ -23,6 +24,7 @@ const NODE_CLASS: Record<NodeStatus, string> = {
   done: 'ds-g-node--done',
   failed: 'ds-g-node--failed',
   skipped: 'ds-g-node--skipped',
+  stopped: 'ds-g-node--stopped',
 }
 const DOT_CLASS: Record<NodeStatus, string> = {
   idle: 'ds-g-dot--idle',
@@ -31,6 +33,7 @@ const DOT_CLASS: Record<NodeStatus, string> = {
   done: 'ds-g-dot--done',
   failed: 'ds-g-dot--failed',
   skipped: 'ds-g-dot--idle',
+  stopped: 'ds-g-dot--stopped',
 }
 
 const join = (...parts: string[]): string => parts.filter((part) => part !== '').join(' ')
@@ -70,7 +73,7 @@ function pathSteps(run: RunView): string[] {
   for (const name of ['classify', 'duplicates', 'decide', 'review', 'reply'] as const) {
     const status = run.nodes[name]
     if (status === 'idle') continue
-    steps.push(status === 'skipped' ? `${name} (skipped)` : status === 'waiting' ? `${name} (paused)` : name)
+    steps.push(status === 'skipped' ? `${name} (skipped)` : status === 'waiting' ? `${name} (paused)` : status === 'stopped' ? `${name} (stopped)` : name)
   }
   return steps
 }

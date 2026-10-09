@@ -31,7 +31,8 @@ interface TraceCardProps {
 export function TraceCard({ run, current, phase }: TraceCardProps) {
   const rows = run.trace
   const lanes = lanesOf(rows)
-  const empty = rows.length === 0 && current === null
+  const stoppedNode = (Object.keys(run.nodes) as NodeName[]).find((name) => run.nodes[name] === 'stopped') ?? null
+  const empty = rows.length === 0 && current === null && stoppedNode === null
   return (
     <section className="ds-section ds-run__trace" aria-labelledby="trace-title">
       <div className="ds-section__head ds-section__head--bare">
@@ -83,6 +84,22 @@ export function TraceCard({ run, current, phase }: TraceCardProps) {
               </li>
             )
           })}
+          {stoppedNode !== null ? (
+            <li className="ds-trace__step ds-trace__step--stopped">
+              <span className="ds-trace__index">{rows.length + 1}</span>
+              <div>
+                <div className="ds-trace__head">
+                  <span className="ds-trace__name">{stoppedNode}</span>
+                  <span className="ds-trace__state ds-trace__state--stopped">
+                    <span className="ds-dot ds-dot--stopped" aria-hidden="true" />
+                    Stopped
+                  </span>
+                </div>
+                <div className="ds-trace__detail">You stopped waiting during this step. The server may still have finished it.</div>
+              </div>
+              <div className="ds-trace__meta" />
+            </li>
+          ) : null}
           {current !== null ? (
             <li className="ds-trace__step ds-trace__step--running">
               <span className="ds-trace__index">{rows.length + 1}</span>

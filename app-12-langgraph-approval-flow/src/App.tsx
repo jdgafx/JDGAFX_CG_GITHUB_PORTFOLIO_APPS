@@ -14,7 +14,7 @@ import { getIssue, GitHubError, listOpenIssues, parseIssueRef, parseRepoInput, s
 import { runAttr } from './lib/phase'
 import { useResultFocus } from './lib/useResultFocus'
 import { outcomeAfterFailure } from './lib/resume-failure'
-import { applyEvent, emptyRun, runFromView, type Phase, type RunView } from './lib/run-state'
+import { applyEvent, emptyRun, runFromView, settleRunning, type Phase, type RunView } from './lib/run-state'
 import { NO_STREAM, runningLine, type StreamFlow } from './lib/stream-view'
 import { PRESET_REPOS } from './constants'
 import { NODES, type HumanDecision, type IssueInput, type NodeName } from './types'
@@ -181,14 +181,15 @@ export default function App() {
     try {
       await open(onEvent, controller.signal)
       if (controller.signal.aborted) {
-        if (stoppedRef.current === controller) setPhase('stopped')
+        if (stoppedRef.current === controller) stopRun()
       } else if (outcome.phase === null) {
         setRequestError('The run ended without an answer. Try again.')
+        setRun((prev) => settleRunning(prev, 'failed'))
         setPhase('failed')
       }
     } catch (err) {
       if (isAbortError(err) || controller.signal.aborted) {
-        if (stoppedRef.current === controller) setPhase('stopped')
+        if (stoppedRef.current === controller) stopRun()
       } else {
         const after = outcomeAfterFailure({ from, eventsArrived, resuming, error: err })
         if (after.reopen && threadOf.current) {
@@ -196,6 +197,7 @@ export default function App() {
           await handleOpen(threadOf.current, `${failureText(err)} This is the thread as it is now.`)
         } else {
           setRequestError(after.message ?? failureText(err))
+          if (after.phase === 'failed') setRun((prev) => settleRunning(prev, 'failed'))
           setPhase(after.phase)
         }
       }
@@ -206,6 +208,12 @@ export default function App() {
       }
       void loadThreads()
     }
+  }
+
+  /** The page stopped waiting: the step in flight reads stopped and stops pulsing. */
+  const stopRun = () => {
+    setRun((prev) => settleRunning(prev, 'stopped'))
+    setPhase('stopped')
   }
 
   const handleTriage = () => {

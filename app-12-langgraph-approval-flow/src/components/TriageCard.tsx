@@ -1,5 +1,6 @@
 import { NODES, type RunResult, type TriageOutcome } from '../types'
 import { Chips, PriorityBadge } from './Chips'
+import { reasonsWithoutDuplicate } from '../lib/reasons'
 import { Md } from './Md'
 
 const OUTCOME_TEXT: Record<TriageOutcome, string> = {
@@ -78,7 +79,7 @@ export function TriageCard({ result }: { result: RunResult }) {
           <PathSteps path={result.path} />
           <span className="ds-help gg-path__why">
             {result.path === 'human' ? 'Paused at review. ' : ''}
-            <Md text={result.triage.reason} />
+            <Md text={original ? reasonsWithoutDuplicate(result.triage.reasons).join(' ') || 'Confirmed duplicate.' : result.triage.reason} />
             {result.humanDecision?.note ? ` Maintainer note: ${result.humanDecision.note}` : ''}
           </span>
         </dd>

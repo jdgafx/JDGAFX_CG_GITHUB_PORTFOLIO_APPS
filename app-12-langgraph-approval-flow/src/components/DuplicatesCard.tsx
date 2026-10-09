@@ -5,7 +5,7 @@ import { Md } from './Md'
 const VERDICT: Record<DuplicateJudgement['verdict'], { word: string; tone: string }> = {
   duplicate: { word: 'Duplicate', tone: 'ds-badge ds-badge--accent' },
   related: { word: 'Related', tone: 'ds-badge' },
-  not: { word: 'Not a duplicate', tone: 'ds-chip ds-chip--muted' },
+  not: { word: 'Not a duplicate', tone: 'ds-badge gg-badge--muted' },
   unverified: { word: 'Not accepted', tone: 'ds-badge ds-badge--warning' },
 }
 
@@ -24,8 +24,11 @@ function stateWord(candidate: DuplicateCandidate): string {
   }
 }
 
-/** The quotes the model gave, with the plain statement of what was checked. Shown for duplicate, related and rejected claims. */
-function Evidence({ judgement, number }: { judgement: DuplicateJudgement; number: number }) {
+/**
+ * The two passages the model quoted, side by side with equal boxes, and the plain statement of what was checked.
+ * Shown for duplicate, related and rejected claims, and inside the approval card for the proposed original.
+ */
+export function Evidence({ judgement, number }: { judgement: DuplicateJudgement; number: number }) {
   if (judgement.issueQuote === '' && judgement.candidateQuote === '') return null
   return (
     <div className="gg-quotes">
@@ -37,11 +40,23 @@ function Evidence({ judgement, number }: { judgement: DuplicateJudgement; number
         <figcaption>#{number} says</figcaption>
         <blockquote>{judgement.candidateQuote || 'No quote given.'}</blockquote>
       </figure>
-      <p className={judgement.quotesVerified ? 'gg-check-line' : 'gg-check-line gg-check-line--no'}>
-        <span className={`ds-dot ${judgement.quotesVerified ? 'ds-dot--ok' : 'ds-dot--failed'}`} aria-hidden="true" />
-        {judgement.quotesVerified
-          ? 'Both passages were found in the issue texts the model was given.'
-          : `The model called this ${judgement.claimed}, but at least one passage is not in the texts, so the verdict is not accepted.`}
+      <p className="gg-check-line">
+        {judgement.quotesVerified ? (
+          <span className="ds-badge ds-badge--success">
+            <span className="ds-dot ds-dot--ok" aria-hidden="true" />
+            Quotes verified in both issues
+          </span>
+        ) : (
+          <span className="ds-badge ds-badge--warning">
+            <span className="ds-dot ds-dot--failed" aria-hidden="true" />
+            Not accepted
+          </span>
+        )}
+        <span className="ds-help">
+          {judgement.quotesVerified
+            ? 'Both passages were found, word for word, in the issue texts the model was given.'
+            : `The model called this ${judgement.claimed}, but at least one passage is not in the texts, so the verdict is not accepted.`}
+        </span>
       </p>
     </div>
   )
@@ -57,34 +72,32 @@ function Candidate({ candidate, confirmed }: { candidate: DuplicateCandidate; co
           <span className="gg-cand__number">#{candidate.number}</span> {candidate.title}
         </a>
         <span className="gg-cand__verdict">
-          {confirmed ? <span className="ds-chip">Proposed original</span> : null}
-          {verdict ? <span className={verdict.tone}>{verdict.word}</span> : <span className="ds-chip ds-chip--muted">Not judged</span>}
+          {confirmed ? (
+            <span className="ds-badge ds-badge--accent">
+              <span className="ds-dot ds-dot--ok" aria-hidden="true" />
+              Proposed original
+            </span>
+          ) : null}
+          {verdict ? <span className={verdict.tone}>{verdict.word}</span> : <span className="ds-badge gg-badge--muted">Not judged</span>}
         </span>
       </div>
       <p className="ds-help gg-cand__meta">
-        <span className="gg-score" role="img" aria-label={`Similarity ${candidate.score.toFixed(2)} out of 1`}>
+        <span className="gg-score" role="img" aria-label={`Similarity ${candidate.score.toFixed(2)}, bar full at 0.5`}>
           <span style={{ width: `${Math.min(100, Math.round((candidate.score / 0.5) * 100))}%` }} />
         </span>
-        <span className="ds-num">{candidate.score.toFixed(2)}</span>
+        <span>
+          Similarity <span className="ds-num">{candidate.score.toFixed(2)}</span>
+        </span>
         <span>{stateWord(candidate)}</span>
         <span>opened {formatAge(candidate.createdAt)}</span>
       </p>
-      {candidate.sharedTerms.length > 0 ? (
-        <p className="gg-terms">
-          <span className="ds-help">Shared words:</span>
-          {candidate.sharedTerms.map((term) => (
-            <span key={term} className="ds-chip ds-chip--muted">
-              {term}
-            </span>
-          ))}
-        </p>
-      ) : null}
       {judgement ? (
         <>
           <p className="gg-cand__reason">
             <Md text={judgement.reason} />
           </p>
           <Evidence judgement={judgement} number={candidate.number} />
+          {candidate.sharedTerms.length > 0 ? <p className="gg-shared">Shared words: {candidate.sharedTerms.slice(0, 4).join(', ')}</p> : null}
         </>
       ) : null}
     </li>
@@ -107,8 +120,9 @@ export function DuplicatesCard({ report, searching }: DuplicatesCardProps) {
           Duplicate check
         </h2>
         <p className="ds-section__sub">
-          Candidates come from a GitHub search of this repository, open and closed issues, and are ranked by rare shared words. The
-          model judges the top three. A duplicate counts only when both of its quotes are found in the issue texts.
+          Candidates come from a GitHub search of this repository, open and closed issues. Similarity is the share of rare words two
+          issues have in common, from 0 to 1 (the bar is full at 0.5). The model judges the top three. A duplicate counts only when
+          both of its quotes are found in the issue texts.
         </p>
       </div>
 

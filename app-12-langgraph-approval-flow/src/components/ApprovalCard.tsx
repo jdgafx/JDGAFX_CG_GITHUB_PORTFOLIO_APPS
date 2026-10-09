@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { EDIT_LABELS_MAX, NOTE_MAX_LENGTH } from '../lib/limits'
 import { LABEL_VOCABULARY, PRIORITIES, type HumanDecision, type Priority, type ReviewPayload } from '../types'
 import { Chips, PriorityBadge } from './Chips'
+import { reasonsWithoutDuplicate } from '../lib/reasons'
+import { Evidence } from './DuplicatesCard'
 import { Md } from './Md'
 
 interface ApprovalCardProps {
@@ -19,6 +21,8 @@ function labelChoices(proposed: readonly string[]): string[] {
 export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
   const { classification, triage } = proposal
   const original = triage.action === 'close_duplicate' ? triage.duplicateOf : null
+  const judgement = original ? (proposal.duplicates?.candidates.find((candidate) => candidate.number === original.number)?.judgement ?? null) : null
+  const reasons = original ? reasonsWithoutDuplicate(triage.reasons) : triage.reasons
   const [editing, setEditing] = useState(false)
   const [labels, setLabels] = useState<string[]>(triage.labels)
   const [priority, setPriority] = useState<Priority>(triage.priority)
@@ -50,8 +54,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         </span>
       </div>
       <p className="ds-help">
-        The graph paused here and saved its checkpoint. Reload the page and come back: the run waits. Choose one answer to resume
-        it. Nothing is posted to GitHub.
+        Paused and saved: reload and come back, the run waits. Nothing is posted to GitHub.
       </p>
 
       {original ? (
@@ -62,41 +65,54 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
             <a href={original.htmlUrl} target="_blank" rel="noopener noreferrer">
               #{original.number} {original.title}
             </a>
-            . The evidence is in the duplicate check below.
+            . <a href="#dups-title">All candidates are in the duplicate check below.</a>
           </span>
         </p>
       ) : null}
 
-      <dl className="ds-kv gg-kv">
-        <dt>Why it paused</dt>
-        <dd>
-          <ul className="gg-reasons">
-            {triage.reasons.map((reason) => (
-              <li key={reason}>
-                <Md text={reason} />
-              </li>
-            ))}
-          </ul>
-        </dd>
-        <dt>Read as</dt>
-        <dd>
-          {classification.type}
-          {classification.area ? `, area ${classification.area}` : ''}, severity {classification.severity},{' '}
-          {Math.round(classification.confidence * 100)}% confidence
-        </dd>
-        <dt>Summary</dt>
-        <dd>
-          <Md text={classification.summary || 'The classifier gave no summary.'} />
-        </dd>
-        <dt>Proposed labels</dt>
-        <dd>
-          <Chips items={triage.labels} empty="None" />
-        </dd>
-        <dt>Proposed priority</dt>
-        <dd>
-          <PriorityBadge priority={triage.priority} />
-        </dd>
-      </dl>
+      {original && judgement ? <Evidence judgement={judgement} number={original.number} /> : null}
+
+      <details className="ds-disclosure gg-note-box">
+        <summary>Add a note for the record (optional)</summary>
+        <div className="ds-field">
+          <label htmlFor="review-note" className="ds-label">
+            Note
+          </label>
+          <textarea
+            id="review-note"
+            className="ds-textarea gg-note"
+            maxLength={NOTE_MAX_LENGTH}
+            value={note}
+            disabled={busy}
+            onChange={(event) => setNote(event.target.value)}
+            aria-describedby="review-note-help"
+          />
+          <p id="review-note-help" className="ds-help">
+            Kept on the run and shown on the triage card. It is not sent to GitHub. {note.length} of {NOTE_MAX_LENGTH} characters.
+          </p>
+        </div>
+      </details>
+
+      <div className="ds-approval__actions" role="group" aria-label="Your decision" aria-describedby="decision-help">
+        <button type="button" className="ds-button ds-button--primary" disabled={busy} onClick={() => onDecide({ action: 'approve', note: note.trim() || undefined })}>
+          {original ? `Approve: close as duplicate of #${original.number}` : 'Approve'}
+        </button>
+        <button type="button" className="ds-button" disabled={busy} aria-expanded={editing} aria-controls="edit-triage-form" onClick={() => { setProblem(null); setEditing((open) => !open) }}>
+          Edit labels and priority
+        </button>
+        <button type="button" className="ds-button ds-button--danger" disabled={busy} onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}>
+          Reject
+        </button>
+      </div>
+      <p id="decision-help" className="ds-help">
+        Approve keeps the proposed {original ? 'action, ' : ''}labels and priority. Edit changes the labels and priority. Reject applies
+        nothing, and its draft is fixed wording that says only that a maintainer looked.
+      </p>
+      {problem ? (
+        <p className="ds-notice ds-notice--error" role="alert">
+          {problem}
+        </p>
+      ) : null}
 
       {editing ? (
         <form id="edit-triage-form" className="gg-edit" onSubmit={submitEdit} noValidate>
@@ -143,45 +159,37 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         </form>
       ) : null}
 
-      <div className="ds-field">
-        <label htmlFor="review-note" className="ds-label">
-          Note for the record (optional)
-        </label>
-        <textarea
-          id="review-note"
-          className="ds-textarea gg-note"
-          maxLength={NOTE_MAX_LENGTH}
-          value={note}
-          disabled={busy}
-          onChange={(event) => setNote(event.target.value)}
-          aria-describedby="review-note-help"
-        />
-        <p id="review-note-help" className="ds-help">
-          Kept on the run and shown on the triage card. It is not sent to GitHub. {note.length} of {NOTE_MAX_LENGTH} characters.
-        </p>
-      </div>
+      <dl className="ds-kv gg-kv">
+        <dt>Why it paused</dt>
+        <dd>
+          <ul className="gg-reasons">
+            {reasons.map((reason) => (
+              <li key={reason}>
+                <Md text={reason} />
+              </li>
+            ))}
+          </ul>
+        </dd>
+        <dt>Read as</dt>
+        <dd>
+          {classification.type}
+          {classification.area ? `, area ${classification.area}` : ''}, severity {classification.severity},{' '}
+          {Math.round(classification.confidence * 100)}% confidence
+        </dd>
+        <dt>Summary</dt>
+        <dd>
+          <Md text={classification.summary || 'The classifier gave no summary.'} />
+        </dd>
+        <dt>Proposed labels</dt>
+        <dd>
+          <Chips items={triage.labels} empty="None" />
+        </dd>
+        <dt>Proposed priority</dt>
+        <dd>
+          <PriorityBadge priority={triage.priority} />
+        </dd>
+      </dl>
 
-      {problem ? (
-        <p className="ds-notice ds-notice--error" role="alert">
-          {problem}
-        </p>
-      ) : null}
-
-      <div className="ds-approval__actions" role="group" aria-label="Your decision" aria-describedby="decision-help">
-        <button type="button" className="ds-button ds-button--primary" disabled={busy} onClick={() => onDecide({ action: 'approve', note: note.trim() || undefined })}>
-          {original ? `Approve: close as duplicate of #${original.number}` : 'Approve'}
-        </button>
-        <button type="button" className="ds-button" disabled={busy} aria-expanded={editing} aria-controls="edit-triage-form" onClick={() => { setProblem(null); setEditing((open) => !open) }}>
-          Edit labels and priority
-        </button>
-        <button type="button" className="ds-button ds-button--danger" disabled={busy} onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}>
-          Reject
-        </button>
-      </div>
-      <p id="decision-help" className="ds-help">
-        Approve keeps the proposed {original ? 'action, ' : ''}labels and priority. Edit changes the labels and priority. Reject applies
-        nothing, and its draft is fixed wording that says only that a maintainer looked.
-      </p>
     </section>
   )
 }
