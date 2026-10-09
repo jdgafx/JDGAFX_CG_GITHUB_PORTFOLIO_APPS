@@ -188,3 +188,5 @@
     overflow-y: auto;
   }
 }
+
+.commons__missing { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; font-size: 13px; color: var(--ds-text-muted); background: var(--ds-surface-2); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius-sm); }

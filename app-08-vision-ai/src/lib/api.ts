@@ -129,6 +129,10 @@ export async function analyzeImage(opts: AnalyzeOptions): Promise<RunOutcome> {
     }
     if (timedOut || stalled) {
       settle(trace, timedOut ? TIMED_OUT_DETAIL : STALLED_DETAIL)
+      // No answer at all: nothing was running to settle, so say which step never finished.
+      if (!trace.steps.some(step => step.name === STEP_MODEL)) {
+        record(trace, { name: STEP_MODEL, status: 'failed', ms: Date.now() - trace.startedAt, detail: timedOut ? TIMED_OUT_DETAIL : STALLED_DETAIL })
+      }
       return {
         status: 'failed',
         message: timedOut ? TIMED_OUT_MESSAGE : STALLED_MESSAGE,

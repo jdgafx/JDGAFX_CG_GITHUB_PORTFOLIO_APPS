@@ -1,9 +1,9 @@
 import type { AnalysisMode } from '../lib/api'
 import { MODE_LABELS } from '../lib/modes'
+import type { Box } from '../lib/region'
 import type { RegionEntry, RunStatus } from '../lib/useAnalysis'
 import AnswerPane from './AnswerPane'
 import PictureStage, { type Picture } from './PictureStage'
-import type { Box } from '../lib/region'
 
 interface HeroProps {
   mode: AnalysisMode
@@ -16,6 +16,8 @@ interface HeroProps {
   result: string
   truncated: boolean
   notice: string
+  /** On a phone in Region mode the picture lives in the rail, above the question, so the hero shows only the answer. */
+  hidePictures: boolean
   onDraft: (box: Box | null) => void
   onStart: () => void
   onZoom: (slot: 'a' | 'b') => void
@@ -35,24 +37,49 @@ export default function Hero(props: HeroProps) {
   const comparing = mode === 'compare'
   // A box that was asked but did not finish stays as the draft, so it can be asked again; draw it once, not twice.
   const drawn = props.regions.filter(entry => !(props.draft && entry.status !== 'complete' && sameBox(entry.box, props.draft)))
+  const heading = (
+    <h2 id="answer-title" className="vl-hero__title" data-result-focus tabIndex={-1}>
+      {titleFor(mode, activeRegion)}
+    </h2>
+  )
+
+  // Before there is a picture the whole column is one invitation, not a stack of empty blocks.
+  if (!props.a) {
+    return (
+      <section className="ds-run__result vl-hero" aria-labelledby="answer-title">
+        {heading}
+        <div className="ds-state ds-state--empty vl-empty">
+          <span className="ds-state__mark" aria-hidden="true" />
+          <p className="ds-state__title">Choose a picture to begin</p>
+          <p className="ds-state__body">Drop a file, paste a screenshot, or pick a public image from Wikimedia Commons.</p>
+          <div className="ds-state__actions">
+            <label htmlFor="vl-file" className="ds-button ds-button--primary">
+              Choose file
+            </label>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="ds-run__result vl-hero" aria-labelledby="answer-title">
-      <h2 id="answer-title" className="vl-hero__title" data-result-focus tabIndex={-1}>
-        {titleFor(mode, activeRegion)}
-      </h2>
-      <div className={comparing ? 'vl-hero__grid vl-hero__grid--pair' : 'vl-hero__grid'}>
-        <PictureStage
-          comparing={comparing}
-          a={props.a}
-          b={props.b}
-          regions={mode === 'region' ? drawn : []}
-          activeRegionId={mode === 'region' ? (activeRegion?.id ?? null) : null}
-          draft={mode === 'region' && status !== 'running' ? props.draft : null}
-          editable={mode === 'region' && status !== 'running' && props.a !== null}
-          onDraft={props.onDraft}
-          onStart={props.onStart}
-          onZoom={props.onZoom}
-        />
+      {heading}
+      <div className={`vl-hero__grid${comparing ? ' vl-hero__grid--pair' : ''}`}>
+        {!props.hidePictures && (
+          <PictureStage
+            comparing={comparing}
+            a={props.a}
+            b={props.b}
+            regions={mode === 'region' ? drawn : []}
+            activeRegionId={mode === 'region' ? (activeRegion?.id ?? null) : null}
+            draft={mode === 'region' && status !== 'running' ? props.draft : null}
+            editable={mode === 'region' && status !== 'running'}
+            onDraft={props.onDraft}
+            onStart={props.onStart}
+            onZoom={props.onZoom}
+          />
+        )}
         <AnswerPane
           mode={mode}
           result={props.result}

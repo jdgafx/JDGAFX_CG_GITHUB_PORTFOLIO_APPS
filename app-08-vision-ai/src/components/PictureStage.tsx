@@ -78,8 +78,7 @@ function Figure({ slot, label, picture, comparing, props }: FigureProps) {
         onDraft={props.onDraft}
         onStart={props.onStart}
       />
-      <figcaption className="picture__name">{picture.name}</figcaption>
-      {picture.credit && <Credit image={picture.credit} />}
+      {picture.credit ? <Credit image={picture.credit} /> : <figcaption className="picture__name">{picture.name}</figcaption>}
       <div className="ds-row">
         <button type="button" className="ds-button" onClick={() => props.onZoom(slot)}>
           View full size

@@ -78,6 +78,8 @@ export default function ImagePicker({ comparing, a, b, disabled, uploadError, on
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) onFile(file, null, slotRef.current)
+    // The empty-state button in the answer column opens this input too, and always means image A.
+    slotRef.current = 'a'
     // Clearing the value lets the same file be chosen again.
     event.target.value = ''
   }
@@ -146,6 +148,7 @@ export default function ImagePicker({ comparing, a, b, disabled, uploadError, on
 
       <input
         ref={inputRef}
+        id="vl-file"
         type="file"
         accept={ACCEPTED_TYPES.join(',')}
         aria-label="Choose an image to analyze"

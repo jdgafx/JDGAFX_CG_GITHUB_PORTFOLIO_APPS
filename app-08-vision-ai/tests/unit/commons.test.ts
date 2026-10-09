@@ -3,7 +3,9 @@ import {
   CommonsError,
   buildSearchUrl,
   fetchCommonsFile,
+  downloadUrls,
   gridThumbUrl,
+  thumbUrlAt,
   isTrustedImageUrl,
   parseSearchResponse,
   searchCommons,
@@ -196,13 +198,57 @@ describe('stripHtml', () => {
   })
 })
 
-describe('gridThumbUrl', () => {
-  it('rewrites the width of a scaled thumbnail and keeps the query', () => {
-    expect(gridThumbUrl(SCALED)).toBe(SCALED.replace('/1280px-', '/330px-'))
+const ORIGINAL = 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Boats_in_Tenby_Harbour.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original'
+
+describe('thumbUrlAt', () => {
+  it('builds the standard thumbnail path from an original and drops the query', () => {
+    expect(thumbUrlAt(ORIGINAL, 330)).toBe(
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Boats_in_Tenby_Harbour.jpg/330px-Boats_in_Tenby_Harbour.jpg',
+    )
   })
 
-  it('returns an unscaled original unchanged', () => {
-    expect(gridThumbUrl(UNSCALED)).toBe(UNSCALED)
+  it('changes the width of a scaled thumbnail and keeps its host', () => {
+    expect(thumbUrlAt(SCALED, 330)).toBe(
+      'https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Street_scene.jpg/330px-Street_scene.jpg',
+    )
+  })
+
+  it('returns null for addresses it cannot rewrite and for names that are not JPEG, PNG, WebP or GIF', () => {
+    expect(thumbUrlAt('https://upload.wikimedia.org/wikipedia/commons/a/ab/Scan.tiff', 330)).toBeNull()
+    expect(thumbUrlAt('https://upload.wikimedia.org/wikipedia/en/a/ab/Name.jpg', 330)).toBeNull()
+    expect(thumbUrlAt('not a url', 330)).toBeNull()
+  })
+})
+
+describe('gridThumbUrl', () => {
+  it('asks for a 330 px thumbnail, from a scaled thumbnail or from an original', () => {
+    expect(gridThumbUrl(SCALED, 2200)).toBe(
+      'https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Street_scene.jpg/330px-Street_scene.jpg',
+    )
+    expect(gridThumbUrl(ORIGINAL, 1024)).toContain('/thumb/a/ab/Boats_in_Tenby_Harbour.jpg/330px-')
+  })
+
+  it('uses the original only when the picture is no wider than a card', () => {
+    expect(gridThumbUrl(UNSCALED, 320)).toBe(UNSCALED)
+    expect(gridThumbUrl(ORIGINAL, 330)).toBe(ORIGINAL)
+  })
+})
+
+describe('downloadUrls', () => {
+  it('uses the 1280 px thumbnail the API sent for a wide picture', () => {
+    expect(downloadUrls({ thumbUrl: SCALED, width: 2200 })).toEqual([SCALED])
+  })
+
+  it('tries the largest standard thumbnail no wider than the picture, then the original', () => {
+    const urls = downloadUrls({ thumbUrl: ORIGINAL, width: 1024 })
+    expect(urls[0]).toMatch(/\/960px-Boats_in_Tenby_Harbour\.jpg$/)
+    expect(urls[1]).toBe(ORIGINAL)
+    expect(downloadUrls({ thumbUrl: ORIGINAL, width: 640 })[0]).toMatch(/\/500px-/)
+    expect(downloadUrls({ thumbUrl: ORIGINAL, width: 1280 })[0]).toMatch(/\/1280px-/)
+  })
+
+  it('goes straight to the original for a picture narrower than the smallest thumbnail', () => {
+    expect(downloadUrls({ thumbUrl: ORIGINAL, width: 100 })).toEqual([ORIGINAL])
   })
 })
 
@@ -333,5 +379,29 @@ describe('fetchCommonsFile', () => {
       'This image comes from an address that is not allowed.',
     )
     expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the original when the thumbnail request is refused, and tries the thumbnail first', async () => {
+    const mock = stubFetch(async url =>
+      String(url).includes('/thumb/')
+        ? new Response('slow down', { status: 429 })
+        : new Response(new Uint8Array([9]), { headers: { 'Content-Type': 'image/jpeg' } }),
+    )
+
+    const file = await fetchCommonsFile({ ...CARD, width: 1024, thumbUrl: ORIGINAL })
+
+    expect(mock.mock.calls.map(call => String(call[0]).includes('/thumb/'))).toEqual([true, false])
+    expect(file.size).toBe(1)
+  })
+
+  it('does not try the next address after a download that fails the file checks', async () => {
+    const mock = stubFetch(async () => new Response('<html>', { headers: { 'Content-Type': 'text/html' } }))
+    await expect(fetchCommonsFile({ ...CARD, width: 1024, thumbUrl: ORIGINAL })).rejects.toThrow('Unsupported file type')
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the last failure when every address is refused', async () => {
+    stubFetch(async () => new Response('', { status: 429 }))
+    await expect(fetchCommonsFile({ ...CARD, width: 1024, thumbUrl: ORIGINAL })).rejects.toThrow('asking for fewer requests')
   })
 })

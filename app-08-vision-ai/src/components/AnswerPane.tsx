@@ -28,7 +28,11 @@ function RegionHead({ region }: { region: RegionEntry }) {
   return (
     <div className="vl-regionhead">
       {region.cropUrl ? (
-        <img src={region.cropUrl} alt={`The part of the picture inside box ${region.tag}`} className="vl-regionhead__crop" />
+        <img
+          src={region.cropUrl}
+          alt={`The part of the picture inside box ${region.tag}`}
+          className="vl-regionhead__crop"
+        />
       ) : (
         <span className="vl-regionhead__crop vl-regionhead__crop--pending" aria-hidden="true" />
       )}
@@ -109,63 +113,65 @@ export default function AnswerPane({ mode, result, status, truncated, notice, re
   const hasText = result.trim() !== ''
 
   return (
-    <div className="vl-answer">
+    <div className={mode === 'region' && region ? 'vl-answer vl-answer--region' : 'vl-answer'}>
       {mode === 'region' && region && <RegionHead region={region} />}
 
-      <div aria-live="polite" aria-busy={running}>
-        {hasText ? (
-          mode === 'compare' ? (
-            <ComparePane text={result} running={running} />
-          ) : (
-            <div className="ds-lead vl-lead">
-              <RichText text={result} streaming={running} />
+      <div className="vl-answer__body">
+        <div aria-live="polite" aria-busy={running}>
+          {hasText ? (
+            mode === 'compare' ? (
+              <ComparePane text={result} running={running} />
+            ) : (
+              <div className="ds-lead vl-lead">
+                <RichText text={result} streaming={running} />
+              </div>
+            )
+          ) : running ? (
+            <div className="ds-state ds-state--loading">
+              <span className="ds-state__mark" aria-hidden="true" />
+              <p className="ds-state__title">Waiting for the first words</p>
+              <p className="ds-state__body">The model is reading the picture.</p>
+              <Skeleton />
             </div>
-          )
-        ) : running ? (
-          <div className="ds-state ds-state--loading">
-            <span className="ds-state__mark" aria-hidden="true" />
-            <p className="ds-state__title">Waiting for the first words</p>
-            <p className="ds-state__body">The model is reading the picture.</p>
-            <Skeleton />
-          </div>
-        ) : !failed && !stopped ? (
-          <div className="ds-state ds-state--empty">
-            <span className="ds-state__mark" aria-hidden="true" />
-            <p className="ds-state__title">{mode === 'region' ? 'No region asked yet' : 'No answer yet'}</p>
-            <p className="ds-state__body">{EMPTY_BODY[mode]}</p>
-          </div>
-        ) : null}
-      </div>
+          ) : !failed && !stopped ? (
+            <div className="ds-state ds-state--empty">
+              <span className="ds-state__mark" aria-hidden="true" />
+              <p className="ds-state__title">{mode === 'region' ? 'No region asked yet' : 'No answer yet'}</p>
+              <p className="ds-state__body">{EMPTY_BODY[mode]}</p>
+            </div>
+          ) : null}
+        </div>
 
-      {truncated && (
-        <p className="ds-notice ds-notice--warning" role="status">
-          Output was cut off before the model finished. Crop the image to the part you need, or ask again.
-        </p>
-      )}
-      {failed && (
-        <div className={`ds-state ${hasText ? 'ds-state--partial' : 'ds-state--error'}`} role="alert">
-          <span className="ds-state__mark" aria-hidden="true" />
-          <p className="ds-state__title">{hasText ? 'Partial answer' : 'The analysis failed'}</p>
-          <p className="ds-state__body">{notice}</p>
-          <div className="ds-state__actions">
-            <button type="button" className="ds-button" onClick={onRetry}>
-              Try again
-            </button>
+        {truncated && (
+          <p className="ds-notice ds-notice--warning" role="status">
+            Output was cut off before the model finished. Crop the image to the part you need, or ask again.
+          </p>
+        )}
+        {failed && (
+          <div className={`ds-state ${hasText ? 'ds-state--partial' : 'ds-state--error'}`} role="alert">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title">{hasText ? 'Partial answer' : 'The analysis failed'}</p>
+            <p className="ds-state__body">{notice}</p>
+            <div className="ds-state__actions">
+              <button type="button" className="ds-button" onClick={onRetry}>
+                Try again
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-      {stopped && (
-        <div className="ds-state ds-state--stopped" role="status">
-          <span className="ds-state__mark" aria-hidden="true" />
-          <p className="ds-state__title">Run stopped</p>
-          <p className="ds-state__body">{notice}</p>
-          <div className="ds-state__actions">
-            <button type="button" className="ds-button" onClick={onRetry}>
-              Start again
-            </button>
+        )}
+        {stopped && (
+          <div className="ds-state ds-state--stopped" role="status">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title">Run stopped</p>
+            <p className="ds-state__body">{notice}</p>
+            <div className="ds-state__actions">
+              <button type="button" className="ds-button" onClick={onRetry}>
+                Start again
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

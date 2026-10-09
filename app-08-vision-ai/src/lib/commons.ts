@@ -87,12 +87,47 @@ export function stripHtml(html: string): string {
   return text.length > MAX_TEXT_CHARS ? `${text.slice(0, MAX_TEXT_CHARS - 1).trimEnd()}…` : text
 }
 
-// Rewrites a scaled thumbnail URL (.../1280px-Name.png) to the grid width. An unscaled original is returned as is.
-export function gridThumbUrl(url: string): string {
-  const cut = url.indexOf('?')
-  const path = cut === -1 ? url : url.slice(0, cut)
-  const rest = cut === -1 ? '' : url.slice(cut)
-  return `${path.replace(/\/\d+px-(?=[^/]*$)/, `/${GRID_THUMB_WIDTH}px-`)}${rest}`
+// Wikimedia serves thumbnails only at standard widths, and throttles requests for originals ("use thumbnail images
+// instead", HTTP 429). So the page asks for a standard thumbnail wherever the picture is wide enough to have one.
+const THUMB_STEPS = [120, 250, 330, 500, 960, 1280]
+const THUMB_PATH = /^\/wikipedia\/commons\/thumb\/([0-9a-f]\/[0-9a-f]{2})\/([^/]+)\/\d+px-[^/]+$/
+const ORIGINAL_PATH = /^\/wikipedia\/commons\/([0-9a-f]\/[0-9a-f]{2})\/([^/]+)$/
+const BITMAP_NAME = /\.(jpe?g|png|webp|gif)$/i
+
+/**
+ * The thumbnail of a Commons image at the given width, from either of the two URL forms the API returns: the
+ * original (.../commons/a/ab/Name.jpg) or a scaled thumbnail (.../commons/thumb/a/ab/Name.jpg/1280px-Name.jpg).
+ * The query string is dropped. Returns null for anything else, including names that are not JPEG, PNG, WebP or GIF
+ * (other types carry a rendered suffix such as Name.svg.png and are not requested here).
+ */
+export function thumbUrlAt(url: string, width: number): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  const match = THUMB_PATH.exec(parsed.pathname) ?? ORIGINAL_PATH.exec(parsed.pathname)
+  if (!match || !BITMAP_NAME.test(match[2])) return null
+  return `${parsed.origin}/wikipedia/commons/thumb/${match[1]}/${match[2]}/${width}px-${match[2]}`
+}
+
+/** The picture shown on a result card: a 330 px thumbnail, or the original only when it is already that small. */
+export function gridThumbUrl(url: string, sourceWidth: number): string {
+  if (sourceWidth <= GRID_THUMB_WIDTH) return url
+  return thumbUrlAt(url, GRID_THUMB_WIDTH) ?? url
+}
+
+/**
+ * Addresses to try, in order, for the picture a pick analyzes. A wide picture arrives from the API as a 1280 px
+ * thumbnail already. A narrower one gets the largest standard thumbnail that is no wider than itself, and its
+ * original only as the last resort if that fails.
+ */
+export function downloadUrls(image: Pick<CommonsImage, 'thumbUrl' | 'width'>): string[] {
+  if (image.width > THUMB_WIDTH || image.width <= 0) return [image.thumbUrl]
+  const step = [...THUMB_STEPS].reverse().find(width => width <= image.width)
+  const thumb = step ? thumbUrlAt(image.thumbUrl, step) : null
+  return thumb ? [thumb, image.thumbUrl] : [image.thumbUrl]
 }
 
 export function isTrustedImageUrl(value: string): boolean {
@@ -156,18 +191,31 @@ export async function searchCommons(query: string, signal?: AbortSignal): Promis
   return parseSearchResponse(body).slice(0, SHOWN_LIMIT)
 }
 
-// Downloads the thumbnail as a File, ready for the same checks as an uploaded file.
+// Downloads the picture as a File, ready for the same checks as an uploaded file. A thumbnail that cannot be
+// fetched is followed by the next address in line; a download that fails the file checks is not retried.
 export async function fetchCommonsFile(image: CommonsImage, signal?: AbortSignal): Promise<File> {
-  if (!isTrustedImageUrl(image.thumbUrl)) throw new CommonsError('This image comes from an address that is not allowed.')
-  const response = await commonsFetch(image.thumbUrl, DOWNLOAD_TIMEOUT_MS, signal)
-  const blob = await response.blob().catch(() => {
-    throw new CommonsError('The image download was interrupted. Try again.')
-  })
-  const type = blob.type.split(';')[0].trim() || image.mime
-  const file = new File([blob], image.fileName, { type })
-  const problem = fileProblem(file)
-  if (problem) throw new CommonsError(problem)
-  return file
+  const urls = downloadUrls(image)
+  if (!urls.every(isTrustedImageUrl)) throw new CommonsError('This image comes from an address that is not allowed.')
+  let last: unknown
+  for (const url of urls) {
+    let blob: Blob
+    try {
+      const response = await commonsFetch(url, DOWNLOAD_TIMEOUT_MS, signal)
+      blob = await response.blob().catch(() => {
+        throw new CommonsError('The image download was interrupted. Try again.')
+      })
+    } catch (err) {
+      if (signal?.aborted || !(err instanceof CommonsError)) throw err
+      last = err
+      continue
+    }
+    const type = blob.type.split(';')[0].trim() || image.mime
+    const file = new File([blob], image.fileName, { type })
+    const problem = fileProblem(file)
+    if (problem) throw new CommonsError(problem)
+    return file
+  }
+  throw last
 }
 
 async function commonsFetch(url: string, timeoutMs: number, signal?: AbortSignal): Promise<Response> {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { COMMONS_PRESETS, CommonsError, fetchCommonsFile, gridThumbUrl } from '../lib/commons'
 import type { CommonsImage } from '../lib/commons'
+import { visibleError, type PickError } from '../lib/pickError'
 import { useCommonsSearch } from '../lib/useCommonsSearch'
 
 interface CommonsPickerProps {
@@ -23,7 +24,9 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
   const [text, setText] = useState('')
   const [open, setOpen] = useState(slotsLeft > 0)
   const [picking, setPicking] = useState<CommonsImage | null>(null)
-  const [pickError, setPickError] = useState('')
+  const [pickError, setPickError] = useState<PickError | null>(null)
+  // Cards whose thumbnail could not load show a plain tile instead of the browser's broken-image icon.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set())
   const pickAbort = useRef<AbortController | null>(null)
 
   useEffect(() => () => pickAbort.current?.abort(), [])
@@ -31,7 +34,7 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
 
   const runSearch = (query: string) => {
     setText(query)
-    setPickError('')
+    setPickError(null)
     void search(query)
   }
 
@@ -45,7 +48,7 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
     const controller = new AbortController()
     pickAbort.current = controller
     setPicking(image)
-    setPickError('')
+    setPickError(null)
     try {
       const file = await fetchCommonsFile(image, controller.signal)
       if (controller.signal.aborted) return
@@ -55,7 +58,7 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
     } catch (err) {
       if (controller.signal.aborted) return
       setPicking(null)
-      setPickError(err instanceof CommonsError ? err.message : PICK_FAILED)
+      setPickError({ message: err instanceof CommonsError ? err.message : PICK_FAILED, slotsLeft })
     }
   }
 
@@ -155,7 +158,16 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
                       aria-label={`Use ${image.title}, ${image.licence}`}
                       onClick={() => void pick(image)}
                     >
-                      <img src={gridThumbUrl(image.thumbUrl)} alt="" loading="lazy" />
+                      {broken.has(image.pageUrl) ? (
+                        <span className="commons__missing">No preview</span>
+                      ) : (
+                        <img
+                          src={gridThumbUrl(image.thumbUrl, image.width)}
+                          alt=""
+                          loading="lazy"
+                          onError={() => setBroken(current => new Set(current).add(image.pageUrl))}
+                        />
+                      )}
                       <span className="commons__card-title">{image.title}</span>
                       <span className="commons__card-licence">{picking === image ? 'Loading…' : image.licence}</span>
                     </button>
@@ -166,9 +178,9 @@ export default function CommonsPicker({ disabled, slotsLeft, label, onPick }: Co
           )}
         </div>
 
-        {pickError && (
+        {visibleError(pickError, slotsLeft) && (
           <p className="ds-notice ds-notice--error" role="alert">
-            {pickError}
+            {visibleError(pickError, slotsLeft)}
           </p>
         )}
         <p className="ds-help">Each image keeps its own licence. The title, author and licence show beside the picture.</p>

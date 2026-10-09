@@ -258,6 +258,10 @@ describe('analyzeImage timing and cancel', () => {
 
     expect(outcome).toMatchObject({ status: 'failed', message: 'The AI provider did not answer in time.' })
     expect(outcome.summary.totalMs).toBe(60_000)
+    // Nothing was running, so the trace still names the step that never answered.
+    expect(outcome.summary.trace).toEqual([
+      expect.objectContaining({ name: 'Model call', status: 'failed', detail: 'No answer within 60 seconds' }),
+    ])
   })
 
   it('reports a run stopped by the user as cancelled and leaves no step running', async () => {

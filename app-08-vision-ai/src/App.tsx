@@ -3,6 +3,7 @@ import { formatSeconds } from './lib/format'
 import { scopeOf } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
+import { useNarrow } from './lib/useNarrow'
 import { useResultFocus, type RunPhase } from './lib/useResultFocus'
 import type { TraceStep } from './lib/api'
 import ActionDock from './components/ActionDock'
@@ -11,7 +12,7 @@ import Header from './components/Header'
 import Hero from './components/Hero'
 import HistoryStrip from './components/HistoryStrip'
 import ImagePicker from './components/ImagePicker'
-import type { Picture } from './components/PictureStage'
+import PictureStage, { type Picture } from './components/PictureStage'
 import ReadoutStrip from './components/ReadoutStrip'
 import RegionList from './components/RegionList'
 import RunTrace from './components/RunTrace'
@@ -47,6 +48,7 @@ export default function App() {
   const scope = scopeOf(mode)
   const comparing = scope === 'compare'
   const hasB = vision.imageUrlB !== ''
+  const narrow = useNarrow()
 
   useResultFocus(PHASE[status])
 
@@ -73,6 +75,10 @@ export default function App() {
     : null
   const b: Picture | null = hasB ? { url: vision.imageUrlB, name: vision.fileB?.name ?? '', credit: vision.sourceB } : null
   const activeRegion = vision.regions.find(entry => entry.id === vision.activeRegionId) ?? null
+
+  // On a phone the picture to draw on sits in the rail, right above the question, so nothing needs scrolling back up.
+  const railPicture = narrow && mode === 'region' && a !== null
+  const showReadout = status !== 'idle'
 
   let reason = ''
   if (!hasImage) reason = 'Choose an image first.'
@@ -108,7 +114,22 @@ export default function App() {
               onModeChange={vision.changeMode}
               onQuestionChange={vision.updateQuestion}
               onRun={vision.run}
-            />
+            >
+              {railPicture && (
+                <PictureStage
+                  comparing={false}
+                  a={a}
+                  b={null}
+                  regions={vision.regions}
+                  activeRegionId={vision.activeRegionId}
+                  draft={running ? null : vision.box}
+                  editable={!running}
+                  onDraft={vision.drawBox}
+                  onStart={vision.startBox}
+                  onZoom={setZoomed}
+                />
+              )}
+            </AskPanel>
             <ActionDock
               mode={mode}
               running={running}
@@ -136,9 +157,10 @@ export default function App() {
               onStart={vision.startBox}
               onZoom={setZoomed}
               onRetry={vision.run}
+              hidePictures={railPicture}
             />
-            <ReadoutStrip status={status} steps={vision.steps} summary={vision.summary} />
-            {scope === 'region' && (
+            {showReadout && <ReadoutStrip status={status} steps={vision.steps} summary={vision.summary} />}
+            {scope === 'region' && vision.regions.length > 0 && (
               <RegionList
                 regions={vision.regions}
                 activeId={vision.activeRegionId}
@@ -146,7 +168,7 @@ export default function App() {
                 onSelect={vision.selectRegion}
               />
             )}
-            <RunTrace steps={vision.steps} summary={vision.summary} />
+            {vision.steps.length > 0 && <RunTrace steps={vision.steps} summary={vision.summary} />}
             <HistoryStrip
               items={vision.gallery}
               activeId={vision.activeId}

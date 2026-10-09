@@ -15,6 +15,8 @@ interface AskPanelProps {
   onModeChange: (mode: AnalysisMode) => void
   onQuestionChange: (value: string) => void
   onRun: () => void
+  /** On a phone in Region mode: the picture, placed above the question so drawing, typing and asking follow each other. */
+  children?: React.ReactNode
 }
 
 const QUESTION_PLACEHOLDER: Record<string, string> = {
@@ -34,6 +36,7 @@ export default function AskPanel({
   onModeChange,
   onQuestionChange,
   onRun,
+  children,
 }: AskPanelProps) {
   const scope = scopeOf(mode)
   const askable = mode === 'qa' || mode === 'region' || mode === 'compare'
@@ -96,6 +99,8 @@ export default function AskPanel({
               : 'Drag on the picture to draw a box. With a keyboard, tab to the picture and press Enter.'}
         </p>
       )}
+
+      {scope === 'region' && children}
 
       {askable && (
         <div className="ds-field">

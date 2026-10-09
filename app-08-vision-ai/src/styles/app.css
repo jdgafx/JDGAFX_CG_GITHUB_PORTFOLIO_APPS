@@ -34,8 +34,15 @@
 .vl-hero__title { font-size: 22px; font-weight: 760; line-height: 1.2; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .vl-hero__title:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 4px; border-radius: var(--ds-radius-sm); }
 .vl-hero__grid { display: grid; gap: 20px; min-width: 0; }
+/* The picture gets the whole column (capped so a tall photo does not push the answer away); the answer sits under it. */
+.vl-pictures:not(.vl-pictures--pair) { max-width: 760px; }
+.vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(72vh, 600px); }
+.vl-empty { min-height: 240px; align-content: center; }
+.vl-empty .ds-state__actions .ds-button { display: inline-flex; align-items: center; cursor: pointer; text-decoration: none; }
 @container (min-width: 720px) {
-  .vl-hero__grid:not(.vl-hero__grid--pair) { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; gap: 24px; }
+  .vl-answer--region { grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: 20px; }
+  .vl-answer--region .vl-regionhead { grid-template-columns: 1fr; }
+  .vl-answer--region .vl-regionhead__crop { width: 100%; height: auto; max-height: 160px; }
 }
 
 .vl-pictures { display: grid; gap: 16px; min-width: 0; }
@@ -140,3 +147,4 @@ dialog.zoom::backdrop { background: color-mix(in srgb, var(--ds-text) 90%, trans
 }
 .vl-box--top .ds-box__tag { top: 0; bottom: auto; border-radius: 0 0 3px 0; }
 .vl-question { resize: vertical; min-height: 96px; }
+.vl-answer__body { display: grid; gap: 16px; min-width: 0; align-content: start; }
