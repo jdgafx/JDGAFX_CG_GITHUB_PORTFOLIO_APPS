@@ -92,7 +92,10 @@ export function MetricsRow({ metrics, phase, rows }: { metrics: RunMetrics | nul
           <dd className="ds-strip__value ds-num">{modelsValue}</dd>
           {models.map((m) => (
             <dd key={m.model} className="readout-hint">
-              <span className="model-id">{m.model}</span> {m.uses}
+              <span className="model-id" title={m.model}>
+                {m.model}
+              </span>
+              {m.uses}
             </dd>
           ))}
         </div>

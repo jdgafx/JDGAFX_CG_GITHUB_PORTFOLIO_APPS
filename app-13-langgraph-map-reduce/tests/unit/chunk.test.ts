@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { CHUNK_TARGET, MAX_CHUNKS, splitText } from '../../netlify/shared/chunk'
-import { SAMPLE_TEXT } from '../../src/lib/sample'
+
+/** Sentence i is 263 characters ("Item 01 " plus 15 x "alpha beta gamma" plus the full stop), so four fit a 1,200 character chunk and five do not. */
+const sentence = (i: number): string => `Item ${String(i).padStart(2, '0')} ${'alpha beta gamma '.repeat(15).trim()}.`
+const GENERATED = Array.from({ length: 24 }, (_, i) => sentence(i + 1)).join(' ')
 
 const words = (text: string): string[] => text.split(/\s+/).filter(Boolean)
 
@@ -20,19 +23,21 @@ describe('splitText', () => {
   })
 
   it('numbers chunks from 1 with no gaps and keeps every chunk within the target size', () => {
-    const chunks = splitText(SAMPLE_TEXT)
+    const chunks = splitText(GENERATED)
 
     expect(chunks.map((c) => c.id)).toEqual(chunks.map((_, i) => i + 1))
     expect(Math.max(...chunks.map((c) => c.text.length))).toBeLessThanOrEqual(CHUNK_TARGET)
   })
 
-  it('gives the sample exactly 9 chunks, starting and ending where the document does', () => {
-    const chunks = splitText(SAMPLE_TEXT)
+  it('packs 24 sentences into exactly 6 chunks of 4, starting and ending where the document does', () => {
+    const chunks = splitText(GENERATED)
 
-    expect(chunks).toHaveLength(9)
-    expect(chunks[0]?.text.startsWith('IN CONGRESS, July 4, 1776.')).toBe(true)
-    expect(chunks[8]?.text.endsWith('Lyman Hall, George Walton.')).toBe(true)
-    expect(chunks.map((c) => c.text.length)).toEqual([1158, 1062, 1103, 1175, 951, 1192, 530, 1196, 942])
+    expect(sentence(1)).toHaveLength(263)
+    expect(chunks).toHaveLength(6)
+    expect(chunks[0]?.text.startsWith('Item 01 alpha')).toBe(true)
+    expect(chunks[5]?.text.startsWith('Item 21 alpha')).toBe(true)
+    expect(chunks[5]?.text.endsWith('gamma.')).toBe(true)
+    expect(chunks.map((c) => c.text.length)).toEqual([1055, 1055, 1055, 1055, 1055, 1055])
   })
 
   it('never produces more than the chunk cap, and keeps every word, for a text at the input limit', () => {

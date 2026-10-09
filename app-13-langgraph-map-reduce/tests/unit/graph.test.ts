@@ -83,7 +83,7 @@ async function runGraph(text: string, chat: ChatFn): Promise<RunOutput> {
   try {
     const stream = await graph.stream(
       { text },
-      { streamMode: ['custom', 'updates'], configurable: { thread_id: crypto.randomUUID() } },
+      { streamMode: ['custom', 'updates'] },
     )
     for await (const [mode, payload] of stream) {
       if (mode === 'custom') {

@@ -1,4 +1,4 @@
-import { formatChars, formatCount } from './format'
+import { formatTokens, formatCount } from './format'
 import { MAX_CHARS, MIN_CHARS } from './limits'
 import type { Phase, RunView, Status } from './view'
 
@@ -82,8 +82,8 @@ export function statusLine(view: RunView, length: number, valid: boolean): strin
       return 'Stopped. No summary was written. Analyze again to start over.'
     case 'idle':
       return valid
-        ? `Ready to analyze ${formatChars(length)} characters.`
-        : `Paste ${formatChars(MIN_CHARS)} to ${formatChars(MAX_CHARS)} characters, or load the sample.`
+        ? `Ready to analyze ${formatTokens(length)} characters.`
+        : `Paste ${formatTokens(MIN_CHARS)} to ${formatTokens(MAX_CHARS)} characters, or load a Wikipedia article.`
   }
 }
 

@@ -7,7 +7,6 @@ import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { metricsFor } from './lib/metrics'
-import { SAMPLE_TEXT } from './lib/sample'
 import { PHASE_WORD, phaseDot, phaseTone, statusLine } from './lib/status'
 import { applyFrame, endView, failView, initialView, stopView, type RunView } from './lib/view'
 import type { Frame } from './types/frames'
@@ -79,7 +78,7 @@ export default function App() {
         <div className="ds-header__inner">
           <div>
             <h1 className="ds-title">GraphSwarm</h1>
-            <p className="ds-subtitle">Paste a long document and get a cited summary, with the tokens and cost of every model call.</p>
+            <p className="ds-subtitle">Load a Wikipedia article or paste a long document and get a cited summary, with the tokens and cost of every model call.</p>
           </div>
           <span className={`ds-badge ${phaseTone(view.phase)}`}>
             <span className={phaseDot(view.phase)} aria-hidden="true" />
@@ -100,7 +99,6 @@ export default function App() {
               running={running}
               valid={valid}
               onChange={setText}
-              onSample={() => setText(SAMPLE_TEXT)}
               onRun={() => void analyze(text)}
               onStop={() => controller.current?.abort()}
             />

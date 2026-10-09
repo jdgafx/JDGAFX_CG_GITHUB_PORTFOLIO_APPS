@@ -107,7 +107,7 @@ export function TracePanel({ view }: { view: RunView }) {
         </p>
       </div>
       {empty ? (
-        <p className="empty-note">Steps appear here as each one finishes. Load the sample and analyze it to see every step.</p>
+        <p className="empty-note">Steps appear here as each one finishes. Load an article and analyze it to see every step.</p>
       ) : (
         <ol className="ds-trace" aria-label="Run steps in order">
           {view.rows.map((row, i) => (

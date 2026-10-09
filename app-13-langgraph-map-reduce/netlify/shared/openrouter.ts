@@ -107,8 +107,8 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
 
 /**
  * One chat call. The key is read here and nowhere else. The run's signal aborts the call when the
- * budget runs out or another call halts the run, and a per-call timer ends it after the request's own timeoutMs, or the default. The
- * provider body is never read into an error, logged or returned.
+ * budget runs out or another call halts the run, and a per-call timeout ends it after the request's own
+ * timeoutMs, or the default. The provider body is never read into an error, logged or returned.
  */
 export async function chat(
   request: ChatRequest,
@@ -119,32 +119,23 @@ export async function chat(
   if (!apiKey) throw new ProviderError('rejected')
   if (signal.aborted) throw new RunBudgetError()
 
-  const call = new AbortController()
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    call.abort()
-  }, request.timeoutMs ?? timeoutMs)
-  const forward = (): void => call.abort()
-  signal.addEventListener('abort', forward, { once: true })
+  const timeout = AbortSignal.timeout(request.timeoutMs ?? timeoutMs)
 
   try {
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
-      signal: call.signal,
+      signal: AbortSignal.any([signal, timeout]),
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody(request)),
     })
     if (!response.ok) throw new ProviderError(kindForStatus(response.status))
     return parseReply(await response.json())
   } catch (err) {
-    if (err instanceof ProviderError) throw err
+    // A halt aborts the run signal with its ProviderError as the reason, so that error is not a response failure.
+    if (err instanceof ProviderError && err !== signal.reason) throw err
     if (signal.aborted) throw new RunBudgetError()
-    if (timedOut) throw new ProviderError('timeout')
+    if (timeout.aborted) throw new ProviderError('timeout')
     if (err instanceof SyntaxError) throw new ProviderError('unavailable')
     throw new ProviderError('network')
-  } finally {
-    clearTimeout(timer)
-    signal.removeEventListener('abort', forward)
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anySignal, createLimiter, pause, RunBudget } from '../../netlify/shared/budget'
+import { createLimiter, pause, RunBudget } from '../../netlify/shared/budget'
 import { ProviderError, RunBudgetError } from '../../netlify/shared/errors'
 
 const tick = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -103,6 +103,16 @@ describe('RunBudget halt', () => {
     budget.dispose()
   })
 
+  it('keeps the reason of whichever stop came first when a cancel and a halt both happen', () => {
+    const budget = new RunBudget(60_000)
+
+    budget.cancel()
+    budget.halt(new ProviderError('rejected'))
+
+    expect(budget.signal.reason).toBeInstanceOf(RunBudgetError)
+    budget.dispose()
+  })
+
   it('is not a deadline: the budget is not reported as expired after a halt', () => {
     const budget = new RunBudget(60_000)
 
@@ -131,29 +141,6 @@ describe('RunBudget halt', () => {
     await first
     expect(started).toBe(1)
     budget.dispose()
-  })
-})
-
-describe('anySignal', () => {
-  it('aborts with the reason of the first signal that aborts', () => {
-    const a = new AbortController()
-    const b = new AbortController()
-    const combined = anySignal(a.signal, b.signal)
-    const reason = new RunBudgetError()
-
-    b.abort(reason)
-    a.abort(new RunBudgetError())
-
-    expect(combined.aborted).toBe(true)
-    expect(combined.reason).toBe(reason)
-  })
-
-  it('is aborted at once when one of its signals already is', () => {
-    const a = new AbortController()
-    const reason = new RunBudgetError()
-    a.abort(reason)
-
-    expect(anySignal(a.signal, new AbortController().signal).reason).toBe(reason)
   })
 })
 

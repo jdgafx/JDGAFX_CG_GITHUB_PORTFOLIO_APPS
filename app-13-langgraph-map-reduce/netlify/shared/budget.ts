@@ -1,32 +1,16 @@
+import { setTimeout as sleep } from 'node:timers/promises'
 import { RunBudgetError } from './errors'
 
-/** A signal that aborts as soon as any of the given signals does, and carries that signal's reason. */
-export function anySignal(...signals: AbortSignal[]): AbortSignal {
-  const controller = new AbortController()
-  for (const signal of signals) {
-    if (signal.aborted) {
-      controller.abort(signal.reason)
-      break
-    }
-    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
+/**
+ * Resolves after `ms`. Rejects at once with the signal's own reason if the signal aborts first
+ * (the timers API alone would reject with a generic AbortError that only carries it as `cause`).
+ */
+export async function pause(ms: number, signal: AbortSignal): Promise<void> {
+  try {
+    await sleep(ms, undefined, { signal })
+  } catch (err) {
+    throw signal.aborted ? signal.reason : err
   }
-  return controller.signal
-}
-
-/** Resolves after `ms`. Rejects at once with the signal's reason if the signal aborts first. */
-export function pause(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.reject(signal.reason)
-  return new Promise<void>((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      reject(signal.reason)
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 /**
@@ -46,7 +30,7 @@ export class RunBudget {
 
   constructor(limitMs: number) {
     this.limitMs = limitMs
-    this.signal = anySignal(this.deadline.signal, this.halts.signal)
+    this.signal = AbortSignal.any([this.deadline.signal, this.halts.signal])
     this.timer = setTimeout(() => this.deadline.abort(new RunBudgetError()), limitMs)
   }
 

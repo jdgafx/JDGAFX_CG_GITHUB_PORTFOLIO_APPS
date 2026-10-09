@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { metricsFor } from '../../src/lib/metrics'
 import type { Frame, NodeName, Outcome, RunResult, TraceRow } from '../../src/types/frames'
 import { createLimiter, type RunBudget } from './budget'
@@ -85,7 +84,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
     })
     const stream = await graph.stream(
       { text },
-      { streamMode: ['custom', 'updates'], configurable: { thread_id: randomUUID() } },
+      { streamMode: ['custom', 'updates'] },
     )
     for await (const [mode, payload] of stream) {
       if (mode === 'custom') {
@@ -107,9 +106,9 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
     const result: RunResult = { ...outcome, metrics: metricsFor(rows, Date.now() - startedAt) }
     sink({ type: 'result', result })
   } catch (err) {
-    const message = plainMessage(budget.haltCause() ?? reportedFailure(err), budget.expired())
+    const cause = budget.haltCause() ?? reportedFailure(err)
+    const message = plainMessage(cause, budget.expired())
     if (firstPass && !outcome) {
-      const cause = budget.haltCause() ?? reportedFailure(err)
       const write = (row: TraceRow): void => {
         rows.push(row)
         sink({ type: 'node_end', ...row })

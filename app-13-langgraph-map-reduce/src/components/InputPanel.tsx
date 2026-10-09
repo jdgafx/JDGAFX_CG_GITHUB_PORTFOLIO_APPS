@@ -1,17 +1,17 @@
-import { formatChars } from '../lib/format'
+import { formatTokens } from '../lib/format'
 import { MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../lib/limits'
+import { WikipediaLoader } from './WikipediaLoader'
 
 interface InputPanelProps {
   text: string
   running: boolean
   valid: boolean
   onChange: (text: string) => void
-  onSample: () => void
   onRun: () => void
   onStop: () => void
 }
 
-export function InputPanel({ text, running, valid, onChange, onSample, onRun, onStop }: InputPanelProps) {
+export function InputPanel({ text, running, valid, onChange, onRun, onStop }: InputPanelProps) {
   const count = text.length
   const outOfRange = count > 0 && (count < MIN_CHARS || count > MAX_CHARS)
 
@@ -24,9 +24,11 @@ export function InputPanel({ text, running, valid, onChange, onSample, onRun, on
         <p className="ds-section__sub">The graph splits this text into chunks, then reads every chunk in parallel.</p>
       </div>
 
+      <WikipediaLoader text={text} disabled={running} onLoad={onChange} />
+
       <div className="ds-field">
         <label className="ds-label" htmlFor="doc-text">
-          Your document
+          Document text
         </label>
         <textarea
           id="doc-text"
@@ -34,34 +36,19 @@ export function InputPanel({ text, running, valid, onChange, onSample, onRun, on
           value={text}
           disabled={running}
           spellCheck={false}
-          placeholder="Paste an article, a report or any other long text."
+          placeholder="Or paste an article, a report or any other long text."
           aria-describedby="doc-help doc-count"
           onChange={(event) => onChange(event.target.value)}
         />
         <p id="doc-help" className="ds-help">
-          Paste 200 to 20,000 characters; long texts get larger chunks, at most 12.
+          Fill it from Wikipedia above or paste your own: 200 to 20,000 characters. Long texts get larger chunks, at most 12.
         </p>
         <p id="doc-count" className={outOfRange ? 'ds-hint ds-num doc-count is-over' : 'ds-hint ds-num doc-count'}>
-          {formatChars(count)} / {formatChars(MAX_CHARS)} characters{outOfRange ? `. ${RANGE_MESSAGE}` : ''}
+          {formatTokens(count)} / {formatTokens(MAX_CHARS)} characters{outOfRange ? `. ${RANGE_MESSAGE}` : ''}
         </p>
       </div>
 
       <div className="control-stack">
-        <div className="control-group">
-          <button
-            type="button"
-            className="ds-button"
-            onClick={onSample}
-            disabled={running}
-            aria-describedby="sample-help"
-          >
-            Load the sample
-          </button>
-          <p id="sample-help" className="ds-help">
-            Loads the Declaration of Independence.
-          </p>
-        </div>
-
         <div className="control-group">
           <button
             type="button"

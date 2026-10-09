@@ -21,8 +21,3 @@ export function costNote(source: CostSource | undefined): string {
 export function formatCount(count: number, word: string): string {
   return `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`
 }
-
-/** Characters with thousands separators, for the input counter. */
-export function formatChars(count: number): string {
-  return count.toLocaleString('en-US')
-}

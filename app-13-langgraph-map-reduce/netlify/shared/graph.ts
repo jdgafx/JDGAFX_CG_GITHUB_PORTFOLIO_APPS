@@ -1,4 +1,4 @@
-import { END, MemorySaver, Send, START, StateGraph } from '@langchain/langgraph'
+import { END, Send, START, StateGraph } from '@langchain/langgraph'
 import { GraphState, type GraphStateType } from './graph-state'
 import { makeNodes, type ExtractInput, type NodeDeps } from './nodes'
 
@@ -47,5 +47,5 @@ export function buildGraph(deps: NodeDeps) {
     .addEdge('synthesize', 'check')
     .addConditionalEdges('check', afterCheck, ['extract', 'final'])
     .addEdge('final', END)
-    .compile({ checkpointer: new MemorySaver() })
+    .compile()
 }

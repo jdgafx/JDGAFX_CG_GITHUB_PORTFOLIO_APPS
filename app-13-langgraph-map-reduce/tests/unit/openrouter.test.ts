@@ -22,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   vi.useRealTimers()
   if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY
   else process.env.OPENROUTER_API_KEY = previousKey
@@ -38,7 +39,7 @@ function hangingFetch(): ReturnType<typeof vi.fn> {
   return vi.fn(
     (_url: string, init: RequestInit) =>
       new Promise((_resolve, reject) => {
-        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
       }),
   )
 }
@@ -239,28 +240,51 @@ describe('chat', () => {
     expect(error.message).toBe('Could not reach the AI provider.')
   })
 
-  it('gives up after 10 seconds with a non-fatal timeout', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('fetch', hangingFetch())
+  /**
+   * Fake timers cannot move AbortSignal.timeout, so these tests record the delay chat asks for and
+   * swap in a signal that fires after 15 ms. The delay is what is pinned, the timeout path is what runs.
+   */
+  function shortenTimeouts(): number[] {
+    const asked: number[] = []
+    const real = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      asked.push(ms)
+      return real(15)
+    })
+    return asked
+  }
 
-    const pending = chat(request, noAbort()).catch((e: unknown) => e)
-    await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)
-    const error = (await pending) as ProviderError
+  it('gives up after 10 seconds with a non-fatal timeout', async () => {
+    vi.stubGlobal('fetch', hangingFetch())
+    const asked = shortenTimeouts()
+
+    const error = (await chat(request, noAbort()).catch((e: unknown) => e)) as ProviderError
 
     expect(CALL_TIMEOUT_MS).toBe(10_000)
+    expect(asked).toEqual([10_000])
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
   })
 
   it('lets a request carry its own, shorter timeout', async () => {
-    vi.useFakeTimers()
     vi.stubGlobal('fetch', hangingFetch())
+    const asked = shortenTimeouts()
 
-    const pending = chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => e)
-    await vi.advanceTimersByTimeAsync(5_000)
-    const error = (await pending) as ProviderError
+    const error = (await chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => e)) as ProviderError
+
+    expect(asked).toEqual([5_000])
+    expect(error.kind).toBe('timeout')
+  })
+
+  it('times out for real after the request timeout, with no mocked clock', async () => {
+    vi.stubGlobal('fetch', hangingFetch())
+    const started = Date.now()
+
+    const error = (await chat({ ...request, timeoutMs: 40 }, noAbort()).catch((e: unknown) => e)) as ProviderError
 
     expect(error.kind).toBe('timeout')
+    expect(Date.now() - started).toBeGreaterThanOrEqual(35)
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it('never sends the request timeout to the provider', async () => {
@@ -278,6 +302,16 @@ describe('chat', () => {
 
     const pending = chat(request, controller.signal).catch((e: unknown) => e)
     controller.abort(new RunBudgetError())
+
+    expect(await pending).toBeInstanceOf(RunBudgetError)
+  })
+
+  it('reports a halt by another call as a RunBudgetError, not as the halting provider error', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', hangingFetch())
+
+    const pending = chat(request, controller.signal).catch((e: unknown) => e)
+    controller.abort(new ProviderError('rejected'))
 
     expect(await pending).toBeInstanceOf(RunBudgetError)
   })

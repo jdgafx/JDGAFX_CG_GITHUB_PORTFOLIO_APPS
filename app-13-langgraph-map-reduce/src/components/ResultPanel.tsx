@@ -3,7 +3,7 @@ import type { Phase } from '../lib/view'
 import type { RunResult } from '../types/frames'
 
 const SUMMARY_EMPTY: Record<Phase, string> = {
-  idle: 'Load the sample or paste a document, then analyze it. The summary appears here when the run finishes.',
+  idle: 'Load a Wikipedia article or paste a document, then analyze it. The summary appears here when the run finishes.',
   running: 'The summary is written once every chunk is extracted and merged.',
   done: 'This run returned no summary.',
   error: 'No summary, because the run failed. The message under the buttons says why.',
