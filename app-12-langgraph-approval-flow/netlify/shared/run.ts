@@ -9,7 +9,7 @@ import type { GraphValues } from './state'
 import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from './store'
 import { RUN_BUDGET_MS } from './budget'
 import { buildResult, threadViewOf } from './thread-view'
-import { describeError, getThreadEntry, titleFor, writeThread } from './thread-index'
+import { describeError, getThreadEntry, hasWaitingMarker, titleFor, writeThread } from './thread-index'
 import { isClaimed } from './claim'
 
 const GENERIC_RUN_FAILURE = 'The run stopped before it finished. The thread is marked failed.'
@@ -78,10 +78,11 @@ async function recordThread(
   meta: ThreadMeta,
   status: ThreadStatus,
   priority: Priority | null,
+  at: Date = deps.now(),
 ): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      await writeThread(guardStore(deps.store), { id: threadId, ...meta, status, priority }, deps.now())
+      await writeThread(guardStore(deps.store), { id: threadId, ...meta, status, priority }, at)
       return
     } catch (err) {
       console.error(`GraphGate: could not write the summary of thread ${threadId} (attempt ${attempt}): ${describeError(err)}`)
@@ -273,9 +274,15 @@ export async function inspectThread(
       : stored
         ? stored.priority
         : (values.triage?.priority ?? null)
-  if (stored?.status === status && stored.priority === priority) return { entry: stored, values, proposal, hasNext, running: false }
-  const entry: ThreadEntry = { id: threadId, ...meta, status, priority, updatedAt: deps.now().toISOString() }
-  await recordThread(deps, threadId, meta, status, priority)
+  // The list trusts the waiting marker, so a waiting thread without one gets it here even when its summary is right.
+  const markerMissing = status === 'awaiting_approval' && !(await hasWaitingMarker(store, threadId))
+  if (stored?.status === status && stored.priority === priority && !markerMissing) {
+    return { entry: stored, values, proposal, hasNext, running: false }
+  }
+  // A repair is not activity: the row keeps the time it had, so it does not jump to the top of the list.
+  const at = stored ? new Date(stored.updatedAt) : deps.now()
+  const entry: ThreadEntry = { id: threadId, ...meta, status, priority, updatedAt: at.toISOString() }
+  await recordThread(deps, threadId, meta, status, priority, at)
   return { entry, values, proposal, hasNext, running: false }
 }
 
@@ -292,4 +299,27 @@ export async function readThread(deps: RunDeps, threadId: string, signal?: Abort
     running: info.running,
     retryable: !info.running && info.entry.status === 'failed' && info.hasNext,
   })
+}
+
+/** How many stale rows one list call checks against their checkpoints. */
+const STALE_CHECKS_PER_LIST = 5
+
+/**
+ * Corrects list rows that say "awaiting a maintainer" without a waiting marker, by reading the thread's
+ * checkpoint, which also rewrites its summary and marker so the next list is right. Only the first few
+ * are checked per call, and a failed check is logged and leaves the row as it was.
+ */
+export async function repairStaleRows(deps: RunDeps, rows: ThreadEntry[], stale: readonly string[]): Promise<ThreadEntry[]> {
+  const fixed = new Map<string, ThreadEntry>()
+  await Promise.all(
+    stale.slice(0, STALE_CHECKS_PER_LIST).map(async (id) => {
+      try {
+        const info = await inspectThread(deps, id)
+        if (info) fixed.set(id, info.entry)
+      } catch (err) {
+        console.error(`GraphGate: could not check the stale thread ${id}: ${describeError(err)}`)
+      }
+    }),
+  )
+  return rows.map((row) => fixed.get(row.id) ?? row)
 }

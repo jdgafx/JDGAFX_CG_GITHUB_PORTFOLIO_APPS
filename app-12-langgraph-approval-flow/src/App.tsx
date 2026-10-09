@@ -11,7 +11,7 @@ import { RetryCard } from './components/RetryCard'
 import { ThreadsCard, type ThreadsState } from './components/ThreadsCard'
 import { TraceCard } from './components/TraceCard'
 import { TriageCard, outcomeOf } from './components/TriageCard'
-import { failureText, fetchThread, fetchThreads, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
+import { failureText, fetchThread, fetchThreads, type ThreadResponse as ThreadViewResponse, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
 import { GitHubError, listOpenIssues, parseRepoInput, slugOf } from './lib/github'
 import { outcomeAfterFailure } from './lib/resume-failure'
 import { applyEvent, emptyRun, runFromView, type Phase, type RunView } from './lib/run-state'
@@ -36,6 +36,10 @@ function statusLine(phase: Phase, run: RunView, current: NodeName | null, flow: 
 }
 
 type Stream = (onEvent: (event: StreamEvent) => void, signal: AbortSignal) => Promise<void>
+
+/** While another run holds a thread, the page looks again this often, and gives up after this many looks. */
+const WATCH_EVERY_MS = 2_000
+const WATCH_ATTEMPTS = 10
 
 const NO_ISSUES: IssuesState = { loading: false, repo: null, items: [], error: null }
 
@@ -64,6 +68,8 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [flow, setFlow] = useState<StreamFlow>(NO_STREAM)
   const [requestError, setRequestError] = useState<string | null>(null)
+  /** A neutral line about a thread that another maintainer is handling or has handled, with a way to look again. */
+  const [notice, setNotice] = useState<{ text: string; threadId: string | null } | null>(null)
   const [threads, setThreads] = useState<ThreadsState>({
     loading: true,
     storage: null,
@@ -77,6 +83,7 @@ export default function App() {
   const [opened, setOpened] = useState(0)
   // The thread id of the run on the page, readable inside stream() whatever render it was created in.
   const threadOf = useRef<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadThreads = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -126,8 +133,14 @@ export default function App() {
     if (opened > 0) revealOpenedThread(runRef.current)
   }, [opened])
 
-  // Leaving the page stops a run that is still streaming.
-  useEffect(() => () => streamRef.current?.abort(), [])
+  // Leaving the page stops a run that is still streaming, and a watch on a thread another run holds.
+  useEffect(
+    () => () => {
+      streamRef.current?.abort()
+      if (pollRef.current) clearInterval(pollRef.current)
+    },
+    [],
+  )
 
   /** Runs one stream (a new issue or a resume) and folds its events into the page. */
   const stream = async (open: Stream, resuming = false) => {
@@ -137,6 +150,8 @@ export default function App() {
     const from = phase
     let eventsArrived = false
     setRequestError(null)
+    setNotice(null)
+    stopWatching()
     setFlow({ resuming, eventsArrived: false })
     setPhase('running')
 
@@ -206,20 +221,46 @@ export default function App() {
     void stream((onEvent, signal) => retryThread(threadId, onEvent, signal))
   }
 
+  const stopWatching = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = null
+  }
+
+  /** Shows a thread as the server reports it. A thread another run holds is watched until it is free. */
+  const applyView = (view: ThreadViewResponse, note: string | null) => {
+    stopWatching()
+    setRun(runFromView(view))
+    setOpened((count) => count + 1)
+    if (view.status === 'running') {
+      // Another run holds the thread, so there is no card to answer and nothing to retry yet.
+      setPhase('idle')
+      setNotice({ text: 'Another maintainer is handling this thread. The page checks every 2 seconds and shows the result when it is done.', threadId: view.threadId })
+      let attempts = 0
+      pollRef.current = setInterval(() => {
+        attempts += 1
+        void fetchThread(view.threadId)
+          .then((latest) => {
+            if (latest.status !== 'running') applyView(latest, 'Another maintainer handled this thread. This is the result.')
+            else if (attempts >= WATCH_ATTEMPTS) {
+              stopWatching()
+              setNotice({ text: 'This thread is still being handled. Use Refresh to check again.', threadId: view.threadId })
+            }
+          })
+          .catch(() => {
+            if (attempts >= WATCH_ATTEMPTS) stopWatching()
+          })
+      }, WATCH_EVERY_MS)
+    } else {
+      setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
+      setNotice(note ? { text: note, threadId: null } : null)
+    }
+  }
+
   const handleOpen = async (threadId: string, note: string | null = null) => {
     setRequestError(null)
+    setNotice(null)
     try {
-      const view = await fetchThread(threadId)
-      setRun(runFromView(view))
-      if (view.status === 'running') {
-        // Another run holds the thread, so there is no card to answer and nothing to retry yet.
-        setPhase('idle')
-        setRequestError('This thread is being handled right now. Refresh the list in a moment to see the result.')
-      } else {
-        setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
-        setRequestError(note)
-      }
-      setOpened((count) => count + 1)
+      applyView(await fetchThread(threadId), note)
     } catch (err) {
       if (!isAbortError(err)) setRequestError(failureText(err))
     }
@@ -243,6 +284,18 @@ export default function App() {
         <p className="ds-hint gg-live" role="status" aria-live="polite">
           {statusLine(phase, run, current, flow)}
         </p>
+        {notice ? (
+          <div className="gg-notice-row">
+            <p className="ds-notice" role="status">
+              {notice.text}
+            </p>
+            {notice.threadId ? (
+              <button type="button" className="ds-button" onClick={() => void handleOpen(notice.threadId as string)}>
+                Refresh now
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {requestError ? (
           <p className="ds-notice ds-notice--error" role="alert">
             {requestError}

@@ -167,10 +167,32 @@ async function mapBounded<T, R>(items: readonly T[], limit: number, deadline: nu
   return results
 }
 
-const byWaitingThenNewest = (a: ThreadEntry, b: ThreadEntry): number => {
-  const waiting = Number(b.status === 'awaiting_approval') - Number(a.status === 'awaiting_approval')
-  if (waiting !== 0) return waiting
-  return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0
+/** At most this many plain legacy summaries are read per list call, and at most this many are moved. */
+const MAX_PLAIN_READS = 30
+const MAX_MIGRATIONS_PER_LIST = 5
+
+/** True when the thread has a waiting marker. The marker is what the list trusts for "waiting". */
+export async function hasWaitingMarker(store: KeyValueStore, id: string): Promise<boolean> {
+  return (await store.get(`${WAITING_PREFIX}${id}`)) !== undefined
+}
+
+/**
+ * Moves one plain `threads/<random id>` summary to its time-ordered key, keeping its own update time as
+ * the time in the key and in the row. It adds no waiting marker: whether the thread waits is not known
+ * here. Idempotent: the key is derived from the row, so two calls write the same key.
+ */
+async function migratePlainSummary(store: KeyValueStore, entry: ThreadEntry): Promise<void> {
+  const time = Date.parse(entry.updatedAt)
+  if (!Number.isFinite(time)) return
+  const hex = time.toString(16).padStart(12, '0')
+  await store.set(`${SUMMARY_PREFIX}${hex.slice(0, 8)}-${hex.slice(8)}-${entry.id}`, JSON.stringify(entry))
+  await store.delete(`${SUMMARY_PREFIX}${entry.id}`)
+}
+
+export interface ThreadList {
+  rows: ThreadEntry[]
+  /** Rows that say "awaiting a maintainer" but have no waiting marker, so the list does not trust them. */
+  stale: string[]
 }
 
 /**
@@ -178,23 +200,36 @@ const byWaitingThenNewest = (a: ThreadEntry, b: ThreadEntry): number => {
  * summaries to read (the waiting markers first, then the newest keys), and they are read a few at a time.
  * One summary that cannot be read costs one row: it is logged with its key and skipped. When every read
  * fails, the first error is thrown, so a store that is down reads as down and not as an empty list. A list
- * that runs past its time budget returns the rows read so far. Threads that only the legacy index knows
- * are merged in.
+ * that runs past its time budget returns the rows read so far.
+ *
+ * Threads of earlier versions are merged in: the legacy index rows, and the plain `threads/<random id>`
+ * summaries, which are read so the newer copy wins, and of which a few are moved to time-ordered keys on
+ * each call until none are left. One row per thread, the newest copy winning, sorted by update time before
+ * the cap. A row counts as waiting only if the thread's waiting marker exists. A row that says waiting
+ * without a marker is listed as stale, and the caller checks it against its checkpoint.
  */
-export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> {
-  let keys: string[]
+export async function listThreadsDetailed(store: KeyValueStore): Promise<ThreadList> {
+  let allKeys: string[]
   try {
-    keys = (await store.list(SUMMARY_PREFIX)).filter((key) => idOfKey(key) !== null).sort().reverse()
+    allKeys = await store.list(SUMMARY_PREFIX)
   } catch (err) {
     console.error(`GraphGate: could not list the thread summaries: ${describeError(err)}`)
     throw err
   }
+  const keys = allKeys.filter((key) => idOfKey(key) !== null).sort().reverse()
+  const plainKeys = allKeys.filter((key) => {
+    const id = ID_KEY.exec(key)?.[1]
+    return id !== undefined && !startsWithTime(id)
+  })
   const keyOfId = new Map(keys.map((key) => [idOfKey(key) as string, key]))
+
+  let waitingIds: Set<string> | null = null
   let waitingKeys: string[] = []
   try {
-    const markers = await store.list(WAITING_PREFIX)
+    const markers = (await store.list(WAITING_PREFIX)).map((marker) => marker.slice(WAITING_PREFIX.length))
+    waitingIds = new Set(markers)
     waitingKeys = markers
-      .map((marker) => keyOfId.get(marker.slice(WAITING_PREFIX.length)))
+      .map((id) => keyOfId.get(id))
       .filter((key): key is string => key !== undefined)
       .sort()
       .reverse()
@@ -202,10 +237,11 @@ export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> 
     console.error(`GraphGate: could not list the waiting markers: ${describeError(err)}`)
   }
   const chosen = [...new Set([...waitingKeys, ...keys])].slice(0, MAX_LISTED_THREADS)
+  const plainChosen = plainKeys.slice(0, MAX_PLAIN_READS)
 
   const failures: unknown[] = []
   const deadline = Date.now() + LIST_BUDGET_MS
-  const read = await mapBounded(chosen, READ_CONCURRENCY, deadline, async (key) => {
+  const readKey = async (key: string) => {
     try {
       return parseEntry(await store.get(key)) ?? null
     } catch (err) {
@@ -213,9 +249,11 @@ export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> 
       console.error(`GraphGate: could not read the thread summary ${key}: ${describeError(err)}`)
       return null
     }
-  })
-  const rows = read.filter((row): row is ThreadEntry => row !== undefined && row !== null)
-  if (rows.length === 0 && failures.length > 0 && failures.length === read.filter((row) => row !== undefined).length) throw failures[0]
+  }
+  const read = await mapBounded([...chosen, ...plainChosen], READ_CONCURRENCY, deadline, readKey)
+  const attempted = read.filter((row) => row !== undefined)
+  const found = read.filter((row): row is ThreadEntry => row !== undefined && row !== null)
+  if (found.length === 0 && failures.length > 0 && failures.length === attempted.length) throw failures[0]
   if (read.some((row) => row === undefined)) console.error('GraphGate: the thread list ran out of time and shows the rows read so far')
 
   let legacy: ThreadEntry[] = []
@@ -224,14 +262,48 @@ export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> 
   } catch (err) {
     console.error(`GraphGate: could not read the legacy thread index: ${describeError(err)}`)
   }
-  // One row per thread, the newest copy winning, and then waiting first, newest first, at most 50. The cap
-  // comes after the sort by update time, so old legacy rows cannot crowd out newer threads.
+
+  // One row per thread, the newest copy winning.
   const newest = new Map<string, ThreadEntry>()
-  for (const row of [...rows, ...legacy]) {
+  for (const row of [...found, ...legacy]) {
     const seen = newest.get(row.id)
     if (!seen || row.updatedAt > seen.updatedAt) newest.set(row.id, row)
   }
-  return [...newest.values()].sort(byWaitingThenNewest).slice(0, MAX_LISTED_THREADS)
+  const stale: string[] = []
+  const isWaiting = (row: ThreadEntry) => {
+    if (row.status !== 'awaiting_approval') return false
+    if (waitingIds === null || waitingIds.has(row.id)) return true
+    if (!stale.includes(row.id)) stale.push(row.id)
+    return false
+  }
+  const rows = [...newest.values()]
+    .map((row) => ({ row, waiting: isWaiting(row) }))
+    .sort((a, b) => Number(b.waiting) - Number(a.waiting) || (a.row.updatedAt < b.row.updatedAt ? 1 : a.row.updatedAt > b.row.updatedAt ? -1 : 0))
+    .slice(0, MAX_LISTED_THREADS)
+    .map(({ row }) => row)
+
+  // Empty the plain-key path a few at a time, so the legacy path goes away over time.
+  const plainByKey = new Map(plainChosen.map((key, i) => [key, read[chosen.length + i]]))
+  await Promise.all(
+    [...plainByKey]
+      .filter((entry): entry is [string, ThreadEntry] => entry[1] !== undefined && entry[1] !== null)
+      .slice(0, MAX_MIGRATIONS_PER_LIST)
+      .map(async ([, entry]) => {
+        try {
+          // A time-ordered summary already exists for this thread: it is newer, so the plain copy is just removed.
+          if (keyOfId.has(entry.id)) await store.delete(`${SUMMARY_PREFIX}${entry.id}`)
+          else await migratePlainSummary(store, entry)
+        } catch (err) {
+          console.error(`GraphGate: could not move the old summary of thread ${entry.id}: ${describeError(err)}`)
+        }
+      }),
+  )
+  return { rows, stale: stale.filter((id) => rows.some((row) => row.id === id)) }
+}
+
+/** The list rows only. See listThreadsDetailed. */
+export async function listThreads(store: KeyValueStore): Promise<ThreadEntry[]> {
+  return (await listThreadsDetailed(store)).rows
 }
 
 /** A short list title: the repo, the issue number and the title, cut to 70 characters. */

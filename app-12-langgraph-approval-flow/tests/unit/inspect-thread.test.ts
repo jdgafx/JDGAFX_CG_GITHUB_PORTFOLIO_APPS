@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { claimThread } from '../../netlify/shared/claim'
 import type { StreamEvent } from '../../netlify/shared/events'
-import { inspectThread, resumeRun, startRun, type RunDeps } from '../../netlify/shared/run'
+import { inspectThread, repairStaleRows, resumeRun, startRun, type RunDeps } from '../../netlify/shared/run'
 import { createMemoryStore } from '../../netlify/shared/store'
-import { getThreadEntry, LEGACY_INDEX_KEY, listThreads } from '../../netlify/shared/thread-index'
+import { getThreadEntry, LEGACY_INDEX_KEY, listThreads, listThreadsDetailed, WAITING_PREFIX } from '../../netlify/shared/thread-index'
 import { fakeChat } from '../helpers/fake-chat'
 import { BUG, CLASSIFIED_BUG, QUESTION } from '../helpers/issues'
 
@@ -117,5 +117,69 @@ describe('a thread held by a claim', () => {
 
     expect(info).toMatchObject({ running: true, proposal: null })
     expect(await listThreads(d.store)).toEqual(before)
+  })
+})
+
+describe('a list row that says waiting without a marker is checked against its checkpoint', () => {
+  const legacyRow = (status: 'awaiting_approval', updatedAt: string) => ({
+    id: RANDOM_ID,
+    title: 'acme/widgets #202: x',
+    repo: 'acme/widgets',
+    number: 202,
+    status,
+    updatedAt,
+    priority: 'high' as const,
+  })
+
+  it('shows a finished legacy thread as completed, keeps its old time, and the next list needs no check', async () => {
+    const d = deps()
+    await startRun(d, { issue: BUG, threadId: RANDOM_ID, budget: new AbortController().signal, send: noop })
+    await resumeRun(d, {
+      threadId: RANDOM_ID,
+      entry: (await inspectThread(d, RANDOM_ID, undefined, { ownsClaim: true }))!.entry,
+      answer: { action: 'approve' },
+      budget: new AbortController().signal,
+      send: noop,
+    })
+    for (const key of (await d.store.list('threads/')).filter((k) => k !== LEGACY_INDEX_KEY)) await d.store.delete(key)
+    await d.store.delete(`${WAITING_PREFIX}${RANDOM_ID}`)
+    await d.store.set(LEGACY_INDEX_KEY, JSON.stringify([legacyRow('awaiting_approval', '2026-10-01T00:00:00.000Z')]))
+
+    const first = await listThreadsDetailed(d.store)
+    expect(first.stale).toEqual([RANDOM_ID])
+    const fixed = await repairStaleRows(d, first.rows, first.stale)
+    expect(fixed).toHaveLength(1)
+    expect(fixed[0]).toMatchObject({ id: RANDOM_ID, status: 'completed', updatedAt: '2026-10-01T00:00:00.000Z' })
+
+    const second = await listThreadsDetailed(d.store)
+    expect(second.stale).toEqual([])
+    expect(second.rows).toHaveLength(1)
+    expect(second.rows[0]).toMatchObject({ status: 'completed', priority: 'high' })
+    expect(await d.store.list(WAITING_PREFIX)).toEqual([])
+  })
+
+  it('keeps a legacy thread that really waits as waiting, and gives it its marker', async () => {
+    const d = deps()
+    await startRun(d, { issue: BUG, threadId: RANDOM_ID, budget: new AbortController().signal, send: noop })
+    await d.store.delete(`${WAITING_PREFIX}${RANDOM_ID}`)
+    for (const key of (await d.store.list('threads/')).filter((k) => k !== LEGACY_INDEX_KEY)) await d.store.delete(key)
+    await d.store.set(LEGACY_INDEX_KEY, JSON.stringify([legacyRow('awaiting_approval', '2026-10-01T00:00:00.000Z')]))
+
+    const first = await listThreadsDetailed(d.store)
+    const fixed = await repairStaleRows(d, first.rows, first.stale)
+
+    expect(fixed[0]).toMatchObject({ status: 'awaiting_approval' })
+    expect(await d.store.list(WAITING_PREFIX)).toEqual([`${WAITING_PREFIX}${RANDOM_ID}`])
+    expect((await listThreadsDetailed(d.store)).stale).toEqual([])
+  })
+
+  it('checks at most five stale rows per call, and leaves a failed check as it was', async () => {
+    const d = deps()
+    const rows = Array.from({ length: 8 }, (_, i) => ({ ...legacyRow('awaiting_approval', '2026-10-01T00:00:00.000Z'), id: `b715c0de-2f4b-4e11-8a90-0c3d5e7f9a0${i}` }))
+    const checked: string[] = []
+    const store = { ...d.store, get: async (key: string) => (key.startsWith('thread/') ? (checked.push(key), undefined) : d.store.get(key)) }
+    const out = await repairStaleRows({ ...d, store }, rows, rows.map((row) => row.id))
+    expect(out).toEqual(rows)
+    expect(new Set(checked.map((key) => key.split('/')[1])).size).toBeLessThanOrEqual(5)
   })
 })
