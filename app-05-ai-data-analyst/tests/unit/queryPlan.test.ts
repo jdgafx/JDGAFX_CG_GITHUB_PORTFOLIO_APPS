@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
+import { answerDirection, applyQuestionDirection, isValueSort, validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan } from '../../src/types'
 
 const HEADERS = ['date', 'product', 'revenue', 'units', 'region']
@@ -56,6 +56,19 @@ describe('validateQueryPlan accepts good plans', () => {
       op: 'gte',
       value: '300',
     })
+  })
+
+  it('keeps a list of missing items, trimmed, and drops an empty or null list', () => {
+    expect(planOf({ ...GOOD, missing: [' wind speed ', '', 'deaths'] }).missing).toEqual(['wind speed', 'deaths'])
+    expect(planOf({ ...GOOD, missing: [] }).missing).toBeUndefined()
+    expect(planOf({ ...GOOD, missing: null }).missing).toBeUndefined()
+    expect(planOf(GOOD).missing).toBeUndefined()
+  })
+
+  it('rejects a missing list that is not a list of text', () => {
+    const unreadable = 'The AI returned an unreadable list of missing items. Try rephrasing your question.'
+    expect(validateQueryPlan({ ...GOOD, missing: 'wind speed' }, HEADERS)).toEqual({ ok: false, error: unreadable })
+    expect(validateQueryPlan({ ...GOOD, missing: ['a', 3] }, HEADERS)).toEqual({ ok: false, error: unreadable })
   })
 
   it('keeps a notice sentence and drops a notice that says null', () => {
@@ -157,5 +170,29 @@ describe('answerDirection', () => {
     expect(answerDirection({ ...plan, sortBy: { field: 'revenue', dir: 'desc' } })).toBe('highest')
     expect(answerDirection({ ...plan, sortBy: { field: 'product', dir: 'asc' } })).toBe('highest')
     expect(answerDirection(plan)).toBe('highest')
+  })
+})
+
+describe('applyQuestionDirection', () => {
+  const plan: QueryPlan = {
+    chartType: 'bar',
+    groupBy: 'region',
+    aggregate: { field: 'id', fn: 'count' },
+    title: 'T',
+    explanation: '',
+  }
+
+  it('sorts the measure ascending when the question asks for the lowest and the plan has no sort', () => {
+    for (const question of ['Which region had the fewest earthquakes?', 'Coldest night?', 'the LEAST rain', 'smallest total']) {
+      expect(applyQuestionDirection(plan, question).sortBy).toEqual({ field: 'id', dir: 'asc' })
+    }
+  })
+
+  it('leaves a plan that already sorts, a time-series chart and an ordinary question alone', () => {
+    const sorted = { ...plan, sortBy: { field: 'region', dir: 'desc' as const } }
+    expect(applyQuestionDirection(sorted, 'fewest earthquakes')).toBe(sorted)
+    const line = { ...plan, chartType: 'line' as const }
+    expect(applyQuestionDirection(line, 'lowest by month')).toBe(line)
+    expect(applyQuestionDirection(plan, 'Which region had the most earthquakes?')).toBe(plan)
   })
 })

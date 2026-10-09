@@ -83,7 +83,7 @@ describe('executeQuery on a recorded USGS excerpt', () => {
       aggregate: { field: 'mag', fn: 'max' },
       filter: { field: 'type', op: 'eq', value: 'EARTHQUAKE' },
     })
-    expect(topGroup(executeQuery(quakes, plan))).toEqual({ label: 'Japan region', value: 4.6 })
+    expect(topGroup(executeQuery(quakes, plan))).toEqual({ label: 'Japan region', value: 4.6, tied: ['Japan region'] })
   })
 
   it('keeps only rows above a numeric threshold before grouping', () => {
@@ -99,6 +99,16 @@ describe('executeQuery on a recorded USGS excerpt', () => {
     expect(topGroup(result, 'lowest')?.label).toBe('ml')
     expect(topGroup(result, 'lowest')?.value).toBeCloseTo(1.511, 6)
     expect(topGroup(result)?.label).toBe('mb')
+  })
+
+  it('lists every group that shares the top value, the first one leading', () => {
+    const plan = planWith('region', 'count', { sortBy: { field: 'count', dir: 'asc' } })
+    const top = topGroup(executeQuery(quakes, plan), 'lowest')
+    expect(top).toEqual({
+      label: 'Georgia',
+      value: 1,
+      tied: ['Georgia', 'Puerto Rico', 'Japan', 'Washington', 'Oregon', 'Japan region'],
+    })
   })
 
   it('sorts by the group label when asked', () => {
@@ -134,7 +144,7 @@ describe('executeQuery on a recorded Open-Meteo excerpt', () => {
     const plan = planWith('month', 'min', { aggregate: { field: 'temp_min_c', fn: 'min' } })
     const result = executeQuery(weather, plan)
     expect(result.datasets[0]?.values).toEqual([4.9, 4.0])
-    expect(topGroup(result, 'lowest')).toEqual({ label: '2025-11', value: 4.0 })
+    expect(topGroup(result, 'lowest')).toEqual({ label: '2025-11', value: 4.0, tied: ['2025-11'] })
   })
 })
 

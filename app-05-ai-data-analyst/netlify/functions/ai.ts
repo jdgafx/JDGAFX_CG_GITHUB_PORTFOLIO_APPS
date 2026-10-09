@@ -130,6 +130,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   },
   "title": "<descriptive chart title>",
   "explanation": "<brief explanation of what this visualization shows and why>",
+  "missing": ["<each column, measure or category the question names that the dataset does not have>"] | null,
   "notice": "<one plain sentence, or null>"
 }
 
@@ -141,7 +142,8 @@ Rules:
 - When the question asks for the lowest, least, smallest, coldest, fewest or bottom group, sort the aggregate field with dir "asc". When it asks for the highest, most, largest or top group, use dir "desc".
 - For count queries, aggregate.field must still be a real column name (count ignores its value)
 - Choose the most appropriate chartType for the data pattern
-- "notice": if the question asks about a column, measure or category that is not in the dataset, say so in one sentence and name the real column you used instead. Otherwise set it to null.`
+- "missing": list only what the question names that no column of the dataset provides, such as a measure the data does not hold. When you list something, "notice" is one sentence that says so and names the real column you used instead. Otherwise set "missing" to null.
+- Never use "missing" or "notice" for formatting, data quality or parsing. Numeric cells may hold thousands separators, currency signs or percent signs, for example "1,200", and the browser parses them. Set "notice" to null unless "missing" is non-empty.`
 
 /** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
 class RunLog {

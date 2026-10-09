@@ -24,7 +24,12 @@ export interface QueryPlan {
   }
   title: string
   explanation: string
-  /** Set by the model when the question names something the dataset does not have. */
+  /**
+   * What the question names that the dataset does not have, such as "wind speed". Present only
+   * when the list is non-empty. It is the one signal that the chart is a stand-in.
+   */
+  missing?: string[]
+  /** A plain remark from the model. It never marks the chart as a stand-in on its own. */
   notice?: string
 }
 
@@ -78,6 +83,13 @@ export interface EngineResult {
   labels: string[]
   datasets: { name: string; values: number[] }[]
   warnings: string[]
+}
+
+/** The group a question points at. `tied` lists every group with the same value, the top one first. */
+export interface TopGroup {
+  label: string
+  value: number
+  tied: string[]
 }
 
 export interface AnalysisResult extends EngineResult {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { describeResult } from './lib/answer'
 import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
-import { answerDirection, validateQueryPlan } from './lib/queryPlan'
+import { answerDirection, applyQuestionDirection, validateQueryPlan } from './lib/queryPlan'
 import { askData, AnalysisRunError, CancelledError, clientRun, sampleFor } from './lib/api'
 import {
   CITIES,
@@ -221,16 +221,17 @@ export default function App() {
         return
       }
 
+      const plan = applyQuestionDirection(validation.plan, asked)
       const executeAt = Date.now()
-      const engine: EngineResult = executeQuery(parsedData, validation.plan)
-      const direction = answerDirection(validation.plan)
+      const engine: EngineResult = executeQuery(parsedData, plan)
+      const direction = answerDirection(plan)
       const top = topGroup(engine, direction)
       const runStep: RunStep = {
         name: 'Run plan on the rows',
         status: 'ok',
         ms: Date.now() - executeAt,
         detail: top
-          ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}.`
+          ? `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}${top.tied.length > 1 ? ` and ${top.tied.length - 1} more tie` : ''}.`
           : 'No rows matched, so there are no groups.',
       }
       const done: RunView = {
@@ -242,7 +243,7 @@ export default function App() {
       }
       const result: AnalysisResult = {
         ...engine,
-        queryPlan: validation.plan,
+        queryPlan: plan,
         question: asked,
         dataset: datasetLabel,
       }

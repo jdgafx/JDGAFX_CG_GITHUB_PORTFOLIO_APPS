@@ -1,5 +1,5 @@
 import Papa from 'papaparse'
-import type { ParsedData, QueryPlan, EngineResult } from '../types'
+import type { ParsedData, QueryPlan, EngineResult, TopGroup } from '../types'
 import { isValueSort } from './queryPlan'
 import { MAX_ROWS } from './limits'
 
@@ -208,7 +208,7 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
 export function topGroup(
   result: EngineResult,
   direction: 'highest' | 'lowest' = 'highest',
-): { label: string; value: number } | null {
+): TopGroup | null {
   const values = result.datasets[0]?.values ?? []
   const beats = (a: number, b: number) => (direction === 'highest' ? a > b : a < b)
   let best = -1
@@ -216,5 +216,8 @@ export function topGroup(
     if (best === -1 || beats(value, values[best] ?? 0)) best = index
   })
   if (best === -1) return null
-  return { label: result.labels[best] ?? '', value: values[best] ?? 0 }
+  const value = values[best] ?? 0
+  // The best index is the first one holding this value, so the top group leads the tied list.
+  const tied = result.labels.filter((_, index) => values[index] === value)
+  return { label: result.labels[best] ?? '', value, tied }
 }

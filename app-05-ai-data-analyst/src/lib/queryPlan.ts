@@ -5,6 +5,9 @@ const AGGREGATE_FNS: AggregateFn[] = ['sum', 'avg', 'count', 'min', 'max']
 const FILTER_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'contains']
 const SORT_DIRS: SortDir[] = ['asc', 'desc']
 
+/** The most missing items kept from a reply. */
+const MAX_MISSING = 8
+
 /** Sort targets that always refer to the aggregated output rather than a source column. */
 const VALUE_SORT_FIELDS = ['value', 'count', 'total']
 
@@ -122,6 +125,14 @@ export function validateQueryPlan(raw: unknown, headers: string[]): PlanValidati
     plan.sortBy = { field: sortField, dir: dir as SortDir }
   }
 
+  if (raw.missing !== undefined && raw.missing !== null) {
+    if (!Array.isArray(raw.missing) || !raw.missing.every((item) => typeof item === 'string')) {
+      return { ok: false, error: 'The AI returned an unreadable list of missing items. Try rephrasing your question.' }
+    }
+    const missing = raw.missing.map((item: string) => item.trim()).filter((item) => item !== '').slice(0, MAX_MISSING)
+    if (missing.length > 0) plan.missing = missing
+  }
+
   const notice = str(raw.notice)
   if (notice && notice.toLowerCase() !== 'null') plan.notice = notice
 
@@ -140,4 +151,17 @@ export function isValueSort(plan: QueryPlan, field: string): boolean {
  */
 export function answerDirection(plan: QueryPlan): 'highest' | 'lowest' {
   return plan.sortBy && isValueSort(plan, plan.sortBy.field) && plan.sortBy.dir === 'asc' ? 'lowest' : 'highest'
+}
+
+const LOWEST_WORDS = /\b(lowest|least|fewest|coldest|smallest|bottom)\b/i
+
+/**
+ * A safety net for the headline. When the question asks for the lowest group but the plan
+ * has no sort at all, the plan gets an ascending sort on the measure. A plan that already
+ * sorts, and a line or area chart (whose order is the time axis), are left alone.
+ */
+export function applyQuestionDirection(plan: QueryPlan, question: string): QueryPlan {
+  if (plan.sortBy || plan.chartType === 'line' || plan.chartType === 'area') return plan
+  if (!LOWEST_WORDS.test(question)) return plan
+  return { ...plan, sortBy: { field: plan.aggregate.field, dir: 'asc' } }
 }

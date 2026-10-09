@@ -1,5 +1,5 @@
 import { answerDirection, isValueSort } from './queryPlan'
-import type { AggregateFn, FilterOp, QueryPlan } from '../types'
+import type { AggregateFn, FilterOp, QueryPlan, TopGroup } from '../types'
 
 const MEASURE: Record<AggregateFn, (field: string) => string> = {
   sum: (field) => `total ${field}`,
@@ -24,28 +24,53 @@ function measureWords(plan: QueryPlan): string {
   return MEASURE[plan.aggregate.fn](plan.aggregate.field)
 }
 
+const NAMED_TIES = 3
+
+function tiedLabels(labels: string[]): string {
+  const shown = labels.slice(0, NAMED_TIES).join(', ')
+  const rest = labels.length - NAMED_TIES
+  return rest > 0 ? `${shown}, and ${rest} more` : shown
+}
+
 /**
  * The answer in one sentence, built from the engine's top group rather than from the model.
- * It says "lowest" when the plan ranks the measure ascending, and "highest" otherwise. Digits use en-US so the sentence reads the same on every device.
+ * It says "lowest" when the plan ranks the measure ascending, and "highest" otherwise. When
+ * several groups share the value it says so instead of naming one. Digits use en-US so the
+ * sentence reads the same on every device.
  */
-export function answerSentence(plan: QueryPlan, top: { label: string; value: number } | null): string | null {
+export function answerSentence(plan: QueryPlan, top: TopGroup | null): string | null {
   if (!top) return null
   const value = top.value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  return `${top.label} has the ${answerDirection(plan)} ${measureWords(plan)}: ${value}.`
+  const rank = `${answerDirection(plan)} ${measureWords(plan)}: ${value}`
+  if (top.tied.length > 1) return `${top.tied.length} groups tie for the ${rank} (${tiedLabels(top.tied)}).`
+  return `${top.label} has the ${rank}.`
 }
 
 export interface ResultHeadline {
-  /** The model's note that the data lacks what the question asked for. Null when it did not say so. */
+  /** Leads the result when the data lacks what the question named. Null otherwise. */
   notice: string | null
+  /** The model's plain remark, shown low on the page. Null when it is empty or already the lead. */
+  note: string | null
   answer: string | null
-  /** True when the notice is present: the chart answers a stand-in question, not the one asked. */
+  /** True when the plan lists missing items: the chart answers a stand-in question, not the one asked. */
   substitute: boolean
 }
 
-/** What the result leads with: the notice first when there is one, then the computed sentence. */
-export function describeResult(plan: QueryPlan, top: { label: string; value: number } | null): ResultHeadline {
-  const notice = plan.notice ?? null
-  return { notice, answer: answerSentence(plan, top), substitute: notice !== null }
+/**
+ * What the result leads with. Only a non-empty `missing` list marks a stand-in. Its notice
+ * (or a line built from the list) leads; a remark without missing items stays a plain note.
+ */
+export function describeResult(plan: QueryPlan, top: TopGroup | null): ResultHeadline {
+  const answer = answerSentence(plan, top)
+  if (plan.missing) {
+    return {
+      notice: plan.notice ?? `The data has no column for: ${plan.missing.join(', ')}.`,
+      note: null,
+      answer,
+      substitute: true,
+    }
+  }
+  return { notice: null, note: plan.notice ?? null, answer, substitute: false }
 }
 
 interface PlanWords {

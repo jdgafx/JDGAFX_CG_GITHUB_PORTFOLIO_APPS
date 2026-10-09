@@ -53,6 +53,7 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
       {result.warnings.map((warning) => (
         <p key={warning} className="ds-help">{warning}</p>
       ))}
+      {headline.note && <p className="ds-help">{headline.note}</p>}
       {plan.explanation && <p className="ds-help">{plan.explanation}</p>}
 
       <details className="app-details">
