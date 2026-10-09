@@ -10,6 +10,9 @@ const PENDING_CLAIMS: readonly RegExp[] = [
   /\bfollow\s+up\s+once\b/i,
   /\bonce\b[^.!?\n]{0,40}\b(?:approval|review|triage)\b[^.!?\n]{0,20}\b(?:complete|completed|done|finished|granted)\b/i,
   /\bbefore\s+(?:it|this|the\s+issue)\s+can\s+be\s+(?:triaged|processed|labell?ed|prioriti[sz]ed)\b/i,
+  // Saying the outcome is not final contradicts a decision that is.
+  /\b(?:do\s+not|don't|please\s+do\s+not)\s+(?:treat|consider|take)\s+(?:this|it)\s+as\s+(?:a\s+)?final\b/i,
+  /\b(?:is\s+not|isn't|not)\s+(?:a\s+)?final\s+(?:decision|answer|outcome)\b/i,
 ]
 
 /** Negated wording such as "no further review is needed" is a clean statement, so it is removed before the check. */
@@ -30,6 +33,8 @@ const UNEARNED_CLAIMS: readonly RegExp[] = [
   /\b(?:we|i)(?:'ve|\s+have|\s+had)?\s+(?:already\s+|just\s+)?(?:fixed|merged|released|deployed|shipped|closed|resolved)\b/i,
   /\b(?:has|have)\s+(?:already\s+|now\s+)?been\s+(?:fixed|merged|released|deployed|shipped|closed|resolved)\b/i,
   /\bfixed\s+in\s+(?:v?\d|the\s+(?:latest|next)\b)/i,
+  // "We've noted this on the issue" claims an action on GitHub. Nothing is posted there.
+  /\b(?:we|i)(?:'ve|\s+have)?\s+noted\b[^.!?\n]{0,60}\bon\s+(?:the|this)\s+issue\b/i,
 ]
 
 export function claimsUnearnedWork(text: string): boolean {
@@ -47,10 +52,40 @@ export function hasForeignLink(text: string, repo: string): boolean {
   })
 }
 
+const TYPE_CLAIM_PATTERNS: readonly RegExp[] = [
+  /\b(?:triaged|categori[sz]ed|classified|labell?ed|tagged|treated|filed|marked)\s+(?:this\s+|it\s+|the\s+issue\s+)?as\s+(?:an?\s+)?(bug|feature\s+request|enhancement|question|documentation(?:\s+issue)?|docs)\b/gi,
+  /\bthis\s+(?:is|looks\s+like|reads\s+as)\s+(?:an?\s+)?(bug|feature\s+request|enhancement|question|documentation\s+issue)\b/gi,
+]
+
+const TYPE_LABEL_OF: Record<string, string> = {
+  bug: 'bug',
+  'feature request': 'enhancement',
+  enhancement: 'enhancement',
+  question: 'question',
+  documentation: 'documentation',
+  'documentation issue': 'documentation',
+  docs: 'documentation',
+}
+
+/**
+ * True when the draft names an issue type that the final labels do not carry. A maintainer who edited a
+ * feature request into a question must not get a draft that still calls it a feature request.
+ */
+export function contradictsLabels(text: string, labels: readonly string[]): boolean {
+  for (const pattern of TYPE_CLAIM_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const claimed = TYPE_LABEL_OF[match[1].toLowerCase().replace(/\s+/g, ' ')]
+      if (claimed && !labels.includes(claimed)) return true
+    }
+  }
+  return false
+}
+
 /** Why a draft was replaced, or null when it may stay. */
-export function draftProblem(text: string, repo: string): string | null {
+export function draftProblem(text: string, repo: string, labels: readonly string[]): string | null {
   if (claimsPendingApproval(text)) return 'said a decision or review was still pending'
   if (claimsUnearnedWork(text)) return 'claimed work that has not been done'
   if (hasForeignLink(text, repo)) return 'linked outside the issue repository'
+  if (contradictsLabels(text, labels)) return 'named an issue type that the final labels do not have'
   return null
 }

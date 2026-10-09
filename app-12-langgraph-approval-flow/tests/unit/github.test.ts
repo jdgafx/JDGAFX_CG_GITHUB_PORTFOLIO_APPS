@@ -73,11 +73,17 @@ describe('parseIssues', () => {
   it('produces issues the start function accepts', () => {
     for (const parsed of parseIssues(FIXTURE)) expect(issueFrom({ issue: parsed }).ok).toBe(true)
   })
+
+  it('takes the repo from the issue link, so a repository that moved or changed case still matches', () => {
+    const [first] = parseIssues([apiItem({ number: 5, html_url: 'https://github.com/react/react/issues/5' })])
+    expect(first.repo).toBe('react/react')
+    expect(issueFrom({ issue: first }).ok).toBe(true)
+  })
 })
 
 describe('parseRepoInput', () => {
   it.each([
-    ['facebook/react', 'facebook', 'react'],
+    ['react/react', 'react', 'react'],
     ['  vitejs/vite ', 'vitejs', 'vite'],
     ['https://github.com/microsoft/vscode', 'microsoft', 'vscode'],
     ['github.com/denoland/deno/issues/5', 'denoland', 'deno'],

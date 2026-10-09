@@ -112,11 +112,9 @@ describe('decisionFrom', () => {
       ok: true,
       value: { action: 'edit', labels: ['bug', 'security'], priority: 'urgent' },
     })
-    expect(decisionFrom({ decision: { action: 'edit', labels: [], priority: 'low' } })).toEqual({
-      ok: true,
-      value: { action: 'edit', labels: [], priority: 'low' },
-    })
-    const labelsMessage = `Send up to ${EDIT_LABELS_MAX} labels, each 1 to 50 characters.`
+    const labelsMessage = `Pick 1 to ${EDIT_LABELS_MAX} labels, each up to 50 characters. To apply none, reject instead.`
+    // An edit with no label would leave a draft with nothing to say about the issue, so it is refused.
+    expect(decisionFrom({ decision: { action: 'edit', labels: [], priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
     expect(decisionFrom({ decision: { action: 'edit', priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
     expect(decisionFrom({ decision: { action: 'edit', labels: 'bug', priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })
     expect(decisionFrom({ decision: { action: 'edit', labels: [1], priority: 'low' } })).toEqual({ ok: false, message: labelsMessage })

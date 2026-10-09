@@ -202,13 +202,18 @@ describe('graph: pause for a maintainer', () => {
     expect(prompt).toContain('a maintainer set the triage: labels bug, good first issue, medium priority.')
     expect(prompt).toContain('Maintainer note: Only affects the legacy router')
     expect(prompt).not.toContain('area: router')
+    // The classifier called it a bug, but the maintainer's labels decide what the draft may call it.
+    expect(prompt).toContain('A maintainer changed the labels. Describe the issue only by the labels given, and name no other type.')
+    expect(prompt).not.toContain('Issue type: bug')
+    expect(prompt).not.toContain(CLASSIFIED_BUG.summary)
     expect(values.trace[2].detail).toBe('Set labels bug, good first issue and medium priority.')
   })
 
-  it('reject applies nothing, and the draft is told only that a maintainer looked', async () => {
+  it('reject applies nothing, and the draft is fixed wording with no model call', async () => {
     const chat = fakeChat(ISSUE_BUG_CHAT)
     const { graph } = graphOver(chat)
     await start(graph, 'reject-1', BUG)
+    expect(chat).toHaveBeenCalledTimes(1)
 
     const second = await resume(graph, 'reject-1', { action: 'reject', note: 'Not reproducible' })
 
@@ -216,10 +221,15 @@ describe('graph: pause for a maintainer', () => {
     const values = await stateOf(graph, 'reject-1')
     expect(values.humanDecision).toEqual({ action: 'reject', note: 'Not reproducible' })
     expect(values.trace[2].detail).toBe('Rejected the proposal. No labels or priority applied.')
-    const prompt = lastUserPrompt(chat, MODEL)
-    expect(prompt).toContain('a maintainer reviewed the automatic triage and chose not to apply it. No labels or priority were set.')
-    expect(prompt).toContain('Maintainer note: Not reproducible')
-    expect(prompt).not.toContain('high priority')
+    expect(values.replyDraft).toEqual({ body: 'Thank you for the report. A maintainer has looked at this issue.' })
+    expect(values.trace[3]).toMatchObject({
+      node: 'reply',
+      status: 'ok',
+      detail: 'A maintainer rejected the proposal, so the standard wording is used. No model call.',
+    })
+    expect(values.trace[3]).not.toHaveProperty('model')
+    // Only the classify call was made: the rejection needs no draft from the model.
+    expect(chat).toHaveBeenCalledTimes(1)
   })
 
   it('resumes from a fresh checkpointer and graph over the same store, as a new function invocation does', async () => {
@@ -307,6 +317,17 @@ describe('graph: the draft states a final outcome', () => {
       const values = await stateOf(graph, `guard-2-${index}`)
       expect(values.replyDraft?.body).toBe('Thank you for the report. This issue is now triaged as question, area: dev server with low priority.')
     }
+  })
+
+  it('replaces a draft that still names the old type after a maintainer edited the labels', async () => {
+    const chat = fakeChat({ ...ISSUE_BUG_CHAT, email: 'Thanks. We categorized this as a bug and set medium priority.' })
+    const { graph } = graphOver(chat)
+    await start(graph, 'guard-5', BUG)
+    await resume(graph, 'guard-5', { action: 'edit', labels: ['question'], priority: 'low' })
+
+    const values = await stateOf(graph, 'guard-5')
+    expect(values.replyDraft?.body).toBe('Thank you for the report. This issue is now triaged as question with low priority.')
+    expect(values.trace.find((row: TraceRow) => row.node === 'reply')?.detail).toContain('named an issue type that the final labels do not have')
   })
 
   it('keeps a clean draft, including a link to the issue repository', async () => {

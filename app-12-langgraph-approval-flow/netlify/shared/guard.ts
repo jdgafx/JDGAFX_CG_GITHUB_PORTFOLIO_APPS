@@ -140,9 +140,10 @@ export function decisionFrom(body: unknown): Checked<HumanDecision> {
     const labels = raw?.labels
     const shaped =
       Array.isArray(labels) &&
+      labels.length >= 1 &&
       labels.length <= EDIT_LABELS_MAX &&
       labels.every((label) => typeof label === 'string' && label.trim() !== '' && lengthOf(label) <= LABEL_MAX_LENGTH)
-    if (!shaped) return { ok: false, message: `Send up to ${EDIT_LABELS_MAX} labels, each 1 to ${LABEL_MAX_LENGTH} characters.` }
+    if (!shaped) return { ok: false, message: `Pick 1 to ${EDIT_LABELS_MAX} labels, each up to ${LABEL_MAX_LENGTH} characters. To apply none, reject instead.` }
     if (typeof raw?.priority !== 'string' || !PRIORITIES.includes(raw.priority as Priority)) {
       return { ok: false, message: `Choose a priority: ${PRIORITIES.join(', ')}.` }
     }

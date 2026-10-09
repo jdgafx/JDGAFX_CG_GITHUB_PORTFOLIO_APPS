@@ -40,8 +40,8 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
 
   const submitEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (labels.length > EDIT_LABELS_MAX) {
-      setProblem(`Keep at most ${EDIT_LABELS_MAX} labels.`)
+    if (labels.length < 1 || labels.length > EDIT_LABELS_MAX) {
+      setProblem(`Pick 1 to ${EDIT_LABELS_MAX} labels. To apply none, reject instead.`)
       return
     }
     setProblem(null)
@@ -135,8 +135,8 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
           </button>
         </div>
         <p id="decision-help" className="ds-help">
-          Approve keeps the proposed labels and priority. Edit changes them. Reject applies neither, and the draft says
-          only that a maintainer looked.
+          Approve keeps the proposed labels and priority. Edit changes them. Reject applies neither, and its draft is
+          fixed wording that says only that a maintainer looked.
         </p>
       </div>
 
@@ -153,7 +153,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
               ))}
             </div>
             <p id="edit-labels-help" className="ds-help">
-              Up to {EDIT_LABELS_MAX}. Tick the ones to apply.
+              Pick 1 to {EDIT_LABELS_MAX}. Tick the ones to apply.
             </p>
           </fieldset>
           <div className="ds-field">

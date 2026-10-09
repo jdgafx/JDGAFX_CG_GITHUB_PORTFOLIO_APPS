@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackBody } from '../../netlify/shared/nodes'
-import { claimsPendingApproval, claimsUnearnedWork, draftProblem, hasForeignLink } from '../../netlify/shared/reply-guard'
+import { claimsPendingApproval, claimsUnearnedWork, contradictsLabels, draftProblem, hasForeignLink } from '../../netlify/shared/reply-guard'
 
 describe('claimsPendingApproval', () => {
   it.each([
@@ -13,6 +13,8 @@ describe('claimsPendingApproval', () => {
     'Once the review is complete, we will label it.',
     'We will follow up about the review soon.',
     'The label is subject to approval.',
+    'Please do not treat this as a final decision on whether the behavior is acceptable.',
+    'This is not a final decision.',
   ])('flags a pending claim: %s', (text) => {
     expect(claimsPendingApproval(text)).toBe(true)
   })
@@ -38,6 +40,8 @@ describe('claimsUnearnedWork', () => {
     'This has been resolved.',
     'It is fixed in v2.1.',
     'We already closed the duplicate.',
+    "We've noted these facts on the issue.",
+    'I have noted this on the issue for the team.',
   ])('flags work the draft cannot claim: %s', (text) => {
     expect(claimsUnearnedWork(text)).toBe(true)
   })
@@ -60,12 +64,31 @@ describe('hasForeignLink', () => {
   })
 })
 
+describe('contradictsLabels', () => {
+  it('flags a type the final labels do not carry', () => {
+    expect(contradictsLabels('We categorized this as a feature request.', ['question', 'needs-info'])).toBe(true)
+    expect(contradictsLabels('It is now triaged as a bug.', ['enhancement'])).toBe(true)
+    expect(contradictsLabels('This looks like a documentation issue.', ['bug'])).toBe(true)
+    expect(contradictsLabels('We have labelled it as a question.', [])).toBe(true)
+  })
+
+  it('keeps a type the labels carry, and text that names no type', () => {
+    expect(contradictsLabels('We categorized this as a feature request.', ['enhancement', 'area: cli'])).toBe(false)
+    expect(contradictsLabels('It is now triaged as a bug.', ['bug'])).toBe(false)
+    expect(contradictsLabels('Thanks for the report on the feature request template.', ['question'])).toBe(false)
+    expect(contradictsLabels('Triaged with high priority.', [])).toBe(false)
+  })
+})
+
 describe('draftProblem', () => {
   it('names the first problem and returns null for a clean draft', () => {
-    expect(draftProblem('It is pending review.', 'acme/widgets')).toBe('said a decision or review was still pending')
-    expect(draftProblem('We have fixed it.', 'acme/widgets')).toBe('claimed work that has not been done')
-    expect(draftProblem('Go to https://evil.example.test', 'acme/widgets')).toBe('linked outside the issue repository')
-    expect(draftProblem('Thanks for the report.', 'acme/widgets')).toBeNull()
+    expect(draftProblem('It is pending review.', 'acme/widgets', [])).toBe('said a decision or review was still pending')
+    expect(draftProblem('We have fixed it.', 'acme/widgets', [])).toBe('claimed work that has not been done')
+    expect(draftProblem('Go to https://evil.example.test', 'acme/widgets', [])).toBe('linked outside the issue repository')
+    expect(draftProblem('We categorized this as a feature request.', 'acme/widgets', ['question'])).toBe(
+      'named an issue type that the final labels do not have',
+    )
+    expect(draftProblem('Thanks for the report.', 'acme/widgets', ['bug'])).toBeNull()
   })
 })
 
@@ -76,7 +99,7 @@ describe('fallbackBody', () => {
       fallbackBody({ outcome: 'edited', labels: [], priority: 'high', note: 'x' }),
       fallbackBody({ outcome: 'rejected', labels: [], priority: null, note: null }),
     ]
-    for (const body of bodies) expect(draftProblem(body, 'acme/widgets')).toBeNull()
+    for (const body of bodies) expect(draftProblem(body, 'acme/widgets', ['question'])).toBeNull()
     expect(bodies).toEqual([
       'Thank you for the report. This issue is now triaged as question with low priority.',
       'Thank you for the report. This issue is now triaged with high priority.',

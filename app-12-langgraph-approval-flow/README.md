@@ -12,7 +12,7 @@ What this showcases: a graph that pauses for a human with `interrupt()`, saves i
 
 The issues are real and are fetched live, in the visitor's browser, from `https://api.github.com/repos/{owner}/{repo}/issues`. GitHub allows cross-origin reads and gives each anonymous visitor 60 requests an hour. Netlify functions share addresses, so the server never calls GitHub. A rate limit shows the reset time from GitHub's `X-RateLimit-Reset` header.
 
-- Five well-known repos are one click each: `facebook/react`, `vitejs/vite`, `microsoft/vscode`, `denoland/deno` and `langchain-ai/langgraphjs`. Any other public repo can be typed as `owner/name` or pasted as a github.com link.
+- Five well-known repos are one click each: `react/react` (formerly facebook/react), `vitejs/vite`, `microsoft/vscode`, `denoland/deno` and `langchain-ai/langgraphjs`. Any other public repo can be typed as `owner/name` or pasted as a github.com link.
 - The list shows the 25 newest open issues. Pull requests share the endpoint and are dropped. Each row shows the number, title, labels, age and comment count.
 - The page sends the chosen issue to the server: repo, number, title, body (cut to 6,000 characters), labels, author association, created date, link and comment count.
 
@@ -34,7 +34,7 @@ START -> classify -> decide --requiresHuman--> review -> reply -> END
 The conditional edge from **decide** goes to review when any of these holds, and straight to reply otherwise:
 
 - the issue may be a security report, by the classifier or by a keyword check on the issue text (security, vulnerability, CVE, XSS, RCE, SSRF, injection, a leaked token or key);
-- the issue text contains instructions aimed at an AI assistant;
+- the issue text contains instructions aimed at an AI assistant ("ignore your instructions", "mark it as", "in your reply", "confidence 1.0" and similar, each pattern narrow enough that an ordinary "ignore this warning" passes);
 - the classification has a confidence below 0.75;
 - the report is unclear, or may duplicate another issue;
 - it is a bug of medium severity or worse;
@@ -42,7 +42,7 @@ The conditional edge from **decide** goes to review when any of these holds, and
 
 A clear question, docs issue or feature request, or a low-severity bug, at 0.75 confidence or higher, is triaged by the rules alone and review is skipped. Priority comes from the rules: a bug takes its severity (critical is urgent), a security report is urgent, and everything else is low. Labels come from the type, the area, and the flags: `bug`, `enhancement`, `question`, `documentation`, `area: <name>`, `needs-info`, `possible-duplicate`, `security`.
 
-The three answers: **Approve** keeps the proposed labels and priority. **Edit** sets labels and a priority the maintainer picks. **Reject** applies nothing, and the draft says only that a maintainer looked. The graph has no cycles. The only pause is the review interrupt.
+The three answers: **Approve** keeps the proposed labels and priority. **Edit** sets 1 to 8 labels and a priority the maintainer picks, and the draft may only name an issue type that those labels carry. **Reject** applies nothing. Its draft is fixed wording that says only that a maintainer looked, so the model is not called. The graph has no cycles. The only pause is the review interrupt.
 
 ## Untrusted text
 
@@ -50,7 +50,7 @@ The three answers: **Approve** keeps the proposed labels and priority. **Edit** 
 - The model's reply is checked against fixed lists. A type, severity, or priority outside the list reads as unreadable and sends the issue to a maintainer. A flag counts only when it is the boolean `true`. The area is cut to a short lowercase name.
 - The rules read the issue text themselves, so a model that was talked out of a security flag cannot talk the rules out of it.
 - A maintainer's edit may only use labels from the fixed list or the labels this proposal offered. The server checks that before it resumes the run.
-- The draft is checked before it is shown: a draft that says a decision or review is pending, claims the issue was fixed, merged, released or closed, or links anywhere but the issue's own repository is replaced by fixed wording.
+- The draft is checked before it is shown: a draft that says a decision or review is pending or not final, claims the issue was fixed, merged, released or closed, or links anywhere but the issue's own repository, claims a note on the issue, or names an issue type the final labels do not carry is replaced by fixed wording.
 
 ## Models
 
@@ -85,7 +85,7 @@ These figures leave the limits as they are: 12 seconds per model call, about fou
 - **Triage card**: the final labels and priority, how the decision was reached, the drafted comment, and the line "Draft only. Nothing is posted to GitHub".
 - **Run trace** and **readout**: each step with its time, served model, tokens and cost. A value the provider did not report reads "not reported".
 - **Retry card**: shown on a failed thread. It continues from the checkpoint and runs only the step that failed.
-- **Threads**: the saved threads, newest first. Open a waiting thread to review it after a reload.
+- **Threads**: the saved threads, newest first. Open a waiting thread to review it after a reload: the page scrolls to its card and moves focus there.
 
 ## Architecture
 

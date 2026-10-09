@@ -118,9 +118,10 @@ describe('POST /api/resume', () => {
     expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'edited', labels: ['area: router'] })
   })
 
-  it('reject streams a draft that says only that a maintainer looked, with nothing applied', async () => {
+  it('reject streams fixed wording that says only that a maintainer looked, with nothing applied and no model call', async () => {
     const threadId = await pausedThread('ip-resume-4')
-    vi.stubGlobal('fetch', providerFetch({ email: 'Thank you for writing. A maintainer has looked at this.' }))
+    const fetchStub = providerFetch({ email: 'We have noted these facts on the issue. Do not treat this as a final decision.' })
+    vi.stubGlobal('fetch', fetchStub)
 
     const frames = await readFrames(
       await resume(postJson('/api/resume', { threadId, decision: { action: 'reject', note: 'Cannot reproduce' } }, 'ip-resume-4')),
@@ -131,7 +132,18 @@ describe('POST /api/resume', () => {
       labels: [],
       priority: null,
       humanDecision: { action: 'reject', note: 'Cannot reproduce' },
-      reply: { body: 'Thank you for writing. A maintainer has looked at this.' },
+      reply: { body: 'Thank you for the report. A maintainer has looked at this issue.' },
+    })
+    expect(fetchStub).not.toHaveBeenCalled()
+  })
+
+  it('refuses an edit with no labels, with a plain 400, and the thread keeps waiting', async () => {
+    const threadId = await pausedThread('ip-resume-11')
+    const refused = await resume(postJson('/api/resume', { threadId, decision: { action: 'edit', labels: [], priority: 'low' } }, 'ip-resume-11'))
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toEqual({
+      success: false,
+      error: 'Pick 1 to 8 labels, each up to 50 characters. To apply none, reject instead.',
     })
   })
 

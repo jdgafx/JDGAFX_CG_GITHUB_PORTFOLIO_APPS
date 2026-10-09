@@ -4,7 +4,7 @@ export const MEMORY_NOTE =
 
 /** Well-known, active public repositories, one click each. Any other public repo can be typed in. */
 export const PRESET_REPOS: readonly string[] = [
-  'facebook/react',
+  'react/react',
   'vitejs/vite',
   'microsoft/vscode',
   'denoland/deno',

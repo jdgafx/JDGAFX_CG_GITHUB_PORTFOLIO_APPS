@@ -46,6 +46,18 @@ function showRun(element: HTMLElement | null): void {
   element.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
 }
 
+/** After a thread is opened from the list, bring its card into view at any width and move focus to it. */
+function revealOpenedThread(fallback: HTMLElement | null): void {
+  const heading = document.querySelector<HTMLElement>('#approval-heading, #triage-heading')
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const target = heading ?? fallback
+  target?.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
+  if (heading) {
+    heading.tabIndex = -1
+    heading.focus({ preventScroll: true })
+  }
+}
+
 export default function App() {
   const [issues, setIssues] = useState<IssuesState>(NO_ISSUES)
   const [run, setRun] = useState<RunView>(() => emptyRun())
@@ -62,6 +74,7 @@ export default function App() {
   const streamRef = useRef<AbortController | null>(null)
   const issuesRef = useRef<AbortController | null>(null)
   const runRef = useRef<HTMLDivElement | null>(null)
+  const [opened, setOpened] = useState(0)
 
   const loadThreads = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -77,7 +90,7 @@ export default function App() {
   const loadIssues = useCallback(async (text: string) => {
     const repo = parseRepoInput(text)
     if (!repo) {
-      setIssues((prev) => ({ ...prev, error: 'That is not a repo. Use owner/name, for example facebook/react.' }))
+      setIssues((prev) => ({ ...prev, error: 'That is not a repo. Use owner/name, for example react/react.' }))
       return
     }
     issuesRef.current?.abort()
@@ -105,6 +118,11 @@ export default function App() {
       issuesRef.current?.abort()
     }
   }, [loadThreads, loadIssues])
+
+  // The opened thread's card is rendered by the time this runs, so it can be scrolled to and focused.
+  useEffect(() => {
+    if (opened > 0) revealOpenedThread(runRef.current)
+  }, [opened])
 
   // Leaving the page stops a run that is still streaming.
   useEffect(() => () => streamRef.current?.abort(), [])
@@ -187,7 +205,7 @@ export default function App() {
       const view = await fetchThread(threadId)
       setRun(runFromView(view))
       setPhase(view.status === 'awaiting_approval' ? 'paused' : view.status === 'completed' ? 'done' : 'failed')
-      showRun(runRef.current)
+      setOpened((count) => count + 1)
     } catch (err) {
       if (!isAbortError(err)) setRequestError(failureText(err))
     }

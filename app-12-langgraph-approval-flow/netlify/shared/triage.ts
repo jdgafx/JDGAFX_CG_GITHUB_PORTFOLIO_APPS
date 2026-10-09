@@ -20,9 +20,27 @@ export const CONFIDENCE_FLOOR = 0.75
 const SECURITY_WORDS =
   /\b(?:security|vulnerab\w*|CVE-\d{4}-\d+|XSS|CSRF|RCE|SSRF|exploit\w*|injection|privilege\s+escalation|auth(?:entication)?\s+bypass|(?:leak\w*|expos\w*)\s+(?:a\s+|the\s+|an\s+)?(?:token|secret|password|credential|api\s+key)s?)\b/i
 
-/** Wording aimed at an assistant, not at a maintainer. Such an issue is read by a person. */
-const INSTRUCTION_WORDS =
-  /\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+|your\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules)\b|\bsystem\s+prompt\b|\byou\s+are\s+now\b|\b(?:classify|label|triage)\s+(?:this|it)\s+as\b|\bas\s+an\s+ai\b/i
+/**
+ * Wording aimed at an assistant, not at a maintainer. Such an issue is read by a person. Each pattern
+ * is narrow on purpose, because an ordinary issue says "ignore this warning" or "set the confidence interval".
+ */
+const INSTRUCTION_PATTERNS: readonly RegExp[] = [
+  // "ignore your instructions", "disregard all previous prompts", "override the system rules"
+  /\b(?:ignore|disregard|forget|override)\s+(?:(?:all|any|the|your|these|those|my|every|and|previous|prior|above|earlier|system)\s+)*(?:instructions?|prompts?|directives|guidelines)\b/i,
+  /\b(?:ignore|disregard|forget|override)\s+(?:(?:all|any|the|your|these|those|and)\s+)*(?:previous|prior|above|earlier|system)\s+rules\b/i,
+  /\b(?:new|updated|additional)\s+instructions?\s*:/i,
+  /\bsystem\s+prompt\b/i,
+  /\byou\s+are\s+now\b/i,
+  /\b(?:you\s+are|act\s+as|pretend\s+to\s+be)\s+(?:now\s+)?(?:an?\s+)?(?:ai|assistant|language\s+model|llm|chatbot)\b/i,
+  /\bas\s+an\s+(?:ai|llm|language\s+model)\b/i,
+  // "mark it as", "classify this as", "label it as", "triage this as"
+  /\b(?:mark|tag|classify|label|triage|categori[sz]e)\s+(?:this|it|the\s+issue)\s+as\b/i,
+  /\bset\s+(?:this|it)\s+(?:as\s+)?auto/i,
+  /\bauto[- ]?triag(?:e|ed|ing)\b/i,
+  /\b(?:with|and|at|set|give|use)\s+(?:a\s+)?confidence\s+(?:of\s+|to\s+|=\s*)?(?:1(?:\.0+)?|100\s*%)/i,
+  /\bin\s+your\s+(?:reply|response|answer|comment|draft|output)\b/i,
+  /\b(?:reply|respond|answer)\s+(?:to\s+this\s+)?with\s+(?:a\s+link|the\s+(?:word|text|phrase|string)|exactly|only|just)\b/i,
+]
 
 const TYPE_LABEL: Partial<Record<IssueType, string>> = {
   bug: 'bug',
@@ -40,7 +58,8 @@ export function looksLikeSecurityReport(issue: IssueInput): boolean {
 }
 
 export function aimsAtAssistant(issue: IssueInput): boolean {
-  return INSTRUCTION_WORDS.test(`${issue.title}\n${issue.body}`)
+  const text = `${issue.title}\n${issue.body}`
+  return INSTRUCTION_PATTERNS.some((pattern) => pattern.test(text))
 }
 
 /**
