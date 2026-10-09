@@ -1,4 +1,5 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
+import { prepareReader } from '../lib/pdf'
 import type { SourceRequest } from '../lib/loadSource'
 import { ArxivPicker } from './ArxivPicker'
 import { UploadZone } from './UploadZone'
@@ -23,6 +24,11 @@ interface SourcePickerProps {
 /** Three ways to bring a document in. The tabs switch between them, and each shows its own help. */
 export function SourcePicker({ busy, onLoad, onError }: SourcePickerProps) {
   const [mode, setMode] = useState<Mode>('wikipedia')
+
+  // Both PDF sources need the reader's worker script, so it starts downloading as soon as one is chosen.
+  useEffect(() => {
+    if (mode !== 'wikipedia') prepareReader().catch(() => undefined)
+  }, [mode])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0

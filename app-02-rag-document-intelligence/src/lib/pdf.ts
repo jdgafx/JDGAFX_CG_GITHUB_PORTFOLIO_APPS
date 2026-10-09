@@ -1,16 +1,37 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { pageMarkerPattern } from './chunk'
+import { fetchWithStallGuard } from './readerLoad'
 import { TimeoutError, withTimeout } from './timeout'
 
-// Bundled with the app rather than pulled from a CDN, so the page keeps working
-// offline and needs no third-party script origin in the CSP.
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+/** The reader's worker script is cut off when nothing arrives for this long. */
+const WORKER_STALL_MS = 20_000
 
-/** Longest wait for the PDF reader to open a file, or to read one page. */
+/** Longest wait for the PDF reader to open a file, or to read one page, once its worker is ready. */
 const READ_TIMEOUT_MS = 30_000
 
 const TOO_SLOW_MESSAGE = 'Reading this PDF took too long. Check your connection and try again.'
+
+let readerReady: Promise<void> | null = null
+
+/**
+ * Downloads the PDF reader's worker script, bundled with the app so the page needs no
+ * third-party script origin, and hands it to pdf.js as a local blob. It is a separate step
+ * with its own stall guard, so a slow download is never mistaken for a slow parse. Safe to
+ * call early, for example when the PDF source tabs open, and again later: the work happens once.
+ * A failed attempt is forgotten, so the next call starts again.
+ */
+export function prepareReader(): Promise<void> {
+  readerReady ??= fetchWithStallGuard(workerUrl, WORKER_STALL_MS, 'text/javascript')
+    .then(blob => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob)
+    })
+    .catch((err: unknown) => {
+      readerReady = null
+      throw err
+    })
+  return readerReady
+}
 
 interface ExtractResult {
   text: string
@@ -56,10 +77,10 @@ export async function extractText(file: File): Promise<ExtractResult> {
     throw new Error('Failed to read the file. It may be corrupted or too large for your browser.')
   }
 
+  await prepareReader()
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
   let pdf: Awaited<typeof loadingTask.promise>
   try {
-    // The reader's worker script is fetched on first use, so a stalled network can hang here.
     pdf = await withTimeout(loadingTask.promise, READ_TIMEOUT_MS, TOO_SLOW_MESSAGE)
   } catch (err) {
     void loadingTask.destroy()
