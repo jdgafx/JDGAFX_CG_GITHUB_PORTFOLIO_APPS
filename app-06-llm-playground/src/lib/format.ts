@@ -55,3 +55,10 @@ export function formatDelta(delta: number): string {
   if (rounded === 0) return '±0.0'
   return `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(1)}`
 }
+
+// A rating change as a direction and a magnitude, so the page can draw an arrow instead of a coloured sign.
+export function deltaParts(delta: number): { dir: 'up' | 'down' | 'flat'; value: string } {
+  const rounded = Math.round(delta * 10) / 10
+  if (rounded === 0) return { dir: 'flat', value: '0.0' }
+  return { dir: rounded > 0 ? 'up' : 'down', value: Math.abs(rounded).toFixed(1) }
+}

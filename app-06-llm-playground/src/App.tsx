@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchCatalogue, isAbortError } from './lib/api'
 import { blockedReason, chooseOption, DEFAULT_PICKS, statusText, type Mode, type Picks, type RunView } from './lib/run'
 import { useArena } from './lib/useArena'
+import { useResultFocus } from './lib/useResultFocus'
 import type { CatalogueResponse } from '../netlify/shared/contract'
 import { AnswersSection } from './components/AnswersSection'
 import { EvidenceCard } from './components/EvidenceCard'
@@ -49,49 +50,42 @@ export default function App() {
   }, [])
 
   const running = run?.status === 'running'
-  const startScroll = useRef(0)
-  const previousStatus = useRef<RunView['status'] | null>(null)
   const previousVote = useRef(false)
+  const phase = dataRun(run)
 
-  // On a narrow screen a finished, failed or stopped run brings its result into view and focuses the heading,
-  // unless the visitor scrolled during the run. A counted vote does the same for the reveal.
+  // A finished, failed or stopped run brings its result into view on a narrow screen (and closes open lists as it starts).
+  useResultFocus(phase, {
+    onRunStart: narrow => {
+      if (narrow) document.querySelectorAll<HTMLDetailsElement>('.ds-controls details[open]').forEach(d => (d.open = false))
+    },
+  })
+
+  // A counted vote is a deliberate action: scroll to the board it moved and focus it. The board is centred on a wide
+  // screen so the revealed answers stay in view, and placed at the top on a narrow one.
   useEffect(() => {
-    const was = previousStatus.current
-    const status = run?.status ?? null
     const counted = run?.vote.state === 'counted'
-    previousStatus.current = status
-    const wasCounted = previousVote.current
+    const fresh = counted && !previousVote.current
     previousVote.current = counted
-    const ended = was === 'running' && status !== null && status !== 'running'
-    const revealed = counted && !wasCounted
-    if (!ended && !revealed) return
-    const target = document.querySelector<HTMLElement>(revealed ? '[data-reveal-focus]' : '[data-result-focus]')
+    if (!fresh) return
+    const target = document.querySelector<HTMLElement>('[data-reveal-focus]')
     if (!target) return
     const narrow = !window.matchMedia('(min-width: 1000px)').matches
-    const scrolled = ended && Math.abs(window.scrollY - startScroll.current) > 40
-    if (narrow && !scrolled) {
-      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      target.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
-    }
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView({ block: narrow ? 'start' : 'center', behavior: calm ? 'auto' : 'smooth' })
     target.focus({ preventScroll: true })
-  }, [run?.status, run?.vote.state])
+  }, [run?.vote.state])
   const blocked = blockedReason(catalogue, picks, prompt, system)
   const canRun = !running && blocked === null
 
   function handleRun() {
     if (!canRun) return
-    startScroll.current = window.scrollY
-    // An open sample or options list would push the result off a narrow screen, so close them as the run starts.
-    if (!window.matchMedia('(min-width: 1000px)').matches) {
-      document.querySelectorAll<HTMLDetailsElement>('.ds-controls details[open]').forEach(d => (d.open = false))
-    }
     void arena.start({ mode, prompt, system, temperature, models: [picks.B, picks.C] })
   }
 
   const voted = run?.vote.state === 'counted' ? run.vote.changes : []
 
   return (
-    <div className="ds-app" data-run={dataRun(run)}>
+    <div className="ds-app" data-run={phase} data-vote={run?.vote.state === 'counted' ? 'counted' : undefined}>
       <Header catalogue={catalogue} catalogueFailed={catalogueFailed} run={run} />
       <main className="ds-main">
         <div className="ds-bench">
@@ -137,6 +131,8 @@ export default function App() {
             <RunTotalsStrip run={run} />
             <div className="ds-run__result arena-result">
               <AnswersSection run={run} picks={picks} onVote={choice => void arena.vote(choice)} onRetry={handleRun} canRetry={canRun} />
+            </div>
+            <div className="arena-judge-slot">
               <JudgeCard
                 judge={run?.judge ?? { state: 'idle' }}
                 compare={run?.compare ?? null}

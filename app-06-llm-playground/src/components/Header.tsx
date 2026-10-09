@@ -19,9 +19,9 @@ function toneFor({ catalogue, catalogueFailed, run }: HeaderProps): Tone {
   if (run) {
     switch (run.status) {
       case 'running':
-        return { badge: 'ds-badge--accent', dot: 'ds-dot--running', label: run.compare ? 'Judging' : 'Running' }
+        return { badge: '', dot: 'arena-dot--live', label: run.compare ? 'Judging' : 'Running' }
       case 'voting':
-        return { badge: 'ds-badge--accent', dot: 'ds-dot--running', label: 'Your vote' }
+        return { badge: '', dot: 'arena-dot--neutral', label: 'Your vote' }
       case 'error':
         return { badge: 'ds-badge--danger', dot: 'ds-dot--failed', label: 'Failed' }
       case 'stopped':

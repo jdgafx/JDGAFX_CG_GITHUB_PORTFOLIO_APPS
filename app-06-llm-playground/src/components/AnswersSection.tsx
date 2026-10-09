@@ -1,5 +1,5 @@
 import { MODEL, SLOTS, type Slot, type VoteChoice } from '../../netlify/shared/contract'
-import { formatDelta, splitModel } from '../lib/format'
+import { splitModel } from '../lib/format'
 import type { Picks, RunView } from '../lib/run'
 import { BlindAnswers } from './BlindAnswers'
 import { ResultCard, type CardPhase } from './ResultCard'
@@ -108,25 +108,15 @@ function Revealed({ run, picks }: { run: RunView; picks: Picks }) {
   return (
     <>
       {counted && (
-        <div className="arena-reveal" role="status" tabIndex={-1} data-reveal-focus>
+        <div className="arena-reveal" role="status">
           <p className="arena-reveal__line">
             {counted.choice === 'tie'
               ? 'You called it a tie.'
               : counted.choice === 'all-bad'
                 ? 'You marked every answer as bad.'
                 : `You picked Panel ${counted.choice}, ${splitModel(pickedPanel?.requestedModel ?? '').name}.`}{' '}
-            <a href="#board-title">See the leaderboard</a>
+            The leaderboard below shows what it moved.
           </p>
-          <ul className="arena-reveal__moves" aria-label="Rating changes from your vote">
-            {counted.changes.map(c => (
-              <li key={c.model}>
-                <span className="ds-mono">{splitModel(c.model).name}</span>{' '}
-                <span className={c.after >= c.before ? 'arena-delta arena-delta--up' : 'arena-delta arena-delta--down'}>
-                  {formatDelta(c.after - c.before)}
-                </span>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
       {run.vote.state === 'failed' && (

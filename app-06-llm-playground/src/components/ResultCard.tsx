@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { PanelResult, RatingChange, Slot } from '../../netlify/shared/contract'
-import { barPercent, formatCount, formatDelta, formatMs, formatUsd, splitModel } from '../lib/format'
+import { barPercent, formatCount, formatMs, formatUsd, splitModel } from '../lib/format'
 import { panelStatus } from '../lib/run'
+import { Delta } from './Delta'
 import { Prose } from './Prose'
 
 // The two 14px icons on the copy button, drawn on a 24px grid in the current text colour.
@@ -128,29 +129,16 @@ export function ResultCard(props: ResultCardProps) {
           {state.label}
         </span>
       </div>
-      {(fastest || cheapest || judgePick || yourPick || change) && (
+      {(judgePick || yourPick || change) && (
         <ul className="arena-marks" aria-label={`Panel ${slot} markers`}>
           {yourPick && (
-            <li className="ds-badge ds-badge--accent">
-              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
-              Your pick
+            <li className="ds-badge arena-badge--pick">
+              <span aria-hidden="true">{'\u2713'}</span> Your pick
             </li>
           )}
           {change && (
-            <li className={change.after >= change.before ? 'ds-badge arena-delta arena-delta--up' : 'ds-badge arena-delta arena-delta--down'}>
-              Rating {formatDelta(change.after - change.before)}
-            </li>
-          )}
-          {fastest && (
-            <li className="ds-badge ds-badge--accent">
-              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
-              Fastest
-            </li>
-          )}
-          {cheapest && (
-            <li className="ds-badge ds-badge--accent">
-              <span className="ds-dot arena-dot--accent" aria-hidden="true" />
-              Cheapest
+            <li className="ds-badge">
+              Rating <Delta delta={change.after - change.before} />
             </li>
           )}
           {judgePick && (
@@ -195,7 +183,7 @@ export function ResultCard(props: ResultCardProps) {
       )}
       <div className="arena-readouts">
         <div className="arena-readout">
-          <span className="arena-readout__label">Latency</span>
+          <span className="arena-readout__label">Latency{fastest && <span className="arena-best"> · fastest</span>}</span>
           <span className="arena-readout__value">{panel ? formatMs(panel.latencyMs) : pending}</span>
           <span className="arena-bar" aria-hidden="true">
             <span style={{ width: `${barPercent(panel?.latencyMs ?? 0, scaleMs)}%` }} />
@@ -206,7 +194,7 @@ export function ResultCard(props: ResultCardProps) {
           <span className="arena-readout__value">{panel ? formatCount(panel.usage.completion_tokens) : pending}</span>
         </div>
         <div className="arena-readout">
-          <span className="arena-readout__label">Cost</span>
+          <span className="arena-readout__label">Cost{cheapest && <span className="arena-best"> · cheapest</span>}</span>
           <span className="arena-readout__value">
             {panel ? (panel.cost ? formatUsd(panel.cost.usd) : 'not reported') : pending}
           </span>
