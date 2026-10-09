@@ -409,3 +409,74 @@ describe('execute function: a run', () => {
     expect(late.close).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('execute function: step pictures', () => {
+  // A JPEG size taken from a live Hacker News run: 28,042 bytes at 640 x 366.
+  const JPEG = Buffer.alloc(28_042, 7)
+  const send = vi.fn()
+  const detach = vi.fn()
+
+  function withCdpPage(): void {
+    const page = {
+      url: () => pageState.url,
+      setViewportSize: vi.fn().mockResolvedValue(undefined),
+      context: () => ({ newCDPSession: async () => ({ send, detach }) }),
+    }
+    mocks.connectOverCDP.mockResolvedValue({ contexts: () => [{ pages: () => [page], newPage: vi.fn() }], close: mocks.browserClose })
+    send.mockImplementation(async (method: string) => (method === 'Page.getLayoutMetrics'
+      ? { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
+      : { data: JPEG.toString('base64') }))
+    detach.mockResolvedValue(undefined)
+  }
+
+  it('sends one 640 px picture with each finished step, taken after the page was read', async () => {
+    withCdpPage()
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
+    const done = frames.filter((frame) => frame.type === 'step_complete')
+    expect(done).toHaveLength(2)
+    for (const step of done) {
+      expect(step.frame).toEqual({ data: JPEG.toString('base64'), width: 640, height: 366, bytes: 28_042 })
+      expect(step).not.toHaveProperty('frameNote')
+    }
+    const shot = send.mock.calls.find(([method]) => method === 'Page.captureScreenshot')?.[1] as { format: string; quality: number; clip: { scale: number; width: number } }
+    expect(shot.format).toBe('jpeg')
+    expect(shot.clip.width).toBe(960)
+    expect(shot.clip.scale).toBeCloseTo(640 / 960)
+    expect(detach).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the page picture on a failed step, with its observed text', async () => {
+    withCdpPage()
+    mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
+      if (step.action === 'click') throw new ExecutionError('The target was not found: Buy tickets.')
+      return 'Opened www.google.com.'
+    })
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, { ...CLICK, target: 'Buy tickets' }, EXTRACT] })))
+    const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
+    expect(failed).toMatchObject({ index: 1, observed: OBSERVED, frame: { width: 640, height: 366, bytes: 28_042 } })
+  })
+
+  it('gives a failed step on a disallowed host no picture at all', async () => {
+    withCdpPage()
+    mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
+      if (step.action === 'click') pageState.url = 'https://example.com/landing'
+      return 'Done.'
+    })
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, CLICK] })))
+    const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
+    expect(failed).not.toHaveProperty('frame')
+    expect(failed).not.toHaveProperty('frameNote')
+    expect(send.mock.calls.filter(([method]) => method === 'Page.captureScreenshot')).toHaveLength(1)
+  })
+
+  it('says why a step has no picture when the capture fails, and the run still finishes', async () => {
+    withCdpPage()
+    send.mockRejectedValue(new Error('target closed'))
+    const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
+    expect(frames.find((frame) => frame.type === 'step_complete')).toMatchObject({
+      status: 'ok',
+      frameNote: 'No picture: the browser could not capture this page in time.',
+    })
+    expect(frames.at(-1)).toMatchObject({ type: 'done' })
+  })
+})

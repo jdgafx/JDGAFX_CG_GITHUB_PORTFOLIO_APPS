@@ -367,43 +367,59 @@ describe('planner function: provider failures', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('maps a provider timeout (an AbortError) to the timeout copy with a 504', async () => {
-    fetchMock.mockRejectedValueOnce(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'AbortError' }))
+  it('maps a provider timeout (an AbortError) to the timeout copy with a 504, after one retry', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'AbortError' }))
     const response = await handler(planRequest({ task: 'Open google.com' }))
+    const body = await bodyOf(response)
     expect(response.status).toBe(504)
-    expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(body.error).toBe('The AI provider did not answer in time')
+    expect(body.trace?.[1]?.detail).toBe('Retried once, and the second call failed too. The AI provider did not answer in time')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('treats a timeout while reading the answer the same way', async () => {
-    const stalled = new ReadableStream<Uint8Array>({
+    fetchMock.mockImplementation(async () => new Response(new ReadableStream<Uint8Array>({
       pull(controller) {
         controller.error(Object.assign(new Error('aborted'), { name: 'TimeoutError' }))
       },
-    })
-    fetchMock.mockResolvedValueOnce(new Response(stalled, { status: 200 }))
+    }), { status: 200 }))
     const response = await handler(planRequest({ task: 'Open google.com' }))
     expect(response.status).toBe(504)
     expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')
   })
 
-  it('ends a reply whose body never finishes at the planning budget, with the timeout copy', async () => {
+  it('ends a first call that never finishes at its own limit, then retries once with the budget left', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    const stalled = new ReadableStream<Uint8Array>({ start() {} })
-    fetchMock.mockResolvedValueOnce(new Response(stalled, { status: 200, headers: { 'content-type': 'application/json' } }))
+    fetchMock
+      .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const pending = handler(planRequest({ task: 'Open google.com' }))
+    await vi.advanceTimersByTimeAsync(4_500)
+    const response = await pending
+    const body = await bodyOf(response)
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(body.trace?.[1]?.detail).toContain('Retried once: the first call did not answer in time. Served by')
+    expect(body.result?.steps).toEqual(PLAN.steps)
+  })
+
+  it('ends two calls that never finish inside the planning budget', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    fetchMock.mockImplementation(async () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const pending = handler(planRequest({ task: 'Open google.com' }))
     await vi.advanceTimersByTimeAsync(8_500)
     const response = await pending
     expect(response.status).toBe(504)
     expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('maps a dropped provider connection to a plain sentence', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'))
+  it('retries a dropped provider connection once, then maps it to a plain sentence', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'))
     const response = await handler(planRequest({ task: 'Open google.com' }))
     expect(response.status).toBe(502)
     expect((await bodyOf(response)).error).toBe('The AI provider could not be reached. Try again in a moment.')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('reports an answer that is not JSON as unreadable', async () => {

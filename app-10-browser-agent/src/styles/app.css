@@ -1,19 +1,29 @@
-/* BrowseBot only. Tokens and the ds-* components come from tokens.css. */
+/* BrowseBot only. Tokens, states, the readout, the trace and the lead card come from tokens.css and components.css.
+   What is here is local: the allowed-sites list and the visual replay (picture, step detail, transport, filmstrip). */
 
-.bb-actions {
+.bb-secondary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.bb-field-head {
-  justify-content: space-between;
-  align-items: baseline;
+/* Before a run the replay's empty state leads, ahead of the empty readout. */
+[data-run="idle"] .ds-run__result {
+  order: -1;
+}
+
+.bb-status {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bb-readout__model {
+  grid-column: 1 / -1;
 }
 
 .bb-allowlist {
   display: grid;
-  margin: 0;
+  margin: 0 0 8px;
   padding: 0;
   list-style: none;
   border: 1px solid var(--ds-border);
@@ -26,7 +36,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 2px 12px;
+  gap: 4px 12px;
   padding: 8px 12px;
   background: var(--ds-surface);
 }
@@ -47,230 +57,265 @@
   color: var(--ds-text-muted);
 }
 
-.bb-presets {
+/* The replay: the chosen step large beside what the browser read, a transport row, then the filmstrip */
+.bb-replay {
+  container-type: inline-size;
   display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.bb-preset {
-  width: 100%;
-  height: auto;
-  min-height: 44px;
-  padding: 8px 12px;
-  justify-content: flex-start;
-  text-align: left;
-  font-weight: 500;
-  line-height: 1.35;
-  white-space: normal;
-}
-
-.bb-region {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ds-text-muted);
-  margin-bottom: 4px;
-}
-
-/* The hero: the plan pipeline beside the observed browser window, stacked below 720px */
-.bb-hero {
-  display: grid;
-  gap: 20px;
-  align-content: start;
+  gap: 16px;
   min-width: 0;
 }
 
-.bb-hero__plan {
+.bb-viewer {
   display: grid;
-  gap: 14px;
-  align-content: start;
+  gap: 16px;
   min-width: 0;
 }
 
-.bb-subhead {
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.3;
-}
-
-@media (min-width: 720px) {
-  .bb-hero {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+@container (min-width: 720px) {
+  .bb-viewer {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
     gap: 24px;
-    align-items: start;
   }
 }
 
-/* The plan as a pipeline: one node per step. The edge after a finished step is the taken path. */
-.bb-rail {
+.bb-viewer__shot,
+.bb-viewer__detail {
+  min-width: 0;
+}
+
+.bb-viewer__shot {
   display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  min-width: 0;
+  gap: 16px;
+  align-content: start;
 }
 
-.bb-node {
-  position: relative;
-  min-width: 0;
-  padding: 0 0 18px 28px;
+.bb-shot {
+  min-height: 160px;
+  background: var(--ds-surface-2);
 }
 
-.bb-node:last-child {
-  padding-bottom: 0;
+.bb-shot > img {
+  background: var(--ds-surface-2);
 }
 
-.bb-node > .ds-dot {
-  position: absolute;
-  left: 0;
-  top: 4px;
-  width: 12px;
-  height: 12px;
+.bb-shot--failed {
+  border-color: var(--ds-danger);
+  box-shadow: 0 0 0 1px var(--ds-danger);
 }
 
-.bb-node::before {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 20px;
-  bottom: 0;
-  width: 2px;
-  background: var(--ds-border);
-}
-
-.bb-node:last-child::before {
-  display: none;
-}
-
-.bb-node--ok::before {
-  background: var(--ds-accent);
-}
-
-.bb-node__body {
+.bb-shot__empty {
   display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.bb-node__label {
+  place-items: center;
+  min-height: 160px;
+  padding: 24px;
+  text-align: center;
   font-size: 15px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
+  color: var(--ds-text-muted);
 }
 
-.bb-node__state {
+.bb-shot__tag {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 4px 8px;
   font-size: 13px;
+  font-weight: 650;
+  color: var(--ds-danger);
+  background: var(--ds-danger-soft);
+  border: 1px solid var(--ds-danger);
+  border-radius: var(--ds-radius-sm);
+}
+
+.bb-detail {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
+.bb-detail__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.bb-detail__step {
+  font-family: var(--ds-mono);
+  font-size: 14px;
   font-weight: 600;
   color: var(--ds-text-muted);
 }
 
-.bb-node--ok .bb-node__state {
-  color: var(--ds-success);
-}
-
-.bb-node--running .bb-node__state {
-  color: var(--ds-accent);
-}
-
-.bb-node--failed .bb-node__state {
-  color: var(--ds-danger);
-}
-
-/* The observed page as a browser window: the address bar, the title, the text, then the checks */
-.bb-window {
-  display: grid;
-  gap: 14px;
-  align-content: start;
-  min-width: 0;
-  padding: 14px;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius);
-}
-
-.bb-window__body {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-}
-
-.bb-facts {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  min-width: 0;
-}
-
-.bb-address {
-  padding: 8px 12px;
-  background: var(--ds-surface-2);
-  border-radius: var(--ds-radius-sm);
-}
-
-.bb-address__url {
-  font-size: 15px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.bb-page-title {
+.bb-detail__label {
   font-size: 18px;
   font-weight: 650;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
+.bb-kv dd.bb-prose {
+  font-family: var(--ds-font);
+  font-size: 15px;
+}
+
+.bb-text {
+  display: grid;
+  gap: 4px;
+}
+
+.bb-text__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
 .bb-pre {
   margin: 0;
-  max-height: 320px;
+  max-height: 192px;
+  padding: 12px;
   overflow: auto;
   font-family: var(--ds-font);
   font-size: 15px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
 }
 
-.bb-check {
-  display: grid;
-  gap: 6px;
+/* Transport: play, scrub and the step counter on one row */
+.bb-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
 }
 
-.bb-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+.bb-scrub {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  accent-color: var(--ds-accent);
+  cursor: pointer;
 }
 
-/* Readout: the served model takes the first row, then the figures share rows where they fit */
-.bb-readout {
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+.bb-scrub:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
-.bb-readout__model {
-  grid-column: 1 / -1;
+.bb-transport__count {
+  min-width: 48px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-muted);
 }
 
-.bb-status {
-  font-size: 15px;
-  font-weight: 600;
+/* Filmstrip: one cell per step. It scrolls sideways inside itself and never widens the page. */
+.bb-strip {
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x proximity;
 }
 
-/* A failed step gets a danger tint. The running step keeps the tint from tokens.css. */
-.bb-step--failed {
-  background: var(--ds-danger-soft);
+.bb-film {
+  display: flex;
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
 }
 
-.bb-step__body {
+.bb-cell {
   display: grid;
   gap: 4px;
-  min-width: 0;
+  align-content: start;
+  flex: 0 0 168px;
+  padding: 8px;
+  font: inherit;
+  text-align: left;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+  scroll-snap-align: center;
+}
+
+.bb-cell:hover {
+  border-color: var(--ds-accent);
+}
+
+.bb-cell[aria-selected="true"] {
+  background: var(--ds-accent-soft);
+  border-color: var(--ds-accent);
+  box-shadow: 0 0 0 1px var(--ds-accent);
+}
+
+.bb-cell--failed {
+  border-color: var(--ds-danger);
+}
+
+.bb-cell--waiting,
+.bb-cell--skipped {
+  border-style: dashed;
+}
+
+.bb-cell__pic {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+.bb-cell__pic > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+.bb-cell__none {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ds-danger);
+}
+
+.bb-cell__label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.bb-cell__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.bb-cell--failed .bb-cell__status {
+  color: var(--ds-danger);
+  font-weight: 650;
+}
+
+@media (max-width: 720px) {
+  .bb-cell {
+    flex-basis: 144px;
+  }
 }

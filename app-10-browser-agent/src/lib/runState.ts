@@ -1,4 +1,4 @@
-import type { BotStep, ObservedPage, PlanResponse, RunEvent, TraceEntry, TraceStatus, UsageReport } from '../types'
+import type { BotStep, ObservedPage, PlanResponse, RunEvent, StepFrame, TraceEntry, TraceStatus, UsageReport } from '../types'
 
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
@@ -15,9 +15,13 @@ interface RunRow {
   ms: number
   detail: string
   observed?: ObservedPage
+  frame?: StepFrame
+  frameNote?: string
 }
 
 export interface RunState {
+  /** Counts runs, so the replay can forget the viewer's selection when a new run starts. */
+  runId: number
   phase: Phase
   steps: BotStep[]
   planTrace: TraceEntry[]
@@ -32,6 +36,7 @@ export interface RunState {
 }
 
 export const initialRunState: RunState = {
+  runId: 0,
   phase: 'idle',
   steps: [],
   planTrace: [],
@@ -106,6 +111,8 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
           ms: event.ms,
           detail: event.detail,
           observed: event.observed,
+          frame: event.frame,
+          frameNote: event.frameNote,
         }),
         observed: event.observed ?? state.observed,
       }
@@ -137,7 +144,7 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
 export function runReducer(state: RunState, action: RunAction): RunState {
   switch (action.type) {
     case 'planning':
-      return { ...initialRunState, phase: 'planning' }
+      return { ...initialRunState, runId: state.runId + 1, phase: 'planning' }
     case 'planned':
       return {
         ...state,
@@ -150,6 +157,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
     case 'planFailed':
       return {
         ...initialRunState,
+        runId: state.runId,
         phase: 'failed',
         planTrace: withFailedEntry(action.trace, action.message),
         error: { message: action.message, index: null },
@@ -158,6 +166,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
       // A replay makes no model call, so its latency leaves out the planner time.
       return {
         ...state,
+        runId: action.replay ? state.runId + 1 : state.runId,
         phase: 'running',
         planMs: action.replay ? null : state.planMs,
         rows: [],
@@ -196,6 +205,6 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         ],
       }
     case 'reset':
-      return initialRunState
+      return { ...initialRunState, runId: state.runId + 1 }
   }
 }

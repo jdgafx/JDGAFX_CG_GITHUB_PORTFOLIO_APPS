@@ -148,6 +148,6 @@ describe('running', () => {
     })  })
 
   it('returns to the empty state on reset', () => {
-    expect(run(running, { type: 'reset' })).toEqual(initialRunState)
+    expect(run(running, { type: 'reset' })).toEqual({ ...initialRunState, runId: running.runId + 1 })
   })
 })

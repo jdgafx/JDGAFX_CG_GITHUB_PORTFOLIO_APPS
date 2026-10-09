@@ -226,3 +226,54 @@ describe('streamRun', () => {
     await expect(streamRun(steps, () => undefined, signal())).rejects.toMatchObject({ message: NETWORK })
   })
 })
+
+describe('streamRun pictures and watchdog', () => {
+  const frame = { data: 'QUJD', width: 640, height: 366, bytes: 28_042 }
+  const record = (event: object) => `data: ${JSON.stringify(event)}\n\n`
+  const done = { type: 'step_complete', index: 0, name: 'Navigate: x', status: 'ok', ms: 5, detail: 'Opened.', observed: { url: 'https://news.ycombinator.com/', title: 'Hacker News', excerpt: 'x' } }
+
+  it('passes a good picture through and drops a bad one with a note', async () => {
+    fetchMock.mockResolvedValueOnce(sse([record({ ...done, frame }), record({ ...done, index: 1, frame: { ...frame, data: '<img onerror=1>' } })]))
+    const events: RunEvent[] = []
+    await streamRun(steps, (event) => events.push(event), signal())
+    expect(events[0]).toMatchObject({ frame })
+    expect(events[1]).toMatchObject({ frame: undefined, frameNote: 'No picture: the page could not read the picture the server sent.' })
+  })
+
+  it('keeps the server note when a step has no picture', async () => {
+    fetchMock.mockResolvedValueOnce(sse([record({ ...done, frameNote: 'No picture: the run reached its picture size limit.' })]))
+    const events: RunEvent[] = []
+    await streamRun(steps, (event) => events.push(event), signal())
+    expect(events[0]).toMatchObject({ frameNote: 'No picture: the run reached its picture size limit.' })
+  })
+
+  it('ends a stream that sends no byte for the idle limit with a recoverable message', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }))
+    await expect(streamRun(steps, () => undefined, signal(), { idleMs: 20, overallMs: 1_000 })).rejects.toMatchObject({
+      message: 'The browser run stopped sending updates. Run the plan again.',
+    })
+  })
+
+  it('ends a stream that keeps trickling past the overall limit', async () => {
+    const encoder = new TextEncoder()
+    let timer: ReturnType<typeof setInterval> | undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        timer = setInterval(() => controller.enqueue(encoder.encode(': keep-alive\n\n')), 10)
+      },
+      cancel() { clearInterval(timer) },
+    })
+    fetchMock.mockResolvedValueOnce(new Response(body, { status: 200 }))
+    await expect(streamRun(steps, () => undefined, signal(), { idleMs: 200, overallMs: 80 })).rejects.toMatchObject({
+      message: 'The browser run took longer than expected and was ended. Run the plan again.',
+    })
+  })
+
+  it('stays silent when the visitor stops a stalled stream', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }))
+    const controller = new AbortController()
+    const run = streamRun(steps, () => undefined, controller.signal, { idleMs: 1_000, overallMs: 5_000 })
+    setTimeout(() => controller.abort(), 10)
+    await expect(run).rejects.not.toBeInstanceOf(RequestFailure)
+  })
+})

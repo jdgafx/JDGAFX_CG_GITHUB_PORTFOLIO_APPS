@@ -1,8 +1,9 @@
 import Browserbase from '@browserbasehq/sdk'
 import type { Browser, Page } from 'playwright-core'
 import { stepLabel } from '../../src/lib/shared'
-import type { BotStep, ObservedPage, RunEvent } from '../../src/types'
+import type { BotStep, ObservedPage, RunEvent, StepFrame } from '../../src/types'
 import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
+import { FrameRecorder, type FrameOutcome } from '../shared/frames'
 import { allowedDomains, isAllowedHost } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
 import { BROWSER_TIMEOUT_MS, connectBrowser, releaseSession } from '../shared/session'
@@ -21,6 +22,9 @@ const SESSION_CAP_SECONDS = 120
 /** Largest plan body: ten steps with every field at its limit, in ASCII. */
 const MAX_BODY_BYTES = 32_768
 
+/** The browser window size for every run. The picture is this window at two thirds scale. */
+const RUN_VIEWPORT = { width: 960, height: 540 }
+
 type Send = (event: RunEvent) => void
 
 /**
@@ -35,6 +39,20 @@ async function observeAllowed(page: Page, domains: string[], selector?: string):
     throw new ExecutionError(`The run stopped. The page moved to ${host}, which is outside the allowed sites.`)
   }
   return pageSnapshot(page, selector)
+}
+
+/** Sets the window size under the browser time limit. A page that refuses keeps its own size. */
+async function sizeWindow(page: Page): Promise<void> {
+  try {
+    await withTimeout(Promise.resolve().then(() => page.setViewportSize(RUN_VIEWPORT)), BROWSER_TIMEOUT_MS, 'The browser window could not be sized.')
+  } catch {
+    // The run goes on with the window it has.
+  }
+}
+
+/** The frame fields of a step event: the picture, or the reason there is none. */
+function frameFields(shot: FrameOutcome): { frame?: StepFrame; frameNote?: string } {
+  return 'frame' in shot ? { frame: shot.frame } : { frameNote: shot.note }
 }
 
 /**
@@ -54,6 +72,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   let sessionId: string | undefined
   let browser: Browser | undefined
   let page: Page | undefined
+  let recorder: FrameRecorder | undefined
   let stage = 'Open browser session'
   let stageStarted = Date.now()
   let stepStarted = Date.now()
@@ -75,6 +94,10 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       ?? (context ? await withTimeout(context.newPage(), BROWSER_TIMEOUT_MS, 'The browser did not open a page in time.') : undefined)
     if (!activePage) throw new ExecutionError('Browserbase returned no usable browser page.')
     page = activePage
+    // A 960 px window scaled to a 640 px picture keeps page text readable. A failure here only means a larger window.
+    await sizeWindow(activePage)
+    const rec = new FrameRecorder(activePage)
+    recorder = rec
     send({ type: 'stage', name: stage, status: 'ok', ms: Date.now() - stageStarted, detail: 'Connected to the browser.' })
 
     for (const [index, step] of steps.entries()) {
@@ -95,9 +118,11 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       if ((step.action === 'extract' || step.action === 'verify') && !observed.excerpt) {
         throw new ExecutionError('The page returned no readable text to extract.')
       }
+      // The picture is taken right after the text was read, so both show the same moment of the page.
+      const shot = await rec.capture()
       inStep = false
       completed = index + 1
-      send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed })
+      send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed, ...frameFields(shot) })
     }
 
     stage = 'Read final page'
@@ -111,6 +136,8 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
     if (inStep) {
       // A page on a disallowed host is not read here either, so its content cannot reach the client.
       const observed = page ? await observeAllowed(page, domains).catch(() => undefined) : undefined
+      // The page as it stood when the step failed, and only when it is on an allowed host.
+      const shot = observed && recorder ? await recorder.capture() : undefined
       send({
         type: 'step_complete',
         index: completed,
@@ -119,6 +146,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
         ms: Date.now() - stepStarted,
         detail: message,
         observed,
+        ...(shot ? frameFields(shot) : {}),
       })
     } else {
       send({ type: 'stage', name: stage, status: 'failed', ms: Date.now() - stageStarted, detail: message })
@@ -128,6 +156,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
     }
     outcome = { type: 'error', message, index: inStep ? completed : null }
   } finally {
+    await recorder?.close()
     if (browser) await withTimeout(browser.close(), BROWSER_TIMEOUT_MS, 'The browser did not close in time.').catch(() => undefined)
   }
 

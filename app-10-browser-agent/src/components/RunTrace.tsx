@@ -1,12 +1,4 @@
-import { formatMs, type TraceRow } from '../lib/trace'
-
-const BADGE: Record<TraceRow['status'], string> = {
-  ok: 'ds-badge ds-badge--success',
-  failed: 'ds-badge ds-badge--danger',
-  skipped: 'ds-badge',
-  waiting: 'ds-badge',
-  running: 'ds-badge ds-badge--accent',
-}
+import { formatMs, lanesFor, type TraceRow } from '../lib/trace'
 
 const DOT: Record<TraceRow['status'], string> = {
   ok: 'ds-dot ds-dot--ok',
@@ -31,48 +23,56 @@ interface RunTraceProps {
 
 /** The run as a numbered sequence: planner stages first, then the browser stages and steps. */
 export default function RunTrace({ rows, summary }: RunTraceProps) {
-  // Bars are scaled to the slowest measured row, so their lengths compare real durations.
-  const slowest = Math.max(0, ...rows.map((row) => row.ms ?? 0))
-
+  const lanes = lanesFor(rows)
   return (
-    <section className="ds-section" aria-labelledby="trace-heading">
-      <div className="ds-section__head">
+    <section className="ds-section ds-run__trace" aria-labelledby="trace-heading">
+      <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="trace-heading">Run trace</h2>
-        <p className="ds-section__sub">Planner first, then the browser. Times are measured on the server.</p>
+        <p className="ds-section__sub">Bars show how long each step took, in the order they ran. Times are measured on the server.</p>
       </div>
       <p className="bb-status" role="status" aria-live="polite">{summary}</p>
       {rows.length === 0 ? (
-        <div className="ds-empty">No run yet. Enter a task to see each planned step and what the browser observed.</div>
+        <div className="ds-state ds-state--empty">
+          <span className="ds-state__mark" aria-hidden="true" />
+          <p className="ds-state__title">No steps yet</p>
+          <p className="ds-state__body">Plan and run a task to see each step, how long it took and the page the browser was on.</p>
+        </div>
       ) : (
         <ol className="ds-trace" aria-label="Run trace steps">
           {rows.map((row, i) => {
             const measured = row.status === 'ok' || row.status === 'failed'
+            const lane = lanes[i]
             const classes = ['ds-trace__step']
-            if (row.status === 'failed') classes.push('bb-step--failed')
+            if (row.status === 'failed') classes.push('ds-trace__step--failed')
             if (row.status === 'running') classes.push('ds-trace__step--running')
             return (
               <li key={row.key} className={classes.join(' ')}>
                 <span className="ds-trace__index">{i + 1}</span>
-                <div className="bb-step__body">
-                  <div className="ds-trace__name">{row.name}</div>
+                <div>
+                  <div className="ds-trace__head">
+                    <span className="ds-trace__name">{row.name}</span>
+                    <span className={row.status === 'skipped' || row.status === 'waiting' ? 'ds-trace__state' : `ds-trace__state ds-trace__state--${row.status}`}>
+                      <span className={DOT[row.status]} aria-hidden="true" />
+                      {WORD[row.status]}
+                    </span>
+                  </div>
                   {row.planned && <div className="ds-trace__detail">Plan: {row.planned}</div>}
                   <div className="ds-trace__detail">{row.detail}</div>
-                  {row.observed && <div className="ds-trace__detail">Page: {row.observed.url}</div>}
-                  {measured && row.ms !== null && slowest > 0 && (
-                    <div
-                      className="ds-trace__bar"
-                      aria-hidden="true"
-                      style={{ width: `${Math.max(2, (row.ms / slowest) * 100)}%` }}
-                    />
-                  )}
+                  {row.observed && <div className="ds-trace__detail ds-mono">Page: {row.observed.url}</div>}
                 </div>
                 <div className="ds-trace__meta">
-                  <span className={BADGE[row.status]}>
-                    <span className={DOT[row.status]} aria-hidden="true" />
-                    {WORD[row.status]}
-                  </span>
-                  <div>{measured && row.ms !== null ? formatMs(row.ms) : '—'}</div>
+                  <span>{measured && row.ms !== null ? formatMs(row.ms) : '—'}</span>
                 </div>
+                {lane && (
+                  <div className="ds-trace__lane" aria-hidden="true">
+                    <div className="ds-trace__bar" style={{ left: `${lane.left}%`, width: `${lane.width}%` }} />
+                  </div>
+                )}
+                {row.status === 'running' && (
+                  <div className="ds-trace__lane" aria-hidden="true">
+                    <div className="ds-trace__bar ds-trace__bar--live" style={{ left: '0%', width: '100%' }} />
+                  </div>
+                )}
               </li>
             )
           })}

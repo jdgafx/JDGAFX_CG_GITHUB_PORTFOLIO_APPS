@@ -161,3 +161,17 @@ export function expectationOf(steps: BotStep[]): string | null {
   const last = [...steps].reverse().find((step) => step.action === 'extract' || step.action === 'verify')
   return last ? [last.target, last.value].filter(Boolean).join(': ') : null
 }
+
+/** Where a row's bar sits on the trace lane, in percent. Rows run one after another, so each starts where the last measured row ended. */
+export function lanesFor(rows: TraceRow[]): Array<{ left: number; width: number } | null> {
+  const timed = rows.map((row) => ((row.status === 'ok' || row.status === 'failed') && row.ms !== null ? row.ms : null))
+  const total = timed.reduce<number>((sum, ms) => sum + (ms ?? 0), 0)
+  if (total === 0) return rows.map(() => null)
+  let before = 0
+  return timed.map((ms) => {
+    if (ms === null) return null
+    const left = (before / total) * 100
+    before += ms
+    return { left, width: Math.min(100 - left, Math.max(1.5, (ms / total) * 100)) }
+  })
+}

@@ -20,6 +20,15 @@ export interface ObservedPage {
   region?: string
 }
 
+/** A small JPEG of the page as the browser showed it, captured on the server right after the step. `data` is base64. */
+export interface StepFrame {
+  data: string
+  width: number
+  height: number
+  /** Size of the JPEG in bytes, before base64. */
+  bytes: number
+}
+
 export type TraceStatus = 'ok' | 'failed' | 'skipped'
 
 /** One measured stage. `ms` is measured on the server with Date.now(). */
@@ -51,7 +60,7 @@ export type RunEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'stage'; name: string; status: 'ok' | 'failed'; ms: number; detail: string }
   | { type: 'step_start'; index: number; name: string }
-  | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage }
+  | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage; frame?: StepFrame; frameNote?: string }
   | { type: 'result'; ms: number; observed: ObservedPage }
   | { type: 'error'; message: string; index: number | null }
   | { type: 'done'; totalMs: number }

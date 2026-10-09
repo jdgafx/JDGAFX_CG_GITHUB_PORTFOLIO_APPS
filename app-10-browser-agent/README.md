@@ -1,6 +1,6 @@
 # BrowseBot
 
-BrowseBot plans a web task and then carries it out in a real browser. You describe a task in plain language, such as "Open news.ycombinator.com and report the top three story titles." One model call turns it into a short list of browser steps. The planner is asked for two to six, and the server accepts up to ten. A Browserbase cloud browser then runs those steps on allowed sites and reports what it saw: the URL, the page title and the visible text, either of the whole page or of one region of it. The page shows the plan, each step as it runs, the planner's served model, tokens and cost, and the session ID. BrowseBot does not decide whether the result answers your task.
+BrowseBot plans a web task and then carries it out in a real browser. You describe a task in plain language, such as "Open news.ycombinator.com and report the top three story titles." One model call turns it into a short list of browser steps. The planner is asked for two to six, and the server accepts up to ten. A Browserbase cloud browser then runs those steps on allowed sites and reports what it saw: the URL, the page title and the visible text, either of the whole page or of one region of it. The page shows a visual replay: one small picture of the real page per step, in a filmstrip, with the chosen step large beside the address, title and text the browser read at that moment. It also shows the plan, each step as it runs, the planner's served model, tokens and cost, and the session ID. BrowseBot does not decide whether the result answers your task.
 
 The example tasks read live public pages: the Hacker News front page and its newest list, Wikipedia's featured article, and a Hubble Space Telescope infobox. Nothing in them is canned. The text shown is whatever the page held when the browser read it.
 
@@ -23,6 +23,14 @@ The browser run follows. It streams server-sent events from `POST /api/execute`:
 - **Release browser session** ends the Browserbase session and shows whether the release worked. It comes before the run's final event.
 
 The page has two columns. The controls hold the task, the allowed sites and the run buttons. The run column shows the plan beside the observed page, a run figures strip with the served model, prompt, completion and total tokens, cost in USD and total latency, and the numbered run trace. A figure the provider does not report shows as "not reported". Nothing is estimated. The observed page appears as a browser window with the URL, title and up to 4,000 characters of text, which is the region's text when the step named a selector, and the session ID beneath. A keyword overlap with the plan's expected wording is a lookup aid, not a verdict.
+
+## Visual replay
+
+After every step the server captures the page the browser is on and sends it with the step's result. Each picture is a JPEG about 640 px wide, taken over the Chrome DevTools protocol from a 960 by 540 browser window, so page text stays readable. The captured JPEG stays under 70 KB per picture (quality 60, then 42, 28 and 18 until it fits), and all pictures of one run stay under 450 KB, which is about 600 KB of base64 in the stream. A step with no room left, or whose capture fails, says so instead of showing a picture. A failed step keeps the picture of the page where it failed. A page on a site outside the allowlist is never captured.
+
+On the page, the filmstrip shows one cell per step with its number, label and status. Select a cell, drag the scrub bar or use the left and right arrow keys (Home and End jump to the ends) to look at a step. While a run is live the viewer follows the running step until you pick another one. Play replay steps through a finished run, one step every 1.5 seconds. Pictures are checked on arrival: only a small base64 JPEG is shown.
+
+The pictures travel in the same server-sent stream as the run, so the response is a streamed one: Netlify allows 20 MB and 60 seconds for streamed functions, and a run uses well under 1 MB.
 
 ## Architecture
 
@@ -47,6 +55,11 @@ Live site: https://jdgafx-app-10-browser-agent.netlify.app
 
 ## Known limits
 
+- A picture is the top of the page in a 960 by 540 window, not the whole page. Text lower on the page is in the observed text but not in the picture, and text covered by a banner is in the observed text but hidden in the picture. The Wikipedia donation banner did this on the main page during checks: the featured article text was read, and the picture shows the banner over it.
+- Two steps that leave the page unchanged, such as a navigate followed by an extract, send the same picture twice. Identical pictures are not shared yet.
+- Pictures are not stored. They exist for the length of the run on screen.
+- The client ends a run stream that sends no byte for 30 s, or that lasts longer than 60 s, with a message to run the plan again. The server stops starting steps at 15 s.
+- The planner call has its own 4.5 s limit and is retried once when it times out or drops, if budget remains within the 8.5 s planning budget. The trace row says "Retried once". Answers with an error status are never retried.
 - The live site runs the build from before this finish pass until it is redeployed from git.
 - Stop ends the browser stream. The server stops at the next step boundary and releases the session. A step already running finishes or times out first. The page cannot receive the release result after Stop, so the trace adds a skipped Release row that says so.
 - No new step starts after 15 s, but a run can take longer, because creating, connecting, closing and releasing the session each wait up to 7 s. Whether Netlify keeps a streamed response open that long is not verified. The live check decides it.

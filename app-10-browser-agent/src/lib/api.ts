@@ -1,10 +1,20 @@
 import type { BotStep, PlanResponse, RunEvent, TraceEntry, TraceStatus } from '../types'
+import { cleanFrame } from './replay'
 import { isAction, usageOf } from './shared'
 
 const TRACE_STATUSES: TraceStatus[] = ['ok', 'failed', 'skipped']
 const EVENT_TYPES: RunEvent['type'][] = ['session', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
 const MAX_ERROR_CHARS = 300
 const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
+/** No byte from the run stream for this long means it has stalled. The server sends an event at least every few seconds. */
+export const IDLE_LIMIT_MS = 30_000
+/** The whole run stream. The server stops starting steps at 15 s and each close and release waits up to 7 s, so 60 s is a generous margin. */
+export const OVERALL_LIMIT_MS = 60_000
+/** Time allowed for a response to begin, for the planner and for the run. */
+export const START_LIMIT_MS = 30_000
+const STALLED_COPY = 'The browser run stopped sending updates. Run the plan again.'
+const TOO_LONG_COPY = 'The browser run took longer than expected and was ended. Run the plan again.'
+const NO_START_COPY = 'The server did not answer in time. Try again.'
 const UNREADABLE_EVENT_COPY = 'The browser run sent a message the page could not read.'
 
 /** A failed request. `message` is curated copy. `trace` holds the stages measured before the failure. */
@@ -71,22 +81,24 @@ async function readFailure(response: Response): Promise<RequestFailure> {
 }
 
 /** Posts JSON to the server. A network failure becomes curated copy, unless the caller cancelled. */
-async function postJson(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
+async function postJson(path: string, body: unknown, signal: AbortSignal, startLimitMs = START_LIMIT_MS): Promise<Response> {
+  // The limit covers the wait for the response to begin. The stream that follows has its own watchdog.
+  const limit = AbortSignal.timeout(startLimitMs)
   try {
     return await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal,
+      signal: AbortSignal.any([signal, limit]),
     })
   } catch (error) {
     if (signal.aborted) throw error
-    throw new RequestFailure(NETWORK_COPY)
+    throw new RequestFailure(limit.aborted ? NO_START_COPY : NETWORK_COPY)
   }
 }
 
 export async function planTask(task: string, signal: AbortSignal): Promise<PlanResponse> {
-  const response = await postJson('/api/ai', { task }, signal)
+  const response = await postJson('/api/ai', { task }, signal, 20_000)
   if (!response.ok) throw await readFailure(response)
 
   let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; totalMs?: unknown }
@@ -110,12 +122,30 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
 }
 
 /** Reads the next chunk of the stream. A dropped connection becomes curated copy, unless the caller cancelled. */
-async function readChunk(reader: ReadableStreamDefaultReader<Uint8Array>, signal: AbortSignal): Promise<ReadableStreamReadResult<Uint8Array>> {
+async function readChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+  idleMs: number,
+  overallLeftMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  // The watchdog is a referenced timer that races the read, so a stream that never delivers a byte still ends.
+  const overall = overallLeftMs <= idleMs
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const watchdog = new Promise<never>((_, reject) => {
+    // A visitor's Stop ends the wait at once, even if the body never reports the abort.
+    onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    timer = setTimeout(() => reject(new RequestFailure(overall ? TOO_LONG_COPY : STALLED_COPY)), Math.max(0, Math.min(idleMs, overallLeftMs)))
+  })
   try {
-    return await reader.read()
+    return await Promise.race([reader.read(), watchdog])
   } catch (error) {
-    if (signal.aborted) throw error
+    if (signal.aborted || error instanceof RequestFailure) throw error
     throw new RequestFailure(NETWORK_COPY)
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal.removeEventListener('abort', onAbort)
   }
 }
 
@@ -126,15 +156,19 @@ function dataLine(record: string): string | undefined {
 
 /** The event a data line carries, or null when it is not valid JSON or not a known event type. */
 function eventOf(data: string): RunEvent | null {
-  let parsed: { type?: unknown } | null
+  let parsed: { type?: unknown; [key: string]: unknown } | null
   try {
-    parsed = JSON.parse(data) as { type?: unknown } | null
+    parsed = JSON.parse(data) as { type?: unknown; [key: string]: unknown } | null
   } catch {
     return null
   }
-  return typeof parsed?.type === 'string' && EVENT_TYPES.includes(parsed.type as RunEvent['type'])
-    ? parsed as RunEvent
-    : null
+  if (typeof parsed?.type !== 'string' || !EVENT_TYPES.includes(parsed.type as RunEvent['type'])) return null
+  if (parsed.type !== 'step_complete') return parsed as RunEvent
+  // A picture is checked before it reaches the page: only a small base64 JPEG gets through.
+  const step = parsed as Extract<RunEvent, { type: 'step_complete' }>
+  const { frame, note } = cleanFrame(step.frame)
+  const frameNote = note ?? (typeof step.frameNote === 'string' ? step.frameNote.slice(0, 200) : undefined)
+  return { ...step, frame, frameNote }
 }
 
 /** A complete record in the middle of the stream. Anything that is not a known event is a protocol error. */
@@ -158,16 +192,22 @@ function emitTail(tail: string, onEvent: (event: RunEvent) => void): void {
 }
 
 /** Runs the plan and calls onEvent for each server event, in order, until the stream ends. */
-export async function streamRun(steps: BotStep[], onEvent: (event: RunEvent) => void, signal: AbortSignal): Promise<void> {
+export async function streamRun(
+  steps: BotStep[],
+  onEvent: (event: RunEvent) => void,
+  signal: AbortSignal,
+  limits: { idleMs: number; overallMs: number } = { idleMs: IDLE_LIMIT_MS, overallMs: OVERALL_LIMIT_MS },
+): Promise<void> {
   const response = await postJson('/api/execute', { steps }, signal)
   if (!response.ok || !response.body) throw await readFailure(response)
 
+  const startedAt = Date.now()
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   try {
     for (;;) {
-      const chunk = await readChunk(reader, signal)
+      const chunk = await readChunk(reader, signal, limits.idleMs, limits.overallMs - (Date.now() - startedAt))
       buffer += decoder.decode(chunk.value, { stream: !chunk.done })
       const records = buffer.split('\n\n')
       // The last piece is a record still in flight, unless the stream has ended.
