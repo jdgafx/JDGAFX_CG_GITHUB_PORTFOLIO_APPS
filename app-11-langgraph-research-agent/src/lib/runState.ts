@@ -156,9 +156,17 @@ export function failRun(view: RunView, message: string): RunView {
   }
 }
 
+/** True until the first step has begun. Between two steps the run is running, not starting. */
+function notStartedYet(view: RunView): boolean {
+  return view.trace.length === 0
+}
+
 /** The word for the header badge. */
 export function statusText(view: RunView): string {
-  if (view.phase === 'running') return view.active ? `Running: ${view.active}` : 'Starting the run'
+  if (view.phase === 'running') {
+    if (view.active) return `Running: ${view.active}`
+    return notStartedYet(view) ? 'Starting the run' : 'Running'
+  }
   if (view.phase === 'done') return 'Answer ready'
   if (view.phase === 'failed') return 'Failed'
   if (view.phase === 'stopped') return 'Stopped'
@@ -168,7 +176,8 @@ export function statusText(view: RunView): string {
 /** The status line under the controls. It uses the button's verb, so the page says what it is doing. */
 export function researchStatus(view: RunView): string {
   if (view.phase === 'running') {
-    return view.active ? `Research running. Current step: ${view.active}.` : 'Starting research.'
+    if (view.active) return `Research running. Current step: ${view.active}.`
+    return notStartedYet(view) ? 'Starting research.' : 'Research running.'
   }
   if (view.phase === 'done') return 'Research finished. The cited answer is ready.'
   if (view.phase === 'failed') return 'Research failed. The message above says why.'

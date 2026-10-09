@@ -48,4 +48,17 @@ describe('researchStatus', () => {
     expect(researchStatus(startRun())).toBe('Starting research.')
     expect(researchStatus(running())).toBe('Research running. Current step: agent.')
   })
+
+  it('never says the run is starting once a step has begun, even in the gap between two steps', () => {
+    let view = startRun()
+    view = applyFrame(view, { type: 'node_start', node: 'plan', visit: 1, ms: 0 })
+    view = applyFrame(view, { type: 'node_end', node: 'plan', visit: 1, ms: 40, status: 'ok', detail: 'Planned searches.' })
+    // The step ended and the next one has not started: no node is active, and the trace already has a row.
+    expect(view.active).toBeNull()
+    expect(researchStatus(view)).toBe('Research running.')
+    expect(statusText(view)).toBe('Running')
+    // Before any step has begun the starting words still apply.
+    expect(researchStatus(startRun())).toBe('Starting research.')
+    expect(statusText(startRun())).toBe('Starting the run')
+  })
 })
