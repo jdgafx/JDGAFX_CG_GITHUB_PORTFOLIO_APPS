@@ -67,7 +67,7 @@ export interface ClaimDraft {
  * source but is not a claim of fact the source could state, so the audit does not judge it.
  */
 export function isAboutResearch(text: string): boolean {
-  return /\b(this|the|these|our) (research|evidence|report|sources?|excerpts?|retrieved)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
+  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\bthe sources? (do not|don't|disagree|differ|are limited|are thin|offer no|give no)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
 }
 
 const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
@@ -317,6 +317,10 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
     verdict = 'partly'
     notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
   }
+  if (verdict === 'supported' && admitsGap(judgment.reason)) {
+    verdict = 'partly'
+    notes.push("The model's own reason says the source does not state all of the claim.")
+  }
   if (verdict === 'supported' && pre.missingNumbers.length > 0) {
     verdict = 'partly'
     notes.push(`The source text does not contain ${listOf(pre.missingNumbers)}.`)
@@ -327,6 +331,14 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
   }
   const reason = [cleanReason(judgment.reason), ...notes].filter(Boolean).join(' ')
   return { ...base, verdict, reason: reason || 'No reason given.', ...(quote ? { quote } : {}) }
+}
+
+/**
+ * A reason that says the source does not state it, calls the claim an extension, or says it is only implied contradicts a
+ * supported verdict. "The source states X, which does not differ from the claim" is not such a reason.
+ */
+export function admitsGap(reason: string | undefined): boolean {
+  return /\b(does not|doesn't|do not|not) (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bextension\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {

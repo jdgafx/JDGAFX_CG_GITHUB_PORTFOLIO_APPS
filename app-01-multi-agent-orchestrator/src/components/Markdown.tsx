@@ -24,7 +24,14 @@ const ClaimsContext = createContext<ClaimsValue | null>(null)
  */
 const namesOf = (sources: Source[]) => {
   const text = sources.map(source => `${source.title} ${source.snippet}`).join(' ')
-  return sources.flatMap(source => (source.title.match(/\p{Lu}[\p{L}\p{N}-]+/gu) ?? []).filter(word => !text.includes(word.toLowerCase())))
+  const snippets = sources.map(source => source.snippet).join(' ')
+  // A title's first word is capitalised whatever it is ("Did", "History"), so it counts only when a snippet capitalises it mid-sentence.
+  const midSentence = (word: string) => new RegExp(`[^.!?\\s]\\s+${word}\\b`).test(snippets)
+  return sources.flatMap(source =>
+    [...source.title.matchAll(/\p{Lu}[\p{L}\p{N}-]+/gu)]
+      .filter(match => (match.index > 0 || midSentence(match[0])) && !text.includes(match[0].toLowerCase()))
+      .map(match => match[0]),
+  )
 }
 
 const CITATION = /(\[\d{1,3}\])/
@@ -82,7 +89,7 @@ function Claim({ claim, text }: { claim: AuditClaim; text: string }) {
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      aria-label={`Claim ${claim.id}, ${VERDICT_VIEW[claim.verdict].word}. ${text.replace(/\s*\[\d+(?:\s*[,;]\s*\d+)*\]/g, '').trim()} Opens its source.`}
+      aria-label={`Claim ${claim.id}, ${VERDICT_VIEW[claim.verdict].word}. ${text.replace(/\s*\[\d+(?:\s*[,;]\s*\d+)*\]/g, '').trim().replace(/([.!?])\.$/, '$1')} Opens its source.`}
       onClick={select}
       onKeyDown={event => {
         if (event.key === 'Enter' || event.key === ' ') {

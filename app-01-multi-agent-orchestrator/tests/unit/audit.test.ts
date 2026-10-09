@@ -3,6 +3,7 @@ import {
   citesOf,
   decidedWithoutModel,
   extractClaims,
+  admitsGap,
   isAboutResearch,
   findQuote,
   namesIn,
@@ -81,6 +82,7 @@ describe('claims about the research itself', () => {
     expect(extractClaims(body).map(claim => claim.text)).toEqual(['The wall is long [1].'])
     expect(isAboutResearch('No source names the climbers [3].')).toBe(false)
     expect(isAboutResearch('The sources do not agree [3].')).toBe(true)
+    expect(isAboutResearch('Popular "unsinkable" claims about the ship are treated in the sources as legends rather than established facts [3].')).toBe(false)
   })
 })
 
@@ -215,6 +217,50 @@ describe('settleClaim', () => {
 
   it('marks a sentence with no judgment as not checked', () => {
     expect(settleClaim(draft, pre, SOURCES, undefined)).toMatchObject({ verdict: 'unchecked' })
+  })
+})
+
+describe('a supported verdict that the reason contradicts', () => {
+  const documentary =
+    'Titanic Sinks Tonight is a four-part television documentary and drama series about the sinking of the Titanic. The series places emphasis on the social class and sex of the passengers, as well as the perceived mistakes by those in command.'
+  const sources: Source[] = [{ n: 2, title: 'Titanic Sinks Tonight', site: 'Wikipedia', url: 'https://x.test', snippet: documentary }]
+  const quote = 'The series places emphasis on the social class and sex of the passengers, as well as the perceived mistakes by those in command.'
+  const settle = (text: string, reason: string) => {
+    const draft = { id: 1, block: 0, piece: 0, text, cites: [2] }
+    return settleClaim(draft, preCheck(text, [2], sources), sources, { id: 1, verdict: 'supported', source: 2, quote, reason })
+  }
+
+  it('caps the widened documentary claim to partly and keeps the reason', () => {
+    const claim = settle('Accounts of the disaster frequently point to perceived mistakes by those in command as a recurring theme [2].', "Source says the series emphasizes perceived mistakes by those in command; 'recurring theme' is a mild extension.")
+    expect(claim.verdict).toBe('partly')
+    expect(claim.reason).toContain('mild extension')
+    expect(claim.reason).toContain('does not state all of the claim')
+  })
+
+  it('caps the "implied" case from the 1906 earthquake report', () => {
+    const claim = settle('The quake itself caused severe damage, but fires that burned for several days compounded it [2].', 'Source states fires lasted several days after the earthquake; damage attribution is implied.')
+    expect(claim.verdict).toBe('partly')
+  })
+
+  it.each([
+    'it does not say this is a recurring theme across accounts generally',
+    "it describes a documentary, not all accounts, so close paraphrase",
+    'The source does not mention the cause.',
+    'Source extrapolates beyond the series.',
+  ])('flags the reason: %s', reason => {
+    expect(admitsGap(reason)).toBe(true)
+  })
+
+  it.each([
+    'Source states the date, which does not differ from the claim.',
+    'Source states magnitude, coast, time, and date as claimed.',
+    'Source states both the death toll above 3,000 and over 80% destruction.',
+    'The source does not say otherwise; wording matches.',
+    'Shaking extends from Eureka to the Salinas Valley, as stated.',
+    'Date stated.',
+  ])('leaves a true supported reason alone: %s', reason => {
+    expect(admitsGap(reason)).toBe(false)
+    expect(settle('The series emphasizes perceived mistakes by those in command [2].', reason).verdict).toBe('supported')
   })
 })
 

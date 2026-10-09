@@ -144,8 +144,22 @@ describe('ReportCard states', () => {
 
 describe('report headings', () => {
   it('shows a Title Case heading in sentence case and keeps the names the sources carry', () => {
-    const rust: Source = { n: 1, title: 'Rust (programming language)', site: 'Wikipedia', url: 'https://x.test', snippet: 's' }
+    const rust: Source = { n: 1, title: 'Rust (programming language)', site: 'Wikipedia', url: 'https://x.test', snippet: 'Rust is a language. Many teams now write Rust for systems work.' }
     const out = html(createElement(Markdown, { text: '## Why Developers Are Adopting Rust for Systems Programming', sources: [rust] }))
     expect(out).toContain('Why developers are adopting Rust for systems programming')
+  })
+
+  it('lowercases a common word that only opens a source title', () => {
+    const titanic: Source = { n: 1, title: 'Did the Titanic sink because of an optical illusion?', site: 'Wikipedia', url: 'https://x.test', snippet: 'The Titanic struck an iceberg.' }
+    const python: Source = { n: 1, title: 'History of Python', site: 'Wikipedia', url: 'https://x.test', snippet: 'Guido van Rossum began work on Python in 1989.' }
+    expect(html(createElement(Markdown, { text: '## Why Did the Titanic Sink?', sources: [titanic] }))).toContain('Why did the Titanic sink?')
+    expect(html(createElement(Markdown, { text: '## The History of the Python Programming Language', sources: [python] }))).toContain('The history of the Python programming language')
+  })
+
+  it('collapses the double full stop an abbreviation leaves in a claim label', () => {
+    const claim: AuditClaim = { id: 1, block: 0, piece: 0, text: 'It struck at 5:12 a.m. [1].', cites: [1], pre: { overlap: 1, best: 1, missingNumbers: [], missingNames: [], level: 'ok' }, verdict: 'supported', reason: 'ok' }
+    const out = html(createElement(Markdown, { text: 'It struck at 5:12 a.m. [1].', audit: { claims: [claim], selected: null, onSelect: () => undefined } }))
+    expect(out).toContain('It struck at 5:12 a.m. Opens its source.')
+    expect(out).not.toContain('a.m.. Opens')
   })
 })
