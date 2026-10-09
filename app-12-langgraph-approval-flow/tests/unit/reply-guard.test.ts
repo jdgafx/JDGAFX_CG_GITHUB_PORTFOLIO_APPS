@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fallbackBody } from '../../netlify/shared/nodes'
-import { claimsPendingApproval, claimsUnearnedWork, contradictsLabels, draftProblem, hasForeignLink } from '../../netlify/shared/reply-guard'
+import { claimsDetailsComplete, claimsPendingApproval, claimsUnearnedWork, contradictsLabels, draftProblem, hasForeignLink } from '../../netlify/shared/reply-guard'
 
 describe('claimsPendingApproval', () => {
   it.each([
@@ -41,9 +41,23 @@ describe('claimsUnearnedWork', () => {
     'It is fixed in v2.1.',
     'We already closed the duplicate.',
     "We've noted these facts on the issue.",
+    'Your report is recorded above.',
+    'The report has been logged under the compiler area.',
+    'This issue was noted on our tracker.',
+    'Your request is now recorded.',
     'I have noted this on the issue for the team.',
   ])('flags work the draft cannot claim: %s', (text) => {
     expect(claimsUnearnedWork(text)).toBe(true)
+  })
+
+  it.each([
+    'This was noted in the docs.',
+    'The error is logged to the console.',
+    'The crash was recorded by the profiler.',
+    'The area label was noted in the contributing guide.',
+    'Thanks for the report.',
+  ])('keeps a normal sentence that uses the same verbs: %s', (text) => {
+    expect(claimsUnearnedWork(text)).toBe(false)
   })
 
   it.each(['Thanks for the report.', 'A fix would need a minimal reproduction.', 'Please confirm whether the problem still happens.'])(
@@ -80,6 +94,25 @@ describe('contradictsLabels', () => {
   })
 })
 
+describe('claimsDetailsComplete', () => {
+  it.each([
+    'We have the details we need.',
+    'We have all the information we need to look at this.',
+    'There is enough detail in the report.',
+    'No further information is needed.',
+    'We do not need any more details.',
+    'Your report is complete.',
+  ])('flags, when needs-info is applied: %s', (text) => {
+    expect(claimsDetailsComplete(text, ['bug', 'needs-info'])).toBe(true)
+  })
+
+  it('says nothing when needs-info is not applied, or when the draft asks for details', () => {
+    expect(claimsDetailsComplete('We have the details we need.', ['bug'])).toBe(false)
+    expect(claimsDetailsComplete('Please share the version and the steps to reproduce.', ['bug', 'needs-info'])).toBe(false)
+    expect(claimsDetailsComplete('We need more detail to look into this.', ['needs-info'])).toBe(false)
+  })
+})
+
 describe('draftProblem', () => {
   it('names the first problem and returns null for a clean draft', () => {
     expect(draftProblem('It is pending review.', 'acme/widgets', [])).toBe('said a decision or review was still pending')
@@ -87,6 +120,9 @@ describe('draftProblem', () => {
     expect(draftProblem('Go to https://evil.example.test', 'acme/widgets', [])).toBe('linked outside the issue repository')
     expect(draftProblem('We categorized this as a feature request.', 'acme/widgets', ['question'])).toBe(
       'named an issue type that the final labels do not have',
+    )
+    expect(draftProblem('We have the details we need.', 'acme/widgets', ['bug', 'needs-info'])).toBe(
+      'said no more information is needed although the labels ask for more',
     )
     expect(draftProblem('Thanks for the report.', 'acme/widgets', ['bug'])).toBeNull()
   })

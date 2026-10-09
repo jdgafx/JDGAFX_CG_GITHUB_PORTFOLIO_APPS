@@ -334,6 +334,41 @@ describe('graph: the draft states a final outcome', () => {
     }
   })
 
+  it('tells the reply model to ask for details when the edit adds needs-info, and not to when it is absent', async () => {
+    const chat = fakeChat(ISSUE_BUG_CHAT)
+    const { graph } = graphOver(chat)
+    await start(graph, 'details-1', BUG)
+    await resume(graph, 'details-1', { action: 'edit', labels: ['bug', 'needs-info'], priority: 'medium' })
+    const asked = lastUserPrompt(chat, MODEL)
+    expect(asked).toContain('The labels say more information is needed. Ask for the specific missing details')
+    expect(asked).not.toContain('Do not ask for any.')
+
+    // The classifier called the report clear, but the maintainer's labels decide.
+    const clear = fakeChat({ classification: { ...CLASSIFIED_BUG, unclear: false } })
+    const second = graphOver(clear)
+    await start(second.graph, 'details-2', BUG)
+    await resume(second.graph, 'details-2', { action: 'edit', labels: ['bug'], priority: 'medium' })
+    expect(lastUserPrompt(clear, MODEL)).toContain('The labels do not ask for more information. Do not ask for any.')
+
+    // And the other way round: the classifier called it unclear, the maintainer removed needs-info.
+    const unclear = fakeChat({ classification: { ...CLASSIFIED_BUG, unclear: true } })
+    const third = graphOver(unclear)
+    await start(third.graph, 'details-3', BUG)
+    await resume(third.graph, 'details-3', { action: 'edit', labels: ['bug'], priority: 'medium' })
+    expect(lastUserPrompt(unclear, MODEL)).toContain('Do not ask for any.')
+  })
+
+  it('replaces a draft that says nothing more is needed when the final labels include needs-info', async () => {
+    const chat = fakeChat({ ...ISSUE_BUG_CHAT, email: 'Thanks. We have the details we need to look into this.' })
+    const { graph } = graphOver(chat)
+    await start(graph, 'details-4', BUG)
+    await resume(graph, 'details-4', { action: 'edit', labels: ['bug', 'needs-info'], priority: 'low' })
+
+    const values = await stateOf(graph, 'details-4')
+    expect(values.replyDraft?.body).toBe('Thank you for the report. This issue is now triaged as bug, needs-info with low priority.')
+    expect(values.trace.find((row: TraceRow) => row.node === 'reply')?.detail).toContain('said no more information is needed although the labels ask for more')
+  })
+
   it('replaces a draft that still names the old type after a maintainer edited the labels', async () => {
     const chat = fakeChat({ ...ISSUE_BUG_CHAT, email: 'Thanks. We categorized this as a bug and set medium priority.' })
     const { graph } = graphOver(chat)

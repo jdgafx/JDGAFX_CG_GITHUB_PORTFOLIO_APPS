@@ -102,7 +102,15 @@ interface Attempt {
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs)
-  const mapper = new FrameMapper(attempt.threadId, attempt.send)
+  const began = Date.now()
+  let firstNodeMs: number | null = null
+  const mapper = new FrameMapper(attempt.threadId, (event) => {
+    if (event.type === 'node_start' && firstNodeMs === null) firstNodeMs = Date.now() - began
+    attempt.send(event)
+  })
+  // Time before the first node runs is the checkpoint load and any cold start. It is logged, not shown.
+  const logTiming = () =>
+    console.info('GraphGate: run timing', { threadId: attempt.threadId, firstNodeMs, totalMs: Date.now() - began })
   attempt.send({ type: 'thread', threadId: attempt.threadId })
   try {
     const stream = await graph.stream(attempt.input, {
@@ -116,12 +124,14 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
     }
     if (mapper.paused) {
       await recordThread(deps, attempt.threadId, attempt.meta, 'awaiting_approval', mapper.proposalPriority)
+      logTiming()
       return
     }
     const snapshot = await graph.getState({ configurable: { thread_id: attempt.threadId } })
     const result = buildResult(attempt.threadId, snapshot.values as GraphValues)
     attempt.send({ type: 'result', result })
     await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority)
+    logTiming()
   } catch (err) {
     console.error('GraphGate: run failed', err)
     const node = mapper.currentNode

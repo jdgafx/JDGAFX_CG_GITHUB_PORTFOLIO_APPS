@@ -38,6 +38,10 @@ const UNEARNED_CLAIMS: readonly RegExp[] = [
   // Nobody has recorded, confirmed or reproduced anything: a maintainer has only accepted labels.
   /\b(?:we|i)(?:'ve|\s+have)?\s+(?:already\s+)?(?:recorded|logged|confirmed|reproduced|verified)\b/i,
   /\bhelped\s+us\s+(?:to\s+)?(?:confirm|reproduce|verify)\b/i,
+  // The passive forms: "is recorded above", "has been logged under the compiler area". Only claims about this
+  // report, so "this was noted in the docs" and "the error is logged to the console" stay.
+  /\b(?:is|are|was|has\s+been|have\s+been)\s+(?:now\s+|already\s+)?(?:recorded|logged|noted|tracked)\s+(?:above|below|here|under|against|in\s+our\s+(?:tracker|records)|on\s+(?:the|this|our)\s+(?:issue|ticket|tracker|board))\b/i,
+  /\b(?:your|this|the)\s+(?:report|issue|request|question|feedback|suggestion|ticket)\s+(?:is|has\s+been|was)\s+(?:now\s+)?(?:recorded|logged|noted|tracked)\b/i,
 ]
 
 export function claimsUnearnedWork(text: string): boolean {
@@ -53,6 +57,20 @@ export function hasForeignLink(text: string, repo: string): boolean {
     const lower = link.toLowerCase().replace(/[.,;:!?'"]+$/, '')
     return !(lower === own || lower.startsWith(`${own}/`))
   })
+}
+
+/** Wording that says nothing more is needed from the author. */
+const DETAILS_COMPLETE: readonly RegExp[] = [
+  /\b(?:have|has|had|got)\s+(?:all\s+)?(?:the\s+|of\s+the\s+)?(?:details|information|detail|info|context)\s+(?:we|that\s+we)\s+need\b/i,
+  /\b(?:enough|sufficient)\s+(?:detail|details|information|context)\b/i,
+  /\bno\s+(?:further|more|additional|other)\s+(?:information|details?|context)\s+(?:is\s+|are\s+)?(?:needed|required|necessary)\b/i,
+  /\b(?:do\s+not|don't|does\s+not|doesn't)\s+need\s+(?:any\s+)?(?:more|further|additional)\s+(?:information|details?|context)\b/i,
+  /\b(?:report|issue)\s+is\s+(?:complete|thorough|detailed)\b/i,
+]
+
+/** True when the draft says the report is complete although the final labels ask for more information. */
+export function claimsDetailsComplete(text: string, labels: readonly string[]): boolean {
+  return labels.includes('needs-info') && DETAILS_COMPLETE.some((pattern) => pattern.test(text))
 }
 
 const TYPE_CLAIM_PATTERNS: readonly RegExp[] = [
@@ -90,5 +108,6 @@ export function draftProblem(text: string, repo: string, labels: readonly string
   if (claimsUnearnedWork(text)) return 'claimed work that has not been done'
   if (hasForeignLink(text, repo)) return 'linked outside the issue repository'
   if (contradictsLabels(text, labels)) return 'named an issue type that the final labels do not have'
+  if (claimsDetailsComplete(text, labels)) return 'said no more information is needed although the labels ask for more'
   return null
 }
