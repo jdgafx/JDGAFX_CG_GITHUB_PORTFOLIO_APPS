@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs } from '../netlify/shared/contract'
+import type { ChangeNote } from '../netlify/shared/changes'
 import { UNEXPECTED_MESSAGE, runPipeline, type CallRecord, type PipelineOutcome } from './lib/api'
-import { buildTrace, stageViews, summarize, type RunEnd, type TraceLine } from './lib/run'
-import Brief, { type Notice } from './components/Brief'
+import type { ChangeStage } from './lib/compare'
+import { buildTrace, stageViews, summarize, type Phase, type RunEnd, type TraceLine } from './lib/run'
+import { useResultFocus } from './lib/useResultFocus'
+import Brief, { EXAMPLES } from './components/Brief'
+import Header from './components/Header'
+import Outputs from './components/Outputs'
+import Piece from './components/Piece'
 import Pipeline from './components/Pipeline'
-import Stages from './components/Stages'
-import RunSummary from './components/RunSummary'
+import Readout from './components/Readout'
 import RunTrace from './components/RunTrace'
 
 const COPY_NOTE_MS = 2000
 // Loaded so a reviewer can press Generate at once. Wikipedia and Hacker News both cover it.
-const SAMPLE_TOPIC = 'The Rust programming language and memory safety'
+const FIRST = EXAMPLES[0]
 
 function statusText(topic: string, running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null): string {
   if (running) {
@@ -19,38 +24,38 @@ function statusText(topic: string, running: boolean, runningStage: StageId | nul
   }
   if (topic.trim().length > MAX_TOPIC_CHARS) return `Shorten the topic to ${MAX_TOPIC_CHARS} characters to continue.`
   if (!outcome) return topic.trim() ? 'Press Generate to look up sources and write the piece.' : 'Enter a topic to start.'
-  if (outcome.kind === 'complete') return 'All steps finished. Copy the final piece from Stage outputs.'
-  if (outcome.kind === 'stopped') return `Stopped at ${STAGE_LABELS[outcome.stage]}. Press Resume to continue there.`
-  return `Press Retry to run ${STAGE_LABELS[outcome.stage]} again.`
+  if (outcome.kind === 'complete') return 'All steps finished. The piece and its changes are above.'
+  if (outcome.kind === 'stopped') return `Stopped at ${STAGE_LABELS[outcome.stage]}. Resume continues there.`
+  return `${STAGE_LABELS[outcome.stage]} did not finish. Retry runs it again.`
 }
 
-function badgeFor(running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null): { text: string; tone: string } {
-  if (running) return { text: runningStage ? `Running ${STAGE_LABELS[runningStage]}` : 'Starting', tone: 'ds-badge--accent' }
-  if (!outcome) return { text: 'Ready', tone: '' }
-  if (outcome.kind === 'complete') return { text: 'Complete', tone: 'ds-badge--success' }
-  if (outcome.kind === 'stopped') return { text: 'Stopped', tone: 'ds-badge--warning' }
-  return { text: 'Failed', tone: 'ds-badge--danger' }
-}
-
-function noticeFor(outcome: PipelineOutcome | null): Notice {
-  if (outcome?.kind === 'failed') return { kind: 'failed', label: STAGE_LABELS[outcome.stage], message: outcome.message }
-  if (outcome?.kind === 'stopped') return { kind: 'stopped', label: STAGE_LABELS[outcome.stage] }
-  return null
+function badgeFor(running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null) {
+  if (running) return { text: runningStage ? `Running ${STAGE_LABELS[runningStage]}` : 'Starting', tone: 'ds-badge--accent', dot: 'ds-dot--running' }
+  if (!outcome) return { text: 'Ready', tone: '', dot: '' }
+  if (outcome.kind === 'complete') return { text: 'Complete', tone: 'ds-badge--success', dot: 'ds-dot--ok' }
+  if (outcome.kind === 'stopped') return { text: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+  return { text: 'Failed', tone: 'ds-badge--danger', dot: 'ds-dot--failed' }
 }
 
 export default function App() {
-  const [topic, setTopic] = useState(SAMPLE_TOPIC)
-  const [contentType, setContentType] = useState<ContentType>(CONTENT_TYPES[0])
+  const [topic, setTopic] = useState(FIRST?.topic ?? '')
+  const [contentType, setContentType] = useState<ContentType>(FIRST?.type ?? CONTENT_TYPES[0])
   const [running, setRunning] = useState(false)
   const [runningStage, setRunningStage] = useState<StageId | null>(null)
   const [outcome, setOutcome] = useState<PipelineOutcome | null>(null)
   const [outputs, setOutputs] = useState<StageOutputs>({})
+  const [notes, setNotes] = useState<Partial<Record<ChangeStage, ChangeNote[]>>>({})
   const [calls, setCalls] = useState<CallRecord[]>([])
+  const [startedAt, setStartedAt] = useState(0)
   const [copyNote, setCopyNote] = useState('')
   const runKeyRef = useRef('')
   const outputsRef = useRef<StageOutputs>({})
+  const notesRef = useRef<Partial<Record<ChangeStage, ChangeNote[]>>>({})
   const abortRef = useRef<AbortController | null>(null)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const phase: Phase = running ? 'running' : outcome ? (outcome.kind === 'complete' ? 'done' : outcome.kind) : 'idle'
+  useResultFocus(phase)
 
   // Abort an in-flight run and clear the copy note timer when the view goes away.
   useEffect(() => () => {
@@ -67,12 +72,15 @@ export default function App() {
     if (!(resume && runKeyRef.current === runKey)) {
       runKeyRef.current = runKey
       outputsRef.current = {}
+      notesRef.current = {}
       setOutputs({})
+      setNotes({})
       setCalls([])
     }
 
     const controller = new AbortController()
     abortRef.current = controller
+    setStartedAt(Date.now())
     setRunning(true)
     setOutcome(null)
 
@@ -89,9 +97,13 @@ export default function App() {
             setRunningStage(next)
           },
           onCall: record => setCalls(previous => [...previous, record]),
-          onStageDone: (done, content) => {
+          onStageDone: (done, content, stageNotes) => {
             outputsRef.current = { ...outputsRef.current, [done]: content }
             setOutputs(outputsRef.current)
+            if (done === 'edit' || done === 'polish') {
+              notesRef.current = { ...notesRef.current, [done]: stageNotes }
+              setNotes(notesRef.current)
+            }
           },
         },
       )
@@ -145,22 +157,13 @@ export default function App() {
       }]
     : []
   const totals = calls.length > 0 ? summarize(calls) : null
-  const badge = badgeFor(running, runningStage, outcome)
+  const resume = !running && outcome && outcome.kind !== 'complete'
+    ? { label: `${outcome.kind === 'failed' ? 'Retry' : 'Resume'} from ${STAGE_LABELS[outcome.stage]}` }
+    : null
 
   return (
-    <div className="ds-app">
-      <header className="ds-header">
-        <div className="ds-header__inner">
-          <div>
-            <h1 className="ds-title">ContentForge</h1>
-            <p className="ds-subtitle">A live source lookup and five AI stages turn a topic into a cited piece.</p>
-          </div>
-          <span className={`ds-badge ${badge.tone}`}>{badge.text}</span>
-          <p className="ds-showcase">
-            <strong>What this showcases:</strong> a resumable pipeline that first fetches live Wikipedia and Hacker News sources, then runs five bounded model calls that cite them, each with its own trace, tokens and cost.
-          </p>
-        </div>
-      </header>
+    <div className="ds-app" data-run={phase}>
+      <Header phase={phase} badge={badgeFor(running, runningStage, outcome)} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -170,19 +173,38 @@ export default function App() {
               contentType={contentType}
               running={running}
               statusText={statusText(topic, running, runningStage, outcome)}
-              notice={noticeFor(running ? null : outcome)}
+              resume={resume}
               onTopic={setTopic}
               onContentType={setContentType}
               onSubmit={() => void start(false)}
               onStop={stop}
               onContinue={() => void start(true)}
             />
+            {!running && outcome?.kind === 'failed' && (
+              <div className="ds-notice ds-notice--error" role="alert">
+                <p><strong>{STAGE_LABELS[outcome.stage]} did not finish.</strong> {outcome.message}</p>
+                <p>Finished steps are kept.</p>
+              </div>
+            )}
           </div>
 
           <div className="ds-run">
-            <Pipeline views={views} />
-            <Stages outputs={outputs} views={views} idle={!running && !outcome} copyNote={copyNote} onCopy={copy} />
-            <RunSummary totals={totals} />
+            <Piece
+              outputs={outputs}
+              notes={notes}
+              running={running}
+              runningStage={runningStage}
+              outcome={running ? null : outcome}
+              hasCalls={calls.length > 0}
+              copyNote={copyNote}
+              onCopy={copy}
+              onContinue={() => void start(true)}
+            />
+            <Readout phase={phase} totals={totals} runningStage={runningStage} startedAt={startedAt} />
+            <div className="ds-run__stage ds-stack">
+              <Pipeline views={views} />
+              <Outputs outputs={outputs} views={views} onCopy={copy} />
+            </div>
             <RunTrace lines={[...finished, ...live]} />
           </div>
         </div>

@@ -37,7 +37,7 @@ describe('happy path', () => {
     expect(sent[0].init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
   })
 
-  it.each([['research', 400], ['outline', 500], ['draft', 800], ['edit', 800], ['polish', 800]])('limits %s to %i tokens', async (stage, tokens) => {
+  it.each([['research', 400], ['outline', 500], ['draft', 800], ['edit', 1020], ['polish', 1020]])('limits %s to %i tokens (edit and polish add room for their change notes)', async (stage, tokens) => {
     const sent = providerWill(() => completion(ARTICLE))
     await handler(request(stageBody(stage, { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE })))
     expect(sent[0].body.max_tokens).toBe(tokens)
@@ -210,7 +210,7 @@ describe('provider failures', () => {
   })
 
   // The call limit of each stage: about 1.5 times the p95 of healthy calls over 32 live runs on Haiku 5.5.
-  const LIMITS: Array<[string, number]> = [['research', 6_000], ['outline', 8_000], ['draft', 10_000], ['edit', 6_000], ['polish', 8_000]]
+  const LIMITS: Array<[string, number]> = [['research', 6_000], ['outline', 8_000], ['draft', 10_000], ['edit', 7_000], ['polish', 9_000]]
   const context = { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE }
   const hangs = (call: Sent) => new Promise<Response>((_resolve, reject) => {
     call.init?.signal?.addEventListener('abort', () => reject(call.init?.signal?.reason))
@@ -255,7 +255,7 @@ describe('provider failures', () => {
     const body = (await res.json()) as StageBody
     expect(body.trace).toHaveLength(1)
     expect(body.trace[0]).toMatchObject({ name: STAGE_LABELS[stage as 'research'], status: 'ok', tokens: 1200 })
-    expect(String(body.trace[0].detail)).toMatch(new RegExp(`^Retried once after a timeout of ${limit / 1000} s\\. \\d+ words: `))
+    expect(String(body.trace[0].detail)).toMatch(new RegExp(`^Retried once after a timeout of ${limit / 1000} s\\. (?:No change notes came back\\. )?\\d+ words: `))
     expect(sent).toHaveLength(2)
   })
 

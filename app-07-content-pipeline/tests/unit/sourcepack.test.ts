@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatSourcePack, parseSourcePack, sourceIndex, withSources, type Source, type SourcePack } from '../../netlify/shared/sourcepack'
+import { bodyOf, formatSourcePack, parseSourcePack, sourceIndex, withSources, type Source, type SourcePack } from '../../netlify/shared/sourcepack'
 
 const WIKI: Source = {
   n: 1,
@@ -239,5 +239,60 @@ describe('withSources', () => {
     expect(withSources('Text [1] here.', { sources: [], notes: [] }, 'Blog Post')).toBe(
       'Text here.\n\n*No sources: the live lookups found nothing for this topic, so the facts above come from the model and are unchecked.*',
     )
+  })
+})
+
+// Two Wikipedia articles with different subjects, and a headline-only story.
+const TELESCOPE: Source = { n: 1, kind: 'wikipedia', title: 'James Webb Space Telescope', url: 'https://en.wikipedia.org/wiki/JWST', summary: 'The telescope observes infrared light from distant galaxies using a gold-coated beryllium mirror.' }
+const LAUNCH: Source = { n: 2, kind: 'wikipedia', title: 'Ariane 5', url: 'https://en.wikipedia.org/wiki/Ariane_5', summary: 'Ariane 5 launched the observatory from Kourou in French Guiana on Christmas Day 2021.' }
+const STORY: Source = { n: 3, kind: 'hackernews', title: 'Webb telescope images debate', url: 'https://example.test/webb-telescope-images-debate', summary: '', points: 80, date: '2022-07-12' }
+const SPACE: SourcePack = { sources: [TELESCOPE, LAUNCH, STORY], notes: [] }
+
+describe('relative best-match: a marker moves to the source that fits its sentence clearly better', () => {
+  it('re-points a marker whose source fits far worse than another source', () => {
+    const out = withSources('It launched from Kourou in French Guiana on Christmas Day [1].', SPACE, 'Blog Post')
+    expect(out.split('\n\n### ')[0]).toBe('It launched from Kourou in French Guiana on Christmas Day [2].')
+    expect(out).toContain('- [2] [Ariane 5]')
+    expect(out).not.toContain('- [1] [James Webb')
+  })
+
+  it('keeps a marker whose source fits at least as well as the others', () => {
+    const out = withSources('Its beryllium mirror is coated in gold [1].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toBe('Its beryllium mirror is coated in gold [1].')
+  })
+
+  it('keeps a marker whose source fits only a little worse, because the difference is not clear', () => {
+    // "telescope" fits source 1 and source 3; "launched" fits source 2: 0.5 + ... versus 1: no 2x lead.
+    const out = withSources('The telescope was launched [1].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toBe('The telescope was launched [1].')
+  })
+
+  it('never moves a Hacker News marker, whose headline gives too few words to compare', () => {
+    const out = withSources('Webb telescope images drew debate from Kourou launched [3].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toContain('[3]')
+  })
+
+  it('does not move a marker onto a source that is already in its own run', () => {
+    const out = withSources('The telescope launched from Kourou in French Guiana [1][2].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toBe('The telescope launched from Kourou in French Guiana [1][2].')
+  })
+
+  it('writes a moved marker once when its target is already there', () => {
+    const out = withSources('Launched from Kourou in French Guiana [2][1].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toBe('Launched from Kourou in French Guiana [2].')
+  })
+})
+
+describe('bodyOf', () => {
+  it('cuts the appended Sources list, for a list, a social thread and a piece with no sources', () => {
+    const cases: Array<[SourcePack, string]> = [[PACK, 'Blog Post'], [PACK, 'Social Thread'], [{ sources: [], notes: [] }, 'Blog Post']]
+    for (const [pack, type] of cases) {
+      expect(bodyOf(withSources('Rust is a language [1].', pack, type))).toBe(pack.sources.length > 0 ? 'Rust is a language [1].' : 'Rust is a language.')
+    }
+  })
+
+  it('cuts the not-cited list heading too, and leaves text without a list alone', () => {
+    expect(bodyOf(withSources('Rust is a language.', PACK, 'Blog Post'))).toBe('Rust is a language.')
+    expect(bodyOf('Plain text.\n\n### Sources of joy\n\nstill text')).toBe('Plain text.\n\n### Sources of joy\n\nstill text')
   })
 })

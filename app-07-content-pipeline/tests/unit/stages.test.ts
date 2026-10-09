@@ -82,7 +82,7 @@ describe('stageTimeoutMs and retryFits', () => {
   const limits = (['research', 'outline', 'draft', 'edit', 'polish'] as const).map(stageTimeoutMs)
 
   it('abandons a hung call at about 1.5 times the p95 of healthy calls', () => {
-    expect(limits).toEqual([6_000, 8_000, 10_000, 6_000, 8_000])
+    expect(limits).toEqual([6_000, 8_000, 10_000, 7_000, 9_000])
   })
 
   it('lets a call that used a whole limit run a second full limit, inside the 21 second request budget', () => {
@@ -100,7 +100,7 @@ describe('stageTimeoutMs and retryFits', () => {
 
 describe('stageMaxTokens', () => {
   it('is five tokens per budget word, so a stage that runs on is cut off and refused', () => {
-    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([400, 500, 800, 800, 800])
+    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([400, 500, 800, 1020, 1020])
   })
 })
 

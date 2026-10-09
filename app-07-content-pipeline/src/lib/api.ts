@@ -1,3 +1,4 @@
+import type { ChangeNote } from '../../netlify/shared/changes'
 import {
   STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs, type TraceRow, type Usage,
 } from '../../netlify/shared/contract'
@@ -20,18 +21,25 @@ interface RunRequest {
   contentType: ContentType
   context: StageOutputs
   signal: AbortSignal
+  // How long one request may take before the watchdog ends it. Tests shorten it.
+  watchdogMs?: number
 }
 
 interface PipelineCallbacks {
   onStageStart: (stage: StageId) => void
   onCall: (record: CallRecord) => void
-  onStageDone: (stage: StageId, content: string) => void
+  onStageDone: (stage: StageId, content: string, notes: ChangeNote[]) => void
 }
 
 const API_PATH = '/api/ai'
 // The browser retries a stage once, and only when the server says its output was empty or cut short.
 const RETRY_LIMIT = 1
 
+// A stage request is one short call (the server stops at about 22 s and Netlify at 26 s), so this
+// cap, well past both, only ends a request that is stuck. It covers the body read as well.
+export const WATCHDOG_MS = 60_000
+
+export const SLOW_SERVER_MESSAGE = 'The server did not answer in time. Press Retry to run this step again.'
 const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
 export const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
 
@@ -79,14 +87,25 @@ function readRow(value: unknown): TraceRow | null {
   }
 }
 
-async function readBody(response: Response): Promise<Record<string, unknown> | null> {
+// Null when the body is not a JSON object. An abort or the watchdog ends the read with its own error.
+async function readBody(response: Response, signal: AbortSignal): Promise<Record<string, unknown> | null> {
   try {
     const value: unknown = await response.json()
     return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
   } catch (err) {
-    if (isAbort(err)) throw err
+    if (signal.aborted) throw err
     return null
   }
+}
+
+function readNotes(value: unknown): ChangeNote[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ChangeNote[] => {
+    const note = item as Partial<ChangeNote> | null
+    return note && typeof note.text === 'string' && typeof note.passage === 'string' && (note.side === 'new' || note.side === 'old')
+      ? [{ text: note.text, passage: note.passage, side: note.side }]
+      : []
+  })
 }
 
 // One call to the server for one stage. `name` labels the trace line ("Draft" or "Draft (retry)").
@@ -94,19 +113,26 @@ async function postStage(
   req: RunRequest,
   stage: StageId,
   name: string,
-): Promise<{ content: string; record: CallRecord }> {
+): Promise<{ content: string; notes: ChangeNote[]; record: CallRecord }> {
   const sentAt = Date.now()
   const elapsed = () => Date.now() - sentAt
+  const watchdog = AbortSignal.timeout(req.watchdogMs ?? WATCHDOG_MS)
+  const signal = AbortSignal.any([req.signal, watchdog])
+  // The user's own stop stays silent; the watchdog firing is a failure the page explains.
+  const slow = () => new StageFailure(SLOW_SERVER_MESSAGE, false, {
+    stage, usage: null, model: null, row: { name, status: 'failed', ms: elapsed(), detail: `No answer after ${(req.watchdogMs ?? WATCHDOG_MS) / 1000} s.` },
+  })
   let response: Response
   try {
     response = await fetch(API_PATH, {
       method: 'POST',
-      signal: req.signal,
+      signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic: req.topic, contentType: req.contentType, stage, context: req.context }),
     })
   } catch (err) {
-    if (isAbort(err)) throw err
+    if (req.signal.aborted) throw err
+    if (watchdog.aborted) throw slow()
     throw new StageFailure(NETWORK_MESSAGE, false, {
       stage,
       usage: null,
@@ -115,7 +141,13 @@ async function postStage(
     })
   }
 
-  const body = await readBody(response)
+  let body: Record<string, unknown> | null
+  try {
+    body = await readBody(response, signal)
+  } catch (err) {
+    if (req.signal.aborted) throw err
+    throw slow()
+  }
   const serverRow = readRow(body?.trace)
   const attempt: Pick<CallRecord, 'usage' | 'model'> = { usage: readUsage(body?.usage), model: typeof body?.model === 'string' ? body.model : null }
 
@@ -144,18 +176,19 @@ async function postStage(
   }
   return {
     content,
+    notes: readNotes(body?.notes),
     record: { stage, row: { ...serverRow, name }, usage: attempt.usage, model: attempt.model },
   }
 }
 
-async function runStage(req: RunRequest, stage: StageId, callbacks: PipelineCallbacks): Promise<string> {
+async function runStage(req: RunRequest, stage: StageId, callbacks: PipelineCallbacks): Promise<{ content: string; notes: ChangeNote[] }> {
   const label = STAGE_LABELS[stage]
   for (let attempt = 0; ; attempt += 1) {
     const name = attempt === 0 ? label : `${label} (retry)`
     try {
-      const { content, record } = await postStage(req, stage, name)
+      const { content, notes, record } = await postStage(req, stage, name)
       callbacks.onCall(record)
-      return content
+      return { content, notes }
     } catch (err) {
       if (isAbort(err) || req.signal.aborted) throw err
       if (!(err instanceof StageFailure)) throw err
@@ -174,9 +207,9 @@ export async function runPipeline(req: RunRequest, callbacks: PipelineCallbacks)
 
     callbacks.onStageStart(stage)
     try {
-      const content = await runStage({ ...req, context }, stage, callbacks)
+      const { content, notes } = await runStage({ ...req, context }, stage, callbacks)
       context[stage] = content
-      callbacks.onStageDone(stage, content)
+      callbacks.onStageDone(stage, content, notes)
     } catch (err) {
       if (isAbort(err) || req.signal.aborted) return { kind: 'stopped', stage }
       const message = err instanceof StageFailure ? err.message : UNEXPECTED_MESSAGE

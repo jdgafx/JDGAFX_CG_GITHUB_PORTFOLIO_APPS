@@ -12,32 +12,22 @@ const HANDOFF: Record<StageId, string> = {
   polish: 'From the edit',
 }
 
-interface PipelineProps {
-  views: StageView[]
-}
-
-export default function Pipeline({ views }: PipelineProps) {
+export default function Pipeline({ views }: { views: StageView[] }) {
   return (
     <section className="ds-section" aria-labelledby="pipeline-title">
-      <div className="ds-section__head">
+      <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="pipeline-title">Pipeline</h2>
-        <p className="ds-section__sub">
-          A live source lookup runs first, then five writing stages, one model call each. A highlighted edge means that stage finished and passed its output on.
-        </p>
+        <ul className="ds-legend" aria-label="Legend">
+          <li><span className="ds-legend__edge" aria-hidden="true" />Output passed on</li>
+        </ul>
       </div>
-      <div className="ds-panel">
+      <div className="ds-stage">
         <ol className="ds-chain" aria-label="Pipeline stages">
           {views.map(view => (
-            <li
-              key={view.stage}
-              className={`ds-chain__stage ds-chain__stage--${view.state}`}
-              aria-current={view.state === 'running' ? 'step' : undefined}
-            >
+            <li key={view.stage} className={`ds-chain__stage ds-chain__stage--${view.state}`} aria-current={view.state === 'running' ? 'step' : undefined}>
               <p className="ds-chain__name">{STAGE_LABELS[view.stage]}</p>
               <p className="ds-chain__state"><StateMark state={view.state} /></p>
-              <p className="ds-chain__count">
-                <span className="ds-chain__figure ds-num">{view.amount}</span> {view.unit}
-              </p>
+              <p className="ds-chain__count"><span className="ds-chain__figure ds-mono">{view.amount}</span> {view.unit}</p>
               <p className="ds-chain__from">{HANDOFF[view.stage]}</p>
             </li>
           ))}

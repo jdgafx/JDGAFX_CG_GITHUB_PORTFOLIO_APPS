@@ -99,6 +99,30 @@ function stripSourcesSection(text: string): string {
   return text
 }
 
+/**
+ * The finished piece without the Sources list that withSources appended, so the text can be compared
+ * with the stage before it. Text with no such list comes back unchanged.
+ */
+export function bodyOf(piece: string): string {
+  const cut = piece.search(/\n\n(?:### Sources(?: consulted \(not cited in the text\))?|\*\*Sources(?: consulted \(not cited in the text\))?\*\*)\n\n- \[\d+\]/)
+  if (cut >= 0) return piece.slice(0, cut)
+  const none = piece.indexOf('\n\n*No sources: the live lookups found nothing')
+  return none >= 0 ? piece.slice(0, none) : piece
+}
+
+/**
+ * The sources the appended list names, in order, and whether the list is a "consulted, not cited"
+ * one. Empty when the piece ends without a list (no sources found).
+ */
+export function listedSources(piece: string, pack: SourcePack): { sources: Source[]; cited: boolean } {
+  const tail = piece.slice(bodyOf(piece).length)
+  const numbers = [...tail.matchAll(/^- \[(\d+)\] /gm)].map(match => Number(match[1]))
+  return {
+    sources: numbers.flatMap(n => pack.sources.filter(source => source.n === n)),
+    cited: !tail.includes('(not cited in the text)'),
+  }
+}
+
 // A marker is "[n]" not glued to a word, so array[0] in code is left alone.
 const CITATION = / ?(?<![\w\]])((?:\[\d{1,2}\])+)/g
 
@@ -149,12 +173,27 @@ function linkWords(url: string): string {
   }
 }
 
-// A marker is kept unless there is clearly no connection: the sentence shares no word, number or
-// name with the source's title, extract or (for Hacker News) year and link words. Topic words count too.
-function backs(source: Source, sentence: string): boolean {
+// The tokens a source can back a claim with: title, extract and (for Hacker News) year and link words.
+function sourceTokens(source: Source): string[] {
   const own = `${source.title} ${source.summary} ${source.date ?? ''}`
-  const have = claimTokens(source.kind === 'hackernews' ? `${own} ${linkWords(source.url)}` : own)
-  return claimTokens(sentence).some(token => have.some(other => related(token, other)))
+  return claimTokens(source.kind === 'hackernews' ? `${own} ${linkWords(source.url)}` : own)
+}
+
+// How well each source matches a sentence. A sentence token that relates to several sources is shared
+// out between them, so a topic word every source has counts for little and a word only one source has
+// counts in full. A source with no related token scores 0: there is no connection at all.
+function matchScores(sentence: string, sources: Source[], tokensOf: Map<number, string[]>): Map<number, number> {
+  const scores = new Map(sources.map(source => [source.n, 0]))
+  for (const token of new Set(claimTokens(sentence))) {
+    const matching = sources.filter(source => (tokensOf.get(source.n) ?? []).some(other => related(token, other)))
+    for (const source of matching) scores.set(source.n, (scores.get(source.n) ?? 0) + 1 / matching.length)
+  }
+  return scores
+}
+
+// A rival is clearly better when it scores at least twice as much and at least one whole word more.
+function clearlyBetter(rival: number, cited: number): boolean {
+  return rival >= cited * 2 && rival - cited >= 1
 }
 
 function escapeMarkdown(text: string): string {
@@ -200,16 +239,32 @@ export function withSources(piece: string, pack: SourcePack, contentType: string
   }
 
   const bySource = new Map(pack.sources.map(source => [source.n, source]))
+  const tokensOf = new Map(pack.sources.map(source => [source.n, sourceTokens(source)]))
   const cited = new Set<number>()
   // A run such as "[1][2]" is judged marker by marker, and the markers that hold stay together.
+  // Each marker is also compared with the sources outside its own run: when one of those matches the
+  // sentence clearly better, the marker moves to it. A Hacker News headline is never moved, because a
+  // headline gives too few words to compare with an article extract.
   const cleaned = body.replace(CITATION, (match, run: string, offset: number) => {
     const sentence = sentenceBefore(body, offset)
-    const kept = [...run.matchAll(/\[(\d+)\]/g)].flatMap(([marker, digits]) => {
-      const source = bySource.get(Number(digits))
-      if (!source || !backs(source, sentence)) return []
-      cited.add(source.n)
-      return [marker]
-    })
+    const scores = matchScores(sentence, pack.sources, tokensOf)
+    const inRun = new Set([...run.matchAll(/\[(\d+)\]/g)].map(([, digits]) => Number(digits)))
+    const rivals = pack.sources.filter(source => !inRun.has(source.n))
+    const kept: string[] = []
+    for (const digits of inRun) {
+      const source = bySource.get(digits)
+      const own = scores.get(digits) ?? 0
+      if (!source) continue
+      const rival = source.kind === 'hackernews' ? undefined : rivals.reduce<Source | undefined>(
+        (best, candidate) => ((scores.get(candidate.n) ?? 0) > (scores.get(best?.n ?? -1) ?? -1) ? candidate : best),
+        undefined,
+      )
+      const target = rival && clearlyBetter(scores.get(rival.n) ?? 0, own) ? rival.n : digits
+      // No connection at all, and nothing better to point to: the marker goes.
+      if (target === digits && own === 0) continue
+      if (!kept.includes(`[${target}]`)) kept.push(`[${target}]`)
+      cited.add(target)
+    }
     return kept.length > 0 ? `${match.startsWith(' ') ? ' ' : ''}${kept.join('')}` : ''
   })
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { STAGE_IDS, type StageId, type StageOutputs } from '../../netlify/shared/contract'
-import { runPipeline, type CallRecord } from '../../src/lib/api'
+import type { ChangeNote } from '../../netlify/shared/changes'
+import { SLOW_SERVER_MESSAGE, runPipeline, type CallRecord } from '../../src/lib/api'
 
 const LABEL = 'The AI provider answered with a safety label instead of text, so this stage was discarded.'
 const EMPTY = 'The AI provider returned no text for this stage.'
@@ -71,6 +72,7 @@ function harness() {
   const starts: StageId[] = []
   const calls: CallRecord[] = []
   const finished: StageId[] = []
+  const notes = new Map<StageId, ChangeNote[]>()
   const callbacks = {
     onStageStart: (stage: StageId) => {
       starts.push(stage)
@@ -78,11 +80,12 @@ function harness() {
     onCall: (record: CallRecord) => {
       calls.push(record)
     },
-    onStageDone: (stage: StageId) => {
+    onStageDone: (stage: StageId, _content: string, stageNotes: ChangeNote[]) => {
       finished.push(stage)
+      notes.set(stage, stageNotes)
     },
   }
-  return { starts, calls, finished, callbacks }
+  return { starts, calls, finished, notes, callbacks }
 }
 
 function request(context: StageOutputs = {}, signal: AbortSignal = new AbortController().signal) {
@@ -233,6 +236,49 @@ describe('runPipeline retries and failures', () => {
     const pending = runPipeline(request(SOURCES_DONE, controller.signal), h.callbacks)
     controller.abort()
     expect(await pending).toEqual({ kind: 'stopped', stage: 'research' })
+    expect(h.calls).toHaveLength(0)
+  })
+})
+
+describe('change notes and the watchdog', () => {
+  const NOTE = { text: 'Added the origin', passage: 'as a side project', side: 'new' }
+
+  it('passes the notes a stage returned to the page, and an empty list for a stage that returned none', async () => {
+    serve([
+      () => stageOk('d'),
+      () => json(200, { result: 'e', notes: [NOTE, { text: 'bad', passage: 1 }, { text: 'x', passage: 'y', side: 'sideways' }], trace: [{ name: 'Edit', status: 'ok', ms: 5, detail: 'd' }], usage: USAGE, model: MODEL }),
+      () => stageOk('p'),
+    ])
+    const h = harness()
+    await runPipeline(request({ ...SOURCES_DONE, research: 'r', outline: 'o' }), h.callbacks)
+    expect(h.notes.get('draft')).toEqual([])
+    expect(h.notes.get('edit')).toEqual([NOTE])
+  })
+
+  it('ends a request that never answers with a plain, recoverable message and a failed trace line', async () => {
+    serve([init => new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)))])
+    const h = harness()
+    const outcome = await runPipeline({ ...request(), watchdogMs: 30 }, h.callbacks)
+    expect(outcome).toEqual({ kind: 'failed', stage: 'sources', message: SLOW_SERVER_MESSAGE })
+    expect(h.calls).toHaveLength(1)
+    expect(h.calls[0].row).toMatchObject({ name: 'Sources', status: 'failed', detail: 'No answer after 0.03 s.' })
+  })
+
+  it('also ends a response whose body never finishes', async () => {
+    // Like a real fetch, the body read fails when the request's signal aborts.
+    serve([init => new Response(new ReadableStream<Uint8Array>({ start(controller) { init.signal?.addEventListener('abort', () => controller.error(init.signal?.reason)) } }), { status: 200 })])
+    const outcome = await runPipeline({ ...request(), watchdogMs: 30 }, harness().callbacks)
+    expect(outcome).toEqual({ kind: 'failed', stage: 'sources', message: SLOW_SERVER_MESSAGE })
+  })
+
+  it('stays silent when the visitor stops the run: the outcome is stopped, with no failed line', async () => {
+    const controller = new AbortController()
+    serve([init => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      setTimeout(() => controller.abort(), 5)
+    })])
+    const h = harness()
+    expect(await runPipeline({ ...request({}, controller.signal), watchdogMs: 5_000 }, h.callbacks)).toEqual({ kind: 'stopped', stage: 'sources' })
     expect(h.calls).toHaveLength(0)
   })
 })

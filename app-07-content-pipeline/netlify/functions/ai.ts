@@ -1,11 +1,12 @@
 import { chat, MODEL, ProviderStatusError, type ChatReply } from '../shared/provider'
 import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, TOPIC_TOO_LONG_MESSAGE, wordCount, type ModelStageId, type StageId, type TraceRow, type Usage } from '../shared/contract'
 import {
-  MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
+  MAX_STAGE_TEXT_CHARS, NOTE_STAGES, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../shared/stages'
 import { withDeadline } from '../shared/deadline'
 import { gatherSources } from '../shared/sources'
-import { formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
+import { bodyOf, formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
+import { notesDetail, splitChanges, verifyNotes, type ChangeNote } from '../shared/changes'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
 // Each stage is one request with one short model call, tried a second time if it hung, and the
@@ -176,23 +177,32 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
     }
     const ms = Date.now() - startedAt
     const attempt = { usage: reply.usage, model: reply.servedModel ?? MODEL }
-    const rejection = rejectOutput(stage, reply, run.context)
+    // Edit and Polish return change notes after the text. The text alone is checked and passed on; a
+    // reply cut off inside the notes still has its whole text.
+    const split = NOTE_STAGES.has(stage) ? splitChanges(reply.content) : null
+    const piece: Pick<ChatReply, 'content' | 'finishReason' | 'servedModel'> = split
+      ? { content: split.text, finishReason: split.hadDelimiter && reply.finishReason === 'length' ? 'stop' : reply.finishReason, servedModel: reply.servedModel }
+      : reply
+    const rejection = rejectOutput(stage, piece, run.context)
     if (rejection) {
       return fail(rejection.message, 502, rejection.retryable, attempt, retried ?? undefined)
     }
 
     // The last stage ends the piece with its Sources list, built from the lookup and not from model text.
-    const text = reply.content.trim()
+    const text = piece.content.trim()
     const content = stage === 'polish' ? withSources(text, sources, run.contentType) : text
+    // Notes are checked against the text the page will show, without the appended Sources list.
+    const previous = stage === 'edit' ? run.context.draft : run.context.edit
+    const notes: ChangeNote[] = split && previous ? verifyNotes(split.noteLines, previous, bodyOf(content)) : []
     const row: TraceRow = {
       name: STAGE_LABELS[stage],
       status: 'ok',
       ms,
-      detail: [retried, detailFor(content)].filter(Boolean).join(' '),
+      detail: [retried, split ? notesDetail(split.noteLines.length, notes.length, split.hadDelimiter) : '', detailFor(content)].filter(Boolean).join(' '),
       tokens: reply.usage?.total_tokens,
       cost: reply.usage?.cost,
     }
-    return json({ result: content, trace: [row], usage: reply.usage, model: attempt.model, totalMs: ms }, 200, origin)
+    return json({ result: content, ...(split ? { notes } : {}), trace: [row], usage: reply.usage, model: attempt.model, totalMs: ms }, 200, origin)
   } catch (err) {
     if (req.signal.aborted) {
       return fail('The run was stopped before this stage finished.', 503, false)

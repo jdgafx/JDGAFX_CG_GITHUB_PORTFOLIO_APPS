@@ -137,3 +137,27 @@ export function formatCount(count: number): string {
 export function formatUsd(amount: number): string {
   return `$${amount.toFixed(5)}`
 }
+
+export type Phase = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
+
+export interface Lane {
+  left: number
+  width: number
+}
+
+/**
+ * Waterfall lanes: every call starts where the one before it ended, on one shared axis. A call in
+ * progress gets a short marker at the end; with `liveMs` the axis leaves room for it.
+ */
+export function lanesFor(lines: ReadonlyArray<Pick<TraceLine, 'ms' | 'status'>>): Array<Lane | null> {
+  const spent = lines.reduce((sum, line) => sum + line.ms, 0)
+  const axis = Math.max(spent, 1) * (lines.some(line => line.status === 'running') ? 1.15 : 1)
+  let at = 0
+  return lines.map(line => {
+    const left = (at / axis) * 100
+    at += line.ms
+    if (line.status === 'skipped') return null
+    if (line.status === 'running') return { left, width: Math.max(100 - left, 2) * 0.12 }
+    return { left, width: Math.max((line.ms / axis) * 100, 0.8) }
+  })
+}

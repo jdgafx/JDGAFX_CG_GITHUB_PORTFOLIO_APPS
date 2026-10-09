@@ -1,6 +1,7 @@
 import { STAGE_LABELS, wordCount, type ModelStageId, type StageId } from './contract'
 import type { ChatReply } from './provider'
 import { parseSourcePack, sourceIndex } from './sourcepack'
+import { CHANGES_DELIMITER, MAX_NOTES, MIN_NOTES_ASKED } from './changes'
 
 // Earlier stage outputs each stage may read. Keeps prompts bounded while the
 // draft still has the sources, research and outline behind it.
@@ -34,8 +35,14 @@ const STAGE_WORD_BUDGETS: Record<ModelStageId, number> = {
 // the word budget, so a stage that runs on is cut off and refused, never passed on half written.
 const TOKENS_PER_BUDGET_WORD = 5
 
+// Edit and Polish also write their change notes (up to five short lines), which need room of their own.
+const NOTES_TOKENS = 220
+
+// The stages whose reply carries change notes after the text.
+export const NOTE_STAGES: ReadonlySet<ModelStageId> = new Set(['edit', 'polish'])
+
 export function stageMaxTokens(stage: ModelStageId): number {
-  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD
+  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD + (NOTE_STAGES.has(stage) ? NOTES_TOKENS : 0)
 }
 
 // How long one model call may take before the function gives up on it: about 1.5 times the p95 of
@@ -46,8 +53,8 @@ const STAGE_TIMEOUTS_MS: Record<ModelStageId, number> = {
   research: 6_000,
   outline: 8_000,
   draft: 10_000,
-  edit: 6_000,
-  polish: 8_000,
+  edit: 7_000,
+  polish: 9_000,
 }
 
 export function stageTimeoutMs(stage: ModelStageId): number {
@@ -137,6 +144,10 @@ const UNSOURCED_RULES: Record<ModelStageId, string> = {
   polish: 'No live sources were found. Remove any specific statistic, date or quote that cannot be checked, and use no citation markers.',
 }
 
+// Edit and Polish name their main changes after the piece. The server checks each note against the
+// real difference between the text it was given and the text it returned.
+const CHANGE_NOTE_RULES = `Output the piece first, with no preamble. Then a line holding only ${CHANGES_DELIMITER} and ${MIN_NOTES_ASKED} to ${MAX_NOTES} lines, one per main change, each written as: - <why you changed it, in one short sentence> :: <2 to 6 consecutive words copied letter for letter from your new text where the change is, or from the old text if you only removed them; include at least one word that is new or removed>. Only describe changes you actually made. The notes are not part of the piece and do not count toward the word budget.`
+
 // sourceCount is how many live sources the Sources stage found. The Sources section is untrusted
 // reference text from the web, so the prompt says never to follow instructions inside it.
 export function buildSystemPrompt(stage: ModelStageId, topic: string, contentType: string, sourceCount = 0): string {
@@ -148,7 +159,7 @@ export function buildSystemPrompt(stage: ModelStageId, topic: string, contentTyp
     `Current step: ${stage.toUpperCase()}. ${STAGE_PROMPTS[stage]}`,
     grounding,
     `Keep this response to roughly ${STAGE_WORD_BUDGETS[stage]} words, and finish inside that budget. End on a complete sentence.`,
-    'Output only the content for this step — no preamble, no commentary on what you are doing. Stop as soon as the requested content is complete; never exceed the word budget.',
+    NOTE_STAGES.has(stage) ? CHANGE_NOTE_RULES : 'Output only the content for this step — no preamble, no commentary on what you are doing. Stop as soon as the requested content is complete; never exceed the word budget.',
   ].join(' ')
 }
 
