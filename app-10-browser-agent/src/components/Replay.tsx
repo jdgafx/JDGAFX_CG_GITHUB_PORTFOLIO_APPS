@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { formatBytes } from '../lib/format'
 import { frameTotals, followIndex, moveIndex, nextPlayable, playableCount, type ReplayItem } from '../lib/replay'
 import type { Phase } from '../lib/runState'
 import type { PlanStatus } from '../lib/trace'
-import { formatBytes } from '../lib/format'
+import { nearestScroll, offsetInScroller, useEdges } from '../lib/useOverflow'
+import BrowserFrame from './BrowserFrame'
 import { Md } from './Md'
 
 const PLAY_MS = 1_500
+const NO_MATCH = 'The selector matched nothing, so this is the whole page text.'
 
 const WORD: Record<PlanStatus, string> = { waiting: 'Waiting', running: 'Running', ok: 'Done', failed: 'Failed', skipped: 'Not run' }
 const DOT: Record<PlanStatus, string> = {
@@ -16,36 +19,40 @@ const DOT: Record<PlanStatus, string> = {
   skipped: 'ds-dot ds-dot--skipped',
 }
 
-/** Why there is no picture for a step, in words for the person looking at the empty frame. */
-function emptyFrameText(item: ReplayItem): string {
-  if (item.note) return item.note
-  if (item.status === 'running') return 'The step is running. Its picture appears when the step ends.'
-  if (item.status === 'waiting') return 'This step waits for the steps before it.'
-  if (item.status === 'skipped') return 'This step did not run, so there is no picture.'
-  return 'No picture was captured for this step.'
+/** True when an extract or verify step asked for a region and the browser fell back to the whole page. */
+function fellBack(item: ReplayItem): boolean {
+  return /Nothing matched/.test(item.detail)
 }
 
-function Picture({ item }: { item: ReplayItem }) {
-  const title = item.observed?.title || item.observed?.url || item.label
+/** What the browser read after the step, in a box that scrolls and fades where there is more. */
+function ReadBox({ item }: { item: ReplayItem }) {
+  const box = useRef<HTMLPreElement>(null)
+  const edges = useEdges(box, 'y')
+  const observed = item.observed
+  if (!observed) return null
   return (
-    <div className={`ds-frame bb-shot${item.status === 'failed' ? ' bb-shot--failed' : ''}`} style={item.frame ? { aspectRatio: `${item.frame.width} / ${item.frame.height}` } : undefined}>
-      {item.frame ? (
-        <img src={`data:image/jpeg;base64,${item.frame.data}`} width={item.frame.width} height={item.frame.height} alt={`The page after step ${item.index + 1}, ${title}`} />
-      ) : (
-        <p className="bb-shot__empty">{emptyFrameText(item)}</p>
-      )}
-      {item.status === 'failed' && item.frame && <span className="bb-shot__tag">Page when step {item.index + 1} failed</span>}
+    <div className="bb-text">
+      <p className="bb-text__label">
+        What the browser read{observed.region ? <> from <code>{observed.region}</code></> : null}
+      </p>
+      {fellBack(item) ? <p className="bb-warn" role="note">{NO_MATCH}</p> : null}
+      <div className={`bb-fade${edges.end ? ' bb-fade--end' : ''}`}>
+        {/* The text can be longer than its box, so the box takes focus and a keyboard user can scroll it. */}
+        <pre ref={box} className="bb-pre" role="region" aria-label={`Text read after step ${item.index + 1}`} tabIndex={0}>
+          {observed.excerpt || 'The page returned no readable text.'}
+        </pre>
+      </div>
     </div>
   )
 }
 
-function Detail({ item, expectation }: { item: ReplayItem; expectation: string | null }) {
-  const observed = item.observed
+function Detail({ item }: { item: ReplayItem }) {
+  const tone = item.status === 'ok' ? 'ds-badge--success' : item.status === 'failed' ? 'ds-badge--danger' : item.status === 'running' ? 'ds-badge--accent' : ''
   return (
     <div className="bb-detail">
       <div className="bb-detail__head">
         <span className="bb-detail__step">Step {item.index + 1}</span>
-        <span className={`ds-badge ${item.status === 'ok' ? 'ds-badge--success' : item.status === 'failed' ? 'ds-badge--danger' : item.status === 'running' ? 'ds-badge--accent' : ''}`.trim()}>
+        <span className={`ds-badge ${tone}`.trim()}>
           <span className={DOT[item.status]} aria-hidden="true" />
           {WORD[item.status]}
         </span>
@@ -55,20 +62,9 @@ function Detail({ item, expectation }: { item: ReplayItem; expectation: string |
         <dt>Plan</dt>
         <dd className="bb-prose"><Md text={item.thought} /></dd>
         <dt>Browser</dt>
-        <dd className="bb-prose">{item.detail}</dd>
-        <dt>Address</dt>
-        <dd>{observed?.url ?? '—'}</dd>
-        <dt>Title</dt>
-        <dd className="bb-prose">{observed ? observed.title || 'Untitled page' : '—'}</dd>
+        <dd className="bb-prose">{item.detail.split(' Nothing matched')[0].split(' Read the text of')[0]}</dd>
       </dl>
-      {observed ? (
-        <div className="bb-text">
-          <p className="bb-text__label">{observed.region ? <>Text of <code>{observed.region}</code>, first 10 matches</> : 'Page text read after this step'}</p>
-          {/* The text can be longer than its box, so the box takes focus and a keyboard user can scroll it. */}
-          <pre className="bb-pre" role="region" aria-label={`Text read after step ${item.index + 1}`} tabIndex={0}>{observed.excerpt || 'The page returned no readable text.'}</pre>
-        </div>
-      ) : null}
-      {expectation && item.status === 'ok' && observed ? <p className="ds-help">Plan expected: {expectation}. BrowseBot shows what the browser observed and does not judge whether it answers the task.</p> : null}
+      <ReadBox item={item} />
     </div>
   )
 }
@@ -77,19 +73,19 @@ interface ReplayProps {
   items: ReplayItem[]
   phase: Phase
   runId: number
-  expectation: string | null
   sessionId: string | null
 }
 
 /**
- * The visual replay: one picture per step in a filmstrip, the chosen step large beside the address, title and
- * text the browser read at that moment. Arrow keys move between steps, and play steps through a finished run.
+ * The visual replay: the chosen step as a browser window with its picture, beside what the browser read. A filmstrip
+ * under both shows every step. Arrow keys move between steps, and play steps through a finished run.
  */
-export default function Replay({ items, phase, runId, expectation, sessionId }: ReplayProps) {
+export default function Replay({ items, phase, runId, sessionId }: ReplayProps) {
   const [chosen, setChosen] = useState<{ runId: number; index: number } | null>(null)
   const [playFor, setPlayFor] = useState<number | null>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const strip = useRef<HTMLDivElement>(null)
+  const edges = useEdges(strip, 'x')
   const live = phase === 'running' || phase === 'planning'
   const mine = chosen && chosen.runId === runId ? chosen.index : null
   const current = Math.min(mine ?? followIndex(items, phase), items.length - 1)
@@ -113,14 +109,16 @@ export default function Replay({ items, phase, runId, expectation, sessionId }: 
     return () => window.clearTimeout(id)
   }, [playing, current, items, runId])
 
-  // Keep the chosen thumbnail in view inside the strip, without moving the page.
+  // Bring the chosen cell into view with the least movement, inside the strip only, so the page never moves.
   useEffect(() => {
     const tab = tabs.current[current]
     const box = strip.current
     if (!tab || !box) return
+    const left = offsetInScroller(tab.getBoundingClientRect().left, box.getBoundingClientRect().left, box.scrollLeft)
+    const to = nearestScroll(box.scrollLeft, box.clientWidth, left, tab.offsetWidth)
+    if (to === null) return
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const left = tab.offsetLeft - (box.clientWidth - tab.offsetWidth) / 2
-    box.scrollTo({ left: Math.max(0, left), behavior: calm ? 'auto' : 'smooth' })
+    box.scrollTo({ left: to, behavior: calm ? 'auto' : 'smooth' })
   }, [current, items.length])
 
   if (items.length === 0 || !item) return null
@@ -138,41 +136,55 @@ export default function Replay({ items, phase, runId, expectation, sessionId }: 
     if (nextPlayable(items, current) === null) choose(items.findIndex((i) => i.status === 'ok' || i.status === 'failed'))
     setPlayFor(runId)
   }
+  const count = <span className="bb-transport__count ds-mono">{current + 1} / {items.length}</span>
 
   return (
     <div className="bb-replay">
       <div className="bb-viewer">
         <div className="bb-viewer__shot">
-          <Picture item={item} />
-        <div className="bb-transport">
-          <button type="button" className="ds-button" disabled={!canPlay} aria-pressed={playing} onClick={onPlay} title={canPlay ? 'Steps through the pictures one by one.' : 'Play is available when a finished run has at least two pictures.'}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              {playing ? <><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></> : <polygon points="6 3 20 12 6 21 6 3" />}
-            </svg>
-            {playing ? 'Pause' : 'Play replay'}
-          </button>
-          <input
-            className="bb-scrub"
-            type="range"
-            min={1}
-            max={items.length}
-            value={current + 1}
-            aria-label="Scrub through the steps"
-            aria-valuetext={`Step ${current + 1} of ${items.length}: ${item.label}`}
-            disabled={items.length < 2}
-            onChange={(event) => {
-              setPlayFor(null)
-              choose(Number(event.target.value) - 1)
-            }}
-          />
-          <span className="bb-transport__count ds-mono">{current + 1} / {items.length}</span>
-          {live && mine !== null ? (
-            <button type="button" className="ds-button" onClick={() => setChosen(null)} title="Goes back to the step the browser is on now.">Follow live step</button>
-          ) : null}
+          <BrowserFrame item={item} />
+          {canPlay ? (
+            <div className="bb-transport">
+              <button type="button" className="ds-button" aria-pressed={playing} onClick={onPlay} title="Steps through the pictures one by one.">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  {playing ? <><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></> : <polygon points="6 3 20 12 6 21 6 3" />}
+                </svg>
+                {playing ? 'Pause' : 'Play replay'}
+              </button>
+              <input
+                className="bb-scrub"
+                type="range"
+                min={1}
+                max={items.length}
+                value={current + 1}
+                aria-label="Scrub through the steps"
+                aria-valuetext={`Step ${current + 1} of ${items.length}: ${item.label}`}
+                onChange={(event) => {
+                  setPlayFor(null)
+                  choose(Number(event.target.value) - 1)
+                }}
+              />
+              {count}
+            </div>
+          ) : (
+            <div className="bb-transport">
+              {count}
+              {live && mine !== null ? <button type="button" className="ds-button" onClick={() => {
+                setChosen(null)
+                // The button leaves with the click, so focus moves to the step the run is on.
+                tabs.current[followIndex(items, phase)]?.focus({ preventScroll: true })
+              }} title="Goes back to the step the browser is on now.">Follow live step</button> : null}
+            </div>
+          )}
         </div>
+        <div id="replay-panel" role="tabpanel" aria-labelledby={`step-tab-${current}`} className="bb-viewer__detail">
+          <Detail item={item} />
+        </div>
+      </div>
 
-        <div className="bb-strip" ref={strip}>
-          <div role="tablist" aria-label="Steps, one picture each" className="bb-film" onKeyDown={onKey}>
+      <div className={`bb-strip${edges.start ? ' bb-strip--start' : ''}${edges.end ? ' bb-strip--end' : ''}`}>
+        <div className="bb-strip__scroll" ref={strip}>
+          <div role="tablist" aria-label="Steps, one picture each. Left and right arrow keys move between steps." className="bb-film" onKeyDown={onKey}>
             {items.map((it, i) => (
               <button
                 key={it.index}
@@ -180,6 +192,7 @@ export default function Replay({ items, phase, runId, expectation, sessionId }: 
                 id={`step-tab-${i}`}
                 type="button"
                 role="tab"
+                title={it.label}
                 aria-selected={i === current}
                 aria-controls="replay-panel"
                 tabIndex={i === current ? 0 : -1}
@@ -198,15 +211,10 @@ export default function Replay({ items, phase, runId, expectation, sessionId }: 
             ))}
           </div>
         </div>
-        </div>
-        <div id="replay-panel" role="tabpanel" aria-labelledby={`step-tab-${current}`} className="bb-viewer__detail">
-          <Detail item={item} expectation={current === items.length - 1 ? expectation : null} />
-        </div>
       </div>
-
       <p className="ds-help">
-        Left and right arrow keys move between steps. {totals.count === 0 ? 'No pictures yet.' : `${totals.count} ${totals.count === 1 ? 'picture' : 'pictures'}, ${formatBytes(totals.bytes)} in all.`}
-        {sessionId ? <> Browserbase session <span className="ds-mono">{sessionId}</span>.</> : ' No browser session yet.'}
+        {totals.count === 0 ? 'No pictures yet.' : `${totals.count} ${totals.count === 1 ? 'picture' : 'pictures'}, ${formatBytes(totals.bytes)}.`}
+        {sessionId ? <> Session <span className="ds-mono" title={sessionId}>{sessionId.slice(0, 8)}</span></> : ''}
       </p>
     </div>
   )

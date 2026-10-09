@@ -51,8 +51,9 @@ async function sizeWindow(page: Page): Promise<void> {
 }
 
 /** The frame fields of a step event: the picture, or the reason there is none. */
-function frameFields(shot: FrameOutcome): { frame?: StepFrame; frameNote?: string } {
-  return 'frame' in shot ? { frame: shot.frame } : { frameNote: shot.note }
+function frameFields(shot: FrameOutcome): { frame?: StepFrame; frameNote?: string; frameSameAs?: number } {
+  if ('frame' in shot) return { frame: shot.frame }
+  return 'sameAs' in shot ? { frameSameAs: shot.sameAs } : { frameNote: shot.note }
 }
 
 /**
@@ -119,7 +120,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
         throw new ExecutionError('The page returned no readable text to extract.')
       }
       // The picture is taken right after the text was read, so both show the same moment of the page.
-      const shot = await rec.capture()
+      const shot = await rec.capture(index)
       inStep = false
       completed = index + 1
       send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed, ...frameFields(shot) })
@@ -137,7 +138,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       // A page on a disallowed host is not read here either, so its content cannot reach the client.
       const observed = page ? await observeAllowed(page, domains).catch(() => undefined) : undefined
       // The page as it stood when the step failed, and only when it is on an allowed host.
-      const shot = observed && recorder ? await recorder.capture() : undefined
+      const shot = observed && recorder ? await recorder.capture(completed) : undefined
       send({
         type: 'step_complete',
         index: completed,

@@ -416,7 +416,9 @@ describe('execute function: step pictures', () => {
   const send = vi.fn()
   const detach = vi.fn()
 
-  function withCdpPage(): void {
+  /** `changing` gives every capture different bytes, like a page that changes after each step. */
+  function withCdpPage(changing = true): void {
+    let shots = 0
     const page = {
       url: () => pageState.url,
       setViewportSize: vi.fn().mockResolvedValue(undefined),
@@ -425,7 +427,7 @@ describe('execute function: step pictures', () => {
     mocks.connectOverCDP.mockResolvedValue({ contexts: () => [{ pages: () => [page], newPage: vi.fn() }], close: mocks.browserClose })
     send.mockImplementation(async (method: string) => (method === 'Page.getLayoutMetrics'
       ? { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
-      : { data: JPEG.toString('base64') }))
+      : { data: (changing ? Buffer.alloc(28_042, ++shots) : JPEG).toString('base64') }))
     detach.mockResolvedValue(undefined)
   }
 
@@ -435,7 +437,7 @@ describe('execute function: step pictures', () => {
     const done = frames.filter((frame) => frame.type === 'step_complete')
     expect(done).toHaveLength(2)
     for (const step of done) {
-      expect(step.frame).toEqual({ data: JPEG.toString('base64'), width: 640, height: 366, bytes: 28_042 })
+      expect(step.frame).toMatchObject({ width: 640, height: 366, bytes: 28_042 })
       expect(step).not.toHaveProperty('frameNote')
     }
     const shot = send.mock.calls.find(([method]) => method === 'Page.captureScreenshot')?.[1] as { format: string; quality: number; clip: { scale: number; width: number } }
@@ -443,6 +445,15 @@ describe('execute function: step pictures', () => {
     expect(shot.clip.width).toBe(960)
     expect(shot.clip.scale).toBeCloseTo(640 / 960)
     expect(detach).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends an unchanged page once and names the earlier step for the repeat', async () => {
+    withCdpPage(false)
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
+    const done = frames.filter((frame) => frame.type === 'step_complete')
+    expect(done[0].frame).toMatchObject({ bytes: 28_042 })
+    expect(done[1]).not.toHaveProperty('frame')
+    expect(done[1]).toMatchObject({ frameSameAs: 0 })
   })
 
   it('keeps the page picture on a failed step, with its observed text', async () => {

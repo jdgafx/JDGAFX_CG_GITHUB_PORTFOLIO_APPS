@@ -71,6 +71,29 @@ describe('replayItems', () => {
   })
 })
 
+describe('repeated pictures', () => {
+  const REPEAT: RunEvent[] = [
+    { type: 'step_complete', index: 0, name: 'a', status: 'ok', ms: 5, detail: 'Opened.', observed: OBSERVED, frame: FRAME },
+    { type: 'step_complete', index: 1, name: 'b', status: 'ok', ms: 5, detail: 'Observed.', observed: OBSERVED, frameSameAs: 0 },
+  ]
+
+  it('shows the earlier picture on the repeating step and says which step it repeats', () => {
+    const items = replayItems(replayState(REPEAT, 'complete'))
+    expect(items[1].frame).toEqual(FRAME)
+    expect(items[1].sameAs).toBe(0)
+    expect(items[0].sameAs).toBeUndefined()
+  })
+
+  it('counts a repeated picture once in the totals', () => {
+    expect(frameTotals(replayItems(replayState(REPEAT, 'complete')))).toEqual({ count: 1, bytes: 32_766 })
+  })
+
+  it('shows nothing for a repeat of a step that has no picture', () => {
+    const state = replayState([REPEAT[1]], 'complete')
+    expect(replayItems(state)[1].frame).toBeUndefined()
+  })
+})
+
 describe('which step the viewer shows', () => {
   it('follows the running step while the run is live', () => {
     const state = replayState(FAILED_RUN.slice(0, 3), 'running')
@@ -124,5 +147,40 @@ describe('trace lanes', () => {
 
   it('draws nothing when no row has a measured time', () => {
     expect(lanesFor([row('waiting', null)])).toEqual([null])
+  })
+})
+
+describe('strip scrolling and URL truncation', () => {
+  it('measures a cell from the scroller, not from the page', async () => {
+    const { offsetInScroller } = await import('../../src/lib/useOverflow')
+    // The strip starts 392 px from the page edge and is scrolled 300 px. A cell 900 px from the page edge is 808 px into the strip.
+    expect(offsetInScroller(900, 392, 300)).toBe(808)
+    expect(offsetInScroller(392, 392, 0)).toBe(0)
+  })
+
+  it('scrolls the least that brings a cell into view, and not at all when it already is', async () => {
+    const { nearestScroll } = await import('../../src/lib/useOverflow')
+    expect(nearestScroll(0, 800, 140, 128)).toBeNull()
+    expect(nearestScroll(0, 800, 700, 128)).toBe(36)
+    expect(nearestScroll(300, 800, 140, 128)).toBe(132)
+    expect(nearestScroll(300, 800, 4, 128)).toBe(0)
+  })
+
+  it('reports which edges of a scroller hold more', async () => {
+    const { edgesOf } = await import('../../src/lib/useOverflow')
+    expect(edgesOf(0, 800, 1000)).toEqual({ start: false, end: true })
+    expect(edgesOf(200, 800, 1000)).toEqual({ start: true, end: false })
+    expect(edgesOf(0, 800, 800)).toEqual({ start: false, end: false })
+  })
+
+  it('cuts a long address in the middle and keeps a short one', async () => {
+    const { middleTruncate } = await import('../../src/lib/format')
+    expect(middleTruncate('https://news.ycombinator.com/')).toBe('https://news.ycombinator.com/')
+    const long = 'https://en.wikipedia.org/wiki/Hubble_Space_Telescope_servicing_missions_and_instruments_list'
+    const cut = middleTruncate(long, 40)
+    expect(cut).toHaveLength(40)
+    expect(cut.startsWith('https://en.wikipedia.org')).toBe(true)
+    expect(cut.endsWith('ruments_list')).toBe(true)
+    expect(cut).toContain('…')
   })
 })

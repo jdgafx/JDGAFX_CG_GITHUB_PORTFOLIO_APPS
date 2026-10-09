@@ -36,6 +36,11 @@ describe('runStep', () => {
     await expect(runStep(page, navigate)).resolves.toBe('Opened example.com.')
   })
 
+  it('uses the page-title shortcut only for the page title, not for any target that contains the word title', async () => {
+    const find: BotStep = { action: 'find', target: 'article title heading', thought: 'Look for the heading.' }
+    await expect(runStep(pageWith('Google'), find)).rejects.toMatchObject({ message: 'The target was not found: article title heading.' })
+  })
+
   it('counts a page title as found only when the title is not blank', async () => {
     const find: BotStep = { action: 'find', target: 'page title', thought: 'Look for the title.' }
     await expect(runStep(pageWith('Google'), find)).resolves.toBe('Found page title in the page text.')
@@ -59,6 +64,12 @@ function regionPage(texts: string[] | Error, body = 'Whole page text'): Page {
 }
 
 describe('regionText', () => {
+  it('drops empty elements before it takes the first ten, so a blank paragraph never uses a slot', () => {
+    // Wikipedia articles start with an empty paragraph: its text is three newlines.
+    const texts = ['\n\n\n', ...Array.from({ length: 12 }, (_, i) => `Paragraph ${i + 1}`)]
+    expect(regionText(texts).split('\n')).toEqual(Array.from({ length: 10 }, (_, i) => `Paragraph ${i + 1}`))
+  })
+
   it('puts one element per line and keeps only the first ten', () => {
     const titles = Array.from({ length: 12 }, (_, i) => `Story ${i + 1}`)
     expect(regionText(titles).split('\n')).toEqual(titles.slice(0, 10))

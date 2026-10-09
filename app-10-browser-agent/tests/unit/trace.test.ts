@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, metricsFor, planItems, statusSummary } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary } from '../../src/lib/trace'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
 
@@ -14,7 +14,7 @@ function stateWith(patch: Partial<RunState>): RunState {
 }
 
 function metricsByLabel(state: RunState): Record<string, { value: string; hint: string }> {
-  return Object.fromEntries(metricsFor(state).map((metric) => [metric.label, { value: metric.value, hint: metric.hint }]))
+  return Object.fromEntries(readoutFor(state, 0).map((cell) => [cell.label, { value: cell.value, hint: cell.hint }]))
 }
 
 describe('labels and figures', () => {
@@ -28,15 +28,13 @@ describe('labels and figures', () => {
   })
 })
 
-describe('metricsFor', () => {
-  it('lists the served model first and the total latency last', () => {
-    expect(metricsFor(stateWith({})).map((metric) => metric.label)).toEqual([
-      'Served model', 'Prompt tokens', 'Completion tokens', 'Total tokens', 'Cost (USD)', 'Total latency',
-    ])
+describe('readoutFor', () => {
+  it('has four cells: time, tokens, cost and model', () => {
+    expect(readoutFor(stateWith({}), 0).map((cell) => cell.label)).toEqual(['Time', 'Tokens', 'Cost (USD)', 'Model'])
   })
 
-  it('shows latency, tokens, cost and the served model from the planner call', () => {
-    const metrics = metricsByLabel(stateWith({
+  it('shows time, tokens, cost and the served model from the planner call', () => {
+    const cells = metricsByLabel(stateWith({
       phase: 'complete',
       steps: [navigate, extract],
       usage: { prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.0002 },
@@ -44,40 +42,51 @@ describe('metricsFor', () => {
       planMs: 1200,
       runMs: 5000,
     }))
-    expect(metrics['Total latency']).toEqual({ value: '6,200 ms', hint: 'Planner 1,200 ms, browser 5,000 ms.' })
-    expect(metrics['Prompt tokens']).toEqual({ value: '812', hint: 'Planner call' })
-    expect(metrics['Completion tokens']).toEqual({ value: '164', hint: 'Planner call' })
-    expect(metrics['Total tokens']).toEqual({ value: '976', hint: 'Planner call' })
-    expect(metrics['Cost (USD)']).toEqual({ value: '$0.0002', hint: 'From usage.cost in the provider response' })
-    expect(metrics['Served model']).toEqual({ value: 'anthropic/claude-haiku-5.5', hint: 'Reported by the planner response' })
+    expect(cells.Time).toEqual({ value: '6,200 ms', hint: 'Planner 1,200 ms, browser 5,000 ms' })
+    expect(cells.Tokens).toEqual({ value: '976', hint: '812 in, 164 out' })
+    expect(cells['Cost (USD)']).toEqual({ value: '$0.0002', hint: 'From usage.cost in the provider response' })
+    expect(cells.Model).toEqual({ value: 'anthropic/claude-haiku-5.5', hint: 'Reported by the planner response' })
+  })
+
+  it('counts the time up from the start of the run while it is live', () => {
+    const live = stateWith({ phase: 'running', startedAt: 10_000 })
+    expect(readoutFor(live, 13_240)[0]).toEqual({ label: 'Time', value: '3,200 ms', hint: 'So far' })
+    expect(readoutFor(live, 13_260)[0].value).toBe('3,300 ms')
+    expect(readoutFor(live, 9_000)[0].value).toBe('0 ms')
+  })
+
+  it('shows the time spent so far after a failure or a stop, from the rows the trace shows', () => {
+    const rows = [{ index: 0, name: 'Navigate: x', status: 'ok' as const, ms: 900, detail: 'Opened.' }, { index: 1, name: 'Click: y', status: 'failed' as const, ms: 300, detail: 'No.' }]
+    const planTrace = [{ name: 'Model call', status: 'ok' as const, ms: 1000, detail: '' }]
+    expect(readoutFor(stateWith({ phase: 'failed', rows, planTrace }), 0)[0]).toEqual({ label: 'Time', value: '2,200 ms', hint: 'Before it failed' })
+    expect(readoutFor(stateWith({ phase: 'stopped', rows, planTrace }), 0)[0].hint).toBe('Before it stopped')
   })
 
   it('says "not reported" for figures the provider left out, and never invents a cost', () => {
-    const metrics = metricsByLabel(stateWith({
+    const cells = metricsByLabel(stateWith({
       phase: 'complete',
       usage: { prompt_tokens: null, completion_tokens: null, total_tokens: null, cost: null },
       model: null,
       planMs: 900,
       runMs: 3000,
     }))
-    expect(metrics['Prompt tokens'].value).toBe('not reported')
-    expect(metrics['Total tokens'].value).toBe('not reported')
-    expect(metrics['Cost (USD)'].value).toBe('not reported')
-    expect(metrics['Served model'].value).toBe('not reported')
+    expect(cells.Tokens).toEqual({ value: 'not reported', hint: 'Planner call' })
+    expect(cells['Cost (USD)'].value).toBe('not reported')
+    expect(cells.Model.value).toBe('not reported')
   })
 
   it('shows dashes before any planner call or browser run', () => {
-    const metrics = metricsByLabel(stateWith({ phase: 'idle' }))
-    expect(metrics['Total latency']).toEqual({ value: '—', hint: 'Shown once the browser run finishes.' })
-    expect(metrics['Prompt tokens'].value).toBe('—')
-    expect(metrics['Cost (USD)'].value).toBe('—')
-    expect(metrics['Served model'].value).toBe('—')
+    const cells = metricsByLabel(stateWith({ phase: 'idle' }))
+    expect(cells.Time).toEqual({ value: '—', hint: 'Shown while it runs' })
+    expect(cells.Tokens.value).toBe('—')
+    expect(cells['Cost (USD)'].value).toBe('—')
+    expect(cells.Model.value).toBe('—')
   })
 
   it('counts only the browser run for a replay, which makes no model call', () => {
-    const metrics = metricsByLabel(stateWith({ phase: 'complete', usage: null, model: null, planMs: null, runMs: 4000 }))
-    expect(metrics['Total latency']).toEqual({ value: '4,000 ms', hint: 'Browser run only. A replay makes no model call.' })
-    expect(metrics['Prompt tokens'].value).toBe('—')
+    const cells = metricsByLabel(stateWith({ phase: 'complete', usage: null, model: null, planMs: null, runMs: 4000 }))
+    expect(cells.Time).toEqual({ value: '4,000 ms', hint: 'Browser run only, no model call' })
+    expect(cells.Tokens.value).toBe('—')
   })
 })
 
@@ -189,6 +198,12 @@ describe('statusSummary', () => {
     }))).toBe('The browser provider is out of credit, so no session was started.')
 
     expect(statusSummary(stateWith({ phase: 'failed', steps }))).toBe('The run failed.')
+
+    expect(statusSummary(stateWith({
+      phase: 'failed',
+      steps: [],
+      error: { message: 'This task names example.com, which is outside the allowed sites.', index: null },
+    }))).toBe('Stopped before planning. The reason is above.')
   })
 })
 

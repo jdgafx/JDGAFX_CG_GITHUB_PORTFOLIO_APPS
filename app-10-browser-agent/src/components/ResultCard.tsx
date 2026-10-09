@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { replayItems } from '../lib/replay'
+import { frameTotals, replayItems } from '../lib/replay'
 import type { RunState } from '../lib/runState'
-import { expectationOf } from '../lib/trace'
+import BrowserFrame from './BrowserFrame'
 import Replay from './Replay'
 
 interface StateProps {
@@ -33,6 +33,13 @@ interface ResultCardProps {
   state: RunState
   onPlan: () => void
   onRunAgain: () => void
+  /** Moves focus to the task field, for a task the planner or the allowlist refused. */
+  onEditTask: () => void
+}
+
+/** A planning failure caused by the task itself, not by a service. */
+function refusedByTask(message: string): boolean {
+  return /outside the allowed sites|planner declined/i.test(message)
 }
 
 function headline(state: RunState): string {
@@ -49,24 +56,41 @@ function headline(state: RunState): string {
 }
 
 /** The replay leads the page once a run has ended. Before a plan exists it shows the empty, planning or planning-failed state. */
-export default function ResultCard({ state, onPlan, onRunAgain }: ResultCardProps) {
+export default function ResultCard({ state, onPlan, onRunAgain, onEditTask }: ResultCardProps) {
   const items = useMemo(() => replayItems(state), [state])
   const { phase } = state
 
   if (state.steps.length === 0) {
-    const states: Partial<Record<typeof phase, StateProps>> = {
-      idle: { tone: 'empty', title: 'No replay yet', body: 'Enter a task or pick an example, then plan and run it. Each step leaves a picture of the real page here, next to the text the browser read.' },
-      planning: { tone: 'loading', title: 'Planning the steps', body: 'One model call turns your task into browser steps. The filmstrip appears when the plan is ready.' },
-      failed: { tone: 'error', title: 'Planning failed', body: state.error?.message ?? 'No plan was made.', action: { label: 'Plan again', onClick: onPlan } },
+    if (phase === 'failed') {
+      const message = state.error?.message ?? 'No plan was made.'
+      const task = refusedByTask(message)
+      return (
+        <section className="ds-section ds-run__result" aria-label="Replay" aria-live="polite">
+          <ResultState
+            tone="error"
+            title={task ? (/outside the allowed sites/i.test(message) ? 'Site not allowed' : 'Task declined') : 'Planning failed'}
+            body={message}
+            action={task ? { label: 'Edit the task', onClick: onEditTask } : { label: 'Plan again', onClick: onPlan }}
+          />
+        </section>
+      )
     }
-    const shown = states[phase] ?? states.idle!
+    const loading = phase === 'planning'
     return (
       <section className="ds-section ds-run__result" aria-label="Replay" aria-live="polite">
-        <ResultState {...shown} />
+        {loading ? (
+          <ResultState tone="loading" title="Planning the steps" body="One model call turns your task into browser steps. The filmstrip appears when the plan is ready." />
+        ) : (
+          <div className="ds-lead bb-empty">
+            <BrowserFrame placeholder={{ title: 'No replay yet', body: 'Enter a task or pick an example, then plan and run it. Each step leaves a picture of the real page here, next to the text the browser read.' }} />
+            <div className="bb-ghosts" aria-hidden="true"><span>1</span><span>2</span><span>3</span></div>
+          </div>
+        )}
       </section>
     )
   }
 
+  const totals = frameTotals(items)
   const finished = items.filter((item) => item.status === 'ok').length
   const ended = phase === 'complete' || phase === 'failed' || phase === 'stopped'
   const badge = phase === 'complete' ? 'ds-badge--success' : phase === 'failed' ? 'ds-badge--danger' : phase === 'stopped' ? 'ds-badge--warning' : 'ds-badge--accent'
@@ -84,7 +108,7 @@ export default function ResultCard({ state, onPlan, onRunAgain }: ResultCardProp
           <div className="ds-state ds-state--error" role="alert">
             <span className="ds-state__mark" aria-hidden="true" />
             <p className="ds-state__title">{state.error.index === null ? 'The run did not finish' : `Step ${state.error.index + 1} did not work`}</p>
-            <p className="ds-state__body">{state.error.message} The picture shows the page where it stopped.</p>
+            <p className="ds-state__body">{state.error.message}{state.error.index !== null && items[state.error.index]?.frame ? ' The picture shows the page where it stopped.' : ''}</p>
             <div className="ds-state__actions">
               <button type="button" className="ds-button" onClick={onRunAgain}>Run plan again</button>
             </div>
@@ -100,11 +124,11 @@ export default function ResultCard({ state, onPlan, onRunAgain }: ResultCardProp
             </div>
           </div>
         ) : null}
-        <Replay items={items} phase={phase} runId={state.runId} expectation={expectationOf(state.steps)} sessionId={state.sessionId} />
+        <Replay items={items} phase={phase} runId={state.runId} sessionId={state.sessionId} />
         <p className="ds-lead__foot">
           {ended
-            ? 'Each picture is a small JPEG the server took of the live page right after the step, so it matches the text beside it. Nothing is stored.'
-            : 'Pictures arrive as each step ends. Select a step to look back while the run continues.'}
+            ? `${totals.count > 0 ? 'Each picture was captured just after the text was read, so the two can differ if the page changed in between. ' : ''}BrowseBot shows what the browser observed and does not judge whether it answers the task.`
+            : 'Pictures arrive as each step ends.'}
         </p>
       </div>
     </section>

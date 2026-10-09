@@ -28,7 +28,7 @@ The page has two columns. The controls hold the task, the allowed sites and the 
 
 After every step the server captures the page the browser is on and sends it with the step's result. Each picture is a JPEG about 640 px wide, taken over the Chrome DevTools protocol from a 960 by 540 browser window, so page text stays readable. The captured JPEG stays under 70 KB per picture (quality 60, then 42, 28 and 18 until it fits), and all pictures of one run stay under 450 KB, which is about 600 KB of base64 in the stream. A step with no room left, or whose capture fails, says so instead of showing a picture. A failed step keeps the picture of the page where it failed. A page on a site outside the allowlist is never captured.
 
-On the page, the filmstrip shows one cell per step with its number, label and status. Select a cell, drag the scrub bar or use the left and right arrow keys (Home and End jump to the ends) to look at a step. While a run is live the viewer follows the running step until you pick another one. Play replay steps through a finished run, one step every 1.5 seconds. Pictures are checked on arrival: only a small base64 JPEG is shown.
+On the page, the chosen step shows as a small browser window: the address and page title in its bar, the picture below it. Selecting the picture opens it at full size. Beside it are the plan, what the browser did and a box titled "What the browser read", which says so when a selector matched nothing and the whole page text is shown. Under both, a filmstrip shows one cell per step with its number, label and status, so a whole run of six steps is visible at once. Select a cell, drag the scrub bar or use the left and right arrow keys (Home and End jump to the ends) to look at a step. While a run is live the viewer follows the running step until you pick another one, and the Time figure counts up. Play replay and the scrub bar appear when a finished run has two or more pictures, and step through the run every 1.5 seconds. Pictures are checked on arrival: only a small base64 JPEG is shown.
 
 The pictures travel in the same server-sent stream as the run, so the response is a streamed one: Netlify allows 20 MB and 60 seconds for streamed functions, and a run uses well under 1 MB.
 
@@ -56,18 +56,18 @@ Live site: https://jdgafx-app-10-browser-agent.netlify.app
 ## Known limits
 
 - A picture is the top of the page in a 960 by 540 window, not the whole page. Text lower on the page is in the observed text but not in the picture, and text covered by a banner is in the observed text but hidden in the picture. The Wikipedia donation banner did this on the main page during checks: the featured article text was read, and the picture shows the banner over it.
-- Two steps that leave the page unchanged, such as a navigate followed by an extract, send the same picture twice. Identical pictures are not shared yet.
+- A step that leaves the page exactly as the step before it sends no new picture. The server compares each JPEG with the last one sent, names the earlier step instead, and the page tags it "Same page as step N". Such a repeat uses none of the run's picture budget.
+- The picture is taken just after the text was read, so the two can differ when the page changed in between, such as a banner that appears late.
 - Pictures are not stored. They exist for the length of the run on screen.
 - The client ends a run stream that sends no byte for 30 s, or that lasts longer than 60 s, with a message to run the plan again. The server stops starting steps at 15 s.
 - The planner call has its own 4.5 s limit and is retried once when it times out or drops, if budget remains within the 8.5 s planning budget. The trace row says "Retried once". Answers with an error status are never retried.
-- The live site runs the build from before this finish pass until it is redeployed from git.
 - Stop ends the browser stream. The server stops at the next step boundary and releases the session. A step already running finishes or times out first. The page cannot receive the release result after Stop, so the trace adds a skipped Release row that says so.
 - No new step starts after 15 s, but a run can take longer, because creating, connecting, closing and releasing the session each wait up to 7 s. Whether Netlify keeps a streamed response open that long is not verified. The live check decides it.
 - If a release fails twice, the session runs until its 120 s cap ends it. The cap is set when the session is created, and it is not verified live.
 - A request without a content-length header is read in full before its size is checked. The platform's own request size limit bounds that read.
 - A click that opens a new tab is not followed. The run keeps reading the first tab.
 - Rate limits are per function instance and best effort. Requests without an Origin header, such as curl, pass the origin check and rely on the per-address limit.
-- The browser steps for the Hacker News (two), Wikipedia (two) and Google home page tasks were run against the live sites in a local Chrome through the same step and snapshot code. A run in a Browserbase session has not been checked for the new example tasks. GitHub is not on the default allowlist, because its pages took 0.9 to 7 s to load from a local connection and a page load over 3 s fails the navigate step. Redirects are not verified live.
+- Hacker News, Wikipedia and Google home page tasks were run in Browserbase sessions during verification. A run needs Browserbase credit: when the provider answers that it is out of credit, no session starts and the page shows every step as not run, with no pictures.
 - Google search results pages showed a bot check page to a local Chrome, so there is no example task for them. A task that asks for one reports whatever page the browser reached.
 - A failed step ends the run. There is no replanning, and the planner never sees what the page looked like.
 - The provider reports the planner's cost only. The browser session cost is not shown.

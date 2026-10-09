@@ -247,6 +247,17 @@ describe('streamRun pictures and watchdog', () => {
     expect(events[0]).toMatchObject({ frameNote: 'No picture: the run reached its picture size limit.' })
   })
 
+  it('keeps a repeat marker that names an earlier step and drops one that does not', async () => {
+    fetchMock.mockResolvedValueOnce(sse([
+      record({ ...done, index: 1, frameSameAs: 0 }),
+      record({ ...done, index: 1, frameSameAs: 5 }),
+      record({ ...done, index: 2, frameSameAs: 1.5 }),
+    ]))
+    const events: RunEvent[] = []
+    await streamRun(steps, (event) => events.push(event), signal())
+    expect(events.map((event) => (event as { frameSameAs?: number }).frameSameAs)).toEqual([0, undefined, undefined])
+  })
+
   it('ends a stream that sends no byte for the idle limit with a recoverable message', async () => {
     fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }))
     await expect(streamRun(steps, () => undefined, signal(), { idleMs: 20, overallMs: 1_000 })).rejects.toMatchObject({

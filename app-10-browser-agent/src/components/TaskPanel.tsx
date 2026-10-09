@@ -27,7 +27,6 @@ export default function TaskPanel({ task, busy, collapseKey, onTaskChange, onSub
     <section className="ds-section" aria-labelledby="task-heading">
       <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="task-heading">Task</h2>
-        <p className="ds-section__sub">Describe what the browser should do on an allowed site.</p>
       </div>
       <div className="ds-field">
         <label className="ds-label" htmlFor="task-input">Describe a web task</label>

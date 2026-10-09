@@ -17,11 +17,14 @@ interface RunRow {
   observed?: ObservedPage
   frame?: StepFrame
   frameNote?: string
+  frameSameAs?: number
 }
 
 export interface RunState {
   /** Counts runs, so the replay can forget the viewer's selection when a new run starts. */
   runId: number
+  /** Browser clock reading when the run began, so the page can tick the time while it runs. */
+  startedAt: number | null
   phase: Phase
   steps: BotStep[]
   planTrace: TraceEntry[]
@@ -37,6 +40,7 @@ export interface RunState {
 
 export const initialRunState: RunState = {
   runId: 0,
+  startedAt: null,
   phase: 'idle',
   steps: [],
   planTrace: [],
@@ -51,10 +55,10 @@ export const initialRunState: RunState = {
 }
 
 export type RunAction =
-  | { type: 'planning' }
+  | { type: 'planning'; at?: number }
   | { type: 'planned'; plan: PlanResponse }
   | { type: 'planFailed'; message: string; trace: TraceEntry[] }
-  | { type: 'running'; replay: boolean }
+  | { type: 'running'; replay: boolean; at?: number }
   | { type: 'event'; event: RunEvent }
   | { type: 'runFailed'; message: string }
   | { type: 'streamEnded' }
@@ -113,6 +117,7 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
           observed: event.observed,
           frame: event.frame,
           frameNote: event.frameNote,
+          frameSameAs: event.frameSameAs,
         }),
         observed: event.observed ?? state.observed,
       }
@@ -144,7 +149,7 @@ function applyEvent(state: RunState, event: RunEvent): RunState {
 export function runReducer(state: RunState, action: RunAction): RunState {
   switch (action.type) {
     case 'planning':
-      return { ...initialRunState, runId: state.runId + 1, phase: 'planning' }
+      return { ...initialRunState, runId: state.runId + 1, startedAt: action.at ?? null, phase: 'planning' }
     case 'planned':
       return {
         ...state,
@@ -167,6 +172,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
       return {
         ...state,
         runId: action.replay ? state.runId + 1 : state.runId,
+        startedAt: action.replay ? (action.at ?? null) : state.startedAt,
         phase: 'running',
         planMs: action.replay ? null : state.planMs,
         rows: [],

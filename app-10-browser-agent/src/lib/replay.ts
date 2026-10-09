@@ -21,6 +21,8 @@ export interface ReplayItem {
   /** Why there is no picture, when the step ran and none came back. */
   note?: string
   observed?: ObservedPage
+  /** The earlier step whose picture this step shares, so the bytes were sent once. */
+  sameAs?: number
 }
 
 /**
@@ -43,13 +45,15 @@ export function cleanFrame(raw: unknown): { frame?: StepFrame; note?: string } {
 export function replayItems(state: RunState): ReplayItem[] {
   return planItems(state).map((item, index): ReplayItem => {
     const row = state.rows.find((candidate) => candidate.index === index)
+    const source = row?.frameSameAs === undefined ? undefined : state.rows.find((candidate) => candidate.index === row.frameSameAs)
     return {
       index,
       label: stepLabel(state.steps[index]),
       thought: item.thought,
       status: item.status,
       detail: row?.detail ?? (item.status === 'skipped' ? 'Not run.' : 'Waits for the steps before it.'),
-      frame: row?.frame,
+      frame: row?.frame ?? source?.frame,
+      sameAs: source?.frame ? row?.frameSameAs : undefined,
       note: row?.frameNote,
       observed: row?.observed,
     }
@@ -58,7 +62,8 @@ export function replayItems(state: RunState): ReplayItem[] {
 
 /** Total picture bytes kept for a run, and how many steps have one. */
 export function frameTotals(items: ReplayItem[]): { count: number; bytes: number } {
-  const framed = items.filter((item) => item.frame)
+  // A repeated picture is one picture: it was sent once and counts once.
+  const framed = items.filter((item) => item.frame && item.sameAs === undefined)
   return { count: framed.length, bytes: framed.reduce((sum, item) => sum + (item.frame?.bytes ?? 0), 0) }
 }
 

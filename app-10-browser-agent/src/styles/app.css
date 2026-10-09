@@ -17,10 +17,6 @@
   font-weight: 600;
 }
 
-.bb-readout__model {
-  grid-column: 1 / -1;
-}
-
 .bb-allowlist {
   display: grid;
   margin: 0 0 8px;
@@ -57,7 +53,7 @@
   color: var(--ds-text-muted);
 }
 
-/* The replay: the chosen step large beside what the browser read, a transport row, then the filmstrip */
+/* The replay: the chosen step as a browser window beside what the browser read, then the whole run as a filmstrip */
 .bb-replay {
   container-type: inline-size;
   display: grid;
@@ -73,8 +69,8 @@
 
 @container (min-width: 720px) {
   .bb-viewer {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: 24px;
+    grid-template-columns: minmax(0, 1fr) minmax(272px, 32%);
+    gap: 20px;
   }
 }
 
@@ -85,32 +81,95 @@
 
 .bb-viewer__shot {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   align-content: start;
 }
 
-.bb-shot {
-  min-height: 160px;
-  background: var(--ds-surface-2);
+/* The browser window: an address bar over the picture */
+.bb-window {
+  overflow: hidden;
+  min-width: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius);
 }
 
-.bb-shot > img {
-  background: var(--ds-surface-2);
-}
-
-.bb-shot--failed {
+.bb-window--failed {
   border-color: var(--ds-danger);
   box-shadow: 0 0 0 1px var(--ds-danger);
+}
+
+.bb-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 4px 12px;
+  background: var(--ds-surface-2);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.bb-bar__url {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--ds-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+}
+
+.bb-bar__title {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bb-window .bb-shot {
+  min-height: 160px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ds-surface-2);
+}
+
+.bb-shot__open img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.bb-shot__open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 .bb-shot__empty {
   display: grid;
   place-items: center;
-  min-height: 160px;
+  align-content: center;
+  gap: 4px;
+  min-height: 200px;
   padding: 24px;
   text-align: center;
   font-size: 15px;
   color: var(--ds-text-muted);
+}
+
+.bb-shot__title {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--ds-text);
 }
 
 .bb-shot__tag {
@@ -126,6 +185,38 @@
   border-radius: var(--ds-radius-sm);
 }
 
+.bb-shot__same {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-sm);
+  pointer-events: none;
+}
+
+.bb-dialog {
+  max-width: min(92vw, 720px);
+  padding: 16px;
+}
+
+.bb-dialog::backdrop {
+  background: color-mix(in srgb, var(--ds-text) 55%, transparent);
+}
+
+.bb-dialog > img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+}
+
+/* The step beside the picture */
 .bb-detail {
   display: grid;
   gap: 12px;
@@ -161,7 +252,7 @@
 
 .bb-text {
   display: grid;
-  gap: 4px;
+  gap: 8px;
 }
 
 .bb-text__label {
@@ -170,9 +261,31 @@
   color: var(--ds-text-muted);
 }
 
+.bb-warn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-warning);
+}
+
+.bb-fade {
+  position: relative;
+}
+
+.bb-fade--end::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 32px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--ds-surface-2));
+  border-radius: 0 0 var(--ds-radius-sm) var(--ds-radius-sm);
+}
+
 .bb-pre {
   margin: 0;
-  max-height: 192px;
+  max-height: 288px;
   padding: 12px;
   overflow: auto;
   font-family: var(--ds-font);
@@ -190,21 +303,16 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 16px;
+  gap: 8px 16px;
 }
 
 .bb-scrub {
-  flex: 1 1 200px;
+  flex: 1 1 160px;
   min-width: 0;
   height: 44px;
   margin: 0;
   accent-color: var(--ds-accent);
   cursor: pointer;
-}
-
-.bb-scrub:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .bb-transport__count {
@@ -214,25 +322,51 @@
   color: var(--ds-text-muted);
 }
 
-/* Filmstrip: one cell per step. It scrolls sideways inside itself and never widens the page. */
+/* Filmstrip: the whole run under the viewer. It scrolls sideways inside itself only when there are many steps. */
 .bb-strip {
+  position: relative;
+  min-width: 0;
+}
+
+.bb-strip__scroll {
   overflow-x: auto;
-  padding-bottom: 8px;
-  scroll-snap-type: x proximity;
+  padding: 2px 2px 8px;
+}
+
+.bb-strip--start::before,
+.bb-strip--end::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 24px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.bb-strip--start::before {
+  left: 0;
+  background: linear-gradient(to right, var(--ds-surface), transparent);
+}
+
+.bb-strip--end::after {
+  right: 0;
+  background: linear-gradient(to left, var(--ds-surface), transparent);
 }
 
 .bb-film {
   display: flex;
-  gap: 12px;
-  width: max-content;
-  min-width: 100%;
+  gap: 8px;
+  width: 100%;
 }
 
 .bb-cell {
   display: grid;
   gap: 4px;
   align-content: start;
-  flex: 0 0 168px;
+  flex: 1 0 120px;
+  max-width: 136px;
+  min-width: 0;
   padding: 8px;
   font: inherit;
   text-align: left;
@@ -241,7 +375,6 @@
   border: 1px solid var(--ds-border-strong);
   border-radius: var(--ds-radius);
   cursor: pointer;
-  scroll-snap-align: center;
 }
 
 .bb-cell:hover {
@@ -290,15 +423,12 @@
 }
 
 .bb-cell__label {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 40px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .bb-cell__status {
@@ -314,8 +444,30 @@
   font-weight: 650;
 }
 
+/* Before a run: an empty browser window and three ghost cells show what the replay will be */
+.bb-empty {
+  gap: 12px;
+}
+
+.bb-ghosts {
+  display: flex;
+  gap: 8px;
+}
+
+.bb-ghosts > span {
+  flex: 0 1 128px;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  font-family: var(--ds-mono);
+  font-size: 14px;
+  color: var(--ds-text-muted);
+  border: 1px dashed var(--ds-border-strong);
+  border-radius: var(--ds-radius);
+}
+
 @media (max-width: 720px) {
   .bb-cell {
-    flex-basis: 144px;
+    flex-basis: 128px;
   }
 }

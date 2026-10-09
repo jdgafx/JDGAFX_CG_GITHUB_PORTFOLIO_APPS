@@ -30,7 +30,7 @@ export default function RunTrace({ rows, summary }: RunTraceProps) {
         <h2 className="ds-section__title" id="trace-heading">Run trace</h2>
         <p className="ds-section__sub">Bars show how long each step took, in the order they ran. Times are measured on the server.</p>
       </div>
-      <p className="bb-status" role="status" aria-live="polite">{summary}</p>
+      {rows.length > 0 && <p className="bb-status" role="status" aria-live="polite">{summary}</p>}
       {rows.length === 0 ? (
         <div className="ds-state ds-state--empty">
           <span className="ds-state__mark" aria-hidden="true" />
@@ -56,7 +56,6 @@ export default function RunTrace({ rows, summary }: RunTraceProps) {
                       {WORD[row.status]}
                     </span>
                   </div>
-                  {row.planned && <div className="ds-trace__detail">Plan: {row.planned}</div>}
                   <div className="ds-trace__detail">{row.detail}</div>
                   {row.observed && <div className="ds-trace__detail ds-mono">Page: {row.observed.url}</div>}
                 </div>

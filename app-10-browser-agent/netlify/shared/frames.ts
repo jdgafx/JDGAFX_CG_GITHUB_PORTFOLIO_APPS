@@ -19,7 +19,8 @@ export const NO_FRAME = {
   failed: 'No picture: the browser could not capture this page in time.',
 } as const
 
-export type FrameOutcome = { frame: StepFrame } | { note: string }
+/** A picture, the reason there is none, or the index of an earlier step whose picture is byte for byte the same. */
+export type FrameOutcome = { frame: StepFrame } | { note: string } | { sameAs: number }
 
 /**
  * Picks the best quality whose JPEG fits `limit` bytes. `shoot` returns the JPEG at a quality, or
@@ -44,6 +45,7 @@ export async function fitFrame(
 export class FrameRecorder {
   private session: CDPSession | undefined
   private spent = 0
+  private last: { data: string; index: number } | undefined
 
   constructor(private readonly page: Page) {}
 
@@ -77,12 +79,18 @@ export class FrameRecorder {
     }
   }
 
-  /** The page as it is now. Never throws: a page that cannot be captured gives a note instead. */
-  async capture(): Promise<FrameOutcome> {
+  /**
+   * The page as it is now. Never throws: a page that cannot be captured gives a note instead. A picture identical to the
+   * last one sent is not sent again: the outcome names the step it repeats, and it uses none of the run's byte budget.
+   */
+  async capture(index: number): Promise<FrameOutcome> {
     const limit = Math.min(FRAME_MAX_BYTES, RUN_FRAME_MAX_BYTES - this.spent)
     try {
       const outcome = await withTimeout(fitFrame((quality) => this.shoot(quality), limit), CAPTURE_MS, 'The picture took too long.')
-      if ('frame' in outcome) this.spent += outcome.frame.bytes
+      if (!('frame' in outcome)) return outcome
+      if (this.last?.data === outcome.frame.data) return { sameAs: this.last.index }
+      this.spent += outcome.frame.bytes
+      this.last = { data: outcome.frame.data, index }
       return outcome
     } catch {
       return { note: NO_FRAME.failed }

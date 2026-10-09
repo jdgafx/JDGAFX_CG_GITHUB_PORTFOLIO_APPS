@@ -1,32 +1,42 @@
-import type { Phase } from '../lib/runState'
-import type { Metric } from '../lib/trace'
+import { useEffect, useState } from 'react'
+import type { Phase, RunState } from '../lib/runState'
+import { readoutFor } from '../lib/trace'
 
-const MODEL_LABEL = 'Served model'
+/** The clock, refreshed twice a second while a run is live and still otherwise. */
+function useNow(live: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!live) return
+    const id = window.setInterval(() => setNow(Date.now()), 250)
+    return () => window.clearInterval(id)
+  }, [live])
+  return now
+}
 
 interface RunMetricsProps {
-  metrics: Metric[]
+  state: RunState
   phase: Phase
 }
 
-/** The run's figures as one readout strip. The served model is a chip with the full id in its title. */
-export default function RunMetrics({ metrics, phase }: RunMetricsProps) {
-  const tone = phase === 'idle' ? ' ds-strip--pending' : phase === 'planning' || phase === 'running' ? ' ds-strip--live' : ''
+/** The run's figures as one four-cell readout. Time ticks while the run is live. The model is a chip with its full id in the title. */
+export default function RunMetrics({ state, phase }: RunMetricsProps) {
+  const live = phase === 'planning' || phase === 'running'
+  const tone = phase === 'idle' ? ' ds-strip--pending' : live ? ' ds-strip--live' : ''
+  const cells = readoutFor(state, useNow(live))
   return (
     <section className="ds-section ds-run__readout" aria-label="Run figures">
       <dl className={`ds-strip bb-readout${tone}`}>
-        {metrics.map((metric) => {
-          const isModel = metric.label === MODEL_LABEL
-          const chip = isModel && metric.value.includes('/')
-          return (
-            <div className={isModel ? 'ds-strip__item bb-readout__model' : 'ds-strip__item'} key={metric.label}>
-              <dt className="ds-strip__label">{metric.label}</dt>
-              <dd className="ds-strip__value">
-                {chip ? <span className="ds-chip" title={metric.value}>{metric.value.replace(/^anthropic\//, '')}</span> : metric.value}
-              </dd>
-              <dd className="ds-strip__hint">{metric.hint}</dd>
-            </div>
-          )
-        })}
+        {cells.map((cell) => (
+          <div className="ds-strip__item" key={cell.label}>
+            <dt className="ds-strip__label">{cell.label}</dt>
+            <dd className="ds-strip__value">
+              {cell.label === 'Model' && cell.value.includes('/')
+                ? <span className="ds-chip" title={cell.value}>{cell.value.replace(/^anthropic\//, '')}</span>
+                : cell.value}
+            </dd>
+            <dd className="ds-strip__hint">{cell.hint}</dd>
+          </div>
+        ))}
       </dl>
     </section>
   )

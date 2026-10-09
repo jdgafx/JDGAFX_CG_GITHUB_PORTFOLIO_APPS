@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { FRAME_MAX_BYTES, NO_FRAME, QUALITIES, RUN_FRAME_MAX_BYTES, fitFrame } from '../../netlify/shared/frames'
+import type { Page } from 'playwright-core'
+import { FRAME_MAX_BYTES, FrameRecorder, NO_FRAME, QUALITIES, RUN_FRAME_MAX_BYTES, fitFrame } from '../../netlify/shared/frames'
 
 const shot = (bytes: number) => ({ jpeg: Buffer.alloc(bytes, 1), width: 640, height: 366 })
 
@@ -39,5 +40,37 @@ describe('fitFrame', () => {
     expect(FRAME_MAX_BYTES * 10).toBeGreaterThan(RUN_FRAME_MAX_BYTES)
     // 450,000 JPEG bytes become about 600,000 base64 characters, far below the 20 MB streamed limit.
     expect(Math.ceil(RUN_FRAME_MAX_BYTES / 3) * 4).toBe(600_000)
+  })
+})
+
+describe('FrameRecorder repeats', () => {
+  /** A page whose pictures come from the queue, one per capture. */
+  function pageShowing(...jpegs: Buffer[]): Page {
+    const queue = [...jpegs]
+    const send = async (method: string) => (method === 'Page.getLayoutMetrics'
+      ? { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
+      : { data: (queue.shift() ?? jpegs[jpegs.length - 1]).toString('base64') })
+    return { context: () => ({ newCDPSession: async () => ({ send, detach: async () => undefined }) }) } as unknown as Page
+  }
+
+  it('sends the first picture, then names the earlier step for an identical one and spends no bytes on it', async () => {
+    const same = Buffer.alloc(28_042, 3)
+    const recorder = new FrameRecorder(pageShowing(same, same, Buffer.alloc(31_000, 4)))
+    const first = await recorder.capture(0)
+    expect('frame' in first && first.frame.bytes).toBe(28_042)
+    expect(await recorder.capture(1)).toEqual({ sameAs: 0 })
+    expect(recorder.bytesSpent).toBe(28_042)
+    const third = await recorder.capture(2)
+    expect('frame' in third && third.frame.bytes).toBe(31_000)
+    expect(recorder.bytesSpent).toBe(59_042)
+  })
+
+  it('compares with the last picture sent, so a page that changes and returns is sent again', async () => {
+    const a = Buffer.alloc(10_000, 1)
+    const b = Buffer.alloc(10_000, 2)
+    const recorder = new FrameRecorder(pageShowing(a, b, a))
+    await recorder.capture(0)
+    await recorder.capture(1)
+    expect('frame' in (await recorder.capture(2))).toBe(true)
   })
 })

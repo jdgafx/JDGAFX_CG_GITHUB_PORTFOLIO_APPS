@@ -51,10 +51,11 @@ export function currentHost(page: Page): string | null {
  * several lines, the elements are set apart by a blank line so they can still be told apart.
  */
 export function regionText(texts: string[]): string {
+  // Empty elements (Wikipedia has empty paragraphs) are dropped before the first ten are taken.
   const items = texts
-    .slice(0, MAX_REGION_ITEMS)
     .map((text) => text.split('\n').map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n'))
     .filter(Boolean)
+    .slice(0, MAX_REGION_ITEMS)
   return items.join(items.some((item) => item.includes('\n')) ? '\n\n' : '\n')
 }
 
@@ -114,7 +115,7 @@ export async function runStep(page: Page, step: BotStep): Promise<string> {
       const observed = await pageSnapshot(page)
       const needle = step.target.toLowerCase()
       const haystack = `${observed.title}\n${observed.excerpt}`.toLowerCase()
-      if (haystack.includes(needle) || (needle.includes('title') && observed.title.trim() !== '')) {
+      if (haystack.includes(needle) || (/\bpage title\b/.test(needle) && observed.title.trim() !== '')) {
         return `Found ${step.target} in the page text.`
       }
       throw new ExecutionError(`The target was not found: ${step.target}.`)

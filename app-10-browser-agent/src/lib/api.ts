@@ -168,7 +168,9 @@ function eventOf(data: string): RunEvent | null {
   const step = parsed as Extract<RunEvent, { type: 'step_complete' }>
   const { frame, note } = cleanFrame(step.frame)
   const frameNote = note ?? (typeof step.frameNote === 'string' ? step.frameNote.slice(0, 200) : undefined)
-  return { ...step, frame, frameNote }
+  // A repeat must name an earlier step. Anything else is dropped.
+  const same = Number.isInteger(step.frameSameAs) && (step.frameSameAs as number) >= 0 && (step.frameSameAs as number) < step.index ? step.frameSameAs : undefined
+  return { ...step, frame, frameNote, frameSameAs: frame ? undefined : same }
 }
 
 /** A complete record in the middle of the stream. Anything that is not a known event is a protocol error. */

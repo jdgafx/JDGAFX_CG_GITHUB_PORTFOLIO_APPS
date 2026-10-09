@@ -9,7 +9,7 @@ import TaskPanel from './components/TaskPanel'
 import { useBrowseRun } from './hooks/useBrowseRun'
 import { useResultFocus, type RunPhase } from './lib/useResultFocus'
 import type { Phase } from './lib/runState'
-import { buildTraceRows, metricsFor, statusSummary } from './lib/trace'
+import { buildTraceRows, statusSummary } from './lib/trace'
 
 const FOCUS_PHASE: Record<Phase, RunPhase> = {
   idle: 'idle',
@@ -27,6 +27,11 @@ export default function App() {
   const { state, planAndRun, runAgain, stop, reset } = useBrowseRun()
   const busy = state.phase === 'planning' || state.phase === 'running'
   const plan = () => void planAndRun(task.trim())
+  const editTask = () => {
+    const field = document.getElementById('task-input') as HTMLTextAreaElement | null
+    field?.focus()
+    field?.select()
+  }
 
   // On a phone the replay sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
   useResultFocus(FOCUS_PHASE[state.phase], { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1) })
@@ -46,14 +51,17 @@ export default function App() {
               onPlan={plan}
               onStop={stop}
               onRunAgain={runAgain}
-              onReset={reset}
+              onReset={() => {
+                reset()
+                document.getElementById('task-input')?.focus({ preventScroll: true })
+              }}
             />
             <AllowlistPanel />
           </div>
 
           <div className="ds-run">
-            <ResultCard state={state} onPlan={plan} onRunAgain={runAgain} />
-            <RunMetrics metrics={metricsFor(state)} phase={state.phase} />
+            <ResultCard state={state} onPlan={plan} onRunAgain={runAgain} onEditTask={editTask} />
+            <RunMetrics state={state} phase={state.phase} />
             <RunTrace rows={buildTraceRows(state)} summary={statusSummary(state)} />
           </div>
         </div>

@@ -60,7 +60,7 @@ export type RunEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'stage'; name: string; status: 'ok' | 'failed'; ms: number; detail: string }
   | { type: 'step_start'; index: number; name: string }
-  | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage; frame?: StepFrame; frameNote?: string }
+  | { type: 'step_complete'; index: number; name: string; status: TraceStatus; ms: number; detail: string; observed?: ObservedPage; frame?: StepFrame; frameNote?: string; frameSameAs?: number }
   | { type: 'result'; ms: number; observed: ObservedPage }
   | { type: 'error'; message: string; index: number | null }
   | { type: 'done'; totalMs: number }

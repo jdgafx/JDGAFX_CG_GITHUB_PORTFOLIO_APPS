@@ -19,7 +19,7 @@ export function useBrowseRun() {
   }, [])
 
   const execute = useCallback(async (steps: BotStep[], controller: AbortController, replay: boolean) => {
-    dispatch({ type: 'running', replay })
+    dispatch({ type: 'running', replay, at: Date.now() })
     try {
       await streamRun(steps, (event) => {
         if (!controller.signal.aborted) dispatch({ type: 'event', event })
@@ -38,7 +38,7 @@ export function useBrowseRun() {
 
   const planAndRun = useCallback(async (task: string) => {
     const controller = startController()
-    dispatch({ type: 'planning' })
+    dispatch({ type: 'planning', at: Date.now() })
     try {
       const plan = await planTask(task, controller.signal)
       if (controller.signal.aborted) return

@@ -13,12 +13,6 @@ export interface TraceRow {
   observed?: ObservedPage
 }
 
-export interface Metric {
-  label: string
-  value: string
-  hint: string
-}
-
 export function formatMs(ms: number): string {
   return `${ms.toLocaleString('en-US')} ms`
 }
@@ -125,34 +119,53 @@ export function statusSummary(state: RunState): string {
     case 'failed': {
       const error = state.error
       if (!error) return 'The run failed.'
-      if (error.index === null || total === 0) return error.message
+      if (total === 0) return 'Stopped before planning. The reason is above.'
+      if (error.index === null) return error.message
       return `Step ${error.index + 1} of ${total} failed: ${error.message}`
     }
   }
 }
 
-function latencyHint(state: RunState): string {
-  if (state.runMs === null) return 'Shown once the browser run finishes.'
-  if (state.planMs === null) return 'Browser run only. A replay makes no model call.'
-  return `Planner ${formatMs(state.planMs)}, browser ${formatMs(state.runMs)}.`
+/** One cell of the run readout. */
+export interface ReadoutCell {
+  label: string
+  value: string
+  hint: string
 }
 
-/** Figures the provider did not report read "not reported". Nothing is estimated or invented. */
-export function metricsFor(state: RunState): Metric[] {
+/** Milliseconds spent so far: the planner rows plus the browser rows, the same figures the trace shows. */
+function spentMs(state: RunState): number {
+  return state.planTrace.reduce((sum, entry) => sum + entry.ms, 0) + state.rows.reduce((sum, row) => sum + (row.status === 'running' ? 0 : row.ms), 0)
+}
+
+/**
+ * The four readout cells. While the run is live, Time counts up from its start (`now` is the clock reading).
+ * A figure the provider did not report reads "not reported". Nothing is estimated or invented.
+ */
+export function readoutFor(state: RunState, now: number): ReadoutCell[] {
   const usage = state.usage
   const planned = usage !== null
-  const latency = state.runMs === null ? null : (state.planMs ?? 0) + state.runMs
+  const live = state.phase === 'planning' || state.phase === 'running'
+  const ended = state.phase === 'failed' || state.phase === 'stopped'
+  const sofar = state.phase === 'failed' ? 'Before it failed' : 'Before it stopped'
+
+  let time = { value: '—', hint: 'Shown while it runs' }
+  if (live && state.startedAt !== null) time = { value: formatMs(Math.max(0, Math.round((now - state.startedAt) / 100) * 100)), hint: 'So far' }
+  else if (state.runMs !== null) {
+    time = {
+      value: formatMs((state.planMs ?? 0) + state.runMs),
+      hint: state.planMs === null ? 'Browser run only, no model call' : `Planner ${formatMs(state.planMs)}, browser ${formatMs(state.runMs)}`,
+    }
+  } else if (ended) time = { value: formatMs(spentMs(state)), hint: sofar }
+
+  const prompt = usage?.prompt_tokens ?? null
+  const completion = usage?.completion_tokens ?? null
+  const hint = prompt !== null && completion !== null ? `${prompt.toLocaleString('en-US')} in, ${completion.toLocaleString('en-US')} out` : 'Planner call'
   return [
-    { label: 'Served model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
-    { label: 'Prompt tokens', value: countOf(usage?.prompt_tokens ?? null, planned), hint: 'Planner call' },
-    { label: 'Completion tokens', value: countOf(usage?.completion_tokens ?? null, planned), hint: 'Planner call' },
-    { label: 'Total tokens', value: countOf(usage?.total_tokens ?? null, planned), hint: 'Planner call' },
-    {
-      label: 'Cost (USD)',
-      value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—',
-      hint: 'From usage.cost in the provider response',
-    },
-    { label: 'Total latency', value: latency === null ? '—' : formatMs(latency), hint: latencyHint(state) },
+    { label: 'Time', ...time },
+    { label: 'Tokens', value: countOf(usage?.total_tokens ?? null, planned), hint },
+    { label: 'Cost (USD)', value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—', hint: 'From usage.cost in the provider response' },
+    { label: 'Model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
   ]
 }
 
