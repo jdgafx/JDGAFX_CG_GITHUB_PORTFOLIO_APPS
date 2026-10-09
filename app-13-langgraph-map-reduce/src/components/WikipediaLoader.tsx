@@ -18,9 +18,18 @@ interface WikipediaLoaderProps {
   /** True while an analysis runs. The loader cannot change the text then. */
   disabled: boolean
   onLoad: (text: string) => void
+  /** Changes when a run completes on a narrow screen: the suggestion list folds away so the result is not pushed down. */
+  collapseKey: number
 }
 
-export function WikipediaLoader({ text, disabled, onLoad }: WikipediaLoaderProps) {
+export function WikipediaLoader({ text, disabled, onLoad, collapseKey }: WikipediaLoaderProps) {
+  // Open beside the run on a wide screen, closed on a phone where it would push the run down.
+  const [suggestOpen, setSuggestOpen] = useState(() => window.matchMedia('(min-width: 1000px)').matches)
+  const [seenKey, setSeenKey] = useState(collapseKey)
+  if (seenKey !== collapseKey) {
+    setSeenKey(collapseKey)
+    setSuggestOpen(false)
+  }
   const [query, setQuery] = useState('')
   const [load, setLoad] = useState<Load>({ phase: 'idle' })
   const [article, setArticle] = useState<Article | null>(null)
@@ -145,8 +154,8 @@ export function WikipediaLoader({ text, disabled, onLoad }: WikipediaLoaderProps
         <p className="ds-hint">Suggestions are unavailable right now. You can still press Load.</p>
       ) : null}
 
-      <div className="wiki-block">
-        <p className="ds-hint wiki-lead">Or load one of these, fetched live</p>
+      <details className="ds-disclosure" open={suggestOpen} onToggle={(event) => setSuggestOpen(event.currentTarget.open)}>
+        <summary>Suggested articles, fetched live</summary>
         <ul className="wiki-list">
           {SUGGESTED_TITLES.map((title) => (
             <li key={title}>
@@ -156,7 +165,7 @@ export function WikipediaLoader({ text, disabled, onLoad }: WikipediaLoaderProps
             </li>
           ))}
         </ul>
-      </div>
+      </details>
 
       <div className="wiki-state" role="status" aria-live="polite">
         {load.phase === 'loading' ? (

@@ -125,7 +125,7 @@ describe('the client watchdog', () => {
     expect(run.state()).toBe('pending')
   })
 
-  it('caps the whole run at 35 s even when bytes keep arriving', async () => {
+  it('caps the whole run at 60 s even when bytes keep arriving', async () => {
     vi.useFakeTimers()
     const { body, push } = openBody()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })))
@@ -139,7 +139,7 @@ describe('the client watchdog', () => {
     expect(run.state()).toBe('pending')
     await vi.advanceTimersByTimeAsync(1)
 
-    expect(OVERALL_TIMEOUT_MS).toBe(35_000)
+    expect(OVERALL_TIMEOUT_MS).toBe(60_000)
     expect(run.state()).toBe(STALLED)
   })
 

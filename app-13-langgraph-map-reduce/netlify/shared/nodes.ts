@@ -1,5 +1,5 @@
 import type { LangGraphRunnableConfig } from '@langchain/langgraph'
-import type { Chunk, Finding, Frame, NodeName, Outcome, RetryOutcome, TraceRow } from '../../src/types/frames'
+import type { Chunk, ChunkKeyPoints, Finding, Frame, Merged, NodeName, Outcome, RetryOutcome, TraceRow } from '../../src/types/frames'
 import { pause, type Limiter, type RunBudget } from './budget'
 import { CHUNK_TARGET, splitText } from './chunk'
 import { citedChunks, computeCoverage } from './coverage'
@@ -84,6 +84,10 @@ function callFields(requested: string, reply: ChatReply): Partial<TraceRow> {
     ...(reply.usage ? { usage: reply.usage } : {}),
     ...(reading ? { cost: reading.cost, costSource: reading.source } : {}),
   }
+}
+
+function keyPointsOf(merged: Merged): ChunkKeyPoints[] {
+  return merged.byChunk.map((c) => ({ chunk: c.chunkId, points: c.points }))
 }
 
 function noPointsMessage(trace: TraceRow[]): string {
@@ -226,7 +230,7 @@ export function makeNodes(deps: NodeDeps) {
         const label = noTime ? `${missing} still missing, retry skipped for time` : `${missing} still missing after the retry`
         emit({ type: 'edge', from: 'check', to: 'final', label })
         update.decision = 'final'
-        update.retryOutcome = 'skipped'
+        update.retryOutcome = noTime ? 'skipped' : 'used-nothing-new'
         update.notice = noTime ? RETRY_SKIPPED_NOTICE : `${missing} still missing after the retry. The summary is from the first pass.`
       }
     }
@@ -355,6 +359,7 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: chunkIds.length,
       findingCount: merged.findingCount,
+      keyPoints: keyPointsOf(merged),
       reviewFlags,
       notice,
       retryOutcome,
@@ -391,6 +396,7 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: total,
       findingCount: merged.findingCount,
+      keyPoints: keyPointsOf(merged),
       reviewFlags: state.reviewFlags,
       notice: state.notice,
       retryOutcome: state.retryOutcome,

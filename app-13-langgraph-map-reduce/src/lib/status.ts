@@ -1,6 +1,6 @@
 import { formatTokens, formatCount } from './format'
 import { MAX_CHARS, MIN_CHARS } from './limits'
-import type { Phase, RunView, Status } from './view'
+import type { Phase, RunView, StageName, Status } from './view'
 
 /** The word beside a graph node's dot. */
 export const STATE_WORD: Record<Status, string> = {
@@ -99,4 +99,32 @@ export function loopText(view: RunView): string {
   const exit = view.edges.find((e) => e.startsWith('coverage') || e.includes('still missing'))
   if (exit) return sentence(exit)
   return 'Retry if chunks are missing'
+}
+
+/** The short label on the loop in the drawing. The full reason stays in the coverage notice. */
+export function loopShort(view: RunView): string {
+  if (view.retryLabel) return sentence(view.retryLabel)
+  return view.edges.some((e) => e.startsWith('coverage')) ? 'Coverage complete' : 'Retry if chunks are missing'
+}
+
+/** The steps taken so far, in order, for the path line. Repeated extract rows collapse to "extract, 9 chunks". */
+export function pathSteps(view: RunView): Array<{ label: string; now: boolean }> {
+  const steps: Array<{ label: string; now: boolean; extracts: number }> = []
+  for (const row of view.rows) {
+    const last = steps[steps.length - 1]
+    if (row.node === 'extract' && last && last.extracts > 0) {
+      last.extracts += 1
+      last.label = `extract, ${formatCount(last.extracts, 'chunk')}`
+    } else if (row.node === 'extract') {
+      steps.push({ label: 'extract, 1 chunk', now: false, extracts: 1 })
+    } else steps.push({ label: row.node, now: false, extracts: 0 })
+  }
+  const running = (Object.keys(view.stages) as StageName[]).find((name) => view.stages[name] === 'running')
+  if (running) steps.push({ label: running, now: true, extracts: 0 })
+  else if (view.branches.some((b) => b.status === 'running')) {
+    const last = steps[steps.length - 1]
+    if (last && last.extracts > 0) last.now = true
+    else steps.push({ label: 'extract', now: true, extracts: 0 })
+  }
+  return steps.map(({ label, now }) => ({ label, now }))
 }

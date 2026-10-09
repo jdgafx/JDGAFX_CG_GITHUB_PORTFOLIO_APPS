@@ -27,6 +27,8 @@ export function coverageBadge(result: Pick<RunResult, 'retryOutcome'>): { tone: 
       return { tone: 'ds-badge--warning', text: '1 retry used, first pass kept' }
     case 'used':
       return { tone: 'ds-badge--success', text: '1 retry used' }
+    case 'used-nothing-new':
+      return { tone: 'ds-badge--warning', text: '1 retry used, nothing new' }
     case 'none':
       return { tone: 'ds-badge--success', text: 'No retry needed' }
   }
@@ -34,5 +36,5 @@ export function coverageBadge(result: Pick<RunResult, 'retryOutcome'>): { tone: 
 
 /** "Still missing after the retry" once a retry ran to the end, otherwise "Still missing". */
 export function missingLead(result: Pick<RunResult, 'retryOutcome'>): string {
-  return result.retryOutcome === 'used' || result.retryOutcome === 'kept-first' ? 'Still missing after the retry' : 'Still missing'
+  return result.retryOutcome === 'used' || result.retryOutcome === 'used-nothing-new' || result.retryOutcome === 'kept-first' ? 'Still missing after the retry' : 'Still missing'
 }

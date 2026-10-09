@@ -26,6 +26,7 @@ describe('the coverage badge and the missing line follow the retry outcome', () 
   it.each([
     ['none', 'ds-badge--success', 'No retry needed', 'Still missing'],
     ['used', 'ds-badge--success', '1 retry used', 'Still missing after the retry'],
+    ['used-nothing-new', 'ds-badge--warning', '1 retry used, nothing new', 'Still missing after the retry'],
     ['kept-first', 'ds-badge--warning', '1 retry used, first pass kept', 'Still missing after the retry'],
     ['skipped', 'ds-badge--warning', 'Retry not completed', 'Still missing'],
   ] as const)('%s', (retryOutcome, tone, text, lead) => {

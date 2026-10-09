@@ -193,6 +193,11 @@ describe('graph path and state', () => {
     expect(run.final?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
     expect(run.final?.retries).toBe(1)
     expect(run.final?.findingCount).toBe(2)
+    expect(run.final?.retryOutcome).toBe('used-nothing-new')
+    expect(run.final?.keyPoints).toEqual([
+      { chunk: 1, points: ['Chunk 1 states its main rule.', 'Chunk 1 sets a deadline.'] },
+      { chunk: 3, points: ['Chunk 3 states its main rule.', 'Chunk 3 sets a deadline.'] },
+    ])
     expect(run.final?.summary.sections.length).toBeGreaterThan(0)
     expect(edges(run.frames)).toEqual([
       'split -> extract: fan out: 3 chunks',

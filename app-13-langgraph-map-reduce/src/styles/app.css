@@ -1,6 +1,5 @@
-/* App layer. Colour, type and spacing come from tokens.css and the shared ds-* classes.
-   The graph is drawn in fixed pixels: the node widths below add up to 710px, and the loop
-   geometry in GraphView.tsx depends on them. Change one and change the other. */
+/* App layer for GraphSwarm. Colour, type, states, graph, trace and the lead card come from tokens.css and components.css.
+   What is here is local: the Wikipedia loader, the graph drawing's scaling, and the coverage map with its source panel. */
 
 /* Wikipedia loader: a tinted panel above the text box */
 .wiki {
@@ -39,7 +38,7 @@
 
 .wiki-chip {
   max-width: 100%;
-  min-height: 34px;
+  min-height: 40px;
   padding: 4px 12px;
   font: inherit;
   font-size: 14px;
@@ -93,7 +92,6 @@
   padding: 10px 12px;
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
-  border-left: 3px solid var(--ds-success);
   border-radius: var(--ds-radius-sm);
 }
 
@@ -113,7 +111,7 @@
 
 /* Controls */
 .doc-input {
-  height: clamp(200px, 36vh, 340px);
+  height: clamp(140px, 20vh, 200px);
   font-size: 15px;
   line-height: 1.55;
 }
@@ -126,424 +124,102 @@
   color: var(--ds-danger);
 }
 
-/* The tokens make the controls sticky from 1000px. A column taller than a short window would hide Stop, so it stays in flow. */
-.ds-controls {
-  position: static;
-}
-
-.control-stack {
-  display: grid;
-  gap: 20px;
-}
-
-.control-group {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.control-group .ds-button {
-  width: 100%;
-}
-
-/* Status line above the graph */
-.run-status {
-  min-height: 24px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
-/* Graph canvas: fixed 710px wide, the fan height is set per run in --h */
-.graph {
-  position: relative;
-  width: 710px;
-  margin: 0 auto;
-  padding: 26px 0 70px;
-  height: calc(var(--h) + 96px);
-}
-
-.graph-row {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  width: 710px;
-  height: var(--h);
-}
-
-.graph-row > li {
-  flex: 0 0 auto;
-}
-
-/* Stage nodes: split, reduce, synthesize, check, final */
-.graph-node {
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  height: 56px;
-  padding: 6px 10px;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-  min-width: 0;
-}
-
-.graph-node--split,
-.graph-node--reduce {
-  width: 88px;
-}
-
-.graph-node--synthesize {
-  width: 124px;
-}
-
-.graph-node--check,
-.graph-node--final {
-  width: 80px;
-}
-
-.graph-node__name {
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.graph-node__state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 1.3;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-.graph-node.is-running {
-  border-color: var(--ds-accent);
-  background: var(--ds-accent-soft);
-}
-
-.graph-node.is-running .graph-node__state {
-  color: var(--ds-text);
-}
-
-.graph-node.is-failed {
-  border-color: var(--ds-danger);
-  background: var(--ds-danger-soft);
-}
-
-.graph-node.is-failed .graph-node__state {
-  color: var(--ds-danger);
-}
-
-.graph-node.is-stopped,
-.graph-node.is-idle {
-  border-style: dashed;
-}
-
-/* Fan: one slot per chunk, the chunk node centred in its slot */
-.graph-fan {
-  width: 152px;
-  align-self: stretch;
-}
-
-.graph-fan__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  display: grid;
-  grid-template-rows: repeat(var(--n), minmax(0, 1fr));
-}
-
-.graph-chunk {
-  align-self: center;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 8px;
-  font-size: 13px;
-  line-height: 1.2;
-  white-space: nowrap;
-  background: var(--ds-surface);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-sm);
-}
-
-.graph-chunk__name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.graph-chunk__state {
-  color: var(--ds-text-muted);
-}
-
-.graph-chunk.is-running {
-  border-color: var(--ds-accent);
-  background: var(--ds-accent-soft);
-}
-
-.graph-chunk.is-running .graph-chunk__state {
-  color: var(--ds-text);
-}
-
-.graph-chunk.is-failed {
-  border-color: var(--ds-danger);
-  background: var(--ds-danger-soft);
-}
-
-.graph-chunk.is-failed .graph-chunk__state {
-  color: var(--ds-danger);
-}
-
-.graph-chunk.is-stopped,
-.graph-chunk.is-idle {
-  border-style: dashed;
-}
-
-/* Wires: the fan out and converge are SVG in percentages, so they meet the nodes at any count */
-.graph-wire {
-  display: block;
-  align-self: stretch;
-  height: 100%;
-}
-
-.graph-wire--fan {
-  width: 28px;
-}
-
-.graph-wire--converge {
-  width: 28px;
-}
-
-.graph-wire svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.graph-wire path {
-  fill: none;
-  stroke: var(--ds-text-muted);
-  stroke-width: 1.5px;
-  vector-effect: non-scaling-stroke;
-}
-
-.graph-wire path.is-taken {
-  stroke: var(--ds-accent);
-  stroke-width: 2.5px;
-}
-
-.graph-link {
-  display: block;
-  width: 14px;
-  height: 2px;
-  background: var(--ds-text-muted);
-}
-
-.graph-link.is-taken {
-  background: var(--ds-accent);
-}
-
-.graph-fan-label {
-  position: absolute;
-  top: 2px;
-  left: 88px;
-  margin: 0;
-  font-size: 13px;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-.graph-fan-label.is-taken {
-  color: var(--ds-accent);
-  font-weight: 600;
-}
-
-/* The loop: check back to the fan, drawn under the row and labelled with the decision */
-.graph-loop {
-  position: absolute;
-  left: 0;
-  top: 26px;
-  overflow: visible;
-}
-
-.graph-loop path {
-  fill: none;
-  stroke: var(--ds-text-muted);
-  stroke-width: 1.5px;
-  stroke-dasharray: 6 5;
-}
-
-.graph-loop.is-taken path {
-  stroke: var(--ds-accent);
-  stroke-width: 2.5px;
-}
-
-.graph-loop-label {
-  position: absolute;
-  left: 192px;
-  top: calc(26px + var(--h) + 24px);
-  width: 384px;
-  margin: 0;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--ds-text-muted);
-}
-
-.graph-loop-label.is-taken {
-  color: var(--ds-accent);
-  font-weight: 650;
-}
-
-/* Below 720px the graph scrolls inside its panel, and the panel says so */
-.graph-scroll-hint {
-  display: none;
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--ds-text-muted);
-}
-
-/* Readout: three figures a row, models in a list below */
-.readout {
-  margin: 0;
-}
-
-@media (min-width: 721px) {
-  .readout {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-/* Models used takes the whole last row, so a full model id fits on one line. The track must not grow to the id's width. */
-.readout > .ds-strip__item:last-child {
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.readout-hint {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--ds-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.model-id {
-  font-family: var(--ds-mono);
-  font-size: 13px;
-  color: var(--ds-text);
-  overflow-wrap: anywhere;
-}
-
-/* In the readout a model id is one token: it never wraps at a hyphen or slash. A very long one is cut with an ellipsis, and its title holds the full id. */
-.readout .model-id {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  overflow-wrap: normal;
-}
-
-/* Empty states: a sentence that says what happens next, no border */
-.empty-note {
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--ds-text-muted);
-}
-
-/* Summary and coverage */
-.summary-overview {
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.summary-section {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.summary-section__title {
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.35;
-}
-
-.summary-points {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding-left: 20px;
-}
-
-.summary-points li {
-  max-width: var(--ds-measure);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.summary-entities {
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.cite {
-  margin-left: 6px;
-}
-
-/* The stopped dot takes the warning colour, like the stopped badge beside it */
-.ds-dot--stopped {
-  background: var(--ds-warning);
-}
-
-.coverage-count {
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 1.25;
-}
-
-/* The review model's opinion: a muted note, never part of the coverage count */
-.coverage-note {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--ds-text-muted);
-}
-
-/* Trace: the state dot and word. The meta column keeps each figure on one line (tokens.css) and wraps only on phones */
-.trace-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
 @media (max-width: 720px) {
-  .wiki-chip {
-    min-height: 44px;
-  }
-
+  .wiki-chip,
   .wiki-form .ds-button {
     min-height: 44px;
   }
+}
 
-  .control-group .ds-button {
-    min-height: 44px;
-  }
+/* Graph: the drawing fills its stage; the narrow one is capped so a tablet does not blow it up */
+.graph-svg { display: block; width: 100%; height: auto; }
+.graph-svg--narrow { max-width: 420px; margin: 0 auto; }
+.ds-g-pill { fill: var(--ds-text); font-weight: 650; }
 
-  .graph-scroll-hint {
-    display: block;
-  }
+/* Coverage map and source panel: the page's signature. Shading is accent mixed into the surface, so it follows the app hue in both themes. */
+.evidence { display: grid; gap: 24px; min-width: 0; }
+.evidence__strip { display: grid; gap: 8px; min-width: 0; }
+.evidence__title { font-size: 15px; font-weight: 650; }
+.evidence__overview { max-width: 62ch; font-size: 22px; line-height: 1.45; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.evidence__body { display: grid; gap: 16px; min-width: 0; }
+.evidence__body--wide { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.evidence__summary { display: grid; gap: 16px; min-width: 0; align-content: start; }
+.evidence__side { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; min-width: 0; }
+
+.strip { display: grid; gap: 8px; min-width: 0; }
+.strip__cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 8px; }
+.cell {
+  position: relative; display: grid; align-content: center; justify-items: center; gap: 0; min-height: 56px; padding: 4px;
+  font: inherit; color: var(--ds-text); cursor: pointer;
+  background: color-mix(in srgb, var(--ds-accent) calc(var(--lvl, 0) * 15%), var(--ds-surface));
+  border: 1px solid var(--ds-border-strong); border-radius: 6px;
+  transition: opacity 0.15s var(--ds-ease), box-shadow 0.15s var(--ds-ease);
+}
+.cell[data-level="1"] { --lvl: 1; }
+.cell[data-level="2"] { --lvl: 2; }
+.cell[data-level="3"] { --lvl: 3; }
+.cell[data-level="4"] { --lvl: 4; }
+.cell::after { content: ""; position: absolute; left: 6px; bottom: 4px; height: 3px; width: calc(var(--lvl, 0) * 22.5%); max-width: calc(100% - 12px); border-radius: 2px; background: var(--ds-text); opacity: 0.55; }
+.cell__id { font-family: var(--ds-mono); font-size: 18px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.cell__count { font-size: 13px; line-height: 1.2; color: var(--ds-text); white-space: nowrap; }
+.cell[data-kind="uncited"], .cell[data-kind="no-points"] {
+  background: var(--ds-danger-soft); border: 2px dashed var(--ds-danger);
+}
+.cell[data-kind="uncited"] .cell__count, .cell[data-kind="no-points"] .cell__count { color: var(--ds-danger); font-weight: 650; }
+.cell__retry { color: var(--ds-text); }
+.cell .cell__retry { position: absolute; top: 3px; right: 3px; }
+.cell:hover { box-shadow: inset 0 0 0 2px var(--ds-accent-dim); }
+.cell[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--ds-accent); }
+.cell[data-lit="true"] { outline: 3px solid var(--ds-accent); outline-offset: 1px; }
+.cell[data-dim="true"] { opacity: 0.45; }
+
+.strip__legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--ds-text-muted); }
+.strip__legend li { display: inline-flex; align-items: center; gap: 6px; }
+.strip__ramp { display: inline-flex; border: 1px solid var(--ds-border-strong); border-radius: 3px; overflow: hidden; }
+.strip__ramp i { width: 14px; height: 12px; background: color-mix(in srgb, var(--ds-accent) calc(var(--lvl, 0) * 15%), var(--ds-surface)); }
+.strip__ramp i[data-level="1"] { --lvl: 1; }
+.strip__ramp i[data-level="2"] { --lvl: 2; }
+.strip__ramp i[data-level="3"] { --lvl: 3; }
+.strip__ramp i[data-level="4"] { --lvl: 4; }
+.strip__missing { width: 16px; height: 12px; border: 2px dashed var(--ds-danger); border-radius: 3px; background: var(--ds-danger-soft); }
+
+.summary-section { display: grid; gap: 8px; min-width: 0; }
+.summary-section__title { font-size: 15px; font-weight: 650; line-height: 1.35; }
+.summary-points { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.point {
+  display: grid; gap: 4px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: var(--ds-text);
+  background: transparent; border: 1px solid var(--ds-border); border-radius: 8px; cursor: pointer;
+}
+.point__text { font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
+.point__cites { display: flex; flex-wrap: wrap; gap: 4px; }
+.point:hover { background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
+.point[aria-pressed="true"] { background: var(--ds-accent-soft); border-color: var(--ds-accent); box-shadow: inset 0 0 0 1px var(--ds-accent); }
+.summary-entities { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.coverage-note { font-size: 13px; line-height: 1.4; color: var(--ds-text-muted); }
+
+.source { display: grid; gap: 16px; padding: 16px; min-width: 0; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.evidence__panel { min-width: 0; margin-top: 8px; }
+.source__title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 18px; font-weight: 650; }
+.source__quote { margin: 0; padding: 8px 12px; font-size: 15px; line-height: 1.5; background: var(--ds-accent-soft); border-radius: 6px; }
+.source__chunk { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--ds-border); }
+.source__chunk-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 15px; font-weight: 650; }
+.source__text { max-width: 68ch; font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; color: var(--ds-text-muted); }
+.source__hit { color: var(--ds-text); background: var(--ds-accent-soft); box-shadow: inset 0 -2px 0 var(--ds-accent); padding: 1px 0; border-radius: 2px; }
+.source__list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.source__list--plain { padding-left: 18px; list-style: disc; font-size: 15px; line-height: 1.5; }
+.source__link { min-height: 40px; padding: 4px 8px; text-align: left; font: inherit; font-size: 15px; line-height: 1.45; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 6px; cursor: pointer; }
+.source__link:hover { border-color: var(--ds-accent); }
+
+@media (max-width: 720px) {
+  .cell { min-height: 56px; }
+  .evidence__overview { font-size: 18px; }
+  .source { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell { transition: none; }
+}
+
+/* Six readout cells: three across, so the last row is never half empty */
+@media (min-width: 721px) {
+  .ds-run__readout .ds-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

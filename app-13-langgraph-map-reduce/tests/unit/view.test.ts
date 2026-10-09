@@ -56,6 +56,7 @@ describe('applyFrame', () => {
           retries: 0,
           chunkCount: 1,
           findingCount: 1,
+          keyPoints: [],
           notice: null,
           retryOutcome: 'none',
           metrics: {
@@ -120,6 +121,7 @@ describe('the result frame keeps the streamed states', () => {
       retries: 1,
       chunkCount: 1,
       findingCount: 1,
+      keyPoints: [],
       notice: 'The retry did not finish in time, so the summary is from the first pass.',
       retryOutcome: 'skipped',
       metrics: { totalMs: 5, totalTokens: 10, totalCost: null, costSource: null, cheapCost: null, cheapCalls: 0, synthesisCost: null },

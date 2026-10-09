@@ -23,9 +23,13 @@ async function readNext(reader: ReadableStreamDefaultReader<Uint8Array>): Promis
   }
 }
 
-/** The run stops itself at 23 s plus a 1 s grace. The client waits this long for any byte, and this long in all. */
+/**
+ * The run stops itself at 23 s plus a 1 s grace. The client waits 30 s for any byte, and 60 s in all: the
+ * idle timer catches a real stall, and the generous overall cap keeps a slow but healthy stream from being cut
+ * (two correct runs finished at 32.7 s on a lossy network).
+ */
 export const IDLE_TIMEOUT_MS = 30_000
-export const OVERALL_TIMEOUT_MS = 35_000
+export const OVERALL_TIMEOUT_MS = 60_000
 export const STALLED = 'The connection stopped answering. No summary was written. Analyze again to retry.'
 
 /**

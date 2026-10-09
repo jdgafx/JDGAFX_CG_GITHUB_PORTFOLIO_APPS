@@ -1,4 +1,4 @@
-import type { Frame, RunResult, TraceRow } from '../types/frames'
+import type { Frame, NodeName, RunResult, TraceRow } from '../types/frames'
 import { runningStep } from './status'
 
 export type Status = 'idle' | 'running' | 'ok' | 'failed' | 'stopped'
@@ -10,6 +10,13 @@ export interface Branch {
   status: Status
   attempts: number
   detail: string
+}
+
+/** When a step began, as the server's offset from the run start. Rows carry only a duration, so this places the bars. */
+export interface StartMark {
+  node: NodeName
+  chunk?: number
+  ms: number
 }
 
 export interface RunView {
@@ -25,6 +32,10 @@ export interface RunView {
   live: string
   /** The last specific step the status line named, kept through the short gaps between steps. */
   lastStep: string
+  starts: StartMark[]
+  /** Browser clock times: when Analyze was pressed and when the stream ended, for the ticking and final readout. */
+  startedAt: number | null
+  endedAt: number | null
 }
 
 export function initialView(): RunView {
@@ -39,6 +50,9 @@ export function initialView(): RunView {
     error: null,
     live: '',
     lastStep: '',
+    starts: [],
+    startedAt: null,
+    endedAt: null,
   }
 }
 
@@ -63,6 +77,8 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
 function applyFrameToView(view: RunView, frame: Frame): RunView {
   switch (frame.type) {
     case 'node_start': {
+      const mark: StartMark = { node: frame.node, ...(frame.chunk !== undefined ? { chunk: frame.chunk } : {}), ms: frame.ms }
+      view = { ...view, starts: [...view.starts, mark] }
       if (frame.node === 'extract' && frame.chunk !== undefined) {
         const attempts = (view.branches.find((b) => b.chunk === frame.chunk)?.attempts ?? 0) + 1
         return {

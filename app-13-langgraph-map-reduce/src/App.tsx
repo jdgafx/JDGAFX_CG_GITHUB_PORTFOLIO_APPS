@@ -1,18 +1,20 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { GraphView } from './components/GraphView'
+import { Header } from './components/Header'
 import { InputPanel } from './components/InputPanel'
-import { MetricsRow } from './components/MetricsRow'
-import { CoverageSection, SummarySection } from './components/ResultPanel'
+import { ReadoutStrip } from './components/ReadoutStrip'
+import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
-import { metricsFor } from './lib/metrics'
-import { PHASE_WORD, phaseDot, phaseTone, statusLine } from './lib/status'
+import { NARROW_BELOW_PX, shouldScrollToResult } from './lib/scrollToResult'
+import { statusLine } from './lib/status'
 import { applyFrame, endView, failView, initialView, stopView, type RunView } from './lib/view'
 import type { Frame } from './types/frames'
 
 type Action =
-  | { type: 'start' }
+  | { type: 'start'; now: number }
+  | { type: 'clock-stop'; now: number }
   | { type: 'frame'; frame: Frame }
   | { type: 'fail'; message: string }
   | { type: 'stop' }
@@ -21,7 +23,9 @@ type Action =
 function reduce(view: RunView, action: Action): RunView {
   switch (action.type) {
     case 'start':
-      return { ...initialView(), phase: 'running' }
+      return { ...initialView(), phase: 'running', startedAt: action.now }
+    case 'clock-stop':
+      return view.startedAt !== null && view.endedAt === null ? { ...view, endedAt: action.now } : view
     case 'frame':
       return applyFrame(view, action.frame)
     case 'fail':
@@ -40,6 +44,10 @@ function isValid(text: string): boolean {
 export default function App() {
   const [text, setText] = useState('')
   const [view, dispatch] = useReducer(reduce, undefined, initialView)
+  /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
+  const [analyzed, setAnalyzed] = useState('')
+  const [collapseKey, setCollapseKey] = useState(0)
+  const startScroll = useRef(0)
   const busy = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const running = view.phase === 'running'
@@ -48,12 +56,31 @@ export default function App() {
   // Leaving the page stops the stream, so no request keeps running in the background.
   useEffect(() => () => controller.current?.abort(), [])
 
+  // When a run ends, bring the result into view on a narrow screen (unless the visitor scrolled during the run)
+  // and move focus to its heading when focus has fallen to the page body.
+  const ended = view.phase === 'done' || view.phase === 'error' || view.phase === 'stopped'
+  useEffect(() => {
+    const target = document.querySelector<HTMLElement>('[data-result-focus]')
+    if (!ended || !target) return
+    const scrolledBy = window.scrollY - startScroll.current
+    if (shouldScrollToResult({ width: window.innerWidth, ended, scrolledBy })) {
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      target.closest('.ds-run__result')?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
+    }
+    if (document.activeElement === document.body || document.activeElement === null) target.focus({ preventScroll: true })
+  }, [ended])
+
   async function analyze(source: string): Promise<void> {
     if (busy.current || !isValid(source)) return
     busy.current = true
+    startScroll.current = window.scrollY
+    if (window.innerWidth < NARROW_BELOW_PX) setCollapseKey((n) => n + 1)
+    // Folding the list moves the page; measure the visitor's scrolling from where it settles.
+    requestAnimationFrame(() => requestAnimationFrame(() => (startScroll.current = window.scrollY)))
     const current = new AbortController()
     controller.current = current
-    dispatch({ type: 'start' })
+    setAnalyzed(source)
+    dispatch({ type: 'start', now: Date.now() })
     try {
       await runAnalysis(source, (frame) => dispatch({ type: 'frame', frame }), current.signal)
       if (current.signal.aborted) dispatch({ type: 'stop' })
@@ -67,29 +94,13 @@ export default function App() {
       }
     } finally {
       busy.current = false
+      dispatch({ type: 'clock-stop', now: Date.now() })
     }
   }
 
-  const metrics = view.result?.metrics ?? (view.rows.length > 0 ? metricsFor(view.rows, 0) : null)
-
   return (
-    <div className="ds-app">
-      <header className="ds-header">
-        <div className="ds-header__inner">
-          <div>
-            <h1 className="ds-title">GraphSwarm</h1>
-            <p className="ds-subtitle">Load a Wikipedia article or paste a long document and get a cited summary, with the tokens and cost of every model call.</p>
-          </div>
-          <span className={`ds-badge ${phaseTone(view.phase)}`}>
-            <span className={phaseDot(view.phase)} aria-hidden="true" />
-            {PHASE_WORD[view.phase]}
-          </span>
-          <p className="ds-showcase">
-            <strong>What this showcases:</strong> a LangGraph map-reduce: many parallel extractions, one synthesis that
-            cites its chunks, and a coverage check that re-runs only what was missed.
-          </p>
-        </div>
-      </header>
+    <div className="ds-app" data-run={view.phase === 'error' ? 'failed' : view.phase}>
+      <Header phase={view.phase} />
 
       <main className="ds-main">
         <div className="ds-bench">
@@ -101,7 +112,11 @@ export default function App() {
               onChange={setText}
               onRun={() => void analyze(text)}
               onStop={() => controller.current?.abort()}
+              collapseKey={collapseKey}
             />
+            <p className="ds-help" role="status">
+              {statusLine(view, text.length, valid)}
+            </p>
             {view.error ? (
               <div className="ds-notice ds-notice--error" role="alert">
                 {view.error}
@@ -110,13 +125,9 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <p className="run-status" role="status">
-              {statusLine(view, text.length, valid)}
-            </p>
+            <ResultCard view={view} analyzed={analyzed} onRetry={() => void analyze(text)} />
+            <ReadoutStrip view={view} />
             <GraphView view={view} />
-            <MetricsRow metrics={metrics} phase={view.phase} rows={view.rows} />
-            <SummarySection result={view.result} phase={view.phase} />
-            <CoverageSection result={view.result} phase={view.phase} />
             <TracePanel view={view} />
           </div>
         </div>

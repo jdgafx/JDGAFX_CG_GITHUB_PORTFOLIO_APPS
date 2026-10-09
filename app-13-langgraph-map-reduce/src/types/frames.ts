@@ -86,10 +86,17 @@ export interface RunMetrics {
 
 /**
  * What happened to the coverage retry. none: no chunk needed one. used: it ran and its summary is the one returned.
- * kept-first: it ran but covered no more chunks, so the first-pass summary is returned. skipped: it was skipped
+ * kept-first: it ran but covered no more chunks, so the first-pass summary is returned. used-nothing-new: it ran to
+ * the end but found nothing new, so no second summary was written and the first pass stands. skipped: it was skipped
  * for time, or it did not finish, and the first-pass summary is returned.
  */
-export type RetryOutcome = 'none' | 'used' | 'kept-first' | 'skipped'
+export type RetryOutcome = 'none' | 'used' | 'used-nothing-new' | 'kept-first' | 'skipped'
+
+/** The key points one chunk gave, after the reduce step merged them. Chunks that gave none are absent. */
+export interface ChunkKeyPoints {
+  chunk: number
+  points: string[]
+}
 
 /** What the graph's final node produces. */
 export interface Outcome {
@@ -99,6 +106,8 @@ export interface Outcome {
   retries: number
   chunkCount: number
   findingCount: number
+  /** What each chunk's extraction found, so the page can show the evidence behind a summary point. */
+  keyPoints: ChunkKeyPoints[]
   /** Chunks the review model thinks the summary covers thinly. Advisory: it never changes coverage or starts a retry. */
   reviewFlags: number[]
   /** Set only when a retry pass did not finish: the first-pass summary is returned, with the reason. */

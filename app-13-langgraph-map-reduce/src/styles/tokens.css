@@ -1,240 +1,253 @@
-/* Shared design system v2 for the 13 portfolio apps (design pass 2026-10-08). Copy verbatim to
-   src/styles/tokens.css and import it first in the app entry. Do not change token values per app.
-   Fonts: Atkinson Hyperlegible Next (text) and JetBrains Mono (code, model IDs, JSON only), loaded
-   from Google Fonts by a <link> in index.html; the stacks below cover the moment before they load.
-   Class names from v1 are kept, so existing markup keeps working; new classes add the bench layout,
-   the readout strip, the showcase callout, control help lines and status dots. */
+/* Shared design system v3 "instrument bench" (round 2), for the 13 portfolio apps. Copy tokens.css and components.css
+   verbatim to src/styles/ and import both first, in that order. Never edit them per app.
+   One line per app selects the identity: <html lang="en" data-app="11"> sets the signal hue from the 13-step palette
+   below; neutrals, type, spacing, radii and components are shared. Set data-run (idle, running, done, failed, stopped)
+   on the .ds-app root to light the masthead rail while a run is live and to let the result lead once it has ended.
+   Fonts: Atkinson Hyperlegible Next (text) and JetBrains Mono (numerals, code, model ids) from a Google Fonts <link>.
+   Type scale 13 / 15 / 18 / 22 / 28 / 36; weights 400, 650, 760. v2 class names still work.
+   Danger rule (matters most for the warm accents, apps 04, 05 and 06): a destructive action is outline-only
+   (.ds-button--danger), never filled, and never sits directly beside a filled accent button (put it at the far end of
+   the row or in the dialog's secondary slot). Failed and error states always carry the "!" mark and the word, so they
+   never rely on red against a warm accent. Motion budget while a run is live: the rail sweep, the active-node halo, the
+   live trace bar and the ticking readout; nothing else animates. */
 
 :root {
   color-scheme: light dark;
   --ds-font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
   --ds-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
-  --ds-bg: #f6f7f9;          /* paper: the cool off-white page */
-  --ds-surface: #ffffff;     /* panel */
-  --ds-surface-2: #eef2f6;   /* bench: the tinted work surface behind the graph and trace */
-  --ds-border: #d3dae4;      /* rule */
-  --ds-text: #0e1b2b;        /* ink */
-  --ds-text-muted: #56637a;  /* graphite */
-  --ds-accent: #0e7c86;      /* signal: the one action colour and the active node */
+  --ds-bg: #f3f5f8;          /* paper */
+  --ds-surface: #ffffff;     /* panel face */
+  --ds-surface-2: #ebeff4;   /* bench: the tinted work surface */
+  --ds-border: #d5dce6;      /* hairline rule */
+  --ds-border-strong: #7d8aa0; /* form controls and graph strokes: 3:1 against the surfaces */
+  --ds-text: #0e1b2b;
+  --ds-text-muted: #4d5a70;
+  --ds-accent: var(--app-l, #047172);   /* the app's signal: action fill, active node, taken path */
   --ds-accent-text: #ffffff;
-  --ds-accent-soft: #dff3f4;
-  --ds-success: #1f7a43;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 12%, var(--ds-surface));
+  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 38%, var(--ds-surface));
+  --ds-success: #1a6e3c;
   --ds-success-soft: #e3f3e8;
-  --ds-warning: #9a6400;
+  --ds-warning: #8a5a00;
   --ds-warning-soft: #fdf2d8;
   --ds-danger: #b3261e;
   --ds-danger-soft: #fbe9e7;
-  --ds-focus: #0e7c86;
-  --ds-radius: 6px;
-  --ds-radius-sm: 4px;
+  --ds-focus: var(--ds-accent);
+  --ds-series-2: #4d5a70; --ds-series-3: #b4580f; --ds-series-4: #6d4fc9; /* chart series after the accent, 3:1 or better */
+  --ds-radius: 8px;
+  --ds-radius-sm: 6px;
   --ds-shadow: none;
-  --ds-measure: 72ch;
+  --ds-measure: 68ch;
+  --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ds-bg: #0d131b;
-    --ds-surface: #121a24;
-    --ds-surface-2: #182230;
-    --ds-border: #263142;
-    --ds-text: #e7ecf3;
-    --ds-text-muted: #9aa6b8;
-    --ds-accent: #4fc3cb;
-    --ds-accent-text: #0d131b;
-    --ds-accent-soft: #11363a;
-    --ds-success: #6fd394;
-    --ds-success-soft: #122a1c;
-    --ds-warning: #f2bf5e;
-    --ds-warning-soft: #2c2311;
-    --ds-danger: #ff8f86;
-    --ds-danger-soft: #35181a;
-    --ds-focus: #4fc3cb;
+    --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
+    --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
+    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
+    --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
+    --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
+    --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
+    --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
   }
 }
 
 :root[data-theme="dark"] {
-  --ds-bg: #0d131b;
-  --ds-surface: #121a24;
-  --ds-surface-2: #182230;
-  --ds-border: #263142;
-  --ds-text: #e7ecf3;
-  --ds-text-muted: #9aa6b8;
-  --ds-accent: #4fc3cb;
-  --ds-accent-text: #0d131b;
-  --ds-accent-soft: #11363a;
-  --ds-success: #6fd394;
-  --ds-success-soft: #122a1c;
-  --ds-warning: #f2bf5e;
-  --ds-warning-soft: #2c2311;
-  --ds-danger: #ff8f86;
-  --ds-danger-soft: #35181a;
-  --ds-focus: #4fc3cb;
+  --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
+  --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
+  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
+  --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
+  --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
+  --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
 }
+
+/* The 13-step signal palette: app number to hue. --app-l is the accent in light mode (5.6:1 on white), --app-d in dark
+   (7:1 on the dark bench). Hues sit at least 20 degrees apart in OKLCH and stay off the warning amber (60-100) and the
+   danger red (20-35); app 8 (green) sits near the success green, so its done state keeps a word and a check shape. */
+[data-app="1"] { --app-l: #5259c8; --app-d: #97a5fe; }
+[data-app="2"] { --app-l: #754ebf; --app-d: #b79aff; }
+[data-app="3"] { --app-l: #9044ac; --app-d: #d591f0; }
+[data-app="4"] { --app-l: #a43b90; --app-d: #eb8ad5; }
+[data-app="5"] { --app-l: #b2346f; --app-d: #fa86b4; }
+[data-app="6"] { --app-l: #b73259; --app-d: #ff859e; }
+[data-app="7"] { --app-l: #516f03; --app-d: #90b844; }
+[data-app="8"] { --app-l: #047534; --app-d: #54c072; }
+[data-app="9"] { --app-l: #057361; --app-d: #0cc1a3; }
+[data-app="10"] { --app-l: #036f83; --app-d: #0ebbdb; }
+[data-app="11"] { --app-l: #047172; --app-d: #0fbebf; }
+[data-app="12"] { --app-l: #016c99; --app-d: #24b6fa; }
+[data-app="13"] { --app-l: #0963c5; --app-d: #70adfe; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
-  margin: 0;
-  background: var(--ds-bg);
-  color: var(--ds-text);
-  font-family: var(--ds-font);
-  font-size: 15px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  margin: 0; background: var(--ds-bg); color: var(--ds-text); font-family: var(--ds-font);
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 
 h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
 p, dd, .ds-prose li { max-width: var(--ds-measure); }
 code, kbd, pre, .ds-mono { font-family: var(--ds-mono); font-size: 0.93em; }
 pre { max-width: none; overflow-x: auto; }
-
 :focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
+::selection { background: var(--ds-accent-soft); }
+.ds-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* Type scale: 13 / 15 / 18 / 22 / 27 / 32 */
-.ds-title { font-size: 27px; font-weight: 750; letter-spacing: -0.01em; line-height: 1.15; }
+/* Type: 13 / 15 / 18 / 22 / 28 / 36 */
+.ds-title { font-size: 36px; font-weight: 760; letter-spacing: -0.025em; line-height: 1.08; }
 .ds-subtitle { font-size: 15px; color: var(--ds-text-muted); max-width: var(--ds-measure); }
-.ds-section__title, .ds-card__title { font-size: 18px; font-weight: 650; line-height: 1.3; }
+.ds-section__title, .ds-card__title { font-size: 18px; font-weight: 650; line-height: 1.3; letter-spacing: -0.005em; }
 .ds-section__sub, .ds-hint, .ds-help { font-size: 13px; color: var(--ds-text-muted); max-width: var(--ds-measure); }
 .ds-num { font-variant-numeric: tabular-nums; }
 
-/* Page frame */
+/* Masthead: the plate carries the app number, the rail along the top edge shows a live run */
 .ds-app { min-height: 100vh; display: flex; flex-direction: column; }
-.ds-header { background: var(--ds-surface); border-bottom: 1px solid var(--ds-border); }
-.ds-header__inner,
-.ds-main,
-.ds-footer__inner { width: 100%; max-width: 1200px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
-.ds-header__inner {
-  display: grid; gap: 6px 16px; grid-template-columns: minmax(0, 1fr) auto; align-items: start;
-  padding-top: 20px; padding-bottom: 18px;
+.ds-header { position: relative; background: var(--ds-surface); border-bottom: 1px solid var(--ds-border); }
+.ds-header::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--ds-accent); }
+[data-run="running"] .ds-header::before {
+  background: linear-gradient(90deg, var(--ds-accent-dim) 0, var(--ds-accent) 35%, var(--ds-accent-dim) 70%) 0 0 / 220% 100%;
+  animation: ds-sweep 1.9s linear infinite;
 }
-.ds-header__inner .ds-badge { margin-top: 6px; }
-.ds-main { flex: 1; display: grid; gap: 24px; padding-top: 24px; padding-bottom: 40px; align-content: start; }
-.ds-footer { border-top: 1px solid var(--ds-border); color: var(--ds-text-muted); font-size: 13px; }
-.ds-footer__inner { padding-top: 16px; padding-bottom: 20px; }
-
-/* What this showcases: one left-ruled callout under the title, never a card */
+@keyframes ds-sweep { to { background-position: -220% 0; } }
+.ds-header__inner, .ds-main, .ds-footer__inner { width: 100%; max-width: 1240px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
+.ds-header__inner { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); align-items: start; padding-top: 24px; padding-bottom: 16px; }
+.ds-brand { display: grid; gap: 8px; min-width: 0; }
+.ds-brand__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-width: 0; }
+.ds-brand__row .ds-badge { margin-left: auto; }
+.ds-plate {
+  flex: none; display: grid; place-items: center; min-width: 54px; height: 54px; padding: 0 8px;
+  font-family: var(--ds-mono); font-size: 24px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+  color: var(--ds-accent-text); background: var(--ds-accent); border-radius: var(--ds-radius);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.16), inset 0 -3px 0 rgb(0 0 0 / 0.12);
+}
 .ds-showcase {
-  grid-column: 1 / -1; margin-top: 8px; padding: 2px 0 2px 14px;
-  border-left: 3px solid var(--ds-accent); font-size: 15px; max-width: var(--ds-measure);
+  grid-column: 1 / -1; margin: 0; padding: 9px 14px; font-size: 15px; max-width: none;
+  background: var(--ds-accent-soft); border-left: 3px solid var(--ds-accent); border-radius: 0 var(--ds-radius-sm) var(--ds-radius-sm) 0;
 }
 .ds-showcase strong { font-weight: 650; }
+.ds-main { flex: 1; display: grid; gap: 24px; padding-top: 24px; padding-bottom: 48px; align-content: start; }
+.ds-footer { border-top: 1px solid var(--ds-border); color: var(--ds-text-muted); font-size: 13px; }
+.ds-footer__inner { padding-top: 16px; padding-bottom: 22px; }
 
-/* The bench: controls on the left, the run on the right, from 1000px up */
+/* The bench: a control rail left, the run right (1000px up). The rail is sticky and capped so it always fits the
+   screen; it scrolls inside itself only when it must. .ds-actions is the dock for Run and Stop: sticky to the bottom of
+   the rail, so the buttons are never pushed off screen, and scroll padding keeps a focused control clear of it. Put the
+   dock right after the primary input. Buttons outside the <form> use form="id". The cap leaves room for the masthead at
+   scroll 0 (override with --ds-rail-cap if an app's masthead is taller). */
 .ds-bench { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); align-items: start; }
-.ds-controls, .ds-run { display: grid; gap: 24px; min-width: 0; }
+.ds-controls, .ds-run { display: grid; gap: 20px; min-width: 0; }
+.ds-controls { align-content: start; }
+.ds-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 @media (min-width: 1000px) {
-  .ds-bench { grid-template-columns: 380px minmax(0, 1fr); gap: 32px; }
-  .ds-controls { position: sticky; top: 16px; }
+  .ds-bench { grid-template-columns: 320px minmax(0, 1fr); gap: 28px; }
+  .ds-controls {
+    position: sticky; top: 16px; max-height: var(--ds-rail-cap, max(360px, calc(100vh - 248px))); max-height: var(--ds-rail-cap, max(360px, calc(100dvh - 248px)));
+    overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 96px; scrollbar-width: thin; scrollbar-color: var(--ds-border-strong) transparent;
+    padding: 18px 16px 0; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius);
+  }
+  .ds-controls::after { content: ""; position: sticky; bottom: 0; height: 28px; margin-top: -20px; pointer-events: none; background: linear-gradient(transparent, var(--ds-surface)); }
+  .ds-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -16px; padding: 12px 16px; background: var(--ds-surface); border-top: 1px solid var(--ds-border); box-shadow: 0 -10px 14px -12px color-mix(in srgb, var(--ds-text) 30%, transparent); }
 }
+@media (min-width: 1000px) and (max-height: 520px) { .ds-controls { position: static; max-height: none; overflow: visible; } .ds-actions { position: static; box-shadow: none; } }
 
-/* Sections: a heading, one line on what the section does, a rule, then content */
+/* Sections: a heading and its content; the rule under the heading is optional (--bare drops it) */
 .ds-section { display: grid; gap: 12px; min-width: 0; }
 .ds-section__head { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--ds-border); }
-.ds-section__head--row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
+.ds-section__head--row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }
+.ds-section__head--bare { padding-bottom: 0; border-bottom: 0; }
 
-/* Panels and cards: a tone change or a rule, never a shadow */
 .ds-panel { background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 16px; min-width: 0; }
-.ds-card { background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 18px; min-width: 0; }
+.ds-card { background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 20px; min-width: 0; }
 .ds-card__head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
 .ds-grid-2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .ds-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.ds-stack { display: grid; gap: 12px; min-width: 0; }
+.ds-stack { display: grid; gap: 14px; min-width: 0; }
+.ds-scroll-x { overflow-x: auto; min-width: 0; }
 
-/* Forms: label, control, then one line on what it does for the app */
+/* Forms: label, control, then one line only where it adds something */
 .ds-field { display: grid; gap: 6px; min-width: 0; }
-.ds-label { font-size: 14px; font-weight: 650; }
+.ds-label { font-size: 15px; font-weight: 650; }
 .ds-input, .ds-select, .ds-textarea {
-  width: 100%; min-height: 42px; padding: 9px 12px; font: inherit; color: inherit;
-  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
+  width: 100%; min-height: 44px; padding: 9px 12px; font: inherit; color: inherit;
+  background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm);
+  transition: border-color 120ms var(--ds-ease);
 }
-.ds-textarea { min-height: 120px; resize: vertical; line-height: 1.5; }
-.ds-input:focus, .ds-select:focus, .ds-textarea:focus { outline: 2px solid var(--ds-focus); outline-offset: 0; border-color: transparent; }
-.ds-input::placeholder, .ds-textarea::placeholder { color: var(--ds-text-muted); opacity: 0.8; }
+.ds-textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+.ds-input:hover, .ds-select:hover, .ds-textarea:hover { border-color: var(--ds-text-muted); }
+.ds-input:focus, .ds-select:focus, .ds-textarea:focus { outline: 2px solid var(--ds-focus); outline-offset: 0; border-color: var(--ds-focus); }
+.ds-input::placeholder, .ds-textarea::placeholder { color: var(--ds-text-muted); opacity: 0.85; }
+.ds-help--error { color: var(--ds-danger); font-weight: 600; }
 
 /* Buttons: the primary names what happens; everything else stays quiet */
 .ds-button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 42px; padding: 0 18px; font: inherit; font-size: 15px; font-weight: 650; cursor: pointer;
-  color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px;
+  font: inherit; font-size: 15px; font-weight: 650; cursor: pointer;
+  color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm);
+  transition: background-color 120ms var(--ds-ease), border-color 120ms var(--ds-ease), transform 80ms var(--ds-ease);
 }
+.ds-button:hover:not(:disabled) { background: var(--ds-surface-2); border-color: var(--ds-text-muted); }
+.ds-button:active:not(:disabled) { transform: translateY(1px); }
 .ds-button--primary { background: var(--ds-accent); border-color: var(--ds-accent); color: var(--ds-accent-text); }
+.ds-button--primary:hover:not(:disabled) { background: var(--ds-accent); border-color: var(--ds-accent); filter: brightness(0.93); }
+.ds-button--danger { color: var(--ds-danger); border-color: var(--ds-danger); }
 .ds-button--quiet { background: transparent; border-color: transparent; color: var(--ds-text-muted); }
-.ds-button:hover:not(:disabled) { filter: brightness(0.96); }
-.ds-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .ds-button[aria-busy="true"] { cursor: progress; }
 
-/* Badges, dots and notices: status is a word with a mark, never colour alone */
+/* Choice: a compact selectable example or preset. Title and a two-line question; the hint shows on the selected one only */
+.ds-choice-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ds-choice {
+  display: grid; gap: 1px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; scroll-margin-bottom: 96px;
+  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
+  transition: border-color 120ms var(--ds-ease), background-color 120ms var(--ds-ease);
+}
+.ds-choice:hover:not(:disabled) { border-color: var(--ds-accent); }
+.ds-choice--selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); box-shadow: inset 3px 0 0 var(--ds-accent); }
+.ds-choice:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-choice__label { font-size: 15px; font-weight: 650; }
+.ds-choice__text { font-size: 13px; color: var(--ds-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.ds-choice--selected .ds-choice__text { color: var(--ds-text); }
+.ds-choice__meta { display: none; margin-top: 2px; font-size: 13px; color: var(--ds-text-muted); }
+.ds-choice--selected .ds-choice__meta { display: block; }
+.ds-disclosure > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 650; list-style: none; }
+.ds-disclosure > summary::-webkit-details-marker { display: none; }
+.ds-disclosure > summary::after { content: ""; margin-left: auto; width: 8px; height: 8px; border: solid var(--ds-text-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform 120ms var(--ds-ease); }
+.ds-disclosure[open] > summary::after { transform: rotate(225deg); }
+
+/* Badges and dots: status is a word with a mark, never colour alone */
 .ds-badge {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; white-space: nowrap;
-  font-size: 13px; font-weight: 600; color: var(--ds-text-muted); background: var(--ds-surface-2);
-  border: 1px solid var(--ds-border); border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; white-space: nowrap; font-size: 13px; font-weight: 650;
+  color: var(--ds-text-muted); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px;
 }
 .ds-badge--success { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
+.ds-badge .ds-dot { background: currentColor; }
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }
-.ds-dot--skipped { background: var(--ds-border); }
-.ds-dot--running { background: var(--ds-accent); animation: ds-pulse 1.1s ease-in-out infinite; }
-@keyframes ds-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.ds-notice {
-  padding: 10px 12px; font-size: 14px; color: var(--ds-text);
-  background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
-}
+.ds-dot--stopped, .ds-dot--paused { background: var(--ds-warning); }
+.ds-dot--skipped { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ds-text-muted); }
+.ds-dot--running { background: var(--ds-accent); }
+
+.ds-notice { padding: 10px 12px; font-size: 15px; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.ds-notice > p + p { margin-top: 4px; }
 .ds-notice--error { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
+.ds-notice--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 
-/* Step trace: numbered because a run is a sequence; figures right-aligned in tabular numerals */
-.ds-trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--ds-border); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); overflow: hidden; }
-.ds-trace__step {
-  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 10px 12px; background: var(--ds-surface);
-}
-.ds-trace__step--running { background: var(--ds-accent-soft); }
-.ds-trace__index { font-size: 13px; color: var(--ds-text-muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
-.ds-trace__name { font-size: 15px; font-weight: 650; }
-.ds-trace__detail { margin-top: 2px; font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
-.ds-trace__meta { font-size: 13px; color: var(--ds-text-muted); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ds-trace__bar { height: 3px; margin-top: 8px; background: var(--ds-accent); border-radius: 2px; }
-
-/* Readout strip: the run's figures in one row, labels in sentence case */
-.ds-strip { display: grid; gap: 12px 20px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); padding: 12px 16px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.ds-strip__item { display: grid; gap: 2px; min-width: 0; }
-.ds-strip__label { font-size: 13px; color: var(--ds-text-muted); }
-.ds-strip__value { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.ds-strip__value.ds-mono { font-size: 14px; font-weight: 600; }
-.ds-strip__hint { font-size: 12px; color: var(--ds-text-muted); }
-
-/* v1 metrics kept for compatibility, restyled to the same readout language */
-.ds-metrics { display: grid; gap: 12px 20px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); padding: 12px 16px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.ds-metric { min-width: 0; padding: 0; background: transparent; border: 0; }
-.ds-metric__label { font-size: 13px; color: var(--ds-text-muted); text-transform: none; letter-spacing: 0; }
-.ds-metric__value { margin-top: 2px; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.ds-metric__hint { margin-top: 2px; font-size: 12px; color: var(--ds-text-muted); }
-
-/* Empty state: an invitation to act */
-.ds-empty { padding: 28px 16px; text-align: left; color: var(--ds-text-muted); border: 1px dashed var(--ds-border); border-radius: var(--ds-radius); max-width: none; }
-
-/* Scrollable wide content (graphs, tables, code) stays inside its panel */
-.ds-scroll-x { overflow-x: auto; min-width: 0; }
-
-@media (min-width: 900px) {
-  .ds-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+@media (min-width: 900px) { .ds-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 @media (max-width: 720px) {
-  .ds-header__inner { grid-template-columns: minmax(0, 1fr); padding-top: 16px; padding-bottom: 14px; }
-  .ds-title { font-size: 22px; }
+  .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
+  .ds-header__inner { padding-top: 20px; padding-bottom: 14px; }
+  .ds-title { font-size: 28px; }
+  .ds-plate { min-width: 46px; height: 46px; font-size: 20px; }
   .ds-main { padding-top: 16px; gap: 20px; }
   .ds-card, .ds-panel { padding: 14px; }
-  .ds-trace__step { grid-template-columns: 24px minmax(0, 1fr); }
-  .ds-trace__meta { grid-column: 2; text-align: left; white-space: normal; }
-  .ds-strip, .ds-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .ds-button { min-height: 48px; }
+  .ds-input, .ds-select, .ds-textarea, .ds-choice { min-height: 48px; }
 }

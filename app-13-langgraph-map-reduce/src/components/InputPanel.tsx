@@ -9,13 +9,15 @@ interface InputPanelProps {
   onChange: (text: string) => void
   onRun: () => void
   onStop: () => void
+  collapseKey: number
 }
 
-export function InputPanel({ text, running, valid, onChange, onRun, onStop }: InputPanelProps) {
+export function InputPanel({ text, running, valid, onChange, onRun, onStop, collapseKey }: InputPanelProps) {
   const count = text.length
   const outOfRange = count > 0 && (count < MIN_CHARS || count > MAX_CHARS)
 
   return (
+    <>
     <section className="ds-section" aria-labelledby="doc-title">
       <div className="ds-section__head">
         <h2 id="doc-title" className="ds-section__title">
@@ -24,7 +26,7 @@ export function InputPanel({ text, running, valid, onChange, onRun, onStop }: In
         <p className="ds-section__sub">The graph splits this text into chunks, then reads every chunk in parallel.</p>
       </div>
 
-      <WikipediaLoader text={text} disabled={running} onLoad={onChange} />
+      <WikipediaLoader text={text} disabled={running} onLoad={onChange} collapseKey={collapseKey} />
 
       <div className="ds-field">
         <label className="ds-label" htmlFor="doc-text">
@@ -47,33 +49,29 @@ export function InputPanel({ text, running, valid, onChange, onRun, onStop }: In
           {formatTokens(count)} / {formatTokens(MAX_CHARS)} characters{outOfRange ? `. ${RANGE_MESSAGE}` : ''}
         </p>
       </div>
+    </section>
 
-      <div className="control-stack">
-        <div className="control-group">
-          <button
-            type="button"
-            className="ds-button ds-button--primary"
-            onClick={onRun}
-            disabled={!valid || running}
-            aria-busy={running}
-            aria-describedby="run-help"
-          >
-            {running ? 'Analyzing' : 'Analyze document'}
-          </button>
-          <p id="run-help" className="ds-help">
-            Splits the text, extracts every chunk, and writes a summary whose points cite their chunks.
-          </p>
-        </div>
-
-        <div className="control-group">
-          <button type="button" className="ds-button" onClick={onStop} disabled={!running} aria-describedby="stop-help">
+      <div className="ds-actions">
+        <button
+          type="button"
+          className="ds-button ds-button--primary"
+          onClick={onRun}
+          disabled={!valid || running}
+          aria-busy={running}
+          aria-describedby="run-help"
+          title="Splits the text, extracts every chunk, and writes a summary whose points cite their chunks."
+        >
+          {running ? 'Analyzing' : 'Analyze document'}
+        </button>
+        {running ? (
+          <button type="button" className="ds-button" autoFocus onClick={onStop} aria-describedby="run-help" title="Stops the run in this tab. Finished steps stay in the trace.">
             Stop the run
           </button>
-          <p id="stop-help" className="ds-help">
-            Stops the run in this tab. Finished steps stay in the trace, and no summary is written.
-          </p>
-        </div>
+        ) : null}
       </div>
-    </section>
+      <p id="run-help" className="ds-help">
+        Analyze splits the text, reads every chunk in parallel and writes a summary that cites its chunks. Stop ends the run in this tab; finished steps stay in the trace.
+      </p>
+    </>
   )
 }
