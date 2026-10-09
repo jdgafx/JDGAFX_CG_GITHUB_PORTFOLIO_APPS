@@ -344,3 +344,6 @@
 @media (max-width: 480px) {
   .app-composer__row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The disclosures under a step share the card's left edge with the chart's. */
+.app-step__body > .app-details { margin-left: -40px; }

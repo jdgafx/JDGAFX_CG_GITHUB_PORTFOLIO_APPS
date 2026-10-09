@@ -109,3 +109,32 @@ export function limitGroups(labels: string[], values: number[], max: number, com
     note: `Showing the ${keep.length} largest of ${labels.length} groups. ${rest}`,
   }
 }
+
+/** A pie compares up to about five parts: the top five and "Other". */
+export const MAX_PIE_SLICES = 6
+
+/** True when a pie would be crowded: more than six groups, or "Other" would be its largest part. */
+export function pieIsCrowded(labels: string[], values: number[], combine: boolean): boolean {
+  if (labels.length > MAX_PIE_SLICES) return true
+  const shown = limitGroups(labels, values, MAX_PIE_SLICES, combine)
+  const biggest = shown.values.reduce((best, value, index) => (value > (shown.values[best] ?? 0) ? index : best), 0)
+  return shown.labels[biggest] === OTHER_LABEL
+}
+
+/** Labels that run along a time or number axis: these are thinned when crowded, while category labels are never dropped. */
+export function isTimeAxis(labels: string[]): boolean {
+  return labels.length > 0 && labels.every((label) => /^\d{4}(-\d{2}){0,2}([T ]|$)/.test(label) || /^-?\d+(\.\d+)?$/.test(label))
+}
+
+/** A line or area over category names (regions, types) joins unrelated groups and reads as a trend that is not there. */
+export function lineNeedsOrder(chartType: string, labels: string[]): boolean {
+  return (chartType === 'line' || chartType === 'area') && !isTimeAxis(labels)
+}
+
+/** Where a centred tick label goes so it stays inside the chart: centred, or pushed in at the first and last tick. */
+export function tickPlacement(cx: number, text: string, chartWidth: number): { x: number; anchor: 'start' | 'middle' | 'end' } {
+  const half = (text.length * 7.4) / 2
+  if (cx - half < 2) return { x: 2, anchor: 'start' }
+  if (cx + half > chartWidth - 2) return { x: chartWidth - 2, anchor: 'end' }
+  return { x: cx, anchor: 'middle' }
+}

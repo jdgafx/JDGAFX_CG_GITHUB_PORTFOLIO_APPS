@@ -2,7 +2,7 @@ import { askData, sampleFor } from './api'
 import { executeQuery, topGroup } from './dataEngine'
 import { diffPlans } from './planDiff'
 import { answerDirection, applyQuestionDirection, dropUnaskedLimit, validateQueryPlan } from './queryPlan'
-import { RAW_VOCABULARY } from './vocabulary'
+import { RAW_VOCABULARY, shownLabel } from './vocabulary'
 import type { AnalysisResult, EngineResult, ParsedData, PlanChange, RunStep, RunView, Vocabulary } from '../types'
 
 export interface StepRequest {
@@ -20,12 +20,12 @@ export type StepOutcome =
   | { kind: 'not-applied'; reason: string; result: AnalysisResult; run: RunView }
   | { kind: 'invalid'; error: string; run: RunView }
 
-function groupsDetail(engine: EngineResult, direction: 'highest' | 'lowest', top: ReturnType<typeof topGroup>): string {
+function groupsDetail(engine: EngineResult, direction: 'highest' | 'lowest', top: ReturnType<typeof topGroup>, vocab: Vocabulary): string {
   if (engine.having) return `${engine.labels.length} of ${engine.having.total} groups meet the threshold.`
   if (!top) return 'No rows matched, so there are no groups.'
   const tie = top.tied.length > 1 ? ` and ${top.tied.length - 1} more tie` : ''
   const cut = engine.limited ? ` Kept ${engine.labels.length} of ${engine.limited.total}.` : ''
-  return `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${top.label}${tie}.${cut}`
+  return `${engine.labels.length} groups. ${direction === 'lowest' ? 'Lowest' : 'Highest'}: ${shownLabel(vocab, top.label)}${tie}.${cut}`
 }
 
 /**
@@ -83,7 +83,7 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
     name: 'Run plan on the rows',
     status: 'ok',
     ms: Date.now() - executeAt,
-    detail: groupsDetail(engine, direction, top) + reranked,
+    detail: groupsDetail(engine, direction, top, vocab) + reranked,
   }
   const result: AnalysisResult = { ...engine, queryPlan: plan, question, dataset, vocab }
   return {

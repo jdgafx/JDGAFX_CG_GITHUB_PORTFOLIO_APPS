@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { measureWords } from '../lib/answer'
-import { formatTick, limitGroups } from '../lib/chartGeometry'
+import { formatTick, isTimeAxis, limitGroups, lineNeedsOrder, MAX_PIE_SLICES, pieIsCrowded } from '../lib/chartGeometry'
 import { downloadChartPng, downloadCsv, fileSlug } from '../lib/export'
 import { sentenceCase } from '../lib/titles'
 import { labelFor, RAW_VOCABULARY, shownLabel, withUnit } from '../lib/vocabulary'
@@ -10,15 +10,13 @@ import ChartSvg from './ChartSvg'
 
 /** Above these counts the axis and legend stop being readable, so groups are collapsed. */
 const MAX_BAR_GROUPS = 30
-/** A pie compares up to about five parts: the top five and "Other". More is a bar chart's job. */
-const MAX_PIE_SLICES = 6
 /** On a phone, a chart with more groups than this scrolls sideways instead of crowding its labels. */
 const WIDE_GROUPS = 8
 const GROUP_MIN_PX = 30
 const MIN_WIDTH = 280
-/** More bars than this, or more than HBAR_LONG with long names, are drawn as horizontal bars: one row per group. */
+/** More bars than this, or category names that cannot all fit side by side, are drawn as horizontal bars: one row per group. */
 const HBAR_FROM = 20
-const HBAR_LONG = 8
+
 
 function plural(word: string): string {
   return /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : /(s|x|ch|sh)$/i.test(word) ? `${word}es` : `${word}s`
@@ -86,18 +84,19 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
       : chartType === 'bar'
         ? limitGroups(labels, values, MAX_BAR_GROUPS, combinable)
         : { labels, values, note: null }
-  const wide = (chartType === 'bar' || chartType === 'line' || chartType === 'area') && limited.labels.length > WIDE_GROUPS
+  const wide = chartType === 'bar' && limited.labels.length > WIDE_GROUPS
   const width = Math.max(MIN_WIDTH, wide ? Math.max(available, limited.labels.length * GROUP_MIN_PX + 80) : available)
 
   const measure = measureWords(plan, vocab)
   const longest = Math.max(0, ...limited.labels.map((label) => shownLabel(vocab, label).length))
-  const crowded =
-    limited.labels.length > HBAR_FROM ||
-    (limited.labels.length > HBAR_LONG && longest > 8) ||
-    (available < 480 && limited.labels.length > 5 && longest > 6)
+  // Category labels are never dropped: when they cannot all sit side by side the bars run horizontally.
+  // Only a time or number axis is thinned.
+  const labelWidth = Math.min(12, longest) * 7.4 + 16
+  const cannotFit = !isTimeAxis(labels) && limited.labels.length * labelWidth > Math.max(0, available - 60)
+  const crowded = limited.labels.length > HBAR_FROM || cannotFit
   const horizontal = chartType === 'bar' && crowded && limited.values.every((value) => value >= 0)
-  const biggest = limited.values.reduce((best, value, index) => (value > (limited.values[best] ?? 0) ? index : best), 0)
-  const pieCrowded = chartType === 'pie' && (labels.length > MAX_PIE_SLICES || limited.labels[biggest] === 'Other')
+  const pieCrowded = chartType === 'pie' && pieIsCrowded(labels, values, combinable)
+  const unordered = lineNeedsOrder(chartType, labels)
   const title = sentenceCase(plan.title, [...labels, ...labels.map((label) => shownLabel(vocab, label))])
   const axisUnit = plan.aggregate.fn === 'count' ? vocab.rowNoun : vocab.units[plan.aggregate.field]
   const peak = Math.max(...limited.values, 0)
@@ -181,6 +180,18 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
         <div className="ds-row">
           <p className="ds-help">
             {labels.length} {plural(labelFor(vocab, plan.groupBy))} are too many slices to compare, so the pie shows the largest five and Other.
+          </p>
+          {onSuggest && (
+            <button type="button" className="ds-button" disabled={busy} onClick={() => onSuggest('As a bar chart')}>
+              As a bar chart
+            </button>
+          )}
+        </div>
+      )}
+      {unordered && (
+        <div className="ds-row">
+          <p className="ds-help">
+            These {plural(labelFor(vocab, plan.groupBy))} have no natural order, so the line joins unrelated points. Bars compare them fairly.
           </p>
           {onSuggest && (
             <button type="button" className="ds-button" disabled={busy} onClick={() => onSuggest('As a bar chart')}>

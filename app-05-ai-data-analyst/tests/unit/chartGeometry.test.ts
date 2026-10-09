@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { arcPath, formatTick, limitGroups, niceTicks, scaleLinear, thinIndexes, truncateLabel } from '../../src/lib/chartGeometry'
+import { arcPath, formatTick, isTimeAxis, limitGroups, lineNeedsOrder, niceTicks, pieIsCrowded, scaleLinear, thinIndexes, tickPlacement, truncateLabel } from '../../src/lib/chartGeometry'
 
 describe('niceTicks', () => {
   it('starts at zero and ends at or past the largest value', () => {
@@ -80,5 +80,37 @@ describe('limitGroups', () => {
 
   it('leaves a short list alone', () => {
     expect(limitGroups(labels, values, 5, true)).toEqual({ labels, values, note: null })
+  })
+})
+
+describe('pieIsCrowded and isTimeAxis', () => {
+  it('calls a pie crowded with more than six groups, or when Other would be its largest part', () => {
+    const labels = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+    expect(pieIsCrowded(labels, [9, 8, 7, 6, 5, 4, 3, 2], true)).toBe(true)
+    expect(pieIsCrowded(['a', 'b', 'c'], [5, 4, 3], true)).toBe(false)
+    expect(pieIsCrowded(labels.slice(0, 6), [10, 10, 10, 10, 10, 10], true)).toBe(false)
+  })
+
+  it('treats months, dates and numbers as a time axis and names as categories', () => {
+    expect(isTimeAxis(['2025-10', '2025-11'])).toBe(true)
+    expect(isTimeAxis(['2026-01-05', '2026-01-06'])).toBe(true)
+    expect(isTimeAxis(['1', '2.5', '10'])).toBe(true)
+    expect(isTimeAxis(['Alaska', 'Nevada'])).toBe(false)
+    expect(isTimeAxis([])).toBe(false)
+  })
+})
+
+describe('lineNeedsOrder and tickPlacement', () => {
+  it('flags a line or area over category names, never over months, dates or numbers', () => {
+    expect(lineNeedsOrder('line', ['Alaska', 'Nevada'])).toBe(true)
+    expect(lineNeedsOrder('area', ['Alaska', 'Nevada'])).toBe(true)
+    expect(lineNeedsOrder('line', ['2025-10', '2025-11'])).toBe(false)
+    expect(lineNeedsOrder('bar', ['Alaska', 'Nevada'])).toBe(false)
+  })
+
+  it('keeps a centred label centred, and pushes the first and last label inside the chart', () => {
+    expect(tickPlacement(300, 'Texas', 600)).toEqual({ x: 300, anchor: 'middle' })
+    expect(tickPlacement(30, 'Puerto Rico', 600)).toEqual({ x: 2, anchor: 'start' })
+    expect(tickPlacement(590, 'Tennessee', 600)).toEqual({ x: 598, anchor: 'end' })
   })
 })

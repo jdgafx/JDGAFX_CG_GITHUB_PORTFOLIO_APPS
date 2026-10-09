@@ -1,4 +1,4 @@
-import { arcPath, formatTick, niceTicks, OTHER_LABEL, scaleLinear, thinIndexes, truncateLabel } from '../lib/chartGeometry'
+import { arcPath, formatTick, niceTicks, tickPlacement, OTHER_LABEL, scaleLinear, thinIndexes, truncateLabel } from '../lib/chartGeometry'
 import { parseNumericCell } from '../lib/dataEngine'
 import { axisMonth } from '../lib/vocabulary'
 import type { ChartType } from '../types'
@@ -78,19 +78,22 @@ function CategoryLabels({
         if (!show.has(index)) return null
         const cx = x(index)
         const month = months ? axisMonth(label, index === 0) : null
+        const text = month ? Math.max(month.top.length, month.year?.length ?? 0) : 0
+        const shown = month ? 'x'.repeat(text) : truncateLabel(label, TICK_LABEL_MAX)
+        const place = tickPlacement(cx, shown, frame.width)
         if (month) {
           return (
-            <text key={`${index}-${label}`} x={cx} y={baseline + 18} textAnchor="middle">
+            <text key={`${index}-${label}`} x={place.x} y={baseline + 18} textAnchor={place.anchor}>
               <title>{label}</title>
               {month.top}
-              {month.year && <tspan x={cx} dy={16}>{month.year}</tspan>}
+              {month.year && <tspan x={place.x} dy={16}>{month.year}</tspan>}
             </text>
           )
         }
         return (
-          <text key={`${index}-${label}`} x={cx} y={baseline + 18} textAnchor="middle">
+          <text key={`${index}-${label}`} x={place.x} y={baseline + 18} textAnchor={place.anchor}>
             <title>{label}</title>
-            {truncateLabel(label, TICK_LABEL_MAX)}
+            {shown}
           </text>
         )
       })}
