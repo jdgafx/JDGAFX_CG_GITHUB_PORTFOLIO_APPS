@@ -123,3 +123,4 @@ button.ds-chain__button:hover { background: var(--ds-surface-2); }
 /* Live-data chip in the masthead: lit when the Sources step returned real sources. */
 .live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
 .live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
+.live-data .ds-dot { flex: none; }
