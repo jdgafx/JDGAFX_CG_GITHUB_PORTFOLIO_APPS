@@ -4,7 +4,7 @@ import {
   decidedWithoutModel,
   extractClaims,
   admitsGap,
-  reversedPair,
+  contradicts,
   unstatedSuperlatives,
   isAboutResearch,
   findQuote,
@@ -252,6 +252,9 @@ describe('a supported verdict that the reason contradicts', () => {
     'The source does not mention the cause.',
     'Source extrapolates beyond the series.',
     'The source does not explicitly state this.',
+    'The claim is an addition to the source.',
+    'A reasonable inference from the source.',
+    'The claim goes beyond the source.',
     'Cause not mentioned in the source.',
   ])('flags the reason: %s', reason => {
     expect(admitsGap(reason)).toBe(true)
@@ -332,40 +335,34 @@ describe('names in plural form', () => {
   })
 })
 
-describe('a supported verdict the sources reverse', () => {
-  const eiffel: Source = { n: 3, title: 'Eiffel Tower', site: 'Wikipedia', url: '', snippet: 'It was the tallest man-made structure in the world until the Chrysler Building in New York City was finished in 1930.' }
-  const quote = 'It was the tallest man-made structure in the world until the Chrysler Building in New York City was finished in 1930.'
-  const settle = (text: string, reason: string) =>
-    settleClaim({ id: 1, block: 0, piece: 0, text, cites: [3] }, preCheck(text, [3], [eiffel]), [eiffel], { id: 1, verdict: 'supported', source: 3, quote, reason })
-
-  it('lowers the reversed Eiffel claim to unsupported and names both words', () => {
-    const claim = settle('The Eiffel Tower became the tallest man-made structure in the world after the Chrysler Building was finished [3].', 'Source says the tower was tallest until the Chrysler Building.')
-    expect(claim.verdict).toBe('unsupported')
-    expect(claim.reason).toContain('The claim says "after" where the source says "until".')
-    expect(claim.quote).toBeUndefined()
-  })
-
-  it('keeps the consistent claim supported', () => {
-    expect(settle('The Eiffel Tower was the tallest man-made structure in the world until the Chrysler Building was finished [3].', 'Source states it.').verdict).toBe('supported')
-  })
-
+describe('true claims about order and direction keep the model\'s supported verdict', () => {
+  const src = (title: string, snippet: string): Source => ({ n: 1, title, site: 'Wikipedia', url: '', snippet })
   it.each([
-    ['It closed after the war ended', 'It closed after the war ended in 1945.'],
-    ['Work began before the winter storms', 'Work began before the winter storms hit.'],
-    ['It lies north of Paris', 'The town lies north of Paris.'],
-    ['Sales rose to 5 million', 'Sales rose to 5 million units.'],
-    ['It was built after 1887 and before 1889', 'Built after 1887, finished before 1889.'],
-    ['The fire caused the collapse', 'The collapse was caused by the fire.'],
-  ])('leaves a consistent sentence alone: %s', (claim, evidence) => {
-    expect(reversedPair(claim, evidence)).toBeNull()
+    ['Apollo 11 landed on the Moon in July 1969, after Apollo 10 tested the lunar lander in May 1969 [1].', 'Apollo 10 tested the lunar lander in lunar orbit in May 1969, two months before Apollo 11 landed on the Moon on 20 July 1969.', 'Source states both dates and the order.'],
+    ['East Germany and West Germany reunified on 3 October 1990 [1].', 'West Germany and East Germany reunified on 3 October 1990, ending 41 years of division.', 'Source states the reunification date.'],
+    ['North Korea invaded South Korea on 25 June 1950 [1].', 'The war began on 25 June 1950 when North Korean forces invaded South Korea across the 38th parallel.', 'Source states the invasion and date.'],
+    ['The earthquake caused fires that burned the city for several days [1].', 'Fires caused by the earthquake burned the city for several days, destroying about 80% of San Francisco.', 'Source states fires caused by the quake lasted days.'],
+    ['Korea had been a Japanese colony until the end of World War II in 1945 [1].', 'After the end of World War II in 1945, Korea, which had been a Japanese colony for 35 years, was divided.', 'Source states the colony ended with the war.'],
+  ])('%s', (text, snippet, reason) => {
+    const source = src('T', snippet)
+    const quote = snippet.split('. ')[0] ?? snippet
+    const claim = settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'supported', source: 1, quote, reason })
+    expect(claim.verdict).toBe('supported')
+  })
+})
+
+describe('a partly verdict whose reason says the source contradicts it', () => {
+  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 on 14 April.' }
+  const text = 'The Titanic struck a mine on 14 April [1].'
+  const settle = (reason: string) => settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', reason })
+
+  it.each(['Source contradicts the cause.', 'Source gives an iceberg rather than a mine.', 'Source says the opposite.', 'Source says iceberg, not a mine.'])('lowers to unsupported: %s', reason => {
+    expect(settle(reason).verdict).toBe('unsupported')
   })
 
-  it.each([
-    ['Sales rose to 5 million', 'Sales fell to 5 million units.'],
-    ['The town lies north of Paris', 'The town lies south of Paris.'],
-    ['The fire caused the collapse', 'The fire was caused by the collapse.'],
-  ])('catches a reversal: %s', (claim, evidence) => {
-    expect(reversedPair(claim, evidence)).not.toBeNull()
+  it.each(['Source gives the date but does not say what it struck.', 'Source says the date; the cause is cut off.'])('leaves partly: %s', reason => {
+    expect(contradicts(reason)).toBe(false)
+    expect(settle(reason).verdict).toBe('partly')
   })
 })
 

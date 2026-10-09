@@ -317,15 +317,13 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
 
   let verdict: Verdict = judgment.verdict
   const notes: string[] = []
-  const reversed = verdict === 'supported' ? reversedPair(draft.text, `${quote?.text ?? ''} ${judgment.reason ?? ''}`) : null
-  if (reversed) {
-    verdict = 'unsupported'
-    quote = undefined
-    notes.push(`The claim says "${reversed[0]}" where the source says "${reversed[1]}".`)
-  }
   if (verdict === 'supported' && !quote) {
     verdict = 'partly'
     notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
+  }
+  if (verdict === 'partly' && contradicts(judgment.reason)) {
+    verdict = 'unsupported'
+    notes.push("The model's own reason says the source contradicts it.")
   }
   if (verdict === 'supported' && admitsGap(judgment.reason)) {
     verdict = 'partly'
@@ -348,44 +346,6 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
   }
   const reason = [cleanReason(judgment.reason), ...notes].filter(Boolean).join(' ')
   return { ...base, verdict, reason: reason || 'No reason given.', ...(quote ? { quote } : {}) }
-}
-
-/** Wording that runs the other way. A claim and its evidence that use opposite members for the same thing contradict. */
-const REVERSALS: Array<[string, string]> = [
-  ['after', 'until|before|prior to'], ['before', 'after|following'], ['led to', 'resulted from|result of|caused by'], ['caused(?! by)', 'caused by'],
-  ['north', 'south'], ['east', 'west'], ['left', 'right'], ['earlier', 'later'], ['preceded', 'followed'],
-  ['rose|rises|increased|grew', 'fell|falls|decreased|declined|dropped'],
-]
-const ANCHOR_SKIP = new Set(['the', 'this', 'that', 'its', 'his', 'her', 'their', 'from', 'with', 'into', 'than'])
-
-/** The words (4+ letters, or numbers) in the four words after each match of `pattern`. */
-function anchorsAfter(text: string, pattern: string): { word: string; anchors: Set<string> } | null {
-  const anchors = new Set<string>()
-  let word = ''
-  for (const match of text.matchAll(new RegExp(`\\b(?:${pattern})\\b`, 'gi'))) {
-    word = word || match[0]
-    const tokens = text.slice((match.index ?? 0) + match[0].length).match(/[\p{L}\p{N}]+/gu) ?? []
-    for (const token of tokens.slice(0, 4)) if ((token.length >= 4 || /\d/.test(token)) && !ANCHOR_SKIP.has(token.toLowerCase())) anchors.add(token.toLowerCase())
-  }
-  return word ? { word: word.toLowerCase(), anchors } : null
-}
-
-/**
- * The two words when the claim uses one member of a reversing pair and the evidence uses the opposite member beside
- * the same thing ("became tallest after the Chrysler Building" against "tallest until the Chrysler Building").
- */
-export function reversedPair(claim: string, evidence: string): [claimWord: string, sourceWord: string] | null {
-  const text = plainText(claim)
-  for (const [a, b] of REVERSALS) {
-    for (const [mine, theirs] of [[a, b], [b, a]] as const) {
-      const inClaim = anchorsAfter(text, mine)
-      const inEvidence = anchorsAfter(evidence, theirs)
-      // Not reversed if the evidence also uses the claim's own wording beside that thing.
-      const same = anchorsAfter(evidence, mine)
-      if (inClaim && inEvidence && [...inClaim.anchors].some(word => inEvidence.anchors.has(word) && !same?.anchors.has(word))) return [inClaim.word, inEvidence.word]
-    }
-  }
-  return null
 }
 
 /**
@@ -424,8 +384,13 @@ export function unstatedSuperlatives(claim: string, cited: Source[]): string[] {
  * A reason that says the source does not state it, calls the claim an extension, or says it is only implied contradicts a
  * supported verdict. "The source states X, which does not differ from the claim" is not such a reason.
  */
+/** A reason that says the source states the opposite: such a claim is unsupported, not partly. */
+export function contradicts(reason: string | undefined): boolean {
+  return /\bcontradict\w*|\brather than\b|\bthe opposite\b|\bsays\b[^.;]{0,60}?,\s*not\b/i.test(reason ?? '')
+}
+
 export function admitsGap(reason: string | undefined): boolean {
-  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
+  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\badditions?\b|\badds\b|\binferen\w*|\binferred\b|\bgoes beyond\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {
