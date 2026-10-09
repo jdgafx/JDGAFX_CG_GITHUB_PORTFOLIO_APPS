@@ -218,6 +218,24 @@
 .ds-drop { display: grid; gap: 4px; justify-items: center; padding: 24px 16px; text-align: center; background: var(--ds-surface-2); border: 1.5px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
 .ds-drop--over { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
 
+/* v3.2 danger rule for the warm accents (apps 04, 05, 06): a pink or crimson accent must never read as an error, so every
+   "running" and "changed" signal is graphite there. The accent still marks identity (plate, buttons, selection, taken path). */
+[data-app="4"] .ds-badge--accent, [data-app="5"] .ds-badge--accent, [data-app="6"] .ds-badge--accent { color: var(--ds-text); background: var(--ds-surface-2); border-color: var(--ds-border); }
+[data-app="4"] .ds-dot--running, [data-app="5"] .ds-dot--running, [data-app="6"] .ds-dot--running { background: var(--ds-text); }
+[data-app="4"] .ds-chip--live, [data-app="5"] .ds-chip--live, [data-app="6"] .ds-chip--live { color: var(--ds-text); background: var(--ds-surface-2); border-color: var(--ds-border); }
+[data-app="4"] .ds-strip--live, [data-app="5"] .ds-strip--live, [data-app="6"] .ds-strip--live { border-color: var(--ds-border); }
+[data-app="4"] .ds-strip--live .ds-strip__value, [data-app="5"] .ds-strip--live .ds-strip__value, [data-app="6"] .ds-strip--live .ds-strip__value { color: var(--ds-text); }
+[data-app="4"] .ds-strip--live .ds-strip__item, [data-app="5"] .ds-strip--live .ds-strip__item, [data-app="6"] .ds-strip--live .ds-strip__item { background: var(--ds-surface); }
+[data-app="4"] .ds-trace__step--running, [data-app="5"] .ds-trace__step--running, [data-app="6"] .ds-trace__step--running { background: var(--ds-surface-2); }
+[data-app="4"] .ds-trace__state--running, [data-app="5"] .ds-trace__state--running, [data-app="6"] .ds-trace__state--running { color: var(--ds-text-muted); }
+[data-app="4"] .ds-trace__bar--live, [data-app="5"] .ds-trace__bar--live, [data-app="6"] .ds-trace__bar--live { background: repeating-linear-gradient(135deg, var(--ds-text-muted) 0 6px, var(--ds-border-strong) 6px 12px) 0 0 / 17px 100%; }
+[data-app="4"] .ds-state--loading .ds-state__mark, [data-app="5"] .ds-state--loading .ds-state__mark, [data-app="6"] .ds-state--loading .ds-state__mark { color: var(--ds-text-muted); }
+[data-app="4"] .ds-g-node--active, [data-app="5"] .ds-g-node--active, [data-app="6"] .ds-g-node--active { fill: var(--ds-surface-2); stroke: var(--ds-text); }
+[data-app="4"] .ds-g-halo, [data-app="5"] .ds-g-halo, [data-app="6"] .ds-g-halo { stroke: var(--ds-text-muted); }
+[data-app="4"] .ds-g-dot--active, [data-app="5"] .ds-g-dot--active, [data-app="6"] .ds-g-dot--active { fill: var(--ds-text); }
+[data-app="4"] .ds-g-state--active, [data-app="5"] .ds-g-state--active, [data-app="6"] .ds-g-state--active { fill: var(--ds-text); }
+[data-app="4"] .ds-chip--change, [data-app="5"] .ds-chip--change, [data-app="6"] .ds-chip--change { color: var(--ds-text-muted); border-color: var(--ds-border-strong); }
+
 @media (max-width: 720px) {
   .ds-trace__step { grid-template-columns: 24px minmax(0, 1fr); }
   .ds-trace__meta { grid-column: 2; justify-content: flex-start; white-space: normal; }

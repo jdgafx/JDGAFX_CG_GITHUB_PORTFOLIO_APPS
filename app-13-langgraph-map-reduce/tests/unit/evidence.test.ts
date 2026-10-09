@@ -6,6 +6,7 @@ import {
   citationsByChunk,
   contentWords,
   heatLevel,
+  isHeading,
   pickSentences,
   pointRefs,
   retriedChunks,
@@ -127,6 +128,22 @@ describe('sentences and headings', () => {
     const text = 'History\nThe history of the reef is long. It began early.'
     expect(sentencesOf(text)).toEqual(['History', 'The history of the reef is long.', 'It began early.'])
     expect(segmentsFor(text, [0]).map((x) => x.text).join('')).toBe(text)
+  })
+})
+
+describe('headings are not supporting sentences', () => {
+  const text = 'Geology and geography\nThe reef sits on a continental shelf. Geology shaped it over millions of years.'
+
+  it('recognises a short line with no closing punctuation, and nothing longer or punctuated', () => {
+    expect(isHeading('Geology and geography')).toBe(true)
+    expect(isHeading('Geology shaped it over millions of years.')).toBe(false)
+    expect(isHeading('He said "stop."')).toBe(false)
+    expect(isHeading('A line that runs on for much longer than any heading would, with no stop at the end of it at all')).toBe(false)
+  })
+
+  it('never marks a heading, even when it shares the most words with the point', () => {
+    expect(pickSentences('geology and geography', text)).toEqual([2])
+    expect(pickSentences('geology and geography', 'Geology and geography\nNothing else here.')).toEqual([])
   })
 })
 

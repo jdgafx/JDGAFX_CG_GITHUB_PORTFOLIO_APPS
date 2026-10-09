@@ -116,6 +116,11 @@ function pieces(chunkText: string): Array<{ sentence: string; gap: string }> {
   return out
 }
 
+/** A section heading left on its own line: short, no closing punctuation. It is never picked as a supporting sentence. */
+export function isHeading(sentence: string): boolean {
+  return sentence.length <= 70 && sentence.split(/\s+/).length <= 8 && !/[.!?]["'\u201d\u2019)]?$/.test(sentence)
+}
+
 export function sentencesOf(chunkText: string): string[] {
   return pieces(chunkText).map((p) => p.sentence)
 }
@@ -129,6 +134,7 @@ export function pickSentences(point: string, chunkText: string, limit = 2): numb
   const wanted = contentWords(point)
   const scored = sentencesOf(chunkText).map((sentence, index) => {
     let score = 0
+    if (isHeading(sentence)) return { index, score }
     for (const word of contentWords(sentence)) if (wanted.has(word)) score += 1
     return { index, score }
   })
