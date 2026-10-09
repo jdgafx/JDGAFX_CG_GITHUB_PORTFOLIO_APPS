@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { describePlan, headlineFor } from '../lib/answer'
 import { followUpIdeas } from '../lib/followUps'
 import { MAX_QUESTION_CHARS } from '../lib/limits'
+import ChartFrame from './ChartFrame'
 import Prose from './Prose'
 import { plainText } from '../lib/prose'
 import type { AnalysisThreadState } from '../hooks/useAnalysisThread'
@@ -36,7 +37,7 @@ function Chips({ changes }: { changes: PlanChange[] }) {
   )
 }
 
-function ActiveBody({ step }: { step: ThreadStep }) {
+function ActiveBody({ step, busy, onSuggest }: { step: ThreadStep; busy: boolean; onSuggest: (question: string) => void }) {
   const { result } = step
   const plan = result.queryPlan
   const headline = headlineFor(result)
@@ -60,6 +61,9 @@ function ActiveBody({ step }: { step: ThreadStep }) {
           <p>{headline.answer}</p>
         </div>
       )}
+      <div className="app-step__chart">
+        <ChartFrame result={result} busy={busy} onSuggest={onSuggest} />
+      </div>
       {headline.note && <p className="ds-help"><Prose text={headline.note} /></p>}
       <details className="app-details">
         <summary>How this was computed</summary>
@@ -102,9 +106,10 @@ interface StepRowProps {
   disabled: boolean
   refines: number | null
   onOpen: (id: string) => void
+  onSuggest: (question: string) => void
 }
 
-function StepRow({ step, index, active, disabled, refines, onOpen }: StepRowProps) {
+function StepRow({ step, index, active, disabled, refines, onOpen, onSuggest }: StepRowProps) {
   const headline = headlineFor(step.result)
   const summary = step.notApplied ? `Not applied: ${plainText(step.notApplied)}` : (headline.answer ?? step.result.queryPlan.title)
   return (
@@ -126,7 +131,7 @@ function StepRow({ step, index, active, disabled, refines, onOpen }: StepRowProp
       </button>
       {refines !== null && <p className="ds-help app-step__from">Refines step {refines}</p>}
       <Chips changes={step.changes} />
-      {active ? <ActiveBody step={step} /> : <p className="app-step__summary ds-num">{summary}</p>}
+      {active ? <ActiveBody step={step} busy={disabled} onSuggest={onSuggest} /> : <p className="app-step__summary ds-num">{summary}</p>}
     </li>
   )
 }
@@ -223,6 +228,7 @@ export default function ThreadPanel({ state, data, datasetLabel, onAskFollowUp }
               disabled={busy}
               refines={refines}
               onOpen={state.openStep}
+              onSuggest={onAskFollowUp}
             />
           )
         })}

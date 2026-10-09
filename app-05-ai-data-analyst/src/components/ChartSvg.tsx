@@ -1,5 +1,6 @@
 import { arcPath, formatTick, niceTicks, OTHER_LABEL, scaleLinear, thinIndexes, truncateLabel } from '../lib/chartGeometry'
 import { parseNumericCell } from '../lib/dataEngine'
+import { axisMonth } from '../lib/vocabulary'
 import type { ChartType } from '../types'
 
 interface ChartSvgProps {
@@ -8,6 +9,12 @@ interface ChartSvgProps {
   values: number[]
   /** The measure in words, used for the line-end label and the marks' hover text. */
   measure: string
+  /** The unit of the value axis, drawn above it: "mm", "°C", "earthquakes". */
+  axisUnit?: string
+  /** True when YYYY-MM labels are months and read as "Jul" on the axis. */
+  months: boolean
+  /** A group label as people read it in hover text and the pie legend ("July 2026"). */
+  display: (label: string) => string
   /** Appends the column's unit to an exact value, when it has one. */
   withUnit: (text: string) => string
   width: number
@@ -32,13 +39,10 @@ interface Frame {
 }
 
 /** Room for the y labels on the left and the category labels below, from the labels themselves. */
-function frameFor(width: number, ticks: number[], labels: string[], rotate: boolean, narrow: boolean): Frame {
+function frameFor(width: number, ticks: number[], twoLine: boolean, narrow: boolean): Frame {
   const widest = Math.max(...ticks.map((tick) => formatTick(tick).length))
-  const left = Math.max(36, widest * 8 + 14)
-  const longest = Math.min(TICK_LABEL_MAX, Math.max(0, ...labels.map((label) => label.length)))
-  const bottom = rotate ? Math.round(14 + longest * 6.4 * 0.5 + 24) : 30
-  const height = narrow ? 260 : 320
-  return { left, right: 16, top: TOP, bottom, height, width }
+  const left = Math.max(40, widest * 8 + 16)
+  return { left, right: 16, top: TOP, bottom: twoLine ? 48 : 32, height: narrow ? 264 : 320, width }
 }
 
 function Axes({ frame, ticks, y }: { frame: Frame; ticks: number[]; y: (value: number) => number }) {
@@ -61,27 +65,32 @@ function Axes({ frame, ticks, y }: { frame: Frame; ticks: number[]; y: (value: n
   )
 }
 
+/** Category labels, always horizontal. Too many to fit are thinned evenly; a long one is cut and keeps its full name as a hover title. */
 function CategoryLabels({
-  frame, labels, x, rotate, baseline,
-}: { frame: Frame; labels: string[]; x: (index: number) => number; rotate: boolean; baseline: number }) {
+  frame, labels, x, baseline, months,
+}: { frame: Frame; labels: string[]; x: (index: number) => number; baseline: number; months: boolean }) {
   const longest = Math.min(TICK_LABEL_MAX, Math.max(1, ...labels.map((label) => label.length)))
-  const fit = Math.max(1, Math.floor((frame.width - frame.left - frame.right) / (rotate ? 18 : longest * 7.4 + 14)))
-  const show = thinIndexes(labels.length, fit)
+  const each = months ? 40 : longest * 7.4 + 16
+  const show = thinIndexes(labels.length, Math.max(1, Math.floor((frame.width - frame.left - frame.right) / each)))
   return (
     <g className="ds-c-tick">
       {labels.map((label, index) => {
         if (!show.has(index)) return null
         const cx = x(index)
-        const text = truncateLabel(label, TICK_LABEL_MAX)
-        return rotate ? (
-          <text key={`${index}-${label}`} x={cx} y={baseline + 14} textAnchor="end" transform={`rotate(-30 ${cx} ${baseline + 14})`}>
-            <title>{label}</title>
-            {text}
-          </text>
-        ) : (
+        const month = months ? axisMonth(label, index === 0) : null
+        if (month) {
+          return (
+            <text key={`${index}-${label}`} x={cx} y={baseline + 18} textAnchor="middle">
+              <title>{label}</title>
+              {month.top}
+              {month.year && <tspan x={cx} dy={16}>{month.year}</tspan>}
+            </text>
+          )
+        }
+        return (
           <text key={`${index}-${label}`} x={cx} y={baseline + 18} textAnchor="middle">
             <title>{label}</title>
-            {text}
+            {truncateLabel(label, TICK_LABEL_MAX)}
           </text>
         )
       })}
@@ -94,7 +103,7 @@ function extremeIndex(values: number[]): number {
   return values.reduce((best, value, index) => (Math.abs(value) > Math.abs(values[best] ?? 0) ? index : best), 0)
 }
 
-function PieMarks({ labels, values, width, withUnit, onSvg, summary }: ChartSvgProps) {
+function PieMarks({ labels, values, width, withUnit, onSvg, summary, display }: ChartSvgProps) {
   const total = values.reduce((sum, value) => sum + Math.max(0, value), 0)
   const stacked = width < 520
   const radius = Math.min(stacked ? width / 2 - 20 : 120, 120)
@@ -121,7 +130,7 @@ function PieMarks({ labels, values, width, withUnit, onSvg, summary }: ChartSvgP
               className="app-slice"
               style={{ fill: label === OTHER_LABEL ? 'var(--viz-other)' : `var(--viz-${(index % SLOTS) + 1})` }}
             >
-              <title>{`${label}: ${withUnit(exact(values[index] ?? 0))}`}</title>
+              <title>{`${display(label)}: ${withUnit(exact(values[index] ?? 0))}`}</title>
             </path>
           ) : null,
         )}
@@ -141,8 +150,8 @@ function PieMarks({ labels, values, width, withUnit, onSvg, summary }: ChartSvgP
                 style={{ fill: label === OTHER_LABEL ? 'var(--viz-other)' : `var(--viz-${(index % SLOTS) + 1})` }}
               />
               <text className="ds-c-tick" x={legendX + 20} y={y} style={{ fill: 'var(--ds-text)' }}>
-                {truncateLabel(label, stacked ? 22 : 20)}
-                <title>{label}</title>
+                {truncateLabel(display(label), stacked ? 22 : 20)}
+                <title>{display(label)}</title>
               </text>
               <text className="ds-c-tick" x={width - 16} y={y} textAnchor="end">
                 {`${Math.round(share * 100)}%`}
@@ -157,16 +166,16 @@ function PieMarks({ labels, values, width, withUnit, onSvg, summary }: ChartSvgP
 
 /** Bars, lines, areas and scatter on the v3 chart frame: grid, axis and tick classes, the accent as series 1, direct labels. */
 export default function ChartSvg(props: ChartSvgProps) {
-  const { chartType, labels, values, measure, withUnit, width, summary, onSvg } = props
+  const { chartType, labels, values, measure, axisUnit, months, withUnit, width, summary, onSvg, display } = props
   if (chartType === 'pie') return <PieMarks {...props} />
 
   const count = labels.length
   const narrow = width < 480
-  const rotate = count > 6 || labels.some((label) => label.length > 8)
   const isScatter = chartType === 'scatter'
   const xs = labels.map((label, index) => (parseNumericCell(label) !== null ? (parseNumericCell(label) as number) : index + 1))
   const ticks = niceTicks(Math.min(...values), Math.max(...values))
-  const frame = frameFor(width, ticks, labels, rotate && !isScatter, narrow)
+  const twoLine = months && labels.some((label, index) => axisMonth(label, index === 0)?.year)
+  const frame = frameFor(width, ticks, twoLine, narrow)
   const plotW = Math.max(40, width - frame.left - frame.right)
   const plotBottom = frame.height - frame.bottom
   const y = scaleLinear(ticks[0] ?? 0, ticks[ticks.length - 1] ?? 1, plotBottom, frame.top)
@@ -177,7 +186,7 @@ export default function ChartSvg(props: ChartSvgProps) {
   const at = (index: number) => (isScatter ? sx(xs[index] ?? 0) : bandX(index))
   const top = extremeIndex(values)
   const topLabel = formatTick(values[top] ?? 0)
-  const hover = (index: number) => `${labels[index]}: ${withUnit(exact(values[index] ?? 0))}`
+  const hover = (index: number) => `${display(labels[index] ?? '')}: ${withUnit(exact(values[index] ?? 0))}`
   const zero = y(0)
 
   const barW = Math.min(band * 0.7, 56)
@@ -195,6 +204,11 @@ export default function ChartSvg(props: ChartSvgProps) {
   return (
     <svg ref={onSvg} viewBox={`0 0 ${width} ${frame.height}`} width={width} height={frame.height} role="img" aria-label={summary}>
       <Axes frame={frame} ticks={ticks} y={y} />
+      {axisUnit && (
+        <text className="ds-c-tick" x={4} y={14}>
+          {axisUnit}
+        </text>
+      )}
       {isScatter ? (
         <g className="ds-c-tick">
           {xTicks.map((tick) => (
@@ -204,7 +218,7 @@ export default function ChartSvg(props: ChartSvgProps) {
           ))}
         </g>
       ) : (
-        <CategoryLabels frame={frame} labels={labels} x={bandX} rotate={rotate} baseline={plotBottom} />
+        <CategoryLabels frame={frame} labels={labels} x={bandX} baseline={plotBottom} months={months} />
       )}
 
       {chartType === 'bar' && (

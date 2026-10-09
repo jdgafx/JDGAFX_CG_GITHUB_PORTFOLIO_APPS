@@ -1,4 +1,4 @@
-/* Shared design system v3 "instrument bench" (round 2), for the 13 portfolio apps. Copy tokens.css and components.css
+/* Shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule). Copy tokens.css and components.css
    verbatim to src/styles/ and import both first, in that order. Never edit them per app.
    One line per app selects the identity: <html lang="en" data-app="11"> sets the signal hue from the 13-step palette
    below; neutrals, type, spacing, radii and components are shared. Set data-run (idle, running, done, failed, stopped)
@@ -8,7 +8,9 @@
    Danger rule (matters most for the warm accents, apps 04, 05 and 06): a destructive action is outline-only
    (.ds-button--danger), never filled, and never sits directly beside a filled accent button (put it at the far end of
    the row or in the dialog's secondary slot). Failed and error states always carry the "!" mark and the word, so they
-   never rely on red against a warm accent. Motion budget while a run is live: the rail sweep, the active-node halo, the
+   never rely on red against a warm accent. In the warm-accent apps (04, 05, 06) crimson never means live, good or moved:
+   components.css draws running states (badge, dot, live chip, readout, trace row and bar, loading mark, active graph node)
+   in graphite, and the "~ changed" chip is neutral; only failed, error and removed states use the danger red. Motion budget while a run is live: the rail sweep, the active-node halo, the
    live trace bar and the ticking readout; nothing else animates.
    Craft floor: no coloured side or top stripes on cards, bands or rows (use a full 1px border and a tint). The one recorded
    exception is the 4px rail along the page's top edge, which is the run signal for the whole page, not a card edge.

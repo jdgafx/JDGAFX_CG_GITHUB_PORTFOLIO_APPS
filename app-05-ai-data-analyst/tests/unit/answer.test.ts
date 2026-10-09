@@ -144,11 +144,11 @@ describe('the dataset words', () => {
   it('names the column in plain words and puts the unit after the value', () => {
     const rain = { ...PLAN, groupBy: 'month', aggregate: { field: 'precipitation_mm', fn: 'sum' as const } }
     expect(answerSentence(rain, { label: '2026-01', value: 123.456, tied: ['2026-01'] }, WEATHER_VOCABULARY)).toBe(
-      '2026-01 has the highest total rain: 123.46 mm.',
+      'January 2026 has the highest total rain: 123.46 mm.',
     )
     const low = { ...PLAN, aggregate: { field: 'temp_min_c', fn: 'min' as const }, sortBy: { field: 'temp_min_c', dir: 'asc' as const } }
     expect(answerSentence(low, { label: '2026-02', value: -11, tied: ['2026-02'] }, WEATHER_VOCABULARY)).toBe(
-      '2026-02 has the lowest minimum daily low temperature: -11 °C.',
+      'February 2026 has the lowest minimum daily low temperature: -11 °C.',
     )
   })
 

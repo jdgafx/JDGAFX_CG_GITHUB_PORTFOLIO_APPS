@@ -1,6 +1,6 @@
 import { topGroup } from './dataEngine'
 import { answerDirection, asksBothEnds, isValueSort, planFilters } from './queryPlan'
-import { labelFor, RAW_VOCABULARY, withUnit } from './vocabulary'
+import { labelFor, RAW_VOCABULARY, shownLabel, withUnit } from './vocabulary'
 import type { AggregateFn, AnalysisResult, EngineResult, FilterOp, HavingOp, QueryPlan, TopGroup, Vocabulary } from '../types'
 
 const MEASURE: Record<AggregateFn, (field: string, rowNoun: string) => string> = {
@@ -53,14 +53,14 @@ function tieNote(labels: string[], values: number[], shown: number, plan: QueryP
   const last = values[shown - 1]
   if (shown >= values.length || last === undefined || values[shown] !== last) return ''
   const tying = values.slice(shown).filter((value) => value === last).length
-  return ` (${tying} of them tie with ${labels[shown - 1]} at ${valueText(plan, last, vocab)})`
+  return ` (${tying} of them tie with ${shownLabel(vocab, labels[shown - 1] ?? '')} at ${valueText(plan, last, vocab)})`
 }
 
 function namedGroups(result: EngineResult, plan: QueryPlan, vocab: Vocabulary, shown: number): string {
   const values = result.datasets[0]?.values ?? []
   return result.labels
     .slice(0, shown)
-    .map((label, index) => `${label} (${valueText(plan, values[index] ?? 0, vocab)})`)
+    .map((label, index) => `${shownLabel(vocab, label)} (${valueText(plan, values[index] ?? 0, vocab)})`)
     .join(', ')
 }
 
@@ -80,7 +80,7 @@ function havingSentence(plan: QueryPlan, result: EngineResult, vocab: Vocabulary
     const lower = having.op === 'lt' || having.op === 'lte'
     const closest = lower ? stats.lowest : stats.highest
     if (!closest) return null
-    return `No ${group} has ${rule}. The ${lower ? 'lowest' : 'highest'} is ${valueText(plan, closest.value, vocab)} (${closest.label}).`
+    return `No ${group} has ${rule}. The ${lower ? 'lowest' : 'highest'} is ${valueText(plan, closest.value, vocab)} (${shownLabel(vocab, closest.label)}).`
   }
 
   // A limit may have cut the list, so the count of groups that meet the rule is the pre-cut one.
@@ -115,8 +115,8 @@ export function measureWords(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY
 
 const NAMED_TIES = 3
 
-function tiedLabels(labels: string[]): string {
-  const shown = labels.slice(0, NAMED_TIES).join(', ')
+function tiedLabels(labels: string[], vocab: Vocabulary): string {
+  const shown = labels.slice(0, NAMED_TIES).map((label) => shownLabel(vocab, label)).join(', ')
   const rest = labels.length - NAMED_TIES
   return rest > 0 ? `${shown}, and ${rest} more` : shown
 }
@@ -135,8 +135,8 @@ export function answerSentence(
 ): string | null {
   if (!top) return null
   const rank = `${direction} ${measureWords(plan, vocab)}: ${valueText(plan, top.value, vocab)}`
-  if (top.tied.length > 1) return `${top.tied.length} groups tie for the ${rank} (${tiedLabels(top.tied)}).`
-  return `${top.label} has the ${rank}.`
+  if (top.tied.length > 1) return `${top.tied.length} groups tie for the ${rank} (${tiedLabels(top.tied, vocab)}).`
+  return `${shownLabel(vocab, top.label)} has the ${rank}.`
 }
 
 export interface ResultOptions {

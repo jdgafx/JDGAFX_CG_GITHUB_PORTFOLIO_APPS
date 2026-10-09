@@ -2,6 +2,7 @@ import type { ChangeEvent, RefObject } from 'react'
 import type { DatasetState } from '../hooks/useLiveDataset'
 import type { City } from '../lib/liveData/catalog'
 import type { DatasetOption } from '../types'
+import { useState } from 'react'
 import DataSourcePanel from './DataSourcePanel'
 
 interface DataSectionProps {
@@ -35,12 +36,25 @@ export default function DataSection({
   onUploadClick,
   onFileChange,
 }: DataSectionProps) {
+  // Below 1000 px the data card folds up so the question and the result stay near the top.
+  const [open, setOpen] = useState<boolean>(() => window.matchMedia('(min-width: 1000px)').matches)
+  const summary =
+    state.status === 'ready'
+      ? `${state.loaded.source.label}, ${state.loaded.data.rows.length.toLocaleString('en-US')} rows`
+      : state.status === 'loading'
+        ? 'Loading the data'
+        : state.status === 'error'
+          ? 'Could not load the data'
+          : 'No data loaded'
   return (
-    <section className="ds-section" aria-labelledby="data-title">
-      <div className="ds-section__head">
-        <h2 id="data-title" className="ds-section__title">Your data</h2>
-        <p className="ds-section__sub">Live public data, fetched when you pick it, or your own CSV.</p>
-      </div>
+    <details className="ds-disclosure app-data" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <span className="app-data__summary">
+          <span className="ds-section__title">Your data</span>
+          <span className="ds-help">{summary}</span>
+        </span>
+      </summary>
+      <section className="ds-section" aria-label="Your data">
 
       <div className="ds-field">
         <label className="ds-label" htmlFor="dataset">Dataset</label>
@@ -110,6 +124,7 @@ export default function DataSection({
           Your own CSV, up to 5 MB, with a header row. It is parsed in this browser.
         </p>
       </div>
-    </section>
+      </section>
+    </details>
   )
 }

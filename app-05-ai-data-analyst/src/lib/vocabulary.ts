@@ -8,6 +8,23 @@ export function labelFor(vocab: Vocabulary, field: string): string {
   return vocab.labels[field] ?? field
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const MONTH_LABEL = /^(\d{4})-(0[1-9]|1[0-2])$/
+
+/** A group label as people say it: "2026-07" is "July 2026" when the dataset's months are real months. */
+export function shownLabel(vocab: Vocabulary, label: string): string {
+  const match = vocab.months ? MONTH_LABEL.exec(label) : null
+  return match ? `${MONTHS[Number(match[2]) - 1]} ${match[1]}` : label
+}
+
+/** The short axis form of a month label: "Jul", with the year on a second line at the first month and each January. */
+export function axisMonth(label: string, first: boolean): { top: string; year: string | null } | null {
+  const match = MONTH_LABEL.exec(label)
+  if (!match) return null
+  const month = Number(match[2])
+  return { top: (MONTHS[month - 1] ?? '').slice(0, 3), year: first || month === 1 ? (match[1] ?? null) : null }
+}
+
 /** A number with its unit, when the column has one: "12.4 mm". */
 export function withUnit(vocab: Vocabulary, field: string, text: string): string {
   const unit = vocab.units[field]
@@ -52,4 +69,5 @@ export const WEATHER_VOCABULARY: Vocabulary = {
     precipitation_mm: 'rain',
   },
   units: { temp_max_c: '°C', temp_min_c: '°C', precipitation_mm: 'mm' },
+  months: true,
 }

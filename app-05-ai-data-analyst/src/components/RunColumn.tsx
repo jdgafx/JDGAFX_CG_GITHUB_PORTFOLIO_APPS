@@ -1,6 +1,5 @@
 import type { AnalysisThreadState } from '../hooks/useAnalysisThread'
 import type { ParsedData } from '../types'
-import ChartFrame from './ChartFrame'
 import DataPreview from './DataPreview'
 import HistoryList from './HistoryList'
 import ReadoutStrip from './ReadoutStrip'
@@ -27,7 +26,7 @@ function emptyText(parsedData: ParsedData | null): { title: string; body: string
 
 /** The run column, in the order of the ended state: the thread, the chart, the figures, the trace, then the rest. */
 export default function RunColumn({ parsedData, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry }: RunColumnProps) {
-  const { thread, step, run, pending, error } = state
+  const { thread, run, pending, error } = state
   const running = pending !== null
   const freshRun = pending?.mode === 'new'
   const earlier = state.threads.filter((item) => item.id !== thread?.id)
@@ -81,12 +80,6 @@ export default function RunColumn({ parsedData, datasetLabel, state, lastQuestio
           </div>
         )}
       </div>
-
-      {!freshRun && step && (
-        <section className={running ? 'ds-run__stage app-stage app-stage--busy' : 'ds-run__stage app-stage'} aria-label="Chart for the open step">
-          <ChartFrame result={step.result} />
-        </section>
-      )}
 
       <ReadoutStrip running={running} run={run} />
 

@@ -43,16 +43,9 @@
   --viz-other: #898781;
 }
 
-/* Run column order: the chart sits right under the thread once a run has ended; the figures follow it. */
-[data-run="done"] .ds-run__stage,
-[data-run="failed"] .ds-run__stage,
-[data-run="stopped"] .ds-run__stage { order: -1; }
-[data-run="done"] .ds-run__readout,
-[data-run="failed"] .ds-run__readout,
-[data-run="stopped"] .ds-run__readout { order: 0; }
-/* While a follow-up runs, the thread with its pending step leads, then the live figures, then the chart it will replace. */
+/* Run column order: while a run is live the thread with its pending step leads. */
 [data-run="running"] .ds-run__result { order: -1; }
-.app-below { display: grid; gap: 28px; min-width: 0; }
+.app-below { display: grid; gap: 32px; min-width: 0; }
 
 /* Rail */
 .app-status { min-height: 1.55em; font-size: 15px; color: var(--ds-text); overflow-wrap: anywhere; }
@@ -68,25 +61,25 @@
 .app-result { display: grid; gap: 16px; min-width: 0; overflow-wrap: anywhere; }
 .app-thread { gap: 16px; }
 .app-steps { display: grid; margin: 0; padding: 0; list-style: none; }
-.app-step { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--ds-border); min-width: 0; }
+.app-step { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid var(--ds-border); min-width: 0; }
 .app-step:first-child { border-top: 0; padding-top: 0; }
 .app-step--active .ds-trace__index { color: var(--ds-accent); font-weight: 600; }
 .app-step--active .app-step__question { color: var(--ds-text); }
-.app-step__head { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; width: 100%; min-height: 44px; padding: 0; font: inherit; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
-.app-step__head:hover:not(:disabled) .app-step__question { text-decoration: underline; text-decoration-color: var(--ds-accent); text-underline-offset: 3px; }
+.app-step__head { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; width: 100%; min-height: 44px; padding: 0; font: inherit; text-align: left; color: inherit; background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
+.app-step__head:hover:not(:disabled) .app-step__question { text-decoration: underline; text-decoration-color: var(--ds-accent); text-underline-offset: 4px; }
 .app-step__head:disabled { cursor: default; }
 .app-step__head--static { cursor: default; }
 .app-step__question { font-size: 18px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
 .app-step__summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-left: 40px; font-size: 15px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
 .app-step__from { padding-left: 40px; }
-.app-step__body { display: grid; gap: 14px; padding-left: 40px; min-width: 0; }
-.app-step--pending { gap: 10px; }
+.app-step__body { display: grid; gap: 16px; padding-left: 40px; min-width: 0; }
+.app-step--pending { gap: 8px; }
 .app-step--pending .ds-skeleton { grid-column: auto; margin: 0 0 0 40px; }
 .app-step--pending .ds-state__actions { grid-column: auto; margin: 0 0 0 40px; }
-.app-changes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0 0 0 40px; list-style: none; }
-.app-change { white-space: normal; font-family: var(--ds-font); font-weight: 650; padding: 3px 10px; }
+.app-changes { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0 0 0 40px; list-style: none; }
+.app-change { white-space: normal; font-family: var(--ds-font); font-weight: 650; padding: 4px 8px; }
 .app-answer p { max-width: 62ch; }
-.app-notice { margin: 0; padding: 10px 12px; font-size: 15px; color: var(--ds-warning); background: var(--ds-warning-soft); border-radius: var(--ds-radius-sm); }
+.app-notice { margin: 0; padding: 8px 12px; font-size: 15px; color: var(--ds-warning); background: var(--ds-warning-soft); border-radius: var(--ds-radius-sm); }
 .app-plan-words { grid-template-columns: max-content minmax(0, 1fr); }
 .app-plan-words__row { display: contents; }
 .app-plan-words dd { font-family: var(--ds-font); font-weight: 650; font-size: 15px; }
@@ -94,10 +87,12 @@
 .app-details .app-plan-words { margin-top: 4px; }
 .app-composer { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--ds-border); }
 .app-composer__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.app-idea { min-height: 40px; padding: 0 14px; font-weight: 500; }
+.app-idea { min-height: 40px; padding: 0 16px; font-weight: 500; }
 
 /* The chart on the v3 chart frame */
-.app-stage--busy { opacity: 0.55; }
+/* The chart sits inside its step, directly under the answer, and runs the width of the thread card. */
+.app-step__chart { margin-left: -40px; min-width: 0; }
+.app-step__chart .ds-chart { border: 0; padding: 0; background: transparent; }
 .app-chart { gap: 12px; }
 .app-chart__holder { min-width: 0; }
 .app-chart__holder--wide { overflow-x: auto; }
@@ -136,7 +131,7 @@
 
 .app-table caption {
   caption-side: top;
-  padding: 10px 12px;
+  padding: 8px 12px;
   text-align: left;
   color: var(--ds-text-muted);
 }
@@ -247,12 +242,11 @@
 /* Data source panel: where the rows came from, how many, and when they were fetched */
 .app-source {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   padding: 16px;
   background: var(--ds-surface);
   border: 1px solid var(--ds-border);
-  border-left: 3px solid var(--ds-accent);
   border-radius: var(--ds-radius);
 }
 
@@ -260,7 +254,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 8px;
 }
 
 .app-source__provider {
@@ -278,7 +272,7 @@
 
 .app-source__detail {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--ds-text-muted);
 }
 
@@ -287,7 +281,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px 16px;
   align-items: start;
-  padding: 10px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--ds-border);
   border-bottom: 1px solid var(--ds-border);
 }
@@ -319,7 +313,7 @@
 }
 
 .app-source__bar {
-  height: 3px;
+  height: 4px;
   background: var(--ds-accent);
   border-radius: 2px;
   transform-origin: left;
@@ -340,4 +334,13 @@
   .app-source__bar {
     animation: none;
   }
+}
+
+/* The data card folds up on a phone: a title with one line on what is loaded */
+.app-data > summary { min-height: 48px; padding: 8px 0; }
+.app-data__summary { display: grid; gap: 0; min-width: 0; }
+.app-data > .ds-section { padding-top: 8px; }
+
+@media (max-width: 480px) {
+  .app-composer__row { grid-template-columns: minmax(0, 1fr); }
 }

@@ -118,6 +118,8 @@ export interface Vocabulary {
   labels: Record<string, string>
   /** Units shown after a value measured in that column. */
   units: Record<string, string>
+  /** True when a YYYY-MM group label should read as a month name: "July 2026". */
+  months?: boolean
 }
 
 export interface EngineResult {
