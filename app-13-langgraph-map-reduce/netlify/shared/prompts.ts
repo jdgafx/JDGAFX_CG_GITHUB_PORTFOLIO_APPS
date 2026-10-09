@@ -1,18 +1,25 @@
 import type { Chunk, Merged, Summary } from '../../src/types/frames'
 import type { ChatMessage } from './openrouter'
 
+/** Added to the extract and synthesis prompts: small models swap who does what to whom. */
+export const FAITHFULNESS =
+  ' Keep each statement\'s actor and object exactly as the text gives them. Never reverse who does what to ' +
+  'whom, and keep who is addressed or blamed.'
+
 const EXTRACT_SYSTEM =
   'You read one chunk of a longer document and extract its key points. Reply with a JSON object only: ' +
   '{"points": ["..."], "entities": ["..."]}. "points": up to 5 short statements of the chunk\'s main claims, ' +
   'facts or rules, each under 25 words. "entities": up to 10 named people, groups, places, documents or defined ' +
-  'terms that appear in the chunk. Use only what the chunk states.'
+  'terms that appear in the chunk. Use only what the chunk states.' +
+  FAITHFULNESS
 
 const SYNTH_SYSTEM =
   'You write a structured summary of a document from key points extracted chunk by chunk. Reply with a JSON ' +
   'object only: {"overview": "one or two sentences", "sections": [{"heading": "short title", "points": ' +
   '[{"text": "one sentence", "chunks": [chunk numbers]}]}]}. Use 3 to 5 sections with 2 to 4 points each. ' +
   'Every point lists the chunk numbers it draws on. Cite every chunk number at least once. Use only the key ' +
-  'points given and add no facts.'
+  'points given and add no facts.' +
+  FAITHFULNESS
 
 const CHECK_SYSTEM =
   'You check whether a summary leaves out any key point it was built from. Reply with a JSON object only: ' +

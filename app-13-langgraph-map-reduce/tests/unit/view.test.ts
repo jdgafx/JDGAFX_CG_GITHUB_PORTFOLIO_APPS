@@ -50,7 +50,8 @@ describe('applyFrame', () => {
         type: 'result',
         result: {
           summary: { overview: 'o', sections: [] },
-          coverage: { covered: [1], missing: [] },
+          coverage: { covered: [1], missing: [], noPoints: [] },
+          reviewFlags: [],
           entities: [],
           retries: 0,
           chunkCount: 1,
@@ -104,6 +105,50 @@ describe('chunks that wait for a slot', () => {
     const view = stopView([fan, start(1)].reduce(applyFrame, running))
 
     expect(view.branches.map((b) => b.status)).toEqual(['stopped', 'stopped', 'stopped', 'stopped', 'stopped', 'stopped'])
+  })
+})
+
+describe('the result frame keeps the streamed states', () => {
+  const result: Frame = {
+    type: 'result',
+    result: {
+      summary: { overview: 'o', sections: [] },
+      coverage: { covered: [1], missing: [], noPoints: [] },
+      reviewFlags: [],
+      entities: [],
+      retries: 1,
+      chunkCount: 1,
+      findingCount: 1,
+      notice: 'The retry did not finish in time, so the summary is from the first pass.',
+      metrics: { totalMs: 5, totalTokens: 10, totalCost: null, costSource: null, cheapCost: null, cheapCalls: 0, synthesisCost: null },
+    },
+  }
+  const running = { ...initialView(), phase: 'running' as const }
+
+  it('does not mark a step Done that failed, or one that never ran', () => {
+    const view = [
+      { type: 'node_start', node: 'synthesize', ms: 1, detail: 'Writing' } as Frame,
+      row({ node: 'synthesize', status: 'failed', detail: 'Cut off by the time limit', message: 'Cut off by the time limit' }),
+      result,
+    ].reduce(applyFrame, running)
+
+    expect(view.phase).toBe('done')
+    expect(view.stages.synthesize).toBe('failed')
+    expect(view.stages.check).toBe('idle')
+    expect(view.stages.final).toBe('idle')
+  })
+
+  it('closes a step still running as stopped, and shows a final row as Done', () => {
+    const view = [
+      { type: 'node_start', node: 'check', ms: 1, detail: 'Checking' } as Frame,
+      { type: 'node_start', node: 'final', ms: 2, detail: 'Finishing' } as Frame,
+      row({ node: 'final', status: 'ok', detail: 'Kept the first-pass summary' }),
+      result,
+    ].reduce(applyFrame, running)
+
+    expect(view.stages.check).toBe('stopped')
+    expect(view.stages.final).toBe('ok')
+    expect(view.rows.map((r) => r.node)).toEqual(['final'])
   })
 })
 

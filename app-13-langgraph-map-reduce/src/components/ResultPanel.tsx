@@ -1,3 +1,4 @@
+import { missingItems, reviewNote } from '../lib/coverage-text'
 import type { Phase } from '../lib/view'
 import type { RunResult } from '../types/frames'
 
@@ -82,6 +83,7 @@ function CoverageBody({ result }: { result: RunResult }) {
   const { covered, missing } = result.coverage
   const total = covered.length + missing.length
   const badge = coverageBadge(result)
+  const note = reviewNote(result.reviewFlags)
   return (
     <div className="ds-stack">
       <div className="ds-row">
@@ -97,10 +99,11 @@ function CoverageBody({ result }: { result: RunResult }) {
       ) : null}
       {missing.length > 0 ? (
         <p className="ds-notice ds-notice--error coverage-gap" role="alert">
-          {result.notice ? 'Still missing' : 'Still missing after the retry'}: {missing.length === 1 ? 'chunk' : 'chunks'}{' '}
-          {missing.join(', ')}. The summary above does not cover {missing.length === 1 ? 'it' : 'them'}.
+          {result.notice ? 'Still missing' : 'Still missing after the retry'}: {missingItems(result.coverage).join(', ')}. The
+          summary above does not cover {missing.length === 1 ? 'it' : 'them'}.
         </p>
       ) : null}
+      {note ? <p className="coverage-note">{note}</p> : null}
     </div>
   )
 }
@@ -112,7 +115,7 @@ export function CoverageSection({ result, phase }: { result: RunResult | null; p
         <h2 id="coverage-title" className="ds-section__title">
           Coverage
         </h2>
-        <p className="ds-section__sub">A chunk counts as covered when it gave key points and the summary cites it.</p>
+        <p className="ds-section__sub">A chunk counts as covered when it gave key points and the summary cites it. The review model only adds a note.</p>
       </div>
       {result ? <CoverageBody result={result} /> : <p className="empty-note">{COVERAGE_EMPTY[phase]}</p>}
     </section>

@@ -18,21 +18,23 @@ export interface CoverageInput {
   withPoints: Set<number>
   /** Chunks the summary cites. */
   cited: Set<number>
-  /** Chunks the review model says the summary leaves out. */
-  flagged: Set<number>
 }
 
 /**
- * A chunk is covered when extraction produced a key point for it, the summary cites it, and the
- * review model did not flag it. Every other chunk is missing. covered and missing partition the ids.
+ * A chunk is covered when extraction produced a key point for it and the summary cites it. That test is
+ * deterministic: the review model's opinion is advisory and never counts here. Every other chunk is
+ * missing, and noPoints says which of those gave no key points. covered and missing partition the ids.
  */
 export function computeCoverage(input: CoverageInput): Coverage {
   const covered: number[] = []
   const missing: number[] = []
+  const noPoints: number[] = []
   for (const id of [...input.chunkIds].sort((a, b) => a - b)) {
-    const ok = input.withPoints.has(id) && input.cited.has(id) && !input.flagged.has(id)
-    if (ok) covered.push(id)
+    if (!input.withPoints.has(id)) {
+      missing.push(id)
+      noPoints.push(id)
+    } else if (input.cited.has(id)) covered.push(id)
     else missing.push(id)
   }
-  return { covered, missing }
+  return { covered, missing, noPoints }
 }

@@ -7,7 +7,16 @@ import { readCost } from './cost'
 import { ProviderError, RunFailure, plainMessage } from './errors'
 import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
-import { CHECK, EXTRACT, MAX_RETRIES, MIN_RETRY_BUDGET_MS, RETRY_PAUSE_MS, SYNTH } from './models'
+import {
+  CHECK,
+  EXTRACT,
+  MAX_RETRIES,
+  MIN_RESYNTH_BUDGET_MS,
+  MIN_RETRY_BUDGET_MS,
+  RETRY_CALL_TIMEOUT_MS,
+  RETRY_PAUSE_MS,
+  SYNTH,
+} from './models'
 import type { ChatFn, ChatReply } from './openrouter'
 import { parseExtraction, parseOmitted, parseSummary } from './parse'
 import { checkMessages, extractMessages, synthesizeMessages } from './prompts'
@@ -18,6 +27,8 @@ export interface NodeDeps {
   budget: RunBudget
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
+  /** Timeout for the retry pass's extract calls. Defaults to RETRY_CALL_TIMEOUT_MS. */
+  retryCallTimeoutMs?: number
 }
 
 /** What a Send hands to extract: one chunk, the chunk count, and the pass (1 first, 2 for the retry). */
@@ -38,6 +49,8 @@ const STOPPED_MESSAGE = 'Stopped because another call in this run failed.'
 
 /** The notice on a summary whose coverage retry was left out because little of the run budget remained. */
 export const RETRY_SKIPPED_NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
+
+const chunkCount = (n: number): string => `${n} ${n === 1 ? 'chunk' : 'chunks'}`
 
 function emitterFor(config: LangGraphRunnableConfig | undefined): Emit {
   const writer = config?.writer
@@ -88,6 +101,7 @@ function extractFailureText(err: unknown, budget: RunBudget): string {
 export function makeNodes(deps: NodeDeps) {
   const { chat, limiter, budget } = deps
   const retryPause = deps.retryPauseMs ?? RETRY_PAUSE_MS
+  const retryCallTimeout = deps.retryCallTimeoutMs ?? RETRY_CALL_TIMEOUT_MS
 
   const split = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
     const emit = emitterFor(config)
@@ -159,7 +173,8 @@ export function makeNodes(deps: NodeDeps) {
         const began = Date.now()
         emit({ type: 'node_start', node: 'extract', ms: budget.elapsed(), detail: label, chunk: chunk.id })
         try {
-          return finish(await chat({ ...EXTRACT, messages: extractMessages(chunk, total) }, budget.signal), Date.now() - began)
+          const request = { ...EXTRACT, messages: extractMessages(chunk, total), ...(pass === 2 ? { timeoutMs: retryCallTimeout } : {}) }
+          return finish(await chat(request, budget.signal), Date.now() - began)
         } catch (err) {
           if (err instanceof ProviderError && err.fatal) budget.halt(err)
           return fail(err, Date.now() - began)
@@ -189,7 +204,23 @@ export function makeNodes(deps: NodeDeps) {
       `Merged ${merged.findingCount} findings into ${merged.byChunk.length} chunks, ${merged.entities.length} unique entities`,
     )
     emit({ type: 'node_end', ...done })
-    return { merged, trace: [done] }
+    const update: Update = { merged, trace: [done] }
+
+    // After a retry, a second synthesis and check run only if they can add something and still fit.
+    if (state.retries > 0) {
+      const withPoints = new Set(merged.byChunk.map((c) => c.chunkId))
+      const gained = merged.findingCount > (state.draft?.findingCount ?? 0)
+      const uncited = state.coverage.missing.some((id) => withPoints.has(id))
+      const noTime = budget.remaining() < MIN_RESYNTH_BUDGET_MS
+      if (noTime || (!gained && !uncited)) {
+        const missing = chunkCount(state.coverage.missing.length)
+        const label = noTime ? `${missing} still missing, retry skipped for time` : `${missing} still missing after the retry`
+        emit({ type: 'edge', from: 'check', to: 'final', label })
+        update.decision = 'final'
+        update.notice = noTime ? RETRY_SKIPPED_NOTICE : `${missing} still missing after the retry. The summary is from the first pass.`
+      }
+    }
+    return update
   }
 
   const synthesize = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
@@ -221,8 +252,9 @@ export function makeNodes(deps: NodeDeps) {
   }
 
   /**
-   * Deterministic coverage, plus one review call that lists omitted chunks. A chunk is covered when it
-   * has points, the summary cites it and the review does not flag it. The retry counter moves here, so
+   * Deterministic coverage, plus one review call that lists chunks the summary covers thinly. A chunk is
+   * covered when it has points and the summary cites it. The review's flags are advisory: they are kept as a
+   * note and never change coverage or start a retry. The retry counter moves here, so
    * the router only reads the decision this node writes. Every pass also leaves its outcome as the draft,
    * which a failed retry returns.
    */
@@ -236,7 +268,7 @@ export function makeNodes(deps: NodeDeps) {
     const cited = citedChunks(summary, chunkIds)
     const withPoints = new Set(merged.byChunk.map((c) => c.chunkId))
 
-    let flagged = new Set<number>()
+    let flagged: number[] = []
     let done: TraceRow
     const startedAt = Date.now()
     try {
@@ -247,8 +279,8 @@ export function makeNodes(deps: NodeDeps) {
       if (omitted === null) {
         done = traceRow('check', 'failed', ms, 'Review reply was not readable. Coverage uses chunk citations only.', fields)
       } else {
-        flagged = new Set(omitted)
-        done = traceRow('check', 'ok', ms, `Review flagged ${omitted.length} chunks as omitted`, fields)
+        flagged = omitted
+        done = traceRow('check', 'ok', ms, `Review flagged ${chunkCount(omitted.length)} as thin in the summary`, fields)
       }
     } catch (err) {
       // The review is a second opinion. A failure here never discards a finished summary.
@@ -261,14 +293,16 @@ export function makeNodes(deps: NodeDeps) {
       )
     }
 
-    const coverage = computeCoverage({ chunkIds, withPoints, cited, flagged })
+    // The review is advisory: coverage comes from key points and citations alone, and flags only add a note.
+    const coverage = computeCoverage({ chunkIds, withPoints, cited })
+    const reviewFlags = [...new Set(flagged)].filter((id) => coverage.covered.includes(id)).sort((a, b) => a - b)
     const wantsRetry = coverage.missing.length > 0 && state.retries < MAX_RETRIES
     const skipRetry = wantsRetry && budget.remaining() < MIN_RETRY_BUDGET_MS
     const willRetry = wantsRetry && !skipRetry
     const notice = skipRetry ? RETRY_SKIPPED_NOTICE : null
     emit({ type: 'node_end', ...done })
     if (willRetry) {
-      emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing chunks` })
+      emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing ${coverage.missing.length === 1 ? 'chunk' : 'chunks'}` })
     } else {
       emit({
         type: 'edge',
@@ -289,10 +323,12 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: chunkIds.length,
       findingCount: merged.findingCount,
+      reviewFlags,
       notice,
     }
     return {
       coverage,
+      reviewFlags,
       notice,
       decision: willRetry ? 'retry' : 'final',
       retries: willRetry ? state.retries + 1 : state.retries,
@@ -320,9 +356,10 @@ export function makeNodes(deps: NodeDeps) {
       retries: state.retries,
       chunkCount: total,
       findingCount: merged.findingCount,
+      reviewFlags: state.reviewFlags,
       notice: state.notice,
     }
-    const done = traceRow('final', 'ok', Date.now() - startedAt, detail)
+    const done = traceRow('final', 'ok', Date.now() - startedAt, state.notice ? `Kept the first-pass summary. ${detail}` : detail)
     emit({ type: 'node_end', ...done })
     return { outcome, trace: [done] }
   }

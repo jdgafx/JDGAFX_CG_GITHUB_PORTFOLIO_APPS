@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { metricsFor } from '../../src/lib/metrics'
-import type { Frame, Outcome, RunResult, TraceRow } from '../../src/types/frames'
+import type { Frame, NodeName, Outcome, RunResult, TraceRow } from '../../src/types/frames'
 import { createLimiter, type RunBudget } from './budget'
-import { plainMessage, reportedFailure, RunFailure } from './errors'
+import { plainMessage, ProviderError, reportedFailure, RunBudgetError, RunFailure } from './errors'
 import { buildGraph } from './graph'
-import { EXTRACT_CONCURRENCY, RETRY_PAUSE_MS } from './models'
+import { EXTRACT_CONCURRENCY, RETRY_CALL_TIMEOUT_MS, RETRY_PAUSE_MS } from './models'
 import { CALL_TIMEOUT_MS, chat, type ChatFn } from './openrouter'
 
 /**
@@ -26,6 +26,24 @@ export interface PipelineOptions {
   retryPauseMs?: number
   /** Extract calls that run at once. Defaults to EXTRACT_CONCURRENCY. */
   extractConcurrency?: number
+  /** Timeout for the retry pass's extract calls. Defaults to RETRY_CALL_TIMEOUT_MS, and never exceeds callTimeoutMs. */
+  retryCallTimeoutMs?: number
+}
+
+/** Shown on a step the time limit cut off. */
+export const CUT_OFF_MESSAGE = 'Cut off by the time limit'
+/** The detail of the final row when the first-pass summary is what the run returns. */
+export const KEPT_FIRST_PASS = 'Kept the first-pass summary'
+
+/** The notice for a retry that did not finish. A timeout or the run budget is not advice to shorten the text. */
+function retryNotice(cause: unknown, message: string, expired: boolean): string {
+  const slow =
+    expired ||
+    cause instanceof RunBudgetError ||
+    (cause instanceof ProviderError && (cause.kind === 'timeout' || cause.kind === 'unavailable'))
+  return slow
+    ? 'The retry did not finish in time, so the summary is from the first pass.'
+    : `The retry did not finish. ${message} The summary is from the first pass.`
 }
 
 /** The check update as the stream carries it. */
@@ -54,6 +72,8 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
   const rows: TraceRow[] = []
   let outcome: Outcome | null = null
   let firstPass: Outcome | null = null
+  /** Steps that have started and not ended, with the time they started. */
+  const open = new Map<NodeName, number>()
 
   try {
     const graph = buildGraph({
@@ -61,6 +81,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
       limiter: createLimiter(options.extractConcurrency ?? EXTRACT_CONCURRENCY),
       budget,
       retryPauseMs: options.retryPauseMs ?? RETRY_PAUSE_MS,
+      retryCallTimeoutMs: options.retryCallTimeoutMs ?? Math.min(RETRY_CALL_TIMEOUT_MS, options.callTimeoutMs ?? RETRY_CALL_TIMEOUT_MS),
     })
     const stream = await graph.stream(
       { text },
@@ -69,7 +90,11 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
     for await (const [mode, payload] of stream) {
       if (mode === 'custom') {
         const frame = payload as Frame
-        if (frame.type === 'node_end') rows.push(frame)
+        if (frame.type === 'node_start' && frame.node !== 'extract') open.set(frame.node, Date.now())
+        if (frame.type === 'node_end') {
+          rows.push(frame)
+          open.delete(frame.node)
+        }
         sink(frame)
       } else {
         const update = payload as GraphUpdate
@@ -84,9 +109,20 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
   } catch (err) {
     const message = plainMessage(budget.haltCause() ?? reportedFailure(err), budget.expired())
     if (firstPass && !outcome) {
+      const cause = budget.haltCause() ?? reportedFailure(err)
+      const write = (row: TraceRow): void => {
+        rows.push(row)
+        sink({ type: 'node_end', ...row })
+      }
+      // The pass-2 steps the limit cut off end as failed rows, and the run ends with a final row like any other.
+      for (const [node, began] of open) {
+        write({ node, status: 'failed', ms: Date.now() - began, detail: CUT_OFF_MESSAGE, message: CUT_OFF_MESSAGE })
+      }
+      sink({ type: 'node_start', node: 'final', ms: budget.elapsed(), detail: 'Finishing the run' })
+      write({ node: 'final', status: 'ok', ms: 0, detail: KEPT_FIRST_PASS })
       const result: RunResult = {
         ...firstPass,
-        notice: `The retry did not finish. ${message} The summary is from the first pass.`,
+        notice: retryNotice(cause, message, budget.expired()),
         metrics: metricsFor(rows, Date.now() - startedAt),
       }
       sink({ type: 'result', result })

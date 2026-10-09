@@ -32,7 +32,7 @@ export const GraphState = Annotation.Root({
   }),
   coverage: Annotation<Coverage>({
     reducer: (_old, next) => next,
-    default: () => ({ covered: [], missing: [] }),
+    default: () => ({ covered: [], missing: [], noPoints: [] }),
   }),
   retries: Annotation<number>({
     reducer: (_old, next) => next,
@@ -47,6 +47,11 @@ export const GraphState = Annotation.Root({
   notice: Annotation<string | null>({
     reducer: (_old, next) => next,
     default: () => null,
+  }),
+  /** Chunks the review model flagged on the latest check. Advisory only. */
+  reviewFlags: Annotation<number[]>({
+    reducer: (_old, next) => next,
+    default: () => [],
   }),
   /** Named outcome, not final: LangGraph does not allow a state key and a node with the same name. */
   outcome: Annotation<Outcome | null>({

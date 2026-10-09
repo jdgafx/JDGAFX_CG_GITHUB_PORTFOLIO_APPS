@@ -19,7 +19,7 @@ describe('role settings', () => {
   })
 
   it('extracts on a model that does not reason, with no JSON-mode, reasoning or provider option', () => {
-    expect(EXTRACT).toEqual({ model: 'meta-llama/llama-3.1-8b-instruct', maxTokens: 400, temperature: 0.2, jsonMode: false })
+    expect(EXTRACT).toEqual({ model: 'meta-llama/llama-3.1-8b-instruct', maxTokens: 800, temperature: 0.2, jsonMode: false })
     expect(PRICES[EXTRACT.model]).toEqual({ inPerM: 0.05, outPerM: 0.08 })
   })
 
@@ -50,8 +50,8 @@ describe('time limits', () => {
     expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
   })
 
-  it('starts a retry only with at least 10 s of the budget left', () => {
-    expect(MIN_RETRY_BUDGET_MS).toBe(10_000)
+  it('starts a retry only with at least 11 s of the budget left', () => {
+    expect(MIN_RETRY_BUDGET_MS).toBe(11_000)
     expect(MIN_RETRY_BUDGET_MS).toBeLessThan(RUN_BUDGET_MS)
   })
 })

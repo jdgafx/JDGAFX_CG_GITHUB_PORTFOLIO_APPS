@@ -117,7 +117,7 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
       summary: { overview: 'First pass summary.' },
       coverage: { covered: [1, 3], missing: [2] },
       retries: 0,
-      notice: 'The retry did not finish. The AI provider did not answer in time. The summary is from the first pass.',
+      notice: 'The retry did not finish in time, so the summary is from the first pass.',
     })
   })
 
@@ -172,7 +172,7 @@ describe('a retry pass that fails keeps the first-pass summary', () => {
     expect(results[0]).toMatchObject({
       summary: { overview: 'First pass summary.' },
       coverage: { missing: [2] },
-      notice: `The retry did not finish. ${BUDGET_MESSAGE} The summary is from the first pass.`,
+      notice: 'The retry did not finish in time, so the summary is from the first pass.',
     })
   })
 
@@ -426,7 +426,11 @@ describe('a refused request on one chunk costs that chunk only', () => {
     const { errors, results } = await run(THREE, chat)
 
     expect(errors).toEqual([])
-    expect(results[0]).toMatchObject({ coverage: { covered: [1, 3], missing: [2] }, retries: 1, notice: null })
+    expect(results[0]).toMatchObject({
+      coverage: { covered: [1, 3], missing: [2] },
+      retries: 1,
+      notice: '1 chunk still missing after the retry. The summary is from the first pass.',
+    })
   })
 
   it('reports the plain message when every chunk is refused and nothing can be summarized', async () => {

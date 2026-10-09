@@ -19,6 +19,15 @@ function afterCheck(state: GraphStateType): Send[] | 'final' {
 }
 
 /**
+ * After reduce: the first pass always goes on to synthesize. After a retry, reduce may decide that a second
+ * synthesis and check would not help or would not fit the budget, and then the run finishes on the
+ * first-pass summary.
+ */
+function afterReduce(state: GraphStateType): 'synthesize' | 'final' {
+  return state.retries > 0 && state.decision === 'final' ? 'final' : 'synthesize'
+}
+
+/**
  * The map-reduce graph: split, fan out to parallel extract nodes, reduce, synthesize, check, and
  * either one bounded retry of the missing chunks or the final node. Built per request.
  */
@@ -34,7 +43,7 @@ export function buildGraph(deps: NodeDeps) {
     .addEdge(START, 'split')
     .addConditionalEdges('split', fanOut, ['extract'])
     .addEdge('extract', 'reduce')
-    .addEdge('reduce', 'synthesize')
+    .addConditionalEdges('reduce', afterReduce, ['synthesize', 'final'])
     .addEdge('synthesize', 'check')
     .addConditionalEdges('check', afterCheck, ['extract', 'final'])
     .addEdge('final', END)

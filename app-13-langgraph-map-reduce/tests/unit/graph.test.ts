@@ -114,7 +114,7 @@ describe('graph path and state', () => {
     )
     expect(run.path).toHaveLength(8)
 
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
     expect(run.final?.retries).toBe(0)
     expect(run.final?.chunkCount).toBe(3)
     expect(run.final?.findingCount).toBe(3)
@@ -143,7 +143,7 @@ describe('graph path and state', () => {
       'check',
       'final',
     ])
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
     expect(run.final?.retries).toBe(1)
     // The timed-out chunk produced no first-pass finding, so the retry supplies the only one for it.
     expect(run.final?.findingCount).toBe(3)
@@ -155,12 +155,12 @@ describe('graph path and state', () => {
     expect(failed).toEqual(['extract 2: The AI provider did not answer in time.'])
     expect(edges(run.frames)).toEqual([
       'split -> extract: fan out: 3 chunks',
-      'check -> extract: retry 1 missing chunks',
+      'check -> extract: retry 1 missing chunk',
       'check -> final: coverage complete',
     ])
   })
 
-  it('(c) a chunk still missing after the retry: the run finishes and reports the gap', async () => {
+  it('(c) a chunk still missing after a retry that found nothing: the second synthesis is skipped and the gap is reported', async () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ failExtract: { 2: 99 } }))
 
     expect(run.path).toEqual([
@@ -173,29 +173,31 @@ describe('graph path and state', () => {
       'check',
       'extract',
       'reduce',
-      'synthesize',
-      'check',
       'final',
     ])
-    expect(run.final?.coverage).toEqual({ covered: [1, 3], missing: [2] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
     expect(run.final?.retries).toBe(1)
     expect(run.final?.findingCount).toBe(2)
     expect(run.final?.summary.sections.length).toBeGreaterThan(0)
     expect(edges(run.frames)).toEqual([
       'split -> extract: fan out: 3 chunks',
-      'check -> extract: retry 1 missing chunks',
+      'check -> extract: retry 1 missing chunk',
       'check -> final: 1 chunk still missing after the retry',
     ])
   })
 
-  it('(d) the review model flags a chunk on the first check: that chunk is re-run once and then covered', async () => {
+  it('(d) the review model flags a cited chunk: the flag is a note only, with no retry and no change to coverage', async () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ flagFirstCheck: [3] }))
 
-    expect(run.path).toHaveLength(12)
-    expect(run.path.slice(7, 8)).toEqual(['extract'])
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [] })
-    expect(run.final?.retries).toBe(1)
-    expect(run.final?.findingCount).toBe(4)
+    expect(run.path).toHaveLength(8)
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
+    expect(run.final?.reviewFlags).toEqual([3])
+    expect(run.final?.retries).toBe(0)
+    expect(run.final?.findingCount).toBe(3)
+    expect(edges(run.frames)).toEqual([
+      'split -> extract: fan out: 3 chunks',
+      'check -> final: coverage complete',
+    ])
   })
 
   it('(e) a rejected key ends the run at once with the provider error, not a partial result', async () => {
@@ -206,7 +208,7 @@ describe('graph path and state', () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ reviewFailure: 'timeout' }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
     const check = run.frames.find((f) => f.type === 'node_end' && f.node === 'check')
     expect(check).toMatchObject({ status: 'failed' })
     expect(check && 'detail' in check ? check.detail : '').toBe(
@@ -218,7 +220,7 @@ describe('graph path and state', () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ reviewFailure: 'bad_request' }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
     expect(run.final?.summary.sections.length).toBeGreaterThan(0)
   })
 })

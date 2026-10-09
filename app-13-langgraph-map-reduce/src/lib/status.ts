@@ -1,6 +1,20 @@
 import { formatChars, formatCount } from './format'
 import { MAX_CHARS, MIN_CHARS } from './limits'
-import type { Phase, RunView } from './view'
+import type { Phase, RunView, Status } from './view'
+
+/** The word beside a graph node's dot. */
+export const STATE_WORD: Record<Status, string> = {
+  idle: 'Waiting',
+  running: 'Running',
+  ok: 'Done',
+  failed: 'Failed',
+  stopped: 'Stopped',
+}
+
+/** A step that never started reads Not run once the run is over, instead of Waiting. */
+export function stageWord(status: Status, ended: boolean): string {
+  return status === 'idle' && ended ? 'Not run' : STATE_WORD[status]
+}
 
 /** The header badge word for each phase. The primary button uses the same verb. */
 export const PHASE_WORD: Record<Phase, string> = {
@@ -33,6 +47,11 @@ export function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+/** True once any frame has arrived, so "Starting the run." is only ever shown before the first one. */
+function hasStarted(view: RunView): boolean {
+  return Object.values(view.stages).some((s) => s !== 'idle') || view.branches.some((b) => b.status !== 'idle')
+}
+
 function runningStep(view: RunView): string {
   if (view.stages.split === 'running') return 'Splitting the text into chunks.'
   const retried = view.branches.filter((b) => b.status === 'running' && b.attempts > 1).length
@@ -45,14 +64,14 @@ function runningStep(view: RunView): string {
   if (view.stages.synthesize === 'running') return 'Writing the cited summary.'
   if (view.stages.check === 'running') return 'Checking coverage.'
   if (view.stages.final === 'running') return 'Finishing the run.'
-  return 'Starting the run.'
+  return hasStarted(view) ? '' : 'Starting the run.'
 }
 
 /** The status line: the phase's verb, then what the run is doing or what it ended with. */
 export function statusLine(view: RunView, length: number, valid: boolean): string {
   switch (view.phase) {
     case 'running':
-      return `Analyzing. ${runningStep(view)}`
+      return `Analyzing. ${runningStep(view)}`.trim()
     case 'done': {
       const { covered, missing } = view.result?.coverage ?? { covered: [], missing: [] }
       return `Finished. ${covered.length} of ${covered.length + missing.length} chunks covered.`

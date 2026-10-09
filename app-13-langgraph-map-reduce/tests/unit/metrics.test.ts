@@ -40,7 +40,7 @@ const rows: TraceRow[] = [
     node: 'check',
     status: 'ok',
     ms: 5,
-    detail: 'Review flagged 0 chunks as omitted',
+    detail: 'Review flagged 0 chunks as thin in the summary',
     model: 'xiaomi/mimo-v2.6-flash',
     usage: { total_tokens: 300 },
     cost: 0.01,

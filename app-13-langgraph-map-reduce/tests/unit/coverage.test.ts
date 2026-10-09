@@ -22,31 +22,25 @@ describe('citedChunks', () => {
 })
 
 describe('computeCoverage', () => {
-  it('covers a chunk only when it has points, the summary cites it and the review does not flag it', () => {
+  it('covers a chunk when it has points and the summary cites it, and says why the others are missing', () => {
     const coverage = computeCoverage({
       chunkIds: [1, 2, 3, 4],
       withPoints: new Set([1, 2, 3]),
       cited: new Set([1, 2, 4]),
-      flagged: new Set([2]),
     })
 
-    expect(coverage).toEqual({ covered: [1], missing: [2, 3, 4] })
+    expect(coverage).toEqual({ covered: [1, 2], missing: [3, 4], noPoints: [4] })
   })
 
   it('partitions the chunk ids and sorts both lists', () => {
-    const coverage = computeCoverage({
-      chunkIds: [3, 1, 2],
-      withPoints: new Set([1, 2, 3]),
-      cited: new Set([3, 1, 2]),
-      flagged: new Set(),
-    })
+    const coverage = computeCoverage({ chunkIds: [3, 1, 2], withPoints: new Set([1, 2, 3]), cited: new Set([3, 1, 2]) })
 
-    expect(coverage).toEqual({ covered: [1, 2, 3], missing: [] })
+    expect(coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
   })
 
-  it('reports every chunk as missing when nothing was extracted', () => {
-    const coverage = computeCoverage({ chunkIds: [1, 2], withPoints: new Set(), cited: new Set([1, 2]), flagged: new Set() })
+  it('reports every chunk as missing, with no key points, when nothing was extracted', () => {
+    const coverage = computeCoverage({ chunkIds: [1, 2], withPoints: new Set(), cited: new Set([1, 2]) })
 
-    expect(coverage).toEqual({ covered: [], missing: [1, 2] })
+    expect(coverage).toEqual({ covered: [], missing: [1, 2], noPoints: [1, 2] })
   })
 })

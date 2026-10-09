@@ -53,6 +53,7 @@ export function GraphView({ view }: { view: RunView }) {
   const { branches, stages, retryLabel } = view
   const count = Math.max(branches.length, 1)
   const height = Math.max(count * SLOT, MIN_FAN)
+  const ended = view.phase === 'done' || view.phase === 'error' || view.phase === 'stopped'
   const fanTaken = stages.split !== 'idle'
   const loopTaken = retryLabel !== null
   const style = { '--h': `${height}px`, '--n': String(count) } as CSSProperties
@@ -71,25 +72,25 @@ export function GraphView({ view }: { view: RunView }) {
           <div className="graph" style={style}>
             <p className={fanTaken ? 'graph-fan-label is-taken' : 'graph-fan-label'}>{fanText(view)}</p>
             <ol className="graph-row" aria-label="Graph steps in run order">
-              <StageNode name="split" status={stages.split} />
+              <StageNode name="split" status={stages.split} ended={ended} />
               <FanWire branches={branches} count={count} />
               <li className="graph-fan">
                 <ul className="graph-fan__list" aria-label="Extract branches">
                   {branches.length === 0 ? (
-                    <PlaceholderChunk />
+                    <PlaceholderChunk ended={ended} />
                   ) : (
                     branches.map((b) => <ChunkNode key={b.chunk} branch={b} />)
                   )}
                 </ul>
               </li>
               <ConvergeWire branches={branches} count={count} />
-              <StageNode name="reduce" status={stages.reduce} />
+              <StageNode name="reduce" status={stages.reduce} ended={ended} />
               <Link taken={stages.synthesize !== 'idle'} />
-              <StageNode name="synthesize" status={stages.synthesize} />
+              <StageNode name="synthesize" status={stages.synthesize} ended={ended} />
               <Link taken={stages.check !== 'idle'} />
-              <StageNode name="check" status={stages.check} />
+              <StageNode name="check" status={stages.check} ended={ended} />
               <Link taken={stages.final !== 'idle'} />
-              <StageNode name="final" status={stages.final} />
+              <StageNode name="final" status={stages.final} ended={ended} />
             </ol>
             <svg
               className={loopTaken ? 'graph-loop is-taken' : 'graph-loop'}

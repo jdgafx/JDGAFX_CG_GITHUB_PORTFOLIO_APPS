@@ -160,7 +160,7 @@ describe('chat', () => {
     await chat({ ...EXTRACT, messages: [{ role: 'user', content: 'chunk' }] }, noAbort())
 
     const body = sentBody(fetchMock)
-    expect(body).toMatchObject({ model: 'meta-llama/llama-3.1-8b-instruct', max_tokens: 400, temperature: 0.2 })
+    expect(body).toMatchObject({ model: 'meta-llama/llama-3.1-8b-instruct', max_tokens: 800, temperature: 0.2 })
     for (const key of ['reasoning', 'provider', 'response_format']) expect(body).not.toHaveProperty(key)
   })
 
@@ -250,6 +250,26 @@ describe('chat', () => {
     expect(CALL_TIMEOUT_MS).toBe(10_000)
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
+  })
+
+  it('lets a request carry its own, shorter timeout', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', hangingFetch())
+
+    const pending = chat({ ...request, timeoutMs: 5_000 }, noAbort()).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(5_000)
+    const error = (await pending) as ProviderError
+
+    expect(error.kind).toBe('timeout')
+  })
+
+  it('never sends the request timeout to the provider', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await chat({ ...request, timeoutMs: 5_000 }, noAbort())
+
+    expect(JSON.stringify(sentBody(fetchMock))).not.toContain('timeout')
   })
 
   it('reports a run-budget abort as a RunBudgetError, not as a provider timeout', async () => {

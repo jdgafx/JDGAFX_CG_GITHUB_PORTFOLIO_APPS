@@ -389,6 +389,14 @@
   line-height: 1.25;
 }
 
+/* The review model's opinion: a muted note, never part of the coverage count */
+.coverage-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ds-text-muted);
+}
+
 /* Trace: the state dot and word. The meta column keeps each figure on one line (tokens.css) and wraps only on phones */
 .trace-state {
   display: inline-flex;

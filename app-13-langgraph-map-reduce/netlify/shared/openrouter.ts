@@ -24,6 +24,8 @@ export interface ChatRequest {
   reasoning?: Record<string, unknown>
   /** Route only to providers that accept every parameter in the request. Set for synthesis only. */
   requireParameters?: boolean
+  /** Ends this call after this long instead of the default. Never sent to the provider. */
+  timeoutMs?: number
 }
 
 export interface ChatReply {
@@ -105,7 +107,7 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
 
 /**
  * One chat call. The key is read here and nowhere else. The run's signal aborts the call when the
- * budget runs out or another call halts the run, and a per-call timer ends it after timeoutMs. The
+ * budget runs out or another call halts the run, and a per-call timer ends it after the request's own timeoutMs, or the default. The
  * provider body is never read into an error, logged or returned.
  */
 export async function chat(
@@ -122,7 +124,7 @@ export async function chat(
   const timer = setTimeout(() => {
     timedOut = true
     call.abort()
-  }, timeoutMs)
+  }, request.timeoutMs ?? timeoutMs)
   const forward = (): void => call.abort()
   signal.addEventListener('abort', forward, { once: true })
 

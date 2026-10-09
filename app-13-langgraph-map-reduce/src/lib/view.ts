@@ -101,14 +101,13 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
       return { ...view, edges, retryLabel: retry, live: frame.label }
     }
     case 'result': {
-      const stages: Record<StageName, Status> = {
-        split: 'ok',
-        reduce: 'ok',
-        synthesize: 'ok',
-        check: 'ok',
-        final: 'ok',
+      // The streamed states stand: a step the run never reached stays idle, and one still open is closed.
+      const stages = { ...view.stages }
+      for (const name of Object.keys(stages) as StageName[]) {
+        if (stages[name] === 'running') stages[name] = 'stopped'
       }
-      return { ...view, phase: 'done', stages, result: frame.result, live: 'Run complete' }
+      const branches = view.branches.map((b) => (b.status === 'running' ? { ...b, status: 'stopped' as Status } : b))
+      return { ...view, phase: 'done', stages, branches, result: frame.result, live: 'Run complete' }
     }
     case 'error':
       return failView(view, frame.message)

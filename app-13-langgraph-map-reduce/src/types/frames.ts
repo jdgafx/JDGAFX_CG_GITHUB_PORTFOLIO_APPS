@@ -44,10 +44,15 @@ export interface Summary {
   sections: SummarySection[]
 }
 
-/** covered and missing partition the chunk ids. */
+/**
+ * covered and missing partition the chunk ids. A chunk is covered when it gave key points and the summary
+ * cites it. noPoints lists the missing chunks that gave no key points, so the rest of missing are chunks
+ * the summary does not cite.
+ */
 export interface Coverage {
   covered: number[]
   missing: number[]
+  noPoints: number[]
 }
 
 export type TraceStatus = 'ok' | 'failed'
@@ -87,6 +92,8 @@ export interface Outcome {
   retries: number
   chunkCount: number
   findingCount: number
+  /** Chunks the review model thinks the summary covers thinly. Advisory: it never changes coverage or starts a retry. */
+  reviewFlags: number[]
   /** Set only when a retry pass did not finish: the first-pass summary is returned, with the reason. */
   notice: string | null
 }
