@@ -112,7 +112,7 @@ export function RewindPanel({ offers, selected, busy, onSelect, onRun }: RewindP
   }
 
   return (
-    <section className="ds-section rewind" aria-labelledby="rewind-title">
+    <section className="ds-section ds-panel rewind" aria-labelledby="rewind-title">
       <div className="ds-section__head ds-section__head--bare">
         <h2 id="rewind-title" className="ds-section__title">Rewind and edit</h2>
         <p className="ds-section__sub">
@@ -120,13 +120,30 @@ export function RewindPanel({ offers, selected, busy, onSelect, onRun }: RewindP
           again, on live pages with the real model.
         </p>
       </div>
-      <div className="ds-seg" role="group" aria-label="Saved steps">
-        {offers.map((item) => (
-          <button key={offerKey(item)} type="button" aria-pressed={offerKey(item) === selected} disabled={busy} onClick={() => onSelect(offerKey(item))}>
-            {labelOf(item)}
-          </button>
-        ))}
-      </div>
+      <ul className="ds-choice-list" aria-label="Saved steps">
+        {offers.map((item) => {
+          const key = offerKey(item)
+          return (
+            <li key={key}>
+              <button
+                type="button"
+                className={key === selected ? 'ds-choice ds-choice--selected' : 'ds-choice'}
+                aria-pressed={key === selected}
+                disabled={busy}
+                onClick={() => onSelect(key)}
+              >
+                <span className="ds-choice__label">{labelOf(item)}</span>
+                <span className="ds-choice__text">{item.kind === 'plan' ? `Searches: ${(item.queries ?? []).join('; ')}` : `Draft: ${item.draft ?? ''}`}</span>
+                <span className="ds-choice__meta">
+                  {item.kind === 'plan'
+                    ? 'Edit the search queries. Every step after the plan runs again.'
+                    : 'Replace the critic\'s review with your note. The draft, the next review and the final step run again.'}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
       {offer && edit && (
         <div className="ds-stack rewind__body">
           {offer.kind === 'plan' ? (

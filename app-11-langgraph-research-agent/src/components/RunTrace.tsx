@@ -56,7 +56,7 @@ function TraceRow({ index, entry, lane, rewind, onRewind }: TraceRowProps) {
   const status = entry.reused
     ? { word: 'Reused', dot: 'ds-dot--skipped', tone: '' }
     : entry.edited
-      ? { word: 'Your edit', dot: 'ds-dot--ok', tone: 'ds-trace__state--ok' }
+      ? { word: 'Your edit', dot: 'dot--edit', tone: 'trace__state--edit' }
       : STATUS[entry.status]
   const tokens = entry.usage?.total_tokens
 

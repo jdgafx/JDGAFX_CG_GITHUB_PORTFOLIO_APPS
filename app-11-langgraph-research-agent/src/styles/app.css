@@ -12,17 +12,21 @@
 .rewind__body { padding-top: 4px; }
 .rewind__draft { margin: 0; padding: 12px 16px; max-width: var(--ds-measure); color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
 .rewind .ds-seg { justify-self: start; flex-wrap: wrap; }
-.trace__rewind { margin-top: 8px; min-height: 36px; font-size: 14px; }
+.trace__rewind { margin-top: 8px; }
 
 .fork__summary { margin: 0; max-width: var(--ds-measure); color: var(--ds-text); font-weight: 600; }
 .fork__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.fork__col { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.fork__col--new { border-color: var(--ds-accent); background: var(--ds-accent-soft); }
-.fork__head { margin: 0; font-size: 15px; font-weight: 650; color: var(--ds-text-muted); }
-.fork__col .ds-lead__text { font-size: 16px; }
+.fork__grid { column-gap: 0; }
+.fork__col { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px 16px 16px 0; }
+.fork__col + .fork__col { padding: 16px; border-left: 1px solid var(--ds-border); }
+.fork__col--new { background: var(--ds-accent-soft); border-radius: 0 var(--ds-radius) var(--ds-radius) 0; }
+.fork__col .ds-state { padding: 0; border: 0; background: none; }
+.fork__head { margin: 0; font-size: 15px; font-weight: 650; color: var(--ds-text); }
+.fork__back { margin-left: auto; }
+.fork__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .fork__ins { color: var(--ds-success); background: var(--ds-success-soft); text-decoration: underline; text-underline-offset: 3px; }
 .fork__del { color: var(--ds-danger); background: var(--ds-danger-soft); text-decoration: line-through; }
-@media (max-width: 859px) { .fork__grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 859px) { .fork__grid { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } .fork__col { padding: 0; } .fork__col + .fork__col { padding: 16px; border-left: 0; border-radius: var(--ds-radius); } }
 
 /* Steps a resumed run kept are drawn quieter than the ones it ran again. */
 .trace-step--reused .ds-trace__index { color: var(--ds-text-muted); }
@@ -35,3 +39,9 @@
 .g-pick:hover .ds-g-node, .g-pick:focus-visible .ds-g-node { stroke: var(--ds-accent); stroke-width: 2.5; }
 .g-pick:focus-visible { outline: none; }
 .rewind__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.rewind .ds-input, .rewind .ds-textarea { max-width: var(--ds-measure); }
+.rewind .ds-choice-list { max-width: calc(var(--ds-measure) + 80px); }
+.dot--edit { background: var(--ds-accent); }
+.g-dot--edit { fill: var(--ds-accent); }
+.trace__state--edit { color: var(--ds-accent); }
+.legend__kept { width: 8px; height: 8px; border-radius: 50%; border: 1.5px dotted var(--ds-text-muted); }

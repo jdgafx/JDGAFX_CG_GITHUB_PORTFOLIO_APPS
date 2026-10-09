@@ -30,7 +30,7 @@ const MARK_DOT: Record<NodeMark, string> = {
   skipped: 'ds-g-dot--skipped',
   stopped: 'ds-g-dot--stopped',
   reused: 'ds-g-dot--idle',
-  edited: 'ds-g-dot--done',
+  edited: 'g-dot--edit',
 }
 
 const MARK_WORD: Record<NodeMark, string> = {
@@ -194,14 +194,18 @@ export function GraphView({ view, pickable, onPick }: GraphViewProps) {
             <span className="ds-dot ds-dot--failed" aria-hidden="true" />
             failed
           </li>
-          <li>
-            <span className="ds-dot ds-dot--skipped" aria-hidden="true" />
-            kept
-          </li>
-          <li>
-            <span className="ds-dot ds-dot--ok" aria-hidden="true" />
-            set by you
-          </li>
+          {view.trace.some((entry) => entry.reused || entry.edited) && (
+            <>
+              <li>
+                <span className="legend__kept" aria-hidden="true" />
+                kept
+              </li>
+              <li>
+                <span className="ds-dot dot--edit" aria-hidden="true" />
+                set by you
+              </li>
+            </>
+          )}
           <li>
             <span className="ds-legend__edge" aria-hidden="true" />
             path taken

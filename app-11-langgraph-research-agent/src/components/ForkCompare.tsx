@@ -33,6 +33,13 @@ function Answer({ text, parts, kind }: { text: string; parts: ReturnType<typeof 
   )
 }
 
+/** One clause when the critic judged the two answers differently, so the difference is read, not found. */
+function verdictNote(original: ResultFrame, next: ResultFrame): string {
+  const was = badgeFor(original).text
+  const now = badgeFor(next).text
+  return was === now ? '' : ` The critic said "${was}" for the original and "${now}" for the new answer.`
+}
+
 function Verdict({ result }: { result: ResultFrame }) {
   const badge = badgeFor(result)
   return (
@@ -76,7 +83,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>
             {running ? 'Re-running from your edit' : 'Original and new answer'}
           </h2>
-          <button type="button" className="ds-button" onClick={onBack}>Back to the original run</button>
+          <button type="button" className="ds-button fork__back" onClick={onBack}>Back to the original run</button>
         </div>
         {info && next && (
           <p className="fork__summary">
@@ -84,6 +91,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
             {identical
               ? 'The new answer reads the same as the original.'
               : counts && `The new answer adds ${plural(counts.added, 'word')} and drops ${plural(counts.removed, 'word')}.`}
+            {verdictNote(original, next)}
           </p>
         )}
         {info && next && next.ending.kind !== 'complete' && (
@@ -91,6 +99,20 @@ export function ForkCompare({ original, fork, onBack }: Props) {
             <span className="ds-state__mark" aria-hidden="true" />
             <p className="ds-state__title">Partial new answer</p>
             <p className="ds-state__body">{next.ending.message}</p>
+          </div>
+        )}
+        {next && (
+          <div className="fork__tools">
+            <div className="ds-seg" role="group" aria-label="How to show the answers">
+              <button type="button" aria-pressed={showDiff} onClick={() => setShowDiff(true)}>Show changes</button>
+              <button type="button" aria-pressed={!showDiff} onClick={() => setShowDiff(false)}>Plain</button>
+            </div>
+            {showDiff && (
+              <ul className="ds-legend" aria-label="Diff key">
+                <li><ins className="fork__ins">added</ins></li>
+                <li><del className="fork__del">removed</del></li>
+              </ul>
+            )}
           </div>
         )}
         <div className="fork__grid">
@@ -101,7 +123,7 @@ export function ForkCompare({ original, fork, onBack }: Props) {
             <SourceList result={original} />
             <p className="ds-lead__foot">{`${milliseconds(original.totals.ms)}. Read ${plural(original.evidenceCount, 'page')}.`}</p>
           </article>
-          <article className="fork__col fork__col--new" aria-label="New answer">
+          <article className={next ? 'fork__col fork__col--new' : 'fork__col'} aria-label="New answer">
             <h3 className="fork__head">After your edit</h3>
             {next ? (
               <>
@@ -135,12 +157,6 @@ export function ForkCompare({ original, fork, onBack }: Props) {
             )}
           </article>
         </div>
-        {next && (
-          <div className="ds-seg" role="group" aria-label="How to show the answers">
-            <button type="button" aria-pressed={showDiff} onClick={() => setShowDiff(true)}>Show changes</button>
-            <button type="button" aria-pressed={!showDiff} onClick={() => setShowDiff(false)}>Plain</button>
-          </div>
-        )}
       </div>
     </section>
   )

@@ -48,6 +48,9 @@ export interface RunView {
   runId: string | null
   /** The points a finished fresh run offers to rewind to. */
   checkpoints: CheckpointOffer[]
+  /** Client clock, Date.now(): when the run started and when it failed or was stopped. */
+  startedAt: number | null
+  endedAt: number | null
 }
 
 const keyOf = (node: NodeName, visit: number) => `${node}-${visit}`
@@ -62,11 +65,11 @@ const idleMarks = (): Record<NodeName, NodeMark> => ({
 })
 
 export function emptyRun(): RunView {
-  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null, checkpoints: [] }
+  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null, checkpoints: [], startedAt: null, endedAt: null }
 }
 
 export function startRun(): RunView {
-  return { ...emptyRun(), phase: 'running' }
+  return { ...emptyRun(), phase: 'running', startedAt: Date.now() }
 }
 
 function entryFor(frame: NodeEndFrame): TraceEntry {
@@ -137,6 +140,7 @@ export function stopRun(view: RunView): RunView {
     marks: view.active ? { ...view.marks, [view.active]: 'stopped' } : view.marks,
     trace: closeRunning(view.trace, 'stopped', 'Stopped before this step finished.'),
     error: null,
+    endedAt: Date.now(),
   }
 }
 
@@ -149,6 +153,7 @@ export function failRun(view: RunView, message: string): RunView {
     marks: view.active ? { ...view.marks, [view.active]: 'failed' } : view.marks,
     trace: closeRunning(view.trace, 'failed', message),
     error: message,
+    endedAt: Date.now(),
   }
 }
 
@@ -173,7 +178,21 @@ export function statusText(view: RunView): string {
 }
 
 /** The status line under the controls. It uses the button's verb, so the page says what it is doing. */
+/** True when the view is a resumed run: it has kept or edited steps, or its result says it was resumed. */
+const isResumed = (view: RunView) => view.result?.fork !== undefined || view.trace.some((entry) => entry.reused || entry.edited)
+
 export function researchStatus(view: RunView): string {
+  if (isResumed(view)) {
+    if (view.phase === 'running') return view.active ? `Re-run in progress. Current step: ${view.active}.` : 'Re-run in progress.'
+    if (view.phase === 'done') {
+      const { ending } = view.result ?? { ending: { kind: 'complete' } }
+      return ending.kind === 'complete'
+        ? 'Re-run finished. The new answer is beside the original.'
+        : 'Re-run stopped early. The new answer is the last draft, labelled below.'
+    }
+    if (view.phase === 'failed') return 'Re-run failed. The original run is still here: edit and re-run, or go back to it.'
+    if (view.phase === 'stopped') return 'Re-run stopped. Steps that finished are still in the trace.'
+  }
   if (view.phase === 'running') {
     if (view.active) return `Research running. Current step: ${view.active}.`
     return view.trace.length === 0 ? 'Starting research.' : 'Research running.'

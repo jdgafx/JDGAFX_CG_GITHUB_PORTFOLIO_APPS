@@ -45,7 +45,7 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const none = '—'
 
   // A resumed run's figures are its own: the kept steps belong to the original run.
-  const own = trace.filter((entry) => !entry.reused)
+  const own = trace.filter((entry) => !entry.reused && !entry.edited)
   const spentMs = own.reduce((sum, entry) => sum + (entry.ms ?? 0), 0)
   const spentTokens = own.reduce((sum, entry) => sum + (entry.usage?.total_tokens ?? 0), 0)
   const priced = own.filter((entry) => entry.cost !== undefined)
@@ -54,6 +54,9 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const usedModels = Array.from(new Set(trace.map((entry) => entry.servedModel ?? entry.model ?? '').filter(Boolean)))
   // Before any step has finished there is nothing to show but dashes.
   const soFar = (running || ended) && own.some((entry) => entry.ms !== undefined)
+  // A re-run that ended before any step of its own finished has no step time, so the client clock gives the elapsed time.
+  const resumed = trace.some((entry) => entry.reused || entry.edited)
+  const elapsed = resumed && view.startedAt !== null && view.endedAt !== null ? view.endedAt - view.startedAt : null
   const sofarHint = running ? 'So far' : phase === 'failed' ? 'Before it failed' : 'Before it stopped'
 
   let tone = ''
@@ -73,8 +76,8 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
       <dl className={`ds-strip${tone}`}>
-        <Cell label="Time" hint={running ? 'Running now' : soFar && !result ? sofarHint : result?.fork ? 'The re-run only' : 'Start to answer'}>
-          {running ? <LiveClock /> : totals ? milliseconds(totals.ms) : soFar ? milliseconds(spentMs) : none}
+        <Cell label="Time" hint={running ? 'Running now' : (soFar || elapsed !== null) && !result ? sofarHint : result?.fork ? 'The re-run only' : 'Start to answer'}>
+          {running ? <LiveClock /> : totals ? milliseconds(totals.ms) : elapsed !== null ? milliseconds(elapsed) : soFar ? milliseconds(spentMs) : none}
         </Cell>
         <Cell label="Tokens" hint={soFar && !result ? sofarHint : 'All model calls'}>
           {totals

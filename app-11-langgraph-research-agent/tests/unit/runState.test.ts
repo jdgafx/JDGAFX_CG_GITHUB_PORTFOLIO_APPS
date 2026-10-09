@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ResultFrame } from '../../netlify/shared/events'
-import { applyFrame, emptyRun, researchStatus, startRun, statusText } from '../../src/lib/runState'
+import { applyFrame, emptyRun, failRun, researchStatus, startRun, statusText } from '../../src/lib/runState'
 
 describe('run view', () => {
   it('starts ready, then says it is starting, then names the running node', () => {
@@ -160,5 +160,16 @@ describe('a resumed run', () => {
     })
     expect(statusText(applyFrame(startRun(), frame('accept')))).toBe('New answer ready')
     expect(statusText(applyFrame(startRun(), frame('revise')))).toBe('New answer, critic not satisfied')
+  })
+
+  it('says what a re-run did, not that research finished, and keeps the clock of a failed re-run', () => {
+    let view = startRun()
+    view = applyFrame(view, { type: 'node_end', node: 'plan', visit: 1, ms: 1491, status: 'ok', detail: 'Planned.', reused: true })
+    expect(researchStatus(view)).toBe('Re-run in progress.')
+    const failed = failRun(view, 'The run reached its time limit before this step finished.')
+    expect(researchStatus(failed)).toBe('Re-run failed. The original run is still here: edit and re-run, or go back to it.')
+    expect(failed.startedAt).not.toBeNull()
+    expect(failed.endedAt).toBeGreaterThanOrEqual(failed.startedAt as number)
+    expect(researchStatus(startRun())).toBe('Starting research.')
   })
 })
