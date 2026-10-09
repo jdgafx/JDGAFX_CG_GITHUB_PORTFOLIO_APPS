@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, commentBudget, parseReview, validateComments } from '../../netlify/shared/review'
+import {
+  buildSystemPrompt,
+  codeNames,
+  commentBudget,
+  endsWithNoChangeVerdict,
+  parseReview,
+  validateComments,
+} from '../../netlify/shared/review'
 
 describe('commentBudget', () => {
   it('never asks for more comments than the file has lines', () => {
@@ -197,6 +204,121 @@ describe('validateComments: issue flag, blank lines and quoted code', () => {
 
   it('keeps a comment where it is when its quote is on the cited line, or when it has no usable quote', () => {
     expect(linesOf([comment(2, 'x.strip()'), comment(4), comment(4, 'ev')])).toEqual([2, 4, 4])
+  })
+})
+
+describe('endsWithNoChangeVerdict', () => {
+  it.each([
+    'Unchecked type assertion will panic if a different value was stored under varsKey; in practice only this package sets it, so this is safe.',
+    "The copy does not deep-copy buildVarsFunc or buildScheme, which is fine since they are value-like, so this is only a note on the copy helper's scope.",
+    'Indexing p[len(p)-1] would panic on an empty string, but the empty case is already returned earlier, so this is safe.',
+    'The error reports v2 but the loop compares v1 and v2, and both hold the same value on match, so this is correct.',
+    'The mutex is held for the whole call. That is fine as written.',
+    'Reading the map without a lock looks safe here',
+    'This allocation happens once per route, so there is no issue',
+    'The shadowing is only a note.',
+    'The branch is redundant but harmless, so nothing to change here.',
+    'The default of 5 seconds is acceptable in practice since callers pass their own.',
+  ])('drops %j', (message) => {
+    expect(endsWithNoChangeVerdict(message)).toBe(true)
+  })
+
+  it.each([
+    'The loop indexes one past the end, so it panics when the slice is full.',
+    'The error reports v2 but the loop compares v1 and v2, so the naming is confusing.',
+    'This is safe today, but consider validating the input anyway.',
+    'This could be simplified, though it is fine as written.',
+    'The lock is correct, however the unlock is skipped when the handler panics, which leaks it.',
+    'The value is correct since it is computed once, but this ignores RawPath.',
+    'Credentials are encoded as latin1, which raises UnicodeEncodeError for most non-Western names. This is not safe for international users.',
+    'Safe is the name of this struct, and it is exported without documentation.',
+    'The fine for a missing header is applied twice, so callers are charged double.',
+    'Use the two-value form here instead; the comment says it is safe, yet the assertion can still panic.',
+  ])('keeps %j', (message) => {
+    expect(endsWithNoChangeVerdict(message)).toBe(false)
+  })
+
+  it('looks at the last sentence only', () => {
+    expect(endsWithNoChangeVerdict('The call may panic on nil. The rest of the function is fine.')).toBe(true)
+    expect(endsWithNoChangeVerdict('The rest of the function is fine. The call may panic on nil.')).toBe(false)
+  })
+})
+
+describe('codeNames', () => {
+  it('takes backticked text, calls, dotted names and camel or snake case, and ignores plain words', () => {
+    expect(codeNames('The redirect uses http.StatusMovedPermanently and `WriteHeader`, so a POST becomes a GET.').sort()).toEqual(
+      ['StatusMovedPermanently', 'WriteHeader', 'http.StatusMovedPermanently'].sort(),
+    )
+    expect(codeNames('Calls parse_args() and then checks the value.').sort()).toEqual(['parse_args'])
+    expect(codeNames('This loop is slow and the variable is never used.')).toEqual([])
+  })
+
+  it('adds the parts of a backticked dotted name', () => {
+    expect(codeNames('`r.skipClean` is read once').sort()).toEqual(['r.skipClean', 'r', 'skipClean'].filter((n) => n.length >= 3).sort())
+  })
+})
+
+describe('validateComments: verdicts and named code', () => {
+  const comment = (line: number, message: string, extra: Record<string, unknown> = {}) => ({
+    line,
+    severity: 'info',
+    message,
+    suggestion: 's',
+    ...extra,
+  })
+
+  it('drops a comment that ends with a no-change verdict even when issue is true, in the same bucket', () => {
+    const lines = ['a := 1', 'b := 2']
+    const result = validateComments(
+      [comment(1, 'Reads a without a lock; only this package sets it, so this is safe.', { issue: true }), comment(2, 'b is never used.')],
+      lines,
+      15,
+    )
+    expect(result.comments.map((c) => c.line)).toEqual([2])
+    expect(result).toMatchObject({ dropped: 1, droppedNoIssue: 1 })
+  })
+
+  it('moves a redirect comment from the line it cited to the line that holds the code it names (L176 to L192)', () => {
+    const lines = Array.from({ length: 220 }, (_, i) => `    step${i + 1}()`)
+    lines[175] = '    if !r.skipClean {'
+    lines[191] = '        w.WriteHeader(http.StatusMovedPermanently)'
+    const message = 'A POST is redirected with http.StatusMovedPermanently, so the browser silently converts it to a GET.'
+    // The model quoted the line it cited, so the quote alone cannot catch the mistake.
+    const result = validateComments([comment(176, message, { quote: 'if !r.skipClean {' })], lines, 15)
+    expect(result.comments.map((c) => c.line)).toEqual([192])
+    expect(result.moved).toBe(1)
+  })
+
+  it('moves a comment one line off, using a backticked name', () => {
+    const lines = ['if rv := r.Context().Value(varsKey); rv != nil {', '    v := rv.(map[string]string)', '}']
+    const result = validateComments([comment(1, 'The `rv.(map[string]string)` assertion panics on another type.')], lines, 15)
+    expect(result.comments.map((c) => c.line)).toEqual([2])
+  })
+
+  it('leaves a comment where it is when its line holds a named code or when the name is on several lines', () => {
+    const lines = Array.from({ length: 30 }, () => 'handle(req)')
+    lines[4] = 'start()'
+    expect(validateComments([comment(5, 'The call to `start()` ignores errors.')], lines, 15).comments.map((c) => c.line)).toEqual([5])
+    expect(validateComments([comment(5, 'The `handle` call is slow.')], lines, 15).comments.map((c) => c.line)).toEqual([5])
+  })
+
+  it('leaves a comment where it is when the message names code that is nowhere in the file', () => {
+    const lines = ['def divide(a, b):', '    return a / b']
+    const message = 'Dividing by zero raises ZeroDivisionError when b is 0.'
+    expect(validateComments([comment(2, message)], lines, 15).comments.map((c) => c.line)).toEqual([2])
+  })
+
+  it('does not search further than twenty lines for a named line', () => {
+    const lines = Array.from({ length: 60 }, (_, i) => `step${i + 1}()`)
+    lines[40] = 'target.Run()'
+    expect(validateComments([comment(5, 'The `target.Run` call is slow.')], lines, 15).comments.map((c) => c.line)).toEqual([5])
+    expect(validateComments([comment(25, 'The `target.Run` call is slow.')], lines, 15).comments.map((c) => c.line)).toEqual([41])
+  })
+
+  it('places a comment with no quote on a blank line using the code it names, and drops it when it names none', () => {
+    const lines = ['x := load()', '', 'save(x)']
+    expect(validateComments([comment(2, 'save(x) discards its error.')], lines, 15).comments.map((c) => c.line)).toEqual([3])
+    expect(validateComments([comment(2, 'Nothing here validates input.')], lines, 15)).toMatchObject({ comments: [], droppedBlank: 1 })
   })
 })
 

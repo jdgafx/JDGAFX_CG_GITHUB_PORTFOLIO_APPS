@@ -110,7 +110,7 @@ export interface ValidatedComments {
   comments: ReviewComment[]
   /** Every candidate that was not kept, for any reason. */
   dropped: number
-  /** Of those, comments the model itself marked as finding nothing to change. */
+  /** Of those, comments that found nothing to change: marked issue: false, or ending with a no-change verdict. */
   droppedNoIssue: number
   /** Of those, comments that cited a blank line the quote could not place. */
   droppedBlank: number
@@ -122,32 +122,111 @@ export interface ValidatedComments {
 
 /** How far from the cited line a quote is searched for. A quote found only once in the whole file also counts. */
 const QUOTE_WINDOW = 10
+/** How far from the cited line the code names in a message are searched for. */
+const NAME_WINDOW = 20
 const MIN_QUOTE_CHARS = 3
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
+/** The last sentence of a message. A sentence ends at . ! or ? followed by a capital, a quote or a bracket. */
+function lastSentence(message: string): string {
+  const parts = message.trim().split(/(?<=[.!?])\s+(?=[A-Z`"'(])/)
+  return (parts[parts.length - 1] ?? '').replace(/[\s"'`)\].!?]+$/, '')
+}
+
+// The final words of a comment that says nothing needs to change: "so this is safe", "which is fine as written",
+// "this is only a note on the copy helper", "no issue here". A reason after it ("since ...") is allowed, but a
+// turn ("but", "however") is not: that is a finding again.
+const TURN = String.raw`(?:but|however|though|although|yet)`
+const VERDICT = new RegExp(
+  String.raw`\b(?:` +
+    String.raw`(?:is|are|looks?|seems?|appears?|remains?|stays?|was)\s+(?:safe|fine|correct|okay|ok|harmless|acceptable|valid|sound|intended|expected|not a (?:bug|problem|concern|issue))` +
+    String.raw`|(?:(?:is|are)\s+)?(?:only|just|merely)\s+(?:a\s+|an\s+)?(?:note|remark|observation|nit|nitpick|fyi|cosmetic|stylistic)` +
+    String.raw`|(?:there\s+is|there's|this\s+is|that\s+is|it\s+is)\s+(?:no|not an?)\s+(?:issue|problem|bug|concern)` +
+    String.raw`|no\s+(?:issue|problem|bug|change|action|fix)(?:\s+(?:is\s+)?(?:needed|required|necessary))?` +
+    String.raw`|nothing\s+(?:to\s+(?:change|fix|do)|needs\s+to\s+(?:change|be\s+(?:changed|fixed)))` +
+    String.raw`)` +
+    String.raw`(?:\s+(?:here|as\s+written|as\s+is|in\s+practice|in\s+this\s+case|today|for\s+now))*` +
+    String.raw`(?:\s+(?:since|because|as|on|about|regarding|for|in|with|given)\b(?:(?!\b${TURN}\b)[^.!?])*)?$`,
+  'i',
+)
+const CHANGE_CUE = new RegExp(
+  String.raw`\b(?:should|could|consider|might\s+want|recommend|ought|must|needs?\s+to|better\s+to|prefer|instead|would\s+be\s+(?:clearer|better|safer|cleaner|simpler)|${TURN},?\s+(?:add|use|remove|rename|replace|extract|simplify|avoid|document|check|guard|validate))\b`,
+  'i',
+)
+
+/** True when the message ends by saying the code is fine and its last sentence proposes no change. */
+export function endsWithNoChangeVerdict(message: string): boolean {
+  const sentence = lastSentence(message)
+  return VERDICT.test(sentence) && !CHANGE_CUE.test(sentence)
+}
+
+const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g
+const codeLike = (name: string) => /[a-z0-9][A-Z]|_/.test(name)
+
+/**
+ * Names of code a message talks about: anything in backticks, a call such as foo(), a dotted name, and
+ * camelCase, CamelCase or snake_case words. A dotted name also stands for each part that looks like code.
+ */
+export function codeNames(message: string): string[] {
+  const names = new Set<string>()
+  const add = (name: string) => {
+    if (name.length >= MIN_QUOTE_CHARS) names.add(name)
+  }
+  const take = (text: string, strong: boolean) => {
+    for (const match of text.matchAll(IDENTIFIER)) {
+      const name = match[0]
+      const call = text[(match.index ?? 0) + name.length] === '('
+      if (!(strong || call || name.includes('.') || codeLike(name))) continue
+      add(name)
+      for (const part of name.split('.')) if (strong || call || codeLike(part)) add(part)
+    }
+  }
+  for (const quoted of message.matchAll(/`([^`]+)`/g)) take(quoted[1], true)
+  take(message.replace(/`[^`]*`/g, ' '), false)
+  return [...names]
+}
+
 type Anchor = { line: number } | { dropped: 'blank' | 'unfound' }
 
 /**
- * Where a comment should sit. The quote is the code fragment the comment is about. If the cited line holds it, the
- * comment stays. Otherwise it moves to the nearest line within ten that holds it, or to the only line in the file
- * that does. A comment with no usable quote stays on a code line and is dropped on a blank one. A comment whose
- * quote is nowhere to be found is dropped, so it never points at code it is not about.
+ * Where a comment should sit, in two steps.
+ * 1. The quote, the code fragment the comment is about. If the cited line holds it, the comment stays. Otherwise it
+ *    moves to the nearest line within ten that holds it, or to the only line in the file that does. A quote found
+ *    nowhere drops the comment. A comment with no usable quote keeps a code line and loses a blank one.
+ * 2. The names of code in the message. If the line from step 1 holds none of them but exactly one line within twenty
+ *    does, the comment moves there. When the message names nothing, or nothing is found, the line stands. A blank
+ *    line with no such line to go to drops the comment.
  */
-function anchorLine(lines: string[], line: number, quote: unknown): Anchor {
+function anchorLine(lines: string[], line: number, quote: unknown, message: string): Anchor {
   const fragment = typeof quote === 'string' ? collapse(quote) : ''
-  const blank = lines[line - 1].trim() === ''
-  if (fragment.length < MIN_QUOTE_CHARS) return blank ? { dropped: 'blank' } : { line }
-  const holds = (n: number) => collapse(lines[n - 1]).includes(fragment)
-  if (holds(line)) return { line }
-  for (let distance = 1; distance <= QUOTE_WINDOW; distance += 1) {
-    for (const near of [line + distance, line - distance]) {
-      if (near >= 1 && near <= lines.length && holds(near)) return { line: near }
+  let at: number | null = line
+  if (fragment.length >= MIN_QUOTE_CHARS) {
+    const holds = (n: number) => collapse(lines[n - 1]).includes(fragment)
+    at = null
+    if (holds(line)) at = line
+    for (let distance = 1; at === null && distance <= QUOTE_WINDOW; distance += 1) {
+      for (const near of [line + distance, line - distance]) {
+        if (at === null && near >= 1 && near <= lines.length && holds(near)) at = near
+      }
     }
+    if (at === null) {
+      const hits = lines.flatMap((_, i) => (holds(i + 1) ? [i + 1] : []))
+      if (hits.length !== 1) return { dropped: lines[line - 1].trim() === '' ? 'blank' : 'unfound' }
+      at = hits[0]
+    }
+  } else if (lines[line - 1].trim() === '') {
+    at = null
   }
-  const hits = lines.flatMap((_, i) => (holds(i + 1) ? [i + 1] : []))
-  if (hits.length === 1) return { line: hits[0] }
-  return { dropped: blank ? 'blank' : 'unfound' }
+
+  const names = codeNames(message)
+  const has = (n: number) => names.some((name) => lines[n - 1].includes(name))
+  if (names.length > 0 && (at === null || !has(at))) {
+    const centre = at ?? line
+    const near = lines.flatMap((_, i) => (Math.abs(i + 1 - centre) <= NAME_WINDOW && has(i + 1) ? [i + 1] : []))
+    if (near.length === 1) at = near[0]
+  }
+  return at === null ? { dropped: 'blank' } : { line: at }
 }
 
 /** Keeps only comments that cite a real line of `lines` and carry valid fields, at most `budget` of them. */
@@ -173,11 +252,12 @@ export function validateComments(raw: unknown, lines: string[], budget: number):
       c.suggestion.trim().length > 0
     if (!valid) continue
     // Only an explicit false is a verdict. A reply that leaves the field out is not read as "no issue".
-    if (c.issue === false) {
+    // A message that ends by calling the code fine counts the same, whatever the flag says.
+    if (c.issue === false || endsWithNoChangeVerdict(c.message as string)) {
       counts.noIssue += 1
       continue
     }
-    const anchor = anchorLine(lines, c.line as number, c.quote)
+    const anchor = anchorLine(lines, c.line as number, c.quote, c.message as string)
     if ('dropped' in anchor) {
       counts[anchor.dropped] += 1
       continue

@@ -26,7 +26,11 @@ A review runs these stages in this order. The trace shows each one with its stat
 3. **Model call**: one chat completion with usage reporting turned on.
 4. **Retry**: runs only when the first reply is empty or was cut short at the token cap. It runs at most once. Otherwise the trace marks it skipped.
 5. **Parse reply**: reads the JSON review, which must hold a `comments` array. Code fences and surrounding prose are tolerated. Anything else is an error.
-6. **Validate comments**: keeps comments whose line is a whole number from 1 to the line count, whose severity is `critical`, `warning` or `info`, and whose message and suggestion are not blank. Text is cut at 600 characters, and no more than the budget is kept.
+6. **Validate comments**: keeps comments whose line is a whole number from 1 to the line count, whose severity is `critical`, `warning` or `info`, and whose message and suggestion are not blank. Text is cut at 600 characters, and no more than the budget is kept. The prompt asks each comment for the exact code fragment it is about (`quote`) and an `issue` flag. Then the server checks where each comment sits and what it says:
+   - A comment marked `issue: false`, or whose message ends by calling the code fine ("so this is safe", "only a note") without proposing a change, is dropped.
+   - A comment moves to the nearest line within 10 that holds its quote, or to the only line in the file that does. A quote found nowhere drops the comment. A blank cited line is dropped unless the quote or the code names in the message place it elsewhere.
+   - If the cited line holds none of the code names in the message (backticked text, calls, dotted, camelCase or snake_case names) and exactly one line within 20 does, the comment moves there.
+   The trace row counts the comments moved and dropped, and why.
 
 If the browser cannot reach the server, the trace shows a single step, **Send request**, marked failed.
 
@@ -76,6 +80,7 @@ Live site: https://jdgafx-app-03-ai-code-review.netlify.app
 - Cancel stops the browser request. The server call keeps running until it finishes or times out, and the provider may still bill it.
 - A retry sends the full prompt again, so one run can be billed twice.
 - The prompt asks for at most one comment per line. The server does not enforce that rule.
+- The no-change filter and the line checks catch most, not all, of the model's noise. A comment that says the code is fine and then adds a small note, or one that names code on a line next to the cited one, can still reach the page.
 - Findings come from a language model. A clean result is not a guarantee, and any finding can be wrong.
 - The served model is the one the provider names in its reply. The request pins one model, so the two should match.
 - No labelled evaluation set exists yet. The tests check code paths, not review quality.
