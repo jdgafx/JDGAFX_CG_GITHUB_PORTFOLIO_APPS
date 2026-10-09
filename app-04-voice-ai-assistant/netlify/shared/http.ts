@@ -2,10 +2,8 @@
 // best-effort per-IP throttling, body size limits and a single place to shape
 // error responses so upstream vendor text never reaches the browser.
 
-import { boundedInt } from './config'
-
-const RATE_LIMIT_MAX = boundedInt(process.env.RATE_LIMIT_MAX, 20, 1, 1000)
-const RATE_LIMIT_WINDOW_MS = boundedInt(process.env.RATE_LIMIT_WINDOW_MS, 60_000, 1_000, 3_600_000)
+const RATE_LIMIT_MAX = 20
+const RATE_LIMIT_WINDOW_MS = 60_000
 
 // Browser origins allowed to call these endpoints. Netlify injects URL /
 // DEPLOY_PRIME_URL for the live site and deploy previews, so the deployed host
@@ -105,6 +103,22 @@ export async function readLimitedText(req: Request, limitBytes: number): Promise
   if (declared > limitBytes) return null
   const text = await req.text()
   return new TextEncoder().encode(text).byteLength > limitBytes ? null : text
+}
+
+// The body as a JSON object, or the reason it was refused. A JSON value that is not an
+// object reads as an object with no fields, so each handler's field checks refuse it.
+export type JsonBody = { ok: true; fields: Record<string, unknown> } | { ok: false; reason: 'too-large' | 'not-json' }
+
+export async function readJsonBody(req: Request, limitBytes: number): Promise<JsonBody> {
+  const raw = await readLimitedText(req, limitBytes)
+  if (raw === null) return { ok: false, reason: 'too-large' }
+  let body: unknown
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    return { ok: false, reason: 'not-json' }
+  }
+  return { ok: true, fields: typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {} }
 }
 
 // Maps an upstream failure onto a status the browser can act on, without

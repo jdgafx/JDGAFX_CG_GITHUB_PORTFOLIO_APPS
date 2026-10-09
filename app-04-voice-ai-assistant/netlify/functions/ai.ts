@@ -1,13 +1,11 @@
-import { boundedInt } from '../shared/config'
-import { corsHeaders, guardRequest, jsonError, readLimitedText } from '../shared/http'
+import { corsHeaders, guardRequest, jsonError, readJsonBody } from '../shared/http'
 import { MODEL, replyText, runModelCall, type Turn } from '../shared/provider'
 import { createRecorder } from '../shared/trace'
 
-// Output cap sent with every chat call. Read from the environment and clamped, so
-// a bad value falls back to the default instead of being sent upstream.
-const MAX_OUTPUT_TOKENS = boundedInt(process.env.MAX_OUTPUT_TOKENS, 1024, 16, 4096)
-const MAX_MESSAGE_CHARS = boundedInt(process.env.MAX_MESSAGE_CHARS, 5000, 1, 20_000)
-const MAX_HISTORY_MESSAGES = boundedInt(process.env.MAX_HISTORY_MESSAGES, 20, 1, 100)
+// Output cap sent with every chat call.
+const MAX_OUTPUT_TOKENS = 1024
+const MAX_MESSAGE_CHARS = 5000
+const MAX_HISTORY_MESSAGES = 20
 
 // Room for the longest legitimate request: every kept message at full length, each
 // character at up to 4 UTF-8 bytes and 6 bytes when JSON escaped, plus the new message.
@@ -15,11 +13,16 @@ const MAX_BODY_BYTES = (MAX_HISTORY_MESSAGES + 1) * MAX_MESSAGE_CHARS * 6 + 4096
 
 // Netlify caps a synchronous invocation at ~30s. The whole run, retry included,
 // shares this budget, so a slow upstream becomes a clean error instead of a dead socket.
-const RUN_BUDGET_MS = boundedInt(process.env.UPSTREAM_TIMEOUT_MS, 25_000, 1000, 25_000)
+const RUN_BUDGET_MS = 25_000
 
 const SYSTEM_PROMPT =
   'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise ' +
-  'and conversational — ideally 1-3 sentences. You are being used via voice interface.'
+  'and conversational — ideally 1-3 sentences. You are being used via voice interface. ' +
+  'You have two live tools. Use weather for weather or temperature questions about a place, and ' +
+  'wikipedia_summary for factual questions about a person, place, event or concept. ' +
+  'Answer only from what a tool returns, with its units, and name the place or article. ' +
+  'If a tool reports that it failed or found nothing, say so plainly and do not guess a value. ' +
+  'Do not use a tool for small talk or questions you can answer without live data.'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
@@ -67,21 +70,16 @@ export default async (req: Request): Promise<Response> => {
       return reply('The assistant is not configured on this deployment.', 500)
     }
 
-    const raw = await readLimitedText(req, MAX_BODY_BYTES)
-    if (raw === null) {
+    const body = await readJsonBody(req, MAX_BODY_BYTES)
+    if (!body.ok && body.reason === 'too-large') {
       run.add('request built', 'failed', 'The request body is larger than the limit')
       return reply('That conversation is too large to send. Clear it and try again.', 400)
     }
-
-    let body: unknown
-    try {
-      body = JSON.parse(raw)
-    } catch {
+    if (!body.ok) {
       run.add('request built', 'failed', 'The request body was not JSON')
       return reply('The request was not valid JSON.', 400)
     }
-    const fields: { message?: unknown; history?: unknown } =
-      typeof body === 'object' && body !== null ? (body as { message?: unknown; history?: unknown }) : {}
+    const { fields } = body
 
     // Whitespace alone is not a message. The model never sees a blank turn.
     const message = typeof fields.message === 'string' ? fields.message.trim() : ''

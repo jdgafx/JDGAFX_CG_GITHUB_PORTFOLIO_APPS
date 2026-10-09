@@ -11,6 +11,9 @@ export interface TraceStep {
   detail: string
   tokens?: number
   cost?: number
+  // A tool call such as weather("Lisbon"), and the page its data came from.
+  call?: string
+  source?: string
 }
 
 export interface Usage {
@@ -95,6 +98,16 @@ function isDeadlineError(err: unknown): boolean {
   return name === 'TimeoutError' || name === 'AbortError'
 }
 
+// A source becomes a link, so only an http(s) address is kept.
+function safeLink(value: string): string | undefined {
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'https:' || protocol === 'http:' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function failedStep(name: string, started: number, detail: string): TraceStep {
   return { name, status: 'failed', ms: Date.now() - started, detail }
 }
@@ -119,6 +132,8 @@ function parseTrace(raw: unknown): TraceStep[] {
       detail: s.detail,
       tokens: numberOrUndefined(s.tokens),
       cost: numberOrUndefined(s.cost),
+      call: typeof s.call === 'string' ? s.call : undefined,
+      source: typeof s.source === 'string' ? safeLink(s.source) : undefined,
     })
   }
   return steps
@@ -161,17 +176,11 @@ function statusFallback(status: number, provider: string): string {
   return `${provider} did not accept the request.`
 }
 
-// The caller's cancel and the client deadline, as one signal. Browsers without
-// AbortSignal.any keep the caller's cancel, and the call then has no deadline.
-function combinedSignal(caller: AbortSignal | undefined, deadline: AbortSignal): AbortSignal {
-  if (!caller) return deadline
-  return typeof AbortSignal.any === 'function' ? AbortSignal.any([caller, deadline]) : caller
-}
-
 // One call to a function. A cancel from the caller passes through untouched, so
 // Cancel keeps working. A deadline or a dropped connection becomes a failed step.
 async function send(call: CallContext, url: string, init: RequestInit): Promise<Response> {
-  const signal = combinedSignal(call.signal, AbortSignal.timeout(CLIENT_TIMEOUT_MS))
+  const deadline = AbortSignal.timeout(CLIENT_TIMEOUT_MS)
+  const signal = AbortSignal.any(call.signal ? [call.signal, deadline] : [deadline])
   try {
     return await fetch(url, { ...init, signal })
   } catch (err) {

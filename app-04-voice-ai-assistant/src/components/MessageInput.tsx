@@ -1,7 +1,14 @@
 import { useRef } from 'react'
 
 const MAX_TEXT_INPUT_LENGTH = 2000
-const SAMPLE_QUESTION = 'How does a voice assistant turn speech into an answer?'
+
+// Examples that fill the box. `source` names the live data the question draws on.
+const EXAMPLES = [
+  { question: "What's the weather in Lisbon right now?", source: 'Live weather' },
+  { question: 'Who was Ada Lovelace?', source: 'Wikipedia' },
+  { question: 'Is it warmer in Tokyo or in Oslo today?', source: 'Live weather' },
+  { question: 'How does a voice assistant turn speech into an answer?', source: 'No tools' },
+] as const
 
 interface MessageInputProps {
   value: string
@@ -14,9 +21,9 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
   const composingRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // A sample fills the box and takes focus. It never sends on its own.
-  const fillSample = () => {
-    onChange(SAMPLE_QUESTION)
+  // An example fills the box and takes focus. It never sends on its own.
+  const fillExample = (question: string) => {
+    onChange(question)
     inputRef.current?.focus()
   }
 
@@ -42,7 +49,7 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
           disabled={disabled}
           autoComplete="off"
           aria-describedby="vox-text-help"
-          onChange={event => onChange(event.target.value.slice(0, MAX_TEXT_INPUT_LENGTH))}
+          onChange={event => onChange(event.target.value)}
           onCompositionStart={() => {
             composingRef.current = true
           }}
@@ -75,10 +82,22 @@ export default function MessageInput({ value, onChange, onSubmit, disabled }: Me
         </p>
       </div>
       <div className="vox-control">
-        <button type="button" className="ds-button ds-button--quiet" onClick={fillSample} disabled={disabled}>
-          Use a sample question
-        </button>
-        <p className="ds-help">Fills the box with a sample question. Send it when you are ready.</p>
+        <p id="examples-label" className="ds-label">
+          Try an example
+        </p>
+        <ul className="vox-examples" aria-labelledby="examples-label">
+          {EXAMPLES.map(({ question, source }) => (
+            <li key={question}>
+              <button type="button" className="vox-example" onClick={() => fillExample(question)} disabled={disabled}>
+                <span className="vox-example__question">{question}</span>
+                <span className="vox-example__source">{source}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="ds-help">
+          Each example fills the box. Send it when you are ready. Weather and Wikipedia questions fetch live data.
+        </p>
       </div>
     </section>
   )

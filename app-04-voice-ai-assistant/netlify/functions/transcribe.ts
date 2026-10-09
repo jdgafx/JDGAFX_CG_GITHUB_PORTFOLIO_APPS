@@ -1,11 +1,10 @@
-import { boundedInt } from '../shared/config'
 import {
   corsHeaders,
   guardRequest,
   isDeadlineError,
   jsonError,
   providerFailure,
-  readLimitedText,
+  readJsonBody,
   upstreamStatus,
 } from '../shared/http'
 import { createRecorder } from '../shared/trace'
@@ -20,13 +19,13 @@ const TRANSCRIBE_MODEL = 'nova-3'
 
 // Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
 // upstream turns into a clean error instead of a dead socket.
-const UPSTREAM_TIMEOUT_MS = boundedInt(process.env.UPSTREAM_TIMEOUT_MS, 25_000, 1000, 25_000)
+const UPSTREAM_TIMEOUT_MS = 25_000
 
 // The cap applies to the decoded audio. Its base64 form is already about 6 MiB before
 // the JSON envelope is added, at the edge of Netlify's request body ceiling (about
 // 6 MB), so the platform ceiling is the real bound. The client caps recordings far
 // lower: 90s of 16kHz mono PCM is about 2.9 MB.
-const MAX_AUDIO_BYTES = boundedInt(process.env.MAX_AUDIO_BYTES, 4.5 * 1024 * 1024, 1024, 4.5 * 1024 * 1024)
+const MAX_AUDIO_BYTES = 4.5 * 1024 * 1024
 
 // The body limit is the base64 size of the audio plus 64 KiB for the JSON envelope.
 const MAX_BODY_BYTES = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 64 * 1024
@@ -136,21 +135,16 @@ export default async (req: Request): Promise<Response> => {
     const guard = guardRequest(req)
     if (guard) return guard
 
-    const raw = await readLimitedText(req, MAX_BODY_BYTES)
-    if (raw === null) {
+    const body = await readJsonBody(req, MAX_BODY_BYTES)
+    if (!body.ok && body.reason === 'too-large') {
       run.add('audio received', 'failed', 'The request body is larger than the upload limit')
       return reply(TOO_LONG, 400)
     }
-
-    let body: unknown
-    try {
-      body = JSON.parse(raw)
-    } catch {
+    if (!body.ok) {
       run.add('audio received', 'failed', 'The request body was not JSON')
       return reply('The request was not valid JSON.', 400)
     }
-    const fields: { audio?: unknown; format?: unknown } =
-      typeof body === 'object' && body !== null ? (body as { audio?: unknown; format?: unknown }) : {}
+    const { fields } = body
 
     const audio = fields.audio
     if (typeof audio !== 'string' || audio.length === 0) {

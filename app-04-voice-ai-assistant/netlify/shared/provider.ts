@@ -1,4 +1,5 @@
 import { isDeadlineError, providerFailure, upstreamStatus } from './http'
+import { TOOL_DEFINITIONS, runTool } from './tools'
 import type { Recorder } from './trace'
 
 // The one chat model for every chat call in this app. It is fixed here: it is
@@ -6,15 +7,25 @@ import type { Recorder } from './trace'
 export const MODEL = '~anthropic/claude-haiku-latest'
 
 const PROVIDER = 'The AI provider'
-const OPENROUTER_URL = process.env.OPENROUTER_URL || 'https://openrouter.ai/api/v1/chat/completions'
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 // A retry needs at least this much of the run's budget left to be worth sending.
 const MIN_RETRY_MS = 8_000
 
-export interface Turn {
-  role: 'system' | 'user' | 'assistant'
-  content: string
+// One round of tool calls per question, and at most this many calls in it.
+const MAX_TOOL_CALLS = 3
+
+interface ToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
 }
+
+// A message as OpenRouter takes it. The browser only ever supplies the first kind.
+export type Turn =
+  | { role: 'system' | 'user' | 'assistant'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls: ToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
 
 interface Usage {
   prompt_tokens?: number
@@ -25,7 +36,7 @@ interface Usage {
 
 interface Completion {
   model?: string
-  choices?: Array<{ message?: { content?: unknown }; finish_reason?: string | null }>
+  choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: string | null }>
   usage?: Usage
 }
 
@@ -57,9 +68,32 @@ export function replyText(completion: Completion): string {
   return typeof content === 'string' ? content.trim() : ''
 }
 
+// The tool calls the model asked for, malformed entries dropped and the rest capped.
+function readToolCalls(completion: Completion): ToolCall[] {
+  const raw = completion.choices?.[0]?.message?.tool_calls
+  if (!Array.isArray(raw)) return []
+  const calls: ToolCall[] = []
+  for (const item of raw) {
+    const call = (typeof item === 'object' && item !== null ? item : {}) as {
+      id?: unknown
+      function?: { name?: unknown; arguments?: unknown }
+    }
+    const { name, arguments: args } = call.function ?? {}
+    if (typeof call.id !== 'string' || typeof name !== 'string') continue
+    calls.push({ id: call.id, type: 'function', function: { name, arguments: typeof args === 'string' ? args : '{}' } })
+  }
+  return calls.slice(0, MAX_TOOL_CALLS)
+}
+
 // One request to OpenRouter. Failures come back as data, so the caller can mark
 // the step before it answers the browser.
-async function sendAttempt(apiKey: string, turns: Turn[], maxTokens: number, timeoutMs: number): Promise<Attempt> {
+async function sendAttempt(
+  apiKey: string,
+  turns: Turn[],
+  maxTokens: number,
+  timeoutMs: number,
+  toolChoice?: 'none',
+): Promise<Attempt> {
   let response: Response
   try {
     response = await fetch(OPENROUTER_URL, {
@@ -74,6 +108,10 @@ async function sendAttempt(apiKey: string, turns: Turn[], maxTokens: number, tim
         reasoning: { enabled: false },
         // Asks OpenRouter to return token counts and cost with the reply.
         usage: { include: true },
+        // The tools stay listed on the answer call, because the messages now hold
+        // tool calls. 'none' is what keeps that call to one round.
+        tools: TOOL_DEFINITIONS,
+        ...(toolChoice ? { tool_choice: toolChoice } : {}),
         messages: turns,
       }),
     })
@@ -117,15 +155,19 @@ async function sendAttempt(apiKey: string, turns: Turn[], maxTokens: number, tim
   }
 }
 
-// One model call, with one retry when the reply has no text. Both attempts share
-// the deadline, so a retry cannot push the run past the function's time limit.
-// The trace gets a single 'model call' step that covers them.
-export async function runModelCall(
+type Asked =
+  | { ok: true; completion: Completion; usages: Array<Usage | undefined>; attempts: number }
+  | { ok: false; httpStatus: number; message: string; detail: string }
+
+// One question to the model, with one retry when the reply has no text and asks for no
+// tool. Every attempt shares the deadline, so a retry cannot push the run past the
+// function's time limit.
+async function askModel(
   apiKey: string,
   turns: Turn[],
   options: { maxTokens: number; deadlineAt: number },
-  run: Recorder,
-): Promise<ModelOutcome> {
+  toolChoice?: 'none',
+): Promise<Asked> {
   const usages: Array<Usage | undefined> = []
   let completion: Completion | undefined
   let attempts = 0
@@ -134,26 +176,73 @@ export async function runModelCall(
     const remaining = options.deadlineAt - Date.now()
     if (remaining <= 0 || (attempts > 0 && remaining < MIN_RETRY_MS)) break
     attempts += 1
-    const attempt = await sendAttempt(apiKey, turns, options.maxTokens, remaining)
-    if (!attempt.ok) {
-      run.add('model call', 'failed', attempt.detail)
-      return { ok: false, httpStatus: attempt.httpStatus, message: attempt.message }
-    }
+    const attempt = await sendAttempt(apiKey, turns, options.maxTokens, remaining, toolChoice)
+    if (!attempt.ok) return attempt
     completion = attempt.completion
     usages.push(completion.usage)
-    if (replyText(completion)) break
+    // A tool request has no text, so it is an answer for this purpose, not an empty reply.
+    if (replyText(completion) || readToolCalls(completion).length > 0) break
   }
 
   if (!completion) {
-    run.add('model call', 'failed', 'No time left in the run budget')
-    return { ok: false, httpStatus: 503, message: `${PROVIDER} did not answer in time.` }
+    return { ok: false, httpStatus: 503, message: `${PROVIDER} did not answer in time.`, detail: 'No time left in the run budget' }
   }
+  return { ok: true, completion, usages, attempts }
+}
 
-  const usage = sumUsage(usages)
-  const retried = attempts > 1 ? ', retried once after an empty reply' : ''
-  run.add('model call', 'ok', `${completion.model ?? MODEL}${retried}`, {
+function stepFor(asked: Extract<Asked, { ok: true }>, note = ''): { detail: string; tokens?: number; cost?: number } {
+  const usage = sumUsage(asked.usages)
+  const retried = asked.attempts > 1 ? ', retried once after an empty reply' : ''
+  return {
+    detail: `${asked.completion.model ?? MODEL}${note}${retried}`,
     tokens: usage?.total_tokens,
     cost: usage?.cost,
-  })
-  return { ok: true, completion, usage }
+  }
+}
+
+// The model call. When the model asks for tools, they run in parallel, each timed and
+// recorded as its own step, and the model is called once more to write the answer from
+// their results. That second call cannot ask for more tools. The trace gets 'model call',
+// then one 'tool call' per tool and 'model answer'. Without a tool request it is a
+// single 'model call' step.
+export async function runModelCall(
+  apiKey: string,
+  turns: Turn[],
+  options: { maxTokens: number; deadlineAt: number },
+  run: Recorder,
+): Promise<ModelOutcome> {
+  const first = await askModel(apiKey, turns, options)
+  if (!first.ok) {
+    run.add('model call', 'failed', first.detail)
+    return { ok: false, httpStatus: first.httpStatus, message: first.message }
+  }
+
+  const calls = readToolCalls(first.completion)
+  if (calls.length === 0) {
+    const { detail, ...figures } = stepFor(first)
+    run.add('model call', 'ok', detail, figures)
+    return { ok: true, completion: first.completion, usage: sumUsage(first.usages) }
+  }
+
+  const { detail, ...figures } = stepFor(first, `, asked for ${[...new Set(calls.map(call => call.function.name))].join(' and ')}`)
+  run.add('model call', 'ok', detail, figures)
+
+  const results = await Promise.all(calls.map(call => runTool(call.function.name, call.function.arguments, options.deadlineAt)))
+  results.forEach(result =>
+    run.add('tool call', result.ok ? 'ok' : 'failed', result.detail, { ms: result.ms, call: result.call, source: result.source }),
+  )
+
+  const withResults: Turn[] = [
+    ...turns,
+    { role: 'assistant', content: replyText(first.completion) || null, tool_calls: calls },
+    ...calls.map((call, i): Turn => ({ role: 'tool', tool_call_id: call.id, content: results[i].content })),
+  ]
+  const answer = await askModel(apiKey, withResults, options, 'none')
+  if (!answer.ok) {
+    run.add('model answer', 'failed', answer.detail)
+    return { ok: false, httpStatus: answer.httpStatus, message: answer.message }
+  }
+  const { detail: answerDetail, ...answerFigures } = stepFor(answer)
+  run.add('model answer', 'ok', answerDetail, answerFigures)
+  return { ok: true, completion: answer.completion, usage: sumUsage([...first.usages, ...answer.usages]) }
 }

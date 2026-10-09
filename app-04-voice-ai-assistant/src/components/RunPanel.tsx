@@ -1,3 +1,4 @@
+import { ExternalLink, Wrench } from 'lucide-react'
 import type { RunRecord } from '../hooks/useAssistant'
 import type { StepStatus, TraceStep } from '../lib/api'
 import { formatCount, formatMs, formatUsd } from '../lib/format'
@@ -37,19 +38,37 @@ function Metric({ label, value, hint, mono = false }: MetricProps) {
   )
 }
 
+// The address without its scheme and query, which is what a reader can take in.
+function sourceLabel(source: string): string {
+  const { host, pathname } = new URL(source)
+  return `${host}${pathname === '/' ? '' : pathname}`
+}
+
 function TraceRow({ step, index, slowest }: { step: TraceStep; index: number; slowest: number }) {
   const status = STATUS[step.status]
   // The bar shows each step's share of the slowest step, so long steps stand out.
   const share = Math.max(2, Math.round((step.ms / slowest) * 100))
   return (
-    <li className="ds-trace__step" data-status={step.status}>
+    <li className="ds-trace__step" data-status={step.status} data-kind={step.call ? 'tool' : undefined}>
       <span className="ds-trace__index">{index}</span>
       <div className="vox-trace-body">
         <div className="ds-row">
-          <span className="ds-trace__name">{step.name}</span>
+          <span className="ds-trace__name">
+            {step.call && <Wrench className="vox-tool-icon" size={14} aria-hidden="true" />}
+            {step.name}
+          </span>
           <StatusWord label={status.label} dot={status.dot} />
         </div>
+        {step.call && <code className="vox-call">{step.call}</code>}
         <p className="ds-trace__detail">{step.detail}</p>
+        {step.source && (
+          <a className="vox-source" href={step.source} target="_blank" rel="noreferrer noopener" title={step.source}>
+            <span className="vox-source__label">Source</span>
+            <span className="vox-source__url">{sourceLabel(step.source)}</span>
+            <ExternalLink size={12} aria-hidden="true" />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
         <div className="ds-trace__bar" style={{ width: `${share}%` }} aria-hidden="true" />
       </div>
       <span className="ds-trace__meta">

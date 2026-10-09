@@ -88,11 +88,15 @@ function thinkView(phase: RunPhase, steps: TraceStep[] | null): StageView {
   const thought = thoughtSteps(steps)
   if (thought.length === 0) return NOT_RUN
   // Any failure in the model part fails the stage, including an empty or refused reply.
-  const failure = thought.find(step => step.status === 'failed')
+  // A failed tool call does not: the model still answers, and says the lookup failed.
+  const failure = thought.find(step => step.status === 'failed' && step.name !== 'tool call')
   if (failure) return { state: 'failed', ms: failure.ms }
   const call = thought.find(step => step.name === 'model call')
-  if (call) return { state: call.status, ms: call.ms }
-  return NOT_RUN
+  if (!call) return NOT_RUN
+  // The model's time is its calls added up, plus the slowest tool, because tools run in parallel.
+  const modelMs = thought.filter(step => step.name === 'model call' || step.name === 'model answer').reduce((sum, step) => sum + step.ms, 0)
+  const toolMs = Math.max(0, ...thought.filter(step => step.name === 'tool call').map(step => step.ms))
+  return { state: call.status, ms: modelMs + toolMs }
 }
 
 function speakView(phase: RunPhase, steps: TraceStep[] | null): StageView {

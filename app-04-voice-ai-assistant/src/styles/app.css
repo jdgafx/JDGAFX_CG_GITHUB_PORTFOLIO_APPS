@@ -257,6 +257,126 @@
   background: var(--ds-text-muted);
 }
 
+/* Tool calls: the step carries a rule down its left edge, the call in mono, and a link to its source */
+.ds-trace__step[data-kind="tool"] {
+  box-shadow: inset 3px 0 0 var(--ds-accent);
+}
+
+.ds-trace__step[data-kind="tool"][data-status="failed"] {
+  box-shadow: inset 3px 0 0 var(--ds-danger);
+}
+
+.ds-trace__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vox-tool-icon {
+  flex: none;
+  color: var(--ds-accent);
+}
+
+.vox-call {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 13px;
+  color: var(--ds-text);
+  background: var(--ds-surface-2);
+  border-radius: var(--ds-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.vox-source {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ds-accent);
+  text-decoration: none;
+}
+
+.vox-source:hover .vox-source__url,
+.vox-source:focus-visible .vox-source__url {
+  text-decoration: underline;
+}
+
+.vox-source:focus-visible {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+  border-radius: var(--ds-radius-sm);
+}
+
+.vox-source__label {
+  color: var(--ds-text-muted);
+}
+
+.vox-source__url {
+  font-family: var(--ds-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.vox-source svg {
+  align-self: center;
+  flex: none;
+}
+
+/* Examples: full-width rows, each with the live data it uses */
+.vox-examples {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vox-example {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  color: var(--ds-text);
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+}
+
+.vox-example:hover:not(:disabled) {
+  border-color: var(--ds-accent);
+}
+
+.vox-example:focus-visible {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+}
+
+.vox-example:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.vox-example__question {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vox-example__source {
+  font-size: 12px;
+  color: var(--ds-text-muted);
+}
+
 /* Notices and errors */
 .vox-banner {
   display: flex;

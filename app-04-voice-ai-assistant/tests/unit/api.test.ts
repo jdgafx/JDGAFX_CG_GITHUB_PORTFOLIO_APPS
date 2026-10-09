@@ -63,6 +63,34 @@ describe('chat (browser side)', () => {
     expect(result.totalMs).toBe(430)
   })
 
+  it('keeps the call and the source link of a tool step, and drops a source that is not http(s)', async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        result: 'ok',
+        trace: [
+          {
+            name: 'tool call',
+            status: 'ok',
+            ms: 210,
+            detail: 'Lisbon: 17.6 °C',
+            call: 'weather("Lisbon")',
+            source: 'https://api.open-meteo.com/v1/forecast?latitude=38.7',
+          },
+          { name: 'tool call', status: 'ok', ms: 5, detail: 'x', call: 'wikipedia_summary("x")', source: 'javascript:alert(1)' },
+          { name: 'tool call', status: 'ok', ms: 5, detail: 'y', source: 'not a url' },
+        ],
+      }),
+    )
+
+    const result = await chat('hi', [])
+
+    expect(result.trace.map(step => [step.call, step.source])).toEqual([
+      ['weather("Lisbon")', 'https://api.open-meteo.com/v1/forecast?latitude=38.7'],
+      ['wikipedia_summary("x")', undefined],
+      [undefined, undefined],
+    ])
+  })
+
   it('drops trace steps with an unknown status', async () => {
     stubFetch(async () =>
       jsonResponse({

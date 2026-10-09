@@ -8,12 +8,8 @@
 import type { EncodedAudio } from './api'
 import { UserFacingError } from './errors'
 
-// Recording length in milliseconds. An optional build-time override is accepted
-// only when it is a sane number of seconds that still fits the upload limit below;
-// anything else gives the 90 second default.
-const requestedMs = Number(import.meta.env.VITE_MAX_RECORDING_MS)
-export const MAX_RECORDING_MS =
-  Number.isFinite(requestedMs) && requestedMs >= 5_000 && requestedMs <= 120_000 ? Math.trunc(requestedMs) : 90_000
+// Recording length in milliseconds. It must still fit the upload limit below.
+export const MAX_RECORDING_MS = 90_000
 
 // Netlify's ~6MB base64 request ceiling, minus room for the JSON envelope.
 // Kept in step with MAX_AUDIO_BYTES in netlify/functions/transcribe.ts.
@@ -59,28 +55,11 @@ function formatFromMimeType(mimeType: string): string | null {
   return null
 }
 
-export function createAudioContext(): AudioContext {
-  const Ctor =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!Ctor) throw new Error('AUDIO_UNSUPPORTED')
-  return new Ctor()
-}
-
-function getOfflineAudioContext(frames: number): OfflineAudioContext {
-  const Ctor =
-    window.OfflineAudioContext ??
-    (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext })
-      .webkitOfflineAudioContext
-  if (!Ctor) throw new Error('AUDIO_UNSUPPORTED')
-  return new Ctor(1, frames, TARGET_SAMPLE_RATE)
-}
-
 // Decode whatever the recorder produced, then render it down to one 16kHz
 // channel. Mixing to mono is handled by the single-channel destination.
 async function toMono16k(blob: Blob): Promise<AudioBuffer> {
   const arrayBuffer = await blob.arrayBuffer()
-  const context = createAudioContext()
+  const context = new AudioContext()
   let decoded: AudioBuffer
   try {
     decoded = await context.decodeAudioData(arrayBuffer)
@@ -91,7 +70,7 @@ async function toMono16k(blob: Blob): Promise<AudioBuffer> {
   const frames = Math.ceil(decoded.duration * TARGET_SAMPLE_RATE)
   if (frames < 1) throw new Error('EMPTY_RECORDING')
 
-  const offline = getOfflineAudioContext(frames)
+  const offline = new OfflineAudioContext(1, frames, TARGET_SAMPLE_RATE)
   const source = offline.createBufferSource()
   source.buffer = decoded
   source.connect(offline.destination)

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
 import { MODEL } from '../../netlify/shared/provider'
+import { callsTo, routeFetch, weatherRoutes } from '../tool-fixtures'
 import {
   ORIGIN,
   PLACEHOLDER,
@@ -68,6 +69,64 @@ describe('ai function', () => {
     expect(sent.usage).toEqual({ include: true })
     expect(sent.reasoning).toEqual({ enabled: false })
     expect(sent.messages.at(-1)).toEqual({ role: 'user', content: 'Reply with the single word: pong' })
+  })
+
+  it('tells the model about both tools in its instructions and offers them', async () => {
+    const fetchMock = stubFetch(async () => jsonResponse(OK_REPLY))
+
+    await handler(request(URL_AI, { json: { message: 'hi' } }))
+
+    const sent = sentRequest(fetchMock)
+    expect(sent.tools.map(tool => tool.function.name)).toEqual(['weather', 'wikipedia_summary'])
+    expect(sent.messages[0].content).toContain('do not guess a value')
+  })
+
+  it('answers a weather question from the live tool result, with the lookup in the trace', async () => {
+    let call = 0
+    const fetchMock = routeFetch([
+      [
+        'openrouter.ai',
+        () =>
+          jsonResponse(
+            ++call === 1
+              ? {
+                  model: 'anthropic/claude-haiku-5.5',
+                  choices: [
+                    {
+                      message: {
+                        content: null,
+                        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'weather', arguments: '{"place":"Lisbon"}' } }],
+                      },
+                      finish_reason: 'tool_calls',
+                    },
+                  ],
+                  usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cost: 0.00002 },
+                }
+              : {
+                  ...replyWith('It is 17.6 degrees Celsius and clear in Lisbon.'),
+                  usage: { prompt_tokens: 160, completion_tokens: 15, total_tokens: 175, cost: 0.00003 },
+                },
+          ),
+      ],
+      ...weatherRoutes,
+    ])
+
+    const res = await handler(request(URL_AI, { json: { message: "What's the weather in Lisbon right now?" } }))
+    const body = await bodyOf(res)
+
+    expect(res.status).toBe(200)
+    expect(body.result).toBe('It is 17.6 degrees Celsius and clear in Lisbon.')
+    expect(body.trace?.map(step => [step.name, step.status])).toEqual([
+      ['request built', 'ok'],
+      ['model call', 'ok'],
+      ['tool call', 'ok'],
+      ['model answer', 'ok'],
+      ['parse and validate', 'ok'],
+    ])
+    expect(body.trace?.[2]?.call).toBe('weather("Lisbon")')
+    expect(body.trace?.[2]?.source).toContain('https://api.open-meteo.com/v1/forecast')
+    expect(body.usage).toEqual({ prompt_tokens: 260, completion_tokens: 35, total_tokens: 295, cost: 0.00005 })
+    expect(callsTo(fetchMock, 'openrouter.ai')).toHaveLength(2)
   })
 
   it('ignores a model name sent by the browser', async () => {

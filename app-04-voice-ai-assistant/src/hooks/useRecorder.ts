@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MAX_RECORDING_MS, createAudioContext, isRecordingSupported, pickRecorderMimeType } from '../lib/audio'
+import { MAX_RECORDING_MS, isRecordingSupported, pickRecorderMimeType } from '../lib/audio'
 import { startBrowserTranscript, type BrowserTranscriptHandle } from '../lib/browser-transcript'
 
 const COUNTDOWN_TICK_MS = 250
@@ -89,7 +89,7 @@ export function useRecorder(events: RecorderEvents) {
     chunksRef.current = []
 
     try {
-      const audioContext = createAudioContext()
+      const audioContext = new AudioContext()
       audioContextRef.current = audioContext
       const analyser = audioContext.createAnalyser()
       analyser.fftSize = 256

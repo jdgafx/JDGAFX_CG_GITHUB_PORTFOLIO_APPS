@@ -9,8 +9,6 @@ export default defineConfig({
     env: {
       OPENROUTER_API_KEY: '',
       DEEPGRAM_API_KEY: '',
-      BROWSERBASE_API_KEY: '',
-      BROWSERBASE_PROJECT_ID: '',
     },
   },
 })

@@ -26,6 +26,25 @@ describe('createRecorder', () => {
     expect(run.elapsed()).toBe(150)
   })
 
+  it('keeps a step\'s own time and the call and source it carries, and the next step still starts after it', () => {
+    const run = createRecorder()
+
+    vi.advanceTimersByTime(100)
+    run.add('tool call', 'ok', 'Lisbon: 17.6 °C', { ms: 40, call: 'weather("Lisbon")', source: 'https://api.open-meteo.com/v1/forecast' })
+    vi.advanceTimersByTime(25)
+    run.add('model answer', 'ok', 'anthropic/claude-haiku-5.5')
+
+    expect(run.steps[0]).toEqual({
+      name: 'tool call',
+      status: 'ok',
+      ms: 40,
+      detail: 'Lisbon: 17.6 °C',
+      call: 'weather("Lisbon")',
+      source: 'https://api.open-meteo.com/v1/forecast',
+    })
+    expect(run.steps[1]?.ms).toBe(25)
+  })
+
   it('leaves token and cost fields off a step that did not report them', () => {
     const run = createRecorder()
 

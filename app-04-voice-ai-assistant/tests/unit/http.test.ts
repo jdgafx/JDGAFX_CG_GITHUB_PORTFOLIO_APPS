@@ -5,6 +5,7 @@ import {
   isDeadlineError,
   jsonError,
   providerFailure,
+  readJsonBody,
   readLimitedText,
   upstreamStatus,
 } from '../../netlify/shared/http'
@@ -167,5 +168,27 @@ describe('isDeadlineError', () => {
     expect(isDeadlineError(new TypeError('fetch failed'))).toBe(false)
     expect(isDeadlineError('AbortError')).toBe(false)
     expect(isDeadlineError(null)).toBe(false)
+  })
+})
+
+describe('readJsonBody', () => {
+  it('returns the fields of a JSON object', async () => {
+    const body = await readJsonBody(request(URL_AI, { json: { message: 'hi', n: 2 } }), 1000)
+
+    expect(body).toEqual({ ok: true, fields: { message: 'hi', n: 2 } })
+  })
+
+  it.each([['null', 'null'], ['a number', '5'], ['a string', '"hi"']])('reads %s as an object with no fields', async (_label, raw) => {
+    const body = await readJsonBody(request(URL_AI, { body: raw }), 1000)
+
+    expect(body).toEqual({ ok: true, fields: {} })
+  })
+
+  it('refuses text that is not JSON', async () => {
+    expect(await readJsonBody(request(URL_AI, { body: 'nope' }), 1000)).toEqual({ ok: false, reason: 'not-json' })
+  })
+
+  it('refuses a body over the limit before parsing it', async () => {
+    expect(await readJsonBody(request(URL_AI, { body: 'x'.repeat(50) }), 10)).toEqual({ ok: false, reason: 'too-large' })
   })
 })

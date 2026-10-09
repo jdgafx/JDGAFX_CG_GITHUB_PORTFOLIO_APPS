@@ -40,13 +40,17 @@ describe('runModelCall', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(headerOf(fetchMock, 0, 'authorization')).toBe(`Bearer ${PLACEHOLDER}`)
-    expect(sentRequest(fetchMock)).toEqual({
+    const sent = sentRequest(fetchMock)
+    expect(sent).toMatchObject({
       model: MODEL,
       max_tokens: 256,
       reasoning: { enabled: false },
       usage: { include: true },
       messages: TURNS,
     })
+    expect(sent.tools.map(tool => tool.function.name)).toEqual(['weather', 'wikipedia_summary'])
+    expect(sent).not.toHaveProperty('tool_choice')
+    expect(sent).not.toHaveProperty('temperature')
   })
 
   it('returns the reply, the served model, the usage and one model call step', async () => {

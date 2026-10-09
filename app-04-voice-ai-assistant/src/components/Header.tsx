@@ -25,7 +25,7 @@ export default function Header({ badge }: HeaderProps) {
           {badge.label}
         </span>
         <p className="ds-showcase">
-          <strong>What this showcases:</strong> a voice loop, speech to text on the server, one chat call, and browser
+          <strong>What this showcases:</strong> a voice loop, speech to text on the server, a chat model that calls live public data, and browser
           speech back, with each step timed.
         </p>
       </div>

@@ -91,8 +91,6 @@ export function speak(text: string, { onEnd, onError }: SpeakOptions): SpeakHand
     cancelSpeech()
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 1.0
-    utterance.pitch = 1.0
     utterance.onend = () => settle()
     utterance.onerror = event => {
       // Cancelling on purpose surfaces as an error event; that is not a failure.

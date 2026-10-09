@@ -33,7 +33,9 @@ interface SentRequest {
   max_tokens: number
   reasoning: { enabled: boolean }
   usage: { include: boolean }
-  messages: Array<{ role: string; content: string }>
+  tools: Array<{ type: string; function: { name: string } }>
+  tool_choice?: string
+  messages: Array<{ role: string; content: string | null; tool_call_id?: string; tool_calls?: unknown[] }>
 }
 
 export function sentRequest(mock: FetchMock, call = 0): SentRequest {
@@ -48,6 +50,8 @@ interface ServerStep {
   detail: string
   tokens?: number
   cost?: number
+  call?: string
+  source?: string
 }
 
 interface ServerBody {
