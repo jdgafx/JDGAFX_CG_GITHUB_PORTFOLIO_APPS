@@ -11,7 +11,11 @@ interface Measure {
 
 // Measures run down the rows and panels across the columns, so each panel reads straight down its column.
 const MEASURES: Measure[] = [
-  { label: 'Served model', className: 'ds-mono', cell: p => p.servedModel ?? 'not reported' },
+  {
+    label: 'Served model',
+    className: 'ds-mono',
+    cell: p => (p.servedModel ? <span className="arena-id" title={p.servedModel}>{p.servedModel}</span> : 'not reported'),
+  },
   {
     label: 'Status',
     cell: p => {

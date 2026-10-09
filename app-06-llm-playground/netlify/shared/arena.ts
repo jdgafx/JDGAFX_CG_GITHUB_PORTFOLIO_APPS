@@ -20,8 +20,6 @@ import type { KeyValueStore, StorageKind } from './store'
 // A blind run lives in the store under runs/<runId> until it is voted on or expires. The run id is
 // opaque to the browser and starts with the time the run expires, so a sweep can drop old runs by key.
 const RUN_PREFIX = 'runs/'
-export const BOARD_KEY = 'leaderboard'
-const BOARD_ATTEMPTS = 12
 const SWEEP_EVERY_MS = 5 * 60_000
 const SWEEP_MAX_DELETES = 20
 
@@ -134,51 +132,16 @@ export async function sweepRuns(store: KeyValueStore, now: number = Date.now()):
   return removed
 }
 
-// ---- Leaderboard -------------------------------------------------------------------------------
+// ---- Ballots and the leaderboard ---------------------------------------------------------------
 
-interface BoardDoc {
-  version: 1
-  updatedAt: string | null
-  ballots: number
-  ties: number
-  allBad: number
-  ratings: Ratings
-  // Run ids counted so far, kept only while their runs could still take a vote.
-  recent: { runId: string; expiresAt: number }[]
-}
-
-function emptyBoard(): BoardDoc {
-  return { version: 1, updatedAt: null, ballots: 0, ties: 0, allBad: 0, ratings: {}, recent: [] }
-}
-
-function parseBoard(raw: string): BoardDoc {
-  const value: unknown = JSON.parse(raw)
-  if (!isRecord(value) || value.version !== 1 || !isRecord(value.ratings) || !Array.isArray(value.recent)) {
-    throw new Error('The leaderboard record is unreadable')
-  }
-  return value as unknown as BoardDoc
-}
-
-export function boardView(doc: BoardDoc, storage: StorageKind): LeaderboardResponse {
-  return {
-    rows: rankRows(doc.ratings),
-    ballots: doc.ballots,
-    ties: doc.ties,
-    allBad: doc.allBad,
-    updatedAt: doc.updatedAt,
-    storage,
-  }
-}
-
-export async function readBoard(store: KeyValueStore, storage: StorageKind): Promise<LeaderboardResponse> {
-  const raw = await store.get(BOARD_KEY)
-  return boardView(raw === undefined ? emptyBoard() : parseBoard(raw), storage)
-}
-
-export type CastResult =
-  | { kind: 'counted'; changes: RatingChange[]; board: LeaderboardResponse }
-  | { kind: 'duplicate' }
-  | { kind: 'busy' }
+// Every ballot is its own blob, votes/<runId>, written with onlyIfNew. That one conditional write is the whole
+// concurrency story: of two writers racing for one run id exactly one wins, so a run counts once, and no vote
+// ever has to be merged into a shared record, so none can be lost. The leaderboard is not stored at all. It is
+// folded from the ballots, in the order they were cast, whenever it is read. A read costs one list and one get
+// per ballot, which suits a few thousand votes; past that, snapshot the fold.
+const BALLOT_PREFIX = 'votes/'
+const READ_BATCH = 25
+const ballotKey = (runId: string) => `${BALLOT_PREFIX}${runId}`
 
 export interface Ballot {
   runId: string
@@ -187,40 +150,96 @@ export interface Ballot {
   tie: boolean
 }
 
-/**
- * Counts one ballot. The leaderboard is a single record that is only ever replaced through a
- * conditional write on the tag that was read, so two votes that race cannot overwrite each other:
- * the loser re-reads the winner's record and applies its own ballot on top. The record also lists
- * the run ids it has counted, which is what makes a second vote on one run a duplicate even when
- * two arrive together. 'busy' means every attempt lost the race; nothing was recorded.
- */
-export async function castBallot(
-  store: KeyValueStore,
-  storage: StorageKind,
-  ballot: Ballot,
-  now: number = Date.now(),
-  backoff: (attempt: number) => Promise<void> = attempt => new Promise(done => setTimeout(done, 5 + Math.random() * 25 * (attempt + 1))),
-): Promise<CastResult> {
-  for (let attempt = 0; attempt < BOARD_ATTEMPTS; attempt++) {
-    const current = await store.getTagged(BOARD_KEY)
-    const doc = current ? parseBoard(current.value) : emptyBoard()
-    if (doc.recent.some(r => r.runId === ballot.runId)) return { kind: 'duplicate' }
-    const { ratings, changes } = applyBallot(doc.ratings, ballot.entries, ballot.outcome)
-    const next: BoardDoc = {
-      version: 1,
-      updatedAt: new Date(now).toISOString(),
-      ballots: doc.ballots + 1,
-      ties: doc.ties + (ballot.tie ? 1 : 0),
-      allBad: doc.allBad + (ballot.outcome === 'all-bad' ? 1 : 0),
-      ratings,
-      recent: [...doc.recent.filter(r => r.expiresAt > now), { runId: ballot.runId, expiresAt: runExpiry(ballot.runId) }],
+interface StoredBallot extends Ballot {
+  at: number
+}
+
+function parseBallot(raw: string): StoredBallot | null {
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (isRecord(v) && typeof v.runId === 'string' && typeof v.at === 'number' && Array.isArray(v.entries) && v.outcome !== undefined) {
+      return v as unknown as StoredBallot
     }
-    const text = JSON.stringify(next)
-    const written = current ? await store.setIfMatch(BOARD_KEY, text, current.etag) : await store.setIfNew(BOARD_KEY, text)
-    if (written) return { kind: 'counted', changes, board: boardView(next, storage) }
-    await backoff(attempt)
+  } catch {
+    // An unreadable ballot is skipped and reported by the caller's log line.
   }
-  return { kind: 'busy' }
+  return null
+}
+
+export async function loadBallots(store: KeyValueStore): Promise<StoredBallot[]> {
+  const keys = await store.list(BALLOT_PREFIX)
+  const ballots: StoredBallot[] = []
+  for (let i = 0; i < keys.length; i += READ_BATCH) {
+    const raws = await Promise.all(keys.slice(i, i + READ_BATCH).map(key => store.get(key)))
+    for (const raw of raws) {
+      const ballot = raw === undefined ? null : parseBallot(raw)
+      if (ballot) ballots.push(ballot)
+    }
+  }
+  return ballots
+}
+
+interface Folded {
+  doc: LeaderboardTotals
+  changes: Map<string, RatingChange[]>
+}
+
+interface LeaderboardTotals {
+  ballots: number
+  ties: number
+  allBad: number
+  updatedAt: number | null
+  ratings: Ratings
+}
+
+/** Applies ballots in the order they were cast (time, then run id), remembering what each one changed. */
+export function foldBallots(ballots: StoredBallot[]): Folded {
+  const ordered = [...ballots].sort((a, b) => a.at - b.at || a.runId.localeCompare(b.runId))
+  const doc: LeaderboardTotals = { ballots: 0, ties: 0, allBad: 0, updatedAt: null, ratings: {} }
+  const changes = new Map<string, RatingChange[]>()
+  for (const ballot of ordered) {
+    const applied = applyBallot(doc.ratings, ballot.entries, ballot.outcome)
+    doc.ratings = applied.ratings
+    doc.ballots += 1
+    doc.ties += ballot.tie ? 1 : 0
+    doc.allBad += ballot.outcome === 'all-bad' ? 1 : 0
+    doc.updatedAt = ballot.at
+    changes.set(ballot.runId, applied.changes)
+  }
+  return { doc, changes }
+}
+
+export function boardView(doc: LeaderboardTotals, storage: StorageKind): LeaderboardResponse {
+  return {
+    rows: rankRows(doc.ratings),
+    ballots: doc.ballots,
+    ties: doc.ties,
+    allBad: doc.allBad,
+    updatedAt: doc.updatedAt === null ? null : new Date(doc.updatedAt).toISOString(),
+    storage,
+  }
+}
+
+export async function readBoard(store: KeyValueStore, storage: StorageKind): Promise<LeaderboardResponse> {
+  return boardView(foldBallots(await loadBallots(store)).doc, storage)
+}
+
+export type CastResult =
+  | { kind: 'counted'; changes: RatingChange[]; board: LeaderboardResponse }
+  | { kind: 'duplicate' }
+
+/**
+ * Counts one ballot: a conditional write of its own blob, then a fold for the reply. 'duplicate' means this
+ * run already has a ballot. The reply is built from what the store lists plus this ballot, so it is right
+ * even when the listing has not caught up with the write.
+ */
+export async function castBallot(store: KeyValueStore, storage: StorageKind, ballot: Ballot, now: number = Date.now()): Promise<CastResult> {
+  const stored: StoredBallot = { ...ballot, at: now }
+  if (!(await store.setIfNew(ballotKey(ballot.runId), JSON.stringify(stored)))) return { kind: 'duplicate' }
+  const ballots = await loadBallots(store)
+  if (!ballots.some(b => b.runId === ballot.runId)) ballots.push(stored)
+  const { doc, changes } = foldBallots(ballots)
+  return { kind: 'counted', changes: changes.get(ballot.runId) ?? [], board: boardView(doc, storage) }
 }
 
 // ---- Ballots from a stored run -----------------------------------------------------------------

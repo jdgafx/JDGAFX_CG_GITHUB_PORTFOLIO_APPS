@@ -11,7 +11,6 @@ export const config = { path: '/api/vote' }
 const VOTE_BODY_MAX_BYTES = 1_024
 
 const GONE = 'This comparison has expired, or it was already voted on. Run it again to vote.'
-const BUSY = 'The leaderboard is busy. Your vote was not counted. Press the button again.'
 
 export default async (req: Request): Promise<Response> => {
   const guard = gate(req, 'POST')
@@ -37,7 +36,6 @@ export default async (req: Request): Promise<Response> => {
       tie: plan.tie,
     })
     if (cast.kind === 'duplicate') return json({ error: GONE }, 409, guard.headers)
-    if (cast.kind === 'busy') return json({ error: BUSY }, 503, guard.headers)
     // The ballot is counted. Dropping the run is housekeeping: the leaderboard already refuses a second vote.
     await dropRun(store, runId).catch(() => undefined)
 

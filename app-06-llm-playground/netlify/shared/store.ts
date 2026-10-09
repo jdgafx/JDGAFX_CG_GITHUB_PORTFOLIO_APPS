@@ -142,11 +142,18 @@ export function createStore(): OpenStore {
 }
 
 let active: OpenStore | undefined
+let memory: OpenStore | undefined
 
-/** The store for this process. It is chosen once, on first use. */
+/**
+ * The store for this request. Netlify Blobs is opened afresh each time, because a store held for the life of a warm
+ * instance keeps a credential that expires. The in-memory fallback is one store for the process, or its votes would vanish.
+ */
 export function activeStore(): OpenStore {
-  active ??= createStore()
-  return active
+  if (active) return active
+  const opened = createStore()
+  if (opened.kind === 'blobs') return opened
+  memory ??= opened
+  return memory
 }
 
 /** Tests put their own store in place of the process store. */

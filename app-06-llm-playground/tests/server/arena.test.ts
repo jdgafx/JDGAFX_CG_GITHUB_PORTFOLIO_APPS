@@ -245,9 +245,9 @@ describe('vote', () => {
     for (let i = 0; i < 12; i++) runs.push(await blindRun(a))
     const results = await Promise.all(runs.map((run, i) => cast(a, run.runId, ['A', 'B', 'C'][i % 3])))
     const statuses = results.map(r => r.status)
-    // A vote that lost every race would say so (503) and count nothing; every 200 must be on the board.
+    // Each ballot is its own blob, so no vote can lose a race: every one is counted and on the board.
     const counted = statuses.filter(s => s === 200).length
-    expect(statuses.every(s => s === 200 || s === 503)).toBe(true)
+    expect(statuses.every(s => s === 200)).toBe(true)
     expect(counted).toBe(12)
     const b = await board(a)
     expect(b.ballots).toBe(counted)

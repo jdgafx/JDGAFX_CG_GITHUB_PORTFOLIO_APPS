@@ -165,12 +165,14 @@ function Row({ row, at, baseline, change, shift, pill }: { row: LeaderboardRow; 
   const delta = change ? change.after - change.before : null
   return (
     <li className={`arena-row arena-row--${row.confidence}${change ? ' arena-row--moved' : ''}`} data-model={row.model}>
-      <span className="arena-rank" aria-label={`Rank ${row.rank}`}>{row.rank}</span>
-      {shift !== 0 && (
-        <span className="arena-shift" aria-label={`${shift > 0 ? 'up' : 'down'} ${Math.abs(shift)} place${Math.abs(shift) === 1 ? '' : 's'}`}>
-          {shift > 0 ? '\u25B2' : '\u25BC'}{Math.abs(shift)}
-        </span>
-      )}
+      <div className="arena-rankcell">
+        <span className="arena-rank" aria-label={`Rank ${row.rank}`}>{row.rank}</span>
+        {shift !== 0 && (
+          <span className="arena-shift" aria-label={`${shift > 0 ? 'up' : 'down'} ${Math.abs(shift)} place${Math.abs(shift) === 1 ? '' : 's'}`}>
+            {shift > 0 ? '\u25B2' : '\u25BC'}{Math.abs(shift)}
+          </span>
+        )}
+      </div>
       <div className="arena-row__who" title={row.model}>
         <span className="arena-row__name">{name}</span>
         <span className="arena-row__vendor">{vendor}</span>
