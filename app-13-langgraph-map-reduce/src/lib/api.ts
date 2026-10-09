@@ -1,7 +1,7 @@
 import type { Frame } from '../types/frames'
 import { createSseParser } from './sse'
 
-const GENERIC_START_FAILURE = 'The run could not start. Please try again.'
+const GENERIC_START_FAILURE = 'The run could not start. Try again.'
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
 
 async function startFailure(response: Response): Promise<string> {

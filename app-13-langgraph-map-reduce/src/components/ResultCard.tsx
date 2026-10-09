@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildCells, chunkTexts, pointRefs, retriedChunks, type PointRef } from '../lib/evidence'
 import { coverageBadge, missingItems, missingLead, reviewNote } from '../lib/coverage-text'
 import { formatCount } from '../lib/format'
-import { splitText } from '../../netlify/shared/chunk'
+import { splitDisplay } from '../../netlify/shared/chunk'
 import type { Phase, RunView } from '../lib/view'
 import type { RunResult } from '../types/frames'
 import { Md } from './Md'
 import { CoverageStrip } from './CoverageStrip'
 import { SourcePanel, type Selection } from './SourcePanel'
+
+/** The entity chips shown at first; the rest sit behind a disclosure. */
+const ENTITIES_SHOWN = 12
 
 /** Below this width the source panel opens under the point, not beside the summary. */
 const SIDE_BY_SIDE_FROM = 760
@@ -62,7 +65,7 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
   const [selection, setSelection] = useState<Selection>(null)
   const { ref, wide } = useWide()
   const panelRef = useRef<HTMLDivElement>(null)
-  const chunks = useMemo(() => splitText(analyzed), [analyzed])
+  const chunks = useMemo(() => splitDisplay(analyzed), [analyzed])
   const texts = useMemo(() => chunkTexts(chunks, result.chunkCount), [chunks, result.chunkCount])
   const ids = useMemo(() => chunks.map((c) => c.id), [chunks])
   const refs = useMemo(() => pointRefs(result.summary), [result.summary])
@@ -77,7 +80,13 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
 
   // On a narrow screen the panel opens below the fold of the list, so bring it into view when the selection changes.
   useEffect(() => {
-    if (!wide && selection) panelRef.current?.scrollIntoView({ block: 'nearest' })
+    if (wide || !selection) return
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior = calm ? 'auto' : 'smooth'
+    if (selection.kind === 'point') {
+      // The tapped row goes to the top, with its source panel under it.
+      document.querySelector('.point[aria-pressed="true"]')?.closest('li')?.scrollIntoView({ block: 'start', behavior })
+    } else panelRef.current?.scrollIntoView({ block: 'nearest', behavior })
   }, [selection, wide])
 
   const panel = (
@@ -86,6 +95,10 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
     </div>
   )
   const note = reviewNote(result.reviewFlags)
+  const open = selection !== null
+  const side = wide && open
+  const shown = result.entities.slice(0, ENTITIES_SHOWN)
+  const rest = result.entities.slice(ENTITIES_SHOWN)
 
   return (
     <div
@@ -97,19 +110,22 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
     >
       <section className="evidence__strip" aria-label="Coverage map">
         <h3 className="evidence__title">Coverage map</h3>
-        <p className="ds-help">Each cell is one chunk of the document. Select a cell to see what it gave the summary.</p>
         <CoverageStrip cells={cells} lit={lit} chosen={chosen} max={Math.max(1, ...cells.map((c) => c.count))} onChoose={chooseChunk} />
+        <p className="ds-help">Select a cell to see what that chunk gave the summary, or a point below to read its source. Escape closes.</p>
         {note ? <p className="coverage-note">{note}</p> : null}
         {!wide && selection?.kind === 'chunk' ? panel : null}
       </section>
 
-      <div className={wide ? 'evidence__body evidence__body--wide' : 'evidence__body'}>
+      <div className={side ? 'evidence__body evidence__body--wide' : 'evidence__body'}>
         <div className="evidence__summary">
-          <p className="evidence__overview"><Md text={result.summary.overview} /></p>
-          <p className="ds-help">Select a point to light up the chunks it cites and read their text. Press Escape to close.</p>
+          <p className="evidence__overview">
+            <Md text={result.summary.overview} />
+          </p>
           {result.summary.sections.map((section, s) => (
             <div key={section.heading} className="summary-section">
-              <h3 className="summary-section__title"><Md text={section.heading} /></h3>
+              <h3 className="summary-section__title">
+                <Md text={section.heading} />
+              </h3>
               <ul className="summary-points">
                 {section.points.map((p, i) => {
                   const key = `${s}.${i}`
@@ -121,11 +137,15 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
                           <Md text={p.text} />
                         </span>
                         <span className="point__cites">
-                          {p.chunks.length === 0 ? <span className="ds-hint">no citation</span> : p.chunks.map((id) => (
-                            <span key={id} className="ds-badge cite">
-                              Chunk {id}
-                            </span>
-                          ))}
+                          {p.chunks.length === 0 ? (
+                            <span className="ds-hint">no citation</span>
+                          ) : (
+                            p.chunks.map((id) => (
+                              <span key={id} className="ds-badge cite">
+                                Chunk {id}
+                              </span>
+                            ))
+                          )}
                         </span>
                       </button>
                       {!wide && on ? panel : null}
@@ -138,11 +158,29 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
           {result.entities.length > 0 ? (
             <div className="summary-section">
               <h3 className="summary-section__title">Entities across the document</h3>
-              <p className="summary-entities"><Md text={result.entities.join(', ')} /></p>
+              <ul className="ds-chips summary-entities" aria-label="Entities">
+                {shown.map((name) => (
+                  <li key={name} className="ds-chip">
+                    <Md text={name} />
+                  </li>
+                ))}
+              </ul>
+              {rest.length > 0 ? (
+                <details className="ds-disclosure">
+                  <summary>Show all {result.entities.length} entities</summary>
+                  <ul className="ds-chips summary-entities" aria-label="More entities">
+                    {rest.map((name) => (
+                      <li key={name} className="ds-chip">
+                        <Md text={name} />
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
             </div>
           ) : null}
         </div>
-        {wide ? <aside className="evidence__side">{panel}</aside> : null}
+        {side ? <aside className="evidence__side">{panel}</aside> : null}
       </div>
     </div>
   )

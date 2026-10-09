@@ -30,20 +30,10 @@ function ChunkText({ id, text, picked }: { id: number; text: string; picked: num
   )
 }
 
-function Empty() {
-  return (
-    <div className="ds-state ds-state--empty">
-      <span className="ds-state__mark" aria-hidden="true" />
-      <p className="ds-state__title">Pick a point to read its source</p>
-      <p className="ds-state__body">Select a summary point to see the chunks it cites, with the closest sentences marked. Select a chunk in the strip to see what it contributed.</p>
-    </div>
-  )
-}
-
 /** The evidence behind one summary point, or the detail of one chunk. */
 export function SourcePanel({ selection, point, cells, texts, keyPoints, onPoint }: Props) {
   const body = (() => {
-    if (selection === null) return <Empty />
+    if (selection === null) return null
     if (texts === null) {
       return <p className="ds-notice">The chunk text is not available for this run.</p>
     }
@@ -77,7 +67,7 @@ export function SourcePanel({ selection, point, cells, texts, keyPoints, onPoint
     if (selection.kind === 'chunk') {
       const cell = cells.find((c) => c.id === selection.id)
       const text = texts.get(selection.id)
-      if (!cell || text === undefined) return <Empty />
+      if (!cell || text === undefined) return null
       const points = keyPoints.find((k) => k.chunk === cell.id)?.points ?? []
       return (
         <>
@@ -124,7 +114,7 @@ export function SourcePanel({ selection, point, cells, texts, keyPoints, onPoint
         </>
       )
     }
-    return <Empty />
+    return null
   })()
 
   return (

@@ -9,7 +9,10 @@
    (.ds-button--danger), never filled, and never sits directly beside a filled accent button (put it at the far end of
    the row or in the dialog's secondary slot). Failed and error states always carry the "!" mark and the word, so they
    never rely on red against a warm accent. Motion budget while a run is live: the rail sweep, the active-node halo, the
-   live trace bar and the ticking readout; nothing else animates. */
+   live trace bar and the ticking readout; nothing else animates.
+   Craft floor: no coloured side or top stripes on cards, bands or rows (use a full 1px border and a tint). The one recorded
+   exception is the 4px rail along the page's top edge, which is the run signal for the whole page, not a card edge.
+   Spacing scale: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48 (plus 1 and 2 for hairline offsets); no other values in padding, margin or gap. */
 
 :root {
   color-scheme: light dark;
@@ -83,6 +86,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* v3.1: no scroll anchoring. The result-first reorder at the end of a run would otherwise make Chrome move the page. */
+html { overflow-anchor: none; }
+
 html, body {
   margin: 0; background: var(--ds-bg); color: var(--ds-text); font-family: var(--ds-font);
   font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
@@ -113,9 +119,9 @@ pre { max-width: none; overflow-x: auto; }
 }
 @keyframes ds-sweep { to { background-position: -220% 0; } }
 .ds-header__inner, .ds-main, .ds-footer__inner { width: 100%; max-width: 1240px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
-.ds-header__inner { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); align-items: start; padding-top: 24px; padding-bottom: 16px; }
+.ds-header__inner { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); align-items: start; padding-top: 24px; padding-bottom: 16px; }
 .ds-brand { display: grid; gap: 8px; min-width: 0; }
-.ds-brand__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-width: 0; }
+.ds-brand__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .ds-brand__row .ds-badge { margin-left: auto; }
 .ds-plate {
   flex: none; display: grid; place-items: center; min-width: 54px; height: 54px; padding: 0 8px;
@@ -124,13 +130,13 @@ pre { max-width: none; overflow-x: auto; }
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.16), inset 0 -3px 0 rgb(0 0 0 / 0.12);
 }
 .ds-showcase {
-  grid-column: 1 / -1; margin: 0; padding: 9px 14px; font-size: 15px; max-width: none;
-  background: var(--ds-accent-soft); border-left: 3px solid var(--ds-accent); border-radius: 0 var(--ds-radius-sm) var(--ds-radius-sm) 0;
+  grid-column: 1 / -1; margin: 0; padding: 12px 16px; font-size: 15px; max-width: none;
+  background: var(--ds-accent-soft); border: 1px solid var(--ds-accent-dim); border-radius: var(--ds-radius-sm);
 }
 .ds-showcase strong { font-weight: 650; }
 .ds-main { flex: 1; display: grid; gap: 24px; padding-top: 24px; padding-bottom: 48px; align-content: start; }
 .ds-footer { border-top: 1px solid var(--ds-border); color: var(--ds-text-muted); font-size: 13px; }
-.ds-footer__inner { padding-top: 16px; padding-bottom: 22px; }
+.ds-footer__inner { padding-top: 16px; padding-bottom: 24px; }
 
 /* The bench: a control rail left, the run right (1000px up). The rail is sticky and capped so it always fits the
    screen; it scrolls inside itself only when it must. .ds-actions is the dock for Run and Stop: sticky to the bottom of
@@ -142,11 +148,11 @@ pre { max-width: none; overflow-x: auto; }
 .ds-controls { align-content: start; }
 .ds-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 @media (min-width: 1000px) {
-  .ds-bench { grid-template-columns: 320px minmax(0, 1fr); gap: 28px; }
+  .ds-bench { grid-template-columns: 320px minmax(0, 1fr); gap: 32px; }
   .ds-controls {
     position: sticky; top: 16px; max-height: var(--ds-rail-cap, max(360px, calc(100vh - 248px))); max-height: var(--ds-rail-cap, max(360px, calc(100dvh - 248px)));
     overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 96px; scrollbar-width: thin; scrollbar-color: var(--ds-border-strong) transparent;
-    padding: 18px 16px 0; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius);
+    padding: 16px 16px 0; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius);
   }
   .ds-controls::after { content: ""; position: sticky; bottom: 0; height: 28px; margin-top: -20px; pointer-events: none; background: linear-gradient(transparent, var(--ds-surface)); }
   .ds-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -16px; padding: 12px 16px; background: var(--ds-surface); border-top: 1px solid var(--ds-border); box-shadow: 0 -10px 14px -12px color-mix(in srgb, var(--ds-text) 30%, transparent); }
@@ -155,7 +161,7 @@ pre { max-width: none; overflow-x: auto; }
 
 /* Sections: a heading and its content; the rule under the heading is optional (--bare drops it) */
 .ds-section { display: grid; gap: 12px; min-width: 0; }
-.ds-section__head { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--ds-border); }
+.ds-section__head { display: grid; gap: 2px; padding-bottom: 12px; border-bottom: 1px solid var(--ds-border); }
 .ds-section__head--row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }
 .ds-section__head--bare { padding-bottom: 0; border-bottom: 0; }
 
@@ -164,14 +170,14 @@ pre { max-width: none; overflow-x: auto; }
 .ds-card__head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
 .ds-grid-2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .ds-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.ds-stack { display: grid; gap: 14px; min-width: 0; }
+.ds-stack { display: grid; gap: 12px; min-width: 0; }
 .ds-scroll-x { overflow-x: auto; min-width: 0; }
 
 /* Forms: label, control, then one line only where it adds something */
-.ds-field { display: grid; gap: 6px; min-width: 0; }
+.ds-field { display: grid; gap: 8px; min-width: 0; }
 .ds-label { font-size: 15px; font-weight: 650; }
 .ds-input, .ds-select, .ds-textarea {
-  width: 100%; min-height: 44px; padding: 9px 12px; font: inherit; color: inherit;
+  width: 100%; min-height: 44px; padding: 8px 12px; font: inherit; color: inherit;
   background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm);
   transition: border-color 120ms var(--ds-ease);
 }
@@ -198,14 +204,14 @@ pre { max-width: none; overflow-x: auto; }
 .ds-button[aria-busy="true"] { cursor: progress; }
 
 /* Choice: a compact selectable example or preset. Title and a two-line question; the hint shows on the selected one only */
-.ds-choice-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ds-choice-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .ds-choice {
   display: grid; gap: 1px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; scroll-margin-bottom: 96px;
   background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm);
   transition: border-color 120ms var(--ds-ease), background-color 120ms var(--ds-ease);
 }
 .ds-choice:hover:not(:disabled) { border-color: var(--ds-accent); }
-.ds-choice--selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); box-shadow: inset 3px 0 0 var(--ds-accent); }
+.ds-choice--selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
 .ds-choice:disabled { opacity: 0.5; cursor: not-allowed; }
 .ds-choice__label { font-size: 15px; font-weight: 650; }
 .ds-choice__text { font-size: 13px; color: var(--ds-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
@@ -219,7 +225,7 @@ pre { max-width: none; overflow-x: auto; }
 
 /* Badges and dots: status is a word with a mark, never colour alone */
 .ds-badge {
-  display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; white-space: nowrap; font-size: 13px; font-weight: 650;
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; white-space: nowrap; font-size: 13px; font-weight: 650;
   color: var(--ds-text-muted); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px;
 }
 .ds-badge--success { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
@@ -234,7 +240,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-dot--skipped { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ds-text-muted); }
 .ds-dot--running { background: var(--ds-accent); }
 
-.ds-notice { padding: 10px 12px; font-size: 15px; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
+.ds-notice { padding: 12px 12px; font-size: 15px; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); }
 .ds-notice > p + p { margin-top: 4px; }
 .ds-notice--error { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-notice--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
@@ -243,11 +249,11 @@ pre { max-width: none; overflow-x: auto; }
 
 @media (max-width: 720px) {
   .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
-  .ds-header__inner { padding-top: 20px; padding-bottom: 14px; }
+  .ds-header__inner { padding-top: 20px; padding-bottom: 12px; }
   .ds-title { font-size: 28px; }
   .ds-plate { min-width: 46px; height: 46px; font-size: 20px; }
   .ds-main { padding-top: 16px; gap: 20px; }
-  .ds-card, .ds-panel { padding: 14px; }
+  .ds-card, .ds-panel { padding: 12px; }
   .ds-button { min-height: 48px; }
   .ds-input, .ds-select, .ds-textarea, .ds-choice { min-height: 48px; }
 }

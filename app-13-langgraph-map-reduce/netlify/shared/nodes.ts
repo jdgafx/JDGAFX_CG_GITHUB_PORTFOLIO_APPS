@@ -254,8 +254,8 @@ export function makeNodes(deps: NodeDeps) {
     if (!summary) {
       throw new RunFailure(
         reply.finishReason === 'length'
-          ? 'The summary was cut short. Please run the text again.'
-          : 'The summary could not be read. Please run the text again.',
+          ? 'The summary was cut short. Run the text again.'
+          : 'The summary could not be read. Run the text again.',
       )
     }
     const points = summary.sections.reduce((n, s) => n + s.points.length, 0)

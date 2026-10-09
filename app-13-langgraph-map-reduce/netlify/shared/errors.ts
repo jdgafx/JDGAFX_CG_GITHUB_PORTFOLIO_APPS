@@ -29,7 +29,7 @@ export class ProviderError extends Error {
   }
 }
 
-export const BUDGET_MESSAGE = 'The run ran out of time before it finished. Please try again.'
+export const BUDGET_MESSAGE = 'The run ran out of time before it finished. Try again.'
 /** Added to the budget message only for a text long enough that its length may have been the cause. */
 export const LONG_TEXT_HINT = ' A shorter text also helps.'
 
@@ -48,7 +48,7 @@ export class RunFailure extends Error {
   }
 }
 
-export const SERVER_MESSAGE = 'Something went wrong on the server. Please try again.'
+export const SERVER_MESSAGE = 'Something went wrong on the server. Try again.'
 
 /**
  * LangGraph wraps failures from several parallel tasks in one AggregateError. This returns the failure

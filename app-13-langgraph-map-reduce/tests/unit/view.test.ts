@@ -173,7 +173,7 @@ describe('failure handling', () => {
     const view = endView({ ...initialView(), phase: 'running' as const })
 
     expect(view.phase).toBe('error')
-    expect(view.error).toBe('The run ended before a result was ready. Please try again.')
+    expect(view.error).toBe('The run ended before a result was ready. Try again.')
   })
 
   it('leaves a finished run alone when the stream closes', () => {

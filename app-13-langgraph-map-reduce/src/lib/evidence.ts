@@ -99,9 +99,25 @@ export function contentWords(text: string): Set<string> {
   return words
 }
 
-/** A chunk's sentences. A chunk is sentences joined by one space, so the pieces rejoin to the exact chunk text. */
+/** A sentence ends at . ! or ? (and a closing quote or bracket after it), then a space, or at a line break. */
+const BREAK = /(?<=[.!?]["'\u201d\u2019)]?)[ \t]+|\n+/g
+
+/** A chunk's sentences, each with the whitespace that followed it, so the pieces rejoin to the exact chunk text. */
+function pieces(chunkText: string): Array<{ sentence: string; gap: string }> {
+  const out: Array<{ sentence: string; gap: string }> = []
+  let at = 0
+  for (const m of chunkText.matchAll(BREAK)) {
+    const index = m.index ?? 0
+    if (index > at) out.push({ sentence: chunkText.slice(at, index), gap: m[0] })
+    else if (out.length > 0) out[out.length - 1]!.gap += m[0]
+    at = index + m[0].length
+  }
+  if (at < chunkText.length) out.push({ sentence: chunkText.slice(at), gap: '' })
+  return out
+}
+
 export function sentencesOf(chunkText: string): string[] {
-  return chunkText.split(/(?<=[.!?])\s+/).filter((s) => s.length > 0)
+  return pieces(chunkText).map((p) => p.sentence)
 }
 
 /**
@@ -134,10 +150,9 @@ export interface Segment {
 /** The chunk as runs of plain and highlighted text. The texts joined give back the chunk exactly. */
 export function segmentsFor(chunkText: string, picked: number[]): Segment[] {
   const hits = new Set(picked)
-  const sentences = sentencesOf(chunkText)
   const out: Segment[] = []
-  sentences.forEach((sentence, i) => {
-    const text = i < sentences.length - 1 ? `${sentence} ` : sentence
+  pieces(chunkText).forEach(({ sentence, gap }, i) => {
+    const text = sentence + gap
     const hit = hits.has(i)
     const last = out[out.length - 1]
     if (last && last.hit === hit) last.text += text

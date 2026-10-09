@@ -44,7 +44,7 @@ async function handleRun(req: Request, options: HandlerOptions): Promise<Respons
 
   const limit = rateLimit(clientKey(req), Date.now())
   if (!limit.allowed) {
-    return fail('Too many runs from this address. Please wait a moment and try again.', 429, {
+    return fail('Too many runs from this address. Wait a moment, then try again.', 429, {
       ...cors,
       'Retry-After': String(limit.retryAfter),
     })

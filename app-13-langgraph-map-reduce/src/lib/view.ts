@@ -154,7 +154,7 @@ export function failView(view: RunView, message: string): RunView {
 /** The stream ended without a result or an error: the run is treated as failed. */
 export function endView(view: RunView): RunView {
   if (view.phase !== 'running') return view
-  return failView(view, 'The run ended before a result was ready. Please try again.')
+  return failView(view, 'The run ended before a result was ready. Try again.')
 }
 
 /** The reader stopped the run. Work in progress is stopped, not failed, and no result is written. */

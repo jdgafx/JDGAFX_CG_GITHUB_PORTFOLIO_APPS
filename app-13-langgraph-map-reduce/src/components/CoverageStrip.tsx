@@ -35,7 +35,6 @@ interface Props {
 /** One cell per chunk, shaded by how many summary points cite it. Left and Right move between cells. */
 export function CoverageStrip({ cells, lit, chosen, max, onChoose }: Props) {
   const group = useRef<HTMLDivElement>(null)
-  const dim = lit.size > 0
 
   function onKey(event: KeyboardEvent<HTMLDivElement>): void {
     const keys: Record<string, (i: number, n: number) => number> = {
@@ -66,18 +65,29 @@ export function CoverageStrip({ cells, lit, chosen, max, onChoose }: Props) {
             data-level={cell.level}
             data-kind={cell.kind}
             data-lit={lit.has(cell.id) ? 'true' : undefined}
-            data-dim={dim && !lit.has(cell.id) ? 'true' : undefined}
             aria-pressed={chosen === cell.id}
             aria-label={describe(cell)}
             title={describe(cell)}
             onClick={() => onChoose(cell.id)}
           >
             <span className="cell__id">{cell.id}</span>
-            <span className="cell__count">{cell.kind === 'covered' ? `${cell.count} ${cell.count === 1 ? 'pt' : 'pts'}` : CELL_WORD[cell.kind]}</span>
+            <span className="cell__count">
+              {cell.kind === 'covered' ? (
+                <>
+                  <b>{cell.count}</b> {cell.count === 1 ? 'pt' : 'pts'}
+                </>
+              ) : (
+                CELL_WORD[cell.kind]
+              )}
+            </span>
             {cell.retried && <RetryMark />}
           </button>
         ))}
       </div>
+      <p className="strip__ends" aria-hidden="true">
+        <span>Start of article</span>
+        <span>End of article</span>
+      </p>
       <ul className="strip__legend" aria-label="How to read the strip">
         <li>
           <span className="strip__ramp" aria-hidden="true">

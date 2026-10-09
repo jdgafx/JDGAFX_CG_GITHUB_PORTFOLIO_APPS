@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitText } from '../../netlify/shared/chunk'
+import { splitDisplay, splitText } from '../../netlify/shared/chunk'
 import {
   buildCells,
   chunkTexts,
@@ -116,7 +116,34 @@ describe('sentence choice', () => {
   })
 })
 
+describe('sentences and headings', () => {
+  it('ends a sentence after a closing quote or bracket, so a quoted line is not glued to the next', () => {
+    const text = 'He said "We choose to go to the Moon." The crowd cheered (loudly.) Then it rained.'
+    expect(sentencesOf(text)).toEqual(['He said "We choose to go to the Moon."', 'The crowd cheered (loudly.)', 'Then it rained.'])
+    expect(segmentsFor(text, [0]).map((x) => x.text).join('')).toBe(text)
+  })
+
+  it('treats a line break as a sentence end and keeps it when the pieces are rejoined', () => {
+    const text = 'History\nThe history of the reef is long. It began early.'
+    expect(sentencesOf(text)).toEqual(['History', 'The history of the reef is long.', 'It began early.'])
+    expect(segmentsFor(text, [0]).map((x) => x.text).join('')).toBe(text)
+  })
+})
+
 describe('chunk boundaries match the server', () => {
+  const article = ['Intro text about the reef. It is large.', 'History', ...Array.from({ length: 6 }, (_, n) => Array.from({ length: 80 }, (_, i) => `w${n}x${i}`).join(' ') + '.'), 'Geology', 'Rocks are old. They formed slowly.'].join('\n\n')
+
+  it('splitDisplay cuts exactly where splitText cuts and only adds line breaks where the source had them', () => {
+    const plain = splitText(article)
+    const shown = splitDisplay(article)
+    expect(shown.map((c) => c.id)).toEqual(plain.map((c) => c.id))
+    expect(shown.map((c) => c.text.replace(/\n/g, ' '))).toEqual(plain.map((c) => c.text))
+    expect(shown.some((c) => c.text.includes('\nHistory\n'))).toBe(true)
+    expect(shown[shown.length - 1]?.text).toContain('\nGeology\nRocks are old.')
+  })
+})
+
+describe('chunk boundaries match the server (plain)', () => {
   const paragraphs = Array.from({ length: 7 }, (_, n) => Array.from({ length: 90 }, (_, i) => `word${n}x${i}`).join(' ') + '.')
   const doc = `Intro line.\r\n${paragraphs.join('\n')}\n\n\nEnd -- of text! Done?`
 

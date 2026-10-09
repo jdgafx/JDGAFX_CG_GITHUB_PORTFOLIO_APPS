@@ -7,8 +7,8 @@ import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
-import { NARROW_BELOW_PX, shouldScrollToResult } from './lib/scrollToResult'
 import { statusLine } from './lib/status'
+import { useResultFocus } from './lib/useResultFocus'
 import { applyFrame, endView, failView, initialView, stopView, type RunView } from './lib/view'
 import type { Frame } from './types/frames'
 
@@ -47,7 +47,7 @@ export default function App() {
   /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
   const [analyzed, setAnalyzed] = useState('')
   const [collapseKey, setCollapseKey] = useState(0)
-  const startScroll = useRef(0)
+  const [railScrolled, setRailScrolled] = useState(false)
   const busy = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const running = view.phase === 'running'
@@ -56,27 +56,12 @@ export default function App() {
   // Leaving the page stops the stream, so no request keeps running in the background.
   useEffect(() => () => controller.current?.abort(), [])
 
-  // When a run ends, bring the result into view on a narrow screen (unless the visitor scrolled during the run)
-  // and move focus to its heading when focus has fallen to the page body.
-  const ended = view.phase === 'done' || view.phase === 'error' || view.phase === 'stopped'
-  useEffect(() => {
-    const target = document.querySelector<HTMLElement>('[data-result-focus]')
-    if (!ended || !target) return
-    const scrolledBy = window.scrollY - startScroll.current
-    if (shouldScrollToResult({ width: window.innerWidth, ended, scrolledBy })) {
-      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      target.closest('.ds-run__result')?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
-    }
-    if (document.activeElement === document.body || document.activeElement === null) target.focus({ preventScroll: true })
-  }, [ended])
+  // On a phone the result sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
+  useResultFocus(view.phase === 'error' ? 'failed' : view.phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1) })
 
   async function analyze(source: string): Promise<void> {
     if (busy.current || !isValid(source)) return
     busy.current = true
-    startScroll.current = window.scrollY
-    if (window.innerWidth < NARROW_BELOW_PX) setCollapseKey((n) => n + 1)
-    // Folding the list moves the page; measure the visitor's scrolling from where it settles.
-    requestAnimationFrame(() => requestAnimationFrame(() => (startScroll.current = window.scrollY)))
     const current = new AbortController()
     controller.current = current
     setAnalyzed(source)
@@ -90,7 +75,7 @@ export default function App() {
       if (current.signal.aborted) {
         dispatch({ type: 'stop' })
       } else {
-        dispatch({ type: 'fail', message: err instanceof Error ? err.message : 'Something went wrong. Please try again.' })
+        dispatch({ type: 'fail', message: err instanceof Error ? err.message : 'Something went wrong. Try again.' })
       }
     } finally {
       busy.current = false
@@ -104,7 +89,7 @@ export default function App() {
 
       <main className="ds-main">
         <div className="ds-bench">
-          <div className="ds-controls">
+          <div className="ds-controls" data-scrolled={railScrolled ? 'true' : undefined} onScroll={(event) => setRailScrolled(event.currentTarget.scrollTop > 4)}>
             <InputPanel
               text={text}
               running={running}

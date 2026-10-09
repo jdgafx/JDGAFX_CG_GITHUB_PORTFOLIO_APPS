@@ -78,7 +78,7 @@ export function statusLine(view: RunView, length: number, valid: boolean): strin
       return `Finished. ${covered.length} of ${formatCount(covered.length + missing.length, 'chunk')} covered.`
     }
     case 'error':
-      return 'Failed. Read the message under the buttons, then change the text or try again.'
+      return 'Failed. See the message above the readout, then try again.'
     case 'stopped':
       return 'Stopped. No summary was written. Analyze again to start over.'
     case 'idle':
