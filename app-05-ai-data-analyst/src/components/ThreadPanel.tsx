@@ -58,6 +58,7 @@ function ActiveBody({ step, busy, onSuggest }: { step: ThreadStep; busy: boolean
       )}
       {headline.answer && (
         <div className="ds-lead__text app-answer ds-num">
+          {headline.substitute && <span className="ds-badge ds-badge--warning">Substitute result</span>}
           <p>{headline.answer}</p>
         </div>
       )}

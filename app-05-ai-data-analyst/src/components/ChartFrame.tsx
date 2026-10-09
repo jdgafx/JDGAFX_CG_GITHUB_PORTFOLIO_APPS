@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { measureWords } from '../lib/answer'
 import { formatTick, isTimeAxis, limitGroups, lineNeedsOrder, MAX_PIE_SLICES, pieIsCrowded } from '../lib/chartGeometry'
 import { downloadChartPng, downloadCsv, fileSlug } from '../lib/export'
-import { sentenceCase } from '../lib/titles'
+import { chartTitle } from '../lib/titles'
 import { labelFor, RAW_VOCABULARY, shownLabel, withUnit } from '../lib/vocabulary'
 import type { AnalysisResult } from '../types'
 import ChartSvg from './ChartSvg'
@@ -97,7 +97,7 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
   const horizontal = chartType === 'bar' && crowded && limited.values.every((value) => value >= 0)
   const pieCrowded = chartType === 'pie' && pieIsCrowded(labels, values, combinable)
   const unordered = lineNeedsOrder(chartType, labels)
-  const title = sentenceCase(plan.title, [...labels, ...labels.map((label) => shownLabel(vocab, label))])
+  const title = chartTitle(result, `${measure} by ${labelFor(vocab, plan.groupBy)}`, [...labels, ...labels.map((label) => shownLabel(vocab, label))])
   const axisUnit = plan.aggregate.fn === 'count' ? vocab.rowNoun : vocab.units[plan.aggregate.field]
   const peak = Math.max(...limited.values, 0)
   const largest = limited.values.reduce((best, v, i) => (Math.abs(v) > Math.abs(limited.values[best] ?? 0) ? i : best), 0)
@@ -110,7 +110,7 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
     downloadChartPng(svg, {
       title,
       subtitle: `${measure} by ${labelFor(vocab, plan.groupBy)}, ${result.dataset}`,
-      filename: `${fileSlug(plan.title)}.png`,
+      filename: `${fileSlug(title)}.png`,
     }).catch((error: unknown) =>
       setFailure({ result, message: error instanceof Error ? error.message : 'The image could not be saved.' }),
     )
@@ -165,7 +165,7 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
         )}
       </div>
       <div className="ds-row app-chart__actions">
-        <button type="button" className="ds-button ds-button--quiet" onClick={() => downloadCsv(result)}>
+        <button type="button" className="ds-button ds-button--quiet" onClick={() => downloadCsv(result, title)}>
           Download CSV
         </button>
         {!horizontal && (

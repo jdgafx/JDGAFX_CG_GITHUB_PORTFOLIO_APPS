@@ -44,5 +44,9 @@ describe('fileSlug', () => {
   it('makes a short file name from a chart title', () => {
     expect(fileSlug('Total rain (mm) by month, 2025/26!')).toBe('total-rain-mm-by-month-2025-26')
     expect(fileSlug('???')).toBe('datapilot-result')
+    expect(fileSlug('Average daily high temperature by month (stand-in for wind speed)')).toBe(
+      'average-daily-high-temperature-by-month-stand-in-for-wind-speed',
+    )
+    expect(fileSlug(`${'word '.repeat(30)}`)).toBe(Array(16).fill('word').join('-'))
   })
 })

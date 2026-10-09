@@ -25,9 +25,13 @@ export function resultToCsv(result: AnalysisResult): string {
   return `${lines.join('\r\n')}\r\n`
 }
 
+const MAX_SLUG = 80
+
 /** A file name from a chart title: lower case words joined by hyphens. */
 export function fileSlug(title: string): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+  const full = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  // A long title is cut at a word, never in the middle of one.
+  const slug = full.length > MAX_SLUG ? full.slice(0, MAX_SLUG).replace(/-[^-]*$/, '') : full
   return slug || 'datapilot-result'
 }
 
@@ -43,8 +47,8 @@ function saveBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function downloadCsv(result: AnalysisResult): void {
-  saveBlob(new Blob([resultToCsv(result)], { type: 'text/csv;charset=utf-8' }), `${fileSlug(result.queryPlan.title)}.csv`)
+export function downloadCsv(result: AnalysisResult, title: string): void {
+  saveBlob(new Blob([resultToCsv(result)], { type: 'text/csv;charset=utf-8' }), `${fileSlug(title)}.csv`)
 }
 
 const PNG_SCALE = 2
