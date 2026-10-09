@@ -131,3 +131,9 @@
   .hub-add { grid-template-columns: minmax(0, 1fr); }
   .hub-card__total { font-size: 22px; }
 }
+
+/* The live data indicator: neutral until the real fetches succeed, then success; error when one fails. */
+.live-data { margin: 0; max-width: none; }
+.live-data[data-state="live"] { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
+.live-data[data-state="failed"] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
+.live-data .ds-dot { flex: none; }

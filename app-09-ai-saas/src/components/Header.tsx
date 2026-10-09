@@ -1,4 +1,5 @@
 import type { RunStatus } from '../lib/insightRun'
+import { LIVE_HOSTS, liveText, type LiveState } from '../lib/liveData'
 
 interface Tone {
   badge: string
@@ -7,7 +8,7 @@ interface Tone {
 }
 
 /** The badge follows the run. Success is for a finished run whose checks passed; a failed check is a warning. */
-function toneFor(status: RunStatus, checkFailed: boolean, loading: boolean): Tone {
+function toneFor(status: RunStatus, checkFailed: boolean): Tone {
   switch (status) {
     case 'running':
       return { badge: 'ds-badge--accent', dot: 'ds-dot--running', word: 'Explaining' }
@@ -20,18 +21,18 @@ function toneFor(status: RunStatus, checkFailed: boolean, loading: boolean): Ton
     case 'stopped':
       return { badge: 'ds-badge--warning', dot: 'ds-dot--stopped', word: 'Stopped' }
     case 'idle':
-      return { badge: '', dot: loading ? 'ds-dot--skipped' : 'ds-dot--ok', word: loading ? 'Loading npm data' : 'Live npm data' }
+      return { badge: '', dot: '', word: '' }
   }
 }
 
 interface HeaderProps {
   status: RunStatus
   checkFailed: boolean
-  loading: boolean
+  live: { state: LiveState; fetchedAt: number | null }
 }
 
-export default function Header({ status, checkFailed, loading }: HeaderProps) {
-  const tone = toneFor(status, checkFailed, loading)
+export default function Header({ status, checkFailed, live }: HeaderProps) {
+  const tone = toneFor(status, checkFailed)
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -41,11 +42,17 @@ export default function Header({ status, checkFailed, loading }: HeaderProps) {
               09
             </span>
             <h1 className="ds-title">InsightHub</h1>
-            <span className={`ds-badge ${tone.badge}`}>
-              <span className={`ds-dot ${tone.dot}`} aria-hidden="true" />
-              {tone.word}
-            </span>
+            {tone.word !== '' && (
+              <span className={`ds-badge ${tone.badge}`}>
+                <span className={`ds-dot ${tone.dot}`} aria-hidden="true" />
+                {tone.word}
+              </span>
+            )}
           </div>
+          <p className="live-data ds-chip" data-state={live.state} role="status" aria-live="polite" title={LIVE_HOSTS}>
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {liveText(live.state, live.fetchedAt)}
+          </p>
           <p className="ds-subtitle">
             Compare npm packages by real daily downloads. Unusual days are marked and matched to the releases just before them.
           </p>

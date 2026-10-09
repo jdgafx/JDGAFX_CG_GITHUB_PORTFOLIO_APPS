@@ -8,6 +8,7 @@ import { HISTORY_DAYS, type NpmError } from '../lib/npm'
 import { DEFAULT_NAMES, DEFAULT_WINDOW } from '../lib/presets'
 import type { Release } from '../lib/releases'
 import { buildSpikeEvidence, countSpikes } from '../lib/spikes'
+import { liveState } from '../lib/liveData'
 import { useDownloads } from '../lib/useDownloads'
 import { useResultFocus } from '../lib/useResultFocus'
 import { useReleases } from '../lib/useReleases'
@@ -40,7 +41,7 @@ export default function Dashboard() {
   const [log, setLog] = useState(false)
   const [presetsOpen, setPresetsOpen] = useState(() => window.matchMedia('(min-width: 1000px)').matches)
   const [activeKey, setActiveKey] = useState<string | null>(null)
-  const { outcomes, requestedEnd, loading, retry } = useDownloads(names, days)
+  const { outcomes, requestedEnd, loading, retry, fetchedAt } = useDownloads(names, days)
   const history = useReleases(names)
 
   // A package keeps the colour of its place in the selection, even when an earlier one failed to load.
@@ -81,6 +82,17 @@ export default function Dashboard() {
     () => (summary && !loading && !history.loading ? { ...summary, spikes, spikeCounts } : null),
     [summary, loading, history.loading, spikes, spikeCounts],
   )
+  const live = {
+    state: liveState({
+      downloadsLoading: loading && colorIndex.length === 0,
+      downloadsParsed: loading ? 0 : colorIndex.length,
+      downloadsFailed: loading ? 0 : failures.length,
+      releasesLoading: history.loading,
+      releasesParsed: [...history.outcomes.values()].filter((o) => 'releases' in o).length,
+      releasesFailed: [...history.outcomes.values()].filter((o) => 'error' in o).length,
+    }),
+    fetchedAt: fetchedAt !== null && history.fetchedAt !== null ? Math.max(fetchedAt, history.fetchedAt) : null,
+  }
   const run = useInsightRun(evidenceSummary)
   const ready = evidenceSummary !== null
   const start = () => {
@@ -99,7 +111,7 @@ export default function Dashboard() {
 
   return (
     <div className="ds-app" data-run={run.status}>
-      <Header status={run.status} checkFailed={checkFailed} loading={loading && !span} />
+      <Header status={run.status} checkFailed={checkFailed} live={live} />
 
       <main className="ds-main">
         <div className="ds-bench">

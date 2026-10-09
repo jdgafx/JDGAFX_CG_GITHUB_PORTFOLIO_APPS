@@ -8,6 +8,7 @@ export interface ReleaseHistory {
   /** By package name. Empty while the first request for a selection is loading. */
   outcomes: ReadonlyMap<string, ReleaseOutcome>
   loading: boolean
+  fetchedAt: number | null
   retry: () => void
 }
 
@@ -31,14 +32,14 @@ async function load(name: string, signal: AbortSignal): Promise<ReleaseOutcome> 
 /** Reads each selected package's release history from the npm registry. It depends on the names only, not the window. */
 export function useReleases(names: string[]): ReleaseHistory {
   const [attempt, setAttempt] = useState(0)
-  const [loaded, setLoaded] = useState<{ key: string; outcomes: Map<string, ReleaseOutcome> } | null>(null)
+  const [loaded, setLoaded] = useState<{ key: string; outcomes: Map<string, ReleaseOutcome>; fetchedAt: number } | null>(null)
   const key = `${names.join(',')}|${attempt}`
 
   useEffect(() => {
     const controller = new AbortController()
     Promise.all(names.map(async (name) => [name, await load(name, controller.signal)] as const)).then(
       (entries) => {
-        if (!controller.signal.aborted) setLoaded({ key, outcomes: new Map(entries) })
+        if (!controller.signal.aborted) setLoaded({ key, outcomes: new Map(entries), fetchedAt: Date.now() })
       },
       () => undefined,
     )
@@ -48,6 +49,7 @@ export function useReleases(names: string[]): ReleaseHistory {
   return {
     outcomes: loaded?.outcomes ?? NONE,
     loading: loaded?.key !== key,
+    fetchedAt: loaded?.fetchedAt ?? null,
     retry: () => setAttempt((n) => n + 1),
   }
 }
