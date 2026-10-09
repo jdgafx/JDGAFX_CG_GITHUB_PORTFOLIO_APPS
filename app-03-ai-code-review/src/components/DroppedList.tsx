@@ -1,10 +1,10 @@
 import { SEVERITY_CONFIG } from '../constants'
 import { plural } from '../lib/verdicts'
 import type { ReviewComment } from '../types'
-import { placeOf } from './Finding'
+import { CitedCode, placeOf } from './Finding'
 import { Inline } from './Inline'
 
-/** Dropped comments, on demand: what each one said, who dropped it and why. Nothing is silently gone. */
+/** Dropped comments, on demand: what each one said, the code it was about, who dropped it and why. Nothing is silently gone. */
 export function DroppedList({ comments }: { comments: ReviewComment[] }) {
   if (comments.length === 0) return null
   return (
@@ -22,20 +22,15 @@ export function DroppedList({ comments }: { comments: ReviewComment[] }) {
                 {SEVERITY_CONFIG[c.severity].label}
               </span>
               <span className="finding__place ds-mono">{placeOf(c)}</span>
-              <span className="ds-chip ds-chip--remove">{c.decidedBy === 'verifier' ? 'dropped by the second pass' : 'dropped by the checks'}</span>
+              <span className="ds-badge">Dropped</span>
             </div>
+            <CitedCode comment={c} context={null} />
             <p className="dropped__message">
               <Inline text={c.message} />
             </p>
-            <p className="finding__verify">
-              <span className="finding__label">Why: </span>
+            <p className="finding__why">
+              <span className="finding__label">{c.decidedBy === 'verifier' ? 'Dropped by the second pass: ' : 'Dropped by the checks: '}</span>
               {c.reason}
-              {c.evidence && (
-                <>
-                  {' '}
-                  <code className="finding__evidence">{c.evidence}</code>
-                </>
-              )}
             </p>
           </li>
         ))}

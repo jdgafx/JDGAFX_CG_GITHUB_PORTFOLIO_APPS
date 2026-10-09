@@ -9,7 +9,8 @@ export const PIPELINE = [
   'Pass 1: review',
   'Parse reply',
   'Checks',
-  'Pass 2: verify',
+  'Pass 2: verify (read 1)',
+  'Pass 2: verify (read 2, adversary)',
   'Re-validate',
 ] as const
 

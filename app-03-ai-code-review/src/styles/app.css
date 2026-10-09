@@ -15,58 +15,90 @@
 .dot--warning { background: var(--ds-warning); }
 .dot--info { background: var(--ds-text-muted); }
 
-/* Filter chips: pressed means shown, a dashed outline means hidden, so the state never rests on colour alone */
-.review-controls__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Severity filters are quiet: a plain outline while shown, a dashed muted one while hidden, never an accent fill. A severity
+   with no comments is disabled. Copy review is not a filter, so it sits apart. */
+.review-controls__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 32px; }
+.review-controls__filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .filter-chip { min-height: 44px; padding: 0 16px; font-size: 13px; border-radius: 999px; }
 .filter-chip[aria-pressed="false"] { color: var(--ds-text-muted); border-style: dashed; }
-.filter-chip[aria-pressed="true"] { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.filter-chip[aria-pressed="true"] { border-color: var(--ds-text-muted); }
 
-/* The verified-review ledger: one segment per first-pass comment. Kept is solid, moved takes the accent, dropped is
-   hatched, not confirmed is dashed and empty. The chips beside it say the same in words. */
+/* The verified-review ledger: one segment per first-pass comment, grouped by what became of it, the count written under each
+   group. Kept is solid green, moved is the same green striped (it is shown and acted on like a kept one), dropped is graphite
+   hatching, not confirmed is a dashed amber outline. */
 .result { display: grid; gap: 20px; min-width: 0; }
 .result__sentence { font-size: 18px; line-height: 1.5; }
-.ledger { display: grid; gap: 12px; }
-.ledger__bar { display: flex; gap: 2px; height: 16px; }
-.ledger__seg { flex: 1 1 0; max-width: 48px; min-width: 6px; border-radius: 2px; }
+.ledger { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
+.ledger__groups { flex: 1 1 280px; display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.ledger__group { display: grid; gap: 4px; min-width: 96px; }
+.ledger__bar { display: flex; gap: 2px; }
+.ledger__seg { flex: 1 1 0; min-width: 6px; height: 24px; border-radius: 0; }
 .ledger__seg--kept { background: var(--ds-success); }
-.ledger__seg--moved { background: var(--ds-accent); }
-.ledger__seg--dropped { background: repeating-linear-gradient(135deg, var(--ds-border-strong) 0 3px, var(--ds-surface) 3px 6px); box-shadow: inset 0 0 0 1px var(--ds-border-strong); }
+.ledger__seg--moved { background: repeating-linear-gradient(135deg, var(--ds-success) 0 3px, color-mix(in srgb, var(--ds-success) 40%, var(--ds-surface)) 3px 6px); }
+.ledger__seg--dropped { background: repeating-linear-gradient(135deg, var(--ds-border-strong) 0 2px, var(--ds-surface) 2px 6px); box-shadow: inset 0 0 0 1px var(--ds-border-strong); }
 .ledger__seg--unverified { box-shadow: inset 0 0 0 1.5px var(--ds-warning); background: transparent; }
-.ledger__chips { padding-top: 0; }
-.chip--unverified::before { content: "?"; font-weight: 800; }
+.ledger__label, .ledger__total { font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); white-space: nowrap; }
 
-/* Findings: each is a card with the cited code, the note, and how it was verified */
+/* Verdict badges. The glyphs + ~ - are for diff lines only, so a verdict is a word with a dot. Moved is the kept green with a
+   stripe; not confirmed has a dashed edge. */
+.badge--moved { background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--ds-success) 20%, transparent) 4px 8px); }
+.badge--unconfirmed { border: 1px dashed var(--ds-warning); }
+
+/* Findings: each is a card. The code leads, the verdict sits right under it, then the note. */
 .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
 .finding { display: grid; gap: 12px; min-width: 0; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.finding.is-active { border-color: var(--ds-accent); background: var(--ds-accent-soft); }
+.finding:focus { outline: none; }
+.finding.is-active { border-color: var(--ds-border-strong); background: var(--ds-surface-2); }
 .finding[data-verdict="unverified"] { border-style: dashed; border-color: var(--ds-warning); }
-.finding__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.finding__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .finding__place { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
-.finding__show { margin-left: auto; min-height: 44px; }
+.finding__place--link { display: inline-flex; align-items: center; min-height: 44px; color: var(--ds-accent); font-weight: 600; text-underline-offset: 3px; }
+.finding__actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 0 8px; }
+.finding__actions .ds-button { min-height: 44px; }
 .finding__code { max-width: none; }
+.finding .ds-code__line::before, .dropped .ds-code__line::before { content: attr(data-n); }
+.finding .ds-code__line[data-n=""]::before, .dropped .ds-code__line[data-n=""]::before { content: none; }
+.finding__evline { font-style: italic; }
+.finding__verdict { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 15px; max-width: var(--ds-measure); }
+.finding__verdict .ds-badge { align-self: center; }
+.finding__reason, .finding__why { overflow-wrap: anywhere; }
 .finding__message { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; max-width: var(--ds-measure); }
-.finding__suggestion { font-size: 15px; overflow-wrap: anywhere; }
+.finding__suggestion { font-size: 15px; overflow-wrap: anywhere; max-width: var(--ds-measure); }
 .finding__label { font-size: 13px; font-weight: 650; color: var(--ds-text-muted); }
-.finding__verify { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; max-width: var(--ds-measure); }
-.finding__evidence { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 4px 8px; font-size: 13px; color: var(--ds-text); background: var(--ds-surface-2); border-radius: 4px; overflow-wrap: anywhere; }
-.finding code, .dropped code { font-size: 13px; }
+.finding__why { font-size: 15px; max-width: var(--ds-measure); }
+.finding code { font-size: 13px; }
+
+/* The quote the second pass relied on, drawn inside the cited line in the verdict's own style. */
+.finding__quote { color: inherit; padding: 0; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.finding__quote--kept { background: color-mix(in srgb, var(--ds-success) 16%, transparent); text-decoration-color: var(--ds-success); }
+.finding__quote--moved { background: color-mix(in srgb, var(--ds-success) 16%, transparent); text-decoration-style: double; text-decoration-color: var(--ds-success); }
+.finding__quote--unverified { background: color-mix(in srgb, var(--ds-warning) 16%, transparent); text-decoration-style: dashed; text-decoration-color: var(--ds-warning); }
+.finding__quote--dropped { text-decoration-style: dotted; text-decoration-color: var(--ds-text-muted); }
 
 /* Dropped comments: on demand, each with who dropped it and why */
 .dropped { border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 0 16px; background: var(--ds-surface-2); }
 .dropped[open] { padding-bottom: 16px; }
 .dropped__list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
 .dropped__item { display: grid; gap: 8px; padding: 12px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); min-width: 0; }
-.dropped__message { font-size: 15px; overflow-wrap: anywhere; max-width: var(--ds-measure); }
+.dropped__message { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; max-width: var(--ds-measure); }
 
 /* Editor: the gutter and the textarea share one frame. Focus is an outline on the frame, not a shadow. */
 .editor-card { display: grid; gap: 12px; }
 .editor-card .ds-card__head { margin-bottom: 0; }
 .editor { display: flex; min-width: 0; height: clamp(240px, 40vh, 420px); background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
 .editor:focus-within { outline: 2px solid var(--ds-focus); outline-offset: 2px; }
-.editor__gutter { flex: 0 0 auto; min-width: 48px; padding: 8px 0; overflow: hidden; text-align: right; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); background: var(--ds-surface-2); border-right: 1px solid var(--ds-border); border-radius: 5px 0 0 5px; user-select: none; }
+.editor__gutter { flex: 0 0 auto; min-width: 56px; padding: 8px 0; overflow: hidden; text-align: right; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); background: var(--ds-surface-2); border-right: 1px solid var(--ds-border); border-radius: calc(var(--ds-radius-sm) - 1px) 0 0 calc(var(--ds-radius-sm) - 1px); user-select: none; }
 .editor__num { display: block; height: 24px; line-height: 24px; padding-right: 8px; }
-.editor__num.is-active { color: var(--ds-accent); background: var(--ds-accent-soft); font-weight: 600; }
-.editor__input { flex: 1; width: auto; min-width: 0; min-height: 0; margin: 0; padding: 8px 12px; border: 0; border-radius: 0 5px 5px 0; background: transparent; resize: none; font-family: var(--ds-mono); font-size: 13px; line-height: 24px; white-space: pre; overflow: auto; tab-size: 2; }
+.editor__num.is-active { color: var(--ds-accent); background: var(--ds-accent-soft); font-weight: 650; }
+.editor__num--marked { position: relative; width: 100%; margin: 0; border: 0; background: transparent; font: inherit; text-align: right; color: var(--ds-text); font-weight: 650; cursor: pointer; }
+.editor__num--marked::before { content: ""; position: absolute; left: 8px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--ds-text-muted); }
+.editor__num--marked[data-severity="critical"]::before { background: var(--ds-danger); }
+.editor__num--marked[data-severity="warning"]::before { background: var(--ds-warning); }
+.editor__num--marked:hover { background: var(--ds-surface); }
+.editor__jump { display: grid; gap: 8px; padding: 12px; background: var(--ds-surface-2); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius-sm); }
+.editor__jump p { font-size: 15px; max-width: var(--ds-measure); overflow-wrap: anywhere; }
+.editor__jump .ds-button { justify-self: start; }
+.editor__input { flex: 1; width: auto; min-width: 0; min-height: 0; margin: 0; padding: 8px 12px; border: 0; border-radius: 0 calc(var(--ds-radius-sm) - 1px) calc(var(--ds-radius-sm) - 1px) 0; background: transparent; resize: none; font-family: var(--ds-mono); font-size: 13px; line-height: 24px; white-space: pre; overflow: auto; tab-size: 2; }
 .editor__input:focus { outline: none; border: 0; }
 .editor-foot { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-foot__run { display: none; }
@@ -74,13 +106,15 @@
 @media (min-width: 480px) and (max-width: 999px) { .loader__row { grid-template-columns: minmax(0, 1fr) auto; } }
 
 /* Pull request files: a checkbox row for each file, with what it adds to the review */
-.prfiles__line { font-size: 15px; max-width: none; }
+.prfiles__line { font-size: 15px; max-width: var(--ds-measure); }
 .prfiles { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .prfile__label { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px 12px; align-items: start; min-height: 44px; padding: 8px 12px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); cursor: pointer; }
-.prfile__label:has(input:checked) { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
 .prfile__label.is-blocked { cursor: not-allowed; color: var(--ds-text-muted); background: var(--ds-surface-2); }
 .prfile__label input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ds-accent); }
 .prfile__path { font-size: 13px; overflow-wrap: anywhere; }
+.prfile__label:has(input:checked) .prfile__path { font-weight: 650; }
+.prfile__comments { color: var(--ds-text); font-weight: 650; }
+.prfiles__bar { height: 8px; margin-bottom: 12px; }
 .prfile__meta { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; color: var(--ds-text-muted); }
 .prfile__why { grid-column: 2; font-size: 13px; color: var(--ds-text-muted); }
 
@@ -88,7 +122,7 @@
   .finding { padding: 12px; }
   .dropped { padding: 0 12px; }
   .dropped[open] { padding-bottom: 12px; }
-  .finding__show { margin-left: 0; }
+  .finding__actions { margin-left: 0; }
 }
 
 /* Grid items default to min-width auto, so a wide code line would stretch the whole column on a phone. */
@@ -99,3 +133,10 @@
 .prfiles { max-height: 440px; overflow-y: auto; padding-right: 4px; }
 /* While a run is live, what is happening leads: the loading state, then the clock. */
 [data-run="running"] .ds-run__result { order: 0; }
+
+.finding__support { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; max-width: var(--ds-measure); }
+.finding__support code { color: var(--ds-text); background: var(--ds-surface-2); padding: 2px 4px; border-radius: var(--ds-radius-sm); }
+
+/* A verdict badge carries a sentence, so it may wrap on a phone; the shared badge never wraps. */
+.finding__verdict .ds-badge { white-space: normal; align-items: flex-start; max-width: 100%; }
+.finding__verdict .ds-badge .ds-dot { margin-top: 5px; flex: none; }

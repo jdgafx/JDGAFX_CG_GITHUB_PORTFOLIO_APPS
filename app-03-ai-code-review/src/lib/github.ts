@@ -208,7 +208,7 @@ export function readContentsReply(data: unknown, ref: GitHubRef): Parsed<GitHubF
 }
 
 /** The visitor-facing message for a non-OK reply. A spent anonymous quota says when it resets. */
-export function githubFailure(status: number, headers: Pick<Headers, 'get'>, now = Date.now()): string {
+export function githubFailure(status: number, headers: Pick<Headers, 'get'>, now = Date.now(), what = 'file'): string {
   if (status === 429 || (status === 403 && headers.get('x-ratelimit-remaining') === '0')) {
     const reset = Number(headers.get('x-ratelimit-reset'))
     const minutes = Number.isFinite(reset) && reset > 0 ? Math.max(1, Math.ceil((reset * 1000 - now) / 60_000)) : null
@@ -216,8 +216,12 @@ export function githubFailure(status: number, headers: Pick<Headers, 'get'>, now
       minutes === null ? 'Try again later.' : `Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`
     }`
   }
-  if (status === 404) return 'GitHub has no such public file. Check the owner, repository, branch or tag, and path.'
-  if (status === 403) return 'GitHub refused to serve that file.'
+  if (status === 404) {
+    return what === 'pull request'
+      ? 'GitHub has no such public pull request, or the repository is private. Check the owner, repository and number.'
+      : 'GitHub has no such public file. Check the owner, repository, branch or tag, and path.'
+  }
+  if (status === 403) return `GitHub refused to serve that ${what}.`
   if (status >= 500) return 'GitHub is having trouble right now. Try again in a moment.'
   return `GitHub answered with an unexpected status (${status}).`
 }

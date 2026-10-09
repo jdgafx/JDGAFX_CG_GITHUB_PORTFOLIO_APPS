@@ -33,7 +33,7 @@ describe('ai function: request checks', () => {
     const payload = await readPayload(res)
     expect(res.status).toBe(400)
     expect(payload.error).toBe('Request body was not valid JSON.')
-    expect(payload.trace.map((step) => step.status)).toEqual(['failed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped'])
+    expect(payload.trace.map((step) => step.status)).toEqual(['failed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped'])
     expect(fetchStub).not.toHaveBeenCalled()
   })
 
@@ -121,7 +121,7 @@ describe('ai function: provider failures in pass 1', () => {
     expect(res.headers.get('retry-after')).toBe('60')
     expect(payload.error).toBe('Rate limited, try again in a minute.')
     expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'Rate limited (HTTP 429) (limit 17.4 s)' })
-    expect(stepSummary(payload).slice(3)).toEqual(['Parse reply:skipped', 'Checks:skipped', 'Pass 2: verify:skipped', 'Re-validate:skipped'])
+    expect(stepSummary(payload).slice(3)).toEqual(['Parse reply:skipped', 'Checks:skipped', 'Pass 2: verify (read 1):skipped', 'Pass 2: verify (read 2, adversary):skipped', 'Re-validate:skipped'])
   })
 
   it('answers 502 with a plain message when the provider sends a success status with a body that is not JSON', async () => {

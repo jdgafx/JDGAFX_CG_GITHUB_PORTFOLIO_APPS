@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { SEVERITIES, SEVERITY_CONFIG, SEVERITY_HINT } from '../constants'
 import { count } from '../lib/format'
+import type { ContextLine } from '../lib/context'
 import { countVerdicts, isShown, plural, verdictSentence } from '../lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, Severity } from '../types'
 import { DroppedList } from './DroppedList'
@@ -51,7 +52,11 @@ interface ResultCardProps {
   copied: boolean
   stale: boolean
   onToggleFilter: (severity: Severity) => void
-  onShowLine: (line: number) => void
+  onShowLine: (comment: ReviewComment) => void
+  contextOf: (comment: ReviewComment) => ContextLine[] | null
+  hrefOf: (comment: ReviewComment) => string | null
+  /** What the empty state says to do next, for the input that is loaded now. */
+  emptyBody: string
   onRetry: () => void
   onCopy: () => void
   sortComments: (comments: ReviewComment[]) => ReviewComment[]
@@ -73,7 +78,7 @@ function Notices({ result, stale }: { result: ReviewResult; stale: boolean }): R
       )}
       {result.verified && counts.unverified > 0 && (
         <p role="status" className="ds-notice ds-notice--warning">
-          {`${plural(counts.unverified, 'comment', 'comments')} could not be confirmed: the code the second pass quoted was not where it said. They stay on screen, marked.`}
+          {`${plural(counts.unverified, 'comment', 'comments')} not confirmed: the two reads disagreed, the adversarial read found code against them, or they rest on something outside the code. They are listed below, closed.`}
         </p>
       )}
       {result.truncated && (
@@ -96,7 +101,7 @@ function Notices({ result, stale }: { result: ReviewResult; stale: boolean }): R
 }
 
 export function ResultCard(props: ResultCardProps) {
-  const { phase, error, result, hasSteps, filters, highlightedLine, copied, stale, onToggleFilter, onShowLine, onRetry, onCopy, sortComments } = props
+  const { phase, error, result, hasSteps, filters, highlightedLine, copied, stale, onToggleFilter, onShowLine, onRetry, onCopy, sortComments, contextOf, hrefOf, emptyBody } = props
 
   if (phase === 'running') {
     return (
@@ -132,13 +137,16 @@ export function ResultCard(props: ResultCardProps) {
       <ResultState
         tone="empty"
         title="No review yet"
-        body="Load a file or a pull request from GitHub, or paste code, then start the review. Each comment comes back kept, moved or dropped, with the reason."
+        body={emptyBody}
       />
     )
   }
 
   const counts = countVerdicts(result.comments)
-  const shown = sortComments(result.comments.filter(isShown))
+  // When both reads finished, the comments they could not confirm are listed apart and closed; when a read failed they are all there is.
+  const apart = result.verified
+  const shown = sortComments(result.comments.filter((c) => isShown(c) && !(apart && c.verdict === 'unverified')))
+  const unconfirmed = sortComments(result.comments.filter((c) => apart && c.verdict === 'unverified'))
   const dropped = result.comments.filter((c) => !isShown(c)).sort((a, b) => a.id - b.id)
   const visible = shown.filter((c) => filters[c.severity])
   const severityCounts: Record<Severity, number> = { critical: 0, warning: 0, info: 0 }
@@ -150,7 +158,7 @@ export function ResultCard(props: ResultCardProps) {
       <div className="ds-lead">
         <div className="ds-lead__meta">
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>
-            {fullyVerified ? 'Verified review' : 'Partly verified review'}
+            {fullyVerified ? 'Review checked by a second pass' : 'Review partly checked'}
           </h2>
           <span className="ds-chip ds-chip--muted">{result.mode === 'pr' ? 'pull request' : 'file'}</span>
         </div>
@@ -176,16 +184,26 @@ export function ResultCard(props: ResultCardProps) {
               {`Comments to act on (${shown.length})`}
             </h2>
           </div>
-          <div className="review-controls__row" role="group" aria-label="Filter comments by severity">
-            {SEVERITIES.map((severity) => (
-              <button key={severity} type="button" className="ds-button filter-chip" aria-pressed={filters[severity]} title={SEVERITY_HINT[severity]} onClick={() => onToggleFilter(severity)}>
-                <span className={`ds-dot dot--${severity}`} aria-hidden="true" />
-                {SEVERITY_CONFIG[severity].label}
-                <span className="ds-num">{severityCounts[severity]}</span>
-              </button>
-            ))}
+          <div className="review-controls__row">
+            <div className="review-controls__filters" role="group" aria-label="Filter comments by severity">
+              {SEVERITIES.map((severity) => (
+                <button
+                  key={severity}
+                  type="button"
+                  className="ds-button filter-chip"
+                  aria-pressed={filters[severity]}
+                  title={severityCounts[severity] === 0 ? `No ${severity} comments` : SEVERITY_HINT[severity]}
+                  disabled={severityCounts[severity] === 0}
+                  onClick={() => onToggleFilter(severity)}
+                >
+                  <span className={`ds-dot dot--${severity}`} aria-hidden="true" />
+                  {SEVERITY_CONFIG[severity].label}
+                  <span className="ds-num">{severityCounts[severity]}</span>
+                </button>
+              ))}
+            </div>
             {shown.length > 0 && (
-              <button type="button" className="ds-button filter-chip" onClick={onCopy}>
+              <button type="button" className="ds-button ds-button--quiet review-controls__copy" onClick={onCopy}>
                 {copied ? 'Copied' : 'Copy review'}
               </button>
             )}
@@ -193,8 +211,8 @@ export function ResultCard(props: ResultCardProps) {
           {shown.length === 0 ? (
             <div className="ds-state ds-state--empty">
               <span className="ds-state__mark" aria-hidden="true" />
-              <p className="ds-state__title">Every comment was dropped</p>
-              <p className="ds-state__body">Open the dropped comments below to see why each one went.</p>
+              <p className="ds-state__title">{unconfirmed.length > 0 ? 'Nothing was confirmed' : 'Every comment was dropped'}</p>
+              <p className="ds-state__body">{unconfirmed.length > 0 ? 'The comments the second pass could not confirm are listed below, with the reason for each.' : 'Open the dropped comments below to see why each one went.'}</p>
             </div>
           ) : visible.length === 0 ? (
             <div className="ds-state ds-state--empty">
@@ -209,10 +227,30 @@ export function ResultCard(props: ResultCardProps) {
                   key={comment.id}
                   comment={comment}
                   active={result.mode === 'file' && highlightedLine === comment.line}
-                  onShowLine={result.mode === 'file' ? () => onShowLine(comment.line) : undefined}
+                  contextOf={contextOf}
+                  href={hrefOf(comment)}
+                  onShowLine={result.mode === 'file' ? () => onShowLine(comment) : undefined}
                 />
               ))}
             </ul>
+          )}
+          {unconfirmed.length > 0 && (
+            <details className="ds-disclosure dropped" open={shown.length === 0}>
+              <summary>{`Not confirmed (${unconfirmed.length})`}</summary>
+              <p className="ds-help">These comments passed the checks but the second pass could not confirm them. Each says why. Treat them as leads to check, not as findings.</p>
+              <ul className="findings">
+                {unconfirmed.map((comment) => (
+                  <Finding
+                    key={comment.id}
+                    comment={comment}
+                    active={result.mode === 'file' && highlightedLine === comment.line}
+                    contextOf={contextOf}
+                    href={hrefOf(comment)}
+                    onShowLine={result.mode === 'file' ? () => onShowLine(comment) : undefined}
+                  />
+                ))}
+              </ul>
+            </details>
           )}
           <DroppedList comments={dropped} />
         </section>

@@ -9,8 +9,6 @@ const SUGGESTIONS: Suggestion[] = PR_SUGGESTIONS.flatMap(({ link, blurb }) => {
   return parsed.ok ? [{ link, blurb, title: `${parsed.value.owner}/${parsed.value.repo}#${parsed.value.number}`, meta: 'Merged, so the diff stays the same' }] : []
 })
 
-const STATE_CHIP = { open: 'ds-chip ds-chip--add', merged: 'ds-chip ds-chip--change', closed: 'ds-chip ds-chip--remove' } as const
-
 interface PrSourceProps {
   pr: PullRequest | null
   disabled: boolean
@@ -43,7 +41,7 @@ export function PrSource({ pr, disabled, onLoaded, collapseKey, children }: PrSo
           <section className="ds-section" aria-label="Loaded pull request">
             <p className="pr-title">{pr.title}</p>
             <div className="ds-chips">
-              <span className={STATE_CHIP[pr.state]}>{pr.draft ? 'draft' : pr.state}</span>
+              <span className="ds-badge">{pr.draft ? 'draft' : pr.state}</span>
               <span className="ds-chip ds-chip--muted">{`${count(pr.changedFiles)} files`}</span>
               <span className="ds-chip ds-chip--add">{count(pr.additions)}</span>
               <span className="ds-chip ds-chip--remove">{count(pr.deletions)}</span>

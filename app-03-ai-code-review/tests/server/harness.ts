@@ -142,12 +142,40 @@ export const HOURS_BODY = { code: HOURS.join('\n'), language: 'python' }
 export const FIVE = { line: 5, quote: 'open(path)', severity: 'warning', message: 'The file handle from open(path) is never closed.', suggestion: 'Use a with block so the file is closed.', issue: true }
 
 export const verdictJson = (items: unknown[]): string => JSON.stringify(items)
-export const keep = (id: number, line: number, evidence: string, reason = 'The code does what the comment says.') => ({ id, verdict: 'keep', line, evidence, reason })
+export const keep = (id: number, line: number, evidence: string, reason = 'The code does what the comment says.', support = evidence) => ({ id, verdict: 'keep', line, evidence, support, reason })
 
-/** Pass 1 returns `comments`, pass 2 returns `verdicts`. */
-export function twoPasses(comments: unknown[], verdicts: unknown[]): void {
-  fetchStub.mockResolvedValueOnce(providerReply(reviewJson(comments)))
-  fetchStub.mockResolvedValueOnce(providerReply(verdictJson(verdicts)))
+/** The adversarial read's answer when it finds nothing against any comment the first read kept or moved. */
+export function standsFor(verdicts: unknown[]): unknown[] {
+  return (verdicts as Array<{ id: number; line: number; evidence: string }>).map((v) => ({ id: v.id, verdict: 'stands', line: v.line, evidence: v.evidence, support: '', reason: 'Nothing in the file breaks the claim.' }))
 }
 
-export const COMPLETE = ['Check request:ok', 'Build prompt:ok', 'Pass 1: review:ok', 'Parse reply:ok', 'Checks:ok', 'Pass 2: verify:ok', 'Re-validate:ok']
+/** Pass 1 returns `comments`; read 1 of pass 2 returns `verdicts`; read 2 (the adversary) finds nothing unless given `adversary`. */
+export function twoPasses(comments: unknown[], verdicts: unknown[], adversary: unknown[] = standsFor(verdicts)): void {
+  fetchStub.mockResolvedValueOnce(providerReply(reviewJson(comments)))
+  fetchStub.mockResolvedValueOnce(providerReply(verdictJson(verdicts)))
+  fetchStub.mockResolvedValueOnce(providerReply(verdictJson(adversary)))
+}
+
+type Step = () => Response | Error
+/** A provider reply, made fresh for each call, for `script`. */
+export const reply = (text: string, finish = 'stop'): Step => () => providerReply(text, finish)
+export const failure = (error: Error): Step => () => error
+
+/**
+ * Answers each provider call from a queue chosen by what the call is: the review (pass 1), the first read of pass 2, or its
+ * adversarial read. The two reads run side by side, so a test that retries one cannot rely on the order of the calls.
+ */
+export function script(queues: { pass1?: Step[]; read1?: Step[]; read2?: Step[] }): void {
+  const q = { pass1: [...(queues.pass1 ?? [])], read1: [...(queues.read1 ?? [])], read2: [...(queues.read2 ?? [])] }
+  fetchStub.mockImplementation(async (_url, init) => {
+    const system = (JSON.parse(String(init.body)) as { messages: Array<{ content: string }> }).messages[0].content
+    const kind = system.includes('adversarial reviewer') ? 'read2' : system.includes('sceptical senior engineer') ? 'read1' : 'pass1'
+    const step = q[kind].shift()
+    if (!step) throw new Error(`unexpected ${kind} call`)
+    const out = step()
+    if (out instanceof Error) throw out
+    return out
+  })
+}
+
+export const COMPLETE = ['Check request:ok', 'Build prompt:ok', 'Pass 1: review:ok', 'Parse reply:ok', 'Checks:ok', 'Pass 2: verify (read 1):ok', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok']

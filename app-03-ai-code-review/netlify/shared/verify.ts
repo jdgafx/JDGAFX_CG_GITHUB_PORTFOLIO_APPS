@@ -1,5 +1,5 @@
 import type { Decider, ReviewComment, Verdict } from '../../src/types'
-import { codeNames, collapse, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
+import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
 
 /** A moved comment may travel at most this far from where the checks left it. Further is not a correction. */
@@ -9,67 +9,15 @@ const KEEP_WINDOW = 1
 const MAX_REASON_CHARS = 300
 const MAX_EVIDENCE_CHARS = 160
 
-export function buildVerifyPrompt(kind: 'file' | 'pr', lineCount: number): string {
-  const what = kind === 'pr' ? 'a pull request diff' : 'a source file'
-  const placing =
-    kind === 'pr'
-      ? 'A comment may only sit on a line that starts with + or -. Never move a comment to context, a file line or a hunk line.'
-      : 'A comment may sit on any line that holds code.'
-  return `You are a sceptical senior engineer. Another reviewer wrote comments on ${what}. Check every comment against the code itself. You return JSON and nothing else.
-
-The code is shown with a line number, a tab and a pipe in front of every line. That prefix is scaffolding, not code.
-${placing}
-
-For each comment, find the code it is about, read that code, and decide:
-- "keep": the claim is true of this code and the suggestion is a concrete change. Keep a true, concrete finding even when it is minor.
-- "move": the claim is true, but the code it is about is on a different line than the comment sits on. Give the line of that code: the statement the message talks about (the call, the assignment, the condition), never the signature of the function that contains it. Use the "nearby" lines given with each comment to find it.
-- "drop": only when one of these holds. (1) The claim is false: the code shows the opposite. (2) The claim rests on code that is not in this ${kind === 'pr' ? 'diff' : 'file'} and so cannot be checked here. (3) The code already does what the suggestion asks. (4) The suggestion changes nothing ("leave as-is", "keep it"). (5) It objects to something the code must do: a parameter that an interface or callback signature requires (an http.HandlerFunc takes a request argument), a deprecated member kept for compatibility, or a form the language demands. (6) Its own message calls the code safe or harmless while rating it warning or critical.
-Test the claim, do not trust it. If it says a value is unused, look for its uses. If it says code is called somewhere, find the call. If it names a package, helper or behaviour, check that the ${kind === 'pr' ? 'diff' : 'file'} shows it. If it is true and concrete, keep it; do not drop a comment for being minor or a matter of taste.
-
-Respond with valid JSON in exactly this shape, with no markdown fence and no prose:
-{
-  "verdicts": [
-    {
-      "id": <the comment's id>,
-      "verdict": "keep" | "move" | "drop",
-      "line": <integer 1 to ${lineCount}: for keep the comment's line, for move the line the comment is really about, for drop the line of the code that shows why>,
-      "evidence": "<code copied verbatim from that line, at most 100 characters, without the line number prefix>",
-      "reason": "<one sentence of at most 30 words that quotes the code and says why you decided this>"
-    }
-  ]
-}
-
-Give exactly one verdict per comment id, in the same order. The evidence must really appear on the line you give. Never invent code.`
-}
-
-/** The second pass sees the same numbered code plus the first pass's comments, each with its id. */
-export function buildVerifyUser(numbered: string, candidates: Candidate[], shown: string[]): string {
-  const nearby = (line: number) =>
-    shown
-      .slice(Math.max(0, line - 7), line + 6)
-      .map((text, i) => `${Math.max(0, line - 7) + i + 1}\t| ${text}`)
-      .join('\n')
-  const comments = candidates.map((c) => ({
-    id: c.id,
-    line: c.line,
-    quote: c.quote,
-    nearby: nearby(c.line),
-    // When an automatic check moved the comment, the second pass sees both places and decides which one is right.
-    ...(c.fromLine !== c.line
-      ? { firstPassLine: c.fromLine, firstPassNearby: nearby(c.fromLine), note: `The first pass cited line ${c.fromLine}; an automatic check moved the comment to line ${c.line}. Answer with the line the comment is really about, which may be either.` }
-      : {}),
-    severity: c.severity,
-    message: c.message,
-    suggestion: c.suggestion,
-  }))
-  return `Code:\n\n${numbered}\n\nComments to check:\n\n${JSON.stringify(comments, null, 1)}`
-}
+export { buildRefutePrompt, buildVerifyPrompt, buildVerifyUser } from './verify-prompt'
 
 export interface RawVerdict {
   id: number
   verdict: string
   line: number | null
   evidence: string
+  /** Code that makes the claim true, quoted from anywhere in the file. */
+  support: string
   reason: string
 }
 
@@ -100,6 +48,7 @@ export function readVerdicts(text: string): Map<number, RawVerdict> | null {
       verdict: typeof v.verdict === 'string' ? v.verdict.trim().toLowerCase() : '',
       line: typeof v.line === 'number' && Number.isInteger(v.line) ? v.line : null,
       evidence: typeof v.evidence === 'string' ? v.evidence.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
+      support: typeof v.support === 'string' ? v.support.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
       reason: typeof v.reason === 'string' ? collapse(v.reason).slice(0, MAX_REASON_CHARS) : '',
     })
   }
@@ -143,12 +92,47 @@ export function linesNamed(reason: string): number[] {
   return named
 }
 
-interface Settled {
+/**
+ * In a pull request the second pass cites positions in the numbered diff ("Line 9 declares ..."). A reader sees file lines,
+ * so each cited position becomes `path:line` (new side, or old side for a removed line). A position that is not a code line
+ * of a file (a header) becomes the file name, and one that cannot be placed is left out rather than shown wrong.
+ */
+export function translateLines(reason: string, locate: (line: number) => Located): string {
+  const name = (n: number): string | null => {
+    const w = locate(n).where
+    return w ? (w.line === 0 ? w.file : `${w.file}:${w.line}`) : null
+  }
+  const range = (a: number, b: number): string | null => {
+    const from = locate(a).where
+    const to = locate(b).where
+    if (!from || !to) return null
+    if (from.file === to.file && from.line > 0 && to.line > 0) return `${from.file}:${from.line}-${to.line}`
+    return `${name(a)} to ${name(b)}`
+  }
+  return reason
+    .replace(/\blines?\s+(\d+)\s*(?:-|\u2013|to)\s*(\d+)/gi, (m, a: string, b: string) => range(Number(a), Number(b)) ?? m)
+    .replace(/\blines?\s+(\d+)(?:\s+and\s+(\d+))?/gi, (m, a: string, b: string | undefined) => {
+      if (m.includes(':')) return m
+      const first = name(Number(a))
+      if (first === null) return m
+      return b === undefined ? first : `${first} and ${name(Number(b)) ?? b}`
+    })
+    .replace(/\b(at|on)\s+(\d{1,5})(?:\s+and\s+(\d{1,5}))?(?!\d)(?!\s*(?:hex|char|byte|bit|ms\b|s\b|%|px|chars|characters|digits))/gi, (m, w: string, a: string, b: string | undefined) => {
+      const first = name(Number(a))
+      if (first === null) return m
+      return b === undefined ? `${w} ${first}` : `${w} ${first} and ${name(Number(b)) ?? b}`
+    })
+}
+
+export interface Settled {
   line: number
   verdict: Verdict
   decidedBy: Decider
   reason: string
   evidence: string | null
+  /** The code that makes the claim true, and the numbered line it was found on. */
+  support: string | null
+  supportAt: number | null
 }
 
 /** A line that opens a function, class or type: a comment about its body belongs on a line of the body. */
@@ -157,7 +141,7 @@ const DECLARATION = /^\s*(?:func|def|async\s+def|function|class|type|interface|e
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
 function unconfirmed(candidate: Candidate, reason: string): Settled {
-  return { line: candidate.line, verdict: 'unverified', decidedBy: 'none', reason, evidence: null }
+  return { line: candidate.line, verdict: 'unverified', decidedBy: 'none', reason, evidence: null, support: null, supportAt: null }
 }
 
 /**
@@ -187,6 +171,19 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
         return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, away from the code it quotes on line ${candidate.line}.`)
       }
     }
+    // A move keeps the comment's subject: it never leaves the line that declares a name the message is about (the live
+    // shadowing comment moved from `path := req.URL.Path` to a later use), and never crosses from an added line to a removed one.
+    // Moving back to the line the first pass cited is always allowed: it undoes a wrong move by the checks.
+    if (target !== candidate.line && target !== candidate.fromLine) {
+      const declared = ABOUT_A_NAME.test(candidate.message) ? declaredNames(doc.texts[candidate.line - 1]) : new Set<string>()
+      const subject = [...declared].find((name) => messageWords(candidate.message).has(name))
+      if (subject !== undefined && !declaredNames(doc.texts[target - 1]).has(subject)) {
+        return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, away from the line that declares ${subject}, which the comment is about.`)
+      }
+      if (doc.sides && doc.sides[target - 1] !== doc.sides[candidate.line - 1]) {
+        return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, to the other side of the change.`)
+      }
+    }
     const at = findEvidence(doc, raw.evidence, target, KEEP_WINDOW)
     if (at === null || doc.why[at - 1] !== null) {
       return unconfirmed(candidate, `Not confirmed: the second pass quoted "${shown}", which is not on line ${target}.`)
@@ -201,12 +198,26 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     const named = linesNamed(reason).filter((n) => n >= 1 && n <= lineCount && Math.abs(n - at) <= 25)
     if (named.length > 0 && !named.some((n) => Math.abs(n - at) <= 1)) {
       const declaration = DECLARATION.test(doc.texts[at - 1])
-      const pointedAt = named.find((n) => Math.abs(n - at) <= 10 && holds(n) && !holds(at)) ?? (declaration ? named[0] : undefined)
+      const pointedAt = named.find((n) => Math.abs(n - at) > 3 && Math.abs(n - at) <= 10 && holds(n) && !holds(at)) ?? (declaration ? named[0] : undefined)
       if (pointedAt !== undefined) {
         return unconfirmed(candidate, `Not confirmed: the second pass's reason points at line ${pointedAt}, but the comment sits on line ${at}.`)
       }
     }
-    return { line: at, verdict: at === candidate.fromLine ? 'kept' : 'moved', decidedBy: 'verifier', reason, evidence: shown }
+    // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
+    // point at code for is not confirmed, however real the cited line is.
+    const supportShown = clip(collapse(raw.support), 80)
+    if (collapse(raw.support).length < MIN_QUOTE_CHARS) {
+      return unconfirmed(candidate, 'Not confirmed: the second pass could not quote the code that shows the claim is true.')
+    }
+    const supportAt = findEvidence(doc, raw.support, at, doc.texts.length)
+    if (supportAt === null) {
+      return unconfirmed(candidate, `Not confirmed: the second pass gave "${supportShown}" as the code that shows the claim, which is not in the code.`)
+    }
+    return { line: at, verdict: at === candidate.fromLine ? 'kept' : 'moved', decidedBy: 'verifier', reason, evidence: shown, support: supportShown, supportAt }
+  }
+
+  if (raw.verdict === 'unsure') {
+    return unconfirmed(candidate, `Cannot be confirmed from the code: ${reason}`)
   }
 
   if (raw.verdict === 'drop') {
@@ -214,7 +225,7 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     if (at === null) {
       return unconfirmed(candidate, `Not confirmed: the second pass wanted to drop it and quoted "${shown}", which is not in the code.`)
     }
-    return { line: candidate.line, verdict: 'dropped', decidedBy: 'verifier', reason, evidence: shown }
+    return { line: candidate.line, verdict: 'dropped', decidedBy: 'verifier', reason, evidence: shown, support: null, supportAt: null }
   }
 
   return unconfirmed(candidate, 'The second pass gave a verdict this page does not recognise.')
@@ -226,12 +237,54 @@ export interface Located {
 }
 
 /** Builds the comment list: every first-pass comment appears once, kept, moved, dropped or unverified. */
+/** The text of a reason, cut for quoting inside another reason. */
+const quoted = (reason: string) => (reason.length > 110 ? `${reason.slice(0, 109)}…` : reason)
+
+/** What the adversarial read found for one comment, after its quote was looked for in the code. */
+export interface Rebuttal {
+  state: 'stands' | 'refuted' | 'unsure'
+  reason: string
+  /** The code it quoted, when that code is really in the file. */
+  quote: string | null
+}
+
+/**
+ * Checks the adversarial read's answer. A "refuted" or "stands" answer must quote code that is in the file; an answer whose
+ * quote is not there counts as "unsure", so an invented rebuttal and an invented "all clear" both leave the comment unconfirmed.
+ */
+export function settleRebuttal(raw: RawVerdict | undefined, doc: Doc): Rebuttal {
+  if (!raw) return { state: 'unsure', reason: 'The second read gave no answer for this comment.', quote: null }
+  const word = raw.verdict
+  if (word !== 'refuted' && word !== 'stands') return { state: 'unsure', reason: raw.reason || 'The second read could not judge it from the code.', quote: null }
+  const at = evidenceAnywhere(doc, raw.evidence)
+  if (at === null) return { state: 'unsure', reason: `The second read quoted "${clip(collapse(raw.evidence), 60)}", which is not in the code.`, quote: null }
+  return { state: word, reason: raw.reason, quote: clip(collapse(raw.evidence), 80) }
+}
+
+/**
+ * The first read's verdict, tested by the adversarial read. A comment is kept or moved only when the first read keeps it and the
+ * adversary, looking for code that breaks the claim, finds none. Found code, an unsure adversary or a missing read leaves it
+ * "not confirmed" with both opinions. A drop by the first read stands on its own: dropped comments are listed with their reason.
+ */
+export function combineReads(candidate: Candidate, first: Settled | null, rebuttal: Rebuttal | null): Settled {
+  if (first === null) return unconfirmed(candidate, 'The second pass did not finish, so only the deterministic checks ran on this comment.')
+  if (first.verdict === 'dropped' || first.verdict === 'unverified') return first
+  if (rebuttal === null) return unconfirmed(candidate, 'The adversarial read did not finish, so this comment is not confirmed.')
+  if (rebuttal.state === 'stands') return first
+  if (rebuttal.state === 'refuted') {
+    return unconfirmed(candidate, `A second read looked for code that breaks the claim and found some: ${rebuttal.quote ? `"${rebuttal.quote}". ` : ''}${quoted(rebuttal.reason)}`)
+  }
+  return unconfirmed(candidate, `A second read could not settle it from the code: ${quoted(rebuttal.reason)}`)
+}
+
 export function assemble(
   candidates: Candidate[],
   checkedDrops: CheckedDrop[],
-  verdicts: Map<number, RawVerdict> | null,
+  /** The first read, then the adversarial read; a read that did not finish is null. */
+  reads: readonly [Map<number, RawVerdict> | null, Map<number, RawVerdict> | null],
   doc: Doc,
   locate: (line: number) => Located,
+  inPullRequest = false,
 ): ReviewComment[] {
   const make = (
     base: { id: number; fromLine: number; severity: ReviewComment['severity']; message: string; suggestion: string },
@@ -239,18 +292,16 @@ export function assemble(
   ): ReviewComment => {
     const at = locate(s.line)
     const { id, fromLine, severity, message, suggestion } = base
-    return { id, fromLine, severity, message, suggestion, line: s.line, verdict: s.verdict, decidedBy: s.decidedBy, reason: s.reason, evidence: s.evidence, code: at.text, where: at.where }
+    return { id, fromLine, severity, message, suggestion, line: s.line, verdict: s.verdict, decidedBy: s.decidedBy, reason: inPullRequest ? translateLines(s.reason, locate) : s.reason, evidence: s.evidence, code: at.text, where: at.where, support: s.support, supportLine: s.supportAt === null ? null : inPullRequest ? (locate(s.supportAt).where?.line || null) : s.supportAt }
   }
   const settled = candidates.map((c) => {
-    const s =
-      verdicts === null
-        ? unconfirmed(c, 'The second pass did not finish, so only the deterministic checks ran on this comment.')
-        : settle(c, verdicts.get(c.id), doc)
+    const [first, adversary] = reads
+    const s = combineReads(c, first === null ? null : settle(c, first.get(c.id), doc), adversary === null ? null : settleRebuttal(adversary.get(c.id), doc))
     const note = c.loweredFrom ? ` Severity lowered from ${c.loweredFrom}: the comment itself says the code is safe.` : ''
     return make(c, { ...s, reason: `${s.reason}${note}` })
   })
   const dropped = checkedDrops.map((d) =>
-    make(d, { line: d.line, verdict: 'dropped', decidedBy: 'check', reason: d.reason, evidence: null }),
+    make(d, { line: d.line, verdict: 'dropped', decidedBy: 'check', reason: d.reason, evidence: null, support: null, supportAt: null }),
   )
   return [...settled, ...dropped].sort((a, b) => a.id - b.id)
 }

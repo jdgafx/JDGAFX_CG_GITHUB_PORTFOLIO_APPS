@@ -21,6 +21,9 @@ export interface PullRequest extends PrRef {
   additions: number
   deletions: number
   url: string
+  /** The commits the diff compares, for links to a line: the head for an added line, the base for a removed one. Null when GitHub sent none. */
+  headSha: string | null
+  baseSha: string | null
   /** The files GitHub listed, up to one page of 100. */
   files: PrFileInput[]
   /** True when GitHub listed fewer files than the pull request changes. */
@@ -91,13 +94,14 @@ export const filesUrl = (ref: PrRef): string => `${pullUrl(ref)}/files?per_page=
 /** Checks the pull request reply. Only the fields the page shows are read. */
 export function readPull(data: unknown, ref: PrRef): Parsed<Omit<PullRequest, 'files' | 'partial'>> {
   if (!isRecord(data)) return fail('GitHub sent a reply this page could not read.')
-  const { title, state, merged, draft, changed_files: changedFiles, additions, deletions, html_url: url } = data
+  const { title, state, merged, draft, changed_files: changedFiles, additions, deletions, html_url: url, head, base } = data
   if (typeof title !== 'string' || typeof url !== 'string' || !isCount(changedFiles) || !isCount(additions) || !isCount(deletions)) {
     return fail('GitHub sent a reply this page could not read.')
   }
   if (!url.startsWith('https://github.com/')) return fail('GitHub sent a reply this page could not read.')
   const prState: PrState = merged === true ? 'merged' : state === 'closed' ? 'closed' : 'open'
-  return { ok: true, value: { ...ref, title, state: prState, draft: draft === true, changedFiles, additions, deletions, url } }
+  const sha = (side: unknown) => (isRecord(side) && typeof side.sha === 'string' && /^[0-9a-f]{7,64}$/i.test(side.sha) ? side.sha : null)
+  return { ok: true, value: { ...ref, title, state: prState, draft: draft === true, changedFiles, additions, deletions, url, headSha: sha(head), baseSha: sha(base) } }
 }
 
 /** Checks the files reply. A file without a patch is kept, so the page can say why it is not reviewed. */
@@ -115,7 +119,7 @@ export function readFiles(data: unknown): Parsed<PrFileInput[]> {
 
 async function getJson(url: string, signal: AbortSignal, fetchImpl: typeof fetch): Promise<Parsed<unknown>> {
   const response = await fetchImpl(url, { headers: { Accept: 'application/vnd.github+json' }, signal })
-  if (!response.ok) return fail(githubFailure(response.status, response.headers))
+  if (!response.ok) return fail(githubFailure(response.status, response.headers, Date.now(), 'pull request'))
   return { ok: true, value: await response.json().catch(() => null) }
 }
 
@@ -130,8 +134,10 @@ export async function fetchPullRequest(
 ): Promise<Parsed<PullRequest>> {
   try {
     return await withDeadline(timeoutMs, signal, async (inner) => {
-      const [pull, list] = await Promise.all([getJson(pullUrl(ref), inner, fetchImpl), getJson(filesUrl(ref), inner, fetchImpl)])
+      // The pull request first, then its files: a missing or private pull request costs one GitHub call, not two.
+      const pull = await getJson(pullUrl(ref), inner, fetchImpl)
       if (!pull.ok) return pull
+      const list = await getJson(filesUrl(ref), inner, fetchImpl)
       if (!list.ok) return list
       const head = readPull(pull.value, ref)
       if (!head.ok) return head
@@ -145,6 +151,17 @@ export async function fetchPullRequest(
     if ((err as { name?: unknown } | null)?.name === 'TimeoutError') return fail('GitHub did not answer in time. Try again.')
     return fail('Could not reach GitHub. Check your connection and try again.')
   }
+}
+
+/**
+ * Where a comment's line is on GitHub: the file at the pull request's head for an added or context line, at its base for a
+ * removed line, with the line anchor. A header position links to the file alone. Null when the commit is not known.
+ */
+export function lineHref(pr: Pick<PullRequest, 'owner' | 'repo' | 'headSha' | 'baseSha'>, where: { file: string; line: number; side: 'new' | 'old' }): string | null {
+  const sha = where.side === 'old' ? pr.baseSha : pr.headSha
+  if (!sha) return null
+  const path = where.file.split('/').map(encodeURIComponent).join('/')
+  return `https://github.com/${encodeURIComponent(pr.owner)}/${encodeURIComponent(pr.repo)}/blob/${sha}/${path}${where.line > 0 ? `#L${where.line}` : ''}`
 }
 
 /** The files a review includes before the visitor changes anything. */

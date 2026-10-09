@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { countVerdicts, isShown, passTimes, verdictSentence } from '../../src/lib/verdicts'
 import type { ReviewComment, TraceStep } from '../../src/types'
 
-const c = (verdict: ReviewComment['verdict']): ReviewComment => ({ id: 1, line: 1, fromLine: 1, severity: 'info', message: 'm', suggestion: 's', verdict, decidedBy: 'none', reason: 'r', evidence: null, code: '', where: null })
+const c = (verdict: ReviewComment['verdict']): ReviewComment => ({ id: 1, line: 1, fromLine: 1, severity: 'info', message: 'm', suggestion: 's', verdict, decidedBy: 'none', reason: 'r', evidence: null, support: null, supportLine: null, code: '', where: null })
 const step = (name: string, ms: number, status: TraceStep['status'] = 'ok'): TraceStep => ({ name, ms, status, detail: '' })
 
 describe('countVerdicts and isShown', () => {

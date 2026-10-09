@@ -6,7 +6,7 @@ import { callModel, type Attempt } from './model'
 import { MAX_OUTPUT_TOKENS, chatBody, replyCutShort, replyText, type ProviderReply } from './provider'
 import { buildPrPrompt, buildSystemPrompt, commentBudget, parseReview, precheck } from './review'
 import { noun, record, type Run } from './trace'
-import { assemble, buildVerifyPrompt, buildVerifyUser, readVerdicts } from './verify'
+import { assemble, buildRefutePrompt, buildVerifyPrompt, buildVerifyUser, readVerdicts } from './verify'
 
 export type ReviewInput =
   | { kind: 'file'; lang: string; lines: string[] }
@@ -176,41 +176,55 @@ export async function runPipeline(run: Run, input: ReviewInput, apiKey: string):
       .join(', '),
   )
 
-  // Pass 2: a second model reads every surviving comment against the code.
-  let verdicts: ReturnType<typeof readVerdicts> = null
+  // Pass 2: two independent reads of every surviving comment against the code, at the same time. A comment is confirmed
+  // only when both reads agree, which is what keeps a confident claim that one read invented from reaching the page.
+  let reads: [ReturnType<typeof readVerdicts>, ReturnType<typeof readVerdicts>] = [null, null]
   if (checked.candidates.length === 0) {
-    record(run, 'Pass 2: verify', 'skipped', Date.now(), 'Not needed: no comment was left to verify')
+    record(run, 'Pass 2: verify (read 1)', 'skipped', Date.now(), 'Not needed: no comment was left to verify')
   } else {
-    const second = await callWithRetry(
-      run,
-      'Pass 2: verify',
-      PASS2,
-      0,
-      chatBody(buildVerifyPrompt(input.kind, lineCount), buildVerifyUser(listing, checked.candidates, texts), PASS2_MAX_TOKENS),
-      apiKey,
-      (reply) => {
-        if (replyCutShort(reply)) return 'cut short'
-        const read = readVerdicts(replyText(reply))
-        if (read === null) return 'not a readable list of verdicts'
-        const missing = checked.candidates.filter((c) => !read.has(c.id)).length
-        return missing > 0 ? `missing ${missing} of ${checked.candidates.length} verdicts` : null
-      },
-    )
-    if (second.attempt.ok) {
-      verdicts = readVerdicts(replyText(second.attempt.reply))
-      // Both tries gave a reply that is not a list of verdicts: the pass failed, and its last row says so.
-      if (verdicts === null) {
-        const last = run.trace[run.trace.length - 1]
+    const readOnce = async (n: 1 | 2): Promise<ReturnType<typeof readVerdicts>> => {
+      // The second read sees the comments in the opposite order, so the two reads do not follow each other's pattern.
+      const order = n === 1 ? checked.candidates : [...checked.candidates].reverse()
+      const label = n === 1 ? 'Pass 2: verify (read 1)' : 'Pass 2: verify (read 2, adversary)'
+      const attempt = await callWithRetry(
+        run,
+        label,
+        PASS2,
+        0,
+        chatBody(n === 1 ? buildVerifyPrompt(input.kind, lineCount) : buildRefutePrompt(input.kind, lineCount), buildVerifyUser(listing, order, texts, doc.texts), PASS2_MAX_TOKENS),
+        apiKey,
+        (reply) => {
+          if (replyCutShort(reply)) return 'cut short'
+          const read = readVerdicts(replyText(reply))
+          if (read === null) return 'not a readable list of verdicts'
+          const missing = checked.candidates.filter((c) => !read.has(c.id)).length
+          return missing > 0 ? `missing ${missing} of ${checked.candidates.length} verdicts` : null
+        },
+      )
+      if (!attempt.attempt.ok) return null
+      const read = readVerdicts(replyText(attempt.attempt.reply))
+      // Both tries gave a reply that is not a list of verdicts: the read failed, and its last row says so.
+      if (read === null) {
+        const rows = run.trace.filter((s) => s.name === label || s.name === `${label} retry`)
+        const last = rows[rows.length - 1]
         if (last) last.status = 'failed'
       }
+      return read
     }
+    reads = [...(await Promise.all([readOnce(1), readOnce(2)]))] as typeof reads
+    // The reads ran side by side, so their rows arrived in the order they finished; list read 1 first.
+    const isRead = (name: string, n: number) => name.startsWith(`Pass 2: verify (read ${n}`)
+    const rank = (name: string) => (isRead(name, 1) ? 1 : isRead(name, 2) ? 2 : 0)
+    const rows = run.trace.filter((s) => rank(s.name) > 0).sort((x, y) => rank(x.name) - rank(y.name) || (x.at ?? 0) - (y.at ?? 0))
+    const first = run.trace.findIndex((s) => rank(s.name) > 0)
+    run.trace = [...run.trace.slice(0, first), ...rows, ...run.trace.slice(first).filter((s) => rank(s.name) === 0)]
   }
 
   // Re-validate each verdict against the code, then build the list.
   const validateAt = Date.now()
-  const comments = assemble(checked.candidates, checked.dropped, verdicts, doc, locate)
+  const comments = assemble(checked.candidates, checked.dropped, reads, doc, locate, isPr)
   const count = (v: string) => comments.filter((c) => c.verdict === v).length
-  const verified = checked.candidates.length === 0 || verdicts !== null
+  const verified = checked.candidates.length === 0 || reads.every((r) => r !== null)
   record(
     run,
     'Re-validate',
@@ -218,7 +232,7 @@ export async function runPipeline(run: Run, input: ReviewInput, apiKey: string):
     validateAt,
     verified
       ? `Every verdict checked against the code: ${count('kept')} kept, ${count('moved')} moved, ${count('dropped')} dropped, ${count('unverified')} not confirmed`
-      : `The second pass did not finish: ${noun(count('unverified'), 'comment')} shown as unverified, ${count('dropped')} dropped by the checks`,
+      : `A second-pass read did not finish: ${noun(count('unverified'), 'comment')} not confirmed, ${count('dropped')} dropped`,
   )
 
   return {

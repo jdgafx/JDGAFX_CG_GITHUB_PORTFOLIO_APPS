@@ -187,7 +187,7 @@ export interface Candidate {
 }
 
 // A message that rates a problem warning or critical while saying in the same breath that it is not one.
-const SELF_CALLED_SAFE = /\b(?:not a crash|no crash|will not crash|cannot crash|safe today|safe in practice|guarded earlier|harmless|no (?:real )?(?:harm|risk))\b/i
+const SELF_CALLED_SAFE = /\b(?:not a crash|no crash|will not crash|cannot crash|safe today|safe in practice|guarded earlier|harmless|no (?:real )?(?:harm|risk)|which is correct|is correct here|works as intended)\b/i
 
 /** A first-pass comment the checks removed, with the reason. */
 export interface CheckedDrop {

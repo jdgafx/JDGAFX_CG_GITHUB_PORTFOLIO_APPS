@@ -54,6 +54,8 @@ function isComment(value: unknown): value is ReviewComment {
     DECIDERS.includes(value.decidedBy as Decider) &&
     typeof value.reason === 'string' &&
     (value.evidence === null || typeof value.evidence === 'string') &&
+    (value.support === null || typeof value.support === 'string') &&
+    (value.supportLine === null || isNumber(value.supportLine)) &&
     typeof value.code === 'string' &&
     isWhere(value.where)
   )
@@ -150,11 +152,12 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
         if ((err as Error)?.name === 'TimeoutError') {
           throw new ReviewError(TIMEOUT_ERROR, withDropped({ trace: [attemptStep('No answer from the server in time', attemptAt)], usage: null, model: null, totalMs }, dropped))
         }
-        console.error('CodeLens: review request failed', err)
         if (retryable()) {
           dropped = attemptStep('Could not reach the server. Retried once', attemptAt)
           continue
         }
+        // Logged only when the last try fails: a dropped connection that the retry recovers is not an error.
+        console.error('CodeLens: review request failed', err)
         throw new ReviewError(NETWORK_ERROR, withDropped({ trace: [attemptStep('Could not reach the server', attemptAt)], usage: null, model: null, totalMs }, dropped))
       }
 

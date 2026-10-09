@@ -47,7 +47,7 @@ export const PIPELINE_STAGES: ReadonlyArray<{ name: string; detail: string }> = 
   { name: 'Pass 1: review', detail: 'The first model call writes the comments. Retried once if the connection drops.' },
   { name: 'Parse reply', detail: 'Reads the JSON review. Code fences and surrounding prose are tolerated.' },
   { name: 'Checks', detail: 'Drops comments that cite a bad line, quote code that is not there, or propose no change.' },
-  { name: 'Pass 2: verify', detail: 'The second model call keeps, moves or drops each comment, quoting the code.' },
+  { name: 'Pass 2: verify (two reads)', detail: 'Two model calls side by side. Read 1 keeps, moves, drops or doubts each comment and quotes the code that shows the claim. Read 2 looks for code that breaks it.' },
   { name: 'Re-validate', detail: 'Checks every verdict against the code before it is shown as checked.' },
 ]
 

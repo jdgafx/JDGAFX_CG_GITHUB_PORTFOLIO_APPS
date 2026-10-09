@@ -18,8 +18,8 @@ export function statusBadge(phase: RunPhase, verified: boolean, counts: VerdictC
   if (phase === 'stopped') return { text: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
   if (phase === 'done' && counts) {
     return verified && counts.unverified === 0
-      ? { text: 'Verified', tone: 'ds-badge--success', dot: 'ds-dot--ok' }
-      : { text: 'Partly verified', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+      ? { text: 'Checked', tone: 'ds-badge--success', dot: 'ds-dot--ok' }
+      : { text: 'Partly checked', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
   }
   return { text: 'Ready', tone: '', dot: '' }
 }

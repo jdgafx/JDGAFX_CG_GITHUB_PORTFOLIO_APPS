@@ -2,12 +2,33 @@ import type { ReviewComment, TraceStep, Verdict } from '../types'
 
 export const VERDICT_ORDER: Verdict[] = ['kept', 'moved', 'dropped', 'unverified']
 
-/** The word and the marker for each verdict. The marker repeats the word, so colour is never the only signal. */
-export const VERDICT_WORD: Record<Verdict, { word: string; chip: string; mark: string }> = {
-  kept: { word: 'Kept', chip: 'ds-chip ds-chip--add', mark: '+' },
-  moved: { word: 'Moved', chip: 'ds-chip ds-chip--change', mark: '~' },
-  dropped: { word: 'Dropped', chip: 'ds-chip ds-chip--remove', mark: '-' },
-  unverified: { word: 'Not confirmed', chip: 'ds-chip ds-chip--muted chip--unverified', mark: '?' },
+/**
+ * The word and the badge for each verdict. Verdicts are sans badges with a dot and a word; the +, ~ and - glyphs belong to
+ * diff facts (added, changed and removed lines) and never to a verdict.
+ */
+export const VERDICT_WORD: Record<Verdict, { word: string; badge: string }> = {
+  kept: { word: 'Kept', badge: 'ds-badge ds-badge--success' },
+  moved: { word: 'Moved', badge: 'ds-badge ds-badge--success badge--moved' },
+  dropped: { word: 'Dropped', badge: 'ds-badge' },
+  unverified: { word: 'Not confirmed', badge: 'ds-badge ds-badge--warning badge--unconfirmed' },
+}
+
+/**
+ * The badge text for one comment. It says what was checked, never that the claim is proven: the quote and its evidence were
+ * found in the code, and the second pass judged the claim.
+ */
+export function verdictLabel(c: Pick<ReviewComment, 'verdict' | 'decidedBy' | 'fromLine' | 'where'>): string {
+  const by = c.decidedBy === 'verifier' ? 'the second pass' : 'the checks'
+  switch (c.verdict) {
+    case 'kept':
+      return 'Evidence checked, nothing found against it'
+    case 'moved':
+      return c.where ? 'Moved. Evidence checked, nothing found against it' : `Moved from line ${c.fromLine}. Evidence checked, nothing found against it`
+    case 'dropped':
+      return `Dropped by ${by}`
+    default:
+      return 'Not confirmed'
+  }
 }
 
 export type VerdictCounts = Record<Verdict, number>
@@ -39,13 +60,16 @@ export function verdictSentence(counts: VerdictCounts, verified: boolean): strin
   return `${lead} ${parts.join(', ')}.`
 }
 
-/** Milliseconds of the model passes in a trace, by pass, for the readout hint. Null when that pass did not run. */
+/**
+ * Milliseconds of the model passes in a trace, for the readout hint. Pass 1 adds its tries up. Pass 2 is two reads side by side,
+ * so it is the span from the first read's start to the last read's end, not their sum. Null when that pass did not run.
+ */
 export function passTimes(trace: readonly TraceStep[]): { pass1: number | null; pass2: number | null } {
-  const sum = (prefix: string) => {
-    const rows = trace.filter((s) => s.name.startsWith(prefix) && s.status !== 'skipped')
-    return rows.length > 0 ? rows.reduce((total, s) => total + s.ms, 0) : null
-  }
-  return { pass1: sum('Pass 1'), pass2: sum('Pass 2') }
+  const rows = (prefix: string) => trace.filter((s) => s.name.startsWith(prefix) && s.status !== 'skipped')
+  const one = rows('Pass 1')
+  const two = rows('Pass 2')
+  const span = two.length === 0 ? null : Math.max(...two.map((s) => (s.at ?? 0) + s.ms)) - Math.min(...two.map((s) => s.at ?? 0))
+  return { pass1: one.length === 0 ? null : one.reduce((total, s) => total + s.ms, 0), pass2: span }
 }
 
 export const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`

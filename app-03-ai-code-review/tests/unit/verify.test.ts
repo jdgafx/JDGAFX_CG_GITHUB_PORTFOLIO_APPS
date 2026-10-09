@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { fileDoc } from '../../netlify/shared/anchor'
+import { anchorLine, diffDoc, fileDoc } from '../../netlify/shared/anchor'
 import type { Candidate } from '../../netlify/shared/review'
-import { assemble, buildVerifyUser, findEvidence, linesNamed, readVerdicts, settle, type RawVerdict } from '../../netlify/shared/verify'
+import { assemble, buildVerifyUser, combineReads, findEvidence, linesNamed, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
 
 // gorilla/mux v1.8.1 mux.go lines 375 to 392, copied verbatim. Line 1 here is line 375 there.
 const WALK = [
@@ -39,7 +39,7 @@ const candidate = (over: Partial<Candidate> = {}): Candidate => ({
   ...over,
 })
 
-const verdict = (over: Partial<RawVerdict>): RawVerdict => ({ id: 1, verdict: 'keep', line: 12, evidence: 'ancestors = append(ancestors, t)', reason: 'The append on this line reuses the caller slice.', ...over })
+const verdict = (over: Partial<RawVerdict>): RawVerdict => ({ id: 1, verdict: 'keep', line: 12, evidence: 'ancestors = append(ancestors, t)', support: 'ancestors = append(ancestors, t)', reason: 'The append on this line reuses the caller slice.', ...over })
 
 describe('findEvidence', () => {
   it('finds code on the line, ignoring spacing and tabs', () => {
@@ -115,6 +115,77 @@ describe('settle', () => {
   })
 })
 
+describe('two quotes: the cited line and the code that makes the claim true', () => {
+  it('keeps a comment and records the supporting code and the line it is on', () => {
+    const s = settle(candidate(), verdict({ support: 'err := walkFn(t, r, ancestors)' }), doc)
+    expect(s).toMatchObject({ verdict: 'kept', support: 'err := walkFn(t, r, ancestors)', supportAt: 3 })
+  })
+
+  it('does not confirm a claim for which no supporting code is quoted', () => {
+    const s = settle(candidate(), verdict({ support: '' }), doc)
+    expect(s).toMatchObject({ verdict: 'unverified', support: null })
+    expect(s.reason).toBe('Not confirmed: the second pass could not quote the code that shows the claim is true.')
+  })
+
+  it('does not confirm a claim whose supporting code is not in the file (the live utils.py "_f is None" case)', () => {
+    const s = settle(candidate(), verdict({ support: 'self._f = None  # set by a failed open' }), doc)
+    expect(s.verdict).toBe('unverified')
+    expect(s.reason).toBe('Not confirmed: the second pass gave "self._f = None # set by a failed open" as the code that shows the claim, which is not in the code.')
+  })
+
+  it('shows an "unsure" verdict as not confirmed with what the claim rests on', () => {
+    const s = settle(candidate(), verdict({ verdict: 'unsure', reason: 'It depends on what os.path.expanduser does on this Python version.' }), doc)
+    expect(s).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
+    expect(s.reason).toBe('Cannot be confirmed from the code: It depends on what os.path.expanduser does on this Python version.')
+  })
+})
+
+describe('a move keeps the comment on its subject', () => {
+  // mux.go v1.8.1 lines 175 to 182: the declaration of path and, five lines later, its use in a call to cleanPath.
+  const MUX = fileDoc([
+    '	if !r.skipClean {',
+    '		path := req.URL.Path',
+    '		if r.useEncodedPath {',
+    '			path = req.URL.EscapedPath()',
+    '		}',
+    '		// Clean path to canonical form and redirect.',
+    '		if p := cleanPath(path); p != path {',
+  ])
+  const message = 'The local variable path shadows the imported package path used later in cleanPath.'
+
+  it('keeps a shadowing comment on the line that declares the name, instead of moving it to a use', () => {
+    expect(anchorLine(MUX, 2, 'path := req.URL.Path', message)).toEqual({ line: 2, movedBy: null })
+  })
+
+  it('refuses a second-pass move off that declaration', () => {
+    const c = candidate({ line: 2, fromLine: 2, quote: 'path := req.URL.Path', message })
+    const s = settle(c, verdict({ verdict: 'move', line: 7, evidence: 'if p := cleanPath(path); p != path {', support: 'if p := cleanPath(path); p != path {' }), MUX)
+    expect(s).toMatchObject({ verdict: 'unverified', line: 2 })
+    expect(s.reason).toBe('Not confirmed: the second pass moved it to line 7, away from the line that declares path, which the comment is about.')
+  })
+
+  it('still lets a comment about an assertion move off the line that declares rv (mux Vars, 431 to 432)', () => {
+    const vars = fileDoc(['if rv := r.Context().Value(varsKey); rv != nil {', '    return rv.(map[string]string)', '}'])
+    const c = candidate({ line: 1, fromLine: 1, quote: '', message: 'The unchecked type assertion rv.(map[string]string) panics if another value is stored.' })
+    const s = settle(c, verdict({ verdict: 'move', line: 2, evidence: 'return rv.(map[string]string)', support: 'return rv.(map[string]string)' }), vars)
+    expect(s).toMatchObject({ verdict: 'moved', line: 2 })
+  })
+
+  it('refuses a move from an added line to a removed one (redux 448 to 447), but allows moving back to the cited line', () => {
+    const d = diffDoc([
+      { text: '', kind: 'meta' },
+      { text: '[Reselect](https://reselect.js.org/)', kind: 'del' },
+      { text: '[Reselect](https://redux.js.org/reselect/)', kind: 'add' },
+    ])
+    const c = candidate({ line: 3, fromLine: 3, quote: '', message: 'The link text is a made-up URL.' })
+    const away = settle(c, verdict({ verdict: 'move', line: 2, evidence: '[Reselect](https://reselect.js.org/)', support: '[Reselect](https://reselect.js.org/)' }), d)
+    expect(away).toMatchObject({ verdict: 'unverified', line: 3 })
+    expect(away.reason).toMatch(/other side of the change/)
+    const back = settle({ ...c, line: 2, fromLine: 3 }, verdict({ verdict: 'move', line: 3, evidence: '[Reselect](https://redux.js.org/reselect/)', support: '[Reselect](https://redux.js.org/reselect/)' }), d)
+    expect(back.verdict).toBe('kept')
+  })
+})
+
 describe('linesNamed and the reason-line check', () => {
   it('reads single lines, ranges and pairs', () => {
     expect(linesNamed('Line 205 uses SHA-1')).toEqual([205])
@@ -135,7 +206,7 @@ describe('linesNamed and the reason-line check', () => {
     '        cnonce = hashlib.sha1(s).hexdigest()[:16]',
   ])
   const sha = candidate({ line: 2, fromLine: 2, quote: 'self._thread_local.nonce_count', message: 'The cnonce is built from a SHA-1 hash of predictable values plus os.urandom, and SHA-1 is used here for a value that should be unpredictable.' })
-  const shaVerdict = (reason: string) => verdict({ line: 2, evidence: 's = str(self._thread_local.nonce_count).encode("utf-8")', reason })
+  const shaVerdict = (reason: string) => verdict({ line: 2, evidence: 's = str(self._thread_local.nonce_count).encode("utf-8")', support: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', reason })
 
   it('does not confirm a comment whose reason points at the line that holds the code its message names (SHA-1: on 200, reason says 205)', () => {
     const s = settle(sha, shaVerdict('cnonce at line 7 is a SHA-1 of mostly predictable values plus urandom, which is a real weakness.'), AUTH)
@@ -163,7 +234,79 @@ describe('linesNamed and the reason-line check', () => {
 
   it('confirms the SHA-1 comment when it sits on the sha1 line itself', () => {
     const onSha = candidate({ ...sha, line: 7, fromLine: 7 })
-    expect(settle(onSha, verdict({ line: 7, evidence: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', reason: 'Line 7 uses SHA-1 for the nonce.' }), AUTH).verdict).toBe('kept')
+    expect(settle(onSha, verdict({ line: 7, evidence: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', support: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', reason: 'Line 7 uses SHA-1 for the nonce.' }), AUTH).verdict).toBe('kept')
+  })
+})
+
+/** Both reads, the adversary answering "stands" with a quote from the code, for every comment the first read has. */
+const pair = (first: Map<number, RawVerdict>): [Map<number, RawVerdict>, Map<number, RawVerdict>] => [
+  first,
+  new Map([...first].map(([id, v]) => [id, { ...v, verdict: 'stands', support: '' }])),
+]
+
+describe('translateLines: pull request reasons use file lines, not diff positions', () => {
+  // Recorded from gorilla/mux#731: diff position 9 is mux.go new line 25, 60 is route_test.go 18, 80 to 92 are route_test.go 43 to 55.
+  const where = (file: string, line: number) => ({ text: '', where: { file, line, side: 'new' as const } })
+  const map: Record<number, ReturnType<typeof where>> = { 9: where('mux.go', 25), 60: where('route_test.go', 18), 80: where('route_test.go', 43), 92: where('route_test.go', 55), 1: where('mux.go', 0) }
+  const locate = (n: number) => map[n] ?? { text: '', where: null }
+
+  it('turns the live reasons into file lines', () => {
+    expect(translateLines('Line 9 declares a mutable exported package variable read by the router.', locate)).toBe('mux.go:25 declares a mutable exported package variable read by the router.')
+    expect(translateLines('Line 60 writes the global without synchronization.', locate)).toBe('route_test.go:18 writes the global without synchronization.')
+    expect(translateLines('The closure on lines 80-92 writes to the cache map with no lock.', locate)).toBe('The closure on route_test.go:43-55 writes to the cache map with no lock.')
+  })
+
+  it('names the file for a header position, and handles "at N and M"', () => {
+    expect(translateLines('Line 1 starts the file.', locate)).toBe('mux.go starts the file.')
+    expect(translateLines('The append at 9 and 60 may alias.', locate)).toBe('The append at mux.go:25 and route_test.go:18 may alias.')
+  })
+
+  it('leaves a position that cannot be placed, and sizes and counts, as they were', () => {
+    expect(translateLines('Line 999 is outside; truncated at 16 hex characters.', locate)).toBe('Line 999 is outside; truncated at 16 hex characters.')
+  })
+
+  it('rewrites the diff position in a not-confirmed reason too (live: "not on line 1281" on a card at tables.go:59)', () => {
+    expect(translateLines('Not confirmed: the second pass quoted "t.byName[f.Name] = id", which is not on line 9.', locate)).toBe('Not confirmed: the second pass quoted "t.byName[f.Name] = id", which is not on mux.go:25.')
+  })
+
+  it('is applied by assemble for a pull request and not for a file', () => {
+    const verdicts = pair(new Map([[1, verdict({ reason: 'Line 12 appends to ancestors.' })]]))
+    const lines = (flag: boolean) => assemble([candidate()], [], verdicts, doc, (n) => (n === 12 ? where('mux.go', 25) : { text: WALK[n - 1], where: null }), flag)[0].reason
+    expect(lines(true)).toBe('mux.go:25 appends to ancestors.')
+    expect(lines(false)).toBe('Line 12 appends to ancestors.')
+  })
+})
+
+describe('combineReads: the first read tested by an adversary', () => {
+  const kept = settle(candidate(), verdict({}), doc)
+  const stands = settleRebuttal({ ...verdict({ verdict: 'stands', support: '' }) }, doc)
+
+  it('keeps a comment only when the adversary finds nothing against it', () => {
+    expect(combineReads(candidate(), kept, stands)).toBe(kept)
+  })
+
+  it('does not confirm a comment the adversary refuted with real code, and says what it found', () => {
+    const refuted = settleRebuttal(verdict({ verdict: 'refuted', evidence: 'err := walkFn(t, r, ancestors)', reason: 'The walk function is called with the slice first.' }), doc)
+    const s = combineReads(candidate(), kept, refuted)
+    expect(s).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
+    expect(s.reason).toBe('A second read looked for code that breaks the claim and found some: "err := walkFn(t, r, ancestors)". The walk function is called with the slice first.')
+  })
+
+  it('treats an adversary whose quote is not in the file, or who is unsure, or is missing, as unconfirming', () => {
+    const invented = settleRebuttal(verdict({ verdict: 'stands', evidence: 'defer mu.Unlock()' }), doc)
+    expect(invented.state).toBe('unsure')
+    expect(combineReads(candidate(), kept, invented).verdict).toBe('unverified')
+    expect(combineReads(candidate(), kept, settleRebuttal(verdict({ verdict: 'unsure', reason: 'depends on a library' }), doc)).verdict).toBe('unverified')
+    expect(combineReads(candidate(), kept, settleRebuttal(undefined, doc)).verdict).toBe('unverified')
+    expect(combineReads(candidate(), kept, null).reason).toBe('The adversarial read did not finish, so this comment is not confirmed.')
+  })
+
+  it('lets a first-read drop or doubt stand on its own, and a missing first read leave everything unconfirmed', () => {
+    const dropped = settle(candidate(), verdict({ verdict: 'drop', evidence: 'ancestors = ancestors[:len(ancestors)-1]' }), doc)
+    expect(combineReads(candidate(), dropped, null)).toBe(dropped)
+    const unsure = settle(candidate(), verdict({ verdict: 'unsure', reason: 'depends on the caller' }), doc)
+    expect(combineReads(candidate(), unsure, stands)).toBe(unsure)
+    expect(combineReads(candidate(), null, stands).reason).toMatch(/second pass did not finish/)
   })
 })
 
@@ -195,46 +338,44 @@ describe('assemble', () => {
   const drop = { id: 2, line: 3, fromLine: 3, severity: 'info' as const, message: 'm', suggestion: 's', reason: 'Proposes no change: "Leave as-is"' }
 
   it('lists every first-pass comment once: settled, then dropped by the checks, in first-pass order', () => {
-    const verdicts = new Map([[1, verdict({})]])
-    const list = assemble([candidate()], [drop], verdicts, doc, locate)
+    const list = assemble([candidate()], [drop], pair(new Map([[1, verdict({})]])), doc, locate)
     expect(list.map((c) => [c.id, c.verdict, c.decidedBy])).toEqual([[1, 'kept', 'verifier'], [2, 'dropped', 'check']])
     expect(list[0]).not.toHaveProperty('quote')
     expect(list[0].code).toBe(WALK[11])
   })
 
   it('says so in the reason when the checks lowered the severity', () => {
-    const list = assemble([candidate({ severity: 'info', loweredFrom: 'critical' })], [], new Map([[1, verdict({})]]), doc, locate)
+    const list = assemble([candidate({ severity: 'info', loweredFrom: 'critical' })], [], pair(new Map([[1, verdict({})]])), doc, locate)
     expect(list[0]).toMatchObject({ severity: 'info', verdict: 'kept' })
     expect(list[0].reason).toMatch(/Severity lowered from critical: the comment itself says the code is safe\.$/)
   })
 
   it('shows every surviving comment as unverified when the second pass did not finish', () => {
-    const list = assemble([candidate()], [drop], null, doc, locate)
+    const list = assemble([candidate()], [drop], [null, null], doc, locate)
     expect(list.map((c) => c.verdict)).toEqual(['unverified', 'dropped'])
     expect(list[0].reason).toMatch(/second pass did not finish/)
   })
 })
 
 describe('buildVerifyUser', () => {
-  it('gives each comment its id and the numbered lines around it', () => {
-    const text = buildVerifyUser('1\t| a', [candidate({ line: 3 })], WALK)
-    const comments = JSON.parse(text.slice(text.indexOf('['))) as Array<{ id: number; nearby: string }>
-    expect(comments[0].id).toBe(1)
-    expect(comments[0].nearby.split('\n')[0]).toBe(`1\t| ${WALK[0]}`)
-    expect(comments[0].nearby).toContain('9\t|')
+  const parse = (text: string) => JSON.parse(text.slice(text.indexOf('['))) as Array<{ id: number; scope: string; firstPassLine?: number; firstPassScope?: string; note?: string }>
+
+  it('gives each comment its id and the numbered function that holds its line', () => {
+    const [comment] = parse(buildVerifyUser('1\t| a', [candidate({ line: 12 })], WALK))
+    expect(comment.id).toBe(1)
+    expect(comment.scope.split('\n')[0]).toBe(`1\t| ${WALK[0]}`)
+    expect(comment.scope).toContain(`12\t| ${WALK[11]}`)
   })
 
   it('shows the second pass both the line the first pass cited and the line a check moved the comment to', () => {
-    const text = buildVerifyUser('', [candidate({ line: 12, fromLine: 4 })], WALK)
-    const [comment] = JSON.parse(text.slice(text.indexOf('['))) as Array<{ firstPassLine: number; firstPassNearby: string; nearby: string; note: string }>
+    const [comment] = parse(buildVerifyUser('', [candidate({ line: 12, fromLine: 4 })], WALK))
     expect(comment.firstPassLine).toBe(4)
-    expect(comment.firstPassNearby).toContain(`4\t| ${WALK[3]}`)
-    expect(comment.nearby).toContain(`12\t| ${WALK[11]}`)
+    expect(comment.firstPassScope).toContain(`4\t| ${WALK[3]}`)
+    expect(comment.scope).toContain(`12\t| ${WALK[11]}`)
     expect(comment.note).toBe('The first pass cited line 4; an automatic check moved the comment to line 12. Answer with the line the comment is really about, which may be either.')
   })
 
   it('adds nothing about a first-pass line when the comment was not moved', () => {
-    const text = buildVerifyUser('', [candidate()], WALK)
-    expect(text).not.toContain('firstPassLine')
+    expect(buildVerifyUser('', [candidate()], WALK)).not.toContain('firstPassLine')
   })
 })

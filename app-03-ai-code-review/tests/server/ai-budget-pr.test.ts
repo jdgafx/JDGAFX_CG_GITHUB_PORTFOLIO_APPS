@@ -39,19 +39,21 @@ describe('ai function: the time budget', () => {
     expect((await pending).status).toBe(504)
   })
 
-  it('ends a hung second pass at 10.8 s, retries it once while the budget allows, and then shows the comments unverified', async () => {
+  it('ends two hung reads at 12.0 s, retries each once while the budget allows, and then shows the comments as not confirmed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     fetchStub.mockImplementation(hang)
     const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(10_800)
-    expect(fetchStub).toHaveBeenCalledTimes(3)
-    await vi.advanceTimersByTimeAsync(10_800)
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(fetchStub).toHaveBeenCalledTimes(5)
+    await vi.advanceTimersByTimeAsync(12_000)
     const res = await pending
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
-    expect(fetchStub).toHaveBeenCalledTimes(3)
-    expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify:failed', 'Pass 2: verify retry:failed', 'Re-validate:ok'])
+    expect(fetchStub).toHaveBeenCalledTimes(5)
+    expect(stepSummary(payload).slice(5)).toEqual([
+      'Pass 2: verify (read 1):failed', 'Pass 2: verify (read 1) retry:failed', 'Pass 2: verify (read 2, adversary):failed', 'Pass 2: verify (read 2, adversary) retry:failed', 'Re-validate:ok',
+    ])
     expect(payload.result?.verified).toBe(false)
     expect(payload.result?.comments[0].verdict).toBe('unverified')
   })

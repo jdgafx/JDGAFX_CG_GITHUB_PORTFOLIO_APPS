@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchPullRequest, filesUrl, initialSelection, parsePrRef, pullUrl, readFiles, readPull } from '../../src/lib/pullrequest'
+import { fetchPullRequest, filesUrl, initialSelection, lineHref, parsePrRef, pullUrl, readFiles, readPull } from '../../src/lib/pullrequest'
 
 const REF = { owner: 'gorilla', repo: 'mux', number: 731 }
 
 // Fields of GitHub's real replies for gorilla/mux pull request 731 (https://github.com/gorilla/mux/pull/731).
-const PULL = { title: 'Add RegexpCompileFunc to override regexp.Compile', state: 'closed', merged: true, draft: false, changed_files: 3, additions: 73, deletions: 3, html_url: 'https://github.com/gorilla/mux/pull/731' }
+const PULL = { title: 'Add RegexpCompileFunc to override regexp.Compile', state: 'closed', merged: true, draft: false, changed_files: 3, additions: 73, deletions: 3, html_url: 'https://github.com/gorilla/mux/pull/731', head: { sha: '6b3a1ad1f0a1e7bc3f2c8d9e4a5b6c7d8e9f0a1b' }, base: { sha: '0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d' } }
 const FILES = [
   { filename: 'mux.go', status: 'modified', patch: '@@ -1 +1 @@\n-a\n+b' },
   { filename: 'regexp.go', status: 'modified', patch: '@@ -1 +1 @@\n-c\n+d' },
@@ -44,10 +44,24 @@ describe('urls', () => {
   })
 })
 
+describe('lineHref', () => {
+  const pr = { owner: 'gorilla', repo: 'mux', headSha: '6b3a1ad1f0a1e7bc3f2c8d9e4a5b6c7d8e9f0a1b', baseSha: '0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d' }
+
+  it('links an added line to the file at the head commit, and a removed line to the base commit', () => {
+    expect(lineHref(pr, { file: 'mux.go', line: 25, side: 'new' })).toBe('https://github.com/gorilla/mux/blob/6b3a1ad1f0a1e7bc3f2c8d9e4a5b6c7d8e9f0a1b/mux.go#L25')
+    expect(lineHref(pr, { file: 'src/a b.go', line: 7, side: 'old' })).toBe('https://github.com/gorilla/mux/blob/0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d/src/a%20b.go#L7')
+  })
+
+  it('links a header position to the file alone, and gives nothing when the commit is unknown', () => {
+    expect(lineHref(pr, { file: 'mux.go', line: 0, side: 'new' })).toMatch(/\/mux\.go$/)
+    expect(lineHref({ ...pr, headSha: null }, { file: 'mux.go', line: 3, side: 'new' })).toBeNull()
+  })
+})
+
 describe('readPull and readFiles', () => {
   it('reads the facts the page shows, and a merged pull request is merged, not closed', () => {
     const read = readPull(PULL, REF)
-    expect(read).toMatchObject({ ok: true, value: { title: PULL.title, state: 'merged', changedFiles: 3, additions: 73, deletions: 3 } })
+    expect(read).toMatchObject({ ok: true, value: { title: PULL.title, state: 'merged', changedFiles: 3, additions: 73, deletions: 3, headSha: '6b3a1ad1f0a1e7bc3f2c8d9e4a5b6c7d8e9f0a1b' } })
   })
 
   it('refuses a reply whose url is not on github.com', () => {
@@ -83,8 +97,11 @@ describe('fetchPullRequest', () => {
   })
 
   it('turns a 404 into a message, and a spent quota into the reset time', async () => {
-    const missing = await fetchPullRequest(REF, undefined, { fetchImpl: (async () => reply({}, { status: 404 })) as typeof fetch })
-    expect(missing).toEqual({ ok: false, error: expect.stringMatching(/no such public file/) })
+    const notFound = vi.fn(async () => reply({}, { status: 404 }))
+    const missing = await fetchPullRequest(REF, undefined, { fetchImpl: notFound as unknown as typeof fetch })
+    expect(missing).toEqual({ ok: false, error: 'GitHub has no such public pull request, or the repository is private. Check the owner, repository and number.' })
+    // A missing pull request costs one GitHub call, not two.
+    expect(notFound).toHaveBeenCalledTimes(1)
     const limited = await fetchPullRequest(REF, undefined, {
       fetchImpl: (async () => reply({}, { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 600) } })) as typeof fetch,
     })

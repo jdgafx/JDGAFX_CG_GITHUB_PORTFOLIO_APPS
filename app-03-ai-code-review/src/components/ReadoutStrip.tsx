@@ -39,7 +39,9 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
   const sofar = phase === 'failed' ? 'Before it failed' : null
   const passes = [times.pass1 !== null ? `Pass 1 ${seconds(times.pass1)}` : '', times.pass2 !== null ? `pass 2 ${seconds(times.pass2)}` : ''].filter(Boolean).join(', ')
   const tone = running ? ' ds-strip--live' : summary ? '' : ' ds-strip--pending'
-  const reported = (value: number | undefined, show: (n: number) => string) => (value === undefined ? 'not reported' : show(value))
+  /** A figure the provider did not report is a dash, never a big word. */
+  const reported = (value: number | undefined, show: (n: number) => string) => (value === undefined ? none : show(value))
+  const unreported = (value: number | undefined, base: string) => (summary && value === undefined ? (sofar ? `${sofar}, not reported` : 'Not reported by the provider') : base)
 
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
@@ -47,21 +49,19 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
         <Cell label="Time" hint={running ? 'Running now' : (sofar ?? (passes || 'Start to finish'))}>
           {running ? <LiveClock /> : summary ? milliseconds(summary.totalMs) : none}
         </Cell>
-        <Cell label="Tokens" hint={sofar ?? 'Both passes'}>
+        <Cell label="Tokens" hint={unreported(usage?.total_tokens, sofar ?? 'Both passes')}>
           {summary ? reported(usage?.total_tokens, count) : none}
         </Cell>
-        <Cell label="Cost (USD)" hint={sofar ?? 'Reported by the provider'}>
+        <Cell label="Cost (USD)" hint={unreported(usage?.cost, sofar ?? 'Reported by the provider')}>
           {summary ? reported(usage?.cost, usd) : none}
         </Cell>
-        <Cell label="Model" hint="Named in the provider reply">
+        <Cell label="Model" hint={summary && !summary.model ? 'Not reported by the provider' : 'Named in the provider reply'}>
           {summary?.model ? (
             <span className="ds-chips">
               <span className="ds-chip" title={summary.model}>
                 {shortModel(summary.model)}
               </span>
             </span>
-          ) : summary ? (
-            'not reported'
           ) : (
             none
           )}

@@ -74,6 +74,8 @@ export function codeNames(message: string): string[] {
 export interface Doc {
   texts: string[]
   why: Array<'blank' | 'context' | null>
+  /** In a diff, whether each line was added or removed. Absent for a file. */
+  sides?: Array<'add' | 'del' | null>
 }
 
 /** A pasted or loaded file: every non-blank line can carry a comment. */
@@ -85,12 +87,29 @@ export function fileDoc(lines: string[]): Doc {
 export function diffDoc(units: Array<{ text: string; kind: 'meta' | 'ctx' | 'add' | 'del' }>): Doc {
   return {
     texts: units.map((u) => u.text),
+    sides: units.map((u) => (u.kind === 'add' || u.kind === 'del' ? u.kind : null)),
     why: units.map((u) => {
       if (u.kind === 'ctx') return 'context'
       if (u.kind === 'meta' || u.text.trim() === '') return 'blank'
       return null
     }),
   }
+}
+
+/** Names a line declares: `x :=`, `x =` (not `==`), `def x`, `func x`, `class x`, `var x`, `let x`, `const x`. */
+export function declaredNames(line: string): Set<string> {
+  const names = new Set<string>()
+  for (const m of line.matchAll(/\b([A-Za-z_]\w*)\s*(?::=|=(?![=>]))/g)) names.add(m[1])
+  for (const m of line.matchAll(/\b(?:def|func|function|class|type|var|let|const)\s+([A-Za-z_]\w*)/g)) names.add(m[1])
+  return names
+}
+
+/** A message that is about a name itself: shadowing, declaring, renaming. Its subject is the declaration, not the later uses. */
+export const ABOUT_A_NAME = /\b(?:shadow\w*|declar\w*|redeclar\w*|renam\w*|naming|variable name|parameter name|identifier)\b/i
+
+/** Every identifier-like word of a message, for matching against declared names. */
+export function messageWords(message: string): Set<string> {
+  return new Set(message.match(/[A-Za-z_]\w*/g) ?? [])
 }
 
 export type Anchor = { line: number; movedBy: 'quote' | 'name' | null } | { dropped: 'blank' | 'context' | 'unfound' }
@@ -131,7 +150,11 @@ export function anchorLine(doc: Doc, line: number, quote: unknown, message: stri
 
   const names = codeNames(message)
   const has = (n: number) => doc.why[n - 1] === null && names.some((name) => doc.texts[n - 1].includes(name))
-  if (names.length > 0 && (at === null || !has(at))) {
+  // A line that declares a name the message is about is where the comment belongs: a later use of the name never pulls it away
+  // (the live `path := req.URL.Path` shadowing comment, pulled to `cleanPath(path)` five lines below).
+  const words = messageWords(message)
+  const declaresSubject = at !== null && ABOUT_A_NAME.test(message) && [...declaredNames(doc.texts[at - 1])].some((name) => words.has(name))
+  if (!declaresSubject && names.length > 0 && (at === null || !has(at))) {
     const centre = at ?? line
     const near = doc.texts.flatMap((_, i) => (Math.abs(i + 1 - centre) <= NAME_WINDOW && has(i + 1) ? [i + 1] : []))
     if (near.length === 1) {

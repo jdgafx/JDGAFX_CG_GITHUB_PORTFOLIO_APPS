@@ -1,6 +1,8 @@
 import type { KeyboardEvent, RefObject, UIEvent } from 'react'
 import { count } from '../lib/format'
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../lib/limits'
+import type { ReviewComment } from '../types'
+import { placeOf } from './Finding'
 
 interface CodeEditorProps {
   code: string
@@ -12,12 +14,18 @@ interface CodeEditorProps {
   canReview: boolean
   textareaRef: RefObject<HTMLTextAreaElement | null>
   lineNumbersRef: RefObject<HTMLDivElement | null>
+  /** The comment the reader jumped here from, with the way back to it. */
+  jump: ReviewComment | null
+  /** Commented lines of the reviewed file, by line number: the gutter marks them and links back to the comment. */
+  marks: ReadonlyMap<number, ReviewComment>
+  onMarkClick: (comment: ReviewComment) => void
+  onBack: () => void
   onChange: (value: string) => void
   onReview: () => void
   onClear: () => void
 }
 
-export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, running, canReview, textareaRef, lineNumbersRef, onChange, onReview, onClear }: CodeEditorProps) {
+export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, running, canReview, textareaRef, lineNumbersRef, jump, marks, onMarkClick, onBack, onChange, onReview, onClear }: CodeEditorProps) {
   const overBy = code.length - MAX_CODE_LENGTH
   const handleScroll = (e: UIEvent<HTMLTextAreaElement>) => {
     if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = e.currentTarget.scrollTop
@@ -45,12 +53,22 @@ export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, runnin
         <span className="ds-hint">{`${fileLabel}, ${count(lineCount)} ${lineCount === 1 ? 'line' : 'lines'}`}</span>
       </div>
       <div className="editor">
-        <div className="editor__gutter" ref={lineNumbersRef} aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i} className={i + 1 === highlightedLine ? 'editor__num is-active' : 'editor__num'}>
-              {i + 1}
-            </span>
-          ))}
+        <div className="editor__gutter" ref={lineNumbersRef} role="group" aria-label="Line numbers. A marked number has a review comment.">
+          {Array.from({ length: lineCount }, (_, i) => {
+            const n = i + 1
+            const mark = marks.get(n)
+            const cls = n === highlightedLine ? 'editor__num is-active' : 'editor__num'
+            return mark ? (
+              // A pointer shortcut to the comment; the same jump is on the comment's own button, which is the tab stop.
+              <button key={n} type="button" tabIndex={-1} className={`${cls} editor__num--marked`} data-severity={mark.severity} aria-label={`Line ${n}, ${mark.severity} comment. Go to it.`} onClick={() => onMarkClick(mark)}>
+                {n}
+              </button>
+            ) : (
+              <span key={n} className={cls} aria-hidden="true">
+                {n}
+              </span>
+            )
+          })}
         </div>
         <textarea
           id="code-input"
@@ -67,6 +85,16 @@ export function CodeEditor({ code, fileLabel, lineCount, highlightedLine, runnin
           aria-describedby="code-help"
         />
       </div>
+      {jump && (
+        <div className="editor__jump" role="status">
+          <p>
+            <strong>{`${placeOf(jump)}: ${jump.severity}.`}</strong> {jump.message}
+          </p>
+          <button type="button" className="ds-button" onClick={onBack}>
+            Back to comment
+          </button>
+        </div>
+      )}
       <p id="code-help" className={overBy > 0 ? 'ds-help ds-help--error' : 'ds-help'}>
         {overBy > 0
           ? `${OVER_LIMIT_MESSAGE}. Remove ${count(overBy)} character${overBy === 1 ? '' : 's'} to review it.`

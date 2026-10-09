@@ -15,9 +15,11 @@ interface PrFilesProps {
   selected: ReadonlySet<string>
   disabled: boolean
   onToggle: (path: string) => void
+  /** Comments shown for each file after a review. */
+  commentCounts: Readonly<Record<string, number>>
 }
 
-function FileRow({ file, selected, room, disabled, onToggle }: { file: PrFileAccount; selected: boolean; room: number; disabled: boolean; onToggle: () => void }) {
+function FileRow({ file, selected, room, disabled, comments, onToggle }: { file: PrFileAccount; selected: boolean; room: number; disabled: boolean; comments: number | undefined; onToggle: () => void }) {
   const selectable = file.skipped === null || file.skipped === 'not-selected'
   const fits = selected || file.chars <= room
   const blocked = !selectable || !fits
@@ -30,6 +32,7 @@ function FileRow({ file, selected, room, disabled, onToggle }: { file: PrFileAcc
         <span className="prfile__meta">
           <span className="ds-chip ds-chip--muted">{file.status}</span>
           <span className="ds-num">{`${count(file.changed)} changed, ${count(file.chars)} chars`}</span>
+          {comments !== undefined && <span className="ds-num prfile__comments">{`${count(comments)} ${comments === 1 ? 'comment' : 'comments'}`}</span>}
         </span>
         {why && <span className="prfile__why">{why}</span>}
       </label>
@@ -38,7 +41,7 @@ function FileRow({ file, selected, room, disabled, onToggle }: { file: PrFileAcc
 }
 
 /** The pull request's files with what each one adds to the review. Nothing is left out without a reason on its row. */
-export function PrFiles({ pr, account, selected, disabled, onToggle }: PrFilesProps) {
+export function PrFiles({ pr, account, selected, disabled, onToggle, commentCounts }: PrFilesProps) {
   const room = account.charLimit - account.charsIncluded
   const share = Math.min(100, (account.charsIncluded / account.charLimit) * 100)
   return (
@@ -53,7 +56,7 @@ export function PrFiles({ pr, account, selected, disabled, onToggle }: PrFilesPr
         <strong>{`${count(account.filesIncluded)} of ${count(account.filesTotal)} files`}</strong>
         {`, ${count(account.changedIncluded)} changed lines, ${count(account.charsIncluded)} of ${count(account.charLimit)} characters.`}
       </p>
-      <div className="ds-hbar__track" aria-hidden="true">
+      <div className="ds-hbar__track prfiles__bar" aria-hidden="true">
         <span className="ds-hbar__bar" style={{ ['--w' as string]: `${share}%` }} />
       </div>
       {pr.partial && (
@@ -63,7 +66,7 @@ export function PrFiles({ pr, account, selected, disabled, onToggle }: PrFilesPr
       )}
       <ul className="prfiles">
         {account.files.map((file) => (
-          <FileRow key={file.path} file={file} selected={selected.has(file.path)} room={room} disabled={disabled} onToggle={() => onToggle(file.path)} />
+          <FileRow key={file.path} file={file} selected={selected.has(file.path)} room={room} disabled={disabled} comments={commentCounts[file.path]} onToggle={() => onToggle(file.path)} />
         ))}
       </ul>
       <p className="ds-help">

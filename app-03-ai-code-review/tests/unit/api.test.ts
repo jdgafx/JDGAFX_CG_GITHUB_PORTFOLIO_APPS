@@ -169,7 +169,7 @@ describe('reviewCode: a completed run', () => {
 
   const COMMENT = {
     id: 1, line: 2, fromLine: 2, severity: 'critical', message: 'Division by zero', suggestion: 'Check b first',
-    verdict: 'kept', decidedBy: 'verifier', reason: 'return a / b has no guard.', evidence: 'return a / b', code: '    return a / b', where: null,
+    verdict: 'kept', decidedBy: 'verifier', reason: 'return a / b has no guard.', evidence: 'return a / b', support: 'return a / b', supportLine: 2, code: '    return a / b', where: null,
   }
 
   it('returns the comments, trace, usage and model the server sent', async () => {
@@ -206,6 +206,7 @@ describe('reviewCode: a completed run', () => {
     ['a comment whose line is not a number', { ...BASE, comments: [{ ...COMMENT, line: '1' }] }],
     ['a comment with a verdict the page does not know', { ...BASE, comments: [{ ...COMMENT, verdict: 'maybe' }] }],
     ['a comment that is missing its reason', { ...BASE, comments: [{ ...COMMENT, reason: undefined }] }],
+    ['a comment whose supporting line is not a number', { ...BASE, comments: [{ ...COMMENT, supportLine: 'two' }] }],
     ['a result without a line count', { comments: [], truncated: false, verified: true, malformed: 0, mode: 'file', pr: null }],
     ['a result that does not say whether the second pass ran', { comments: [], lineCount: 1, truncated: false, malformed: 0, mode: 'file', pr: null }],
     ['a result whose comments are not a list', { ...BASE, comments: 'none' }],

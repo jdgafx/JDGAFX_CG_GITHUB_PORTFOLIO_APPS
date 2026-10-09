@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { accountFiles } from '../netlify/shared/diff'
+import { accountFiles, buildDiff, type PrFileInput } from '../netlify/shared/diff'
 import { CodeEditor } from './components/CodeEditor'
 import { FileSource } from './components/FileSource'
 import { Header, statusBadge } from './components/Header'
@@ -14,7 +14,8 @@ import { ReviewError, reviewCode, reviewErrorMessage, reviewPullRequest } from '
 import { count } from './lib/format'
 import type { GitHubFile } from './lib/github'
 import { MAX_CODE_LENGTH } from './lib/limits'
-import { initialSelection, type PullRequest } from './lib/pullrequest'
+import { diffContext, fileContext, type ContextLine } from './lib/context'
+import { initialSelection, lineHref, type PullRequest } from './lib/pullrequest'
 import { useResultFocus } from './lib/useResultFocus'
 import { countVerdicts, isShown, VERDICT_WORD } from './lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
@@ -44,6 +45,12 @@ export default function App() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   /** What the shown result was reviewed from, to tell when the input has changed since. */
   const [reviewedInput, setReviewedInput] = useState<string | null>(null)
+  /** The exact text or files the shown result was reviewed from: a comment's context is read from here, never from the editor. */
+  const [reviewedCode, setReviewedCode] = useState<string | null>(null)
+  const [reviewedFiles, setReviewedFiles] = useState<PrFileInput[] | null>(null)
+  /** The comment the reader jumped to the editor from, and where the page was, so Back returns to the same place. */
+  const [jump, setJump] = useState<ReviewComment | null>(null)
+  const jumpScroll = useRef(0)
   const [collapseKey, setCollapseKey] = useState(0)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -64,6 +71,32 @@ export default function App() {
   const stale = result !== null && reviewedInput !== null && inputKey !== reviewedInput
   const counts = result ? countVerdicts(result.comments) : null
   const badge = statusBadge(phase, result?.verified ?? false, counts)
+  const reviewedLines = useMemo(() => (reviewedCode === null ? null : reviewedCode.split('\n')), [reviewedCode])
+  const reviewedUnits = useMemo(() => (reviewedFiles === null ? null : buildDiff(reviewedFiles).units), [reviewedFiles])
+  // What the reader acts on: kept and moved comments, and, when a second-pass read failed, the comments left unconfirmed.
+  const shownComments = useMemo(() => (result ? result.comments.filter((c) => isShown(c) && (result.verified ? c.verdict !== 'unverified' : true)) : []), [result])
+  /** Commented lines of the reviewed file, the most severe comment on each. Not offered once the editor text has changed. */
+  const marks = useMemo(() => {
+    const map = new Map<number, ReviewComment>()
+    if (result?.mode !== 'file' || stale) return map
+    for (const c of [...shownComments].sort(bySeverityThenLine).reverse()) map.set(c.line, c)
+    return map
+  }, [result, shownComments, stale])
+  const commentCounts = useMemo(() => {
+    const out: Record<string, number> = {}
+    if (result?.mode !== 'pr') return out
+    for (const c of shownComments) if (c.where) out[c.where.file] = (out[c.where.file] ?? 0) + 1
+    return out
+  }, [result, shownComments])
+
+  const contextOf = useCallback(
+    (c: ReviewComment): ContextLine[] | null => {
+      if (result?.mode === 'file') return reviewedLines ? fileContext(reviewedLines, c.line) : null
+      return reviewedUnits ? diffContext(reviewedUnits, c.line) : null
+    },
+    [result, reviewedLines, reviewedUnits],
+  )
+  const hrefOf = (c: ReviewComment): string | null => (result?.mode === 'pr' && pr && c.where ? lineHref(pr, c.where) : null)
 
   // On a phone the result sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
   useResultFocus(phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1) })
@@ -90,9 +123,23 @@ export default function App() {
     const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight)
     const next = Math.min(Math.max(0, centered), maxScroll)
     el.scrollTop = next
+    el.scrollLeft = 0
     if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = next
-    el.closest('.editor')?.scrollIntoView({ block: 'nearest' })
   }, [highlightedLine])
+
+  // A jump from a comment lands in the editor: focus moves there with the caret at the start of that line.
+  useEffect(() => {
+    if (!jump) return
+    const el = textareaRef.current
+    if (!el) return
+    const start = code.split('\n').slice(0, jump.line - 1).reduce((n, l) => n + l.length + 1, 0)
+    el.closest('.editor-card')?.scrollIntoView({ block: 'center' })
+    el.focus({ preventScroll: true })
+    el.setSelectionRange(start, start)
+    // Placing the caret can scroll a long line sideways; the line must start at the left edge so its text is readable.
+    el.scrollLeft = 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new jump moves focus, not each keystroke
+  }, [jump])
 
   const handleReview = useCallback(async () => {
     if (!canReview) return
@@ -108,19 +155,17 @@ export default function App() {
     setFilters(ALL_SEVERITIES_ON)
     setCopied(false)
     setReviewedInput(null)
+    setJump(null)
+    const files = (pr?.files ?? []).filter((f) => selected.has(f.path))
     try {
-      const run =
-        mode === 'file'
-          ? await reviewCode(code, language, controller.signal)
-          : await reviewPullRequest(
-              (pr?.files ?? []).filter((f) => selected.has(f.path)),
-              controller.signal,
-            )
+      const run = mode === 'file' ? await reviewCode(code, language, controller.signal) : await reviewPullRequest(files, controller.signal)
       if (controller.signal.aborted) return
       const { result: next, ...runSummary } = run
       setResult(next)
       setSummary(runSummary)
       setReviewedInput(inputKey)
+      setReviewedCode(mode === 'file' ? code : null)
+      setReviewedFiles(mode === 'pr' ? files : null)
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) return
@@ -159,6 +204,9 @@ export default function App() {
     setError(null)
     setHighlightedLine(null)
     setReviewedInput(null)
+    setReviewedCode(null)
+    setReviewedFiles(null)
+    setJump(null)
   }
 
   const handleFileLoaded = (file: GitHubFile, detected: string | null) => {
@@ -192,9 +240,43 @@ export default function App() {
     if (phase === 'done') setHighlightedLine(null)
   }
 
+  const handleShowLine = (comment: ReviewComment) => {
+    if (jump?.id === comment.id) {
+      setJump(null)
+      setHighlightedLine(null)
+      return
+    }
+    jumpScroll.current = window.scrollY
+    setHighlightedLine(comment.line)
+    setJump(comment)
+  }
+
+  /** Back to the comment: the page returns to where it was, and focus lands on the button that made the jump. */
+  const handleBack = () => {
+    const id = jump?.id
+    setJump(null)
+    setHighlightedLine(null)
+    window.scrollTo({ top: jumpScroll.current, behavior: 'auto' })
+    if (id !== undefined) document.getElementById(`show-${id}`)?.focus({ preventScroll: true })
+  }
+
+  /** A marked number in the gutter: bring its comment into view and put focus on it. */
+  const handleMarkClick = (comment: ReviewComment) => {
+    const bring = () => {
+      const card = document.getElementById(`finding-${comment.id}`)
+      card?.scrollIntoView({ block: 'center' })
+      card?.focus({ preventScroll: true })
+    }
+    if (filters[comment.severity]) bring()
+    else {
+      setFilters((prev) => ({ ...prev, [comment.severity]: true }))
+      requestAnimationFrame(bring)
+    }
+  }
+
   const handleCopy = async () => {
     if (!result) return
-    const shown = sortComments(result.comments.filter(isShown))
+    const shown = sortComments(shownComments)
     const header = `CodeLens AI verified review - ${result.mode === 'pr' ? `pull request ${pr?.owner}/${pr?.repo}#${pr?.number}` : `${language}, ${result.lineCount} lines`}, ${shown.length} comment${shown.length === 1 ? '' : 's'} kept of ${result.comments.length} from the first pass`
     const body = shown
       .map((c) => {
@@ -232,6 +314,13 @@ export default function App() {
       : account
         ? `${count(account.filesIncluded)} of ${count(account.filesTotal)} files selected. Ctrl or Cmd+Enter also runs the review.`
         : 'Load a pull request to choose its files.'
+
+  const emptyBody =
+    mode === 'file'
+      ? 'Load a file from GitHub or paste code, then select Review code. Each comment comes back kept, moved or dropped, with the reason.'
+      : account && account.filesIncluded > 0
+        ? `Review pull request reads the ${count(account.filesIncluded)} selected ${account.filesIncluded === 1 ? 'file' : 'files'} and returns each comment kept, moved or dropped, with the reason.`
+        : 'Load a public pull request and choose its files, then select Review pull request. Each comment comes back kept, moved or dropped, with the reason.'
 
   return (
     <div className="ds-app" data-run={phase}>
@@ -286,7 +375,10 @@ export default function App() {
                 stale={stale}
                 sortComments={sortComments}
                 onToggleFilter={(severity) => setFilters((prev) => ({ ...prev, [severity]: !prev[severity] }))}
-                onShowLine={(line) => setHighlightedLine((prev) => (prev === line ? null : line))}
+                onShowLine={handleShowLine}
+                contextOf={contextOf}
+                hrefOf={hrefOf}
+                emptyBody={emptyBody}
                 onRetry={() => void handleReview()}
                 onCopy={() => void handleCopy()}
               />
@@ -303,6 +395,10 @@ export default function App() {
                   canReview={canReview}
                   textareaRef={textareaRef}
                   lineNumbersRef={lineNumbersRef}
+                  jump={jump}
+                  marks={marks}
+                  onMarkClick={handleMarkClick}
+                  onBack={handleBack}
                   onChange={(value) => {
                     setCode(value)
                     setHighlightedLine(null)
@@ -311,7 +407,7 @@ export default function App() {
                   onClear={handleClear}
                 />
               ) : pr && account ? (
-                <PrFiles pr={pr} account={account} selected={selected} disabled={running} onToggle={handleToggleFile} />
+                <PrFiles pr={pr} account={account} selected={selected} disabled={running} onToggle={handleToggleFile} commentCounts={commentCounts} />
               ) : (
                 <div className="ds-state ds-state--empty">
                   <span className="ds-state__mark" aria-hidden="true" />

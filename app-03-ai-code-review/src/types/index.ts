@@ -33,6 +33,10 @@ export interface ReviewComment {
   reason: string
   /** The code the reason quotes, found on or near the line by the checks. Null when none was checked. */
   evidence: string | null
+  /** The code the second pass gave as making the claim true, found in the file. Null when there is none (a drop, or not confirmed). */
+  support: string | null
+  /** The line of the file that code is on. */
+  supportLine: number | null
   /** The text of the line the comment sits on, as the reviewer saw it (a diff line starts with + or -). */
   code: string
   /** The file and line in the pull request, in pull request mode. */
