@@ -44,14 +44,16 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const ended = phase === 'failed' || phase === 'stopped'
   const none = '—'
 
-  const spentMs = trace.reduce((sum, entry) => sum + (entry.ms ?? 0), 0)
-  const spentTokens = trace.reduce((sum, entry) => sum + (entry.usage?.total_tokens ?? 0), 0)
-  const priced = trace.filter((entry) => entry.cost !== undefined)
+  // A resumed run's figures are its own: the kept steps belong to the original run.
+  const own = trace.filter((entry) => !entry.reused)
+  const spentMs = own.reduce((sum, entry) => sum + (entry.ms ?? 0), 0)
+  const spentTokens = own.reduce((sum, entry) => sum + (entry.usage?.total_tokens ?? 0), 0)
+  const priced = own.filter((entry) => entry.cost !== undefined)
   const spentCost = priced.reduce((sum, entry) => sum + (entry.cost ?? 0), 0)
   const current = trace.find((entry) => entry.status === 'running')
   const usedModels = Array.from(new Set(trace.map((entry) => entry.servedModel ?? entry.model ?? '').filter(Boolean)))
   // Before any step has finished there is nothing to show but dashes.
-  const soFar = (running || ended) && trace.some((entry) => entry.ms !== undefined)
+  const soFar = (running || ended) && own.some((entry) => entry.ms !== undefined)
   const sofarHint = running ? 'So far' : phase === 'failed' ? 'Before it failed' : 'Before it stopped'
 
   let tone = ''
@@ -71,7 +73,7 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
       <dl className={`ds-strip${tone}`}>
-        <Cell label="Time" hint={running ? 'Running now' : soFar && !result ? sofarHint : 'Start to answer'}>
+        <Cell label="Time" hint={running ? 'Running now' : soFar && !result ? sofarHint : result?.fork ? 'The re-run only' : 'Start to answer'}>
           {running ? <LiveClock /> : totals ? milliseconds(totals.ms) : soFar ? milliseconds(spentMs) : none}
         </Cell>
         <Cell label="Tokens" hint={soFar && !result ? sofarHint : 'All model calls'}>

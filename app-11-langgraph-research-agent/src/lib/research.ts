@@ -24,23 +24,26 @@ async function refusalMessage(response: Response): Promise<string> {
   return `The server could not start the run (HTTP ${response.status}).`
 }
 
-/** How long the page waits on the server: for the next byte, and for the whole run. The server's own budget is 25 s. */
-export const WATCHDOG = { idleMs: 30_000, totalMs: 40_000 }
+/** How long the page waits on the server: for the next byte, and for the whole run. The server's own budget is 25 s and it closes a hung stream at 27 s, so the 60 s cap covers a slow network, not a slow server. */
+export const WATCHDOG = { idleMs: 30_000, totalMs: 60_000 }
 /** The page adds "Press Start research to try again." under every error, so the message does not repeat it. */
 export const STALLED_MESSAGE = 'The server stopped responding.'
 
+/** What a request sends. A new run sends the question; a rewind sends the saved state's token and the edit. */
+export type RunRequest = { path: '/api/run'; body: { question: string } } | { path: '/api/resume'; body: { token: string; edit: unknown } }
+
 async function readRun(
-  question: string,
+  request: RunRequest,
   signal: AbortSignal,
   onFrame: (frame: Frame) => void,
   onBytes: () => void,
 ): Promise<void> {
   let response: Response
   try {
-    response = await fetch('/api/run', {
+    response = await fetch(request.path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify(request.body),
       signal,
     })
   } catch {
@@ -84,8 +87,8 @@ async function readRun(
  * A watchdog ends a request that sends no byte for `idleMs`, or runs past `totalMs`, with a message
  * that says the server stopped responding. A stop by the visitor ends it quietly.
  */
-export async function streamResearch(
-  question: string,
+export async function streamRequest(
+  request: RunRequest,
   signal: AbortSignal,
   onFrame: (frame: Frame) => void,
   limits: { idleMs: number; totalMs: number } = WATCHDOG,
@@ -115,10 +118,27 @@ export async function streamResearch(
     idle = setTimeout(giveUp, limits.idleMs)
   }
   try {
-    await Promise.race([readRun(question, watched.signal, onFrame, onBytes), cutOff])
+    await Promise.race([readRun(request, watched.signal, onFrame, onBytes), cutOff])
   } finally {
     clearTimeout(idle)
     clearTimeout(total)
     signal.removeEventListener('abort', onVisitorStop)
   }
 }
+
+/** Posts one question. See `streamRequest`. */
+export const streamResearch = (
+  question: string,
+  signal: AbortSignal,
+  onFrame: (frame: Frame) => void,
+  limits?: { idleMs: number; totalMs: number },
+) => streamRequest({ path: '/api/run', body: { question } }, signal, onFrame, limits)
+
+/** Rewinds to a saved point with an edit and runs on from there. See `streamRequest`. */
+export const streamResume = (
+  token: string,
+  edit: unknown,
+  signal: AbortSignal,
+  onFrame: (frame: Frame) => void,
+  limits?: { idleMs: number; totalMs: number },
+) => streamRequest({ path: '/api/resume', body: { token, edit } }, signal, onFrame, limits)

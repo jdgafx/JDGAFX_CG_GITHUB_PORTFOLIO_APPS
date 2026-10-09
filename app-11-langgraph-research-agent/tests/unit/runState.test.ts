@@ -131,3 +131,24 @@ describe('run view', () => {
     expect(statusText(view)).toBe('Failed')
   })
 })
+
+describe('a resumed run', () => {
+  it('marks kept steps as reused, the visitor\'s step as edited, and later steps by their own status', () => {
+    let view = startRun()
+    view = applyFrame(view, { type: 'node_end', node: 'plan', visit: 1, ms: 1491, status: 'ok', detail: 'Planned.', reused: true })
+    view = applyFrame(view, { type: 'node_end', node: 'critic', visit: 1, ms: 0, status: 'ok', detail: 'Replaced.', edited: true })
+    expect(view.marks).toMatchObject({ plan: 'reused', critic: 'edited', draft: 'idle' })
+    expect(view.trace.map((row) => [row.key, row.reused, row.edited])).toEqual([
+      ['plan-1', true, undefined],
+      ['critic-1', undefined, true],
+    ])
+    view = applyFrame(view, { type: 'node_start', node: 'critic', visit: 2, ms: 3 })
+    view = applyFrame(view, { type: 'node_end', node: 'critic', visit: 2, ms: 1523, status: 'ok', detail: 'Accepted.' })
+    expect(view.marks.critic).toBe('ok')
+  })
+
+  it('keeps the offered checkpoints', () => {
+    const view = applyFrame(startRun(), { type: 'checkpoints', items: [{ kind: 'plan', visit: 1, token: 't', queries: ['q'], sources: [] }] })
+    expect(view.checkpoints).toHaveLength(1)
+  })
+})

@@ -1,4 +1,5 @@
 import type {
+  CheckpointOffer,
   CostSource,
   Frame,
   FrameUsage,
@@ -13,7 +14,7 @@ export const NODES: NodeName[] = ['plan', 'agent', 'tools', 'draft', 'critic', '
 export type Phase = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
 
 /** How the graph view draws a node. */
-export type NodeMark = 'idle' | 'active' | 'ok' | 'failed' | 'skipped' | 'stopped'
+export type NodeMark = 'idle' | 'active' | 'ok' | 'failed' | 'skipped' | 'stopped' | 'reused' | 'edited'
 
 /** One row of the run trace: a node visit that is running, stopped, or finished. */
 export interface TraceEntry {
@@ -28,6 +29,10 @@ export interface TraceEntry {
   usage?: FrameUsage
   cost?: number
   costSource?: CostSource
+  /** A step a resumed run did not run again. Its time and cost are the original run's. */
+  reused?: boolean
+  /** A step the visitor's edit stands in for. */
+  edited?: boolean
 }
 
 export interface RunView {
@@ -41,6 +46,8 @@ export interface RunView {
   error: string | null
   /** The id the server gave this run, for a report to quote. */
   runId: string | null
+  /** The points a finished fresh run offers to rewind to. */
+  checkpoints: CheckpointOffer[]
 }
 
 const keyOf = (node: NodeName, visit: number) => `${node}-${visit}`
@@ -55,7 +62,7 @@ const idleMarks = (): Record<NodeName, NodeMark> => ({
 })
 
 export function emptyRun(): RunView {
-  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null }
+  return { phase: 'idle', active: null, marks: idleMarks(), taken: {}, trace: [], result: null, error: null, runId: null, checkpoints: [] }
 }
 
 export function startRun(): RunView {
@@ -63,8 +70,8 @@ export function startRun(): RunView {
 }
 
 function entryFor(frame: NodeEndFrame): TraceEntry {
-  const { node, visit, status, ms, detail, model, servedModel, usage, cost, costSource } = frame
-  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, costSource }
+  const { node, visit, status, ms, detail, model, servedModel, usage, cost, costSource, reused, edited } = frame
+  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, costSource, reused, edited }
 }
 
 function withEntry(trace: TraceEntry[], entry: TraceEntry): TraceEntry[] {
@@ -100,10 +107,12 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
     }
     case 'node_end': {
       const entry = entryFor(frame)
+      // A reused or edited step shows its own mark, so the graph tells the kept steps from the ones that ran again.
+      const mark: NodeMark = frame.reused ? 'reused' : frame.edited ? 'edited' : frame.status
       return {
         ...view,
         active: null,
-        marks: { ...view.marks, [frame.node]: frame.status },
+        marks: { ...view.marks, [frame.node]: mark },
         trace: withEntry(view.trace, entry),
       }
     }
@@ -111,6 +120,8 @@ export function applyFrame(view: RunView, frame: Frame): RunView {
       return { ...view, taken: { ...view.taken, [`${frame.from}>${frame.to}`]: frame.label } }
     case 'result':
       return { ...view, phase: 'done', active: null, result: frame, error: null }
+    case 'checkpoints':
+      return { ...view, checkpoints: frame.items }
     case 'error':
       // A visit still running when the error arrives will never finish, so it is shown as failed.
       return failRun(view, frame.message)
@@ -143,6 +154,9 @@ export function failRun(view: RunView, message: string): RunView {
 
 /** The word for the header badge. */
 export function statusText(view: RunView): string {
+  if (view.phase === 'done' && view.result?.fork) {
+    return view.result.ending.kind === 'complete' ? 'New answer ready' : 'Partial new answer'
+  }
   if (view.phase === 'running') {
     if (view.active) return `Running: ${view.active}`
     return view.trace.length === 0 ? 'Starting the run' : 'Running'

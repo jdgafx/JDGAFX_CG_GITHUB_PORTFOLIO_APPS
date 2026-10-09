@@ -25,6 +25,8 @@ export interface GraphDeps {
   deadline?: number
   /** The clock the steps read. Tests replace it. */
   now?: () => number
+  /** Signs the checkpoints a finished run offers. Without it a run offers none. */
+  secret?: string
 }
 
 /** Written to the custom stream while a node runs. */

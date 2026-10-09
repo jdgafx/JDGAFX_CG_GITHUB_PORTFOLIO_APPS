@@ -42,7 +42,7 @@ describe('streamResearch watchdog', () => {
     await vi.advanceTimersByTimeAsync(1)
 
     expect(await result).toEqual(new Error(STALLED_MESSAGE))
-    expect(WATCHDOG).toEqual({ idleMs: 30_000, totalMs: 40_000 })
+    expect(WATCHDOG).toEqual({ idleMs: 30_000, totalMs: 60_000 })
     expect(STALLED_MESSAGE).toBe('The server stopped responding.')
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -62,17 +62,17 @@ describe('streamResearch watchdog', () => {
     expect(await result).toEqual(new Error(STALLED_MESSAGE))
   })
 
-  it('cuts a stream that keeps sending bytes but outlasts the 40 second cap', async () => {
+  it('cuts a stream that keeps sending bytes but outlasts the 60 second cap', async () => {
     vi.useFakeTimers()
     const stream = openStream()
     vi.stubGlobal('fetch', vi.fn(async () => stream.response))
     const result = streamResearch('Q?', new AbortController().signal, () => undefined).catch((err: unknown) => err)
 
-    for (let t = 0; t < 4; t += 1) {
+    for (let t = 0; t < 6; t += 1) {
       await vi.advanceTimersByTimeAsync(9_000)
       stream.push(': keep-alive\n\n')
     }
-    await vi.advanceTimersByTimeAsync(4_000)
+    await vi.advanceTimersByTimeAsync(7_000)
 
     expect(await result).toEqual(new Error(STALLED_MESSAGE))
   })

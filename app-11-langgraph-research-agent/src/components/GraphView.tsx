@@ -18,6 +18,8 @@ const MARK_CLASS: Record<NodeMark, string> = {
   failed: 'ds-g-node--failed',
   skipped: 'ds-g-node--skipped',
   stopped: 'ds-g-node--stopped',
+  reused: 'g-node--reused',
+  edited: 'g-node--edited',
 }
 
 const MARK_DOT: Record<NodeMark, string> = {
@@ -27,6 +29,8 @@ const MARK_DOT: Record<NodeMark, string> = {
   failed: 'ds-g-dot--failed',
   skipped: 'ds-g-dot--skipped',
   stopped: 'ds-g-dot--stopped',
+  reused: 'ds-g-dot--idle',
+  edited: 'ds-g-dot--done',
 }
 
 const MARK_WORD: Record<NodeMark, string> = {
@@ -36,6 +40,8 @@ const MARK_WORD: Record<NodeMark, string> = {
   failed: 'failed',
   skipped: 'skipped',
   stopped: 'stopped',
+  reused: 'kept',
+  edited: 'set by you',
 }
 
 /** Below this stage width the column drawing is used, so the whole graph stays readable on a phone. */
@@ -62,12 +68,30 @@ interface NodeShapeProps {
   name: NodeName
   box: NodeBox
   mark: NodeMark
+  /** Set when the visitor can rewind to this node. The node then acts as a button. */
+  onPick?: () => void
 }
 
-function NodeShape({ name, box, mark }: NodeShapeProps) {
+function NodeShape({ name, box, mark, onPick }: NodeShapeProps) {
   const word = MARK_WORD[mark]
   return (
-    <g>
+    <g
+      {...(onPick
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': `${name}: ${word}. Rewind here and edit`,
+            className: 'g-pick',
+            onClick: onPick,
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onPick()
+              }
+            },
+          }
+        : {})}
+    >
       <title>{`${name}: ${word}`}</title>
       {mark === 'active' && (
         <rect className="ds-g-halo" x={box.x - 6} y={box.y - 6} width={box.w + 12} height={box.h + 12} rx={12} />
@@ -132,9 +156,12 @@ function useNarrow() {
 
 interface GraphViewProps {
   view: RunView
+  /** Nodes with a saved point the visitor can rewind to. */
+  pickable: ReadonlySet<NodeName>
+  onPick: (node: NodeName) => void
 }
 
-export function GraphView({ view }: GraphViewProps) {
+export function GraphView({ view, pickable, onPick }: GraphViewProps) {
   const { ref, narrow } = useNarrow()
   const layout = LAYOUTS[narrow ? 'narrow' : 'wide']
   const traversed = traversedEdges(view.trace)
@@ -221,7 +248,13 @@ export function GraphView({ view }: GraphViewProps) {
             end
           </text>
           {NODES.map((name) => (
-            <NodeShape key={name} name={name} box={layout.boxes[name]} mark={shownMark(name, view.marks, view.trace)} />
+            <NodeShape
+              key={name}
+              name={name}
+              box={layout.boxes[name]}
+              mark={shownMark(name, view.marks, view.trace)}
+              onPick={pickable.has(name) ? () => onPick(name) : undefined}
+            />
           ))}
         </svg>
         {view.trace.some((entry) => entry.status !== 'skipped') && (

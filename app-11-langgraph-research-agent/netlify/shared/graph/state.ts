@@ -27,6 +27,8 @@ export interface TraceRow {
   usage?: TokenUsage
   cost?: number
   costSource?: CostSource
+  /** True when the visitor's edit stands in for what the step produced. */
+  edited?: boolean
 }
 
 export interface Critique {

@@ -76,7 +76,7 @@ The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/
 - **Checkpointer**: an in-memory checkpointer is created for each request. Its saved state is read back for the result and for a stopped run. Nothing is saved between requests.
 
 - **Heartbeat and run log**: the stream starts with a `run_start` frame holding an 8-character run id, and sends a comment line (`: ping`) every 5 seconds until it closes, which keeps proxies from idling it. The page ignores the comment for display but counts it as a byte. The function logs one line when a run starts and one when it ends (`GraphScout: run end {runId, outcome, totalMs, frames}`, outcome being `result:complete`, `result:partial`, `result:no_answer`, `error`, `hard-stop` or `cancelled`), with no question text. The page shows the run id above the trace, so a report can quote it and a log can tell a frozen function from a held stream.
-- **Page watchdog**: if the server sends no byte for 30 seconds, or a run lasts more than 40 seconds, the page stops waiting and says "The server stopped responding." with the retry line. Pressing Stop stays silent.
+- **Page watchdog**: if the server sends no byte for 30 seconds, or a run lasts more than 60 seconds, the page stops waiting and says "The server stopped responding." with the retry line. Pressing Stop stays silent.
 
 Source files live in `netlify/shared/graph/` (state, prompts, parsing, tools, nodes, graph assembly and the stream mapping) and `src/` (the page).
 
@@ -107,9 +107,25 @@ https://jdgafx-app-11-langgraph-research-agent.netlify.app
 - `node_end`: `node`, `visit`, `ms` (duration), `status` (`ok`, `failed` or `skipped`), `detail`, and when a model was called, `model`, `servedModel`, `usage`, `cost`, `costSource`.
 - `edge`: `from`, `to`, `label`.
 - `result`: `answer`, `sources`, `critic`, `ending`, `path`, `evidenceCount`, `toolRounds`, `revisions`, `truncated`, `totals`, `models`. `ending` is `{ kind, message }`: `complete`, `partial` (the last draft of a run that stopped early or skipped a step for time) or `no_answer` (`answer` is empty and `sources` lists the pages read).
+- `checkpoints`: `items`, sent after the result of a fresh run: each has `kind` (`plan` or `critic`), `visit`, a signed `token`, and the fields to show (`queries`, `draft`, `sources`).
 - `error`: `message`. Sent only when the run stopped with no draft and no page read.
 
+`POST /api/resume` with `{ "token", "edit" }` (`edit` is `{ "queries": [...] }` for a plan token or `{ "notes": "..." }` for a critic token) streams the same frames. It first sends a `node_end` for every kept step with `reused: true` (the edited step carries `edited: true`), and its `result` carries `fork: { kind, visit, reused, rerun }` with totals for the re-run only.
+
 The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "success": false, "error": "..." }` with status 400, 403, 405, 413, 429, 500 or 503. A 500 is an unexpected server error.
+
+## Rewind and edit a checkpoint
+
+LangGraph checkpoints the state after each node. After a run, the page offers the plan and each critic visit (as long as the critic can still send the draft back). Pick one, edit the field that matters there, and only the steps after it run again, against live Wikipedia and the real model:
+
+- **Plan**: edit the 1 to 3 search queries (120 characters each). The agent searches with yours, and every step after the plan runs again.
+- **Critic**: write a note (300 characters) that replaces the critic's review. The draft is rewritten with it, the new draft is reviewed, and the answer is finalised. The steps up to the first draft are reused with their original times.
+
+The page shows the original and the new answer side by side with a word diff, the sources gained and lost, and a trace where reused steps are marked "Reused" (with their original time) and the edited step "Your edit". Totals and the readout cover only the re-run.
+
+**Where the checkpoint lives.** The server sends each checkpoint to the page as a signed token and the page sends it back to `POST /api/resume` with the edit. The token is the state (question, queries, pages read, draft, trace) signed with HMAC-SHA256 under a key derived from the server's model key, with a two hour expiry. A stateless token needs no new dependency or storage, works on any function instance, and stores no question text on the server. Netlify Blobs would add a dependency, a store to clean up, and writes that do not run under `vite preview`. The signature matters because the pages in the token are what the model is told to trust: the page can read the token but cannot change a page or the draft. A token is 1 to 11 KB; the resume body cap is 96 KB.
+
+**What the server checks.** The token (signature, expiry, shape, page urls and sizes), then the edit: query count and length, note length, no control characters, and a screen for text that talks to the model about its rules ("ignore previous instructions", "system prompt"). The edit is only ever placed in a user message, never in a system prompt. A bad edit is a 400 with the reason, before any model call. The resumed run keeps the live rules: time-aware steps, the draft kept if time runs out, a per-call limit with one retry, the hard stop and the page watchdog.
 
 ## Known limits
 
@@ -119,4 +135,5 @@ The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "s
 - Every request turns reasoning off. A model can still return an empty reply, and then the run falls back, accepts the draft unreviewed, or reports a plain error.
 - The rate limit is kept per warm function instance, so it is not a quota.
 - The run budget is 25 seconds. A slow provider can make the graph skip steps, and a run that cannot draft in time ends with the pages read and no answer. Time left decides, so the same question can take different paths on different days.
-- Runs are not saved, so a run cannot be resumed or reopened.
+- Runs are not saved on the server. A finished run hands the page a signed checkpoint for the plan and for each critic visit it could still send back, and that is the only way to resume: a run you left, or one older than two hours, cannot be rewound.
+- Rewind covers two points, the plan (its search queries) and the critic (a note that replaces its review). The agent's own tool calls cannot be edited. A rewind runs on live pages, so a different answer may come from the web or the model changing, not only from your edit. A resumed run has its own 25 second budget and can end partial like any run.

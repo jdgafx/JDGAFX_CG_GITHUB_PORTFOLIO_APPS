@@ -59,6 +59,39 @@ export interface NodeEndFrame {
   usage?: FrameUsage
   cost?: number
   costSource?: CostSource
+  /** True for a step a resumed run did not run again: the row is the original run's, with its original time. */
+  reused?: boolean
+  /** True when the visitor's edit stands in for what the step produced. */
+  edited?: boolean
+}
+
+/** Where a node can be rewound to. The visitor edits one field there and the steps after it run again. */
+export type CheckpointKind = 'plan' | 'critic'
+
+/** Limits on a rewind edit. The server enforces them and the editor shows the counts. */
+export const EDIT_LIMITS = { maxQueries: 3, queryChars: 120, notesChars: 300 } as const
+
+/** One saved point of a finished run, as the browser keeps it. The token carries the state; the rest is for display. */
+export interface CheckpointOffer {
+  kind: CheckpointKind
+  /** Which visit of that node the checkpoint sits after (plan) or before (critic). */
+  visit: number
+  /** The signed state. The browser sends it back unchanged with the edit. */
+  token: string
+  /** The search queries the plan chose. Present for a plan checkpoint. */
+  queries?: string[]
+  /** The draft the critic was about to read. Present for a critic checkpoint. */
+  draft?: string
+  /** Titles of the pages read so far. */
+  sources: string[]
+}
+
+/** What a resumed run kept and what it ran again. */
+export interface ForkInfo {
+  kind: CheckpointKind
+  visit: number
+  reused: number
+  rerun: number
 }
 
 export interface ResultFrame {
@@ -76,6 +109,8 @@ export interface ResultFrame {
   truncated: boolean
   totals: Totals
   models: string[]
+  /** Set on a resumed run. Its totals then cover only the steps that ran again. */
+  fork?: ForkInfo
 }
 
 export type Frame =
@@ -86,6 +121,8 @@ export type Frame =
   | NodeEndFrame
   | { type: 'edge'; from: NodeName; to: NodeName; label: string }
   | ResultFrame
+  /** Sent after the result of a fresh run: the points the visitor can rewind to. */
+  | { type: 'checkpoints'; items: CheckpointOffer[] }
   | { type: 'error'; message: string }
 
 export const DONE_FRAME = 'data: [DONE]\n\n'

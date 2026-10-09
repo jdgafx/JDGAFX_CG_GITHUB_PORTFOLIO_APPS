@@ -1,13 +1,15 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
-import type { Frame } from '../netlify/shared/events'
+import type { CheckpointOffer, Frame, NodeName } from '../netlify/shared/events'
 import { AnswerCard } from './components/AnswerCard'
+import { ForkCompare } from './components/ForkCompare'
+import { offerKey, RewindPanel, type Edit } from './components/RewindPanel'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
 import { QuestionForm } from './components/QuestionForm'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
 import { useResultFocus } from './lib/useResultFocus'
-import { INTERRUPTED_MESSAGE, streamResearch } from './lib/research'
+import { INTERRUPTED_MESSAGE, streamResearch, streamResume } from './lib/research'
 import { applyFrame, emptyRun, failRun, researchStatus, startRun, stopRun, type RunView } from './lib/runState'
 
 const RETRY_HINT = 'Press Start research to try again.'
@@ -36,9 +38,16 @@ function reducer(view: RunView, action: Action): RunView {
 
 export default function App() {
   const [question, setQuestion] = useState('')
-  const [view, dispatch] = useReducer(reducer, undefined, emptyRun)
+  const [base, dispatchBase] = useReducer(reducer, undefined, emptyRun)
+  const [fork, dispatchFork] = useReducer(reducer, undefined, emptyRun)
+  const [picked, setPicked] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // Once a rewind has started, the page shows that run; the original stays in `base` for the side-by-side.
+  const forking = fork.phase !== 'idle'
+  const view = forking ? fork : base
+  const dispatch = forking ? dispatchFork : dispatchBase
   const running = view.phase === 'running'
+  const offers = base.checkpoints
 
   useResultFocus(view.phase)
 
@@ -53,24 +62,51 @@ export default function App() {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    dispatchFork({ type: 'reset' })
+    setPicked(null)
+    dispatchBase({ type: 'start' })
+    await track(controller, dispatchBase, (onFrame) => streamResearch(text, controller.signal, onFrame))
+  }
+
+  /** Runs one stream into one reducer, ending it with a plain message when it breaks off without a result. */
+  const track = async (
+    controller: AbortController,
+    target: (action: Action) => void,
+    open: (onFrame: (frame: Frame) => void) => Promise<void>,
+  ) => {
     let terminal = false
-    dispatch({ type: 'start' })
     try {
-      await streamResearch(text, controller.signal, (frame) => {
+      await open((frame) => {
         if (frame.type === 'result' || frame.type === 'error') terminal = true
-        dispatch({ type: 'frame', frame })
+        target({ type: 'frame', frame })
       })
-      if (!controller.signal.aborted && !terminal) {
-        dispatch({ type: 'fail', message: INTERRUPTED_MESSAGE })
-      }
+      if (!controller.signal.aborted && !terminal) target({ type: 'fail', message: INTERRUPTED_MESSAGE })
     } catch (err) {
-      if (!controller.signal.aborted) {
-        dispatch({ type: 'fail', message: err instanceof Error ? err.message : INTERRUPTED_MESSAGE })
-      }
+      if (!controller.signal.aborted) target({ type: 'fail', message: err instanceof Error ? err.message : INTERRUPTED_MESSAGE })
     } finally {
       if (abortRef.current === controller) abortRef.current = null
     }
   }
+
+  const rewind = async (offer: CheckpointOffer, edit: Edit) => {
+    if (running) return
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    dispatchFork({ type: 'start' })
+    await track(controller, dispatchFork, (onFrame) => streamResume(offer.token, edit, controller.signal, onFrame))
+  }
+
+  const pick = (key: string) => {
+    setPicked(key)
+    // The editor opens below the answer; bring it to the visitor's keyboard focus.
+    window.setTimeout(() => document.getElementById('rewind-title')?.scrollIntoView({ block: 'nearest' }), 0)
+  }
+  const pickNode = (node: NodeName) => {
+    const match = [...offers].reverse().find((offer) => offer.kind === node)
+    if (match) pick(offerKey(match))
+  }
+  const pickable = new Set<NodeName>(offers.map((offer) => offer.kind))
 
   const cancel = () => {
     abortRef.current?.abort()
@@ -78,9 +114,14 @@ export default function App() {
     dispatch({ type: 'cancel' })
   }
 
+  const backToOriginal = () => {
+    dispatchFork({ type: 'reset' })
+  }
+
   const loadSample = (sample: string) => {
     setQuestion(sample)
-    dispatch({ type: 'reset' })
+    dispatchFork({ type: 'reset' })
+    dispatchBase({ type: 'reset' })
   }
 
   return (
@@ -110,16 +151,23 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <AnswerCard
-              result={view.result}
-              phase={view.phase}
-              error={view.error}
-              hasSteps={view.trace.length > 0}
-              onRetry={() => void submit()}
-            />
+            {forking && base.result ? (
+              <ForkCompare original={base.result} fork={fork} onBack={backToOriginal} />
+            ) : (
+              <AnswerCard
+                result={view.result}
+                phase={view.phase}
+                error={view.error}
+                hasSteps={view.trace.length > 0}
+                onRetry={() => void submit()}
+              />
+            )}
             <ReadoutStrip view={view} />
-            <GraphView view={view} />
-            <RunTrace view={view} />
+            <GraphView view={view} pickable={running ? new Set() : pickable} onPick={pickNode} />
+            <RunTrace view={view} offers={running ? [] : offers} onRewind={(offer) => pick(offerKey(offer))} />
+            <div className="ds-run__rewind">
+              <RewindPanel offers={offers} selected={picked} busy={running} onSelect={pick} onRun={(offer, edit) => void rewind(offer, edit)} />
+            </div>
           </div>
         </div>
       </main>
