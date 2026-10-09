@@ -52,8 +52,14 @@ async function observeAllowed(page: Page, domains: string[]): Promise<ObservedPa
  * Runs the plan in one Browserbase session and streams each stage as it finishes. The browser is
  * closed and the session released even when a stage fails. The final event comes after the release.
  */
-async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<void> {
+async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<void> {
   const startedAt = Date.now()
+  // The run total is the sum of the timed rows, so the figures on screen reconcile with the trace.
+  let timedMs = 0
+  const send: Send = (event) => {
+    if ((event.type === 'stage' || event.type === 'step_complete') && typeof event.ms === 'number') timedMs += event.ms
+    sendRaw(event)
+  }
   const projectId = process.env.BROWSERBASE_PROJECT_ID ?? ''
   const client = new Browserbase({ apiKey: process.env.BROWSERBASE_API_KEY, maxRetries: 0, timeout: SESSION_TIMEOUT_MS })
   let sessionId: string | undefined
@@ -147,7 +153,7 @@ async function runPlan(send: Send, isCancelled: () => boolean, steps: BotStep[],
     })
   }
   // The total covers the whole run, including the release step above.
-  send(outcome.type === 'done' ? { ...outcome, totalMs: Date.now() - startedAt } : outcome)
+  send(outcome.type === 'done' ? { ...outcome, totalMs: timedMs } : outcome)
 }
 
 /** Streams RunEvent records as server-sent events and stops work when the client disconnects. */
