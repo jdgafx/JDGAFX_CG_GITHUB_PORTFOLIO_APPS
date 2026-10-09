@@ -64,7 +64,8 @@
 .docmind-source__ctx { color: var(--ds-text-muted); }
 .docmind-mark, .docmind-term { color: var(--ds-text); border-radius: 2px; }
 .docmind-mark { background: color-mix(in srgb, var(--ds-accent) 30%, var(--ds-surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ds-accent) 30%, var(--ds-surface)); font-weight: 650; }
-.docmind-term { background: var(--ds-accent-soft); box-shadow: inset 0 -2px 0 var(--ds-accent); font-weight: 650; }
+.docmind-term { background: none; font-weight: 650; text-decoration: underline; text-decoration-color: var(--ds-accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.ds-lead__text strong { font-weight: 600; }
 
 /* Evidence: the ranked passages. A bar per BM25 score, scaled to the best one. */
 .docmind-terms { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
@@ -75,9 +76,12 @@
 .docmind-rank__n { padding-top: 2px; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
 .docmind-rank__body { display: grid; gap: 8px; min-width: 0; }
 .docmind-rank__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.docmind-rank__head .docmind-rank__bar { margin-left: auto; }
 .docmind-rank__where { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
-.docmind-rank__bar { display: grid; grid-template-columns: minmax(0, 1fr) 56px; align-items: center; gap: 12px; }
-.docmind-rank__score { font-family: var(--ds-mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.docmind-rank__bar { display: inline-flex; align-items: center; gap: 8px; }
+.docmind-rank__track { width: 160px; height: 4px; background: var(--ds-surface-2); border-radius: 2px; }
+.docmind-rank__fill { display: block; height: 100%; background: var(--ds-accent); border-radius: 2px; }
+.docmind-rank__score { min-width: 40px; font-family: var(--ds-mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
 .docmind-rank__text { font-size: 15px; line-height: 1.6; max-width: 68ch; overflow-wrap: anywhere; }
 .docmind-rank__matched { font-size: 13px; color: var(--ds-text-muted); }
 .docmind-doc { display: grid; gap: 12px; min-width: 0; }
@@ -108,6 +112,8 @@
   .docmind-inline .ds-button { width: 100%; }
   .docmind-choice, .docmind-chip { min-height: 44px; }
   .docmind-rank__item { padding: 12px; }
+  .docmind-rank__head .docmind-rank__bar { margin-left: 0; flex-basis: 100%; }
+  .docmind-rank__track { flex: 1 1 auto; width: auto; }
   .docmind-rank__text { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
   .docmind-source { padding: 12px; }
   .docmind-source__text { font-size: 15px; }

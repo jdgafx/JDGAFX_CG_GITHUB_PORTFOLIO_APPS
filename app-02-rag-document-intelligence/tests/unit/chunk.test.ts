@@ -72,3 +72,12 @@ describe('stripPageMarkers', () => {
     expect(stripPageMarkers(pdfText(['Hello', 'World']))).toBe('Hello World')
   })
 })
+
+describe('chunk boundaries and decimals', () => {
+  it('does not end a passage inside a decimal number', () => {
+    const text = `${'word '.repeat(99)}score 41.8 single-model. ${'tail '.repeat(40)}`
+    const { chunks } = chunkText(text, 500)
+    expect(chunks.some(c => c.endsWith('41.'))).toBe(false)
+    expect(chunks[0]?.endsWith('single-model.')).toBe(true)
+  })
+})

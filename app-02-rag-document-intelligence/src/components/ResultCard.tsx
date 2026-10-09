@@ -101,6 +101,7 @@ function TurnCard({ turn, doc, lead, selection, onSelect, onClose }: TurnCardPro
           parsed={parsed}
           selected={mine?.mode === 'cited' ? mine.index : null}
           onSelect={index => onSelect({ turnId: turn.id, index, mode: 'cited' })}
+          label={index => where(doc, index)}
         />
       )}
 
@@ -123,6 +124,7 @@ function TurnCard({ turn, doc, lead, selection, onSelect, onClose }: TurnCardPro
                   className="docmind-chip"
                   data-cite={citeKey(turn.id, item.index)}
                   aria-pressed={mine?.mode === 'checked' && mine.index === item.index}
+                  title={where(doc, item.index)}
                   onClick={() => onSelect({ turnId: turn.id, index: item.index, mode: 'checked' })}
                 >
                   <span>{`Passage ${item.index + 1}`}</span>
@@ -146,6 +148,7 @@ function TurnCard({ turn, doc, lead, selection, onSelect, onClose }: TurnCardPro
                   className="docmind-cite docmind-cite--row"
                   data-cite={citeKey(turn.id, index)}
                   aria-pressed={open}
+                  title={where(doc, index)}
                   aria-label={`${where(doc, index)}: show the supporting sentence`}
                   onClick={() => onSelect({ turnId: turn.id, index, mode: 'cited' })}
                 >

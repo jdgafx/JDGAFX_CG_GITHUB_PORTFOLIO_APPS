@@ -193,7 +193,7 @@ export async function askQuestion(
     } catch (err) {
       if (signal?.aborted) throw err
       if (stalled) throw stallError()
-      console.error('DocMind request failed:', err)
+      console.warn('DocMind request failed:', err instanceof Error ? err.message : 'unknown error')
       throw new AskError(
         'Could not reach the server. Check your connection and try again.',
         runWith([retrievalStep, failedStep('Call model', 'Could not reach the server.')], null),
@@ -203,7 +203,7 @@ export async function askQuestion(
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      console.error(`DocMind API error ${response.status}:`, text || '(empty response body)')
+      console.warn(`DocMind API error ${response.status}:`, text || '(empty response body)')
       const fields: Record<string, unknown> = parseBody(text) ?? {}
       const { error: bodyError, trace: bodyTrace, totalMs: bodyTotalMs } = fields
       const message = typeof bodyError === 'string' && bodyError.trim() !== '' ? bodyError : fallbackMessage(response.status)
@@ -228,7 +228,7 @@ export async function askQuestion(
     } catch (err) {
       if (signal?.aborted) throw err
       if (stalled) throw stallError()
-      console.error('DocMind response was not readable:', err)
+      console.warn('DocMind response was not readable:', err instanceof Error ? err.message : 'unknown error')
       throw new AskError(
         'The document assistant returned an unreadable response. Please try again.',
         runWith([retrievalStep, failedStep('Parse and validate', 'The response could not be read.')], null),

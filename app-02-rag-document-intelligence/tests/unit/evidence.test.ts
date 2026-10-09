@@ -82,6 +82,17 @@ describe('sentencesCiting', () => {
 })
 
 describe('contextAround', () => {
+  it('drops a word the overlap cut in half instead of joining it with a space', () => {
+    // The passage starts inside "that" and ends inside "light-dependent".
+    const prev = 'archaeal cyanobacteria preceding that of cyanobacteria (see Purple Earth hypothesis).'
+    const passage = 'at of cyanobacteria (see Purple Earth hypothesis). While the details differ. In these li'
+    const next = 'In these light-dependent reactions, some energy is used'
+    expect(contextAround(prev, passage, next)).toEqual({
+      before: 'archaeal cyanobacteria preceding',
+      after: 'reactions, some energy is used',
+    })
+  })
+
   it('cuts the words each neighbour shares with the passage, so nothing is shown twice', () => {
     const before = 'The first part ends with the shared words here'
     const passage = 'with the shared words here and the middle part ends with the next shared tail'
@@ -117,5 +128,47 @@ describe('supportingSentences', () => {
 
   it('is empty when nothing is shared', () => {
     expect(supportingSentences(passage, ['Penguins swim.'])).toEqual([])
+  })
+})
+
+describe('supporting sentence: overlap fragment and ties', () => {
+  const passage =
+    'small engine to return them to lunar orbit. After a three-day transit, Armstrong and Aldrin descended to the surface aboard the LM Eagle while Collins remained in lunar orbit aboard the CM Columbia.'
+
+  it('skips the tail of the previous passage that opens the text when another sentence matches', () => {
+    // Both sentences share two words with the answer sentence; the fragment is earlier but is not the claim.
+    const found = supportingSentences(passage, ['He remained in orbit to return to Earth.'])
+    expect(found.map(s => s.sentence.text)).toEqual([expect.stringMatching(/^After a three-day transit/)])
+  })
+
+  it('still uses the fragment when it is the only sentence that matches', () => {
+    expect(supportingSentences(passage, ['The engine returns them.']).map(s => s.sentence.text)).toEqual([
+      'small engine to return them to lunar orbit.',
+    ])
+  })
+
+  it('breaks a tie on the number of words by the rarer shared words', () => {
+    // "Rocket" is in one sentence only; "launch" is in both. Each sentence shares two words, the rarer pair wins.
+    const text = 'The launch was early. The rocket launch was late. The pad was empty.'
+    const found = supportingSentences(text, ['The rocket launch.'])
+    expect(found.map(s => s.sentence.text)).toEqual(['The rocket launch was late.'])
+  })
+})
+
+describe('parseAnswer: a dropped marker leaves no stray space', () => {
+  it('removes the space before an invalid marker', () => {
+    const parsed = parseAnswer('Photosynthetic bacteria [Chunk 99], but not archaea [Chunk 3].', [3])
+    expect(parsed.parts[0]).toEqual({ kind: 'text', text: 'Photosynthetic bacteria', sentence: 0 })
+    expect(parsed.parts[1]).toEqual({ kind: 'text', text: ', but not archaea ', sentence: 0 })
+    expect(parsed.sentences).toEqual(['Photosynthetic bacteria, but not archaea.'])
+  })
+})
+
+describe('splitSentences: PDF spacing inside numbers', () => {
+  it('does not split at a spaced full stop between digits', () => {
+    expect(splitSentences('The big model achieves a BLEU score of 41 . 0 , outperforming all. Next one follows.').map(s => s.text)).toEqual([
+      'The big model achieves a BLEU score of 41 . 0 , outperforming all.',
+      'Next one follows.',
+    ])
   })
 })

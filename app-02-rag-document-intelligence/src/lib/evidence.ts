@@ -57,7 +57,13 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
     addText(answer.slice(at, match.index))
     at = match.index + match[0].length
     const indices = [...new Set([...match[0].matchAll(/\d+/g)].map(m => Number(m[0])))].filter(i => allowed.has(i))
-    if (indices.length === 0) continue
+    if (indices.length === 0) {
+      // The dropped marker takes the space before it along, so no stray space is left before the next word or comma.
+      const last = parts[parts.length - 1]
+      if (last?.kind === 'text') last.text = last.text.trimEnd()
+      current = current.trimEnd()
+      continue
+    }
     // A marker right after a closed sentence (only space since the full stop) belongs to that sentence.
     const trailing = current.trim() === '' && sentences.length > 0
     parts.push({ kind: 'cite', indices, sentence: trailing ? sentences.length - 1 : sentence })
@@ -76,7 +82,8 @@ export interface PassageSentence {
 /** Cuts a passage into sentences with their positions. A passage that starts mid-sentence keeps its fragment as a sentence. */
 export function splitSentences(passage: string): PassageSentence[] {
   const out: PassageSentence[] = []
-  const boundary = /[.!?]+["')\]]*\s+(?=[\p{Lu}\p{N}"'([])/gu
+  // A full stop with a space before it is PDF spacing inside a number ("41 . 0"), not a sentence end.
+  const boundary = /(?<!\s)[.!?]+["')\]]*\s+(?=[\p{Lu}\p{N}"'([])/gu
   let from = 0
   const push = (to: number) => {
     const raw = passage.slice(from, to)
@@ -102,15 +109,31 @@ export interface Support {
 /** The sentence of one answer sentence's best match in a passage, or null when no sentence shares a word. */
 function bestFor(sentences: PassageSentence[], answerSentence: string): Support | null {
   const wanted = new Set(stems(answerSentence))
-  let best: Support | null = null
-  for (const sentence of sentences) {
+  // How many of the passage's sentences contain each stem: a word found in one sentence says more than one found in all.
+  const spread = new Map<string, number>()
+  const found = sentences.map(sentence => {
     const words = new Map<string, string>()
     for (const t of tokens(sentence.text)) {
       if (t.stem !== null && wanted.has(t.stem) && !words.has(t.stem)) words.set(t.stem, sentence.text.slice(t.start, t.end).toLowerCase())
     }
-    if (words.size > (best?.shared.length ?? 0)) best = { sentence, shared: [...words.values()] }
+    for (const stem of words.keys()) spread.set(stem, (spread.get(stem) ?? 0) + 1)
+    return { sentence, words }
+  })
+  // A passage that starts inside a sentence opens with the tail of the one before it. It is only used when nothing else matches.
+  const fragment = (s: PassageSentence) => s.start === 0 && /^\p{Ll}/u.test(s.text)
+  const rarity = (words: Map<string, string>) => [...words.keys()].reduce((sum, stem) => sum + 1 / (spread.get(stem) ?? 1), 0)
+  const pick = (rows: typeof found): Support | null => {
+    let best: { support: Support; rare: number } | null = null
+    for (const { sentence, words } of rows) {
+      if (words.size === 0) continue
+      const rare = rarity(words)
+      if (!best || words.size > best.support.shared.length || (words.size === best.support.shared.length && rare > best.rare)) {
+        best = { support: { sentence, shared: [...words.values()] }, rare }
+      }
+    }
+    return best?.support ?? null
   }
-  return best
+  return pick(found.filter(row => !fragment(row.sentence))) ?? pick(found)
 }
 
 /**
@@ -156,13 +179,23 @@ function overlap(a: string, b: string, min = 8): number {
   return 0
 }
 
+const WORD_CHAR = /[\p{L}\p{N}]/u
+
 /**
  * The text on each side of a passage, for the source panel. Neighbouring passages overlap by a few words, so the
- * stretch already inside the passage is cut from each side; what is left is cut to at most `max` characters at a word.
+ * stretch already inside the passage is cut from each side. Passages start and end at arbitrary characters, so the
+ * cut can fall inside a word; the partial word is dropped from the context, never joined to a space. What is left is
+ * cut to at most `max` characters at a word.
  */
 export function contextAround(prev: string | undefined, passage: string, next: string | undefined, max = 220): { before: string; after: string } {
-  let before = prev === undefined ? '' : prev.slice(0, prev.length - overlap(prev, passage))
-  let after = next === undefined ? '' : next.slice(overlap(passage, next))
+  const cutBefore = prev === undefined ? 0 : overlap(prev, passage)
+  const cutAfter = next === undefined ? 0 : overlap(passage, next)
+  let before = prev === undefined ? '' : prev.slice(0, prev.length - cutBefore)
+  let after = next === undefined ? '' : next.slice(cutAfter)
+  // The passage starts inside a word: the context ends on the first half of it. Drop that half.
+  if (cutBefore > 0 && WORD_CHAR.test(before.slice(-1)) && WORD_CHAR.test(passage.slice(0, 1))) before = before.slice(0, Math.max(0, before.search(/\S*$/)))
+  // The passage ends inside a word: the context begins with the second half of it.
+  if (cutAfter > 0 && WORD_CHAR.test(after.slice(0, 1)) && WORD_CHAR.test(passage.slice(-1))) after = after.slice(Math.max(0, after.search(/\s/)))
   if (before.length > max) {
     before = before.slice(-max)
     before = before.slice(before.indexOf(' ') + 1)

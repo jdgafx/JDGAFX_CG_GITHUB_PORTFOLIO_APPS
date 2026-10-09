@@ -64,7 +64,7 @@ export function chunkText(text: string, maxChars: number = CHUNK_SIZE): ChunkedT
 
     if (end < clean.length) {
       const searchWindow = clean.slice(end, Math.min(end + 120, clean.length))
-      const sentenceEnd = searchWindow.search(/[.!?\n]/)
+      const sentenceEnd = searchWindow.search(/[.!?](?=\s|$)|\n/)
       if (sentenceEnd !== -1) {
         end = end + sentenceEnd + 1
       }

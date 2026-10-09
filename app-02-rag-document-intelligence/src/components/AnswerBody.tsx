@@ -24,10 +24,12 @@ interface AnswerBodyProps {
   /** The passage open in the source panel, if it belongs to this answer. */
   selected: number | null
   onSelect: (index: number) => void
+  /** Where a passage sits, for the tooltip: "Passage 12, section 3: History". */
+  label: (index: number) => string
 }
 
 /** Cuts the parsed answer into paragraphs; a citation becomes a button that opens its passage. */
-export function AnswerBody({ turnId, parsed, selected, onSelect }: AnswerBodyProps) {
+export function AnswerBody({ turnId, parsed, selected, onSelect, label }: AnswerBodyProps) {
   const paragraphs = useMemo(() => {
     const out: ReactNode[][] = [[]]
     parsed.parts.forEach((part, i) => {
@@ -42,7 +44,8 @@ export function AnswerBody({ turnId, parsed, selected, onSelect }: AnswerBodyPro
                 className="docmind-cite"
                 data-cite={citeKey(turnId, index)}
                 aria-pressed={selected === index}
-                aria-label={`Passage ${index + 1}: show the supporting sentence`}
+                title={label(index)}
+                aria-label={`${label(index)}: show the supporting sentence`}
                 onClick={() => onSelect(index)}
               >
                 {index + 1}
@@ -63,7 +66,7 @@ export function AnswerBody({ turnId, parsed, selected, onSelect }: AnswerBodyPro
       })
     })
     return out.filter(nodes => nodes.length > 0)
-  }, [parsed, turnId, selected, onSelect])
+  }, [parsed, turnId, selected, onSelect, label])
 
   return (
     <div className="ds-lead__text">

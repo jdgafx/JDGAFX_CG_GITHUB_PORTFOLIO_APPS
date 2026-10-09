@@ -37,12 +37,12 @@ export function RankList({ doc, retrieval, cited, from, to, text }: RankListProp
             <div className="docmind-rank__head">
               <span className="docmind-rank__where">{where(doc, item.index)}</span>
               {cited.includes(item.index) && <span className="ds-badge ds-badge--accent">Cited in the answer</span>}
-            </div>
-            <div className="docmind-rank__bar" title={`Matched: ${item.matched.join(', ')}`}>
-              <span className="ds-hbar__track">
-                <span className="ds-hbar__bar" style={{ '--w': `${Math.max(2, (item.score / best) * 100)}%` } as React.CSSProperties} />
+              <span className="docmind-rank__bar" title={`Matched: ${item.matched.join(', ')}`}>
+                <span className="docmind-rank__track" aria-hidden="true">
+                  <span className="docmind-rank__fill" style={{ width: `${Math.max(2, (item.score / best) * 100)}%` }} />
+                </span>
+                <span className="docmind-rank__score">{score(item.score)}</span>
               </span>
-              <span className="docmind-rank__score">{score(item.score)}</span>
             </div>
             {text && (
               <p className="docmind-rank__text">

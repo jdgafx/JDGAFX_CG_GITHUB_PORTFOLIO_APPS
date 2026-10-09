@@ -44,7 +44,7 @@ export function useDocumentLoader(onLoaded: (doc: DocumentState) => void, onStar
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
-          console.error('Load error:', err)
+          console.warn('DocMind could not load the source:', err instanceof Error ? err.message : 'unknown error')
           setError(err instanceof Error ? err.message : 'This source could not be loaded.')
           setFailed(request)
         })
