@@ -60,7 +60,7 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 The browser posts a question to `POST /api/run`, a Netlify Function at `netlify/functions/run.ts`. The function checks the method, the origin, a rate limit of 20 requests a minute per client, the body size and the question (1 to 500 characters). It then starts the graph and streams the run as server-sent events. The graph calls OpenRouter through `netlify/shared/openrouter.ts` and Wikipedia through `netlify/shared/wikipedia.ts`.
 
 - **Key**: `OPENROUTER_API_KEY` is read only on the server. The browser never receives it, and no error message contains a provider body.
-- **Budget**: one 45-second budget covers every model and tool call in a run. Each model call also has a 20-second timeout. Each Wikipedia call has a 6-second timeout.
+- **Budget**: one 25-second budget covers every model and tool call in a run, so the run ends itself before the roughly 30-second cut-off seen on the live Netlify site. Each model call also has a 12-second timeout. Each Wikipedia call has a 6-second timeout.
 - **Errors**: each failure becomes a plain message in an error frame, and the stream still ends with `[DONE]`.
 - **Checkpointer**: an in-memory checkpointer is created for each request. Nothing is saved between requests.
 
@@ -103,5 +103,5 @@ The stream always ends with `data: [DONE]`. A refused request returns JSON `{ "s
 - If the agent makes no tool call before it reads a page, the draft has no sources. The draft prompt asks the model to say so, but the model may not.
 - Every request turns reasoning off. A model can still return an empty reply, and then the run falls back, accepts the draft unreviewed, or reports a plain error.
 - The rate limit is kept per warm function instance, so it is not a quota.
-- The run budget is 45 seconds. A slow provider ends the run with a timeout message.
+- The run budget is 25 seconds. A slow provider ends the run with a timeout message.
 - Runs are not saved, so a run cannot be resumed or reopened.

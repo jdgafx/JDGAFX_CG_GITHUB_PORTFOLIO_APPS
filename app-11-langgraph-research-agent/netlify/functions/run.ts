@@ -5,8 +5,11 @@ import { runResearch } from '../shared/graph/stream'
 import { chat, NOT_CONFIGURED_MESSAGE } from '../shared/openrouter'
 import { liveWiki } from '../shared/wikipedia'
 
-/** One budget for every model and tool call in a run. Netlify stops synchronous functions at 60 seconds. */
-export const RUN_BUDGET_MS = 45_000
+/**
+ * One budget for every model and tool call in a run. The docs give synchronous functions 60 seconds, but the
+ * live site closed streams near 30 seconds, so the run ends itself well before that and says why.
+ */
+export const RUN_BUDGET_MS = 25_000
 
 const limiter = createRateLimiter()
 

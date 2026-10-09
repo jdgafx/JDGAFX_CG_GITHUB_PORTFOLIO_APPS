@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RUN_BUDGET_MS } from '../../netlify/functions/run'
 import type { Frame, NodeEndFrame } from '../../netlify/shared/events'
 import { CRITIC_MODEL, PLAN_MODEL } from '../../netlify/shared/models'
 
@@ -284,6 +285,40 @@ describe('POST /api/run', () => {
     const { frames, lastRecord } = await readStream(await handler(post({ question: SAMPLE })))
     expect(lastRecord).toBe('data: [DONE]')
     expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
+  })
+
+  it('ends a run that outlasts the run budget with the slow message and [DONE], before the platform cut-off', async () => {
+    vi.useFakeTimers()
+    try {
+      // Every provider call takes 9 s, inside the per-call limit, so only the budget for the whole run can stop the chain.
+      const answers = sampleOpenRouter()
+      const fetchStub = vi.fn(
+        (input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            if (String(input).startsWith('https://en.wikipedia.org/')) {
+              resolve(Response.json(pageFixture))
+              return
+            }
+            const timer = setTimeout(() => resolve(answers(JSON.parse(String(init?.body)) as SentBody)), 9_000)
+            init?.signal?.addEventListener('abort', () => {
+              clearTimeout(timer)
+              reject(new DOMException('The operation was aborted.', 'AbortError'))
+            })
+          }),
+      )
+      vi.stubGlobal('fetch', fetchStub)
+
+      const reading = readStream(await handler(post({ question: SAMPLE })))
+      await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + 1_000)
+      const { frames, lastRecord } = await reading
+
+      expect(RUN_BUDGET_MS).toBeLessThan(30_000)
+      expect(lastRecord).toBe('data: [DONE]')
+      expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
+      expect(frames.some((frame) => frame.type === 'result')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('maps an unreachable provider to a plain message in an error frame', async () => {

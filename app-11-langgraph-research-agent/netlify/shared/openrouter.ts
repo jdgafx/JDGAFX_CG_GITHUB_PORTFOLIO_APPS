@@ -11,7 +11,7 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const REASONING_OFF = { enabled: false }
 
 /** The longest wait for one model call. The run budget can end a call sooner. */
-export const MODEL_CALL_TIMEOUT_MS = 20_000
+export const MODEL_CALL_TIMEOUT_MS = 12_000
 
 export const SLOW_MESSAGE = 'The AI provider did not answer in time.'
 export const UNREACHABLE_MESSAGE = 'Could not reach the AI provider.'
