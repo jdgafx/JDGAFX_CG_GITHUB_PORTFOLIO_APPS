@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { allowedDomains, isAllowedHost } from '../../netlify/shared/domains'
+import { allowedDomains, hostsIn, isAllowedHost } from '../../netlify/shared/domains'
 
-const DEFAULTS = ['google.com', 'www.google.com', 'flights.google.com', 'en.wikipedia.org', 'news.ycombinator.com', 'github.com']
+const DEFAULTS = ['google.com', 'www.google.com', 'flights.google.com', 'en.wikipedia.org', 'news.ycombinator.com']
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -56,3 +56,18 @@ describe('isAllowedHost', () => {
     }
   })
 })
+
+describe('hostsIn', () => {
+  it('finds the hosts a task names, with paths and sentence punctuation left off', () => {
+    expect(hostsIn('Open example.com and report the page title.')).toEqual(['example.com'])
+    expect(hostsIn('Open EN.Wikipedia.org/wiki/Hubble_Space_Telescope, then news.ycombinator.com/newest.'))
+      .toEqual(['en.wikipedia.org', 'news.ycombinator.com'])
+    expect(hostsIn('Fetch http://127.0.0.1:8080/admin and https://user@evil.example/x')).toEqual(['127.0.0.1', 'evil.example'])
+  })
+
+  it('finds nothing in a task that names no site, and lists each host once', () => {
+    expect(hostsIn('Report the top three story titles, e.g. the first one.')).toEqual([])
+    expect(hostsIn('google.com then google.com again')).toEqual(['google.com'])
+  })
+})
+

@@ -3,6 +3,9 @@ import type { BotStep, ObservedPage, PlanResponse, RunEvent, TraceEntry, TraceSt
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
 const ENDED_EARLY = 'The run ended before it reported a result.'
+const RELEASE_ROW = 'Release browser session'
+/** Stop ends the stream, so the server's release result never arrives. The row says what happens instead. */
+const RELEASE_AFTER_STOP = 'Stop ends the stream. The server releases the session when its current step ends, or Browserbase ends it at the 120 s cap. The result is not reported to this page.'
 
 /** One row of the browser run: a stage, or a planned step. `running` is a display state only. */
 interface RunRow {
@@ -185,9 +188,12 @@ export function runReducer(state: RunState, action: RunAction): RunState {
       return {
         ...state,
         phase: 'stopped',
-        rows: state.rows.map((row) => (row.status === 'running'
-          ? { ...row, status: 'skipped', detail: 'Stopped before this step finished.' }
-          : row)),
+        rows: [
+          ...state.rows.map((row): RunRow => (row.status === 'running'
+            ? { ...row, status: 'skipped', detail: 'Stopped before this step finished.' }
+            : row)),
+          { index: null, name: RELEASE_ROW, status: 'skipped', ms: 0, detail: RELEASE_AFTER_STOP },
+        ],
       }
     case 'reset':
       return initialRunState

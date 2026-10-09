@@ -11,7 +11,7 @@ const PLAN = {
     { action: 'extract', target: 'page title', thought: 'Read the title the browser sees.', value: 'The page title' },
   ],
 }
-const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com, github.com'
+const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com'
 
 interface TraceEntry {
   name: string
@@ -190,7 +190,7 @@ describe('planner function: a plan', () => {
         { action: 'extract', target: 'page title', thought: 'Read it.', value: 'The title' },
       ],
     })))
-    const response = await handler(planRequest({ task: 'Open example.com' }))
+    const response = await handler(planRequest({ task: 'Report the page title of a demo site' }))
     const body = await bodyOf(response)
 
     expect(response.status).toBe(502)
@@ -276,6 +276,52 @@ describe('planner function: refusals before any provider call', () => {
     fetchMock.mockResolvedValueOnce(reply(JSON.stringify(plan)))
     const body = await bodyOf(await handler(planRequest({ task: 'Open news.ycombinator.com and report the top three story titles' })))
     expect(body.result?.steps[1]).toEqual(plan.steps[1])
+  })
+
+  it('refuses a task that names a site outside the allowlist before any model call', async () => {
+    const response = await handler(planRequest({ task: 'Open example.com and report the page title' }))
+    const body = await bodyOf(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe(`This task names example.com, which is outside the allowed sites: ${ALLOWED_LIST}.`)
+    expect(body.trace?.map((entry) => [entry.name, entry.status])).toEqual([['Request built', 'ok'], ['Check task sites', 'failed']])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('lets a task through that names only allowed sites', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const response = await handler(planRequest({ task: 'Open en.wikipedia.org/wiki/Hubble_Space_Telescope and report its launch date' }))
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns a planner refusal into a plain 400 with no steps', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify({ refuse: 'The weather needs a   site outside the list.' })))
+    const response = await handler(planRequest({ task: 'Report the weather in Paris' }))
+    const body = await bodyOf(response)
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('The planner declined this task: The weather needs a site outside the list.')
+    expect(body.result).toBeUndefined()
+    expect(body.trace?.at(-1)).toMatchObject({ name: 'Parse and validate', status: 'failed' })
+  })
+
+  it('rejects a plan whose label names one site while its url opens another', async () => {
+    const swapped = { steps: [
+      { action: 'navigate', target: 'example.com home page', thought: 'Open it.', url: 'https://www.google.com/' },
+      { action: 'extract', target: 'page title', thought: 'Read it.' },
+    ] }
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(swapped)))
+    const response = await handler(planRequest({ task: 'Report the page title of a home page' }))
+    expect(response.status).toBe(502)
+    expect((await bodyOf(response)).error).toBe('Step 1 is labelled example.com but opens www.google.com.')
+  })
+
+  it('tells the planner to refuse rather than substitute a site, and where the featured article blurb is', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    await handler(planRequest({ task: 'Open google.com and report the page title' }))
+    const prompt = (JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { messages: Array<{ content: string }> }).messages[0].content
+    expect(prompt).toContain('Return {"refuse": "<one plain sentence saying why>"}')
+    expect(prompt).not.toContain('closest step')
+    expect(prompt).toContain('"#mp-tfa > p"')
   })
 
   it('answers 503 when the provider key is blank', async () => {

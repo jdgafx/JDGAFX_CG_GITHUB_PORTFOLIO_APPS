@@ -137,6 +137,16 @@ describe('running', () => {
     expect(stopped.rows[0]).toMatchObject({ status: 'skipped', detail: 'Stopped before this step finished.' })
   })
 
+  it('records that the session release is not reported after a stop', () => {
+    const stopped = run(running, { type: 'stopped' })
+    expect(stopped.rows.at(-1)).toEqual({
+      index: null,
+      name: 'Release browser session',
+      status: 'skipped',
+      ms: 0,
+      detail: 'Stop ends the stream. The server releases the session when its current step ends, or Browserbase ends it at the 120 s cap. The result is not reported to this page.',
+    })  })
+
   it('returns to the empty state on reset', () => {
     expect(run(running, { type: 'reset' })).toEqual(initialRunState)
   })

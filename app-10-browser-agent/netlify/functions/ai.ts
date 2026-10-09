@@ -1,6 +1,6 @@
 import { withDeadline } from '../shared/deadline'
 import { MAX_TOKENS, MODEL, OPENROUTER_URL } from '../shared/provider'
-import { allowedDomains } from '../shared/domains'
+import { allowedDomains, hostsIn, isAllowedHost } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
 import { validateSteps } from '../shared/steps'
 import { MAX_TASK_CHARS } from '../../src/lib/constants'
@@ -19,6 +19,8 @@ const PLAN_BUDGET_MS = 8_500
 const MIN_RETRY_MS = 2_000
 /** Copy for a provider that timed out or failed on its side. */
 const TIMEOUT_COPY = 'The AI provider did not answer in time'
+/** The planner's reason for refusing a task is shown to the user, so it is capped. */
+const MAX_REFUSAL_CHARS = 300
 
 /** A failure with curated copy the browser may show verbatim. */
 class PlanError extends Error {
@@ -56,12 +58,15 @@ Each step has:
 - selector?: a plain CSS selector for the part of the page to read, only for "extract" and "verify". The browser reports the visible text of the first 10 elements that match it.
 
 Rules:
-- Use only these hosts in url: ${domains.join(', ')}. If the task needs another site, plan the closest step on these hosts and say so in the first thought.
+- Use only these hosts in url: ${domains.join(', ')}.
+- If the task names a site that is not in that list, or no page on these hosts can answer it, do not plan steps. Return {"refuse": "<one plain sentence saying why>"} instead. Never open a different site in place of the one the task names, and never label a step with one site while its url opens another.
 - Open the page that holds the answer with one "navigate" step whose url goes straight to it. Do not pad the plan with steps the task does not need.
 - The last step must be "extract" or "verify". Its value describes what the browser should observe. Never write results, prices or page titles yourself.
-- When the answer sits in one part of a page, give the last step a selector so the browser reads only that part. Known selectors: Hacker News front page story titles ".titleline > a"; a Wikipedia article's information box "table.infobox"; a Wikipedia article's opening paragraphs "#mw-content-text .mw-parser-output > p"; the Wikipedia main page's featured article "#mp-tfa". Omit the selector when you do not know one, and the browser reads the whole page text.
+- When the answer sits in one part of a page, give the last step a selector so the browser reads only that part. Known selectors: Hacker News front page story titles ".titleline > a"; a Wikipedia article's information box "table.infobox"; a Wikipedia article's opening paragraphs "#mw-content-text .mw-parser-output > p"; the Wikipedia main page's featured article blurb "#mp-tfa > p", which starts with the article's name and leaves out the picture caption. Omit the selector when you do not know one, and the browser reads the whole page text.
 - Never claim that a page was visited or that a result was found. The browser run is the source of truth.
 - Return ONLY valid JSON. No markdown and no commentary.
+
+Refusal example: {"refuse":"example.com is not an allowed site."}
 
 Example: {"steps":[{"action":"navigate","target":"Google home page","thought":"Open the Google home page.","url":"https://www.google.com/"},{"action":"extract","target":"page title","thought":"Read the title the browser sees.","value":"The page title"}]}`
 }
@@ -209,8 +214,13 @@ function extractJson(raw: string): string {
   return text.slice(start)
 }
 
-function parseSteps(content: string): unknown {
-  const parsed: unknown = JSON.parse(extractJson(content))
+/** The planner's one-sentence refusal, or null when it returned a plan. */
+function refusalOf(parsed: unknown): string | null {
+  const refuse = (parsed as { refuse?: unknown } | null)?.refuse
+  return typeof refuse === 'string' && refuse.trim() ? refuse.replace(/\s+/g, ' ').trim().slice(0, MAX_REFUSAL_CHARS) : null
+}
+
+function stepsOf(parsed: unknown): unknown {
   return Array.isArray(parsed) ? parsed : (parsed as { steps?: unknown } | null)?.steps
 }
 
@@ -252,6 +262,15 @@ async function handle(req: Request): Promise<Response> {
   }]
   const fail = (message: string, status: number): Response =>
     jsonResponse({ error: message, trace, totalMs: tracedMs(trace) }, status, headers)
+
+  // A site the task names must be on the list before any model or browser call is made.
+  const siteCheckStarted = Date.now()
+  const outside = hostsIn(task).filter((host) => !isAllowedHost(host, domains))
+  if (outside.length > 0) {
+    const message = `This task names ${outside.join(', ')}, which is outside the allowed sites: ${domains.join(', ')}.`
+    trace.push({ name: 'Check task sites', status: 'failed', ms: Date.now() - siteCheckStarted, detail: message })
+    return fail(message, 400)
+  }
 
   const modelStarted = Date.now()
   let attempts: Attempt[]
@@ -297,13 +316,15 @@ async function handle(req: Request): Promise<Response> {
   const parseStarted = Date.now()
   let steps: BotStep[]
   try {
-    steps = validateSteps(parseSteps(last.content), domains)
+    const parsed: unknown = JSON.parse(extractJson(last.content))
+    const refusal = refusalOf(parsed)
+    if (refusal) throw new PlanError(`The planner declined this task: ${refusal}`, 400)
+    steps = validateSteps(stepsOf(parsed), domains)
   } catch (error) {
-    const message = error instanceof CuratedError
-      ? error.message
-      : 'The model returned a plan the agent could not read. Try again.'
+    const curated = error instanceof CuratedError || error instanceof PlanError
+    const message = curated ? error.message : 'The model returned a plan the agent could not read. Try again.'
     trace.push({ name: 'Parse and validate', status: 'failed', ms: Date.now() - parseStarted, detail: message })
-    return fail(message, 502)
+    return fail(message, error instanceof PlanError ? error.status : 502)
   }
   trace.push({
     name: 'Parse and validate',

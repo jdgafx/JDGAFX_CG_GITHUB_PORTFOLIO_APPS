@@ -11,7 +11,6 @@ export const ALLOWED_SITE_NOTES = [
   { host: 'flights.google.com', note: 'Google Flights' },
   { host: 'en.wikipedia.org', note: 'English Wikipedia articles' },
   { host: 'news.ycombinator.com', note: 'Hacker News front page' },
-  { host: 'github.com', note: 'Repositories and profiles' },
 ]
 
 export const ALLOWED_SITES = ALLOWED_SITE_NOTES.map((site) => site.host)

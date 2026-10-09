@@ -155,3 +155,18 @@ describe('selector', () => {
   })
 })
 
+describe('a navigate step labelled with another site', () => {
+  const navigate = (target: string, url: string) => [{ action: 'navigate', target, thought: 'Open it.', url }]
+
+  it('is refused, so a label never names a site the browser does not visit', () => {
+    expect(outcome(navigate('example.com home page', 'https://www.google.com/')))
+      .toBe('Step 1 is labelled example.com but opens www.google.com.')
+  })
+
+  it('accepts a label that names the site it opens, or a parent or subdomain of it', () => {
+    expect(outcome(navigate('google.com home page', 'https://www.google.com/'))).toBe('accepted')
+    expect(outcome(navigate('www.google.com', 'https://google.com/'))).toBe('accepted')
+    expect(outcome(navigate('Google home page', 'https://www.google.com/'))).toBe('accepted')
+  })
+})
+

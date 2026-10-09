@@ -35,15 +35,17 @@ describe('allowed sites shown on the page', () => {
   })
 
   it('include the public sites the example tasks read, each with a note', () => {
-    expect(ALLOWED_SITES).toEqual(expect.arrayContaining(['en.wikipedia.org', 'news.ycombinator.com', 'github.com']))
+    expect(ALLOWED_SITES).toEqual(expect.arrayContaining(['en.wikipedia.org', 'news.ycombinator.com']))
     for (const site of ALLOWED_SITE_NOTES) expect(site.note.length, site.host).toBeGreaterThan(0)
   })
 
   it('refuse a lookalike of a newly allowed host', () => {
     vi.stubEnv('BROWSERBASE_ALLOWED_DOMAINS', '')
     const domains = allowedDomains()
-    expect(isAllowedHost('github.com.evil.example', domains)).toBe(false)
-    expect(isAllowedHost('notgithub.com', domains)).toBe(false)
-    expect(isAllowedHost('gist.github.com', domains)).toBe(true)
+    expect(isAllowedHost('news.ycombinator.com.evil.example', domains)).toBe(false)
+    expect(isAllowedHost('notwikipedia.org', domains)).toBe(false)
+    expect(isAllowedHost('de.wikipedia.org', domains)).toBe(false)
+    expect(isAllowedHost('en.wikipedia.org', domains)).toBe(true)
+    expect(isAllowedHost('github.com', domains)).toBe(false)
   })
 })

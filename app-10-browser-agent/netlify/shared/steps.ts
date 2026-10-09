@@ -1,6 +1,6 @@
 import { isAction } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
-import { isAllowedHost } from './domains'
+import { hostsIn, isAllowedHost } from './domains'
 import { CuratedError } from './guard'
 
 export const MAX_STEPS = 10
@@ -45,6 +45,11 @@ function allowedUrl(raw: string, index: number, domains: string[]): string {
   return url.toString()
 }
 
+/** A host in the step's label that is not the host it opens: the label would say one site and the browser would visit another. */
+function labelledHostMismatch(target: string, opened: string): string | undefined {
+  return hostsIn(target).find((named) => named !== opened && !opened.endsWith(`.${named}`) && !named.endsWith(`.${opened}`))
+}
+
 /**
  * Checks a plan's shape and addresses before any billable call. Throws CuratedError with curated
  * copy for the first problem found.
@@ -63,7 +68,10 @@ export function validateSteps(raw: unknown, domains: string[]): BotStep[] {
     if (target === undefined || !target.trim()) throw new CuratedError(`Step ${index + 1} has no target.`)
     const thought = readText(step, 'thought', index) ?? ''
     if (action === 'navigate') {
-      return { action, target, thought, url: allowedUrl(readText(step, 'url', index) ?? target, index, domains) }
+      const url = allowedUrl(readText(step, 'url', index) ?? target, index, domains)
+      const named = labelledHostMismatch(target, new URL(url).hostname)
+      if (named) throw new CuratedError(`Step ${index + 1} is labelled ${named} but opens ${new URL(url).hostname}.`)
+      return { action, target, thought, url }
     }
     const value = readText(step, 'value', index)
     if (action !== 'extract' && action !== 'verify') return { action, target, thought, value }

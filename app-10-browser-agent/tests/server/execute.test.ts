@@ -37,7 +37,7 @@ vi.mock('../../netlify/shared/browser', async (importOriginal) => {
 
 const ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
 const PLACEHOLDER = 'test-only-placeholder'
-const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com, github.com'
+const ALLOWED_LIST = 'google.com, www.google.com, flights.google.com, en.wikipedia.org, news.ycombinator.com'
 const SESSION = 'sess_test_1'
 const SESSION_CAP = 120
 const NAVIGATE = { action: 'navigate', target: 'Google home page', thought: 'Open the Google home page.', url: 'https://www.google.com/' }
