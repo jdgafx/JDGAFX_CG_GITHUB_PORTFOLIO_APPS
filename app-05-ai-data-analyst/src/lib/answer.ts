@@ -20,7 +20,7 @@ const FILTER_WORDS: Record<FilterOp, string> = {
 }
 
 /** The measure in words, such as "total revenue" or "number of rows". */
-export function measureWords(plan: QueryPlan): string {
+function measureWords(plan: QueryPlan): string {
   return MEASURE[plan.aggregate.fn](plan.aggregate.field)
 }
 
@@ -34,7 +34,7 @@ export function answerSentence(plan: QueryPlan, top: { label: string; value: num
   return `${top.label} has the highest ${measureWords(plan)}: ${value}.`
 }
 
-export interface PlanWords {
+interface PlanWords {
   groupBy: string
   measure: string
   filter: string

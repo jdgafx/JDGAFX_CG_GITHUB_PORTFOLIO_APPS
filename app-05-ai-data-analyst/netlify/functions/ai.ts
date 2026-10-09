@@ -1,5 +1,5 @@
 import { validateQueryPlan } from '../../src/lib/queryPlan'
-import type { QueryPlan, RunStep, RunSummary } from '../../src/types'
+import type { QueryPlan, RunStep, RunSummary, RunUsage } from '../../src/types'
 import { checkAnalysisBody, readJsonBody, type AnalysisInput } from '../shared/requestBody'
 import {
   callModel,
@@ -8,7 +8,6 @@ import {
   sumUsage,
   type ChatMessage,
   type ModelReply,
-  type ModelUsage,
 } from '../shared/provider'
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -147,7 +146,7 @@ Rules:
 class RunLog {
   readonly startedAt = Date.now()
   readonly trace: RunStep[] = []
-  readonly usage: ModelUsage[] = []
+  readonly usage: RunUsage[] = []
   model: string | null = null
 
   step(

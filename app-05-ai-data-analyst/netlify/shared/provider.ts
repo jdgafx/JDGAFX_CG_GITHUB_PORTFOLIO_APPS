@@ -1,3 +1,5 @@
+import type { RunUsage } from '../../src/types'
+
 /**
  * The one module that calls the model. Every chat or text call goes through
  * callModel(), which always sends MODEL. Request bodies cannot change the model,
@@ -15,25 +17,12 @@ export interface ChatMessage {
   content: string
 }
 
-export interface ModelUsage {
-  prompt_tokens?: number
-  completion_tokens?: number
-  total_tokens?: number
-  /** USD, as reported by OpenRouter. Absent when the provider does not report it. */
-  cost?: number
-}
-
 export interface ModelReply {
   text: string
   finish: string | null
   model: string | null
-  usage: ModelUsage
+  usage: RunUsage
   attempts: number
-}
-
-interface Failure {
-  status: number
-  message: string
 }
 
 /** An HTTP error from the provider. Only the status is kept; the body is never shown. */
@@ -53,9 +42,9 @@ export function getApiKey(): string | null {
   return process.env.OPENROUTER_API_KEY?.trim() || null
 }
 
-function readUsage(raw: unknown): ModelUsage {
+function readUsage(raw: unknown): RunUsage {
   const data = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  const out: ModelUsage = {}
+  const out: RunUsage = {}
   for (const key of USAGE_KEYS) {
     const value = data[key]
     if (typeof value === 'number' && Number.isFinite(value)) out[key] = value
@@ -64,9 +53,9 @@ function readUsage(raw: unknown): ModelUsage {
 }
 
 /** Adds usage across calls. A total is reported only when every call reported that field. */
-export function sumUsage(parts: ModelUsage[]): ModelUsage {
+export function sumUsage(parts: RunUsage[]): RunUsage {
   if (parts.length === 0) return {}
-  const out: ModelUsage = {}
+  const out: RunUsage = {}
   for (const key of USAGE_KEYS) {
     const values = parts.map((part) => part[key])
     if (values.every((value): value is number => typeof value === 'number')) {
@@ -80,7 +69,7 @@ interface RawReply {
   text: string
   finish: string | null
   model: string | null
-  usage: ModelUsage
+  usage: RunUsage
 }
 
 async function requestOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
@@ -141,7 +130,7 @@ export async function callModel(messages: ChatMessage[], signal: AbortSignal): P
 }
 
 /** Maps a failed model call to our HTTP status and a plain-language message. Never the raw body. */
-export function describeFailure(err: unknown): Failure {
+export function describeFailure(err: unknown): { status: number; message: string } {
   if (err instanceof ProviderError) {
     if (err.status === 401 || err.status === 402 || err.status === 403) {
       return { status: 502, message: 'The AI provider rejected the key or is out of credit.' }

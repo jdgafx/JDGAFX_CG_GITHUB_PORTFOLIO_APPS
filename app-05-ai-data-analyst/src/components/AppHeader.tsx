@@ -15,7 +15,7 @@ export default function AppHeader({ status }: { status: HeaderStatus }) {
       <div className="ds-header__inner">
         <div>
           <h1 className="ds-title">DataPilot</h1>
-          <p className="ds-subtitle">Ask a question about a CSV and get a chart with the numbers behind it.</p>
+          <p className="ds-subtitle">Ask a question about live public data or your own CSV and get a chart with the numbers behind it.</p>
         </div>
         <span className={`ds-badge ${tone}`}>{label}</span>
         <p className="ds-showcase">

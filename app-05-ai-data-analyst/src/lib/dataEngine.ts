@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import type { ParsedData, QueryPlan, EngineResult } from '../types'
-import { isValueSort, validateQueryPlan } from './queryPlan'
+import { isValueSort } from './queryPlan'
 import { MAX_ROWS } from './limits'
 
 const BLANK_LABEL = '(blank)'
@@ -97,11 +97,8 @@ function applyOrder(
   }
 }
 
-export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResult {
-  const validation = validateQueryPlan(queryPlan, data.headers)
-  if (!validation.ok) throw new Error(validation.error)
-  const plan = validation.plan
-
+/** Runs a plan over every row. The plan must already have passed validateQueryPlan for these headers. */
+export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
   let rows = [...data.rows]
 
   if (plan.filter) {
@@ -126,14 +123,11 @@ export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResu
           return comparable && numCell <= numValue
         case 'contains':
           return cellValue.toLowerCase().includes(value.toLowerCase())
-        default:
-          return true
       }
     })
   }
 
   const groups = new Map<string, number[]>()
-  const countsByLabel = new Map<string, number>()
   let skippedCells = 0
 
   for (const row of rows) {
@@ -141,7 +135,6 @@ export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResu
     const key = rawKey == null || rawKey.trim() === '' ? BLANK_LABEL : rawKey
 
     if (!groups.has(key)) groups.set(key, [])
-    countsByLabel.set(key, (countsByLabel.get(key) ?? 0) + 1)
 
     if (plan.aggregate.fn === 'count') {
       groups.get(key)?.push(1)
@@ -171,7 +164,7 @@ export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResu
         agg = nums.length > 0 ? total / nums.length : 0
         break
       case 'count':
-        agg = countsByLabel.get(label) ?? nums.length
+        agg = nums.length
         break
       case 'min':
         agg = nums.length > 0 ? Math.min(...nums) : 0
@@ -179,8 +172,6 @@ export function executeQuery(data: ParsedData, queryPlan: QueryPlan): EngineResu
       case 'max':
         agg = nums.length > 0 ? Math.max(...nums) : 0
         break
-      default:
-        agg = total
     }
     values.push(agg)
   }

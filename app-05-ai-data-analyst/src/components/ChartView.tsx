@@ -91,17 +91,15 @@ function limitGroups(
   if (combine) {
     outLabels.push(OTHER_LABEL)
     outValues.push(tail.reduce((a, g) => a + g.value, 0))
-    return {
-      labels: outLabels,
-      values: outValues,
-      note: `Showing the ${keep.length} largest of ${labels.length} groups. The remaining ${tail.length} are combined as "${OTHER_LABEL}".`,
-    }
   }
 
+  const rest = combine
+    ? `The remaining ${tail.length} are combined as "${OTHER_LABEL}".`
+    : `${tail.length} smaller groups are not plotted.`
   return {
     labels: outLabels,
     values: outValues,
-    note: `Showing the ${keep.length} largest of ${labels.length} groups. ${tail.length} smaller groups are not plotted.`,
+    note: `Showing the ${keep.length} largest of ${labels.length} groups. ${rest}`,
   }
 }
 
@@ -170,11 +168,6 @@ export default function ChartView({ result }: ChartViewProps) {
   const standardData = plotLabels.map((label, i) => ({
     name: label,
     [datasetName]: plotValues[i] ?? 0,
-  }))
-
-  const pieData = plotLabels.map((label, i) => ({
-    name: label,
-    value: plotValues[i] ?? 0,
   }))
 
   const scatterData = plotLabels.map((label, i) => ({
@@ -267,8 +260,8 @@ export default function ChartView({ result }: ChartViewProps) {
       return (
         <PieChart margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
           <Pie
-            data={pieData}
-            dataKey="value"
+            data={standardData}
+            dataKey={datasetName}
             nameKey="name"
             cx="50%"
             cy="50%"
@@ -277,7 +270,7 @@ export default function ChartView({ result }: ChartViewProps) {
             paddingAngle={2}
             isAnimationActive={false}
           >
-            {pieData.map((entry, index) => (
+            {standardData.map((entry, index) => (
               <Cell
                 key={entry.name}
                 fill={entry.name === OTHER_LABEL ? palette.other : (palette.series[index] ?? palette.other)}

@@ -22,7 +22,7 @@ interface RunColumnProps {
 
 /** Result text for the states that have no chart to show. */
 function emptyResultText(parsedData: ParsedData | null, outcome: RunOutcome | undefined): string {
-  if (!parsedData) return 'Choose a sample dataset or upload a CSV to start.'
+  if (!parsedData) return 'Pick a live dataset or upload a CSV to start.'
   if (outcome === 'failed') return 'No chart for this question. The message at the top says why.'
   if (outcome === 'stopped') return 'Stopped before a chart was drawn. Choose Plan and run to try again.'
   return 'Type a question, then choose Plan and run to draw a chart from your data.'

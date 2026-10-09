@@ -8,11 +8,11 @@ const SORT_DIRS: SortDir[] = ['asc', 'desc']
 /** Sort targets that always refer to the aggregated output rather than a source column. */
 const VALUE_SORT_FIELDS = ['value', 'count', 'total']
 
-export type PlanValidation =
+type PlanValidation =
   | { ok: true; plan: QueryPlan }
   | { ok: false; error: string }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

@@ -4,8 +4,16 @@ import { answerSentence } from './lib/answer'
 import { executeQuery, parseCSV, topGroup } from './lib/dataEngine'
 import { validateQueryPlan } from './lib/queryPlan'
 import { askData, AnalysisRunError, CancelledError, clientRun, sampleFor } from './lib/api'
-import { SAMPLE_DATASETS, SAMPLE_QUERIES } from './lib/sampleData'
+import {
+  CITIES,
+  DATASET_CHOICES,
+  DEFAULT_CITY,
+  DEFAULT_DATASET,
+} from './lib/liveData/catalog'
+import { MAX_ROWS } from './lib/limits'
+import { useLiveDataset, type DatasetState } from './hooks/useLiveDataset'
 import AppHeader, { type HeaderStatus } from './components/AppHeader'
+import DataSection from './components/DataSection'
 import QueryBar from './components/QueryBar'
 import Banners from './components/Banners'
 import RunColumn from './components/RunColumn'
@@ -14,7 +22,7 @@ import type {
   DatasetOption,
   EngineResult,
   HistoryEntry,
-  ParsedData,
+  LoadedDataset,
   RunStep,
   RunView,
 } from './types'
@@ -22,23 +30,6 @@ import type {
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
 const MAX_HISTORY = 20
 const CUSTOM = 'custom'
-
-const SAMPLE_OPTIONS: DatasetOption[] = [
-  { value: 'sales', label: 'Sales performance' },
-  { value: 'analytics', label: 'User analytics' },
-  { value: 'weather', label: 'Weather data' },
-]
-
-/** The bundled samples are fixed text, so this only returns null if the bundle itself is broken. */
-function loadSample(key: string): ParsedData | null {
-  const csv = SAMPLE_DATASETS[key]
-  if (!csv) return null
-  try {
-    return parseCSV(csv)
-  } catch {
-    return null
-  }
-}
 
 /** The live status line. It uses the same verb as the primary button: Plan and run. */
 function statusMessage(
@@ -58,9 +49,9 @@ function statusMessage(
 }
 
 export default function App() {
-  const [selectedDataset, setSelectedDataset] = useState<string>('sales')
-  const [customData, setCustomData] = useState<ParsedData | null>(null)
-  const [customFileName, setCustomFileName] = useState<string | null>(null)
+  const [selectedDataset, setSelectedDataset] = useState<string>(DEFAULT_DATASET)
+  const [cityId, setCityId] = useState<string>(DEFAULT_CITY)
+  const [upload, setUpload] = useState<LoadedDataset | null>(null)
   const [question, setQuestion] = useState<string>('')
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [current, setCurrent] = useState<AnalysisResult | null>(null)
@@ -72,28 +63,43 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const sampleData = useMemo(() => loadSample(selectedDataset), [selectedDataset])
-  const parsedData = selectedDataset === CUSTOM ? customData : sampleData
-  const sampleError =
-    selectedDataset !== CUSTOM && parsedData === null
-      ? 'This sample dataset could not be loaded. Reload the page, or upload your own CSV.'
-      : null
+  const choice = DATASET_CHOICES.find((item) => item.id === selectedDataset)
+  const live = useLiveDataset(choice?.id ?? null, cityId)
+  const datasetState: DatasetState =
+    choice || !upload ? live.state : { status: 'ready', loaded: upload }
+  const loaded = datasetState.status === 'ready' ? datasetState.loaded : null
+  const parsedData = loaded?.data ?? null
 
-  const options = useMemo<DatasetOption[]>(
-    () => (customFileName ? [...SAMPLE_OPTIONS, { value: CUSTOM, label: customFileName }] : SAMPLE_OPTIONS),
-    [customFileName],
-  )
-  const datasetLabel = options.find((option) => option.value === selectedDataset)?.label ?? selectedDataset
+  const options = useMemo<DatasetOption[]>(() => {
+    const liveOptions = DATASET_CHOICES.map(({ id, label }) => ({ value: id, label: `${label} (live)` }))
+    return upload ? [...liveOptions, { value: CUSTOM, label: upload.source.label }] : liveOptions
+  }, [upload])
+  const datasetLabel = loaded?.source.label ?? selectedDataset
 
   // Never leave a request in flight after the view goes away.
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const handleSelect = (value: string) => {
-    setSelectedDataset(value)
+  // A result belongs to the rows it was computed from, so it clears when those rows change.
+  const clearResult = () => {
     setCurrent(null)
     setRun(null)
     setError(null)
     setNotice(null)
+  }
+
+  const handleSelect = (value: string) => {
+    setSelectedDataset(value)
+    clearResult()
+  }
+
+  const handleCityChange = (value: string) => {
+    setCityId(value)
+    clearResult()
+  }
+
+  const handleReload = () => {
+    live.reload()
+    clearResult()
   }
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
@@ -128,7 +134,7 @@ export default function App() {
         const noticeParts: string[] = []
         if (parsed.truncated) {
           noticeParts.push(
-            `Large file: charting the first 10,000 of ${parsed.totalRows?.toLocaleString()} rows.`,
+            `Large file: charting the first ${MAX_ROWS.toLocaleString()} of ${parsed.totalRows?.toLocaleString()} rows.`,
           )
         } else if (parsed.rows.length === 0) {
           noticeParts.push(`"${file.name}" has a header row but no data rows, so there is nothing to chart.`)
@@ -139,8 +145,17 @@ export default function App() {
             `${parsed.parseErrorRowCount.toLocaleString()} ${noun} in this file could not be parsed cleanly and may be incomplete.`,
           )
         }
-        setCustomData(parsed)
-        setCustomFileName(file.name)
+        setUpload({
+          data: parsed,
+          source: {
+            kind: 'upload',
+            provider: 'Your file',
+            label: file.name,
+            detail: 'Parsed in this browser. Only the column names and five sample rows go to the model.',
+            url: null,
+            fetchedAt: new Date(),
+          },
+        })
         setCurrent(null)
         setRun(null)
         setSelectedDataset(CUSTOM)
@@ -256,7 +271,7 @@ export default function App() {
   }
 
   const headerStatus: HeaderStatus = isLoading ? 'running' : run ? run.outcome : 'idle'
-  const suggestions = SAMPLE_QUERIES[selectedDataset] ?? []
+  const suggestions = choice?.questions ?? []
   const statusText = statusMessage(isLoading, run, current, parsedData !== null)
 
   return (
@@ -265,29 +280,39 @@ export default function App() {
 
       <main className="ds-main">
         <Banners
-          error={error ?? sampleError}
+          error={error}
           notice={notice}
           onDismissError={() => setError(null)}
           onDismissNotice={() => setNotice(null)}
         />
 
         <div className="ds-bench">
-          <QueryBar
-            options={options}
-            selected={selectedDataset}
-            parsedData={parsedData}
-            question={question}
-            suggestions={suggestions}
-            isLoading={isLoading}
-            statusText={statusText}
-            fileInputRef={fileInputRef}
-            onSelect={handleSelect}
-            onUploadClick={() => fileInputRef.current?.click()}
-            onFileChange={handleFileUpload}
-            onQuestionChange={setQuestion}
-            onAnalyze={() => void handleAnalyze()}
-            onStop={handleStop}
-          />
+          <div className="ds-controls">
+            <DataSection
+              options={options}
+              selected={selectedDataset}
+              cities={selectedDataset === 'weather' ? CITIES : null}
+              cityId={cityId}
+              state={datasetState}
+              disabled={isLoading}
+              fileInputRef={fileInputRef}
+              onSelect={handleSelect}
+              onCityChange={handleCityChange}
+              onReload={handleReload}
+              onUploadClick={() => fileInputRef.current?.click()}
+              onFileChange={handleFileUpload}
+            />
+            <QueryBar
+              parsedData={parsedData}
+              question={question}
+              suggestions={suggestions}
+              isLoading={isLoading}
+              statusText={statusText}
+              onQuestionChange={setQuestion}
+              onAnalyze={() => void handleAnalyze()}
+              onStop={handleStop}
+            />
+          </div>
 
           <RunColumn
             parsedData={parsedData}

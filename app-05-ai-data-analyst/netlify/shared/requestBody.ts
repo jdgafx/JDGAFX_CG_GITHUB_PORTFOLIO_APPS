@@ -6,6 +6,7 @@ import {
   MAX_ROWS,
   MAX_SAMPLE_ROWS,
 } from '../../src/lib/limits'
+import { isRecord } from '../../src/lib/queryPlan'
 
 /** The browser's request after validation: every sample cell is text and every key is a column. */
 export interface AnalysisInput {
@@ -28,14 +29,6 @@ const NOT_JSON = 'Request body was not valid JSON.'
 
 function reject(status: number, error: string): Rejection {
   return { ok: false, status, error }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isText(value: unknown): value is string {
-  return typeof value === 'string'
 }
 
 /** Reads the body as bytes, so the size limit counts what was sent rather than characters. */
@@ -72,7 +65,7 @@ export function checkAnalysisBody(body: unknown): Checked<AnalysisInput> {
   if (!Array.isArray(headers) || headers.length === 0) return reject(400, 'Dataset columns are required.')
   const names: unknown[] = headers
   if (names.length > MAX_HEADERS) return reject(400, `Dataset has too many columns (max ${MAX_HEADERS}).`)
-  if (!names.every(isText)) return reject(400, 'Column names must be text.')
+  if (!names.every((name) => typeof name === 'string')) return reject(400, 'Column names must be text.')
   if (names.some((name) => name.length > MAX_CELL_CHARS)) {
     return reject(400, `A column name is longer than ${MAX_CELL_CHARS} characters.`)
   }

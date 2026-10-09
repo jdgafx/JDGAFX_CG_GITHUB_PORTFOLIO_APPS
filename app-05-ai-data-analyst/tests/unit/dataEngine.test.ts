@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { executeQuery, parseCSV, parseNumericCell, topGroup } from '../../src/lib/dataEngine'
-import { SALES_CSV } from '../../src/lib/sampleData'
+import { parseEarthquakeCsv, parseWeatherCsv } from '../../src/lib/liveData/parse'
+import { OPEN_METEO_EXCERPT } from '../fixtures/openMeteo'
+import { USGS_EXCERPT } from '../fixtures/usgs'
+import { MAX_ROWS } from '../../src/lib/limits'
 import type { AggregateFn, QueryPlan } from '../../src/types'
 
-const sales = parseCSV(SALES_CSV)
+const quakes = parseEarthquakeCsv(USGS_EXCERPT)
+const weather = parseWeatherCsv(OPEN_METEO_EXCERPT)
 
 function planWith(groupBy: string, fn: AggregateFn, extra: Partial<QueryPlan> = {}): QueryPlan {
   return {
@@ -35,69 +39,93 @@ describe('parseNumericCell', () => {
 })
 
 describe('parseCSV', () => {
-  it('reads the bundled sales sample as 50 rows under five headers', () => {
-    expect(sales.headers).toEqual(['date', 'product', 'revenue', 'units', 'region'])
-    expect(sales.rows).toHaveLength(50)
-    expect(sales.truncated).toBe(false)
-    expect(sales.totalRows).toBe(50)
+  it('reads quoted cells that contain commas', () => {
+    const data = parseCSV('place,mag\n"2 km SSE of Nikiski, Alaska",1.8')
+    expect(data.rows).toEqual([{ place: '2 km SSE of Nikiski, Alaska', mag: '1.8' }])
+  })
+
+  it('flags a file with more rows than the limit as truncated', () => {
+    const csv = `n\n${Array.from({ length: MAX_ROWS + 1 }, (_, i) => i).join('\n')}`
+    const data = parseCSV(csv)
+    expect(data.rows).toHaveLength(MAX_ROWS)
+    expect(data.truncated).toBe(true)
+    expect(data.totalRows).toBe(MAX_ROWS + 1)
   })
 })
 
-describe('executeQuery on the sales sample', () => {
-  it('totals revenue by product, highest first', () => {
-    const result = executeQuery(sales, planWith('product', 'sum', { sortBy: { field: 'revenue', dir: 'desc' } }))
-    expect(result.labels).toEqual(['Gadget Y', 'Widget A', 'Gadget X', 'Widget C', 'Widget B'])
-    expect(result.datasets[0]?.values).toEqual([270000, 190000, 188800, 121950, 114300])
+describe('executeQuery on a recorded USGS excerpt', () => {
+  it('counts earthquakes per region, with the CA code read as California', () => {
+    const result = executeQuery(quakes, planWith('region', 'count', { sortBy: { field: 'count', dir: 'desc' } }))
+    expect(result.labels.slice(0, 4)).toEqual(['Alaska', 'California', 'Hawaii', 'Nevada'])
+    expect(result.datasets[0]?.values.slice(0, 4)).toEqual([3, 3, 2, 2])
+    expect(result.labels).not.toContain('CA')
+    expect(result.datasets[0]?.values.reduce((a, b) => a + b, 0)).toBe(16)
   })
 
-  it('totals revenue by region, highest first', () => {
-    const result = executeQuery(sales, planWith('region', 'sum', { sortBy: { field: 'revenue', dir: 'desc' } }))
-    expect(result.labels).toEqual(['North', 'East', 'South', 'West'])
-    expect(result.datasets[0]?.values).toEqual([242550, 240750, 202950, 198800])
+  it('averages magnitude by magnitude type', () => {
+    const plan = planWith('magType', 'avg', { aggregate: { field: 'mag', fn: 'avg' } })
+    const result = executeQuery(quakes, plan)
+    const byType = Object.fromEntries(result.labels.map((label, i) => [label, result.datasets[0]?.values[i]]))
+    expect(byType.ml).toBeCloseTo(1.511, 6)
+    expect(byType.md).toBeCloseTo(1.5625, 6)
+    expect(byType.mb).toBeCloseTo(4.4, 6)
+    expect(topGroup(result)?.label).toBe('mb')
   })
 
-  it('averages revenue per product', () => {
-    expect(topGroup(executeQuery(sales, planWith('product', 'avg')))).toEqual({ label: 'Gadget Y', value: 27000 })
+  it('counts rows by event type', () => {
+    const result = executeQuery(quakes, planWith('type', 'count', { sortBy: { field: 'count', dir: 'desc' } }))
+    expect(result.labels).toEqual(['earthquake', 'explosion', 'quarry blast'])
+    expect(result.datasets[0]?.values).toEqual([12, 3, 1])
   })
 
-  it('finds the largest and the smallest revenue per product', () => {
-    expect(topGroup(executeQuery(sales, planWith('product', 'max')))).toEqual({ label: 'Gadget Y', value: 36000 })
-    expect(topGroup(executeQuery(sales, planWith('product', 'min')))).toEqual({ label: 'Gadget Y', value: 19200 })
-  })
-
-  it('counts rows after a case-insensitive filter', () => {
-    const plan = planWith('region', 'count', { filter: { field: 'region', op: 'eq', value: 'north' } })
-    expect(executeQuery(sales, plan)).toMatchObject({ labels: ['North'], datasets: [{ values: [13] }] })
+  it('finds the strongest magnitude within one event type', () => {
+    const plan = planWith('region', 'max', {
+      aggregate: { field: 'mag', fn: 'max' },
+      filter: { field: 'type', op: 'eq', value: 'EARTHQUAKE' },
+    })
+    expect(topGroup(executeQuery(quakes, plan))).toEqual({ label: 'Japan region', value: 4.6 })
   })
 
   it('keeps only rows above a numeric threshold before grouping', () => {
-    const plan = planWith('product', 'sum', { filter: { field: 'revenue', op: 'gt', value: '30000' } })
-    const result = executeQuery(sales, plan)
-    expect(result.labels).toEqual(['Gadget Y'])
-    expect(result.datasets[0]?.values).toEqual([68400])
-  })
-
-  it('finds the top product within one region', () => {
-    const plan = planWith('product', 'sum', {
-      filter: { field: 'region', op: 'eq', value: 'North' },
-      sortBy: { field: 'revenue', dir: 'desc' },
-    })
-    expect(topGroup(executeQuery(sales, plan))).toEqual({ label: 'Gadget Y', value: 84000 })
+    const plan = planWith('magType', 'count', { filter: { field: 'mag', op: 'gte', value: '2' } })
+    const result = executeQuery(quakes, plan)
+    expect(result.labels).toEqual(['md', 'mb', 'ml'])
+    expect(result.datasets[0]?.values).toEqual([1, 2, 2])
   })
 
   it('sorts by the group label when asked', () => {
-    const result = executeQuery(sales, planWith('product', 'sum', { sortBy: { field: 'product', dir: 'asc' } }))
-    expect(result.labels).toEqual(['Gadget X', 'Gadget Y', 'Widget A', 'Widget B', 'Widget C'])
+    const result = executeQuery(quakes, planWith('type', 'count', { sortBy: { field: 'type', dir: 'desc' } }))
+    expect(result.labels).toEqual(['quarry blast', 'explosion', 'earthquake'])
   })
 
   it('has no top group when a filter matches no rows', () => {
-    const result = executeQuery(sales, planWith('product', 'sum', { filter: { field: 'region', op: 'eq', value: 'Mars' } }))
+    const result = executeQuery(quakes, planWith('type', 'count', { filter: { field: 'region', op: 'eq', value: 'Mars' } }))
     expect(result.labels).toEqual([])
     expect(topGroup(result)).toBeNull()
   })
+})
 
-  it('refuses a plan that names a column the data does not have', () => {
-    expect(() => executeQuery(sales, planWith('category', 'sum'))).toThrow(/not in this dataset/)
+describe('executeQuery on a recorded Open-Meteo excerpt', () => {
+  it('averages the daily high by month, in calendar order', () => {
+    const plan = planWith('month', 'avg', { chartType: 'line', aggregate: { field: 'temp_max_c', fn: 'avg' } })
+    const result = executeQuery(weather, plan)
+    expect(result.labels).toEqual(['2025-10', '2025-11'])
+    expect(result.datasets[0]?.values[0]).toBeCloseTo(17.1, 6)
+    expect(result.datasets[0]?.values[1]).toBeCloseTo(14.6, 6)
+  })
+
+  it('totals rain by month', () => {
+    const plan = planWith('month', 'sum', { aggregate: { field: 'precipitation_mm', fn: 'sum' } })
+    const result = executeQuery(weather, plan)
+    expect(result.labels).toEqual(['2025-10', '2025-11'])
+    expect(result.datasets[0]?.values[0]).toBeCloseTo(54.0, 6)
+    expect(result.datasets[0]?.values[1]).toBeCloseTo(0.1, 6)
+  })
+
+  it('finds the lowest overnight temperature in the whole period', () => {
+    const plan = planWith('month', 'min', { aggregate: { field: 'temp_min_c', fn: 'min' } })
+    const result = executeQuery(weather, plan)
+    expect(result.datasets[0]?.values).toEqual([4.9, 4.0])
   })
 })
 

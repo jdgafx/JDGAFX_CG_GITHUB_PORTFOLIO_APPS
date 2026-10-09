@@ -5,25 +5,30 @@ interface BannersProps {
   onDismissNotice: () => void
 }
 
+interface BannerProps {
+  message: string
+  label: string
+  tone: string
+  role: 'alert' | 'status'
+  onDismiss: () => void
+}
+
+function Banner({ message, label, tone, role, onDismiss }: BannerProps) {
+  return (
+    <div className={`ds-notice ${tone} app-banner`} role={role}>
+      <span>{message}</span>
+      <button type="button" className="ds-button app-banner__dismiss" aria-label={label} onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  )
+}
+
 export default function Banners({ error, notice, onDismissError, onDismissNotice }: BannersProps) {
   return (
     <>
-      {error && (
-        <div className="ds-notice ds-notice--error app-banner" role="alert">
-          <span>{error}</span>
-          <button type="button" className="ds-button app-banner__dismiss" aria-label="Dismiss error" onClick={onDismissError}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {notice && (
-        <div className="ds-notice app-banner" role="status">
-          <span>{notice}</span>
-          <button type="button" className="ds-button app-banner__dismiss" aria-label="Dismiss notice" onClick={onDismissNotice}>
-            Dismiss
-          </button>
-        </div>
-      )}
+      {error && <Banner message={error} label="Dismiss error" tone="ds-notice--error" role="alert" onDismiss={onDismissError} />}
+      {notice && <Banner message={notice} label="Dismiss notice" tone="" role="status" onDismiss={onDismissNotice} />}
     </>
   )
 }

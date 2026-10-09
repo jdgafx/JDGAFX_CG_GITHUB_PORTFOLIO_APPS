@@ -352,3 +352,101 @@
 .app-step-status--failed {
   color: var(--ds-danger);
 }
+
+/* Data source panel: where the rows came from, how many, and when they were fetched */
+.app-source {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-accent);
+  border-radius: var(--ds-radius);
+}
+
+.app-source__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.app-source__provider {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.app-source__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.app-source__detail {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ds-text-muted);
+}
+
+.app-source__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 16px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--ds-border);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.app-source__stats .ds-strip__value {
+  font-size: 17px;
+  white-space: nowrap;
+}
+
+.app-source__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.app-source__link {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ds-accent);
+  overflow-wrap: anywhere;
+}
+
+.app-source__reload {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.app-source__bar {
+  height: 3px;
+  background: var(--ds-accent);
+  border-radius: 2px;
+  transform-origin: left;
+  animation: app-fetch 1.4s ease-in-out infinite;
+}
+
+@keyframes app-fetch {
+  0% {
+    transform: scaleX(0.05);
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-source__bar {
+    animation: none;
+  }
+}

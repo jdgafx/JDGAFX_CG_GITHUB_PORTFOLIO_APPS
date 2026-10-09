@@ -93,6 +93,25 @@ export interface HistoryEntry {
   timestamp: Date
 }
 
+/** Where a dataset came from, shown beside it so a visitor can check the numbers at the source. */
+export interface DataSourceInfo {
+  kind: 'live' | 'upload'
+  /** Who publishes the data, or "Your file" for an upload. */
+  provider: string
+  /** The dataset's title, or the file name for an upload. */
+  label: string
+  /** What the rows cover, in one line. */
+  detail: string
+  /** The exact request URL. Null for an upload. */
+  url: string | null
+  fetchedAt: Date
+}
+
+export interface LoadedDataset {
+  data: ParsedData
+  source: DataSourceInfo
+}
+
 export interface DatasetOption {
   value: string
   label: string

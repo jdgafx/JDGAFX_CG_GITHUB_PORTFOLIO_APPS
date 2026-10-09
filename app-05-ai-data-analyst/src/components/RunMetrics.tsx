@@ -1,6 +1,6 @@
 import type { RunView } from '../types'
 
-export function formatCount(value: number | undefined): string {
+function formatCount(value: number | undefined): string {
   return value === undefined ? 'not reported' : value.toLocaleString()
 }
 

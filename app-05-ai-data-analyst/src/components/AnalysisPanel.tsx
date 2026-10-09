@@ -3,6 +3,13 @@ import { topGroup } from '../lib/dataEngine'
 import type { AnalysisResult } from '../types'
 import ChartView from './ChartView'
 
+const PLAN_PARTS = [
+  ['Group by', 'groupBy'],
+  ['Measure', 'measure'],
+  ['Filter', 'filter'],
+  ['Sort', 'sort'],
+] as const
+
 /** The hero: the one-sentence answer, the plan in plain words, then the chart it came from. */
 export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
   const { queryPlan: plan } = result
@@ -20,22 +27,12 @@ export default function AnalysisPanel({ result }: { result: AnalysisResult }) {
       {answer && <p className="app-answer ds-num">{answer}</p>}
 
       <dl className="app-plan-words">
-        <div>
-          <dt>Group by</dt>
-          <dd>{words.groupBy}</dd>
-        </div>
-        <div>
-          <dt>Measure</dt>
-          <dd>{words.measure}</dd>
-        </div>
-        <div>
-          <dt>Filter</dt>
-          <dd>{words.filter}</dd>
-        </div>
-        <div>
-          <dt>Sort</dt>
-          <dd>{words.sort}</dd>
-        </div>
+        {PLAN_PARTS.map(([label, part]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{words[part]}</dd>
+          </div>
+        ))}
       </dl>
 
       <ChartView result={result} />
