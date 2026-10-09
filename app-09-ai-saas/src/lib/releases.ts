@@ -7,10 +7,9 @@ export interface Release {
   kind: ReleaseKind
 }
 
-const REGISTRY = 'https://registry.npmjs.org'
-const REQUEST_TIMEOUT_MS = 20_000
-/** The registry document of a busy package is several megabytes once decoded. Anything past this is not read. */
-const MAX_BYTES = 40_000_000
+/** The service that streams a package's registry record and returns only its release dates. */
+const RELEASES_ENDPOINT = '/api/releases'
+const REQUEST_TIMEOUT_MS = 25_000
 /** A stable version: three numbers and nothing after them. Prereleases and canary builds are left out. */
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T/
@@ -62,47 +61,34 @@ export function parseReleases(json: unknown): Release[] {
   return releases.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 }
 
-/** The registry document URL. A scoped name is encoded into one path segment. */
-export const registryUrl = (name: string): string => `${REGISTRY}/${encodeURIComponent(name)}`
+/** The URL of the releases service for a package. */
+export const releasesUrl = (name: string): string => `${RELEASES_ENDPOINT}?name=${encodeURIComponent(name)}`
 
-/** Reads a response body to text, giving up past MAX_BYTES. The time limit on the request's signal covers the read. */
-async function readCapped(response: Response): Promise<string> {
-  if (!response.body) throw new ReleaseError('unexpected', 'The npm registry sent no reply.')
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let text = ''
-  let bytes = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    bytes += value.byteLength
-    if (bytes > MAX_BYTES) {
-      await reader.cancel().catch(() => undefined)
-      throw new ReleaseError('too-large', 'This package has too much release history for this page to read.')
-    }
-    text += decoder.decode(value, { stream: true })
-  }
-  return text + decoder.decode()
-}
+/** A failure kind the service names, or "unexpected". */
+const KINDS: readonly ReleaseErrorKind[] = ['timeout', 'network', 'too-large', 'unexpected']
 
 /**
- * Fetches a package's release history. The registry answers browser requests from any origin. Rethrows the
- * caller's own abort; every other failure is a ReleaseError.
+ * Reads a package's release history through the releases service, which streams the registry record (tens of megabytes for
+ * busy packages) and sends back only the dates. Rethrows the caller's own abort; every other failure is a ReleaseError
+ * whose message says what happened, including when a record is too large.
  */
 export async function fetchReleases(name: string, signal?: AbortSignal): Promise<Release[]> {
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   const both = signal ? AbortSignal.any([signal, timeout]) : timeout
   try {
-    const response = await fetch(registryUrl(name), { signal: both })
+    const response = await fetch(releasesUrl(name), { signal: both })
     if (!response.ok) {
-      throw new ReleaseError('unexpected', `The npm registry answered with an error (HTTP ${response.status}).`)
+      const body = (await response.json().catch(() => null)) as { error?: unknown; kind?: unknown } | null
+      const kind = KINDS.includes(body?.kind as ReleaseErrorKind) ? (body?.kind as ReleaseErrorKind) : 'unexpected'
+      const message = typeof body?.error === 'string' ? body.error : `The releases service answered with an error (HTTP ${response.status}).`
+      throw new ReleaseError(kind, message)
     }
-    return parseReleases(JSON.parse(await readCapped(response)))
+    return parseReleases(await response.json())
   } catch (err) {
     if (err instanceof ReleaseError) throw err
     if (signal?.aborted) throw err
-    if (timeout.aborted) throw new ReleaseError('timeout', `The npm registry did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`)
-    if (err instanceof SyntaxError) throw new ReleaseError('unexpected', 'The npm registry sent a reply this page could not read.')
-    throw new ReleaseError('network', 'Could not reach the npm registry.')
+    if (timeout.aborted) throw new ReleaseError('timeout', `The releases service did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`)
+    if (err instanceof SyntaxError) throw new ReleaseError('unexpected', 'The releases service sent a reply this page could not read.')
+    throw new ReleaseError('network', 'Could not reach the releases service.')
   }
 }

@@ -247,6 +247,9 @@ describe('the saved live runs, with the claims the model wrote (next/nuxt/astro 
     ['N2', 26, 8],
     ['C2', 30, 5],
     ['M2', 26, 4],
+    ['P2', 24, 5],
+    ['C3', 24, 6],
+    ['N3', 30, 4],
   ])('%s: no rejected figure, at most a few unchecked', (key, minMatched, maxUnchecked) => {
     const run = runs[key]
     const check = checkClaims(run.result, parseClaims(run.claimsRaw) ?? [], run.summary)

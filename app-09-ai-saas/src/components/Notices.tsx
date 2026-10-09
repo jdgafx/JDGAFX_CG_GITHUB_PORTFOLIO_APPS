@@ -18,7 +18,7 @@ interface NoticesProps {
   span: DownloadWindow | null
   loading: boolean
   /** Packages whose release history could not be read. */
-  releaseFailures: string[]
+  releaseFailures: { name: string; message: string }[]
   onRetry: () => void
   onRetryReleases: () => void
   onRemove: (name: string) => void
@@ -78,10 +78,12 @@ export default function Notices({ failures, allFailed, span, loading, releaseFai
 
       {releaseFailures.length > 0 && (
         <div role="alert" className="ds-notice ds-notice--warning hub-release-notice">
-          <p>
-            Release history could not be read from the npm registry for <span className="ds-mono">{releaseFailures.join(', ')}</span>. Their
-            unusual days are still marked, but no releases are matched to them.
-          </p>
+          {releaseFailures.map((f) => (
+            <p key={f.name}>
+              Release history for <span className="ds-mono">{f.name}</span>: {f.message}
+            </p>
+          ))}
+          <p>Their unusual days are still marked, but no releases are matched to them.</p>
           <button type="button" className="ds-button" onClick={onRetryReleases}>
             Retry release history
           </button>

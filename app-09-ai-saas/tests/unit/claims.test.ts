@@ -192,15 +192,16 @@ describe('attribution: the text must speak of the packages the claim names', () 
 
   it('does not accept a right ratio claimed for a pair the sentence does not name', () => {
     // zod / sdk is 9.4, but the sentence is about react and the SDK.
-    // react / sdk is 6.8, so no pair the sentence names gives 9.4: it is wrong, not merely misfiled.
-    expect(unchecked('React is about 9.4 times the Anthropic SDK.', claim('9.4 times', 'multiple', ['zod', 'sdk']))).toEqual({ matched: 0, rejected: 1, unchecked: [] })
+    // react / sdk is 6.8, but zod / sdk is 9.4: some pair of the selection gives it, so it is left unchecked, not rejected.
+    expect(unchecked('React is about 9.4 times the Anthropic SDK.', claim('9.4 times', 'multiple', ['zod', 'sdk']))).toEqual({ matched: 0, rejected: 0, unchecked: ['9.4 times'] })
+    expect(unchecked('React is about 9.7 times the Anthropic SDK.', claim('9.7 times', 'multiple', ['zod', 'sdk'])).rejected).toBe(1) // no pair gives 9.7
   })
 
   it("does not borrow a pair from elsewhere in the sentence: the quote's own neighbours decide", () => {
     const text = "Zod is roughly 30 times react's 5.7 billion total and about 9.4 times the SDK's total."
     // 30 times react is wrong (1.4), and "react" is its neighbour, so it is rejected, not borrowed onto zod / sdk.
     const borrowed = checkClaims(text, [claim("30 times react's 5.7 billion", 'multiple', ['zod', 'sdk'])], S)
-    expect(borrowed.rejected.map((r) => r.figure)).toEqual(['30 times'])
+    expect(borrowed.rejected.map((r) => r.figure)).toEqual(['30 times']) // no pair of the selection gives 30
     expect(checkClaims(text, [claim('9.4 times', 'multiple', ['zod', 'sdk'])], S)).toMatchObject({ rejected: [], unchecked: ['30 times'] })
   })
 

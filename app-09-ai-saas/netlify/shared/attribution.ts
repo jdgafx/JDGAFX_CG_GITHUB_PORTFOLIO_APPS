@@ -6,6 +6,8 @@
  * no owner may only be matched against values that belong to no single package.
  */
 
+import { clauseSpans, sentenceAt } from './boundaries'
+
 /** Package names that are ordinary English words. They count as a mention only in the form the package is written ("Next", "Next.js"). */
 const ENGLISH_WORD_NAMES = new Set(['next', 'express', 'request', 'debug'])
 
@@ -68,25 +70,10 @@ export function mentionsIn(text: string, names: string[], from = 0, to = text.le
   return found.sort((a, b) => a.at - b.at)
 }
 
-export interface Segment {
-  start: number
-  end: number
-  paragraph: number
-}
+export type { Segment } from './boundaries'
 
-/** The clauses of `text`: split at . ! ? ; : and line breaks. A blank line starts a new paragraph. */
-export function segmentsOf(text: string): Segment[] {
-  const breaks = [...text.matchAll(/\n[ \t]*\n/g)].map((m) => (m.index ?? 0) + m[0].length)
-  const paragraphAt = (pos: number) => breaks.filter((b) => b <= pos).length
-  const segments: Segment[] = []
-  let start = 0
-  for (const m of text.matchAll(/[;:!?\n]|\.(?=\s|$)/g)) {
-    segments.push({ start, end: m.index ?? 0, paragraph: paragraphAt(start) })
-    start = (m.index ?? 0) + 1
-  }
-  segments.push({ start, end: text.length, paragraph: paragraphAt(start) })
-  return segments
-}
+/** The clauses of `text`. */
+export const segmentsOf = clauseSpans
 
 const REACH = 4
 /** The words that tie a package to the figure just before it, with no punctuation between: "834.2 million for the SDK". */
@@ -101,6 +88,8 @@ export interface Context {
   carried: string[]
   /** The first of those. */
   subject: string | null
+  /** Packages named in the clause before the figure, in order of first mention. */
+  namedBefore: string[]
   /** True when the clause opens with a pronoun. */
   pronoun: boolean
   /** The clause's own words. */
@@ -131,14 +120,17 @@ export function contextOf(text: string, index: number, end: number, names: strin
   let owner: string | null = null
   if (pronoun && carried.length === 1) owner = carried[0]
   else if (own.length > 0) {
-    const before = own.filter((m) => m.at < index)
+    const before = own.filter((m) => m.at < index && !/\bunlike\s+$/i.test(text.slice(Math.max(0, m.at - 12), m.at)))
     const tied = own.find((m) => m.at >= end && m.at - end <= 36 && TIES.test(text.slice(end, m.at)))
-    owner = tied?.name ?? before[before.length - 1]?.name ?? own[0].name
+    const last = before[before.length - 1]
+    // "React leads Vue and Svelte with 3%": after "with" or "holds" and a list of packages, the figure is the clause's subject's.
+    const subjectFigure = last && before.length >= 2 && !/\d/.test(text.slice(before[0].end, last.at)) && /\b(?:with|holds?|holding)\s+(?:about\s+|roughly\s+|around\s+)?$/i.test(text.slice(last.end, index))
+    owner = tied?.name ?? (subjectFigure ? before[0].name : undefined) ?? last?.name ?? own[0].name
   } else if (carried.length === 1) owner = carried[0]
-  const sentenceStart = Math.max(text.lastIndexOf('.', index) + 1, text.lastIndexOf('\n', index) + 1)
-  const sentenceEnd = text.slice(index).search(/[.!?\n]/)
-  const respectively = /\brespectively\b/i.test(text.slice(sentenceStart, sentenceEnd < 0 ? text.length : index + sentenceEnd))
-  return { owner, named, carried, subject, pronoun, clause: text.slice(seg.start, seg.end), respectively }
+  const sentence = sentenceAt(text, index)
+  const respectively = /\brespectively\b/i.test(text.slice(sentence.start, sentence.end))
+  const namedBefore = [...new Set(own.filter((m) => m.at < index).map((m) => m.name))]
+  return { owner, named, namedBefore, carried, subject, pronoun, clause: text.slice(seg.start, seg.end), respectively }
 }
 
 export type Metric = 'total' | 'per_day' | 'share' | 'change' | 'weekend' | 'spike_day' | 'baseline' | 'spike_pct'
@@ -147,25 +139,35 @@ export type Metric = 'total' | 'per_day' | 'share' | 'change' | 'weekend' | 'spi
  * The metric a figure's words say it is, read from the words around it inside its clause and between its neighbouring
  * figures ("in total", "per day", "usual", "share", "weekend"). Null when the words say nothing.
  */
-export function metricOf(text: string, from: number, index: number, end: number, to: number, unit: 'count' | '%'): Metric | null {
-  const after = text.slice(end, to)
-  const before = text.slice(from, index)
-  const both = `${before} ${after}`
+export function metricsIn(text: string, unit: 'count' | '%'): Metric[] {
+  const found: Metric[] = []
+  const has = (pattern: RegExp) => pattern.test(text)
   if (unit === 'count') {
-    if (/\b(?:per|a|each|every)[\s-]day\b|\bdaily\b/i.test(both)) return 'per_day'
-    if (/\b(?:usual|baseline|typical|normal)\b/i.test(both)) return 'baseline'
-    if (/\b(?:in total|totals?|overall|combined|altogether)\b|\bover the (?:window|period|year|\d+[- ]day)|\bin the window\b/i.test(both)) return 'total'
-    if (/\b(?:spike|unusual|stood out|stands out|peaked?)\b|\bon (?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]+ \d{1,2})/i.test(before)) return 'spike_day'
-    return null
+    if (has(/\b(?:per|a|each|every)[\s-]day\b|\bdaily\b|\baverag\w*|\baverage day\b/i)) found.push('per_day')
+    if (has(/\b(?:usual|baseline|typical|normal)\b/i)) found.push('baseline')
+    if (has(/\b(?:in total|totals?|overall|combined|altogether)\b|\bover the (?:window|period|year|\d+[- ]day)|\bin the window\b/i)) found.push('total')
+    if (has(/\b(?:spike|unusual|stood out|stands out|peaked?)\b|\bon (?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]+ \d{1,2})/i)) found.push('spike_day')
+    return found
   }
-  if (/\b(?:above|over|higher than|more than|against)\s+(?:the\s+|its\s+|their\s+)?(?:usual|baseline|typical)\b|\bspike/i.test(both)) return 'spike_pct'
-  if (/\bweekend|\bweekday/i.test(both)) return 'weekend'
-  if (/\bshare\b|\bof the (?:selection|total)\b|\bof (?:all |the )?(?:combined |selection's )?downloads/i.test(both)) return 'share'
-  if (/\b(?:grew|grow\w*|growth|rose|rise|rising|fell|fall\w*|drop\w*|declin\w*|change|increase\w*|gain\w*|jump\w*)\b/i.test(both)) return 'change'
-  return null
+  if (has(/\b(?:above|over|higher than|more than|against)\s+(?:the\s+|its\s+|their\s+)?(?:usual|baseline|typical)\b|\bspike/i)) found.push('spike_pct')
+  if (has(/\bweekend|\bweekday/i)) found.push('weekend')
+  if (has(/\bshare\b|\bof the (?:selection|total)\b|\bof (?:all |the )?(?:combined |selection's )?downloads/i)) found.push('share')
+  if (has(/\b(?:grew|grow\w*|growth|rose|rise|rising|fell|fall\w*|drop\w*|declin\w*|change|increase\w*|gain\w*|jump\w*)\b/i)) found.push('change')
+  return found
 }
 
-/** Where a clause of a sentence ends: a comma, bracket, break, or a linking word between two things being said. */
+/**
+ * The metric a figure's words say it is, read from the words around it between its delimiters. Null when they say
+ * nothing. The first by precedence when they say more than one.
+ */
+export function metricOf(text: string, from: number, index: number, end: number, to: number, unit: 'count' | '%'): Metric | null {
+  const both = `${text.slice(from, index)} ${text.slice(end, to)}`
+  const found = metricsIn(both, unit)
+  if (unit === 'count') return (['per_day', 'baseline', 'total', 'spike_day'] as Metric[]).find((m) => found.includes(m)) ?? null
+  return (['spike_pct', 'weekend', 'share', 'change'] as Metric[]).find((m) => found.includes(m)) ?? null
+}
+
+/** Where a clause of a sentence ends, for a figure's own words: a comma, bracket, break, or a linking word between two things being said. */
 const DELIMITER = /[,;:.!?\n()]|\s(?:and|while|but|with|vs\.?|versus|against|compared|whereas)\s/gi
 
 /** The span of words that belong to the figure at `index` .. `end`: after the nearest delimiter before it, up to the nearest after it. */
@@ -176,7 +178,7 @@ export function wordsOfFigure(text: string, index: number, end: number): { from:
   let from = Math.max(0, index - 60) + cut
   // "Per day: 26.5 million", "- Per day, 26.5 million": a short label that opens the line or sentence names the metric of what follows.
   const lead = text.slice(Math.max(0, from - 40), from)
-  const opener = /(?:^|[\n.;])\s*(?:[-*•]\s*)?([^\n.;:,]{1,24})([:,])\s*$/.exec(lead)
+  const opener = /(?:^|[\n.;,])\s*(?:[-*•]\s*)?([^\n.;:,]{1,24})([:,])\s*$/.exec(lead)
   if (opener && (opener[2] === ':' || /^(?:per|daily|total|share|weekend)\b/i.test(opener[1].trim()))) from = from - lead.length + (opener.index ?? 0) + (opener[0].length - opener[0].trimStart().length)
   const rest = text.slice(end, end + 80)
   const next = rest.search(new RegExp(DELIMITER.source, 'i'))

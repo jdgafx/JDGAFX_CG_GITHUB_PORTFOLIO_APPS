@@ -1,7 +1,7 @@
-import type { Summary } from './contract'
-import { contextOf, metricOf, SELECTION_WORDS, wordsOfFigure, type Context, type Metric } from './attribution'
+import type { PackageFigures, Summary } from './contract'
+import { contextOf, metricOf, metricsIn, SELECTION_WORDS, wordsOfFigure, type Context, type Metric } from './attribution'
 import { checkEvidence } from './evidence'
-import { directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Unit } from './figures'
+import { directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Range, type Unit } from './figures'
 
 /** The sentence check: every written percentage, count and multiple, read against the values the prompt listed. */
 
@@ -65,6 +65,27 @@ function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean 
   return false
 }
 
+/**
+ * Whether a range ("about 60 to 63%") holds for the packages the clause names: every one of them has a value of the metric
+ * inside it, at the bounds' precision. A range is never rejected: when it is not that, or nothing says which packages or
+ * which metric, it is unchecked.
+ */
+export function rangeHolds(range: Range, metric: Metric | null, named: ReadonlySet<string>, packages: PackageFigures[]): boolean {
+  if (named.size === 0 || metric === null) return false
+  const inside = (value: number) => {
+    const rounded = Math.round(value * 10 ** range.decimals) / 10 ** range.decimals
+    return rounded >= range.low && rounded <= range.high
+  }
+  return [...named].every((name) => {
+    const p = packages.find((candidate) => candidate.name === name)
+    if (!p) return false
+    if (metric === 'share') return inside(p.sharePct)
+    if (metric === 'change') return p.changePct !== null && inside(Math.abs(p.changePct))
+    if (metric === 'weekend') return p.weekendPct !== null && (inside(p.weekendPct) || inside(weekendGap(p.weekendPct)))
+    return false
+  })
+}
+
 /** The packages a multiple's clause names, plus, after a pronoun or with none named, the subject carried in from before. */
 function named(ctx: Context): Set<string> {
   return new Set([...ctx.named, ...(ctx.pronoun || ctx.named.length === 0 ? (ctx.subject ? [ctx.subject] : []) : [])])
@@ -76,7 +97,7 @@ function named(ctx: Context): Set<string> {
  * belong to no package (the selection's total, a multiple with its pair). The metric the words give ("per day", "in
  * total", "usual") must be the value's; when the words give none, the figure must match values of one metric only.
  */
-function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null): { matched: boolean; wrongDirection: boolean; ambiguous: boolean } {
+function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null, clauseAmbiguous: boolean): { matched: boolean; wrongDirection: boolean; ambiguous: boolean } {
   let sizeMatched = false
   const hits: PoolValue[] = []
   const set = q.unit === 'times' ? named(ctx) : new Set<string>()
@@ -92,6 +113,9 @@ function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null
     if (value.trend && !directionAgrees(q, value.value)) continue
     hits.push(value)
   }
+  // The metric words of the whole clause count too: a figure whose own words say nothing, in a clause that mentions two
+  // metrics, is not told apart.
+  if (said === null && clauseAmbiguous && q.unit !== 'times') return { matched: false, wrongDirection: false, ambiguous: true }
   const kept = said === null ? hits : hits.filter((value) => value.metric === said)
   const metrics = new Set(kept.map((value) => value.metric))
   // Without words that name the metric, a figure that fits values of two metrics is not told apart.
@@ -122,8 +146,19 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
     }
     // The words that name a metric are the figure's own: after the delimiter before it, up to the one after it.
     const own = wordsOfFigure(text, o.index, end)
-    const said = o.quoted.unit === 'times' ? null : metricOf(text, own.from, o.index, end, own.to, o.quoted.unit)
-    const verdict = judge(o.quoted, values, ctx, said)
+    const unit = o.quoted.unit === 'times' ? null : o.quoted.unit
+    // The clause's own metric words speak for a figure only when it is the one figure in the clause.
+    const clauseMetrics = unit && figureOccurrences(ctx.clause).length === 1 ? metricsIn(ctx.clause, unit) : []
+    const said = unit ? (metricOf(text, own.from, o.index, end, own.to, unit) ?? (clauseMetrics.length === 1 ? clauseMetrics[0] : null)) : null
+    if (o.quoted.range) {
+      result.checked += 1
+      // A range speaks of the packages named before it in its clause, else of those the clause names.
+      const subjects = ctx.namedBefore.length > 0 ? new Set(ctx.namedBefore) : named(ctx)
+      if (rangeHolds(o.quoted.range, said, subjects, s.packages)) result.matched += 1
+      else result.unmatched.push(o.whole)
+      return
+    }
+    const verdict = judge(o.quoted, values, ctx, said, clauseMetrics.length > 1)
     result.checked += 1
     if (verdict.matched) result.matched += 1
     else result.unmatched.push(verdict.wrongDirection ? `${o.whole} (direction does not match)` : o.whole)

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { classifyVersion, fetchReleases, parseReleases, registryUrl, ReleaseError } from '../../src/lib/releases'
+import { classifyVersion, fetchReleases, parseReleases, releasesUrl, ReleaseError } from '../../src/lib/releases'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -59,25 +59,30 @@ describe('parseReleases', () => {
   })
 })
 
-describe('fetchReleases', () => {
+describe('fetchReleases (through the releases service)', () => {
   const stub = (impl: (url: string, init?: RequestInit) => Promise<Response>) => {
     const mock = vi.fn(impl)
     vi.stubGlobal('fetch', mock)
     return mock
   }
 
-  it('builds the registry URL with a scoped name in one path segment', () => {
-    expect(registryUrl('react')).toBe('https://registry.npmjs.org/react')
-    expect(registryUrl('@anthropic-ai/sdk')).toBe('https://registry.npmjs.org/%40anthropic-ai%2Fsdk')
+  it('builds the service URL with a scoped name encoded', () => {
+    expect(releasesUrl('react')).toBe('/api/releases?name=react')
+    expect(releasesUrl('@anthropic-ai/sdk')).toBe('/api/releases?name=%40anthropic-ai%2Fsdk')
   })
 
   it('reads releases from a 200', async () => {
     const mock = stub(async () => Response.json({ time: { created: '2020-01-01T00:00:00.000Z', '1.2.3': '2024-02-03T04:05:06.000Z' } }))
     await expect(fetchReleases('left-pad')).resolves.toEqual([{ version: '1.2.3', date: '2024-02-03', kind: 'patch' }])
-    expect(mock.mock.calls[0][0]).toBe('https://registry.npmjs.org/left-pad')
+    expect(mock.mock.calls[0][0]).toBe('/api/releases?name=left-pad')
   })
 
-  it('names an HTTP error, a dropped connection and unreadable JSON in plain words', async () => {
+  it('passes on the service\'s own message and kind, including "too large", exactly', async () => {
+    stub(async () => Response.json({ error: 'The registry record is larger than the 250 MB this service reads.', kind: 'too-large' }, { status: 413 }))
+    await expect(fetchReleases('huge')).rejects.toMatchObject({ kind: 'too-large', message: 'The registry record is larger than the 250 MB this service reads.' })
+  })
+
+  it('names an HTTP error with no body, a dropped connection and unreadable JSON in plain words', async () => {
     stub(async () => new Response('x', { status: 503 }))
     await expect(fetchReleases('a')).rejects.toMatchObject({ kind: 'unexpected', message: expect.stringContaining('HTTP 503') })
     stub(async () => {
@@ -88,21 +93,7 @@ describe('fetchReleases', () => {
     await expect(fetchReleases('a')).rejects.toMatchObject({ kind: 'unexpected' })
   })
 
-  it('stops reading a body past the byte cap', async () => {
-    const chunk = new Uint8Array(8_000_000)
-    let sent = 0
-    stub(async () => new Response(new ReadableStream<Uint8Array>({
-      pull(controller) {
-        sent += 1
-        controller.enqueue(chunk)
-        if (sent > 20) controller.close()
-      },
-    })))
-    await expect(fetchReleases('huge')).rejects.toMatchObject({ kind: 'too-large' })
-    expect(sent).toBeLessThan(10)
-  })
-
-  it('reports a request that outlives its time limit as a timeout, and rethrows the callers own abort', async () => {
+  it('rethrows the callers own abort', async () => {
     stub((_url, init) => new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))))
     const own = new AbortController()
     const pending = fetchReleases('slow', own.signal)

@@ -49,9 +49,9 @@ export default function Header({ status, checkFailed, live }: HeaderProps) {
               </span>
             )}
           </div>
-          <p className="live-data ds-chip" data-state={live.state} role="status" aria-live="polite" title={LIVE_HOSTS}>
+          <p className="live-data ds-chip" data-state={live.state} role="status" aria-live="polite">
             <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
-            {liveText(live.state, live.fetchedAt)}
+            <span title={LIVE_HOSTS}>{liveText(live.state, live.fetchedAt)}</span>
           </p>
           <p className="ds-subtitle">
             Compare npm packages by real daily downloads. Unusual days are marked and matched to the releases just before them.

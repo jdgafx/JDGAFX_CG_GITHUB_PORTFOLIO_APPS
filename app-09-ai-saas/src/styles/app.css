@@ -133,7 +133,7 @@
 }
 
 /* The live data indicator: neutral until the real fetches succeed, then success; error when one fails. */
-.live-data { margin: 0; max-width: none; }
+.live-data { margin: 0; max-width: none; width: fit-content; align-self: flex-start; }
 .live-data[data-state="live"] { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
 .live-data[data-state="failed"] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .live-data .ds-dot { flex: none; }

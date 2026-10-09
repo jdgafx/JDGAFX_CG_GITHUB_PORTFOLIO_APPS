@@ -70,8 +70,14 @@ export default function Dashboard() {
     return lists
   }, [history.outcomes])
   const releaseFailures = useMemo(
-    () => (span ? span.series.map((s) => s.name).filter((name) => history.outcomes.has(name) && releaseLists.get(name) === null) : []),
-    [span, history.outcomes, releaseLists],
+    () =>
+      span
+        ? span.series.flatMap((s) => {
+            const outcome = history.outcomes.get(s.name)
+            return outcome && 'error' in outcome ? [{ name: s.name, message: outcome.error.message }] : []
+          })
+        : [],
+    [span, history.outcomes],
   )
   const spikes = useMemo(() => (year && span ? buildSpikeEvidence(year, span.start, releaseLists) : []), [year, span, releaseLists])
   const spikeCounts = useMemo(() => (year && span ? countSpikes(year, span.start) : {}), [year, span])
@@ -86,7 +92,8 @@ export default function Dashboard() {
     state: liveState({
       downloadsLoading: loading && colorIndex.length === 0,
       downloadsParsed: loading ? 0 : colorIndex.length,
-      downloadsFailed: loading ? 0 : failures.length,
+      // A name npm does not know is the visitor's input, not npm being unavailable.
+      downloadsFailed: loading ? 0 : failures.filter((f) => f.error.kind !== 'not-found').length,
       releasesLoading: history.loading,
       releasesParsed: [...history.outcomes.values()].filter((o) => 'releases' in o).length,
       releasesFailed: [...history.outcomes.values()].filter((o) => 'error' in o).length,

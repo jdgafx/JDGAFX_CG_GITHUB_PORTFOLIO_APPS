@@ -1,5 +1,6 @@
 import type { Summary } from './contract'
 import { mentionsIn, segmentsOf } from './attribution'
+import { sentenceAt } from './boundaries'
 
 /**
  * Counts of unusual days written in an explanation. One shape is checked: a number directly before "unusual days",
@@ -67,9 +68,8 @@ export function scanSpikeCounts(text: string, names: string[]): WrittenCount[] {
   const seen = new Set<number>()
   const segments = segmentsOf(text)
   const sentenceAround = (at: number) => {
-    const from = Math.max(text.lastIndexOf('.', at - 1) + 1, text.lastIndexOf('!', at - 1) + 1, text.lastIndexOf('?', at - 1) + 1, text.lastIndexOf('\n', at - 1) + 1)
-    const rest = text.slice(at).search(/[.!?\n]/)
-    return text.slice(from, rest < 0 ? text.length : at + rest)
+    const span = sentenceAt(text, at)
+    return text.slice(span.start, span.end)
   }
   for (const m of text.matchAll(PHRASE)) {
     const numberText = m[1] ?? m[0].slice(0, m[0].search(/\s+(?:unusual|notable|outlier|spike|days?|spikes?)\b/i))
@@ -81,6 +81,7 @@ export function scanSpikeCounts(text: string, names: string[]): WrittenCount[] {
     if (value === undefined) continue
     seen.add(at)
     const count: Counted = { value, text: numberText.trim(), index: at }
+    const sent = sentenceAt(text, at)
     const sentence = sentenceAround(at)
     const seg = segments.find((s) => at >= s.start && at <= s.end) ?? segments[0]
     const clause = text.slice(seg.start, seg.end)
@@ -89,7 +90,8 @@ export function scanSpikeCounts(text: string, names: string[]): WrittenCount[] {
     const plain = !NOT_PLAIN.test(sentence) && !PRONOUN_CLAUSE.test(clause)
     if (plain) {
       if (named.length === 1) scope = { package: named[0] }
-      else if (named.length === 0 && TOTAL_WORDS.test(sentence)) scope = { package: null }
+      // A clause that names nobody, in a sentence that names one package, is that package's or nobody's: unchecked.
+      else if (named.length === 0 && TOTAL_WORDS.test(sentence) && mentionsIn(text, names, sent.start, sent.end).length === 0) scope = { package: null }
     }
     found.push({ count, scope, qualifier: qualifierOf(m[0]), sentence })
   }

@@ -2,6 +2,14 @@
 
 export type Sign = 1 | -1 | 0
 
+import { clauseSpans } from './boundaries'
+
+/** The text from the start of the clause the character at `index` is in, to `index`. */
+function clauseBefore(text: string, index: number): string {
+  const spans = clauseSpans(text.slice(0, index))
+  return text.slice(spans[spans.length - 1].start, index)
+}
+
 /** Rounds to a number of decimal places, halves up. */
 export function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals
@@ -38,7 +46,7 @@ export function signOf(text: string, start: number): Sign {
   const before = text.charAt(start - 1)
   const beforeThat = text.charAt(start - 2)
   if (/[-−–+]/.test(before) && !/[A-Za-z0-9]/.test(beforeThat)) return before === '+' ? 1 : -1
-  const sentence = text.slice(0, start).split(/[;:!?\n]|\.(?=\s|$)/).pop() ?? ''
+  const sentence = clauseBefore(text, start)
   const words = sentence.trim().split(/\s+/).slice(-DIRECTION_WORDS).reverse()
   for (const word of words) {
     const bare = word.toLowerCase().replace(/[^a-z]/g, '')
@@ -50,8 +58,17 @@ export function signOf(text: string, start: number): Sign {
 
 export type Unit = '%' | 'count' | 'times'
 
+export interface Range {
+  low: number
+  high: number
+  /** Decimals of the more precise bound. */
+  decimals: number
+}
+
 export interface Quoted {
   unit: Unit
+  /** For "60 to 63%", "60-63%" or "between 60% and 63%": the bounds. The figure is then not a single value. */
+  range?: Range
   value: number
   decimals: number
   /** 1 for a figure written out in full, 1e6 for "million", and so on. */
@@ -73,14 +90,15 @@ const HEDGE = /(?:\b(?:about|roughly|around|approximately|approx\.?|nearly|almos
 
 /** Whether an approximating word stands up to two words before the figure that starts at `index`, in the same sentence. */
 export function isHedged(text: string, index: number): boolean {
-  const before = text.slice(Math.max(0, index - 48), index)
-  const sentence = before.split(/[;:!?\n]|\.(?=\s|$)/).pop() ?? ''
-  return HEDGE.test(sentence)
+  return HEDGE.test(clauseBefore(text, index).slice(-48))
 }
 
-/** Every percentage, count and multiple written in `text`, in order. */
+const decimalsOf = (digits: string): number => digits.split('.')[1]?.length ?? 0
+const num = (digits: string): number => Number(digits.replace(/,/g, ''))
+
+/** Every percentage, count and multiple written in `text`, in order. A percentage range counts as one figure carrying its bounds. */
 export function figureOccurrences(text: string): Occurrence[] {
-  return [...text.matchAll(FIGURE)].map((match) => {
+  const found: Occurrence[] = [...text.matchAll(FIGURE)].map((match) => {
     const [whole, percent, scaled, word, grouped, multiple] = match
     const digits = (percent ?? scaled ?? grouped ?? multiple).replace(/,/g, '')
     const unit: Unit = percent !== undefined ? '%' : multiple !== undefined ? 'times' : 'count'
@@ -90,13 +108,49 @@ export function figureOccurrences(text: string): Occurrence[] {
       quoted: {
         unit,
         value: Number(digits),
-        decimals: digits.split('.')[1]?.length ?? 0,
+        decimals: decimalsOf(digits),
         scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
         sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
         hedged: isHedged(text, match.index ?? 0),
       },
     }
   })
+  // Ranges: "60 to 63%", "60-63%" (a bare number before the dash), "60% to 63%" and "between 60% and 63%".
+  const merged: Occurrence[] = []
+  for (const o of found) {
+    if (o.quoted.unit !== '%') {
+      merged.push(o)
+      continue
+    }
+    const before = text.slice(0, o.index)
+    const bare = /(\d[\d,]*(?:\.\d+)?)\s*(?:to|-|–|—)\s*$/.exec(before)
+    const prev = merged[merged.length - 1]
+    const gap = prev && prev.quoted.unit === '%' ? text.slice(prev.index + prev.whole.length, o.index) : null
+    let start = -1
+    let low = 0
+    let lowDecimals = 0
+    if (bare) {
+      start = bare.index
+      low = num(bare[1])
+      lowDecimals = decimalsOf(bare[1].replace(/,/g, ''))
+    } else if (prev && gap !== null && (/^\s*(?:to|-|–|—)\s*$/.test(gap) || (/^\s+and\s+$/i.test(gap) && /\bbetween\s+$/i.test(text.slice(0, prev.index))))) {
+      start = prev.index
+      low = prev.quoted.value
+      lowDecimals = prev.quoted.decimals
+      merged.pop()
+    }
+    if (start < 0) {
+      merged.push(o)
+      continue
+    }
+    const end = o.index + o.whole.length
+    merged.push({
+      index: start,
+      whole: text.slice(start, end).trim(),
+      quoted: { ...o.quoted, range: { low, high: o.quoted.value, decimals: Math.max(lowDecimals, o.quoted.decimals) }, hedged: isHedged(text, start), sign: 0 },
+    })
+  }
+  return merged
 }
 
 /** Significant figures of a count written in full: 99,000 has two, 120,000 has two, 100,000 has one. */

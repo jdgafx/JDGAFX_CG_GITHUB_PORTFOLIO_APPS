@@ -1,7 +1,7 @@
 import type { PackageFigures, Summary } from './contract'
 import { contextOf, mentionsIn, SELECTION_WORDS, segmentsOf, wordsOfFigure } from './attribution'
 import { writtenDatesAndVersions, writtenIsKnown } from './evidence'
-import { checkFigures } from './figureCheck'
+import { checkFigures, rangeHolds } from './figureCheck'
 import { directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Unit } from './figures'
 import { resolvePackages, type Claim, type ClaimKind } from './claims'
 import { judgeSpikeCount, numberTokens, scanSpikeCounts } from './spikeCounts'
@@ -178,10 +178,25 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       result.ignored += 1
       continue
     }
-    const start = at + figure.index
-    const end = start + figure.whole.length
-    // The figure's direction and hedge are read from the whole explanation, where the words around it are.
-    const quoted = figureOccurrences(text).find((found) => found.index === start)?.quoted ?? figure.quoted
+    // The figure as the whole explanation reads it: its direction, hedge and, for "60 to 63%", its bounds.
+    const atFigure = at + figure.index
+    const whole = figureOccurrences(text).find((found) => atFigure >= found.index && atFigure < found.index + found.whole.length)
+    const start = whole?.index ?? atFigure
+    const end = whole ? whole.index + whole.whole.length : atFigure + figure.whole.length
+    const quoted = whole?.quoted ?? figure.quoted
+    if (quoted.range) {
+      // A range is judged by what the text names, never by the claim's package alone, and is never rejected.
+      const ctxR = contextOf(text, start, end, names)
+      const set = new Set(ctxR.namedBefore.length > 0 ? ctxR.namedBefore : [...ctxR.named, ...(ctxR.pronoun || ctxR.named.length === 0 ? (ctxR.subject ? [ctxR.subject] : []) : [])])
+      const metric = { share_pct: 'share', change_pct: 'change', weekend_pct: 'weekend' }[claim.k as string] as 'share' | 'change' | 'weekend' | undefined
+      const holds = rangeHolds(quoted.range, metric ?? null, set, s.packages)
+      covered.push({ start, end })
+      if (holds) {
+        result.checked += 1
+        result.matched += 1
+      } else result.unchecked.push(figure.whole)
+      continue
+    }
     const fits = (values: number[], hedge: boolean) => values.some((value) => matchesQuoted(quoted, value, hedge) && (!expected.trend || directionAgrees(quoted, value)))
 
     if (claim.k === 'multiple' || claim.k === 'difference') {
@@ -195,15 +210,12 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
         else verdict(fits(expected.values, claim.k === 'difference'), figure.whole, claim.q, start)
         continue
       }
-      // The claim's pair is not the one the text speaks of. Judge the ratio against every pair the text does name: a ratio
-      // no named pair gives is wrong; one that another named pair gives is a claim about the wrong pair, left unchecked.
-      const around = packagesAround(text, start, names)
-      const pairs = around.flatMap((a, i) => around.slice(i + 1).map((b) => [a, b] as const))
-      const others = pairs.flatMap(([a, b]) => {
-        const [pa, pb] = [s.packages.find((p) => p.name === a), s.packages.find((p) => p.name === b)]
-        return pa && pb ? ratios(pa, pb, claim.m) : []
-      })
-      if (claim.k === 'multiple' && pairs.length > 0 && !fits(others, false)) verdict(false, figure.whole, claim.q, start)
+      // The claim's pair is not the one the text speaks of. A ratio that no pair of the selection gives is wrong whatever the
+      // text names, so it is rejected; one that some pair gives may be right of a package the text names elsewhere (an earlier
+      // sentence, a pronoun), so it is left unchecked.
+      const pairs = s.packages.flatMap((a, i) => s.packages.slice(i + 1).map((b) => [a, b] as const))
+      const others = pairs.flatMap(([a, b]) => ratios(a, b, claim.m))
+      if (claim.k === 'multiple' && !fits(others, false)) verdict(false, figure.whole, claim.q, start)
       else leaveUnchecked(figure.whole, start)
       continue
     }
