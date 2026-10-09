@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { QUESTION_MAX_CHARS, SAMPLE_QUESTIONS } from '../lib/constants'
 import { count } from '../lib/format'
 
@@ -16,6 +16,12 @@ const examplesOpenAtStart = () => window.matchMedia('(min-width: 1000px)').match
 
 export function QuestionForm({ question, running, onChange, onSubmit, onCancel, onSample }: QuestionFormProps) {
   const [examplesOpen, setExamplesOpen] = useState(examplesOpenAtStart)
+  const stopRef = useRef<HTMLButtonElement>(null)
+
+  // Focus follows the action: Stop takes focus when a run starts, without moving the page.
+  useEffect(() => {
+    if (running) stopRef.current?.focus({ preventScroll: true })
+  }, [running])
   const length = Array.from(question.trim()).length
   const valid = length >= 1 && length <= QUESTION_MAX_CHARS
 
@@ -48,6 +54,7 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
               placeholder="Ask a factual question"
               aria-describedby="question-count"
               onChange={(event) => onChange(event.target.value)}
+              onFocus={(event) => event.currentTarget.closest('.ds-field')?.scrollIntoView({ block: 'nearest' })}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && valid && !running) {
                   event.preventDefault()
@@ -74,7 +81,7 @@ export function QuestionForm({ question, running, onChange, onSubmit, onCancel, 
           Start research
         </button>
         {running && (
-          <button type="button" className="ds-button" onClick={onCancel} autoFocus>
+          <button type="button" className="ds-button" onClick={onCancel} ref={stopRef}>
             Stop
           </button>
         )}
