@@ -139,4 +139,3 @@
 
 .live-data { margin: 0; width: fit-content; max-width: 100%; white-space: normal; }
 .live-data[data-state='failed'] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
-.live-data[data-state='idle'] .ds-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ds-text-muted); }

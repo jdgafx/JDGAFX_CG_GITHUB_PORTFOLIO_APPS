@@ -32,7 +32,7 @@ export function Header({ badgeLabel, badgeTone, live }: HeaderProps) {
             </span>
           </div>
           <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
-            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : ''}`} aria-hidden="true" />
+            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
             {live.text}
           </p>
           <p className="ds-subtitle">Looks a question up on Wikipedia and Hacker News, answers it with four agents, then checks every cited sentence against its source.</p>
