@@ -1,5 +1,5 @@
 import { Annotation } from '@langchain/langgraph'
-import type { Chunk, Coverage, Finding, Merged, Outcome, Summary, TraceRow } from '../../src/types/frames'
+import type { Chunk, Coverage, Finding, Merged, Outcome, RetryOutcome, Summary, TraceRow } from '../../src/types/frames'
 
 /** A channel that keeps the latest value written. `init` builds a fresh default for each run. */
 const last = <T>(init: () => T) => Annotation<T>({ reducer: (_old, next) => next, default: init })
@@ -27,6 +27,8 @@ export const GraphState = Annotation.Root({
   decision: last<'retry' | 'final'>(() => 'final'),
   /** Written by check when it skips the retry for lack of time. The final outcome carries it as its notice. */
   notice: last<string | null>(() => null),
+  /** Written by check (and by reduce when it skips the second synthesis). The final outcome carries it. */
+  retryOutcome: last<RetryOutcome>(() => 'none'),
   /** Chunks the review model flagged on the latest check. Advisory only. */
   reviewFlags: last<number[]>(() => []),
   /** Named outcome, not final: LangGraph does not allow a state key and a node with the same name. */

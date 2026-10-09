@@ -148,6 +148,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
       const result: RunResult = {
         ...firstPass,
         notice: retryNotice(cause, message, budget.expired()),
+        retryOutcome: 'skipped',
         metrics: metricsFor(rows, Date.now() - startedAt),
       }
       sink({ type: 'result', result })

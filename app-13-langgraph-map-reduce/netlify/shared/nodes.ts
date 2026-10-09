@@ -1,5 +1,5 @@
 import type { LangGraphRunnableConfig } from '@langchain/langgraph'
-import type { Chunk, Finding, Frame, NodeName, Outcome, TraceRow } from '../../src/types/frames'
+import type { Chunk, Finding, Frame, NodeName, Outcome, RetryOutcome, TraceRow } from '../../src/types/frames'
 import { pause, type Limiter, type RunBudget } from './budget'
 import { CHUNK_TARGET, splitText } from './chunk'
 import { citedChunks, computeCoverage } from './coverage'
@@ -226,6 +226,7 @@ export function makeNodes(deps: NodeDeps) {
         const label = noTime ? `${missing} still missing, retry skipped for time` : `${missing} still missing after the retry`
         emit({ type: 'edge', from: 'check', to: 'final', label })
         update.decision = 'final'
+        update.retryOutcome = 'skipped'
         update.notice = noTime ? RETRY_SKIPPED_NOTICE : `${missing} still missing after the retry. The summary is from the first pass.`
       }
     }
@@ -319,13 +320,18 @@ export function makeNodes(deps: NodeDeps) {
       const before = `${first.coverage.covered.length} of ${total}`
       const after = `${secondCoverage.covered.length} of ${total}`
       keptNotice = `The retry pass covered ${after} chunks against ${before} in the first pass, so the first-pass summary is kept.`
-      done = { ...done, detail: `${done.detail}. Kept the first-pass summary: it covers ${before} chunks, the retry pass ${after}.` }
+      // The retry pass's review flags went with its summary, so the row does not report them.
+      done = {
+        ...done,
+        detail: `Kept the first-pass summary: it covers ${before} chunks, the retry pass ${after}. The retry pass's review flags were discarded with it.`,
+      }
     }
 
     const wantsRetry = coverage.missing.length > 0 && state.retries < MAX_RETRIES
     const skipRetry = wantsRetry && budget.remaining() < MIN_RETRY_BUDGET_MS
     const willRetry = wantsRetry && !skipRetry
     const notice = skipRetry ? RETRY_SKIPPED_NOTICE : keptNotice
+    const retryOutcome: RetryOutcome = skipRetry ? 'skipped' : keepFirst ? 'kept-first' : state.retries > 0 ? 'used' : 'none'
     emit({ type: 'node_end', ...done })
     if (willRetry) {
       emit({ type: 'edge', from: 'check', to: 'extract', label: `retry ${coverage.missing.length} missing ${chunkWord(coverage.missing.length)}` })
@@ -351,12 +357,14 @@ export function makeNodes(deps: NodeDeps) {
       findingCount: merged.findingCount,
       reviewFlags,
       notice,
+      retryOutcome,
     }
     return {
       summary: keptSummary,
       coverage,
       reviewFlags,
       notice,
+      retryOutcome,
       decision: willRetry ? 'retry' : 'final',
       retries: willRetry ? state.retries + 1 : state.retries,
       draft,
@@ -385,6 +393,7 @@ export function makeNodes(deps: NodeDeps) {
       findingCount: merged.findingCount,
       reviewFlags: state.reviewFlags,
       notice: state.notice,
+      retryOutcome: state.retryOutcome,
     }
     const done = traceRow('final', 'ok', Date.now() - startedAt, state.notice ? `Kept the first-pass summary. ${detail}` : detail)
     emit({ type: 'node_end', ...done })

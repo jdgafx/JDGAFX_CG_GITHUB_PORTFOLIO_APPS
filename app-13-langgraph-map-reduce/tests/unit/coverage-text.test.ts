@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { missingItems, reviewNote } from '../../src/lib/coverage-text'
+import { coverageBadge, missingItems, missingLead, reviewNote } from '../../src/lib/coverage-text'
 
 describe('missingItems', () => {
   it('gives each missing chunk its own reason', () => {
@@ -19,5 +19,17 @@ describe('reviewNote', () => {
     expect(reviewNote([2])).toBe('The review model thinks chunk 2 may be thin in the summary.')
     expect(reviewNote([2, 6])).toBe('The review model thinks chunks 2 and 6 may be thin in the summary.')
     expect(reviewNote([2, 6, 9])).toBe('The review model thinks chunks 2, 6 and 9 may be thin in the summary.')
+  })
+})
+
+describe('the coverage badge and the missing line follow the retry outcome', () => {
+  it.each([
+    ['none', 'ds-badge--success', 'No retry needed', 'Still missing'],
+    ['used', 'ds-badge--success', '1 retry used', 'Still missing after the retry'],
+    ['kept-first', 'ds-badge--warning', '1 retry used, first pass kept', 'Still missing after the retry'],
+    ['skipped', 'ds-badge--warning', 'Retry not completed', 'Still missing'],
+  ] as const)('%s', (retryOutcome, tone, text, lead) => {
+    expect(coverageBadge({ retryOutcome })).toEqual({ tone, text })
+    expect(missingLead({ retryOutcome })).toBe(lead)
   })
 })

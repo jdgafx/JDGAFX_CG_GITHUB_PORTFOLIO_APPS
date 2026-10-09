@@ -1,5 +1,5 @@
 import { formatCount } from '../lib/format'
-import { missingItems, reviewNote } from '../lib/coverage-text'
+import { coverageBadge, missingItems, missingLead, reviewNote } from '../lib/coverage-text'
 import type { Phase } from '../lib/view'
 import type { RunResult } from '../types/frames'
 
@@ -74,12 +74,6 @@ export function SummarySection({ result, phase }: { result: RunResult | null; ph
   )
 }
 
-function coverageBadge(result: RunResult): { tone: string; text: string } {
-  if (result.notice) return { tone: 'ds-badge--warning', text: 'Retry not completed' }
-  if (result.retries > 0) return { tone: 'ds-badge--success', text: '1 retry used' }
-  return { tone: 'ds-badge--success', text: 'No retry needed' }
-}
-
 function CoverageBody({ result }: { result: RunResult }) {
   const { covered, missing } = result.coverage
   const total = covered.length + missing.length
@@ -100,7 +94,7 @@ function CoverageBody({ result }: { result: RunResult }) {
       ) : null}
       {missing.length > 0 ? (
         <p className="ds-notice ds-notice--error coverage-gap" role="alert">
-          {result.notice ? 'Still missing' : 'Still missing after the retry'}: {missingItems(result.coverage).join(', ')}. The
+          {missingLead(result)}: {missingItems(result.coverage).join(', ')}. The
           summary above does not cover {missing.length === 1 ? 'it' : 'them'}.
         </p>
       ) : null}

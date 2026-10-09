@@ -241,6 +241,41 @@ describe('the retry never lowers coverage', () => {
   })
 })
 
+describe('the result says what happened to the retry', () => {
+  it('none: no chunk needed a retry', async () => {
+    const { result } = await run(THREE, {})
+    expect(result).toMatchObject({ retryOutcome: 'none', retries: 0, notice: null })
+  })
+
+  it('used: the retry ran and its summary is the one returned', async () => {
+    const { result } = await run(THREE, { failExtract: { 2: 1 } })
+    expect(result).toMatchObject({ retryOutcome: 'used', retries: 1 })
+  })
+
+  it('kept-first: the retry ran but the first-pass summary is returned, with the first pass flags only', async () => {
+    const { result, frames } = await run(THREE, { failExtract: { 2: 1 }, citeSecond: [2, 3], flags: [1] })
+
+    expect(result).toMatchObject({ retryOutcome: 'kept-first', retries: 1, reviewFlags: [1] })
+    const check = frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)
+    expect(check).toMatchObject({
+      detail: "Kept the first-pass summary: it covers 2 of 3 chunks, the retry pass 2 of 3. The retry pass's review flags were discarded with it.",
+    })
+    expect((check as { detail: string }).detail).not.toContain('Review flagged')
+  })
+
+  it('skipped: the retry was left out for lack of time', async () => {
+    const budget = new RunBudget(60_000)
+    vi.spyOn(budget, 'remaining').mockImplementation(() => 5_000)
+    const { result } = await run(THREE, { failExtract: { 2: 1 } }, budget)
+    expect(result).toMatchObject({ retryOutcome: 'skipped', retries: 0 })
+  })
+
+  it('skipped: the retry did not finish, so the first-pass summary is returned', async () => {
+    const { result } = await run(THREE, { failExtract: { 2: 1 }, failSecondSynthesis: true })
+    expect(result?.retryOutcome).toBe('skipped')
+  })
+})
+
 describe('a cut-off retry ends its steps honestly', () => {
   it('sends a failed row for the cut-off step, then a final row, before the result', async () => {
     const { frames, result } = await run(THREE, { failExtract: { 2: 1 }, failSecondSynthesis: true })

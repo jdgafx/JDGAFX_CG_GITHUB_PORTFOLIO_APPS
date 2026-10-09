@@ -84,6 +84,13 @@ export interface RunMetrics {
   synthesisCost: number | null
 }
 
+/**
+ * What happened to the coverage retry. none: no chunk needed one. used: it ran and its summary is the one returned.
+ * kept-first: it ran but covered no more chunks, so the first-pass summary is returned. skipped: it was skipped
+ * for time, or it did not finish, and the first-pass summary is returned.
+ */
+export type RetryOutcome = 'none' | 'used' | 'kept-first' | 'skipped'
+
 /** What the graph's final node produces. */
 export interface Outcome {
   summary: Summary
@@ -96,6 +103,7 @@ export interface Outcome {
   reviewFlags: number[]
   /** Set only when a retry pass did not finish: the first-pass summary is returned, with the reason. */
   notice: string | null
+  retryOutcome: RetryOutcome
 }
 
 export interface RunResult extends Outcome {
