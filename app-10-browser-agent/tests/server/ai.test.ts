@@ -46,6 +46,7 @@ afterEach(() => {
   else process.env.OPENROUTER_API_KEY = originalKey
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 interface RequestOptions {
@@ -139,7 +140,8 @@ describe('planner function: a plan', () => {
       stream: boolean
       messages: Array<{ role: string; content: string }>
     }
-    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
+    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
+    expect(sent).not.toHaveProperty('temperature')
     expect(sent.max_tokens).toBe(4096)
     expect(sent.usage).toEqual({ include: true })
     expect(sent.stream).toBe(false)
@@ -337,6 +339,18 @@ describe('planner function: provider failures', () => {
     const response = await handler(planRequest({ task: 'Open google.com' }))
     expect(response.status).toBe(504)
     expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')
+  })
+
+  it('ends a reply whose body never finishes at the planning budget, with the timeout copy', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const stalled = new ReadableStream<Uint8Array>({ start() {} })
+    fetchMock.mockResolvedValueOnce(new Response(stalled, { status: 200, headers: { 'content-type': 'application/json' } }))
+    const pending = handler(planRequest({ task: 'Open google.com' }))
+    await vi.advanceTimersByTimeAsync(8_500)
+    const response = await pending
+    expect(response.status).toBe(504)
+    expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('maps a dropped provider connection to a plain sentence', async () => {

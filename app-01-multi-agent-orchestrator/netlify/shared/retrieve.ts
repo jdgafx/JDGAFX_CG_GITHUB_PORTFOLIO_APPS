@@ -1,4 +1,5 @@
 import type { Source } from '../../src/types'
+import { withDeadline } from './deadline'
 
 /** Wikimedia asks API clients to identify themselves. */
 const USER_AGENT = 'AgentFlow-demo/1.0 (https://jdgafx-app-01-multi-agent-orchestrator.netlify.app; portfolio demo)'
@@ -271,13 +272,14 @@ function describe(wiki: RawSource[], hn: RawSource[], problems: string[]): strin
 
 /**
  * Looks the question up on Wikipedia and Hacker News in parallel. Each lookup has its own
- * AbortSignal.timeout, so a slow source cannot hold the other. A lookup that fails is named in the
+ * deadline, so a slow source cannot hold the other. A lookup that fails is named in the
  * detail and the other one still counts. Nothing is invented: no hits means an empty list.
  */
 export async function retrieveSources(query: string, options: RetrieveOptions): Promise<RetrieveResult> {
   const { signal, timeoutMs = RETRIEVE_TIMEOUT_MS, fetchImpl = fetch } = options
   const terms = searchTerms(query)
-  const lookup = (url: string) => fetchJson(url, AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), fetchImpl)
+  // The deadline covers the body read too: a source that sends headers and then stalls still ends at the limit.
+  const lookup = (url: string) => withDeadline(timeoutMs, signal, lookupSignal => fetchJson(url, lookupSignal, fetchImpl))
 
   const [wikiOutcome, hnOutcome] = await Promise.allSettled([lookup(wikipediaSearchUrl(terms)), lookup(hnSearchUrl(terms))])
   const problems: string[] = []

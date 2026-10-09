@@ -1,11 +1,12 @@
 import type { RunUsage } from '../../src/types'
+import { raceAbort } from './deadline'
 
 /**
  * The one module that calls the model. Every chat or text call goes through
  * callModel(), which always sends MODEL. Request bodies cannot change the model,
  * and the only environment variable read here is the key.
  */
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -72,7 +73,13 @@ interface RawReply {
   usage: RunUsage
 }
 
-async function requestOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
+// The run's deadline signal covers the body read as well as the headers. raceAbort ends the wait
+// at the deadline even when the fetch or its body ignores the abort.
+function requestOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
+  return raceAbort(readOnce(messages, apiKey, signal), signal)
+}
+
+async function readOnce(messages: ChatMessage[], apiKey: string, signal: AbortSignal): Promise<RawReply> {
   const response = await fetch(ENDPOINT, {
     method: 'POST',
     signal,

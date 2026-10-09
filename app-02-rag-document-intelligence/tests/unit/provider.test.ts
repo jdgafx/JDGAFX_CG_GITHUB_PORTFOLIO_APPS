@@ -33,8 +33,9 @@ describe('callModel', () => {
     const [url, init] = mock.mock.calls[0] ?? []
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
-    expect(sent['model']).toBe('~anthropic/claude-haiku-latest')
+    expect(sent['model']).toBe('anthropic/claude-haiku-5.5')
     expect(sent['max_tokens']).toBe(4096)
+    expect(sent).not.toHaveProperty('temperature')
     expect(sent['usage']).toEqual({ include: true })
     expect(sent['messages']).toEqual(MESSAGES)
   })
@@ -84,19 +85,23 @@ describe('callModel', () => {
     })
   })
 
-  it('cancels the call when the caller aborts, and when the deadline passes', async () => {
+  it('cancels the call in flight when the caller aborts, and gives a call with no caller its own signal', async () => {
     const seen: AbortSignal[] = []
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
       if (init?.signal) seen.push(init.signal)
-      return reply('{"answer":"ok"}')
+      return new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+        if (seen.length > 1) resolve(reply('{"answer":"ok"}'))
+      })
     }))
     const caller = new AbortController()
-    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE, caller.signal)
-    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
+    const first = callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE, caller.signal)
     expect(seen[0]?.aborted).toBe(false)
     caller.abort()
     expect(seen[0]?.aborted).toBe(true)
+    expect(await first).toMatchObject({ ok: false, status: 504 })
     // With no caller signal, the call still has the deadline signal.
+    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
     expect(seen[1]).toBeInstanceOf(AbortSignal)
     expect(seen[1]?.aborted).toBe(false)
   })

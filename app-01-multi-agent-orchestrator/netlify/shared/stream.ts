@@ -2,6 +2,7 @@ import { isCutOff } from '../../src/lib/finish'
 import { sumUsage } from '../../src/lib/usage'
 import type { StageUsage } from '../../src/types'
 import type { AgentConfig } from './agents'
+import { raceAbort } from './deadline'
 import { buildChatBody, requestHeaders, type Provider } from './provider'
 
 const RETRY_DELAY_MS = 800
@@ -111,15 +112,19 @@ async function openStream(
   }
 
   try {
-    const response = await fetch(provider.url, {
-      method: 'POST',
-      signal: abort.signal,
-      headers: requestHeaders(provider.apiKey),
-      body: JSON.stringify(buildChatBody(agent.systemPrompt, userMessage, agent.maxTokens)),
-    })
+    // The timer ends the wait even when the fetch ignores the abort, so raceAbort backs it up.
+    const response = await raceAbort(
+      fetch(provider.url, {
+        method: 'POST',
+        signal: abort.signal,
+        headers: requestHeaders(provider.apiKey),
+        body: JSON.stringify(buildChatBody(agent.systemPrompt, userMessage, agent.maxTokens)),
+      }),
+      abort.signal,
+    )
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '')
+      const detail = await raceAbort(response.text(), abort.signal).catch(() => '')
       throw new UpstreamError(response.status, detail.slice(0, 300) || response.statusText)
     }
     if (!response.body) throw new UpstreamError(response.status, 'empty response body from upstream')
@@ -181,7 +186,8 @@ async function readAttempt(stream: OpenStream): Promise<StageResult> {
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      // The read races the attempt's abort, so a stalled stream ends at the timer with what arrived.
+      const { done, value } = await raceAbort(reader.read(), stream.abort.signal)
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
@@ -193,7 +199,7 @@ async function readAttempt(stream: OpenStream): Promise<StageResult> {
     // A failed read keeps what was parsed. The reply is labelled below.
   } finally {
     stream.clearTimer()
-    await reader.cancel().catch(() => {})
+    reader.cancel().catch(() => {})
   }
   if (stream.abort.signal.aborted) result.finish = 'timeout'
   else if (result.finish === null) result.finish = 'interrupted'

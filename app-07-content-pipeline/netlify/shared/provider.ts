@@ -1,8 +1,9 @@
 import type { Usage } from './contract'
+import { raceAbort } from './deadline'
 
 // The one chat model for every text call in this app. Clients cannot pick it,
 // and no environment variable overrides it.
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 export const SITE_URL = process.env.URL || 'https://jdgafx-app-07-content-pipeline.netlify.app'
 
@@ -35,8 +36,14 @@ function readUsage(raw: unknown): Usage | null {
   return usage
 }
 
-// One non-streaming chat call with an explicit token ceiling. The caller owns the signal.
-export async function chat(system: string, user: string, maxTokens: number, signal: AbortSignal): Promise<ChatReply> {
+// One non-streaming chat call with an explicit token ceiling. The caller owns the signal, and it
+// covers the body read too: raceAbort ends the wait when the signal aborts, even if the fetch or
+// its body ignores the abort.
+export function chat(system: string, user: string, maxTokens: number, signal: AbortSignal): Promise<ChatReply> {
+  return raceAbort(chatOnce(system, user, maxTokens, signal), signal)
+}
+
+async function chatOnce(system: string, user: string, maxTokens: number, signal: AbortSignal): Promise<ChatReply> {
   const response = await fetch(OPENROUTER_URL, {
     method: 'POST',
     signal,
@@ -49,8 +56,8 @@ export async function chat(system: string, user: string, maxTokens: number, sign
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
-      // A "latest" alias can move to a reasoning model. With reasoning off, hidden
-      // tokens cannot use up the budget and cut the answer short.
+      // Reasoning stays off, so hidden tokens cannot use up the budget and cut the answer short.
+      // No temperature is sent: Haiku 5.5 rejects it.
       reasoning: { enabled: false },
       // Asks OpenRouter to report the token counts and the cost of this call.
       usage: { include: true },

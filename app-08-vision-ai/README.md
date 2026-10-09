@@ -29,7 +29,7 @@ The page shows the trace with each step's status and time. Below it, a readout s
 
 - The browser posts the image and the request fields to `/api/ai`. The page and the function share one origin, so the function sends no CORS headers.
 - The Netlify Function `netlify/functions/ai.ts` validates the request, then calls OpenRouter's chat completions endpoint.
-- The model is one fixed constant, `~anthropic/claude-haiku-latest`, in `netlify/shared/provider.ts`. The client cannot send a model, the page has no picker, and no environment variable changes it.
+- The model is one fixed constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned, in `netlify/shared/provider.ts`. The client cannot send a model, the page has no picker, and no environment variable changes it.
 - `OPENROUTER_API_KEY` lives only in the function's environment on the server. The browser never receives it.
 - Request checks are in `netlify/shared/request.ts`. Stream handling is in `netlify/shared/vision-run.ts`. Reply checks and provider error mapping are in `netlify/shared/upstream.ts`.
 - The body is measured in bytes before it is parsed, and anything over 6 MB is rejected. An image larger than 4 MB is rejected. The question is capped at 1,000 characters. Modes, media types and browser origins are checked against allowlists.

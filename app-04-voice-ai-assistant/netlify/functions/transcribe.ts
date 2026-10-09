@@ -7,6 +7,7 @@ import {
   readJsonBody,
   upstreamStatus,
 } from '../shared/http'
+import { withDeadline } from '../shared/deadline'
 import { createRecorder } from '../shared/trace'
 
 const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen'
@@ -186,16 +187,30 @@ export default async (req: Request): Promise<Response> => {
       return reply('Transcription is not configured on this deployment.', 500)
     }
 
-    let response: Response
+    // The deadline covers the body read as well as the headers, so a reply that stalls midway ends at the limit.
+    type Heard =
+      | { kind: 'reply'; data: DeepgramReply | null }
+      | { kind: 'http'; status: number; detail: string }
+      | { kind: 'unreadable'; error: unknown }
+    let heard: Heard
     try {
-      response = await fetch(`${DEEPGRAM_URL}?model=${TRANSCRIBE_MODEL}&smart_format=true`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Token ${apiKey}`,
-          'Content-Type': CONTENT_TYPES[format],
-        },
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        body: clip,
+      heard = await withDeadline<Heard>(UPSTREAM_TIMEOUT_MS, undefined, async signal => {
+        const response = await fetch(`${DEEPGRAM_URL}?model=${TRANSCRIBE_MODEL}&smart_format=true`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${apiKey}`,
+            'Content-Type': CONTENT_TYPES[format],
+          },
+          signal,
+          body: clip,
+        })
+        if (!response.ok) return { kind: 'http', status: response.status, detail: await response.text().catch(() => '<unreadable>') }
+        try {
+          return { kind: 'reply', data: (await response.json()) as DeepgramReply | null }
+        } catch (error) {
+          if (isDeadlineError(error)) throw error
+          return { kind: 'unreadable', error }
+        }
       })
     } catch (err) {
       console.error('transcribe: upstream request failed', err)
@@ -207,22 +222,19 @@ export default async (req: Request): Promise<Response> => {
       return reply(`${SERVICE} could not be reached. Try again in a moment.`, 503)
     }
 
-    if (!response.ok) {
+    if (heard.kind === 'http') {
       // Vendor error text can carry account or billing detail. Log it, never ship it.
-      const detail = await response.text().catch(() => '<unreadable>')
-      console.error(`transcribe: upstream ${response.status}: ${detail}`)
-      run.add('speech to text', 'failed', `HTTP ${response.status} from Deepgram`)
-      return reply(providerFailure(SERVICE, response.status), upstreamStatus(response.status))
+      console.error(`transcribe: upstream ${heard.status}: ${heard.detail}`)
+      run.add('speech to text', 'failed', `HTTP ${heard.status} from Deepgram`)
+      return reply(providerFailure(SERVICE, heard.status), upstreamStatus(heard.status))
     }
 
-    let data: DeepgramReply | null
-    try {
-      data = (await response.json()) as DeepgramReply | null
-    } catch (err) {
-      console.error('transcribe: could not parse upstream JSON', err)
+    if (heard.kind === 'unreadable') {
+      console.error('transcribe: could not parse upstream JSON', heard.error)
       run.add('speech to text', 'failed', 'The reply was not JSON')
       return reply(`${SERVICE} returned an unreadable response.`, 502)
     }
+    const data = heard.data
 
     const name = data?.metadata?.model_info?.name
     const model = typeof name === 'string' ? name : TRANSCRIBE_MODEL

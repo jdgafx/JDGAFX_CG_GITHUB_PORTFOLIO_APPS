@@ -112,7 +112,7 @@ export function providerWill(respond: (sent: Sent) => Response | Promise<Respons
 
 export function completion(content: string, overrides: Record<string, unknown> = {}): Response {
   const payload = {
-    model: 'anthropic/claude-haiku-4.5',
+    model: 'anthropic/claude-haiku-5.5',
     choices: [{ message: { content }, finish_reason: 'stop' }],
     usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
     ...overrides,

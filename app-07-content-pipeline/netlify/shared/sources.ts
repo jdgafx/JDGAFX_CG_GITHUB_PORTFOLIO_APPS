@@ -1,9 +1,13 @@
 // Live public sources for a topic: Wikipedia articles and Hacker News stories. The URL builders
 // and parsers are pure; gatherSources is the only function that touches the network.
+import { withDeadline } from './deadline'
 import { isHttpUrl, type Source, type SourcePack } from './sourcepack'
 
 export const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php'
 export const HACKER_NEWS_API = 'https://hn.algolia.com/api/v1/search'
+
+// The Sources lookups run in parallel under this one cap, so the stage stays well inside the limit.
+export const SOURCES_TIMEOUT_MS = 4_000
 
 const USER_AGENT = 'ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app; portfolio demo)'
 // A lookup answer larger than this is refused; real answers are a few kilobytes.
@@ -178,9 +182,15 @@ interface Lookup {
   note?: string
 }
 
-async function lookup(name: string, run: () => Promise<Candidate[]>): Promise<Lookup> {
+async function lookup(
+  name: string,
+  parent: AbortSignal,
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<Candidate[]>,
+): Promise<Lookup> {
   try {
-    const items = await run()
+    // The deadline covers the body read too, so a source that stalls after its headers still ends at the limit.
+    const items = await withDeadline(timeoutMs, parent, run)
     return items.length > 0 ? { items } : { items, note: `${name} returned no matching results.` }
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
@@ -190,15 +200,20 @@ async function lookup(name: string, run: () => Promise<Candidate[]>): Promise<Lo
 
 /**
  * Looks the topic up on Wikipedia and (for most content types) Hacker News, in parallel, under one
- * signal that carries the total time cap. A lookup that fails adds a note and never throws: the
+ * deadline that carries the total time cap. A lookup that fails adds a note and never throws: the
  * pack then holds fewer sources, or none, and says why.
  */
-export async function gatherSources(topic: string, contentType: string, signal: AbortSignal): Promise<SourcePack> {
+export async function gatherSources(
+  topic: string,
+  contentType: string,
+  parent: AbortSignal,
+  timeoutMs = SOURCES_TIMEOUT_MS,
+): Promise<SourcePack> {
   const terms = searchTerms(topic)
   const [wikipedia, hackerNews] = await Promise.all([
-    lookup('Wikipedia', async () => parseWikipedia(await fetchJson(wikipediaUrl(terms), signal))),
+    lookup('Wikipedia', parent, timeoutMs, async signal => parseWikipedia(await fetchJson(wikipediaUrl(terms), signal))),
     searchesHackerNews(contentType)
-      ? lookup('Hacker News', async () => parseHackerNews(await fetchJson(hackerNewsUrl(terms), signal), terms))
+      ? lookup('Hacker News', parent, timeoutMs, async signal => parseHackerNews(await fetchJson(hackerNewsUrl(terms), signal), terms))
       : Promise.resolve<Lookup>({ items: [], note: 'Hacker News is not searched for marketing copy.' }),
   ])
   return {

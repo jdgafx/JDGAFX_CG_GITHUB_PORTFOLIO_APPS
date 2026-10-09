@@ -1,3 +1,4 @@
+import { withDeadline } from '../shared/deadline'
 import { MAX_TOKENS, MODEL, OPENROUTER_URL } from '../shared/provider'
 import { allowedDomains } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
@@ -102,25 +103,36 @@ function aggregateUsage(attempts: Attempt[]): UsageReport {
 
 async function callOnce(apiKey: string, task: string, domains: string[], timeoutMs: number): Promise<Attempt> {
   const started = Date.now()
-  let response: Response
+  // One deadline covers the headers and the body read, so a reply that stalls midway ends at the limit.
+  type Got = { kind: 'answer'; data: ChatResponse } | { kind: 'http'; status: number } | { kind: 'unreadable' }
+  let got: Got
   try {
-    response = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        // A reasoning model spends the completion budget on hidden reasoning and cuts the JSON short.
-        reasoning: { enabled: false },
-        // Asks the provider to report tokens and cost, so the run summary can show them.
-        usage: { include: true },
-        stream: false,
-        messages: [
-          { role: 'system', content: systemPrompt(domains) },
-          { role: 'user', content: `Task: ${task}` },
-        ],
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
+    got = await withDeadline<Got>(timeoutMs, undefined, async (signal) => {
+      const response = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          // A reasoning model spends the completion budget on hidden reasoning and cuts the JSON short.
+          reasoning: { enabled: false },
+          // Asks the provider to report tokens and cost, so the run summary can show them.
+          usage: { include: true },
+          stream: false,
+          messages: [
+            { role: 'system', content: systemPrompt(domains) },
+            { role: 'user', content: `Task: ${task}` },
+          ],
+        }),
+        signal,
+      })
+      if (!response.ok) return { kind: 'http', status: response.status }
+      try {
+        return { kind: 'answer', data: await response.json() as ChatResponse }
+      } catch (error) {
+        if (isTimeout(error)) throw error
+        return { kind: 'unreadable' }
+      }
     })
   } catch (error) {
     throw isTimeout(error)
@@ -128,19 +140,12 @@ async function callOnce(apiKey: string, task: string, domains: string[], timeout
       : new PlanError('The AI provider could not be reached. Try again in a moment.', 502)
   }
 
-  if (!response.ok) {
-    console.error(`OpenRouter returned HTTP ${response.status}`)
-    throw new PlanError(providerMessage(response.status), 502)
+  if (got.kind === 'http') {
+    console.error(`OpenRouter returned HTTP ${got.status}`)
+    throw new PlanError(providerMessage(got.status), 502)
   }
-
-  let data: ChatResponse
-  try {
-    data = await response.json() as ChatResponse
-  } catch (error) {
-    throw isTimeout(error)
-      ? new PlanError(TIMEOUT_COPY, 504)
-      : new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
-  }
+  if (got.kind === 'unreadable') throw new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
+  const data = got.data
 
   const choice = data.choices?.[0]
   const content = choice?.message?.content

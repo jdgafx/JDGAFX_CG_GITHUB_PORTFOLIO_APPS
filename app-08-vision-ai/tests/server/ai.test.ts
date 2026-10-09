@@ -57,7 +57,7 @@ describe('POST /api/ai streamed analysis', () => {
   it('streams the answer, then a complete frame with the served model and usage', async () => {
     const provider = stubProvider(async () =>
       sse([
-        { model: 'anthropic/claude-haiku-4.5', choices: [{ delta: { content: 'HELLO ' } }] },
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'HELLO ' } }] },
         { choices: [{ delta: { content: '42' }, finish_reason: 'stop' }] },
         { choices: [], usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 } },
       ]),
@@ -80,7 +80,7 @@ describe('POST /api/ai streamed analysis', () => {
     const [url, init] = provider.mock.calls[0]
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 4096,
       reasoning: { enabled: false },
       usage: { include: true },
@@ -95,14 +95,14 @@ describe('POST /api/ai streamed analysis', () => {
           name: 'Model call',
           status: 'ok',
           ms: expect.any(Number),
-          detail: 'anthropic/claude-haiku-4.5, 2 text chunks',
+          detail: 'anthropic/claude-haiku-5.5, 2 text chunks',
           tokens: 1200,
           cost: 0.0002,
         },
         { name: 'Parse and validate', status: 'ok', ms: expect.any(Number), detail: '8 characters, finish reason stop' },
       ],
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-      model: 'anthropic/claude-haiku-4.5',
+      model: 'anthropic/claude-haiku-5.5',
       totalMs: expect.any(Number),
     })
   })

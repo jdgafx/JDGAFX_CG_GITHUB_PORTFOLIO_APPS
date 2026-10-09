@@ -45,7 +45,7 @@ The step runs in the function, not in the browser, as `stage: "sources"` on `POS
 The browser (React and Vite) sends one `POST /api/ai` request per step. The Netlify Function in `netlify/functions/ai.ts` runs the source lookup, or builds the prompt, calls OpenRouter, checks the reply and returns the text with its trace, usage and served model.
 
 - **Keys.** `OPENROUTER_API_KEY` is read only by the function. It is never sent to the browser, logged, or shown in an error.
-- **Model.** One server constant, `~anthropic/claude-haiku-latest`, in `netlify/shared/provider.ts`. The browser cannot choose a model, and no environment variable overrides it. The page shows the model the provider reports for each call.
+- **Model.** One server constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned, in `netlify/shared/provider.ts`. The browser cannot choose a model, and no environment variable overrides it. The page shows the model the provider reports for each call.
 - **Requests.** Every request is checked: JSON shape, field types, a 400-character topic limit, the content type list, the stage name, stage order (a writing step needs the Sources output first), and an 8,000-character limit on each earlier output. The body is limited to 128 KB, both by declared length and by measured size.
 - **Origin and rate.** Only the site and local dev origins are accepted. Each client may send 30 stage requests a minute, which is five full runs of six requests. The count is kept per warm function instance.
 - **Provider call.** Each model call has an 8-second timeout, a 4,096-token ceiling and `usage: { include: true }`, so OpenRouter reports tokens and cost.

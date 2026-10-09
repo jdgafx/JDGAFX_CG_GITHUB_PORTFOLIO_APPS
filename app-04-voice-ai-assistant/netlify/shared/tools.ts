@@ -2,6 +2,8 @@
 // summary. Both run on the server, inside the run's time budget. Every failure comes
 // back as plain text for the model to relay, never as a value it could mistake for data.
 
+import { withDeadline } from './deadline'
+
 const TOOL_TIMEOUT_MS = 3_000
 const MAX_ARGUMENT_CHARS = 80
 const MAX_EXTRACT_CHARS = 600
@@ -284,8 +286,10 @@ export async function runTool(name: string, rawArguments: string, deadlineAt: nu
     return done({ ok: false, call, content: `${SERVICE_DOWN[name]} in time: the run's time limit was reached. ${NO_DATA}`, detail: 'No time left in the run budget' })
   }
   try {
-    const signal = AbortSignal.timeout(Math.min(TOOL_TIMEOUT_MS, remaining))
-    const result = name === 'weather' ? await weather(argument, signal) : await wikipediaSummary(argument, signal)
+    // One deadline for the whole tool, every lookup and body read in it included.
+    const result = await withDeadline(Math.min(TOOL_TIMEOUT_MS, remaining), undefined, signal =>
+      name === 'weather' ? weather(argument, signal) : wikipediaSummary(argument, signal),
+    )
     return done({ ok: true, call, ...result })
   } catch (err) {
     console.error(`tools: ${name} failed`, err)

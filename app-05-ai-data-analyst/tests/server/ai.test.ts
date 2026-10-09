@@ -233,7 +233,7 @@ describe('ai function happy path', () => {
     const call = mock.mock.calls[0]
     const sent = JSON.parse(String(call?.[1].body)) as { model: string; max_tokens: number; usage: unknown; messages: Array<{ content: string }> }
     expect(call?.[0]).toBe(ENDPOINT)
-    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
+    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
     expect(sent.max_tokens).toBe(4096)
     expect(sent.usage).toEqual({ include: true })
     expect(sent.messages[1]?.content).toContain(`Question: ${QUESTION}`)

@@ -36,7 +36,7 @@ The review panel shows each comment beside the line it cites, with that line's t
 
 - **Browser**: a React and Vite app in `src/`. It posts `{ code, language }` to `/api/ai`. It checks the shape of the reply once, in `src/lib/api.ts`, and shows a plain error for a reply that does not match. The GitHub loader is `src/lib/github.ts` (link parsing, extension to language, reply decoding) and `src/components/GitHubLoader.tsx`.
 - **Server**: the Netlify Function `netlify/functions/ai.ts`, served at `/api/ai`. Shared code sits in `netlify/shared/`. `provider.ts` makes the chat call, and `review.ts` builds the prompt and parses and checks the reply.
-- **Provider**: OpenRouter chat completions. The model is one constant, `~anthropic/claude-haiku-latest`, in `netlify/shared/provider.ts`. There is no model picker, and a model field sent by the client is ignored.
+- **Provider**: OpenRouter chat completions. The model is one constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned, in `netlify/shared/provider.ts`. There is no model picker, and a model field sent by the client is ignored.
 - **Key**: `OPENROUTER_API_KEY` is read only on the server. The browser never receives it.
 - **Request checks**: the method must be POST (405). An Origin header must be on the allowlist (403). The body must be JSON (400) and no larger than 256 KiB (413). Each client address gets 20 requests a minute (429).
 - **Timeouts**: the server gives the provider 25 seconds for the whole run. The first call and any retry share that deadline. The browser gives up after 45 seconds.
@@ -77,7 +77,7 @@ Live site: https://jdgafx-app-03-ai-code-review.netlify.app
 - A retry sends the full prompt again, so one run can be billed twice.
 - The prompt asks for at most one comment per line. The server does not enforce that rule.
 - Findings come from a language model. A clean result is not a guarantee, and any finding can be wrong.
-- The served model is the one the provider names in its reply. The `latest` alias can change over time.
+- The served model is the one the provider names in its reply. The request pins one model, so the two should match.
 - No labelled evaluation set exists yet. The tests check code paths, not review quality.
 - The live site was checked by hand. No automated test calls the provider.
 - This repository sets the 25-second provider timeout in code. It does not set the platform's function time limit.

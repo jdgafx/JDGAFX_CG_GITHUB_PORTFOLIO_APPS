@@ -1,4 +1,5 @@
 import { ARXIV_ID } from '../../src/lib/arxivId'
+import { withDeadline } from './deadline'
 
 /** The only host this function ever contacts. It is a literal, never taken from a request. */
 const ARXIV_HOST = 'arxiv.org'
@@ -59,41 +60,41 @@ function isTimeout(err: unknown): boolean {
  */
 export async function fetchArxivPdf(id: string, signal?: AbortSignal): Promise<PdfResult> {
   if (!ARXIV_ID.test(id)) return { ok: false, status: 400, message: 'That is not a valid arXiv ID.' }
-  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS)
-  const combined = signal ? AbortSignal.any([timeout, signal]) : timeout
-
   try {
-    let url = arxivPdfUrl(id)
-    for (let hops = 0; hops <= MAX_REDIRECTS; hops++) {
-      const response = await fetch(url, { redirect: 'manual', headers: { Accept: 'application/pdf' }, signal: combined })
+    // One deadline covers every hop and the whole body read, so a stalled download ends at the limit.
+    return await withDeadline(FETCH_TIMEOUT_MS, signal, async limit => {
+      let url = arxivPdfUrl(id)
+      for (let hops = 0; hops <= MAX_REDIRECTS; hops++) {
+        const response = await fetch(url, { redirect: 'manual', headers: { Accept: 'application/pdf' }, signal: limit })
 
-      if (response.status >= 300 && response.status < 400) {
-        const next = new URL(response.headers.get('location') ?? '', url)
-        if (next.protocol !== 'https:' || next.hostname !== ARXIV_HOST) {
-          console.error('arXiv redirected off arxiv.org:', next.hostname)
+        if (response.status >= 300 && response.status < 400) {
+          const next = new URL(response.headers.get('location') ?? '', url)
+          if (next.protocol !== 'https:' || next.hostname !== ARXIV_HOST) {
+            console.error('arXiv redirected off arxiv.org:', next.hostname)
+            return { ok: false, status: 502, message: NOT_A_PDF_MESSAGE }
+          }
+          await response.body?.cancel().catch(() => undefined)
+          url = next.toString()
+          continue
+        }
+
+        if (response.status === 404) return { ok: false, status: 404, message: NOT_FOUND_MESSAGE }
+        if (response.status === 429) return { ok: false, status: 429, message: 'arXiv is rate limiting requests. Try again in a minute.' }
+        if (!response.ok || !response.body) return { ok: false, status: 502, message: 'arXiv could not provide that paper right now.' }
+        if (!(response.headers.get('content-type') ?? '').toLowerCase().startsWith('application/pdf')) {
+          await response.body.cancel().catch(() => undefined)
           return { ok: false, status: 502, message: NOT_A_PDF_MESSAGE }
         }
-        await response.body?.cancel().catch(() => undefined)
-        url = next.toString()
-        continue
-      }
+        if (Number(response.headers.get('content-length') ?? 0) > MAX_PDF_BYTES) {
+          await response.body.cancel().catch(() => undefined)
+          return { ok: false, status: 413, message: TOO_LARGE_MESSAGE }
+        }
 
-      if (response.status === 404) return { ok: false, status: 404, message: NOT_FOUND_MESSAGE }
-      if (response.status === 429) return { ok: false, status: 429, message: 'arXiv is rate limiting requests. Try again in a minute.' }
-      if (!response.ok || !response.body) return { ok: false, status: 502, message: 'arXiv could not provide that paper right now.' }
-      if (!(response.headers.get('content-type') ?? '').toLowerCase().startsWith('application/pdf')) {
-        await response.body.cancel().catch(() => undefined)
-        return { ok: false, status: 502, message: NOT_A_PDF_MESSAGE }
+        const bytes = await readCapped(response.body, MAX_PDF_BYTES)
+        return bytes ? { ok: true, bytes } : { ok: false, status: 413, message: TOO_LARGE_MESSAGE }
       }
-      if (Number(response.headers.get('content-length') ?? 0) > MAX_PDF_BYTES) {
-        await response.body.cancel().catch(() => undefined)
-        return { ok: false, status: 413, message: TOO_LARGE_MESSAGE }
-      }
-
-      const bytes = await readCapped(response.body, MAX_PDF_BYTES)
-      return bytes ? { ok: true, bytes } : { ok: false, status: 413, message: TOO_LARGE_MESSAGE }
-    }
-    return { ok: false, status: 502, message: NOT_A_PDF_MESSAGE }
+      return { ok: false, status: 502, message: NOT_A_PDF_MESSAGE }
+    })
   } catch (err) {
     console.error('arXiv fetch failed:', err instanceof Error ? err.name : 'non-error')
     return isTimeout(err)

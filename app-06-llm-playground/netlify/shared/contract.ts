@@ -1,7 +1,7 @@
 // Shapes shared by the three ModelArena endpoints and the client. Keep this file free of
 // runtime imports: the browser bundle imports its constants and types from here.
 
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 export const PROMPT_MAX_CHARS = 4000
 export const SYSTEM_MAX_CHARS = 2000
 // Judge input: one answer at most ANSWER_MAX_CHARS, and all answers together at most

@@ -26,9 +26,10 @@ describe('getProvider', () => {
 describe('chatBody', () => {
   it('pins the vision model and always sends max_tokens, reasoning off and usage', () => {
     const messages = [{ role: 'system' as const, content: 'Describe it.' }]
-    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
+    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+    expect(chatBody(messages, 8192)).not.toHaveProperty('temperature')
     expect(chatBody(messages, 8192)).toEqual({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       messages,
       stream: true,
       max_tokens: 8192,

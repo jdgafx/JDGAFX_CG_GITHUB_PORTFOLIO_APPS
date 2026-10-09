@@ -1,5 +1,6 @@
+import { withDeadline } from './deadline'
 /** The one chat model every call in this app uses. No client field or env var overrides it. */
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const CATALOGUE_URL = 'https://openrouter.ai/api/v1/models'
@@ -79,20 +80,31 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
   const remaining = deadline - Date.now()
   if (remaining <= 0) return { ok: false, status: 504, message: TIMEOUT_MESSAGE }
 
-  let response: Response
+  // The deadline covers the body read as well as the headers, so a reply that stalls midway ends at the limit.
+  type Fetched = { ok: true; raw: unknown } | { ok: false; status: number; detail: string }
+  let fetched: Fetched
   try {
-    response = await fetch(CHAT_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        messages,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        reasoning: { enabled: false },
-        response_format: { type: 'json_object' },
-        usage: { include: true },
-      }),
-      signal: AbortSignal.any([AbortSignal.timeout(remaining), ...(signal ? [signal] : [])]),
+    fetched = await withDeadline<Fetched>(remaining, signal, async limit => {
+      const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          messages,
+          max_tokens: MAX_OUTPUT_TOKENS,
+          reasoning: { enabled: false },
+          response_format: { type: 'json_object' },
+          usage: { include: true },
+        }),
+        signal: limit,
+      })
+      if (!response.ok) return { ok: false, status: response.status, detail: await response.text().catch(() => '') }
+      // A body that is not JSON reads as an unreadable reply. A body cut off by the deadline propagates as a timeout.
+      const raw: unknown = await response.json().catch((err: unknown) => {
+        if (isTimeout(err)) throw err
+        return null
+      })
+      return { ok: true, raw }
     })
   } catch (err) {
     console.error('OpenRouter request failed:', err instanceof Error ? err.name : 'non-error')
@@ -101,21 +113,13 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
       : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.' }
   }
 
-  if (!response.ok) {
-    console.error('OpenRouter error:', response.status, await response.text().catch(() => ''))
+  if (!fetched.ok) {
+    console.error('OpenRouter error:', fetched.status, fetched.detail)
     // A provider rate limit is passed on as 429. Other provider failures are a 502 from this function.
-    return { ok: false, status: response.status === 429 ? 429 : 502, message: upstreamMessage(response.status) }
+    return { ok: false, status: fetched.status === 429 ? 429 : 502, message: upstreamMessage(fetched.status) }
   }
 
-  let raw: unknown
-  try {
-    raw = await response.json()
-  } catch (err) {
-    // The deadline also covers reading the body, so a body cut off by it is a timeout.
-    if (isTimeout(err)) return { ok: false, status: 504, message: TIMEOUT_MESSAGE }
-    return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.' }
-  }
-  const reply = readReply(raw)
+  const reply = readReply(fetched.raw)
   if (!reply) return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.' }
   return { ok: true, content: reply.content, finishReason: reply.finishReason, model: reply.model, usage: reply.usage }
 }
@@ -143,9 +147,12 @@ async function loadPrices(deadline: number): Promise<Map<string, Price> | null> 
   const remaining = deadline - Date.now()
   if (remaining < CATALOGUE_MIN_MS) return null
   try {
-    const response = await fetch(CATALOGUE_URL, { signal: AbortSignal.timeout(Math.min(CATALOGUE_MAX_MS, remaining)) })
-    if (!response.ok) return null
-    const body = asRecord(await response.json().catch(() => null))
+    const body = await withDeadline(Math.min(CATALOGUE_MAX_MS, remaining), undefined, async limit => {
+      const response = await fetch(CATALOGUE_URL, { signal: limit })
+      if (!response.ok) return null
+      return asRecord(await response.json().catch(() => null))
+    })
+    if (!body) return null
     const data: unknown = body['data']
     // Anything other than a list is not cached, so one bad reply cannot hide prices for an hour.
     if (!Array.isArray(data)) return null

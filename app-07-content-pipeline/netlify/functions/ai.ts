@@ -10,8 +10,6 @@ import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/ac
 // Each stage is one short model call and the browser chains them. The timeout keeps
 // every call inside Netlify's synchronous limit (about 10 seconds).
 const MODEL_TIMEOUT_MS = 8_000
-// The Sources lookups run in parallel under this one cap, so the stage stays well inside the limit.
-const SOURCES_TIMEOUT_MS = 4_000
 // A ceiling only. The word budgets and the timeout set the real length.
 const STAGE_MAX_TOKENS = 4_096
 // Four full stage outputs, with room for UTF-8 and JSON escapes.
@@ -130,10 +128,9 @@ function isAbortError(err: unknown): boolean {
 // that says so, so the writing continues, labelled as unsourced.
 async function runSources(run: RunRequest, req: Request, origin: string | null): Promise<Response> {
   const startedAt = Date.now()
-  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(SOURCES_TIMEOUT_MS)])
   let pack: SourcePack
   try {
-    pack = await gatherSources(run.topic, run.contentType, signal)
+    pack = await gatherSources(run.topic, run.contentType, req.signal)
   } catch (err) {
     console.error(`sources lookup failed: ${err instanceof Error ? err.name : 'unknown error'}`)
     pack = { sources: [], notes: ['The source lookup failed.'] }

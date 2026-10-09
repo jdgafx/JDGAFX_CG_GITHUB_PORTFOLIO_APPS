@@ -1,4 +1,5 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
+import { raceAbort } from '../shared/deadline'
 import type { StepStatus, TraceStep, Usage } from '../../src/types'
 import {
   MAX_OUTPUT_TOKENS,
@@ -9,6 +10,7 @@ import {
   type ProviderReply,
 } from '../shared/provider'
 import { buildSystemPrompt, commentBudget, parseReview, validateComments } from '../shared/review'
+
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-03-ai-code-review.netlify.app',
@@ -238,14 +240,21 @@ function providerFailure(status: number): Attempt {
 
 async function callModel(apiKey: string, body: string, signal: AbortSignal): Promise<Attempt> {
   try {
-    const response = await fetch(OPENROUTER_CHAT_URL, {
-      method: 'POST',
+    // The run's deadline signal covers the body read too: raceAbort ends the wait at the deadline
+    // even when the fetch or its body ignores the abort.
+    return await raceAbort(
+      (async (): Promise<Attempt> => {
+        const response = await fetch(OPENROUTER_CHAT_URL, {
+          method: 'POST',
+          signal,
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body,
+        })
+        if (!response.ok) return providerFailure(response.status)
+        return { ok: true, reply: (await response.json()) as ProviderReply }
+      })(),
       signal,
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body,
-    })
-    if (!response.ok) return providerFailure(response.status)
-    return { ok: true, reply: (await response.json()) as ProviderReply }
+    )
   } catch (err) {
     if ((err as { name?: unknown } | null)?.name === 'AbortError') {
       return {

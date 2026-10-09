@@ -33,7 +33,7 @@ export default async (req: Request): Promise<Response> => {
       return json({ error: UNKNOWN_MODEL }, 400, guard.headers)
     }
 
-    // models[0] is ignored. Panel A always runs the fixed default alias.
+    // models[0] is ignored. Panel A always runs the fixed default model.
     const models = [MODEL, modelB, modelC]
     const outcomes = await Promise.allSettled(
       SLOTS.map((slot, i) =>

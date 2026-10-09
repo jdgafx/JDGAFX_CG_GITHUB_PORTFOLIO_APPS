@@ -9,7 +9,7 @@ const KEY = 'The AI provider rejected the key or is out of credit.'
 const SLOW = 'The AI provider did not answer in time.'
 const NETWORK = 'Could not reach the server. Check your connection and try again.'
 const USAGE = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 }
-const MODEL = 'anthropic/claude-haiku-4.5'
+const MODEL = 'anthropic/claude-haiku-5.5'
 // A run whose Sources stage already finished, so a test can start at the first model stage.
 const SOURCES_DONE = { sources: 'sources text' }
 

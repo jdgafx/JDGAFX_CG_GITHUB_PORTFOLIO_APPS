@@ -13,7 +13,7 @@ function words(count: number): string {
   return Array.from({ length: count }, () => 'word').join(' ')
 }
 
-function reply(content: string, finishReason: string | null = 'stop', servedModel: string | null = 'anthropic/claude-haiku-4.5') {
+function reply(content: string, finishReason: string | null = 'stop', servedModel: string | null = 'anthropic/claude-haiku-5.5') {
   return { content, finishReason, servedModel }
 }
 

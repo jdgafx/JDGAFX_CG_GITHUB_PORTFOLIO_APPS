@@ -16,7 +16,7 @@ describe('happy path', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as StageBody
     expect(body.result).toBe(ARTICLE.trim())
-    expect(body.model).toBe('anthropic/claude-haiku-4.5')
+    expect(body.model).toBe('anthropic/claude-haiku-5.5')
     expect(body.usage?.total_tokens).toBe(1200)
     expect(body.trace).toHaveLength(1)
     expect(body.trace[0]).toMatchObject({ name: 'Research', status: 'ok', tokens: 1200, cost: 0.0002 })
@@ -29,7 +29,7 @@ describe('happy path', () => {
 
     await handler(request(stageBody('research', {}, { model: 'openai/gpt-4o' })))
     expect(sent[0].url).toBe('https://openrouter.ai/api/v1/chat/completions')
-    expect(sent[0].body.model).toBe('~anthropic/claude-haiku-latest')
+    expect(sent[0].body.model).toBe('anthropic/claude-haiku-5.5')
     expect(sent[0].body.max_tokens).toBe(4_096)
     expect(sent[0].body.usage).toEqual({ include: true })
     expect(sent[0].body.stream).toBe(false)
@@ -189,6 +189,18 @@ describe('provider failures', () => {
     const res = await handler(request(stageBody('research')))
     expect(res.status).toBe(504)
     expect(await res.json()).toMatchObject({ error: SLOW_MESSAGE, retryable: false })
+  })
+
+  it('answers with the timeout message when the provider body never finishes', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    providerWill(() => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    const pending = handler(request(stageBody('research')))
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    const res = await pending
+    expect(res.status).toBe(504)
+    expect(((await res.json()) as ErrorBody).error).toBe(SLOW_MESSAGE)
   })
 
   it('stops the provider call after 8 seconds and answers with the timeout message', async () => {

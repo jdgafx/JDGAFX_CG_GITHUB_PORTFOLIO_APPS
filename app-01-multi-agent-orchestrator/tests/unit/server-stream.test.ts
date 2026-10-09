@@ -11,7 +11,7 @@ import {
 } from '../../netlify/shared/stream'
 
 const provider: Provider = { url: 'https://openrouter.example/chat', apiKey: 'test-only-placeholder' }
-const SERVED = 'anthropic/claude-haiku-4.5'
+const SERVED = 'anthropic/claude-haiku-5.5'
 const encoder = new TextEncoder()
 /** A run that is never cancelled in these tests. */
 const LIVE = new AbortController().signal
@@ -195,7 +195,7 @@ describe('runStage', () => {
     })
     const init = fetchMock.mock.calls[0]?.[1]
     const sent = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; usage: { include: boolean } }
-    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 600, usage: { include: true } })
+    expect(sent).toMatchObject({ model: 'anthropic/claude-haiku-5.5', max_tokens: 600, usage: { include: true } })
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-only-placeholder' })
   })
 

@@ -24,14 +24,14 @@ describe('judge function', () => {
 
   it('returns the verdict, the judge model, usage and cost from a mocked reply', async () => {
     const stub = providerStub(() =>
-      reply('anthropic/claude-haiku-4.5', VERDICT, { prompt: 300, completion: 60, cost: 0.000045 }),
+      reply('anthropic/claude-haiku-5.5', VERDICT, { prompt: 300, completion: 60, cost: 0.000045 }),
     )
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Explain READY.', answers: ANSWERS }))
     expect(response.status).toBe(200)
     const body = (await response.json()) as JudgeResponse
     expect(body).toEqual({
       ok: true,
-      model: 'anthropic/claude-haiku-4.5',
+      model: 'anthropic/claude-haiku-5.5',
       latencyMs: expect.any(Number),
       bestOverall: 'B',
       perPanel: { A: 'Correct but long.', B: 'Correct and short.' },
@@ -43,7 +43,7 @@ describe('judge function', () => {
           name: 'Judge',
           status: 'ok',
           ms: expect.any(Number),
-          detail: 'anthropic/claude-haiku-4.5 picked Panel B',
+          detail: 'anthropic/claude-haiku-5.5 picked Panel B',
           tokens: 360,
           cost: { usd: 0.000045, source: 'usage' },
         },
@@ -56,10 +56,12 @@ describe('judge function', () => {
       reasoning: { enabled: false },
       usage: { include: true },
     })
+    expect(sentBody(stub.mock.calls[0][1]).model).toBe('anthropic/claude-haiku-5.5')
+    expect(sentBody(stub.mock.calls[0][1])).not.toHaveProperty('temperature')
   })
 
   it('reads a verdict wrapped in a code fence', async () => {
-    const stub = providerStub(() => reply('anthropic/claude-haiku-4.5', '```json\n' + VERDICT + '\n```'))
+    const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', '```json\n' + VERDICT + '\n```'))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
     expect(await response.json()).toMatchObject({ ok: true, bestOverall: 'B' })
     expect(stub).toHaveBeenCalledTimes(1)
@@ -117,7 +119,7 @@ describe('judge function', () => {
   })
 
   it('accepts answers at the limits: 8000 characters each and 20000 in total', async () => {
-    const stub = providerStub(() => reply('anthropic/claude-haiku-4.5', VERDICT))
+    const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', VERDICT))
     const response = await (await handler())(
       request(URL, 'POST', {
         prompt: 'Q',
@@ -159,20 +161,20 @@ describe('judge function', () => {
   })
 
   it('reports a reply with no JSON as a failed judge step, with the model that answered', async () => {
-    const stub = providerStub(() => reply('anthropic/claude-haiku-4.5', 'Panel A is better.'))
+    const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', 'Panel A is better.'))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
     expect(stub).toHaveBeenCalledTimes(1)
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       ok: false,
       reason: 'The judge did not return JSON',
-      model: 'anthropic/claude-haiku-4.5',
+      model: 'anthropic/claude-haiku-5.5',
       trace: [{ name: 'Judge', status: 'failed', detail: 'The judge did not return JSON' }],
     })
   })
 
   it('reports an empty reply as a failed judge step', async () => {
-    const stub = providerStub(() => reply('anthropic/claude-haiku-4.5', '   '))
+    const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', '   '))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
     expect(stub).toHaveBeenCalledTimes(1)
     expect(await response.json()).toMatchObject({ ok: false, reason: 'The judge returned no text' })

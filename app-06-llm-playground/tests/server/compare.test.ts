@@ -5,7 +5,7 @@ import { providerStub, reply, request, sentBody } from './fixtures'
 
 const URL = 'http://localhost:8888/api/compare'
 const PROMPT = 'Reply with exactly the word READY.'
-// The first model is ignored: panel A always runs the fixed alias.
+// The first model is ignored: panel A always runs the fixed model.
 const MODELS = ['openai/ignored-by-server', 'google/gemini-2.5-flash-lite', 'anthropic/claude-sonnet-5']
 const NO_ANSWER = 'The AI provider did not answer in time'
 const STOPPED = 'The request was stopped before the AI provider answered'
@@ -24,7 +24,7 @@ describe('compare function', () => {
 
   it('answers each panel with its text, latency, usage, served model and cost, then the trace and summary', async () => {
     const stub = providerStub(model => {
-      if (model === MODEL) return reply('anthropic/claude-haiku-4.5', 'READY', { completion: 3, cost: 0.000001 })
+      if (model === MODEL) return reply('anthropic/claude-haiku-5.5', 'READY', { completion: 3, cost: 0.000001 })
       if (model === 'google/gemini-2.5-flash-lite') {
         return reply('google/gemini-2.5-flash-lite-001', 'READY', { completion: 5, cost: 0.0000003 })
       }
@@ -36,7 +36,7 @@ describe('compare function', () => {
     expect(body.panels.map(p => p.slot)).toEqual(['A', 'B', 'C'])
     expect(body.panels.map(p => p.requestedModel)).toEqual([MODEL, 'google/gemini-2.5-flash-lite', 'anthropic/claude-sonnet-5'])
     expect(body.panels.map(p => p.servedModel)).toEqual([
-      'anthropic/claude-haiku-4.5',
+      'anthropic/claude-haiku-5.5',
       'google/gemini-2.5-flash-lite-001',
       'anthropic/claude-sonnet-5',
     ])
@@ -61,7 +61,7 @@ describe('compare function', () => {
     expect(stub).toHaveBeenCalledTimes(4)
   })
 
-  it('reads the catalogue once, then sends each panel with max_tokens and usage.include, panel A on the fixed alias', async () => {
+  it('reads the catalogue once, then sends each panel with max_tokens and usage.include, panel A on the fixed model', async () => {
     const stub = providerStub(model => reply(model, 'READY'))
     await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
     expect(stub.mock.calls[0][0].endsWith('/models')).toBe(true)
@@ -74,6 +74,16 @@ describe('compare function', () => {
     for (const [, init] of chatCalls) {
       expect(sentBody(init)).toMatchObject({ max_tokens: 2048, usage: { include: true } })
     }
+  })
+
+  it('runs panel A on Haiku 5.5 and sends no temperature when the visitor sets none', async () => {
+    const stub = providerStub(model => reply(model, 'READY'))
+    await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const chatCalls = stub.mock.calls.filter(([url]) => url.endsWith('/chat/completions'))
+    const panelA = sentBody(chatCalls[0][1])
+    expect(panelA.model).toBe('anthropic/claude-haiku-5.5')
+    expect(panelA).not.toHaveProperty('temperature')
+    expect(panelA).not.toHaveProperty('provider')
   })
 
   it('refuses a model that is not in the list, with a plain message, before any provider call', async () => {

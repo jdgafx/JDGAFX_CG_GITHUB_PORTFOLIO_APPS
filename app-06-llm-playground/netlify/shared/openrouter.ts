@@ -1,3 +1,4 @@
+import { withDeadline } from './deadline'
 import { errorName, isRecord, strOrNull } from './parse'
 
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
@@ -43,34 +44,30 @@ function providerFailure(status: number): string {
   return `The AI provider rejected the request (status ${status})`
 }
 
-// The signal ends at the call's own timeout or when the caller's signal aborts, whichever is first.
-function callSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
-  const timeout = AbortSignal.timeout(Math.max(0, timeoutMs))
-  return caller ? AbortSignal.any([caller, timeout]) : timeout
-}
-
 // One non-streaming chat call. usage.include makes OpenRouter report the billed cost.
 // A caller that stopped while the call was pending gets the stop message, even when the provider
 // answers late: the stop wins over the reply.
 export async function chat(key: string, body: ChatRequest, limits: ChatLimits): Promise<ChatResult> {
   const started = Date.now()
-  const signal = callSignal(limits.timeoutMs, limits.signal)
   const stopped = (): ChatResult => ({ ok: false, error: STOPPED, latencyMs: Date.now() - started })
   try {
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, usage: { include: true } }),
-      signal,
+    // The deadline covers the body read as well as the headers: a reply that stalls midway still ends at the limit.
+    const outcome = await withDeadline(Math.max(0, limits.timeoutMs), limits.signal, async signal => {
+      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, usage: { include: true } }),
+        signal,
+      })
+      if (!res.ok) return { ok: false as const, status: res.status, detail: (await res.text()).slice(0, 500) }
+      return { ok: true as const, data: (await res.json()) as unknown }
     })
     if (limits.signal?.aborted) return stopped()
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 500)
-      console.error(`Provider returned ${res.status} for ${body.model}: ${detail}`)
-      return { ok: false, error: providerFailure(res.status), latencyMs: Date.now() - started }
+    if (!outcome.ok) {
+      console.error(`Provider returned ${outcome.status} for ${body.model}: ${outcome.detail}`)
+      return { ok: false, error: providerFailure(outcome.status), latencyMs: Date.now() - started }
     }
-    const data: unknown = await res.json()
-    if (limits.signal?.aborted) return stopped()
+    const data = outcome.data
     if (!isRecord(data)) return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started }
     return { ok: true, data, latencyMs: Date.now() - started }
   } catch (err) {

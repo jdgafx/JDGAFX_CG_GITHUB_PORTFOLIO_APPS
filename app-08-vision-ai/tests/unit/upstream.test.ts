@@ -28,13 +28,13 @@ function stateWith(overrides: Partial<ReadState>): ReadState {
 describe('absorb', () => {
   it('emits each text delta in order and records the served model', () => {
     const { state, frames } = absorbAll([
-      line({ model: 'anthropic/claude-haiku-4.5', choices: [{ delta: { content: 'HELLO' } }] }),
+      line({ model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'HELLO' } }] }),
       line({ choices: [{ delta: { content: ' 42' } }] }),
     ])
     expect(frames).toEqual([{ text: 'HELLO' }, { text: ' 42' }])
     expect(state.text).toBe('HELLO 42')
     expect(state.chunks).toBe(2)
-    expect(state.served).toBe('anthropic/claude-haiku-4.5')
+    expect(state.served).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('reads token usage, cost and the finish reason from the final chunk', () => {

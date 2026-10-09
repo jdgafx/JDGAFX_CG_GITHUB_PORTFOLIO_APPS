@@ -140,7 +140,8 @@ export function PromptCard(props: PromptCardProps) {
                 </>
               )}
               <p className="ds-help" id="temperature-help">
-                Off keeps each model's own setting. On applies one value to all three panels. Each answer is capped at{' '}
+                Off keeps each model's own setting. On sends one value to all three panels. Panel A (Claude Haiku 5.5) ignores
+                temperature, so the value applies to panels B and C only when their models accept it. Each answer is capped at{' '}
                 {maxTokens} output tokens.
               </p>
             </div>

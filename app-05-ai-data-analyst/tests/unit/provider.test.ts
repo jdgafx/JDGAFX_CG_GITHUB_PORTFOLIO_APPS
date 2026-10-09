@@ -43,16 +43,17 @@ describe('callModel request', () => {
     await callModel(MESSAGES, SIGNAL)
     const call = mock.mock.calls[0]
     const sent = JSON.parse(String(call?.[1].body)) as Record<string, unknown>
-    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
+    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
     expect(call?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(sent).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 4096,
       reasoning: { enabled: false },
       response_format: { type: 'json_object' },
       usage: { include: true },
       messages: MESSAGES,
     })
+    expect(sent).not.toHaveProperty('temperature')
     expect(call?.[1].headers).toEqual({ Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' })
   })
 

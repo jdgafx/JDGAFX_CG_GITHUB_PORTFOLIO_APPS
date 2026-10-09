@@ -90,22 +90,38 @@ describe('Sources stage', () => {
   })
 
   it('applies one 4 second cap to both lookups', async () => {
-    const real = AbortSignal.timeout.bind(AbortSignal)
-    const caps: number[] = []
-    vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
-      caps.push(ms)
-      return real(5)
-    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     // Both lookups hang until the signal fires, as a stalled upstream would.
+    const signals: AbortSignal[] = []
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      if (init?.signal) signals.push(init.signal)
       init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
     })))
 
-    const body = (await (await handler(request(stageBody('sources')))).json()) as StageBody
-    expect(caps).toEqual([4_000])
+    const pending = handler(request(stageBody('sources')))
+    await vi.advanceTimersByTimeAsync(3_999)
+    expect(signals).toHaveLength(2)
+    expect(signals.every(signal => !signal.aborted)).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+
+    const body = (await (await pending).json()) as StageBody
     expect(body.trace[0]).toMatchObject({
       status: 'ok',
       detail: 'No sources found. Wikipedia did not answer in time. Hacker News did not answer in time.',
+    })
+  })
+
+  it('ends a lookup whose body never finishes at the 4 second cap, and keeps the other source', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const stalled = () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
+    lookupsWill(() => ok(WIKI_BODY), stalled)
+
+    const pending = handler(request(stageBody('sources')))
+    await vi.advanceTimersByTimeAsync(4_000)
+    const body = (await (await pending).json()) as StageBody
+    expect(body.trace[0]).toMatchObject({
+      status: 'ok',
+      detail: '2 sources: 2 Wikipedia, 0 Hacker News. Hacker News did not answer in time.',
     })
   })
 

@@ -3,8 +3,8 @@ import { afterEach, beforeEach, expect, vi } from 'vitest'
 export const SITE = 'https://site.example'
 export const ENDPOINT = `${SITE}/.netlify/functions/ai`
 export const KEY = 'test-only-placeholder'
-export const SERVED = 'anthropic/claude-haiku-4.5'
-export const FIXED_MODEL = '~anthropic/claude-haiku-latest'
+export const SERVED = 'anthropic/claude-haiku-5.5'
+export const FIXED_MODEL = 'anthropic/claude-haiku-5.5'
 export const QUERY = 'In two sentences, compare SSE and WebSockets for streaming LLM output.'
 export const VALID_BODY = JSON.stringify({ query: QUERY })
 export const PROVIDER_REJECTED = 'The AI provider rejected the key or is out of credit.'

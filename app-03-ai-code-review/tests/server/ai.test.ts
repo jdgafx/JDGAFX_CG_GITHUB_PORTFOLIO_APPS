@@ -196,7 +196,7 @@ describe('ai function: request checks', () => {
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     const res = await handler(post({ ...DIVIDE_BODY, model: 'openai/gpt-4o' }))
     expect(res.status).toBe(200)
-    expect(sentBody().model).toBe('~anthropic/claude-haiku-latest')
+    expect(sentBody().model).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('falls back to a generic language when the client sends something that is not a language', async () => {
@@ -245,7 +245,7 @@ describe('ai function: a completed review', () => {
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(init.headers).toEqual({ Authorization: `Bearer ${PLACEHOLDER_KEY}`, 'Content-Type': 'application/json' })
     expect(sentBody()).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 4096,
       reasoning: { enabled: false },
       usage: { include: true },

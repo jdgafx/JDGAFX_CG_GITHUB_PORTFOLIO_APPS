@@ -27,7 +27,7 @@ describe('curated picker list', () => {
       'Frontier quality',
     ])
     expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(23)
+    expect(ids).toHaveLength(24)
   })
 
   it('uses provider/model IDs only', () => {
@@ -42,8 +42,8 @@ describe('curated picker list', () => {
 })
 
 describe('contract limits', () => {
-  it('keeps panel A on the fixed alias', () => {
-    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
+  it('keeps panel A on the fixed model', () => {
+    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('derives the body limits from the text limits, at 6 bytes per character plus 4096 for keys', () => {

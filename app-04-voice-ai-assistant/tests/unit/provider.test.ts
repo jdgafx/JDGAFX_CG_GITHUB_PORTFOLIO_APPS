@@ -41,6 +41,7 @@ describe('runModelCall', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(headerOf(fetchMock, 0, 'authorization')).toBe(`Bearer ${PLACEHOLDER}`)
     const sent = sentRequest(fetchMock)
+    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
     expect(sent).toMatchObject({
       model: MODEL,
       max_tokens: 256,

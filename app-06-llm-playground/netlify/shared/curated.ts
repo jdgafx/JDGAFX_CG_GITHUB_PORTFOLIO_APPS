@@ -9,6 +9,7 @@ export const CURATED_GROUPS: CuratedGroup[] = [
   {
     label: 'Speed and latency',
     items: [
+      ['anthropic/claude-haiku-5.5', 'fast Claude model, the fixed Panel A model'],
       ['google/gemini-3.1-flash-lite', 'small and fast, long context'],
       ['openai/gpt-5.4-nano', 'smallest GPT-5.4 tier, quick replies'],
       ['google/gemini-2.5-flash-lite', 'low cost, quick'],

@@ -1,6 +1,7 @@
 import { MODEL, type CatalogueResponse, type ModelGroup, type ModelOption } from './contract'
 import { CURATED_GROUPS } from './curated'
 import { OPENROUTER_BASE } from './openrouter'
+import { withDeadline } from './deadline'
 import { errorName, isRecord, perToken } from './parse'
 
 const TTL_MS = 10 * 60 * 1000
@@ -31,9 +32,12 @@ let inflight: Promise<Snapshot | null> | null = null
 
 async function fetchLive(): Promise<Map<string, LiveModel>> {
   // The catalogue is public, so no key is sent.
-  const res = await fetch(`${OPENROUTER_BASE}/models`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  if (!res.ok) throw new Error(`catalogue returned ${res.status}`)
-  const payload: unknown = await res.json()
+  // The deadline covers the body read as well as the headers.
+  const payload = await withDeadline<unknown>(FETCH_TIMEOUT_MS, undefined, async signal => {
+    const res = await fetch(`${OPENROUTER_BASE}/models`, { signal })
+    if (!res.ok) throw new Error(`catalogue returned ${res.status}`)
+    return res.json()
+  })
   if (!isRecord(payload) || !Array.isArray(payload.data)) throw new Error('catalogue has no data array')
   const models = new Map<string, LiveModel>()
   for (const raw of payload.data) {

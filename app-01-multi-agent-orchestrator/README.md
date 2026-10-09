@@ -53,7 +53,7 @@ Browser (React, Vite, React Flow graph)
 ```
 
 - **Keys:** `OPENROUTER_API_KEY` is read only on the server, in `netlify/shared/provider.ts`. The browser never receives it.
-- **Model:** one server constant, `~anthropic/claude-haiku-latest`. The page has no model picker, and a model field sent by a client is ignored.
+- **Model:** one server constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned. The page has no model picker, and a model field sent by a client is ignored.
 - **Every provider call:** sends an explicit `max_tokens` and asks for usage, including cost. Reasoning is switched off, because reasoning tokens count against `max_tokens`.
 - **Where the logic lives:** retrieval (URLs, parsing, caps, timeouts) is in `netlify/shared/retrieve.ts`. The four stage prompts and caps are in `netlify/shared/agents.ts`. Reading the provider reply and retrying are in `netlify/shared/stream.ts`. Request checks are in `netlify/shared/gate.ts`.
 
@@ -123,7 +123,7 @@ https://jdgafx-app-01-multi-agent-orchestrator.netlify.app
 - Stop ends the browser's request. The server then cancels the run: the model call in flight is aborted and no later stage starts. Tokens already generated may still be billed.
 - The rate limit is per warm function instance. It resets when an instance restarts.
 - Token counts and cost come from the provider's usage report. When the provider sends no figure, the page says "not reported".
-- The served model is the one OpenRouter reports in its reply. The request names an alias, so the two can differ.
+- The served model is the one OpenRouter reports in its reply. The request pins one model, so they should match; the page shows what OpenRouter reports.
 - Output quality is not checked. A citation is the model's claim that a fact comes from source n. Nothing verifies it, and there is no labelled evaluation set yet.
 - Retrieval is keyword search over Wikipedia article intros and Hacker News titles. A Hacker News source carries only the title and counts, not the discussion. A question with no good Wikipedia article gets weak sources.
 - Retrieval can take up to 4 seconds of the 24 second budget, which leaves the Synthesizer less time.

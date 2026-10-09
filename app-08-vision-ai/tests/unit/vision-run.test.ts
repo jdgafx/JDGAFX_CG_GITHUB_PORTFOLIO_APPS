@@ -48,7 +48,7 @@ describe('streamVisionRun happy path', () => {
   it('streams text deltas, then a complete frame with the served model, usage and cost', async () => {
     const provider = stubFetch(async () =>
       sseReply([
-        { model: 'anthropic/claude-haiku-4.5', choices: [{ delta: { content: 'A red ' } }] },
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'A red ' } }] },
         { choices: [{ delta: { content: 'sign.' }, finish_reason: 'stop' }] },
         { choices: [], usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 } },
       ]),
@@ -60,7 +60,7 @@ describe('streamVisionRun happy path', () => {
     const [url, init] = provider.mock.calls[0]
     expect(url).toBe('https://provider.test/chat')
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      model: '~anthropic/claude-haiku-latest',
+      model: 'anthropic/claude-haiku-5.5',
       max_tokens: 4096,
       usage: { include: true },
     })
@@ -75,7 +75,7 @@ describe('streamVisionRun happy path', () => {
           name: 'Model call',
           status: 'ok',
           ms: expect.any(Number),
-          detail: 'anthropic/claude-haiku-4.5, 2 text chunks',
+          detail: 'anthropic/claude-haiku-5.5, 2 text chunks',
           tokens: 1200,
           cost: 0.0002,
         },
@@ -98,7 +98,7 @@ describe('streamVisionRun happy path', () => {
             name: 'Model call',
             status: 'ok',
             ms: expect.any(Number),
-            detail: 'anthropic/claude-haiku-4.5, 2 text chunks',
+            detail: 'anthropic/claude-haiku-5.5, 2 text chunks',
             tokens: 1200,
             cost: 0.0002,
           },
@@ -110,7 +110,7 @@ describe('streamVisionRun happy path', () => {
           },
         ],
         usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-        model: 'anthropic/claude-haiku-4.5',
+        model: 'anthropic/claude-haiku-5.5',
         totalMs: expect.any(Number),
       },
     ])
@@ -120,7 +120,7 @@ describe('streamVisionRun happy path', () => {
     stubFetch(async () =>
       sseReply([
         {
-          model: 'anthropic/claude-haiku-4.5',
+          model: 'anthropic/claude-haiku-5.5',
           choices: [{ delta: { content: 'Hi' }, finish_reason: 'stop' }],
           usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
         },
@@ -167,7 +167,7 @@ describe('streamVisionRun content and token checks', () => {
   it('keeps the partial text and marks a reply cut off by the token limit as truncated', async () => {
     stubFetch(async () =>
       sseReply([
-        { model: 'anthropic/claude-haiku-4.5', choices: [{ delta: { content: 'The sign' } }] },
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'The sign' } }] },
         { choices: [{ delta: {}, finish_reason: 'length' }] },
       ]),
     )
@@ -187,7 +187,7 @@ describe('streamVisionRun content and token checks', () => {
   })
 
   it('fails a blank reply with the no-analysis message', async () => {
-    stubFetch(async () => sseReply([{ model: 'anthropic/claude-haiku-4.5', choices: [{ delta: {}, finish_reason: 'stop' }] }]))
+    stubFetch(async () => sseReply([{ model: 'anthropic/claude-haiku-5.5', choices: [{ delta: {}, finish_reason: 'stop' }] }]))
 
     const frames = await framesOf(streamVisionRun(makeRun()))
 
@@ -311,5 +311,21 @@ describe('streamVisionRun deadline', () => {
       truncated: true,
       totalMs: 25_000,
     })
+  })
+
+  it('ends a connection that never answers at the deadline even when fetch ignores the abort', async () => {
+    vi.useFakeTimers()
+    const provider = stubFetch(() => new Promise<Response>(() => {}))
+
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    const frames = await done
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(frames.at(-3)).toMatchObject({
+      stage: 'step',
+      step: { name: 'Model call', status: 'failed', detail: 'No response from the AI provider within the time limit' },
+    })
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.', truncated: false })
   })
 })

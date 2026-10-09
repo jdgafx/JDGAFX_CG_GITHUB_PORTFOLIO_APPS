@@ -1,10 +1,11 @@
+import { withDeadline } from './deadline'
 import { isDeadlineError, providerFailure, upstreamStatus } from './http'
 import { TOOL_DEFINITIONS, runTool } from './tools'
 import type { Recorder } from './trace'
 
 // The one chat model for every chat call in this app. It is fixed here: it is
 // never read from the environment and never taken from the browser.
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 const PROVIDER = 'The AI provider'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -94,26 +95,42 @@ async function sendAttempt(
   timeoutMs: number,
   toolChoice?: 'none',
 ): Promise<Attempt> {
-  let response: Response
+  // The deadline covers the body read as well as the headers, so a reply that stalls midway ends at the limit.
+  type Got =
+    | { kind: 'completion'; completion: Completion }
+    | { kind: 'http'; status: number; body: string }
+    | { kind: 'unreadable'; error: unknown }
+  let got: Got
   try {
-    response = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(timeoutMs),
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens,
-        // Reasoning tokens count against max_tokens, so a reasoning route could
-        // use up the budget and leave no room for the reply.
-        reasoning: { enabled: false },
-        // Asks OpenRouter to return token counts and cost with the reply.
-        usage: { include: true },
-        // The tools stay listed on the answer call, because the messages now hold
-        // tool calls. 'none' is what keeps that call to one round.
-        tools: TOOL_DEFINITIONS,
-        ...(toolChoice ? { tool_choice: toolChoice } : {}),
-        messages: turns,
-      }),
+    got = await withDeadline<Got>(timeoutMs, undefined, async signal => {
+      const response = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          // Reasoning tokens count against max_tokens, so a reasoning route could
+          // use up the budget and leave no room for the reply.
+          reasoning: { enabled: false },
+          // Asks OpenRouter to return token counts and cost with the reply.
+          usage: { include: true },
+          // The tools stay listed on the answer call, because the messages now hold
+          // tool calls. 'none' is what keeps that call to one round.
+          tools: TOOL_DEFINITIONS,
+          ...(toolChoice ? { tool_choice: toolChoice } : {}),
+          messages: turns,
+        }),
+      })
+      if (!response.ok) return { kind: 'http', status: response.status, body: await response.text().catch(() => '<unreadable>') }
+      try {
+        const data: unknown = await response.json()
+        if (typeof data !== 'object' || data === null) throw new TypeError('reply is not an object')
+        return { kind: 'completion', completion: data as Completion }
+      } catch (error) {
+        if (isDeadlineError(error)) throw error
+        return { kind: 'unreadable', error }
+      }
     })
   } catch (err) {
     console.error('ai: upstream request failed', err)
@@ -128,24 +145,19 @@ async function sendAttempt(
     }
   }
 
-  if (!response.ok) {
+  if (got.kind === 'http') {
     // Vendor error text can carry account or billing detail. Log it, never ship it.
-    const body = await response.text().catch(() => '<unreadable>')
-    console.error(`ai: upstream ${response.status}: ${body}`)
+    console.error(`ai: upstream ${got.status}: ${got.body}`)
     return {
       ok: false,
-      httpStatus: upstreamStatus(response.status),
-      message: providerFailure(PROVIDER, response.status),
-      detail: `HTTP ${response.status} from the AI provider`,
+      httpStatus: upstreamStatus(got.status),
+      message: providerFailure(PROVIDER, got.status),
+      detail: `HTTP ${got.status} from the AI provider`,
     }
   }
 
-  try {
-    const data: unknown = await response.json()
-    if (typeof data !== 'object' || data === null) throw new TypeError('reply is not an object')
-    return { ok: true, completion: data as Completion }
-  } catch (err) {
-    console.error('ai: could not parse upstream JSON', err)
+  if (got.kind === 'unreadable') {
+    console.error('ai: could not parse upstream JSON', got.error)
     return {
       ok: false,
       httpStatus: 502,
@@ -153,6 +165,7 @@ async function sendAttempt(
       detail: 'The provider reply was not JSON',
     }
   }
+  return { ok: true, completion: got.completion }
 }
 
 type Asked =

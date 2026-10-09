@@ -1,5 +1,5 @@
 /** The one chat model for every planner call. The browser never chooses a model. */
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 

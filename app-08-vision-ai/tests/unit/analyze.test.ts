@@ -53,7 +53,7 @@ describe('analyzeImage with a streamed reply', () => {
       name: 'Model call',
       status: 'ok',
       ms: 900,
-      detail: 'anthropic/claude-haiku-4.5, 2 text chunks',
+      detail: 'anthropic/claude-haiku-5.5, 2 text chunks',
       tokens: 1200,
       cost: 0.0002,
     }
@@ -71,7 +71,7 @@ describe('analyzeImage with a streamed reply', () => {
           result: 'A red sign.',
           trace: [CHECKED, modelOk, parseOk],
           usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-          model: 'anthropic/claude-haiku-4.5',
+          model: 'anthropic/claude-haiku-5.5',
           totalMs: 1200,
         },
       ]),
@@ -92,7 +92,7 @@ describe('analyzeImage with a streamed reply', () => {
       summary: {
         trace: [CHECKED, modelOk, parseOk],
         usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-        model: 'anthropic/claude-haiku-4.5',
+        model: 'anthropic/claude-haiku-5.5',
         totalMs: 1200,
       },
     })

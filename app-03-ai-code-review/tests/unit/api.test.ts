@@ -140,7 +140,7 @@ describe('reviewCode: a completed run', () => {
           },
           trace: [{ name: 'Model call', status: 'ok', ms: 1200, detail: 'Reply received', tokens: 150, cost: 0.00015 }],
           usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015 },
-          model: '~anthropic/claude-haiku-latest',
+          model: 'anthropic/claude-haiku-5.5',
           totalMs: 1300,
         }),
       ),
@@ -155,7 +155,7 @@ describe('reviewCode: a completed run', () => {
       { name: 'Model call', status: 'ok', ms: 1200, detail: 'Reply received', tokens: 150, cost: 0.00015 },
     ])
     expect(run.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015 })
-    expect(run.model).toBe('~anthropic/claude-haiku-latest')
+    expect(run.model).toBe('anthropic/claude-haiku-5.5')
     expect(run.totalMs).toBe(1300)
   })
 

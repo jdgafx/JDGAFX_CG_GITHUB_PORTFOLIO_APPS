@@ -43,7 +43,7 @@ describe('live catalogue', () => {
     const cat = await fresh()
     const view = await cat.catalogueView()
     expect(stub).toHaveBeenCalledTimes(1)
-    expect(view).toMatchObject({ source: 'live', defaultModel: '~anthropic/claude-haiku-latest' })
+    expect(view).toMatchObject({ source: 'live', defaultModel: 'anthropic/claude-haiku-5.5' })
     expect(view.groups.map(g => g.label)).toEqual(['Speed and latency', 'Frontier quality', 'All other live text models'])
     const speed = view.groups[0]
     expect(speed.options).toEqual([
@@ -131,14 +131,14 @@ describe('fallback catalogue', () => {
     expect(view.fetchedAt).toBeNull()
     expect(view.groups.map(g => g.label)).toEqual(CURATED_LABELS)
     expect(view.groups[0].options[0]).toEqual({
-      id: 'google/gemini-3.1-flash-lite',
-      label: 'google/gemini-3.1-flash-lite',
-      why: 'small and fast, long context',
+      id: 'anthropic/claude-haiku-5.5',
+      label: 'anthropic/claude-haiku-5.5',
+      why: 'fast Claude model, the fixed Panel A model',
       inPerM: null,
       outPerM: null,
       contextLength: null,
     })
-    expect(cat.acceptedIds(null).size).toBe(23)
+    expect(cat.acceptedIds(null).size).toBe(24)
   })
 
   it('serves the curated list when the catalogue does not answer in time', async () => {

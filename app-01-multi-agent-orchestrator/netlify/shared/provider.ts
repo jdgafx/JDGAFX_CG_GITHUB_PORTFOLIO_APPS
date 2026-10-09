@@ -1,5 +1,5 @@
 /** The one chat model every stage calls. Client-supplied model fields are ignored. */
-export const MODEL = '~anthropic/claude-haiku-latest'
+export const MODEL = 'anthropic/claude-haiku-5.5'
 
 const APP_TITLE = 'AgentFlow'
 export const DEFAULT_SITE_URL = 'https://jdgafx-app-01-multi-agent-orchestrator.netlify.app'

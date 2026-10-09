@@ -3,7 +3,7 @@ import { STAGE_LABELS, type StageId, type Usage } from '../../netlify/shared/con
 import type { CallRecord } from '../../src/lib/api'
 import { buildTrace, formatCount, formatMs, formatUsd, stageViews, summarize } from '../../src/lib/run'
 
-const MODEL = 'anthropic/claude-haiku-4.5'
+const MODEL = 'anthropic/claude-haiku-5.5'
 const FIRST: Usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 }
 const SECOND: Usage = { prompt_tokens: 500, completion_tokens: 100, total_tokens: 600, cost: 0.0001 }
 

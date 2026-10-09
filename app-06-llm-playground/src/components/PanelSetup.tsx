@@ -30,16 +30,16 @@ export function PanelSetup({ catalogue, catalogueFailed, picks, onPick, disabled
     <section className="ds-section" aria-labelledby="models-title">
       <div className="ds-section__head">
         <h2 className="ds-section__title" id="models-title">Models</h2>
-        <p className="ds-section__sub">Panel A stays on the Haiku alias. Pick B and C to compare it against.</p>
+        <p className="ds-section__sub">Panel A stays on Claude Haiku 5.5. Pick B and C to compare it against.</p>
       </div>
       <div className="ds-stack">
         <div className="ds-field">
           <span className="ds-label">Panel A model</span>
           <p className="arena-fixed" aria-describedby="fixed-help">
-            {MODEL}
+            Claude Haiku 5.5 ({MODEL})
           </p>
           <p className="ds-help" id="fixed-help">
-            Fixed for every run, so each comparison includes the same Haiku alias.
+            Fixed for every run, so each comparison includes the same Claude Haiku 5.5 model.
           </p>
         </div>
         <ModelPicker

@@ -49,7 +49,7 @@ browser (React, pdf.js)
 
 - **Content Security Policy.** `connect-src` allows `'self'` and `https://en.wikipedia.org`, the one host the browser calls directly. Everything else goes through this app's functions.
 - **Keys.** `OPENROUTER_API_KEY` is read only inside the function. The browser never receives it and never calls OpenRouter.
-- **Model.** One server constant, `~anthropic/claude-haiku-latest`. The UI has no model picker, and any model name the client sends is ignored.
+- **Model.** One server constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned. The UI has no model picker, and any model name the client sends is ignored.
 - **Output cap.** Every model call sends `max_tokens: 4096` and `usage: { include: true }`, so the reply reports tokens and cost.
 - **Same origin only.** The app and its functions share one origin, so the functions send no CORS headers and do not answer OPTIONS. A request whose Origin header is not on the list gets 403. Requests with no Origin header are allowed.
 - **Validation.** Non-POST methods get 405. Bad JSON gets 400. Bodies over 256 KB get 413. The question is at most 2000 characters, at most 20 passages are accepted, and each passage must start with its `[Chunk N]` label. Each passage is cut to 2000 characters and the title to 200.

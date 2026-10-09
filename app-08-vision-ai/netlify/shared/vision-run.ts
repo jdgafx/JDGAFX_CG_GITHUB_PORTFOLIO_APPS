@@ -1,3 +1,4 @@
+import { raceAbort } from './deadline'
 import { chatBody, type ChatMessage, type Provider } from './provider'
 import {
   NO_ANALYSIS_MESSAGE,
@@ -77,12 +78,16 @@ export function streamVisionRun(run: VisionRun): Response {
         const connectTimer = setTimeout(() => upstreamAbort.abort(), Math.max(0, deadline - Date.now()))
         let upstream: Response
         try {
-          upstream = await fetch(run.provider.url, {
-            method: 'POST',
-            signal: upstreamAbort.signal,
-            headers: { Authorization: `Bearer ${run.provider.apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(chatBody(run.messages, run.maxTokens)),
-          })
+          // raceAbort ends the wait at the timer even when the fetch ignores the abort.
+          upstream = await raceAbort(
+            fetch(run.provider.url, {
+              method: 'POST',
+              signal: upstreamAbort.signal,
+              headers: { Authorization: `Bearer ${run.provider.apiKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify(chatBody(run.messages, run.maxTokens)),
+            }),
+            upstreamAbort.signal,
+          )
         } catch (err) {
           clearTimeout(connectTimer)
           if (isAbortError(err)) {
