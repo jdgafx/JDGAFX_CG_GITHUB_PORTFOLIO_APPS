@@ -3,6 +3,7 @@ import { ExportBar, type ExportKind, type ExportState } from './components/Expor
 import { GraphView } from './components/GraphView'
 import { liveDataView } from './lib/liveData'
 import { Header, type BadgeTone } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { QueryBar } from './components/QueryBar'
 import { ReadoutStrip, type ReadoutState } from './components/ReadoutStrip'
 import { ReportCard } from './components/ReportCard'
@@ -19,6 +20,7 @@ import {
   wasTruncated,
 } from './lib/agents'
 import { isAbortError, runErrorMessage, startResearch } from './lib/api'
+import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
 import { buildSteps } from './lib/graphLayout'
 import { derivePhase, failInFlight, settleAgents, type RunPhase } from './lib/pipeline'
 import { buildTraceRows } from './lib/traceRows'
@@ -275,6 +277,7 @@ export default function App() {
       <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt)} />
 
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleExample(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready'} hint={HOWTO_HINT} />
         <div className="ds-bench">
           <div className="ds-controls">
             <QueryBar
