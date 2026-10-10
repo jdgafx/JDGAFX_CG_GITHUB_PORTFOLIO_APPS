@@ -5,7 +5,7 @@ import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, wit
 import { FrameRecorder, type FrameOutcome } from '../shared/frames'
 import { allowedDomains, isAllowedHost } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
-import { closeBrowser, launchBrowser, retireContainer, type Launched } from '../shared/session'
+import { closeBrowser, launchBrowser, type Launched } from '../shared/session'
 import { validateSteps } from '../shared/steps'
 
 export const config = { path: '/api/execute' }
@@ -24,11 +24,6 @@ const MAX_BODY_BYTES = 32_768
 const RUN_VIEWPORT = { width: 960, height: 540 }
 
 type Send = (event: RunEvent) => void
-
-/** What the run tells the response about the container it ran in. */
-interface RunEnd {
-  retire: boolean
-}
 
 /**
  * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of
@@ -87,7 +82,7 @@ function frameFields(shot: FrameOutcome): { frame?: StepFrame; frameNote?: strin
  * Runs the plan in a headless Chromium inside this function and streams each stage as it finishes. The browser is
  * closed even when a stage fails. The final event comes after the close.
  */
-async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<RunEnd> {
+async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<void> {
   const startedAt = Date.now()
   // The run total is the sum of the timed rows, so the figures on screen reconcile with the trace.
   let timedMs = 0
@@ -99,7 +94,6 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   let page: Page | undefined
   let recorder: FrameRecorder | undefined
   let blockedHost: string | undefined
-  let networkFailure = false
   let stage = 'Launch browser'
   let stageStarted = Date.now()
   let stepStarted = Date.now()
@@ -140,7 +134,6 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       } catch (error) {
         // A navigation the browser refused to make is reported as the move it was.
         if (blockedHost) throw movedOffSite(blockedHost)
-        if (step.action === 'navigate' && error instanceof ExecutionError && /could not be loaded/.test(error.message)) networkFailure = true
         throw error
       }
       // A click can start a navigation to another site and still return. The refused move is reported here.
@@ -198,11 +191,9 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   }
 
   // Closing the browser ends its process. The close row always comes last, after the steps that never ran.
-  let retire = false
   if (launched) {
     const closeStarted = Date.now()
-    const result = await closeBrowser(launched, networkFailure)
-    retire = result.retire
+    const result = await closeBrowser(launched)
     send({
       type: 'stage',
       name: 'Close browser',
@@ -213,11 +204,10 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   }
   // The total covers the whole run, including the close step above.
   send(outcome.type === 'done' ? { ...outcome, totalMs: timedMs } : outcome)
-  return { retire }
 }
 
 /** Streams RunEvent records as server-sent events and stops work when the client disconnects. */
-function eventStream(req: Request, headers: Record<string, string>, run: (send: Send, isCancelled: () => boolean) => Promise<RunEnd | void>): Response {
+function eventStream(req: Request, headers: Record<string, string>, run: (send: Send, isCancelled: () => boolean) => Promise<void>): Response {
   const encoder = new TextEncoder()
   let cancelled = false
   const stream = new ReadableStream<Uint8Array>({
@@ -227,17 +217,14 @@ function eventStream(req: Request, headers: Record<string, string>, run: (send: 
       const send: Send = (event) => {
         if (!cancelled) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
       }
-      let end: RunEnd | undefined = undefined
       try {
-        end = (await run(send, () => cancelled)) ?? undefined
+        await run(send, () => cancelled)
       } catch (error) {
         send({ type: 'error', message: browserMessage(error), index: null })
       } finally {
         req.signal.removeEventListener('abort', onAbort)
         if (!cancelled) controller.close()
       }
-      // A container that holds leftovers ends after the response, so the next run starts clean.
-      if (end?.retire) retireContainer()
     },
     cancel() { cancelled = true },
   })

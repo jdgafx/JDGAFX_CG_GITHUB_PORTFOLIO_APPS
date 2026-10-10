@@ -1,4 +1,6 @@
-import { readdir, readFile, rm, statfs } from 'node:fs/promises'
+import { lstat, readdir, readFile, rm, statfs } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import chromium from '@sparticuz/chromium'
 import { chromium as playwright, type Browser } from 'playwright-core'
 import { ExecutionError, withTimeout } from './browser'
@@ -7,11 +9,9 @@ import { ExecutionError, withTimeout } from './browser'
 export const LAUNCH_TIMEOUT_MS = 12_000
 /** Longest a page open or a browser close may take. */
 export const BROWSER_TIMEOUT_MS = 7_000
-/** A warm container is retired when /tmp has less than this much room left. */
-const MIN_TMP_FREE_MB = 200
-/** A warm container is retired when the function and its browser hold more than this much memory (the limit is 1,024 MB). */
-const MAX_RSS_MB = 850
-/** The profile and artifact folders Playwright makes in /tmp for every browser it starts. */
+/** A run is refused, with a retryable message, when /tmp has less than this much room left after cleaning. */
+const MIN_TMP_FREE_MB = 150
+/** The profile and artifact folders Playwright makes in the temp folder (/tmp in a function) for every browser it starts. */
 const PLAYWRIGHT_TEMP = /^playwright[_-]/
 /** The folders this process's browsers made. Only these are ever removed, so another program's folders in /tmp are never touched. */
 const ownedDirs = new Set<string>()
@@ -30,6 +30,8 @@ export interface Launched {
 export interface Diagnostics {
   tmpFreeMb: number | null
   playwrightDirs: number
+  /** The biggest top-level entries in /tmp, so a leak shows up in the log by name. */
+  topTmp: Array<{ name: string; mb: number }>
   chromiumProcesses: number
   /** Chromium processes outside this process's tree, such as an orphan handed to init. They are never ended, only counted. */
   strayProcesses: number
@@ -112,7 +114,7 @@ export async function chromiumProcesses(executablePath: string): Promise<Array<{
 
 async function playwrightDirs(): Promise<string[]> {
   try {
-    return (await readdir('/tmp')).filter((name) => PLAYWRIGHT_TEMP.test(name))
+    return (await readdir(tmpdir())).filter((name) => PLAYWRIGHT_TEMP.test(name))
   } catch {
     return []
   }
@@ -131,22 +133,72 @@ export async function reapChromium(executablePath: string): Promise<Reaped> {
   }
   const dirs = [...ownedDirs]
   ownedDirs.clear()
-  await Promise.all(dirs.map((name) => rm(`/tmp/${name}`, { recursive: true, force: true }).catch(() => undefined)))
+  await Promise.all(dirs.map((name) => rm(join(tmpdir(), name), { recursive: true, force: true }).catch(() => undefined)))
   return { killed, removedDirs: dirs.length }
 }
 
-export async function diagnose(executablePath: string): Promise<Diagnostics> {
-  let tmpFreeMb: number | null = null
+/** The disk space an entry takes, in MB. A folder counts everything in it. One shared budget limits how many entries are read in all, so a crowded /tmp cannot slow a run. */
+async function sizeBytes(path: string, budget: { left: number }): Promise<number> {
+  if (budget.left-- <= 0) return 0
   try {
-    const stats = await statfs('/tmp')
-    tmpFreeMb = mb(stats.bavail * stats.bsize)
+    const info = await lstat(path)
+    if (!info.isDirectory()) return info.size
+    const names = await readdir(path)
+    const sizes = await Promise.all(names.map((name) => sizeBytes(join(path, name), budget)))
+    return sizes.reduce((sum, size) => sum + size, 0)
   } catch {
-    // The figure stays unknown.
+    return 0
   }
+}
+
+/** The biggest entries of a folder, by name and size in MB, at most `count` of them. */
+export async function topEntries(root: string, count = 8): Promise<Array<{ name: string; mb: number }>> {
+  const names = await readdir(root).catch(() => [] as string[])
+  const budget = { left: 4_000 }
+  const sized: Array<{ name: string; mb: number }> = []
+  for (const name of names) sized.push({ name, mb: Math.round((await sizeBytes(join(root, name), budget)) / 1_048_576) })
+  return sized.sort((a, b) => b.mb - a.mb).slice(0, count)
+}
+
+/** Removes every entry of `root` that is not in `keep`, and returns how many it removed. */
+export async function sweepDir(root: string, keep: ReadonlySet<string>): Promise<number> {
+  const names = (await readdir(root).catch(() => [] as string[])).filter((name) => !keep.has(name))
+  await Promise.all(names.map((name) => rm(join(root, name), { recursive: true, force: true }).catch(() => undefined)))
+  return names.length
+}
+
+/** True when a free-space figure leaves room for a browser. A figure that could not be read counts as room. */
+export function hasRoom(freeMb: number | null): boolean {
+  return freeMb === null || freeMb >= MIN_TMP_FREE_MB
+}
+
+async function freeTmpMb(): Promise<number | null> {
+  try {
+    const stats = await statfs(tmpdir())
+    return mb(stats.bavail * stats.bsize)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What /tmp held once Chromium was unpacked: its binary and helper files. Everything else in /tmp is a leftover of a
+ * run. The sweep runs only inside a function container (AWS_LAMBDA_FUNCTION_NAME is set), where /tmp belongs to the
+ * function alone. On any other machine, such as a developer's, only the folders this process's own browsers made are removed.
+ */
+let baseline: Set<string> | null = null
+const inFunctionContainer = (): boolean => Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME)
+
+async function sweepLeftovers(): Promise<number> {
+  return inFunctionContainer() && baseline ? sweepDir(tmpdir(), baseline) : 0
+}
+
+export async function diagnose(executablePath: string): Promise<Diagnostics> {
   const { ours: processes, outside } = await scanChromium(executablePath)
   return {
-    tmpFreeMb,
+    tmpFreeMb: await freeTmpMb(),
     playwrightDirs: (await playwrightDirs()).length,
+    topTmp: await topEntries(tmpdir()),
     chromiumProcesses: processes.length,
     strayProcesses: outside.length,
     chromiumRssMb: mb(processes.reduce((sum, p) => sum + p.rssKb * 1024, 0)),
@@ -154,18 +206,10 @@ export async function diagnose(executablePath: string): Promise<Diagnostics> {
   }
 }
 
-/** True when the container should be retired after this response: low disk, high memory, a browser left behind (in this tree or outside it), or a navigation that failed on the network. */
-export function shouldRecycle(diagnostics: Diagnostics, networkFailure: boolean): boolean {
-  return networkFailure
-    || (diagnostics.tmpFreeMb !== null && diagnostics.tmpFreeMb < MIN_TMP_FREE_MB)
-    || diagnostics.chromiumProcesses > 0
-    || diagnostics.strayProcesses > 0
-    || diagnostics.chromiumRssMb + diagnostics.functionRssMb > MAX_RSS_MB
-}
-
 /**
- * Starts headless Chromium inside this function. Anything an earlier run of this process left in
- * /tmp or in the process table is removed first. A start that arrives after the limit is closed as soon as it resolves, so no browser is left running.
+ * Starts headless Chromium inside this function. /tmp is cleaned first, so leftovers of an earlier run cannot
+ * pile up, and a run is refused with a retryable message when there is still no room. A start that arrives after the
+ * limit is closed as soon as it resolves, so no browser is left running.
  */
 export async function launchBrowser(): Promise<Launched> {
   const started = Date.now()
@@ -173,9 +217,12 @@ export async function launchBrowser(): Promise<Launched> {
   const starting = (async () => {
     const executablePath = await chromium.executablePath()
     const unpackMs = Date.now() - started
+    baseline ??= new Set(await readdir(tmpdir()).catch(() => [] as string[]))
     await reapChromium(executablePath)
+    await sweepLeftovers()
+    if (!hasRoom(await freeTmpMb())) throw new ExecutionError('The browser service is out of room. Try again in a moment.')
     const before = new Set(await playwrightDirs())
-    const browser = await playwright.launch({ executablePath, args: chromium.args, headless: true })
+    const browser = await playwright.launch({ executablePath, args: [...chromium.args, '--disk-cache-size=1', '--media-cache-size=1'], headless: true })
     for (const name of await playwrightDirs()) if (!before.has(name)) ownedDirs.add(name)
     return { browser, executablePath, unpackMs }
   })()
@@ -201,15 +248,14 @@ export interface Closed {
   /** False when the browser did not close in time. */
   closed: boolean
   diagnostics: Diagnostics
-  retire: boolean
 }
 
 /**
- * Closes the browser under the time limit, then makes sure nothing is left: stray Chromium processes are ended
- * and Playwright's folders in /tmp are removed. The state of the container is logged, and `retire` says whether
- * the container should end after this response.
+ * Closes the browser under the time limit, then makes sure nothing is left: this process's own Chromium processes are
+ * ended, the folders its browsers made are removed, and in a function container everything new in /tmp goes. The state
+ * of the container is logged, with the biggest entries of /tmp by name.
  */
-export async function closeBrowser(launched: Launched, networkFailure: boolean): Promise<Closed> {
+export async function closeBrowser(launched: Launched): Promise<Closed> {
   let closed = true
   try {
     await withTimeout(launched.browser.close(), BROWSER_TIMEOUT_MS, 'The browser did not close in time.')
@@ -217,13 +263,8 @@ export async function closeBrowser(launched: Launched, networkFailure: boolean):
     closed = false
   }
   const reaped = await reapChromium(launched.executablePath)
+  const swept = await sweepLeftovers()
   const diagnostics = await diagnose(launched.executablePath)
-  const retire = shouldRecycle(diagnostics, networkFailure) || reaped.killed > 0
-  console.log('Run finished:', JSON.stringify({ ...diagnostics, ...reaped, closed, networkFailure, retire }))
-  return { closed, diagnostics, retire }
-}
-
-/** Ends this container after the response has gone out, so the next request starts on a fresh one. */
-export function retireContainer(exit: (code: number) => void = (code) => process.exit(code)): void {
-  setTimeout(() => exit(0), 500)
+  console.log('Run finished:', JSON.stringify({ ...diagnostics, ...reaped, swept, closed }))
+  return { closed, diagnostics }
 }

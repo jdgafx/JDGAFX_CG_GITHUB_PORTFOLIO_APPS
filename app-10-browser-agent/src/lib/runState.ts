@@ -65,6 +65,7 @@ export type RunAction =
   | { type: 'running'; replay: boolean; at?: number }
   | { type: 'event'; event: RunEvent; at?: number }
   | { type: 'runFailed'; message: string }
+  | { type: 'retrying' }
   | { type: 'streamEnded' }
   | { type: 'stopped' }
   | { type: 'reset' }
@@ -182,6 +183,17 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         phase: 'running',
         planMs: action.replay ? null : state.planMs,
         rows: [],
+        runMs: null,
+        browser: null,
+        liveAt: null,
+        observed: null,
+        error: null,
+      }
+    case 'retrying':
+      // The first attempt left nothing worth keeping. The trace says that the run was started again.
+      return {
+        ...state,
+        rows: [{ index: null, name: 'Retried once', status: 'ok', ms: 0, detail: 'The browser service did not answer, so the run was started again.' }],
         runMs: null,
         browser: null,
         liveAt: null,

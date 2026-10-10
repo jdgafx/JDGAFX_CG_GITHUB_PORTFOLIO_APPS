@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { planTask, RequestFailure, streamRun } from '../lib/api'
+import { RETRY_DELAY_MS, shouldRetryRun } from '../lib/retry'
 import { initialRunState, runReducer } from '../lib/runState'
 import type { BotStep } from '../types'
 
@@ -20,19 +21,42 @@ export function useBrowseRun() {
 
   const execute = useCallback(async (steps: BotStep[], controller: AbortController, replay: boolean) => {
     dispatch({ type: 'running', replay, at: Date.now() })
-    try {
-      await streamRun(steps, (event) => {
-        if (!controller.signal.aborted) dispatch({ type: 'event', event, at: Date.now() })
-      }, controller.signal)
-      if (!controller.signal.aborted) dispatch({ type: 'streamEnded' })
-    } catch (error) {
-      if (controller.signal.aborted) return
-      dispatch({
-        type: 'runFailed',
-        message: error instanceof RequestFailure
-          ? error.message
-          : 'Something went wrong while running the plan. Try again.',
-      })
+    // The run is started a second time, once, when the server fails or the connection is cut before any step finished.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let progressed = false
+      let concluded = false
+      try {
+        await streamRun(steps, (event) => {
+          if (controller.signal.aborted) return
+          if (event.type === 'step_complete') progressed = true
+          if (event.type === 'done' || event.type === 'error') concluded = true
+          dispatch({ type: 'event', event, at: Date.now() })
+        }, controller.signal)
+        if (controller.signal.aborted) return
+        if (shouldRetryRun(attempt, progressed, concluded)) {
+          dispatch({ type: 'retrying' })
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          if (controller.signal.aborted) return
+          continue
+        }
+        dispatch({ type: 'streamEnded' })
+        return
+      } catch (error) {
+        if (controller.signal.aborted) return
+        if (shouldRetryRun(attempt, progressed, false, error)) {
+          dispatch({ type: 'retrying' })
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          if (controller.signal.aborted) return
+          continue
+        }
+        dispatch({
+          type: 'runFailed',
+          message: error instanceof RequestFailure
+            ? error.message
+            : 'Something went wrong while running the plan. Try again.',
+        })
+        return
+      }
     }
   }, [])
 

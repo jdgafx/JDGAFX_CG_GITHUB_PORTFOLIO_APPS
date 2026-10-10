@@ -230,7 +230,7 @@ describe('execute function: a run', () => {
     expect(frames[7]).toMatchObject({ type: 'stage', name: RELEASE_ROW, status: 'ok', detail: RELEASED })
     expect(frames[8]).toMatchObject({ type: 'done' })
 
-    expect(mocks.launch).toHaveBeenCalledWith({ executablePath: '/test-only/no-such-chromium', args: ['--test-arg'], headless: true })
+    expect(mocks.launch).toHaveBeenCalledWith({ executablePath: '/test-only/no-such-chromium', args: ['--test-arg', '--disk-cache-size=1', '--media-cache-size=1'], headless: true })
     expect(mocks.runStep.mock.calls[0][1]).toEqual(NAVIGATE)
     expect(mocks.pageSnapshot).toHaveBeenCalledTimes(3)
     expect(mocks.browserClose).toHaveBeenCalledTimes(1)
@@ -382,7 +382,7 @@ describe('execute function: a run', () => {
   })
 })
 
-describe('execute function: moves, slow pages and warm containers', () => {
+describe('execute function: moves and slow pages', () => {
   it('reports a click that starts a navigation to another site, even though the click itself returned', async () => {
     let route: (r: unknown) => unknown = () => undefined
     mocks.contextRoute.mockImplementation(async (_pattern: string, handlerFn: (r: unknown) => unknown) => { route = handlerFn })
@@ -412,21 +412,6 @@ describe('execute function: moves, slow pages and warm containers', () => {
     const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
     expect(failed).not.toHaveProperty('frame')
     expect(failed).not.toHaveProperty('frameNote')
-  })
-
-  it('ends the container after a navigation that failed on the network, so the next run starts fresh', async () => {
-    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
-    mocks.runStep.mockRejectedValueOnce(new ExecutionError('The page could not be loaded.'))
-    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
-    expect(frames.at(-1)).toMatchObject({ type: 'error' })
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
-  })
-
-  it('keeps the container after a clean run', async () => {
-    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
-    await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
-    await new Promise((resolve) => setTimeout(resolve, 700))
-    expect(exit).not.toHaveBeenCalled()
   })
 })
 

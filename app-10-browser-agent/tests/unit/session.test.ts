@@ -1,29 +1,55 @@
 import { spawn } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
-import { readdir, readFile } from 'node:fs/promises'
-import { chromiumProcesses, descendantsOf, diagnose, parentOf, scanChromium, reapChromium, retireContainer, shouldRecycle, type Diagnostics } from '../../netlify/shared/session'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { chromiumProcesses, descendantsOf, diagnose, hasRoom, parentOf, reapChromium, scanChromium, sweepDir, topEntries } from '../../netlify/shared/session'
 
 const MARKER = '/test-only/leftover-chromium-marker'
 
-const calm: Diagnostics = { tmpFreeMb: 400, playwrightDirs: 0, chromiumProcesses: 0, strayProcesses: 0, chromiumRssMb: 0, functionRssMb: 120 }
+describe('room in /tmp', () => {
+  it('has room at 150 MB free or more, none below, and counts an unreadable figure as room', () => {
+    expect(hasRoom(150)).toBe(true)
+    expect(hasRoom(149)).toBe(false)
+    expect(hasRoom(null)).toBe(true)
+  })
+})
 
-describe('shouldRecycle', () => {
-  it('keeps a container that is clean, with room in /tmp and memory to spare', () => {
-    expect(shouldRecycle(calm, false)).toBe(false)
+describe('cleaning a folder', () => {
+  async function scratch(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'bb-sweep-test-'))
+    await mkdir(join(root, 'chromium-keep'))
+    await writeFile(join(root, 'chromium-keep', 'bin'), Buffer.alloc(3 * 1_048_576, 1))
+    await mkdir(join(root, 'leak-dir'))
+    await writeFile(join(root, 'leak-dir', 'cache'), Buffer.alloc(5 * 1_048_576, 2))
+    await writeFile(join(root, 'leak-file'), Buffer.alloc(2 * 1_048_576, 3))
+    return root
+  }
+
+  it('lists the biggest entries by name and size in MB, folders counted in full', async () => {
+    const root = await scratch()
+    try {
+      expect(await topEntries(root, 8)).toEqual([
+        { name: 'leak-dir', mb: 5 },
+        { name: 'chromium-keep', mb: 3 },
+        { name: 'leak-file', mb: 2 },
+      ])
+      expect(await topEntries(root, 1)).toEqual([{ name: 'leak-dir', mb: 5 }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
-  it.each([
-    ['a navigation that failed on the network', calm, true],
-    ['low room in /tmp', { ...calm, tmpFreeMb: 150 }, false],
-    ['a browser process left behind', { ...calm, chromiumProcesses: 1 }, false],
-    ['a browser process left behind outside this tree, such as an orphan handed to init', { ...calm, strayProcesses: 1 }, false],
-    ['more than 850 MB held by the function and its browser', { ...calm, chromiumRssMb: 740, functionRssMb: 120 }, false],
-  ])('retires a container after %s', (_name, diagnostics, network) => {
-    expect(shouldRecycle(diagnostics, network)).toBe(true)
-  })
-
-  it('does not retire over a figure it could not read', () => {
-    expect(shouldRecycle({ ...calm, tmpFreeMb: null }, false)).toBe(false)
+  it('removes what is not on the keep list and nothing that is', async () => {
+    const root = await scratch()
+    try {
+      expect(await sweepDir(root, new Set(['chromium-keep']))).toBe(2)
+      expect(await readdir(root)).toEqual(['chromium-keep'])
+      expect(await readFile(join(root, 'chromium-keep', 'bin'))).toHaveLength(3 * 1_048_576)
+      expect(await sweepDir(root, new Set(['chromium-keep']))).toBe(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 
@@ -85,28 +111,15 @@ describe('only this process tree', () => {
         expect(orphan).toBeDefined()
       }, { timeout: 5_000 })
       expect(await chromiumProcesses(`${MARKER}-orphan`)).toEqual([])
-      // It is not ended, but it is counted, so the container retires after the response.
+      // It is not ended, but it is counted and logged.
       expect((await scanChromium(`${MARKER}-orphan`)).outside).toEqual([orphan])
       const diagnostics = await diagnose(`${MARKER}-orphan`)
       expect(diagnostics).toMatchObject({ chromiumProcesses: 0, strayProcesses: 1 })
-      expect(shouldRecycle(diagnostics, false)).toBe(true)
       expect(await reapChromium(`${MARKER}-orphan`)).toEqual({ killed: 0, removedDirs: 0 })
       // The process is still running: it was left alone.
       expect(() => process.kill(orphan as number, 0)).not.toThrow()
     } finally {
       if (orphan) process.kill(orphan, 'SIGKILL')
     }
-  })
-})
-
-describe('retireContainer', () => {
-  it('ends the process after the response has gone out, not before', async () => {
-    vi.useFakeTimers()
-    const exit = vi.fn()
-    retireContainer(exit)
-    expect(exit).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(500)
-    expect(exit).toHaveBeenCalledWith(0)
-    vi.useRealTimers()
   })
 })

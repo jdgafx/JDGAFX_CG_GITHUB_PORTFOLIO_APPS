@@ -20,17 +20,20 @@ const UNREADABLE_EVENT_COPY = 'The browser run sent a message the page could not
 /** A failed request. `message` is curated copy. `trace` holds the stages measured before the failure. */
 export class RequestFailure extends Error {
   readonly trace: TraceEntry[]
+  /** True for a gateway or server failure, or a cut connection: the kinds worth one more try. A 4xx, 429 or a stalled stream is final. */
+  readonly retryable: boolean
 
-  constructor(message: string, trace: TraceEntry[] = []) {
+  constructor(message: string, trace: TraceEntry[] = [], retryable = false) {
     super(message)
     this.trace = trace
+    this.retryable = retryable
   }
 }
 
 /** Copy for a response with no curated error text. The response body is never shown. */
-function statusCopy(status: number): string {
+function statusCopy(status: number, kind: 'plan' | 'run'): string {
   if (status === 429) return 'Rate limited, try again in a minute'
-  if (status >= 500) return 'The AI provider did not answer in time'
+  if (status >= 500) return kind === 'run' ? 'The browser service failed. Try again.' : 'The AI provider did not answer in time'
   return `The request failed with HTTP ${status}. Try again in a moment.`
 }
 
@@ -69,7 +72,7 @@ interface ErrorBody {
 }
 
 /** Shows only the server's own curated error text. Anything else gets plain status copy. */
-async function readFailure(response: Response): Promise<RequestFailure> {
+async function readFailure(response: Response, kind: 'plan' | 'run'): Promise<RequestFailure> {
   let body: ErrorBody | null = null
   try {
     body = JSON.parse(await response.text()) as ErrorBody | null
@@ -77,7 +80,7 @@ async function readFailure(response: Response): Promise<RequestFailure> {
     // Not JSON, such as a gateway page. Never show it raw.
   }
   const error = typeof body?.error === 'string' ? body.error.trim().slice(0, MAX_ERROR_CHARS) : ''
-  return new RequestFailure(error || statusCopy(response.status), toTrace(body?.trace))
+  return new RequestFailure(error || statusCopy(response.status, kind), toTrace(body?.trace), response.status >= 500)
 }
 
 /** Posts JSON to the server. A network failure becomes curated copy, unless the caller cancelled. */
@@ -93,13 +96,13 @@ async function postJson(path: string, body: unknown, signal: AbortSignal, startL
     })
   } catch (error) {
     if (signal.aborted) throw error
-    throw new RequestFailure(limit.aborted ? NO_START_COPY : NETWORK_COPY)
+    throw new RequestFailure(limit.aborted ? NO_START_COPY : NETWORK_COPY, [], !limit.aborted)
   }
 }
 
 export async function planTask(task: string, signal: AbortSignal): Promise<PlanResponse> {
   const response = await postJson('/api/ai', { task }, signal, 20_000)
-  if (!response.ok) throw await readFailure(response)
+  if (!response.ok) throw await readFailure(response, 'plan')
 
   let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; totalMs?: unknown }
   try {
@@ -142,7 +145,7 @@ async function readChunk(
     return await Promise.race([reader.read(), watchdog])
   } catch (error) {
     if (signal.aborted || error instanceof RequestFailure) throw error
-    throw new RequestFailure(NETWORK_COPY)
+    throw new RequestFailure(NETWORK_COPY, [], true)
   } finally {
     clearTimeout(timer)
     if (onAbort) signal.removeEventListener('abort', onAbort)
@@ -201,7 +204,7 @@ export async function streamRun(
   limits: { idleMs: number; overallMs: number } = { idleMs: IDLE_LIMIT_MS, overallMs: OVERALL_LIMIT_MS },
 ): Promise<void> {
   const response = await postJson('/api/execute', { steps }, signal)
-  if (!response.ok || !response.body) throw await readFailure(response)
+  if (!response.ok || !response.body) throw await readFailure(response, 'run')
 
   const startedAt = Date.now()
   const reader = response.body.getReader()
