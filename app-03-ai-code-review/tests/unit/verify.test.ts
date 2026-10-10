@@ -399,3 +399,27 @@ describe('a move never leaves its file (flask#5928: a changelog comment moved in
     expect(anchorLine(d, 2, '', 'The ExceptionGroup context raises errors it collected.')).toEqual({ line: 2, movedBy: null })
   })
 })
+
+describe('a move lands where the code the message names is', () => {
+  // Express res.jsonp (live L334): a Warning about `callback` moved from its line onto a comment line.
+  const JSONP = ["    callback = callback.replace(/[^\\[\\]\\w$.]/g, '');", '', '    if (body === undefined) {', '      // empty argument']
+  const jdoc = fileDoc(JSONP)
+  const jc = candidate({ line: 1, fromLine: 1, quote: "callback = callback.replace(/[^\\[\\]\\w$.]/g, '')", message: 'The callback charset regex lets `callback` contain a dot, so a name such as a.b reaches the response.' })
+  it('refuses a move onto a line with none of the named code', () => {
+    const s = settle(jc, verdict({ verdict: 'move', line: 4, evidence: '// empty argument', support: '// empty argument' }), jdoc)
+    expect(s.verdict).toBe('unverified')
+    expect(s.reason).toMatch(/holds none of the code the comment names/)
+  })
+})
+
+describe('a reason that admits the claim is not shown', () => {
+  // requests auth.py L114: kept although the second pass wrote that the code does not show it.
+  it.each(['The claim is unsupported by code in this file.', 'The effect is not shown in the code.', 'This cannot be confirmed from the file.'])('is not confirmed: %s', (reason) => {
+    const s = settle(candidate(), verdict({ reason }), doc)
+    expect(s.verdict).toBe('unverified')
+    expect(s.reason).toMatch(/own reason says the code does not show it/)
+  })
+  it('does not touch a reason that points at code', () => {
+    expect(settle(candidate(), verdict({}), doc).verdict).toBe('kept')
+  })
+})

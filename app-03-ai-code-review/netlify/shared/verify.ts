@@ -149,6 +149,9 @@ const importsOf = (doc: Doc): Set<string> => {
   return names
 }
 
+/** Words a reason uses when it admits the claim is not backed by the code. */
+const ADMISSION = /\bunsupported by (?:the )?code\b|\bnot (?:directly )?(?:shown|supported|demonstrated|established|evidenced)(?: (?:by|in) (?:the |this )?(?:code|file|diff))?|\bcannot be (?:confirmed|verified|shown|established)\b|\bno (?:code|evidence) (?:shows|supports|in the (?:file|code))\b|\bonly speculat\w+|\bspeculative\b/i
+
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
 function unconfirmed(candidate: Candidate, reason: string): Settled {
@@ -197,6 +200,12 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
       if (doc.sides && doc.sides[target - 1] !== doc.sides[candidate.line - 1]) {
         return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, to the other side of the change.`)
       }
+      // A move lands where the code the message talks about is. A target that holds none of those names is a different
+      // subject (the live express JSONP Warning on L334, moved onto an unrelated comment line).
+      const names = codeNames(candidate.message)
+      if (names.length > 0 && !names.some((name) => doc.texts[target - 1].includes(name))) {
+        return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, which holds none of the code the comment names (${names.slice(0, 2).join(', ')}).`)
+      }
     }
     const at = findEvidence(doc, raw.evidence, target, KEEP_WINDOW)
     if (at === null || doc.why[at - 1] !== null) {
@@ -239,6 +248,9 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     if (collapse(raw.support).length < MIN_QUOTE_CHARS) {
       return unconfirmed(candidate, 'Not confirmed: the second pass could not quote the code that shows the claim is true.')
     }
+    // A reason that admits the code does not show the claim is not a confirmation, whatever verdict came with it (live auth.py L114).
+    const admitted = ADMISSION.exec(reason)
+    if (admitted) return unconfirmed(candidate, `Not confirmed: the second pass's own reason says the code does not show it ("${admitted[0]}").`)
     const selfRefuting = supportHandlesCondition(candidate.message, doc.texts[at - 1], raw.support)
     if (selfRefuting !== null) return unconfirmed(candidate, selfRefuting)
     const noSource = noneWithoutSource(candidate.message, raw.support)
