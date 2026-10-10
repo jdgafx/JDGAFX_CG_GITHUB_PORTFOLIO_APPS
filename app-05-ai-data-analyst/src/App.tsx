@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { headlineFor } from './lib/answer'
+import { HOWTO_STEPS, HOWTO_WHAT, TRY_QUESTION } from './lib/howto'
 import { parseCSV } from './lib/dataEngine'
 import { CITIES, DATASET_CHOICES, DEFAULT_CITY, DEFAULT_DATASET } from './lib/liveData/catalog'
 import { indicatorFor } from './lib/liveData/indicator'
@@ -10,6 +11,7 @@ import { useResultFocus } from './lib/useResultFocus'
 import { RAW_VOCABULARY } from './lib/vocabulary'
 import { useAnalysisThread, type AnalysisThreadState, type AskMode } from './hooks/useAnalysisThread'
 import { useLiveDataset, type DatasetState } from './hooks/useLiveDataset'
+import { HowTo } from './components/HowTo'
 import AppHeader, { type HeaderStatus } from './components/AppHeader'
 import DataSection from './components/DataSection'
 import QueryBar from './components/QueryBar'
@@ -45,6 +47,8 @@ export default function App() {
   const [examplesOpen, setExamplesOpen] = useState<boolean>(() => window.matchMedia('(min-width: 1000px)').matches)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Try it waits for the live earthquake rows, then asks. Held in a ref so the wait itself renders nothing.
+  const tryWaiting = useRef(false)
 
   const choice = DATASET_CHOICES.find((item) => item.id === selectedDataset)
   const live = useLiveDataset(choice?.id ?? null, cityId)
@@ -158,6 +162,22 @@ export default function App() {
     void analysis.ask(text, mode)
   }
 
+  // Try it: the live USGS week feed is chosen, the example question typed, and the run starts once its rows are parsed.
+  const tryIt = () => {
+    if (selectedDataset !== DEFAULT_DATASET) handleSelect(DEFAULT_DATASET)
+    setQuestion(TRY_QUESTION)
+    tryWaiting.current = true
+    startTry()
+  }
+  const startTry = () => {
+    if (tryWaiting.current && selectedDataset === DEFAULT_DATASET && parsedData && !isLoading) {
+      tryWaiting.current = false
+      ask(TRY_QUESTION, 'new')
+    }
+  }
+
+  useEffect(startTry)
+
   const phase: HeaderStatus = isLoading ? 'running' : analysis.run ? analysis.run.outcome : 'idle'
   // On a phone the examples would push the run down, so they close when a run starts; the result is then brought into view.
   useResultFocus(phase, { onRunStart: (narrow) => narrow && setExamplesOpen(false) })
@@ -169,6 +189,7 @@ export default function App() {
       <AppHeader status={phase} live={indicatorFor(datasetState, choice?.id ?? null)} />
 
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={isLoading} hasResult={analysis.run !== null} />
         <Banners
           error={fileError}
           notice={notice}
