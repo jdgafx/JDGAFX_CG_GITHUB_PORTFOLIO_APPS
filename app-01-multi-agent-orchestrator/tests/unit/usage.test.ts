@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { shortModel } from '../../src/lib/format'
 import { formatCount, formatMs, formatUsd, sumUsage } from '../../src/lib/usage'
+
+describe('shortModel', () => {
+  it('drops the provider prefix, including the ~ of an OpenRouter alias', () => {
+    expect(shortModel('anthropic/claude-haiku-5.5')).toBe('claude-haiku-5.5')
+    expect(shortModel('~anthropic/claude-haiku-latest')).toBe('claude-haiku-latest')
+    expect(shortModel('plain')).toBe('plain')
+  })
+})
 
 describe('sumUsage', () => {
   it('adds every field across stages', () => {

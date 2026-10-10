@@ -33,7 +33,7 @@ describe('getProvider', () => {
 describe('buildChatBody', () => {
   it('pins the fixed model, caps output with max_tokens, and asks for usage with cost', () => {
     expect(buildChatBody('SYS', 'USER', 600)).toEqual({
-      model: 'anthropic/claude-haiku-5.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: 600,
       stream: true,
       stream_options: { include_usage: true },
@@ -47,9 +47,9 @@ describe('buildChatBody', () => {
     })
   })
 
-  it('names Haiku 5.5 and never sends temperature, which Haiku 5.5 rejects under require_parameters', () => {
+  it('names the Haiku alias and never sends temperature, which Haiku 5.5 rejects under require_parameters', () => {
     const body = buildChatBody('SYS', 'USER', 600)
-    expect(body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body.provider).toEqual({ require_parameters: true })
     expect(body).not.toHaveProperty('temperature')
   })
@@ -59,7 +59,7 @@ describe('buildChatBody', () => {
   })
 
   it('keeps the model constant fixed', () => {
-    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
   })
 })
 

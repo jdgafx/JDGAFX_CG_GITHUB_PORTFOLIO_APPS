@@ -3,7 +3,7 @@ export function milliseconds(ms: number): string {
   return `${Math.round(ms).toLocaleString('en-US')} ms`
 }
 
-/** The model id without its provider prefix: "anthropic/claude-haiku-5.5" shows as "claude-haiku-5.5". */
+/** The model id without its provider prefix: "anthropic/claude-haiku-5.5" shows as "claude-haiku-5.5", and the alias "~anthropic/claude-haiku-latest" as "claude-haiku-latest". */
 export function shortModel(id: string): string {
   return id.includes('/') ? id.slice(id.indexOf('/') + 1) : id
 }
