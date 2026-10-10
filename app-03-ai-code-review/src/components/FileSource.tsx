@@ -25,13 +25,15 @@ interface FileSourceProps {
   onLoaded: (file: GitHubFile, detected: string | null) => void
   collapseKey: number
   onFailure: () => void
+  fill: { link: string } | null
   children: ReactNode
 }
 
-export function FileSource({ language, code, source, edited, disabled, onLanguageChange, onLoaded, collapseKey, onFailure, children }: FileSourceProps) {
+export function FileSource({ language, code, source, edited, disabled, onLanguageChange, onLoaded, collapseKey, onFailure, fill, children }: FileSourceProps) {
   return (
     <SourceLoader
       collapseKey={collapseKey}
+      fill={fill}
       onFailure={onFailure}
       id="file"
       label="Public GitHub file"

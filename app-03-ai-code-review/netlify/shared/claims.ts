@@ -52,7 +52,7 @@ const VERSION_CLAIM = /\bPython\s*\d|\bNode(?:\.js)?\s*\d|\bGo\s*1\.\d|\bJava\s*
 export function unconfirmable(message: string, citedCode: string, imports: ReadonlySet<string>): string | null {
   if (ABOUT_A_NAME.test(message)) return null
   for (const sentence of message.split(/(?<=[.;])\s+/)) {
-    const structural = (name: string) => new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, '\\$')}\.[\w$]+\s*\(`).test(sentence)
+    const structural = (name: string) => new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, '\\$')}\.[\w$]+`).test(sentence)
     if (!BEHAVIOUR.test(sentence) && ![...imports].some((n) => !PLAIN_WORDS.has(n.toLowerCase()) && structural(n))) continue
     for (const name of imports) {
       if (PLAIN_WORDS.has(name.toLowerCase())) continue

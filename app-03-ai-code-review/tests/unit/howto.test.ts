@@ -20,7 +20,7 @@ describe('How to use block', () => {
 
   it('names the controls as they appear on screen', () => {
     const out = html()
-    for (const label of ['Load file', 'Review code', 'Show in editor']) expect(out).toContain(label)
+    for (const label of ['Load file', 'Review code', 'Show in editor', 'Not confirmed']) expect(out).toContain(label)
   })
 
   it('disables Try it while busy and shows a load failure', () => {

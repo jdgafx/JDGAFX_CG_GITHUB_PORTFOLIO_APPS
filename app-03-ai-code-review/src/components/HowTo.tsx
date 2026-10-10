@@ -55,13 +55,13 @@ export function HowTo({ busy, error, collapseKey, onTry }: HowToProps) {
         <ol className="howto__steps">
           <li>Choose a public GitHub file and select Load file, or paste code into the editor.</li>
           <li>Select Review code. It takes about 10 to 20 seconds.</li>
-          <li>Read each comment: kept, moved or dropped, with the reason. Select Show in editor to see the line.</li>
+          <li>Read each comment: kept, moved, dropped or Not confirmed, with the reason. Select Show in editor to see the line.</li>
         </ol>
         <div className="howto__try">
           <button type="button" className="ds-button ds-button--primary" onClick={onTry} disabled={busy} aria-busy={busy}>
             Try it
           </button>
-          <span className="ds-help">Loads createStore.ts from the Redux repository on GitHub and reviews it live, about 10 seconds.</span>
+          <span className="ds-help">Reviews Redux's createStore.ts from GitHub, live.</span>
         </div>
         {error && (
           <p className="ds-help howto__error" role="alert">

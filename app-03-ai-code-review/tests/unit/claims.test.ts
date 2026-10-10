@@ -123,3 +123,10 @@ describe('noneWithoutSource: a None claim needs code that shows a None', () => {
     expect(noneWithoutSource('The loop allocates on every call.', 'make([]int, 0)')).toBeNull()
   })
 })
+
+describe('a member read of an imported name is external, like a call', () => {
+  it('does not confirm a claim about statuses.message[chunk] (live express L142)', () => {
+    const imports = new Set(['statuses'])
+    expect(unconfirmable('statuses.message[chunk] yields undefined for an unknown code.', 'chunk = statuses.message[chunk]', imports)).toMatch(/how statuses behaves/)
+  })
+})

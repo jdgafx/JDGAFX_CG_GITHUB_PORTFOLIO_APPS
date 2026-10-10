@@ -54,3 +54,25 @@ describe('only a claim that the value is unset is answered', () => {
     expect(guardFor('out may be None here', texts, 4)?.line).toBe(1)
   })
 })
+
+describe('a guard after the cited line answers a claim that the value flows on', () => {
+  // Express res.send, the live lines 142 and 184 (verify-03t re-check at 190041d).
+  const SEND = [
+    '    this.statusCode = chunk;',
+    '    chunk = statuses.message[chunk]',
+    '  }',
+    '',
+    '  // populate Content-Length',
+    '  var len',
+    '  if (chunk !== undefined) {',
+    '    len = Buffer.byteLength(chunk, encoding)',
+  ]
+  const CLAIM = 'statuses.message[chunk] yields undefined for an unknown status code and flows into Content-Length and end().'
+  it('finds the guard at L184 for the claim at L142', () => {
+    expect(guardFor(CLAIM, SEND, 2)?.line).toBe(7)
+    expect(guardedClaim(CLAIM, SEND, 2)).toMatch(/guarded later, on line 7/)
+  })
+  it('only looks ahead for a claim about where the value goes', () => {
+    expect(guardFor('chunk becomes undefined for an unknown status code.', SEND, 2)).toBeNull()
+  })
+})

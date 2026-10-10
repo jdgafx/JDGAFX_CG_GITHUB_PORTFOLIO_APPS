@@ -7,6 +7,10 @@ import { claimVariables } from './provenance'
 
 const LOOKBACK = 40
 const AFTER = 3
+const LOOKAHEAD = 60
+
+/** A claim about where the unset value goes: it reaches, flows into or is later used by something. */
+const FLOWS = /\b(?:flows?|reach(?:es)?|propagat\w+|passed|forwarded|later|then used|is used|ends? up|gets? (?:sent|written|passed))\b/i
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -17,7 +21,7 @@ function unsetVariables(message: string, citedLine: string): { names: string[]; 
   let word = ''
   const names = claimVariables(message, citedLine).filter((name) => {
     const n = esc(name)
-    const hit = new RegExp(String.raw`\b${n}\b[^.;:]{0,30}?\b(?:is|are|was|may be|can be|might be|could be|be|being|becomes|stays|remains|equals|===?)\s+(?:still\s+|left\s+)?(${UNSET_WORD})\b|\b(${UNSET_WORD})\s+(?:value\s+of\s+|value\s+for\s+)?${n}\b`, 'i').exec(message)
+    const hit = new RegExp(String.raw`\b${n}\b[^.;:]{0,30}?\b(?:is|are|was|may be|can be|might be|could be|be|being|becomes|stays|remains|equals|===?|yields?|returns?|evaluates? to|gives?|produces?|results? in)\s+(?:still\s+|left\s+)?(${UNSET_WORD})\b|\b(${UNSET_WORD})\s+(?:value\s+of\s+|value\s+for\s+)?${n}\b`, 'i').exec(message)
     if (hit) word = hit[1] ?? hit[2]
     return hit !== null
   })
@@ -60,6 +64,15 @@ export function guardFor(message: string, texts: readonly string[], line: number
       }
     }
   }
+  // A value that "flows into" something is also answered by a guard after the cited line, before or around its use.
+  if (FLOWS.test(message)) {
+    for (const name of claim.names) {
+      for (let n = line + 1; n <= Math.min(texts.length, line + LOOKAHEAD); n++) {
+        const text = texts[n - 1] ?? ''
+        if (testsName(text, name) || fallsBack(text, name)) return { line: n, text: text.trim(), name, word: claim.word }
+      }
+    }
+  }
   return null
 }
 
@@ -67,7 +80,8 @@ export function guardFor(message: string, texts: readonly string[], line: number
 export function guardedClaim(message: string, texts: readonly string[], line: number): string | null {
   const guard = guardFor(message, texts, line)
   if (!guard) return null
-  return `Not confirmed: ${guard.name} is already guarded on line ${guard.line} ("${guard.text.slice(0, 60)}"), so the claim that it may be ${guard.word} does not hold here.`
+  const when = guard.line > line ? 'guarded later, on' : 'already guarded on'
+  return `Not confirmed: ${guard.name} is ${when} line ${guard.line} ("${guard.text.slice(0, 60)}"), so the claim that it may be ${guard.word} does not hold here.`
 }
 
 /** True when the code quoted as support is itself a test or fallback for the unset value the claim is about. */

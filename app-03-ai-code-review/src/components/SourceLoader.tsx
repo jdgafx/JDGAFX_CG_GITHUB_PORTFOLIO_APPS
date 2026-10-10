@@ -36,11 +36,13 @@ interface SourceLoaderProps<Ref, Loaded> {
   collapseKey: number
   /** Called when a GitHub fetch failed, so the page can say its live data is unavailable. */
   onFailure?: () => void
+  /** A link to put in the field, set by something other than typing (Try it). A new object fills it again. */
+  fill?: { link: string } | null
 }
 
 /** A link field, an action dock, a list of real examples and the facts of what is loaded. Used for files and pull requests. */
 export function SourceLoader<Ref, Loaded>(props: SourceLoaderProps<Ref, Loaded>) {
-  const { id, label, placeholder, help, action, examplesLabel, parse, load, onLoaded, suggestions, disabled, scope, fields, children, loaded, collapseKey, onFailure } = props
+  const { id, label, placeholder, help, action, examplesLabel, parse, load, onLoaded, suggestions, disabled, scope, fields, children, loaded, collapseKey, onFailure, fill } = props
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ message: string; scope: unknown } | null>(null)
@@ -51,6 +53,11 @@ export function SourceLoader<Ref, Loaded>(props: SourceLoaderProps<Ref, Loaded>)
   if (seenKey !== collapseKey) {
     setSeenKey(collapseKey)
     setExamplesOpen(false)
+  }
+  const [seenFill, setSeenFill] = useState(fill)
+  if (seenFill !== fill) {
+    setSeenFill(fill)
+    if (fill) setInput(fill.link)
   }
   const abortRef = useRef<AbortController | null>(null)
 

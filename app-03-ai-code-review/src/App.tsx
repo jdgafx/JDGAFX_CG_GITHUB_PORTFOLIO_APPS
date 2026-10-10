@@ -18,7 +18,7 @@ import type { GitHubFile } from './lib/github'
 import { MAX_CODE_LENGTH } from './lib/limits'
 import { diffContext, fileContext, type ContextLine } from './lib/context'
 import { initialSelection, lineHref, type PullRequest } from './lib/pullrequest'
-import { loadExample } from './lib/tryit'
+import { EXAMPLE_LINK, loadExample } from './lib/tryit'
 import { useResultFocus } from './lib/useResultFocus'
 import { countVerdicts, isShown, VERDICT_WORD } from './lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
@@ -62,6 +62,7 @@ export default function App() {
   /** Try it: fetching the example file, and why that failed. */
   const [tryBusy, setTryBusy] = useState(false)
   const [tryError, setTryError] = useState<string | null>(null)
+  const [fill, setFill] = useState<{ link: string } | null>(null)
   const tryAbortRef = useRef<AbortController | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -228,6 +229,7 @@ export default function App() {
         return
       }
       handleFileLoaded(loaded.value.file, loaded.value.language)
+      setFill({ link: EXAMPLE_LINK })
       await handleReview({ code: loaded.value.file.text, language: loaded.value.language })
     } finally {
       if (tryAbortRef.current === controller) tryAbortRef.current = null
@@ -397,6 +399,7 @@ export default function App() {
                   edited={source !== null && code !== source.text}
                   disabled={running}
                   collapseKey={collapseKey}
+                  fill={fill}
                   onFailure={() => setFetchFailed(true)}
                   onLanguageChange={setLanguage}
                   onLoaded={handleFileLoaded}
