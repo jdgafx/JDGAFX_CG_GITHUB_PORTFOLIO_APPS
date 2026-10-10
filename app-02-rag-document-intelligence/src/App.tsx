@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { DocumentSection } from './components/DocumentSection'
 import { EvidencePanel } from './components/EvidencePanel'
 import { Header, type Badge } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { QuestionSection } from './components/QuestionSection'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard, type Phase, type Selection } from './components/ResultCard'
@@ -11,6 +12,7 @@ import { citeKey } from './components/AnswerBody'
 import { useDocumentLoader } from './hooks/useDocumentLoader'
 import { askQuestion, AskError } from './lib/api'
 import type { Retrieval } from './lib/bm25'
+import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE, TRY_QUESTION } from './lib/howto'
 import { liveData } from './lib/liveData'
 import { useResultFocus } from './lib/useResultFocus'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
@@ -40,6 +42,8 @@ export default function App() {
   const lastQuestion = useRef('')
   const requestIdRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  const afterLoad = useRef<((loaded: DocumentState) => void) | null>(null)
+  const askRef = useRef<(text: string, target: DocumentState) => void>(() => undefined)
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
@@ -71,6 +75,11 @@ export default function App() {
       setLoadedAt(Date.now())
       clearConversation()
       setQuestion('')
+      // Try it waits here for its article, then asks about it.
+      const waiting = afterLoad.current
+      afterLoad.current = null
+      // A failed Try it must not fire on a later, different document.
+      if (waiting && next.title === TRY_ARTICLE) waiting(next)
     },
     [clearConversation],
   )
@@ -80,8 +89,8 @@ export default function App() {
   const clearLoadError = loader.clearError
 
   const ask = useCallback(
-    async (text: string) => {
-      if (!doc || !text || running) return
+    async (text: string, target: DocumentState | null = doc) => {
+      if (!target || !text || running) return
 
       lastQuestion.current = text
       const requestId = ++requestIdRef.current
@@ -101,7 +110,7 @@ export default function App() {
       setLiveTrace([])
 
       try {
-        const outcome = await askQuestion(text, doc.chunks, doc.title, controller.signal, {
+        const outcome = await askQuestion(text, target.chunks, target.title, controller.signal, {
           onStart: name => {
             if (isCurrent()) setPending(name)
           },
@@ -155,8 +164,18 @@ export default function App() {
     [doc, running],
   )
 
+  useEffect(() => {
+    askRef.current = (text, target) => void ask(text, target)
+  }, [ask])
+
   const runQuestion = useCallback(() => void ask(question.trim()), [ask, question])
   const retry = useCallback(() => void ask(lastQuestion.current), [ask])
+
+  /** Try it: fetches the example article live from Wikipedia, then asks the example question about it. */
+  const tryIt = useCallback(() => {
+    afterLoad.current = loaded => askRef.current(TRY_QUESTION, loaded)
+    loader.load({ kind: 'wikipedia', title: TRY_ARTICLE })
+  }, [loader])
 
   // Stop only aborts. The request id is left alone, so the stopped state is kept.
   const stopRun = useCallback(() => {
@@ -236,6 +255,14 @@ export default function App() {
       <Header badge={badge} live={liveData(doc, loadedAt, loader.failedKind)} />
 
       <main className="ds-main">
+        <HowTo
+          what={HOWTO_WHAT}
+          steps={HOWTO_STEPS}
+          onTry={tryIt}
+          disabled={reading || running}
+          hasResult={latest !== null}
+          error={loader.error}
+        />
         <div className="ds-bench">
           <div className="ds-controls">
             <DocumentSection
