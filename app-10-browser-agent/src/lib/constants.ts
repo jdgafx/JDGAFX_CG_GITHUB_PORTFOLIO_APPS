@@ -15,6 +15,9 @@ export const ALLOWED_SITE_NOTES = [
 
 export const ALLOWED_SITES = ALLOWED_SITE_NOTES.map((site) => site.host)
 
+/** The task the Try it button runs. It is one of the examples, and the page it reads changes all day, so the result is live. */
+export const TRY_TASK = 'Open news.ycombinator.com and report the top three story titles'
+
 /** Example tasks. Each one names only sites on the default allowlist, and the first three read a live, changing page. */
 export const PRESETS = [
   'Open news.ycombinator.com and report the top three story titles',

@@ -67,7 +67,7 @@ beforeEach(() => {
   pageState.url = 'https://www.google.com/'
   const context = { route: mocks.contextRoute, newPage: async () => page }
   const page = { url: () => pageState.url, context: () => ({ newCDPSession: async () => cdp }) }
-  mocks.executablePath.mockResolvedValue('/tmp/chromium')
+  mocks.executablePath.mockResolvedValue('/test-only/no-such-chromium')
   mocks.launch.mockResolvedValue({ version: () => VERSION, newContext: async () => context, close: mocks.browserClose })
   mocks.browserClose.mockResolvedValue(undefined)
   mocks.contextRoute.mockResolvedValue(undefined)
@@ -230,7 +230,7 @@ describe('execute function: a run', () => {
     expect(frames[7]).toMatchObject({ type: 'stage', name: RELEASE_ROW, status: 'ok', detail: RELEASED })
     expect(frames[8]).toMatchObject({ type: 'done' })
 
-    expect(mocks.launch).toHaveBeenCalledWith({ executablePath: '/tmp/chromium', args: ['--test-arg'], headless: true })
+    expect(mocks.launch).toHaveBeenCalledWith({ executablePath: '/test-only/no-such-chromium', args: ['--test-arg'], headless: true })
     expect(mocks.runStep.mock.calls[0][1]).toEqual(NAVIGATE)
     expect(mocks.pageSnapshot).toHaveBeenCalledTimes(3)
     expect(mocks.browserClose).toHaveBeenCalledTimes(1)
@@ -241,7 +241,7 @@ describe('execute function: a run', () => {
     let now = 1_700_000_000_000
     mocks.executablePath.mockImplementation(async () => {
       now += 2_700
-      return '/tmp/chromium'
+      return '/test-only/no-such-chromium'
     })
     vi.spyOn(Date, 'now').mockImplementation(() => now)
     const frames = await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
@@ -377,8 +377,56 @@ describe('execute function: a run', () => {
 
     const late = { version: () => VERSION, close: vi.fn(async () => undefined) }
     finishLaunch(late)
-    await settle()
-    expect(late.close).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+    await vi.waitFor(() => expect(late.close).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('execute function: moves, slow pages and warm containers', () => {
+  it('reports a click that starts a navigation to another site, even though the click itself returned', async () => {
+    let route: (r: unknown) => unknown = () => undefined
+    mocks.contextRoute.mockImplementation(async (_pattern: string, handlerFn: (r: unknown) => unknown) => { route = handlerFn })
+    mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
+      if (step.action === 'click') {
+        route({ request: () => ({ url: () => 'https://example.com/out', isNavigationRequest: () => true }), abort: vi.fn(), continue: vi.fn() })
+      }
+      return 'Done.'
+    })
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, CLICK, EXTRACT] })))
+    const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
+    // The refused navigation left the page on its allowed site, so the picture of that page is kept.
+    expect(failed).toMatchObject({ index: 1, detail: BLOCKED, frame: { width: 640 } })
+  })
+
+  it('gives a failed step no picture when the page left the allowed sites after the snapshot', async () => {
+    mocks.runStep.mockImplementation(async (_page: unknown, step: BotStep) => {
+      if (step.action === 'click') throw new ExecutionError('Search button could not be clicked.')
+      return 'Done.'
+    })
+    mocks.pageSnapshot.mockImplementation(async () => {
+      pageState.url = 'chrome-error://chromewebdata/'
+      return OBSERVED
+    })
+    pageState.url = 'https://www.google.com/'
+    const frames = await framesOf(await handler(runRequest({ steps: [CLICK, EXTRACT] })))
+    const failed = frames.find((frame) => frame.type === 'step_complete' && frame.status === 'failed')
+    expect(failed).not.toHaveProperty('frame')
+    expect(failed).not.toHaveProperty('frameNote')
+  })
+
+  it('ends the container after a navigation that failed on the network, so the next run starts fresh', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    mocks.runStep.mockRejectedValueOnce(new ExecutionError('The page could not be loaded.'))
+    const frames = await framesOf(await handler(runRequest({ steps: [NAVIGATE, EXTRACT] })))
+    expect(frames.at(-1)).toMatchObject({ type: 'error' })
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  })
+
+  it('keeps the container after a clean run', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    await framesOf(await handler(runRequest({ steps: [EXTRACT] })))
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    expect(exit).not.toHaveBeenCalled()
   })
 })
 

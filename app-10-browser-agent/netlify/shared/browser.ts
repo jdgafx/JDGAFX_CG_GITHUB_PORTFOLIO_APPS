@@ -28,6 +28,8 @@ async function acting(action: Promise<unknown>, failure: string, limitMs = MAX_S
   try {
     await withTimeout(action, limitMs, slow)
   } catch (error) {
+    // The raw reason (such as a net:: error) stays in the function log. The visitor gets the curated sentence.
+    console.error('Step action failed:', error instanceof Error ? error.message.slice(0, 200) : 'unknown error')
     throw error instanceof ExecutionError && error.message === slow ? error : new ExecutionError(failure)
   }
 }
@@ -69,6 +71,25 @@ async function readRegion(page: Page, selector: string): Promise<string> {
   }
 }
 
+/** Longest the whole page text may take to read. A heavy page needs more than a second to lay out. */
+const BODY_TEXT_MS = 3_000
+export const TEXT_TIMEOUT_COPY = 'The page text did not read in time.'
+
+/** The visible text of the whole page, cut to the excerpt size in the page itself, so a long page never crosses the wire. */
+async function readBodyText(page: Page): Promise<string> {
+  try {
+    return await withTimeout(
+      page.evaluate((max: number) => (document.body?.innerText ?? '').slice(0, max * 2), MAX_EXCERPT),
+      BODY_TEXT_MS,
+      TEXT_TIMEOUT_COPY,
+    )
+  } catch (error) {
+    // A page that is too slow is reported as that, not as a page with no text.
+    if (error instanceof ExecutionError) throw error
+    return ''
+  }
+}
+
 /**
  * What the page shows now. With a selector, the excerpt is the text of the matching elements and
  * `region` names the selector. Without one, or when nothing matches, the excerpt is the page text.
@@ -76,7 +97,7 @@ async function readRegion(page: Page, selector: string): Promise<string> {
 export async function pageSnapshot(page: Page, selector?: string): Promise<ObservedPage> {
   const title = withTimeout(page.title(), MAX_STEP_MS, 'The page title did not load in time.').catch(() => '')
   const region = selector ? await readRegion(page, selector) : ''
-  const text = region || await page.locator('body').innerText({ timeout: 1_000 }).catch(() => '')
+  const text = region || await readBodyText(page)
   return {
     url: page.url(),
     title: await title,

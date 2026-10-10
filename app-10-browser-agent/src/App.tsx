@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import AllowlistPanel from './components/AllowlistPanel'
 import Header from './components/Header'
+import HowTo from './components/HowTo'
 import ResultCard from './components/ResultCard'
 import RunControls from './components/RunControls'
 import RunMetrics from './components/RunMetrics'
 import RunTrace from './components/RunTrace'
 import TaskPanel from './components/TaskPanel'
 import { useBrowseRun } from './hooks/useBrowseRun'
+import { runExample } from './lib/howto'
 import { useResultFocus, type RunPhase } from './lib/useResultFocus'
 import type { Phase } from './lib/runState'
 import { buildTraceRows, statusSummary } from './lib/trace'
@@ -41,6 +43,11 @@ export default function App() {
       <Header state={state} />
 
       <main className="ds-main">
+        <HowTo
+          phase={state.phase}
+          runId={state.runId}
+          onTry={() => void runExample(setTask, planAndRun)}
+        />
         <div className="ds-bench">
           <div className="ds-controls" data-scrolled={railScrolled ? 'true' : undefined} onScroll={(event) => setRailScrolled(event.currentTarget.scrollTop > 4)}>
             <TaskPanel task={task} busy={busy} collapseKey={collapseKey} onTaskChange={setTask} onSubmit={plan} />

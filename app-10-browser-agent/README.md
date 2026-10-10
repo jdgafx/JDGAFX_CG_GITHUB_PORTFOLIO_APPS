@@ -24,6 +24,10 @@ The browser run follows. It streams server-sent events from `POST /api/execute`:
 
 The page has two columns. The controls hold the task, the allowed sites and the run buttons. The run column shows the plan beside the observed page, a run figures strip with the served model, prompt, completion and total tokens, cost in USD and total latency, and the numbered run trace. A figure the provider does not report shows as "not reported". Nothing is estimated. The observed page appears as a browser window with the URL, title and up to 4,000 characters of text, which is the region's text when the step named a selector, and the session ID beneath. A keyword overlap with the plan's expected wording is a lookup aid, not a verdict.
 
+## How to use
+
+A "How to use" block under the masthead says what the app does in one line and gives three steps that name the controls as they appear. Its **Try it: Hacker News top stories** button fills the task field with the first example and starts the same run as Plan and run, against the live front page. The block is open on the first visit and folds away while a result is shown, so the result keeps its place.
+
 ## Live data
 
 The masthead carries a chip: "Live data: <host> via headless Chromium". It is hollow before a run. It lights up, with the fetch time, when the browser has read its first real page, and the host shown is the page's own. It turns to "Live data unavailable" when a run fails before any page was read. Every result on the page comes from a page the browser loaded during the run, and no sample results exist in `src/` or `netlify/` (a test checks for that). The example tasks are inputs only.
@@ -69,7 +73,9 @@ Live site: https://jdgafx-app-10-browser-agent.netlify.app
 - No new step starts 30 s after the browser is ready. Starting the browser takes about 0.4 s when the function is warm and about 2.9 s on a cold function, which unpacks Chromium. Netlify allows a streamed function 60 s and 20 MB (docs.netlify.com, function configuration and API pages), and a run uses a small part of both.
 - A browser that does not close in time is left to end with the function, and the trace says so.
 - Chromium needs memory: the function runs with Netlify's default 1,024 MB. A page that is very heavy could exceed it. The example sites use well under that.
-- A navigation to a site outside the allowlist is refused by the browser before any request is made.
+- A navigation to a site outside the allowlist is refused by the browser before any request is made. A click that starts one reports "The page moved to <host>, which is outside the allowed sites."
+- Chromium runs with `--single-process`, and each browser leaves two folders in /tmp (a profile and artifacts) that Playwright does not remove. After every run the function closes the browser, ends any process that still runs the Chromium binary, removes the folders its own browsers made, and logs /tmp room, folder and process counts and memory. It then ends the container after the response when /tmp has under 200 MB free, memory use is over 850 MB, a browser process was left behind, or a page load failed on the network, so the next run starts on a fresh container (a cold start of about 3 s).
+- The whole page text is read inside the page and cut there. A heavy page that takes over 3 s to lay out reports "The page text did not read in time."
 - A request without a content-length header is read in full before its size is checked. The platform's own request size limit bounds that read.
 - A click that opens a new tab is not followed. The run keeps reading the first tab.
 - Rate limits are per function instance and best effort. Requests without an Origin header, such as curl, pass the origin check and rely on the per-address limit.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Page } from 'playwright-core'
 import { currentHost, pageSnapshot, regionText, runStep } from '../../netlify/shared/browser'
 import type { BotStep } from '../../src/types'
@@ -16,7 +16,8 @@ function pageWith(title: string, text = 'Nothing relevant here'): Page {
     title: async () => title,
     getByText: () => nothing,
     getByRole: () => nothing,
-    locator: () => ({ ...nothing, innerText: async () => text }),
+    locator: () => nothing,
+    evaluate: async () => text,
   } as unknown as Page
 }
 
@@ -58,8 +59,8 @@ function regionPage(texts: string[] | Error, body = 'Whole page text'): Page {
         if (texts instanceof Error) throw texts
         return selector === '.titleline > a' ? texts : []
       },
-      innerText: async () => body,
     }),
+    evaluate: async () => body,
   } as unknown as Page
 }
 
@@ -83,6 +84,22 @@ describe('regionText', () => {
 
   it('skips elements with no visible text', () => {
     expect(regionText(['', '  \n ', 'Kept'])).toBe('Kept')
+  })
+})
+
+describe('pageSnapshot body text', () => {
+  it('reads the body in the page under a time limit and says so when a heavy page is too slow', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const slow = { url: () => 'https://en.wikipedia.org/wiki/Italy', title: async () => 'Italy', locator: () => ({ allInnerTexts: async () => [] }), evaluate: () => new Promise(() => undefined) } as unknown as Page
+    const pending = pageSnapshot(slow).catch((error: Error) => error)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(await pending).toMatchObject({ message: 'The page text did not read in time.' })
+    vi.useRealTimers()
+  })
+
+  it('treats an error from the page as no text, not as a timeout', async () => {
+    const broken = { url: () => 'https://news.ycombinator.com/', title: async () => 'Hacker News', locator: () => ({ allInnerTexts: async () => [] }), evaluate: async () => { throw new Error('context destroyed') } } as unknown as Page
+    await expect(pageSnapshot(broken)).resolves.toMatchObject({ excerpt: '' })
   })
 })
 

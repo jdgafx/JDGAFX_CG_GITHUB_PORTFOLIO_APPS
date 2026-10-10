@@ -5,7 +5,7 @@ import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, wit
 import { FrameRecorder, type FrameOutcome } from '../shared/frames'
 import { allowedDomains, isAllowedHost } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
-import { closeBrowser, launchBrowser } from '../shared/session'
+import { closeBrowser, launchBrowser, retireContainer, type Launched } from '../shared/session'
 import { validateSteps } from '../shared/steps'
 
 export const config = { path: '/api/execute' }
@@ -25,6 +25,11 @@ const RUN_VIEWPORT = { width: 960, height: 540 }
 
 type Send = (event: RunEvent) => void
 
+/** What the run tells the response about the container it ran in. */
+interface RunEnd {
+  retire: boolean
+}
+
 /**
  * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of
  * the page's content is read, and the message names the host and nothing more. A selector asks for
@@ -37,6 +42,11 @@ async function observeAllowed(page: Page, domains: string[], selector?: string):
     throw new ExecutionError(`The run stopped. The page moved to ${host}, which is outside the allowed sites.`)
   }
   return pageSnapshot(page, selector)
+}
+
+/** The curated message for a navigation to a site outside the allowlist. */
+function movedOffSite(host: string): ExecutionError {
+  return new ExecutionError(`The run stopped. The page moved to ${host}, which is outside the allowed sites.`)
 }
 
 /** A page that looks like an ordinary Chrome, with this browser's own version. */
@@ -77,7 +87,7 @@ function frameFields(shot: FrameOutcome): { frame?: StepFrame; frameNote?: strin
  * Runs the plan in a headless Chromium inside this function and streams each stage as it finishes. The browser is
  * closed even when a stage fails. The final event comes after the close.
  */
-async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<void> {
+async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep[], domains: string[]): Promise<RunEnd> {
   const startedAt = Date.now()
   // The run total is the sum of the timed rows, so the figures on screen reconcile with the trace.
   let timedMs = 0
@@ -85,10 +95,11 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
     if ((event.type === 'stage' || event.type === 'step_complete' || event.type === 'result') && typeof event.ms === 'number') timedMs += event.ms
     sendRaw(event)
   }
-  let browser: Browser | undefined
+  let launched: Launched | undefined
   let page: Page | undefined
   let recorder: FrameRecorder | undefined
   let blockedHost: string | undefined
+  let networkFailure = false
   let stage = 'Launch browser'
   let stageStarted = Date.now()
   let stepStarted = Date.now()
@@ -98,8 +109,8 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   let stepsStartedAt: number
 
   try {
-    const launched = await launchBrowser()
-    browser = launched.browser
+    launched = await launchBrowser()
+    const browser: Browser = launched.browser
     if (isCancelled()) throw new ExecutionError('The run was stopped.')
     send({ type: 'browser', version: launched.version })
     const context = await browser.newContext({ viewport: RUN_VIEWPORT, userAgent: userAgentFor(launched.version) })
@@ -121,14 +132,19 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
         throw new ExecutionError('The run reached its time limit before every step finished.')
       }
       send({ type: 'step_start', index, name: stepLabel(step) })
+      // Each step starts with a clean slate: only a navigation this step caused counts.
+      blockedHost = undefined
       let stepDetail: string
       try {
         stepDetail = await runStep(activePage, step)
       } catch (error) {
         // A navigation the browser refused to make is reported as the move it was.
-        if (blockedHost) throw new ExecutionError(`The run stopped. The page moved to ${blockedHost}, which is outside the allowed sites.`)
+        if (blockedHost) throw movedOffSite(blockedHost)
+        if (step.action === 'navigate' && error instanceof ExecutionError && /could not be loaded/.test(error.message)) networkFailure = true
         throw error
       }
+      // A click can start a navigation to another site and still return. The refused move is reported here.
+      if (blockedHost) throw movedOffSite(blockedHost)
       // After every step, the host is checked before the page is read.
       const observed = await observeAllowed(activePage, domains, step.selector)
       const detail = step.selector
@@ -138,7 +154,8 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
         throw new ExecutionError('The page returned no readable text to extract.')
       }
       // The picture is taken right after the text was read, so both show the same moment of the page.
-      const shot = await rec.capture(index)
+      const hostNow = currentHost(activePage)
+      const shot = hostNow !== null && isAllowedHost(hostNow, domains) ? await rec.capture(index) : { note: 'No picture: the page moved while it was read.' }
       inStep = false
       completed = index + 1
       send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed, ...frameFields(shot) })
@@ -156,7 +173,9 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       // A page on a disallowed host is not read here either, so its content cannot reach the client.
       const observed = page ? await observeAllowed(page, domains).catch(() => undefined) : undefined
       // The page as it stood when the step failed, and only when it is on an allowed host.
-      const shot = observed && recorder ? await recorder.capture(completed) : undefined
+      // The host is checked again after the snapshot, because the page can move while it is read.
+      const stillAllowed = page ? (() => { const host = currentHost(page); return host !== null && isAllowedHost(host, domains) })() : false
+      const shot = observed && stillAllowed && recorder ? await recorder.capture(completed) : undefined
       send({
         type: 'step_complete',
         index: completed,
@@ -179,23 +198,26 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   }
 
   // Closing the browser ends its process. The close row always comes last, after the steps that never ran.
-  if (browser) {
+  let retire = false
+  if (launched) {
     const closeStarted = Date.now()
-    const closed = await closeBrowser(browser)
+    const result = await closeBrowser(launched, networkFailure)
+    retire = result.retire
     send({
       type: 'stage',
       name: 'Close browser',
-      status: closed ? 'ok' : 'failed',
+      status: result.closed ? 'ok' : 'failed',
       ms: Date.now() - closeStarted,
-      detail: closed ? 'Browser closed.' : 'The browser did not close in time. It ends when this function does.',
+      detail: result.closed ? 'Browser closed.' : 'The browser did not close in time. It ends when this function does.',
     })
   }
   // The total covers the whole run, including the close step above.
   send(outcome.type === 'done' ? { ...outcome, totalMs: timedMs } : outcome)
+  return { retire }
 }
 
 /** Streams RunEvent records as server-sent events and stops work when the client disconnects. */
-function eventStream(req: Request, headers: Record<string, string>, run: (send: Send, isCancelled: () => boolean) => Promise<void>): Response {
+function eventStream(req: Request, headers: Record<string, string>, run: (send: Send, isCancelled: () => boolean) => Promise<RunEnd | void>): Response {
   const encoder = new TextEncoder()
   let cancelled = false
   const stream = new ReadableStream<Uint8Array>({
@@ -205,14 +227,17 @@ function eventStream(req: Request, headers: Record<string, string>, run: (send: 
       const send: Send = (event) => {
         if (!cancelled) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
       }
+      let end: RunEnd | undefined = undefined
       try {
-        await run(send, () => cancelled)
+        end = (await run(send, () => cancelled)) ?? undefined
       } catch (error) {
         send({ type: 'error', message: browserMessage(error), index: null })
       } finally {
         req.signal.removeEventListener('abort', onAbort)
         if (!cancelled) controller.close()
       }
+      // A container that holds leftovers ends after the response, so the next run starts clean.
+      if (end?.retire) retireContainer()
     },
     cancel() { cancelled = true },
   })
