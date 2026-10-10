@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live smoke suite for the ten Netlify AI apps in this portfolio.
+# Live smoke suite for the thirteen Netlify AI apps in this portfolio.
 #
 # Per app: the frontend loads and its JS bundle carries the author credit; the
 # main function answers GET with 405 and an empty POST with a 400 error; one
@@ -37,6 +37,7 @@ declare -A SLUG=(
   [01]=multi-agent-orchestrator [02]=rag-document-intelligence [03]=ai-code-review
   [04]=voice-ai-assistant [05]=ai-data-analyst [06]=llm-playground
   [07]=content-pipeline [08]=vision-ai [09]=ai-saas [10]=browser-agent
+  [11]=langgraph-research-agent [12]=langgraph-approval-flow [13]=langgraph-map-reduce
 )
 
 # A 1x1 white PNG, sent to the vision app.
@@ -268,6 +269,41 @@ app_10() {
   reject_checks /api/execute
 }
 
+app_11() {
+  reject_checks /api/run
+  expect "POST {} /api/run error is the question message" '.error == "The request needs a question field with text."'
+  call POST "$BASE/api/run" 60 '{"question":"Who founded the city of Lisbon, according to Wikipedia?"}'
+  expect_status "research run returns 200" 200
+  expect_type text/event-stream
+  expect_sse "first frame is run_start with a runId" 'frame("type"; "run_start") | (.runId | type == "string" and length > 0)'
+  expect_sse "result frame has an answer, ending, sources, totals and models" "frame(\"type\"; \"result\") | $(has_keys answer ending sources totals models)"
+  expect_sse "result ending.kind is complete, partial or no_answer" 'frame("type"; "result") | .ending.kind | IN("complete", "partial", "no_answer")'
+  expect_sse "stream ends with [DONE]" 'sse_done'
+}
+
+# app-12 starts real triage threads that persist in Netlify Blobs, so the suite only checks the endpoints
+# that refuse bad input and the thread list. It never starts a run.
+app_12() {
+  reject_checks /api/start
+  expect "POST {} /api/start error asks for the GitHub issue" '.error == "Send the GitHub issue to triage."'
+  call GET "$BASE/api/threads" 30
+  expect_status "GET /api/threads returns 200" 200
+  expect "keys: success storage threads" "$(has_keys success storage threads)"
+  expect "threads is an array" '.threads | type == "array"'
+  reject_checks /api/resume
+}
+
+app_13() {
+  local text="When in the Course of human events, it becomes necessary for one people to dissolve the political bands which have connected them with another, and to assume among the powers of the earth, the separate and equal station to which the Laws of Nature and of Nature's God entitle them, a decent respect to the opinions of mankind requires that they should declare the causes which impel them to the separation."
+  reject_checks /api/run
+  expect "POST {} /api/run error asks for a text field" '.error == "Send a JSON object with a text field."'
+  call POST "$BASE/api/run" 60 "$(jq -nc --arg t "$text" '{text: $t}')"
+  expect_status "map-reduce run returns 200" 200
+  expect_type text/event-stream
+  expect_sse "result frame has summary, coverage, chunkCount and metrics" "frame(\"type\"; \"result\") | .result | $(has_keys summary coverage chunkCount metrics)"
+  expect_sse "stream ends with [DONE]" 'sse_done'
+}
+
 ###############################################################################
 # Runner
 ###############################################################################
@@ -299,7 +335,7 @@ summary() {
 
 main() {
   local arg=${1:-} nn
-  local -a apps=(01 02 03 04 05 06 07 08 09 10)
+  local -a apps=(01 02 03 04 05 06 07 08 09 10 11 12 13)
   case $arg in
     '') ;;
     local) MODE=local ;;
