@@ -1,0 +1,173 @@
+/* The duplicate check: the signature panel */
+.gg-dups {
+  gap: 16px;
+}
+
+.gg-terms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: none;
+}
+
+.gg-cands {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.gg-cand {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--ds-border);
+  min-width: 0;
+}
+
+.gg-cand:first-child {
+  border-top: 0;
+}
+
+.gg-cand--confirmed {
+  background: var(--ds-accent-soft);
+  border-radius: var(--ds-radius) var(--ds-radius) 0 0;
+}
+
+.gg-cand__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.gg-cand__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gg-cand__title {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-weight: 650;
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+
+.gg-cand__title:hover {
+  text-decoration-color: var(--ds-accent);
+}
+
+.gg-cand__number {
+  font-family: var(--ds-mono);
+  color: var(--ds-text-muted);
+}
+
+.gg-cand__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  max-width: none;
+}
+
+.gg-cand__reason {
+  max-width: var(--ds-measure);
+  overflow-wrap: anywhere;
+}
+
+.gg-shared {
+  max-width: var(--ds-measure);
+  font-family: var(--ds-mono);
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+.gg-badge--muted {
+  color: var(--ds-text-muted);
+}
+
+.gg-dups .ds-section__sub {
+  max-width: var(--ds-measure);
+}
+
+.gg-note-box {
+  max-width: var(--ds-measure);
+}
+
+/* Similarity: a short track, filled to the score out of 0.5 */
+.gg-score {
+  position: relative;
+  display: inline-block;
+  width: 72px;
+  height: 8px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.gg-score > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ds-accent);
+}
+
+/* The two passages the model quoted, side by side when there is room */
+.gg-quotes {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.gg-quote {
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gg-quote figcaption {
+  font-size: 13px;
+  color: var(--ds-text-muted);
+}
+
+/* The verified pair is the one bold thing on the screen: larger type, a firm border, equal boxes */
+.gg-quote blockquote {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 18px;
+  line-height: 1.45;
+  font-weight: 560;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.gg-check-line {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  max-width: none;
+}
+
+@media (min-width: 720px) {
+  .gg-quotes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

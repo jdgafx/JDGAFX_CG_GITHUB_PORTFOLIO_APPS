@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamEvent } from '../netlify/shared/events'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { IssueList, keyOf, type IssuesState } from './components/IssueList'
 import { Readout } from './components/Readout'
 import { RepoPicker } from './components/RepoPicker'
@@ -12,6 +13,7 @@ import { TraceCard } from './components/TraceCard'
 import { outcomeOf } from './components/TriageCard'
 import { failureText, fetchThread, fetchThreads, type ThreadResponse as ThreadViewResponse, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
 import { getIssue, GitHubError, listOpenIssues, parseIssueRef, parseRepoInput, slugOf } from './lib/github'
+import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT_ISSUE } from './lib/howto'
 import { liveDataOf } from './lib/live-data'
 import { runAttr } from './lib/phase'
 import { useResultFocus } from './lib/useResultFocus'
@@ -101,12 +103,12 @@ export default function App() {
   }, [])
 
   /** Loads a repo's newest open issues, or one issue by link or owner/name#number, straight from GitHub. */
-  const loadIssues = useCallback(async (text: string) => {
+  const loadIssues = useCallback(async (text: string): Promise<IssueInput[] | null> => {
     const ref = parseIssueRef(text)
     const repo = ref ? { owner: ref.owner, repo: ref.repo } : parseRepoInput(text)
     if (!repo) {
       setIssues((prev) => ({ ...prev, error: 'That is not a repo or an issue. Use owner/name, owner/name#123, or a github.com link.' }))
-      return
+      return null
     }
     issuesRef.current?.abort()
     const controller = new AbortController()
@@ -117,10 +119,12 @@ export default function App() {
       setIssues({ loading: false, repo: slugOf(repo), items, error: null })
       setFetchedAt(Date.now())
       setSelected(ref ? items[0] : null)
+      return items
     } catch (err) {
-      if (isAbortError(err)) return
+      if (isAbortError(err)) return null
       const error = err instanceof GitHubError ? err.message : 'The issues could not be loaded. Try again.'
       setIssues({ loading: false, repo: slugOf(repo), items: [], error })
+      return null
     }
   }, [])
 
@@ -221,12 +225,20 @@ export default function App() {
     setPhase('stopped')
   }
 
-  const handleTriage = () => {
-    if (!selected) return
-    const issue = selected
+  const triage = (issue: IssueInput) => {
     const { repo, number, title, htmlUrl } = issue
     setRun(emptyRun({ repo, number, title, htmlUrl }))
     void stream((onEvent, signal) => startIssue(issue, onEvent, signal))
+  }
+
+  const handleTriage = () => {
+    if (selected) triage(selected)
+  }
+
+  /** Try it: a real open issue, fetched live, goes through the same Triage path and stops at the approval card. */
+  const handleTry = async () => {
+    const [issue] = (await loadIssues(TRY_IT_ISSUE)) ?? []
+    if (issue) triage(issue)
   }
 
   /** The visitor stops waiting. The server keeps its own claim on the thread and may still finish it. */
@@ -314,6 +326,7 @@ export default function App() {
       <Header phase={phase} live={liveDataOf({ loading: issues.loading, issuesError: issues.error, fetchedAt, duplicates: run.duplicates })} />
 
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => void handleTry()} disabled={busy || issues.loading} hasResult={phase !== 'idle'} hint={HOWTO_HINT} />
         <div className="ds-bench">
           <div className="ds-controls">
             <RepoPicker loaded={issues.repo} loading={issues.loading} busy={busy} onLoad={(text) => void loadIssues(text)} />
