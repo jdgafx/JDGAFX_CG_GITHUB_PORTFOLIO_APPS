@@ -114,3 +114,37 @@ describe('weekend level and gap, whichever way round and wherever the words are 
     expect(counts(text)).toMatchObject({ ...expected, rejected: 0 })
   })
 })
+
+describe('a bound is true when the real value is on its side (D30)', () => {
+  // next / astro by total is 10.865; react's total is 791 million and its share 88.9%.
+  const text = (words: string) => `Next.js is ${words} Astro's total.`
+  const next = ['next', 'astro']
+  it.each([
+    ['more than 10 times', 'matched'],
+    ['over 10 times', 'matched'],
+    ['at least 10 times', 'matched'],
+    ['more than 12 times', 'unchecked'],
+    ['less than 11 times', 'matched'],
+    ['under 12 times', 'matched'],
+    ['at most 10 times', 'unchecked'],
+    ['nearly 11 times', 'matched'],
+  ] as [string, Outcome][])('%s (sentence check)', (words, expected) => {
+    expect(outcome(text(words + "'"), N1)).toBe(expected === 'matched' ? 'matched' : 'unchecked')
+  })
+
+  it('rejects a false bound when a claim covers it, and accepts a true one', () => {
+    expect(outcome(text('more than 12 times'), N1, [claim('more than 12 times', 'multiple', next)])).toBe('rejected')
+    expect(outcome(text('more than 10 times'), N1, [claim('more than 10 times', 'multiple', next)])).toBe('matched')
+    expect(outcome(text('less than 10 times'), N1, [claim('less than 10 times', 'multiple', next)])).toBe('rejected')
+    expect(outcome(text('less than 11 times'), N1, [claim('less than 11 times', 'multiple', next)])).toBe('matched')
+  })
+
+  it('works for counts and percentages', () => {
+    expect(outcome('React had over 700 million downloads in total.', C1)).toBe('matched')
+    expect(outcome('React had over 900 million downloads in total.', C1)).toBe('unchecked')
+    expect(outcome('React had under 900 million downloads in total.', C1)).toBe('matched')
+    expect(outcome('React holds more than 85% of the selection.', C1)).toBe('matched')
+    expect(outcome('React holds more than 95% of the selection.', C1)).toBe('unchecked')
+    expect(outcome('React had over 900 million downloads in total.', C1, [claim('over 900 million downloads in total', 'total', ['react'])])).toBe('rejected')
+  })
+})

@@ -112,6 +112,8 @@ function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null
     // A weekend level ("runs at 57.3% of weekdays") and a weekend gap ("42.7% lower") are told apart by the figure's own words,
     // whether or not it says "weekend"; with words for neither, a weekend value is not matched.
     if ((value.metric === 'weekend_level' || value.metric === 'weekend_gap') && value.metric !== weekend) continue
+    // "less than 10 times" is about the larger over the smaller: the inverse ratio would satisfy any upper bound.
+    if (q.bound && value.pair && value.value < 1) continue
     if (!matchesQuoted(q, value.value, value.owner !== undefined)) continue
     sizeMatched = true
     if (value.trend && !directionAgrees(q, value.value)) continue

@@ -76,6 +76,8 @@ export interface Quoted {
   sign: Sign
   /** True when a hedge such as "about" or "roughly" stands a few words before the figure in its sentence. */
   hedged?: boolean
+  /** "more than 10 times" is a lower bound, "less than 10 times" an upper one: true when the real value is on that side of it. */
+  bound?: 'lower' | 'upper'
 }
 
 /** A checkable figure written in the text: where it starts, how it is written and what it says. Its sign is read from the text around it. */
@@ -83,6 +85,15 @@ export interface Occurrence {
   index: number
   whole: string
   quoted: Quoted
+}
+
+const LOWER_BOUND = /\b(?:more than|over|above|at least|upwards? of|in excess of|exceeding|greater than|beyond|just over)\s+(?:about\s+|roughly\s+)?$/i
+const UPPER_BOUND = /\b(?:less than|under|below|at most|fewer than|up to|no more than|nearly|almost|just under)\s+$/i
+
+/** The bound the words just before the figure put on it, if any. */
+export function boundBefore(text: string, index: number): 'lower' | 'upper' | undefined {
+  const before = clauseBefore(text, index).slice(-40)
+  return LOWER_BOUND.test(before) ? 'lower' : UPPER_BOUND.test(before) ? 'upper' : undefined
 }
 
 /** Words that say a figure is approximate. */
@@ -112,6 +123,7 @@ export function figureOccurrences(text: string): Occurrence[] {
         scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
         sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
         hedged: isHedged(text, match.index ?? 0),
+        bound: boundBefore(text, match.index ?? 0),
       },
     }
   })
@@ -164,6 +176,10 @@ function significantFigures(value: number): number {
  * figures: then it may be the true value rounded to those. `allowHedge` is off where nothing says whose value it is.
  */
 export function matchesQuoted(q: Quoted, value: number, allowHedge = true): boolean {
+  if (q.bound) {
+    const v = Math.abs(value) / q.scale
+    if (q.bound === 'lower' ? v >= q.value : v <= q.value) return true
+  }
   if (roundTo(Math.abs(value) / q.scale, q.decimals) === q.value) return true
   if (allowHedge && q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
     const sf = significantFigures(q.value)
