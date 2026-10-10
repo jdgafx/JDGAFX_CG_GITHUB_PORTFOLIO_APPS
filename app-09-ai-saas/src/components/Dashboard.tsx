@@ -8,7 +8,7 @@ import { HISTORY_DAYS, type NpmError } from '../lib/npm'
 import { DEFAULT_NAMES, DEFAULT_WINDOW } from '../lib/presets'
 import type { Release } from '../lib/releases'
 import { buildSpikeEvidence, countSpikes } from '../lib/spikes'
-import { liveState } from '../lib/liveData'
+import { liveInputs, liveState } from '../lib/liveData'
 import { useDownloads } from '../lib/useDownloads'
 import { useResultFocus } from '../lib/useResultFocus'
 import { useReleases } from '../lib/useReleases'
@@ -74,7 +74,7 @@ export default function Dashboard() {
       span
         ? span.series.flatMap((s) => {
             const outcome = history.outcomes.get(s.name)
-            return outcome && 'error' in outcome ? [{ name: s.name, message: outcome.error.message }] : []
+            return outcome && 'error' in outcome && outcome.error.kind !== 'not-found' ? [{ name: s.name, message: outcome.error.message }] : []
           })
         : [],
     [span, history.outcomes],
@@ -89,15 +89,12 @@ export default function Dashboard() {
     [summary, loading, history.loading, spikes, spikeCounts],
   )
   const live = {
-    state: liveState({
-      downloadsLoading: loading && colorIndex.length === 0,
-      downloadsParsed: loading ? 0 : colorIndex.length,
-      // A name npm does not know is the visitor's input, not npm being unavailable.
-      downloadsFailed: loading ? 0 : failures.filter((f) => f.error.kind !== 'not-found').length,
-      releasesLoading: history.loading,
-      releasesParsed: [...history.outcomes.values()].filter((o) => 'releases' in o).length,
-      releasesFailed: [...history.outcomes.values()].filter((o) => 'error' in o).length,
-    }),
+    state: liveState(
+      liveInputs(
+        { loading, results: outcomes.map((o) => ('days' in o ? 'ok' : o.error.kind === 'not-found' ? 'not-found' : 'failed')) },
+        { loading: history.loading, results: [...history.outcomes.values()].map((o) => ('releases' in o ? 'ok' : o.error.kind === 'not-found' ? 'not-found' : 'failed')) },
+      ),
+    ),
     fetchedAt: fetchedAt !== null && history.fetchedAt !== null ? Math.max(fetchedAt, history.fetchedAt) : null,
   }
   const run = useInsightRun(evidenceSummary)

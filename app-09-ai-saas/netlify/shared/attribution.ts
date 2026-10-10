@@ -38,7 +38,7 @@ function patternsFor(name: string, names: string[]): RegExp[] {
   if (name.toLowerCase() === 'next') {
     // "next" is also an everyday word. It names the package unless a determiner comes before it or a time or ordinal noun after it.
     return [
-      /(?<![\w@/.-])(?<!\b(?:the|a|in|on|this|that|our|your|their|over|during|within|until)\s+)next(?:\.js)?(?![\w-])(?!\s+(?:month|week|year|day|days|few|step|steps|release|releases|version|section|quarter|time|one|ones|two|three|\d))/gi,
+      /(?<![\w@/.-])(?<!\b(?:the|a|this|that|our|your|their)\s+)next(?:\.js)?(?![\w-])(?!\s+(?:month|week|year|day|days|few|step|steps|release|releases|version|section|quarter|time|one|ones|two|three|\d))/gi,
     ]
   }
   if (ENGLISH_WORD_NAMES.has(name.toLowerCase())) {
@@ -118,7 +118,9 @@ export function contextOf(text: string, index: number, end: number, names: strin
   const pronoun = PRONOUN_START_RE.test(text.slice(seg.start, seg.end))
 
   let owner: string | null = null
-  if (pronoun && carried.length === 1) owner = carried[0]
+  const tiedFirst = own.find((m) => m.at >= end && m.at - end <= 36 && TIES.test(text.slice(end, m.at)))
+  if (tiedFirst) owner = tiedFirst.name
+  else if (pronoun && carried.length === 1) owner = carried[0]
   else if (own.length > 0) {
     const before = own.filter((m) => m.at < index && !/\bunlike\s+$/i.test(text.slice(Math.max(0, m.at - 12), m.at)))
     const tied = own.find((m) => m.at >= end && m.at - end <= 36 && TIES.test(text.slice(end, m.at)))
@@ -133,7 +135,7 @@ export function contextOf(text: string, index: number, end: number, names: strin
   return { owner, named, namedBefore, carried, subject, pronoun, clause: text.slice(seg.start, seg.end), respectively }
 }
 
-export type Metric = 'total' | 'per_day' | 'share' | 'change' | 'weekend' | 'spike_day' | 'baseline' | 'spike_pct'
+export type Metric = 'total' | 'per_day' | 'share' | 'change' | 'weekend_level' | 'weekend_gap' | 'weekend' | 'spike_day' | 'baseline' | 'spike_pct'
 
 /**
  * The metric a figure's words say it is, read from the words around it inside its clause and between its neighbouring
@@ -152,7 +154,7 @@ export function metricsIn(text: string, unit: 'count' | '%'): Metric[] {
   if (has(/\b(?:above|over|higher than|more than|against)\s+(?:the\s+|its\s+|their\s+)?(?:usual|baseline|typical)\b|\bspike/i)) found.push('spike_pct')
   if (has(/\bweekend|\bweekday/i)) found.push('weekend')
   if (has(/\bshare\b|\bof the (?:selection|total)\b|\bof (?:all |the )?(?:combined |selection's )?downloads/i)) found.push('share')
-  if (has(/\b(?:grew|grow\w*|growth|rose|rise|rising|fell|fall\w*|drop\w*|declin\w*|change|increase\w*|gain\w*|jump\w*)\b/i)) found.push('change')
+  if (has(/\b(?:grew|grow\w*|growth|rose|rise|rising|fell|fall\w*|drop\w*|declin\w*|change\w*|increase\w*|gain\w*|jump\w*)\b/i)) found.push('change')
   return found
 }
 
@@ -160,11 +162,28 @@ export function metricsIn(text: string, unit: 'count' | '%'): Metric[] {
  * The metric a figure's words say it is, read from the words around it between its delimiters. Null when they say
  * nothing. The first by precedence when they say more than one.
  */
+const GAP_WORDS = /\b(?:lower|drops?|dropped|below|fewer|less than|dips?|decline\w*|shortfall|gap|smaller|down)\b/i
+const LEVEL_WORDS = /\b(?:runs?|keeps?|retains?|sits?|stays?|holds?|reach(?:es)?|at)\b|\bof (?:its |their |the )?weekday/i
+
+/**
+ * Whether a weekend figure is the weekend LEVEL ("runs at 57.3% of weekday downloads") or the GAP ("a 42.7% drop", "42.7%
+ * lower"), from the words just after the figure and then the words before it. Null when the words say neither.
+ */
+export function weekendMetric(before: string, after: string): Metric | null {
+  if (GAP_WORDS.test(after)) return 'weekend_gap'
+  if (LEVEL_WORDS.test(before) || /^\s*(?:of|per)\b/i.test(after) || /\bof (?:its |their |the )?weekday/i.test(after)) return 'weekend_level'
+  if (GAP_WORDS.test(before)) return 'weekend_gap'
+  return null
+}
+
 export function metricOf(text: string, from: number, index: number, end: number, to: number, unit: 'count' | '%'): Metric | null {
-  const both = `${text.slice(from, index)} ${text.slice(end, to)}`
-  const found = metricsIn(both, unit)
+  const beforeText = text.slice(from, index)
+  const afterText = text.slice(end, to)
+  const found = metricsIn(`${beforeText} ${afterText}`, unit)
   if (unit === 'count') return (['per_day', 'baseline', 'total', 'spike_day'] as Metric[]).find((m) => found.includes(m)) ?? null
-  return (['spike_pct', 'weekend', 'share', 'change'] as Metric[]).find((m) => found.includes(m)) ?? null
+  if (found.includes('spike_pct')) return 'spike_pct'
+  if (found.includes('weekend')) return weekendMetric(beforeText, afterText) ?? 'weekend'
+  return (['share', 'change'] as Metric[]).find((m) => found.includes(m)) ?? null
 }
 
 /** Where a clause of a sentence ends, for a figure's own words: a comma, bracket, break, or a linking word between two things being said. */

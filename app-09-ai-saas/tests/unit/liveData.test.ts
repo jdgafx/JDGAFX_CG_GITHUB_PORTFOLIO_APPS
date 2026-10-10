@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fetchedTime, liveState, liveText, type LiveInputs } from '../../src/lib/liveData'
+import { fetchedTime, liveInputs, liveState, liveText, type LiveInputs } from '../../src/lib/liveData'
 
 const base: LiveInputs = { downloadsLoading: false, downloadsParsed: 0, downloadsFailed: 0, releasesLoading: false, releasesParsed: 0, releasesFailed: 0 }
 
@@ -66,5 +66,21 @@ describe('nothing canned is reachable', () => {
     const hosts = new Set<string>()
     for (const file of sources) for (const m of readFileSync(file, 'utf8').matchAll(/https?:\/\/([a-z0-9.-]+)/g)) hosts.add(m[1])
     for (const host of ['api.npmjs.org', 'registry.npmjs.org']) expect(hosts.has(host)).toBe(true)
+  })
+})
+
+describe('what each source said (D23)', () => {
+  it('stays live when one name is unknown to npm and the others loaded', () => {
+    const inputs = liveInputs(
+      { loading: false, results: ['ok', 'ok', 'not-found'] },
+      { loading: false, results: ['ok', 'ok', 'not-found'] },
+    )
+    expect(liveState(inputs)).toBe('live')
+  })
+
+  it('is failed when a known package failed on either side, and idle while loading', () => {
+    expect(liveState(liveInputs({ loading: false, results: ['ok', 'failed'] }, { loading: false, results: ['ok', 'ok'] }))).toBe('failed')
+    expect(liveState(liveInputs({ loading: false, results: ['ok', 'ok'] }, { loading: false, results: ['ok', 'failed'] }))).toBe('failed')
+    expect(liveState(liveInputs({ loading: true, results: [] }, { loading: true, results: [] }))).toBe('idle')
   })
 })

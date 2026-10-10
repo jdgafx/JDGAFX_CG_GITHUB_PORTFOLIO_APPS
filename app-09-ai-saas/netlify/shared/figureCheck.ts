@@ -1,7 +1,7 @@
 import type { PackageFigures, Summary } from './contract'
 import { contextOf, metricOf, metricsIn, SELECTION_WORDS, wordsOfFigure, type Context, type Metric } from './attribution'
 import { checkEvidence } from './evidence'
-import { directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Range, type Unit } from './figures'
+import { comparesWithPast, directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Range, type Unit } from './figures'
 
 /** The sentence check: every written percentage, count and multiple, read against the values the prompt listed. */
 
@@ -34,7 +34,7 @@ function pool(s: Summary): PoolValue[] {
     values.push({ unit: '%', value: p.sharePct, metric: 'share', ...own })
     if (p.changePct !== null) values.push({ unit: '%', value: p.changePct, metric: 'change', owner: p.name, trend: true })
     if (p.weekendPct !== null) {
-      values.push({ unit: '%', value: p.weekendPct, metric: 'weekend', ...own }, { unit: '%', value: weekendGap(p.weekendPct), metric: 'weekend', ...own })
+      values.push({ unit: '%', value: p.weekendPct, metric: 'weekend_level', ...own }, { unit: '%', value: weekendGap(p.weekendPct), metric: 'weekend_gap', ...own })
     }
   }
   // Multiples between packages, by total and by per-day average, in both directions.
@@ -70,7 +70,7 @@ function pairNamed(pair: [string, string], named: ReadonlySet<string>): boolean 
  * inside it, at the bounds' precision. A range is never rejected: when it is not that, or nothing says which packages or
  * which metric, it is unchecked.
  */
-export function rangeHolds(range: Range, metric: Metric | null, named: ReadonlySet<string>, packages: PackageFigures[]): boolean {
+export function rangeHolds(range: Range, metric: Metric | null, named: ReadonlySet<string>, packages: PackageFigures[], sign = 0): boolean {
   if (named.size === 0 || metric === null) return false
   const inside = (value: number) => {
     const rounded = Math.round(value * 10 ** range.decimals) / 10 ** range.decimals
@@ -80,8 +80,9 @@ export function rangeHolds(range: Range, metric: Metric | null, named: ReadonlyS
     const p = packages.find((candidate) => candidate.name === name)
     if (!p) return false
     if (metric === 'share') return inside(p.sharePct)
-    if (metric === 'change') return p.changePct !== null && inside(Math.abs(p.changePct))
-    if (metric === 'weekend') return p.weekendPct !== null && (inside(p.weekendPct) || inside(weekendGap(p.weekendPct)))
+    if (metric === 'change') return p.changePct !== null && inside(Math.abs(p.changePct)) && (sign === 0 || (sign < 0 ? p.changePct <= 0 : p.changePct >= 0))
+    if (metric === 'weekend_level') return p.weekendPct !== null && inside(p.weekendPct)
+    if (metric === 'weekend_gap') return p.weekendPct !== null && inside(weekendGap(p.weekendPct))
     return false
   })
 }
@@ -154,8 +155,13 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
       result.checked += 1
       // A range speaks of the packages named before it in its clause, else of those the clause names.
       const subjects = ctx.namedBefore.length > 0 ? new Set(ctx.namedBefore) : named(ctx)
-      if (rangeHolds(o.quoted.range, said, subjects, s.packages)) result.matched += 1
+      if (rangeHolds(o.quoted.range, said, subjects, s.packages, o.quoted.sign)) result.matched += 1
       else result.unmatched.push(o.whole)
+      return
+    }
+    if (o.quoted.unit === 'times' && comparesWithPast(text, end)) {
+      result.checked += 1
+      result.unmatched.push(o.whole)
       return
     }
     const verdict = judge(o.quoted, values, ctx, said, clauseMetrics.length > 1)

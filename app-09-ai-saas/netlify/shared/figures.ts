@@ -147,7 +147,7 @@ export function figureOccurrences(text: string): Occurrence[] {
     merged.push({
       index: start,
       whole: text.slice(start, end).trim(),
-      quoted: { ...o.quoted, range: { low, high: o.quoted.value, decimals: Math.max(lowDecimals, o.quoted.decimals) }, hedged: isHedged(text, start), sign: 0 },
+      quoted: { ...o.quoted, range: { low, high: o.quoted.value, decimals: Math.max(lowDecimals, o.quoted.decimals) }, hedged: isHedged(text, start), sign: signOf(text, start) },
     })
   }
   return merged
@@ -184,4 +184,9 @@ export function directionAgrees(q: Quoted, value: number): boolean {
 export function matchesCoarsely(q: Quoted, value: number): boolean {
   if (!(q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0)) return false
   return significantFigures(q.value) === 1 && Number(Math.abs(value).toPrecision(1)) === q.value
+}
+
+/** A multiple that compares something with its own past ("2 to 3 times faster than before"), not one package with another. */
+export function comparesWithPast(text: string, end: number): boolean {
+  return /^\s*(?:times\s+)?(?:(?:faster|slower|larger|bigger|smaller|more|less|quicker|higher|lower|as (?:fast|large|big|many|much))\s+)?(?:than|compared (?:to|with)|versus|vs\.?)\s+(?:before|last|previously|the previous|the prior|earlier|then|now|usual|normal|a year ago)\b/i.test(text.slice(end, end + 60))
 }

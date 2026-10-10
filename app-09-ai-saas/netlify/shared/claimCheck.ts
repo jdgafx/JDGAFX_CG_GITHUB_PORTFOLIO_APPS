@@ -1,8 +1,8 @@
 import type { PackageFigures, Summary } from './contract'
-import { contextOf, mentionsIn, SELECTION_WORDS, segmentsOf, wordsOfFigure } from './attribution'
+import { contextOf, mentionsIn, SELECTION_WORDS, segmentsOf, weekendMetric, wordsOfFigure } from './attribution'
 import { writtenDatesAndVersions, writtenIsKnown } from './evidence'
 import { checkFigures, rangeHolds } from './figureCheck'
-import { directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Unit } from './figures'
+import { comparesWithPast, directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Unit } from './figures'
 import { resolvePackages, type Claim, type ClaimKind } from './claims'
 import { judgeSpikeCount, numberTokens, scanSpikeCounts } from './spikeCounts'
 
@@ -188,8 +188,9 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       // A range is judged by what the text names, never by the claim's package alone, and is never rejected.
       const ctxR = contextOf(text, start, end, names)
       const set = new Set(ctxR.namedBefore.length > 0 ? ctxR.namedBefore : [...ctxR.named, ...(ctxR.pronoun || ctxR.named.length === 0 ? (ctxR.subject ? [ctxR.subject] : []) : [])])
-      const metric = { share_pct: 'share', change_pct: 'change', weekend_pct: 'weekend' }[claim.k as string] as 'share' | 'change' | 'weekend' | undefined
-      const holds = rangeHolds(quoted.range, metric ?? null, set, s.packages)
+      const own = wordsOfFigure(text, start, end)
+      const metric = claim.k === 'share_pct' ? 'share' : claim.k === 'change_pct' ? 'change' : claim.k === 'weekend_pct' ? weekendMetric(text.slice(own.from, start), text.slice(end, own.to)) : null
+      const holds = rangeHolds(quoted.range, metric, set, s.packages, quoted.sign)
       covered.push({ start, end })
       if (holds) {
         result.checked += 1
@@ -198,6 +199,23 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       continue
     }
     const fits = (values: number[], hedge: boolean) => values.some((value) => matchesQuoted(quoted, value, hedge) && (!expected.trend || directionAgrees(quoted, value)))
+
+    if (claim.k === 'weekend_pct') {
+      // The level ("keeps 57%") and the gap ("43% lower") are different figures; the words must say which.
+      const w = wordsOfFigure(text, start, end)
+      const m = weekendMetric(text.slice(w.from, start), text.slice(end, w.to))
+      const pkg = s.packages.find((p) => p.name === resolved.p[0])
+      if (!pkg || pkg.weekendPct === null || (m !== 'weekend_level' && m !== 'weekend_gap')) {
+        leaveUnchecked(figure.whole, start)
+        continue
+      }
+      expected.values = m === 'weekend_level' ? [pkg.weekendPct] : [weekendGap(pkg.weekendPct)]
+    }
+
+    if ((claim.k === 'multiple' || claim.k === 'difference') && claim.k === 'multiple' && comparesWithPast(text, end)) {
+      leaveUnchecked(figure.whole, start)
+      continue
+    }
 
     if (claim.k === 'multiple' || claim.k === 'difference') {
       if (contextOf(text, start, end, names).respectively) {

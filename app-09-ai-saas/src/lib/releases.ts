@@ -14,7 +14,7 @@ const REQUEST_TIMEOUT_MS = 25_000
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T/
 
-export type ReleaseErrorKind = 'timeout' | 'network' | 'too-large' | 'unexpected'
+export type ReleaseErrorKind = 'timeout' | 'network' | 'too-large' | 'not-found' | 'unexpected'
 
 /** A failed registry read. The message is plain language and safe to show as it is. */
 export class ReleaseError extends Error {
@@ -65,7 +65,7 @@ export function parseReleases(json: unknown): Release[] {
 export const releasesUrl = (name: string): string => `${RELEASES_ENDPOINT}?name=${encodeURIComponent(name)}`
 
 /** A failure kind the service names, or "unexpected". */
-const KINDS: readonly ReleaseErrorKind[] = ['timeout', 'network', 'too-large', 'unexpected']
+const KINDS: readonly ReleaseErrorKind[] = ['timeout', 'network', 'too-large', 'not-found', 'unexpected']
 
 /**
  * Reads a package's release history through the releases service, which streams the registry record (tens of megabytes for

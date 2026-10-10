@@ -5,7 +5,7 @@
  */
 
 const ABBREVIATION = '(?<!\\b(?:e\\.g|i\\.e|vs|etc|approx|cf))'
-const SENTENCE_END = `${ABBREVIATION}[.!?](?=\\s|$)|\\n`
+const SENTENCE_END = `${ABBREVIATION}[.!?](?=\\s|$)|(?<=[\\d%)])\\.(?=[A-Z])|\\n`
 const CLAUSE_END = `${SENTENCE_END}|[;:—]`
 
 export interface Span {

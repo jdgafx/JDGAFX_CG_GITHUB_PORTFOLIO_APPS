@@ -18,6 +18,25 @@ export interface LiveInputs {
   releasesFailed: number
 }
 
+/** What a source said for one package: it worked, or why it did not. */
+export type SourceResult = 'ok' | 'not-found' | 'failed'
+
+/**
+ * The inputs of the state, from what each source said for each selected package. A name npm does not know is the visitor's
+ * input, not npm being unavailable, so it counts as neither parsed nor failed.
+ */
+export function liveInputs(downloads: { loading: boolean; results: SourceResult[] }, releases: { loading: boolean; results: SourceResult[] }): LiveInputs {
+  const count = (list: SourceResult[], what: SourceResult) => list.filter((r) => r === what).length
+  return {
+    downloadsLoading: downloads.loading && count(downloads.results, 'ok') === 0,
+    downloadsParsed: downloads.loading ? 0 : count(downloads.results, 'ok'),
+    downloadsFailed: downloads.loading ? 0 : count(downloads.results, 'failed'),
+    releasesLoading: releases.loading,
+    releasesParsed: count(releases.results, 'ok'),
+    releasesFailed: count(releases.results, 'failed'),
+  }
+}
+
 /**
  * Live only when the real downloads and the real registry reads for the current selection both succeeded and parsed.
  * Failed as soon as either source failed for a package, so the chip never claims more than was fetched. Idle until the
