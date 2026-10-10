@@ -1,4 +1,0 @@
-[     613ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/health:0
-[   61396ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/token?grant_type=password:0
-[   98951ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/signup:0
-[  139204ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dsabzsfuxyceojkbspgd.supabase.co/auth/v1/token?grant_type=password:0

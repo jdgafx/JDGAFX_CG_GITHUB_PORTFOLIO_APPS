@@ -25,3 +25,4 @@ RESUME.md
 # Personal sysadmin toolkit — lives in its own repo
 Linux-Sysconfig-Package-and-Xfer/
 n8n-automations/local/.env
+.playwright-mcp/
