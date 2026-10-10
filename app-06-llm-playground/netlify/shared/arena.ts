@@ -192,13 +192,23 @@ interface LeaderboardTotals {
   ratings: Ratings
 }
 
+/**
+ * Ballots cast before the board was keyed by served model carry the requested id (an alias such as
+ * "~anthropic/claude-haiku-latest") as the key. Re-key those by the served id they recorded, unless that
+ * would put two entries of one ballot on the same key.
+ */
+function byServedModel(entries: Entry[]): Entry[] {
+  const keyed = entries.map(e => ({ ...e, model: e.served ?? e.model }))
+  return new Set(keyed.map(e => e.model)).size === entries.length ? keyed : entries
+}
+
 /** Applies ballots in the order they were cast (time, then run id), remembering what each one changed. */
 export function foldBallots(ballots: StoredBallot[]): Folded {
   const ordered = [...ballots].sort((a, b) => a.at - b.at || a.runId.localeCompare(b.runId))
   const doc: LeaderboardTotals = { ballots: 0, ties: 0, allBad: 0, updatedAt: null, ratings: {} }
   const changes = new Map<string, RatingChange[]>()
   for (const ballot of ordered) {
-    const applied = applyBallot(doc.ratings, ballot.entries, ballot.outcome)
+    const applied = applyBallot(doc.ratings, byServedModel(ballot.entries), ballot.outcome)
     doc.ratings = applied.ratings
     doc.ballots += 1
     doc.ties += ballot.tie ? 1 : 0
@@ -242,6 +252,14 @@ export async function castBallot(store: KeyValueStore, storage: StorageKind, bal
   return { kind: 'counted', changes: changes.get(ballot.runId) ?? [], board: boardView(doc, storage) }
 }
 
+/**
+ * The leaderboard key of an answered panel: the model id the provider answered with. The requested id is only
+ * the fallback for a panel whose reply named no model.
+ */
+function boardKey(panel: Pick<PanelResult, 'servedModel' | 'requestedModel'>): string {
+  return panel.servedModel ?? panel.requestedModel
+}
+
 // ---- Ballots from a stored run -----------------------------------------------------------------
 
 export type BallotPlan =
@@ -255,7 +273,7 @@ export type BallotPlan =
 export function planBallot(run: StoredRun, choice: VoteChoice): BallotPlan {
   const shown = displayPanels(run.compare.panels, run.order)
   const answered = shown.filter(p => p.ok)
-  const entries: Entry[] = answered.map(p => ({ model: p.requestedModel, served: p.servedModel }))
+  const entries: Entry[] = answered.map(p => ({ model: boardKey(p), served: p.servedModel }))
   if (new Set(entries.map(e => e.model)).size < 2) {
     return { ok: false, error: 'This run cannot take a vote: fewer than two different models answered.' }
   }
@@ -268,5 +286,5 @@ export function planBallot(run: StoredRun, choice: VoteChoice): BallotPlan {
 
 /** True when a blind compare can take a vote: two answered panels on two different models. */
 export function voteable(panels: PanelResult[]): boolean {
-  return new Set(panels.filter(p => p.ok).map(p => p.requestedModel)).size >= 2
+  return new Set(panels.filter(p => p.ok).map(boardKey)).size >= 2
 }

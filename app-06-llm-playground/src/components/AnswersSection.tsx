@@ -114,7 +114,7 @@ function Revealed({ run, picks }: { run: RunView; picks: Picks }) {
               ? 'You called it a tie.'
               : counted.choice === 'all-bad'
                 ? 'You marked every answer as bad.'
-                : `You picked Panel ${counted.choice}, ${splitModel(pickedPanel?.requestedModel ?? '').name}.`}{' '}
+                : `You picked Panel ${counted.choice}, ${pickedPanel?.servedModel ? splitModel(pickedPanel.servedModel).name : 'served model not reported'}.`}{' '}
             The leaderboard below shows what it moved.
           </p>
         </div>
@@ -133,7 +133,7 @@ function Revealed({ run, picks }: { run: RunView; picks: Picks }) {
       <div className="arena-grid">
         {SLOTS.map(slot => {
           const panel = panels.find(p => p.slot === slot) ?? null
-          const change = panel ? (changes.get(panel.requestedModel) ?? null) : null
+          const change = panel ? (changes.get(panel.servedModel ?? panel.requestedModel) ?? null) : null
           return (
             <ResultCard
               key={slot}

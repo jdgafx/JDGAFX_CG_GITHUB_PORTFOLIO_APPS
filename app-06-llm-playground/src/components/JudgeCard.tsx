@@ -57,7 +57,7 @@ function JudgeBody({ judge, compare }: Omit<JudgeCardProps, 'held'>) {
 // The model name after a panel, when the panel has one.
 function nameTag(slot: Slot, compare: CompareResponse | null): ReactNode {
   const panel = compare?.panels.find(p => p.slot === slot)
-  const name = panel ? (panel.servedModel ?? panel.requestedModel) : ''
+  const name = panel?.servedModel ?? ''
   return name ? (
     <>
       , <span className="ds-mono">{name}</span>

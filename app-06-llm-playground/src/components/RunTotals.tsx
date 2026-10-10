@@ -51,7 +51,7 @@ export function RunTotalsStrip({ run }: { run: RunView | null }) {
   const totals = run?.compare ? runTotals(run) : null
   const pending = !run
   const tone = running ? ' ds-strip--live' : pending ? ' ds-strip--pending' : ''
-  const models = [...new Set(run?.compare?.panels.filter(p => p.ok).map(p => p.servedModel ?? p.requestedModel) ?? [])]
+  const models = [...new Set(run?.compare?.panels.flatMap(p => (p.ok && p.servedModel ? [p.servedModel] : [])) ?? [])]
   const waiting = hidden ? 'After your vote' : NONE
 
   return (

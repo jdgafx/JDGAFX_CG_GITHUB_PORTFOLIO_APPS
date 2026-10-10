@@ -141,13 +141,16 @@ describe('vote', () => {
     expect(body.compare.panels.find(p => p.slot === winner)?.requestedModel).toBe(SONNET)
     expect(body.compare.trace.map(t => t.name)).toEqual(['Panel A request', 'Panel B request', 'Panel C request'])
     // A winner among three beats two models: +24, and each loser gives up 12.
+    // Rows are keyed by the model that answered, never by the id the request used (Panel A asks for the alias).
+    const served = (model: string) => `${model}-served`
     expect(body.leaderboard.rows.map(r => [r.model, r.rating, r.wins, r.losses, r.votes])).toEqual([
-      [SONNET, 1024, 2, 0, 1],
-      [MODEL, 988, 0, 1, 1],
-      [GEMINI, 988, 0, 1, 1],
+      [served(SONNET), 1024, 2, 0, 1],
+      [served(MODEL), 988, 0, 1, 1],
+      [served(GEMINI), 988, 0, 1, 1],
     ])
-    expect(body.changes.find(c => c.model === SONNET)).toEqual({ model: SONNET, before: 1000, after: 1024 })
-    expect(rating(body.leaderboard, SONNET)?.lastServed).toBe(`${SONNET}-served`)
+    expect(body.leaderboard.rows.some(r => r.model === MODEL)).toBe(false)
+    expect(body.changes.find(c => c.model === served(SONNET))).toEqual({ model: served(SONNET), before: 1000, after: 1024 })
+    expect(rating(body.leaderboard, served(SONNET))?.lastServed).toBe(served(SONNET))
     expect(await board(a)).toEqual(body.leaderboard)
     expect(await a.memory.list('runs/')).toEqual([])
   })

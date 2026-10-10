@@ -54,15 +54,22 @@ describe('planBallot', () => {
   it('maps the label the visitor picked to the entry for that panel', () => {
     const plan = planBallot(three, 'A')
     expect(plan).toMatchObject({ ok: true, outcome: { winner: 0 }, tie: false })
-    expect(plan.ok && plan.entries.map(e => e.model)).toEqual(['m2', 'm3', 'm1'])
+    expect(plan.ok && plan.entries.map(e => e.model)).toEqual(['m2-s', 'm3-s', 'm1-s'])
   })
 
   it('leaves unanswered panels out and refuses to pick one', () => {
     const partial = run([panel('A', 'm1'), panel('B', 'm2', false), panel('C', 'm3')], ['A', 'B', 'C'])
     const plan = planBallot(partial, 'C')
-    expect(plan.ok && plan.entries.map(e => e.model)).toEqual(['m1', 'm3'])
+    expect(plan.ok && plan.entries.map(e => e.model)).toEqual(['m1-s', 'm3-s'])
     expect(plan.ok && plan.outcome).toEqual({ winner: 1 })
     expect(planBallot(partial, 'B')).toEqual({ ok: false, error: 'Panel B did not give an answer, so it cannot be picked.' })
+  })
+
+  it('keys the entry by the model that answered, and falls back to the requested id only when none was reported', () => {
+    const alias = { ...panel('A', '~vendor/model-latest'), servedModel: 'vendor/model-5' }
+    const bare = { ...panel('B', 'm2'), servedModel: null }
+    const plan = planBallot(run([alias, bare, panel('C', 'm3', false)], ['A', 'B', 'C']), 'tie')
+    expect(plan.ok && plan.entries).toEqual([{ model: 'vendor/model-5', served: 'vendor/model-5' }, { model: 'm2', served: null }])
   })
 
   it('needs two different models', () => {
@@ -127,6 +134,15 @@ describe('castBallot', () => {
     const lagging: KeyValueStore = { ...memory, list: async () => [] }
     const result = await castBallot(lagging, 'memory', ballot(1), 1_000)
     expect(result).toMatchObject({ kind: 'counted', board: { ballots: 1 } })
+  })
+
+  it('folds a ballot stored under the request alias into the row of the model that answered', async () => {
+    const store = createMemoryStore()
+    const old = { runId: id(1), at: 1_000, outcome: { winner: 0 }, tie: false, entries: [{ model: '~v/m-latest', served: 'v/m-5' }, { model: 'v/other', served: 'v/other' }] }
+    await store.set(`votes/${id(1)}`, JSON.stringify(old))
+    await castBallot(store, 'memory', { runId: id(2), entries: [{ model: 'v/m-5', served: 'v/m-5' }, { model: 'v/other', served: 'v/other' }], outcome: { winner: 0 }, tie: false }, 2_000)
+    const board = await readBoard(store, 'memory')
+    expect(board.rows.map(r => [r.model, r.votes])).toEqual([['v/m-5', 2], ['v/other', 2]])
   })
 
   it('skips an unreadable ballot instead of failing the board', async () => {

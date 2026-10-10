@@ -16,7 +16,7 @@ export interface Rating {
 
 export type Ratings = Record<string, Rating>
 
-// One answered panel of a ballot. `model` is the requested model id (the leaderboard key).
+// One answered panel of a ballot. `model` is the leaderboard key: the model id the provider answered with.
 export interface Entry {
   model: string
   served: string | null

@@ -2,7 +2,7 @@ import { ELO_K, ELO_START, FEW_VOTES, type Confidence, type LeaderboardResponse,
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { rankShifts, sharedConfidence } from '../lib/board'
 import type { BoardState } from '../lib/useArena'
-import { formatRating, plainModel, splitModel } from '../lib/format'
+import { formatRating, splitModel } from '../lib/format'
 import { Delta } from './Delta'
 
 const CONFIDENCE: Record<Confidence, { label: string; hint: string }> = {
@@ -160,7 +160,8 @@ function Table({ board, changes }: { board: LeaderboardResponse; changes: Rating
 }
 
 function Row({ row, at, baseline, change, shift, pill }: { row: LeaderboardRow; at: (rating: number) => string; baseline: string; change: RatingChange | null; shift: number; pill: boolean }) {
-  const { vendor, name } = splitModel(row.model)
+  // A row keyed by an alias (a vote whose reply named no model) has no served model to show.
+  const { vendor, name } = row.model.startsWith('~') ? { vendor: '', name: 'served model not reported' } : splitModel(row.model)
   const conf = CONFIDENCE[row.confidence]
   const delta = change ? change.after - change.before : null
   return (
@@ -173,7 +174,7 @@ function Row({ row, at, baseline, change, shift, pill }: { row: LeaderboardRow; 
           </span>
         )}
       </div>
-      <div className="arena-row__who" title={plainModel(row.model)}>
+      <div className="arena-row__who" title={vendor ? `${vendor}/${name}` : name}>
         <span className="arena-row__name">{name}</span>
         <span className="arena-row__vendor">{vendor}</span>
       </div>

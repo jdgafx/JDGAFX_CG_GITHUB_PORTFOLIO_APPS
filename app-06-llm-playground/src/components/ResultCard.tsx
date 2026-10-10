@@ -24,6 +24,8 @@ function Icon({ children }: { children: ReactNode }) {
   )
 }
 
+const NOT_REPORTED = 'served model not reported'
+
 export type CardPhase = 'idle' | 'running' | 'stopped' | 'error' | 'done'
 
 const PLACEHOLDER: Record<CardPhase, string> = {
@@ -71,18 +73,17 @@ interface ResultCardProps {
   revealed?: boolean
 }
 
-// The model behind a panel: its name leads, with the vendor and the id the provider served under it.
+// The model behind a panel: the model the provider answered with leads, then its vendor. The request alias is never
+// shown. A panel with no reported served model says so; a panel still waiting shows the visitor's own pick, or nothing for the alias.
 function ModelName({ panel, requested, revealed }: { panel: PanelResult | null; requested: string; revealed: boolean }) {
-  const id = panel?.requestedModel ?? requested
-  const { vendor, name } = splitModel(id)
-  const served = panel?.servedModel && panel.servedModel !== id ? panel.servedModel : null
+  const served = panel ? panel.servedModel : null
+  const pickedId = !panel && !requested.startsWith('~') ? requested : null
+  const id = served ?? pickedId
+  const { vendor, name } = id ? splitModel(id) : { vendor: '', name: panel ? NOT_REPORTED : 'shown with the answer' }
   return (
-    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={plainModel(id)}>
+    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={id ? plainModel(id) : name}>
       <span className="arena-name__model">{name}</span>
-      <span className="arena-name__meta">
-        {vendor}
-        {panel ? (served ? ` · served as ${served}` : panel.servedModel ? '' : ' · served model not reported') : ''}
-      </span>
+      <span className="arena-name__meta">{vendor}</span>
     </p>
   )
 }
