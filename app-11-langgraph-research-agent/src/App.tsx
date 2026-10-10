@@ -5,9 +5,11 @@ import { ForkCompare } from './components/ForkCompare'
 import { offerKey, RewindPanel, type Edit } from './components/RewindPanel'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { QuestionForm } from './components/QuestionForm'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
+import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
 import { useForkReveal } from './lib/useForkReveal'
 import { useResultFocus } from './lib/useResultFocus'
 import { INTERRUPTED_MESSAGE, streamResearch, streamResume } from './lib/research'
@@ -59,8 +61,8 @@ export default function App() {
     return () => abortRef.current?.abort()
   }, [])
 
-  const submit = async () => {
-    const text = question.trim()
+  const submit = async (value: string = question) => {
+    const text = value.trim()
     if (text === '' || running) return
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -121,6 +123,11 @@ export default function App() {
     dispatchFork({ type: 'reset' })
   }
 
+  const tryIt = () => {
+    setQuestion(TRY_IT.question)
+    void submit(TRY_IT.question)
+  }
+
   const loadSample = (sample: string) => {
     setQuestion(sample)
     dispatchFork({ type: 'reset' })
@@ -132,6 +139,7 @@ export default function App() {
       <Header view={view} earlierLiveAt={forking ? base.liveAt : null} />
 
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running} hasResult={view.phase !== 'idle'} hint={HOWTO_HINT} />
         <div className="ds-bench">
           <div className="ds-controls">
             <QuestionForm
