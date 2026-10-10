@@ -80,7 +80,7 @@ describe('POST /api/ai streamed analysis', () => {
     const [url, init] = provider.mock.calls[0]
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      model: 'anthropic/claude-haiku-5.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: 4096,
       reasoning: { enabled: false },
       usage: { include: true },

@@ -1,6 +1,6 @@
 // The one chat model this app calls. It accepts images. The server owns the
 // choice: clients cannot send a model, and no environment variable changes it.
-export const MODEL = 'anthropic/claude-haiku-5.5'
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 

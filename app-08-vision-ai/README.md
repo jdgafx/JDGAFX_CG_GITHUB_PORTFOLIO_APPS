@@ -36,7 +36,7 @@ The page shows the trace as a waterfall: each step's bar starts where the one be
 
 - The browser posts the image and the request fields to `/api/ai`. The page and the function share one origin, so the function sends no CORS headers.
 - The Netlify Function `netlify/functions/ai.ts` validates the request, then calls OpenRouter's chat completions endpoint.
-- The model is one fixed constant, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned, in `netlify/shared/provider.ts`. The client cannot send a model, the page has no picker, and no environment variable changes it.
+- The model is one fixed constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The client cannot send a model, the page has no picker, and no environment variable changes it. The page shows the model OpenRouter answered with (currently `anthropic/claude-haiku-5.5`), never the alias.
 - `OPENROUTER_API_KEY` lives only in the function's environment on the server. The browser never receives it.
 - Request checks are in `netlify/shared/request.ts`, the comparison parser in `netlify/shared/compare.ts` (the page imports it too). Stream handling is in `netlify/shared/vision-run.ts`. Reply checks and provider error mapping are in `netlify/shared/upstream.ts`.
 - The body is measured in bytes before it is parsed, and anything over 6 MB is rejected. An image larger than 4 MB is rejected. The question is capped at 1,000 characters, and the page shows the count as you type. In Compare each image is capped at 2 MB. Modes, media types and browser origins are checked against allowlists.

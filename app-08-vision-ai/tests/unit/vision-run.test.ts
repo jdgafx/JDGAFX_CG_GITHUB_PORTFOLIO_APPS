@@ -60,7 +60,7 @@ describe('streamVisionRun happy path', () => {
     const [url, init] = provider.mock.calls[0]
     expect(url).toBe('https://provider.test/chat')
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      model: 'anthropic/claude-haiku-5.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: 4096,
       usage: { include: true },
     })
