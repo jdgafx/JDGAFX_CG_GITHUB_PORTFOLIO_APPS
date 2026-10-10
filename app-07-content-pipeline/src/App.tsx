@@ -7,6 +7,8 @@ import { buildTrace, stageViews, summarize, type Phase, type RunEnd, type TraceL
 import { useResultFocus } from './lib/useResultFocus'
 import Brief, { EXAMPLES } from './components/Brief'
 import Header from './components/Header'
+import { HowTo } from './components/HowTo'
+import { HOWTO_STEPS, HOWTO_WHAT } from './lib/howto'
 import { liveIndicator } from './lib/liveData'
 import { namesFor } from './lib/names'
 import { parseSourcePack } from '../netlify/shared/sourcepack'
@@ -66,12 +68,13 @@ export default function App() {
     if (noteTimer.current) clearTimeout(noteTimer.current)
   }, [])
 
-  async function start(resume: boolean) {
-    const trimmed = topic.trim()
+  async function start(resume: boolean, brief?: { topic: string; type: ContentType }) {
+    const trimmed = (brief?.topic ?? topic).trim()
+    const type = brief?.type ?? contentType
     if (!trimmed || running || trimmed.length > MAX_TOPIC_CHARS) return
 
     // Finished stages are reused only when a resume continues the same topic and format.
-    const runKey = `${trimmed}\n${contentType}`
+    const runKey = `${trimmed}\n${type}`
     if (!(resume && runKeyRef.current === runKey)) {
       runKeyRef.current = runKey
       outputsRef.current = {}
@@ -94,7 +97,7 @@ export default function App() {
     let result: PipelineOutcome
     try {
       result = await runPipeline(
-        { topic: trimmed, contentType, context: outputsRef.current, signal: controller.signal },
+        { topic: trimmed, contentType: type, context: outputsRef.current, signal: controller.signal },
         {
           onStageStart: next => {
             stage = next
@@ -122,6 +125,14 @@ export default function App() {
       setRunning(false)
     }
     setOutcome(result)
+  }
+
+  // Try it: the first example brief, run end to end on live sources and the model.
+  function tryIt() {
+    if (!FIRST || running) return
+    setTopic(FIRST.topic)
+    setContentType(FIRST.type)
+    void start(false, { topic: FIRST.topic, type: FIRST.type })
   }
 
   const stop = () => abortRef.current?.abort()
@@ -180,6 +191,7 @@ export default function App() {
       />
 
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running || !FIRST} hasResult={outcome !== null || Object.keys(outputs).length > 0} />
         <div className="ds-bench">
           <div className="ds-controls">
             <Brief
