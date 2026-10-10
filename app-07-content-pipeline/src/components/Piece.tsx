@@ -125,7 +125,7 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
     return (
       <section className="ds-section ds-run__result" aria-label="The piece" aria-live="polite">
         {outcome?.kind === 'failed' ? (
-          <PieceState tone="error" title="The run failed" body={`${outcome.message} ${hasCalls ? 'The steps that ran are in the trace.' : 'No step had finished.'}`} action={{ label: `Retry from ${label}`, onClick: onContinue }} />
+          <PieceState tone="error" title="The run failed" body={`${outcome.message} ${hasCalls ? 'The steps that ran are in the trace.' : 'No step had finished.'}`} action={{ label: `Try again from ${label}`, onClick: onContinue }} />
         ) : outcome?.kind === 'stopped' ? (
           <PieceState tone="stopped" title="Run stopped" body={`You stopped it before a draft was written. ${hasCalls ? 'The steps that finished are kept.' : 'No step had finished.'}`} action={{ label: `Resume from ${label}`, onClick: onContinue }} />
         ) : (
@@ -167,7 +167,7 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
             <p className="ds-state__title">{outcome.kind === 'failed' ? `${endLabel} did not finish` : `Stopped at ${endLabel}`}</p>
             <p className="ds-state__body">This is the {STAGE_LABELS[best]} version, not the finished piece. {outcome.kind === 'failed' ? outcome.message : ''} Finished steps are kept.</p>
             <div className="ds-state__actions">
-              <button type="button" className="ds-button" onClick={onContinue}>{outcome.kind === 'failed' ? `Retry from ${endLabel}` : `Resume from ${endLabel}`}</button>
+              <button type="button" className="ds-button" onClick={onContinue}>{outcome.kind === 'failed' ? `Try again from ${endLabel}` : `Resume from ${endLabel}`}</button>
             </div>
           </div>
         )}
@@ -217,7 +217,7 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
             </>
           )}
         </div>
-        <p className="ds-lead__foot" aria-live="polite">{copyNote || `${plural(wordCount(body), 'word')}, Haiku 5.5 in every writing step.`}</p>
+        <p className="ds-lead__foot" aria-live="polite">{copyNote || `${plural(wordCount(body), 'word')}, Claude Haiku in every writing step.`}</p>
       </div>
     </section>
   )

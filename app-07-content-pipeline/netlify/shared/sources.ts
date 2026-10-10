@@ -9,7 +9,7 @@ export const HACKER_NEWS_API = 'https://hn.algolia.com/api/v1/search'
 // The Sources lookups run in parallel under this one cap, so the stage stays well inside the limit.
 export const SOURCES_TIMEOUT_MS = 5_000
 
-const USER_AGENT = 'ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app; portfolio demo)'
+const USER_AGENT = 'ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app)'
 // A lookup answer larger than this is refused; real answers are a few kilobytes.
 const MAX_RESPONSE_BYTES = 256 * 1024
 
@@ -59,13 +59,25 @@ export function wikipediaUrl(terms: string[]): string {
   return `${WIKIPEDIA_API}?${params}`
 }
 
+// Words that describe the kind of thing, not the thing. Hacker News matches stories on every query word, and the fallback
+// below only runs when nothing matches at all. The five-word query "rust programming language memory safety" returned four
+// stories with 20+ points, and none of their titles named memory safety. Wikipedia keeps these words: they pick the right
+// article ("Rust (programming language)", not the oxide).
+const HN_FILLER = new Set(['programming', 'language', 'languages', 'software', 'technology', 'technologies'])
+
+// The terms for a Hacker News lookup: the topic's words without the filler, or all of them when only filler is left.
+export function hackerNewsTerms(terms: string[]): string[] {
+  const kept = terms.filter(term => !HN_FILLER.has(term))
+  return kept.length > 0 ? kept : terms
+}
+
 export function hackerNewsUrl(terms: string[]): string {
   const params = new URLSearchParams({
     query: terms.join(' '),
     tags: 'story',
     hitsPerPage: String(HACKER_NEWS_CANDIDATES),
     numericFilters: `points>=${MIN_POINTS}`,
-    // With no story containing every word, Algolia ranks by how many words match instead of returning nothing.
+    // Only a query with no hits at all falls back to ranking stories by how many of its words they match.
     removeWordsIfNoResults: 'allOptional',
     attributesToRetrieve: 'title,url,points,created_at,objectID',
   })
@@ -211,6 +223,8 @@ async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
 interface Lookup {
   items: Candidate[]
   note?: string
+  // True when the lookup errored or hit its cap. A lookup that answered with no match is not a failure.
+  failed: boolean
 }
 
 async function lookup(
@@ -222,17 +236,27 @@ async function lookup(
   try {
     // The deadline covers the body read too, so a source that stalls after its headers still ends at the limit.
     const items = await withDeadline(timeoutMs, parent, run)
-    return items.length > 0 ? { items } : { items, note: `${name} returned no matching results.` }
+    return items.length > 0 ? { items, failed: false } : { items, note: `${name} returned no matching results.`, failed: false }
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
-    return { items: [], note: `${name} ${timedOut ? 'did not answer in time' : 'was unavailable'}.` }
+    return { items: [], note: `${name} ${timedOut ? 'did not answer in time' : 'was unavailable'}.`, failed: true }
+  }
+}
+
+// Thrown when a lookup failed and no source is left to cite. The Sources stage then fails: the writing never
+// starts from memory in place of a lookup that could not be reached.
+export class SourcesUnavailableError extends Error {
+  constructor(readonly notes: string[]) {
+    super('No live source could be reached.')
+    this.name = 'SourcesUnavailableError'
   }
 }
 
 /**
  * Looks the topic up on Wikipedia and (for most content types) Hacker News, in parallel, under one
- * deadline that carries the total time cap. A lookup that fails adds a note and never throws: the
- * pack then holds fewer sources, or none, and says why.
+ * deadline that carries the total time cap. A lookup that fails adds a note, and the pack holds
+ * whatever the other lookup found. A lookup that answers with no match leaves an empty pack that says
+ * so. Only when a lookup failed and no source is left does it throw SourcesUnavailableError.
  */
 export async function gatherSources(
   topic: string,
@@ -241,14 +265,18 @@ export async function gatherSources(
   timeoutMs = SOURCES_TIMEOUT_MS,
 ): Promise<SourcePack> {
   const terms = searchTerms(topic)
+  const hnTerms = hackerNewsTerms(terms)
   const [wikipedia, hackerNews] = await Promise.all([
     lookup('Wikipedia', parent, timeoutMs, async signal => parseWikipedia(await fetchJson(wikipediaUrl(terms), signal), terms)),
     searchesHackerNews(contentType)
-      ? lookup('Hacker News', parent, timeoutMs, async signal => parseHackerNews(await fetchJson(hackerNewsUrl(terms), signal), terms))
-      : Promise.resolve<Lookup>({ items: [], note: 'Hacker News is not searched for marketing copy.' }),
+      ? lookup('Hacker News', parent, timeoutMs, async signal => parseHackerNews(await fetchJson(hackerNewsUrl(hnTerms), signal), hnTerms))
+      : Promise.resolve<Lookup>({ items: [], note: 'Hacker News is not searched for marketing copy.', failed: false }),
   ])
+  const found = [...wikipedia.items, ...hackerNews.items]
+  const notes = [wikipedia.note, hackerNews.note].filter((note): note is string => Boolean(note))
+  if (found.length === 0 && (wikipedia.failed || hackerNews.failed)) throw new SourcesUnavailableError(notes)
   return {
-    sources: [...wikipedia.items, ...hackerNews.items].map((item, i) => ({ ...item, n: i + 1 })),
-    notes: [wikipedia.note, hackerNews.note].filter((note): note is string => Boolean(note)),
+    sources: found.map((item, i) => ({ ...item, n: i + 1 })),
+    notes,
   }
 }

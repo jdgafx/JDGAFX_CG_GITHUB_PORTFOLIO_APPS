@@ -89,7 +89,7 @@ describe('Sources stage', () => {
     expect(String(body.trace[0].detail)).toContain('Hacker News did not answer in time.')
   })
 
-  it('applies one 5 second cap to both lookups', async () => {
+  it('applies one 5 second cap to both lookups, and fails the stage when neither answers', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     // Both lookups hang until the signal fires, as a stalled upstream would.
     const signals: AbortSignal[] = []
@@ -104,11 +104,35 @@ describe('Sources stage', () => {
     expect(signals.every(signal => !signal.aborted)).toBe(true)
     await vi.advanceTimersByTimeAsync(1)
 
-    const body = (await (await pending).json()) as StageBody
+    const res = await pending
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as StageBody & ErrorBody
+    expect(body.error).toBe('No live source could be reached. Wikipedia did not answer in time. Hacker News did not answer in time. Try again.')
+    expect(body.retryable).toBe(false)
     expect(body.trace[0]).toMatchObject({
-      status: 'ok',
-      detail: 'No sources found. Wikipedia did not answer in time. Hacker News did not answer in time.',
+      status: 'failed',
+      detail: 'No live source could be reached. Wikipedia did not answer in time. Hacker News did not answer in time. Try again.',
     })
+  })
+
+  it('fails the stage with no model call when both lookups error, and gives no result to write from', async () => {
+    const urls = lookupsWill(() => new Response('down', { status: 500 }), () => new Response('down', { status: 503 }))
+    const res = await handler(request(stageBody('sources')))
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as StageBody & ErrorBody
+    expect(body.error).toBe('No live source could be reached. Wikipedia was unavailable. Hacker News was unavailable. Try again.')
+    expect(body.trace[0]).toMatchObject({ name: 'Sources', status: 'failed' })
+    expect(body.model).toBeNull()
+    expect(urls).toHaveLength(2)
+    expect(urls.some(url => url.includes('openrouter'))).toBe(false)
+  })
+
+  it('keeps the run going when a lookup failed but the other one found sources', async () => {
+    lookupsWill(() => new Response('down', { status: 500 }), () => ok(HN_BODY))
+    const res = await handler(request(stageBody('sources', {}, { topic: 'Multiple assertions in a unit test' })))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as StageBody
+    expect(body.trace[0]).toMatchObject({ status: 'ok', detail: '1 source: 0 Wikipedia, 1 Hacker News. Wikipedia was unavailable.' })
   })
 
   it('ends a lookup whose body never finishes at the 5 second cap, and keeps the other source', async () => {
@@ -148,7 +172,7 @@ describe('Sources stage', () => {
     expect(inits).toHaveLength(2)
     for (const init of inits) {
       expect(init.redirect).toBe('error')
-      expect(String((init.headers as Record<string, string>)['User-Agent'])).toMatch(/^ContentForge\/1\.0 /)
+      expect(String((init.headers as Record<string, string>)['User-Agent'])).toBe('ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app)')
     }
   })
 

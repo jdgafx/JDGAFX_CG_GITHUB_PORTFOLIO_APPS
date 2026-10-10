@@ -4,7 +4,7 @@ import {
   MAX_STAGE_TEXT_CHARS, NOTE_STAGES, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../shared/stages'
 import { withDeadline } from '../shared/deadline'
-import { gatherSources } from '../shared/sources'
+import { SourcesUnavailableError, gatherSources } from '../shared/sources'
 import { bodyOf, formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
 import { notesDetail, splitChanges, verifyNotes, type ChangeNote } from '../shared/changes'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
@@ -124,18 +124,22 @@ function isAbortError(err: unknown): boolean {
 }
 
 // The Sources stage makes no model call. A lookup that finds nothing still answers 200 with a pack
-// that says so, so the writing continues, labelled as unsourced.
+// that says so, so the writing continues, labelled as unsourced. A lookup that errored, with no source
+// left to cite, fails the stage with a plain message, and Try again reruns it.
 async function runSources(run: RunRequest, req: Request, origin: string | null): Promise<Response> {
   const startedAt = Date.now()
+  const fail = failureFor('sources', startedAt, origin)
   let pack: SourcePack
   try {
     pack = await gatherSources(run.topic, run.contentType, req.signal)
   } catch (err) {
+    if (req.signal.aborted) return fail('The run was stopped before this stage finished.', 503, false)
     console.error(`sources lookup failed: ${err instanceof Error ? err.name : 'unknown error'}`)
-    pack = { sources: [], notes: ['The source lookup failed.'] }
+    const notes = err instanceof SourcesUnavailableError ? err.notes : []
+    return fail(['No live source could be reached.', ...notes, 'Try again.'].join(' '), 502, false)
   }
   if (req.signal.aborted) {
-    return failureFor('sources', startedAt, origin)('The run was stopped before this stage finished.', 503, false)
+    return fail('The run was stopped before this stage finished.', 503, false)
   }
   const ms = Date.now() - startedAt
   const row: TraceRow = { name: STAGE_LABELS.sources, status: 'ok', ms, detail: sourcesDetail(pack) }

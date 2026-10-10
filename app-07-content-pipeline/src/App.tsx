@@ -18,7 +18,7 @@ import Readout from './components/Readout'
 import RunTrace from './components/RunTrace'
 
 const COPY_NOTE_MS = 2000
-// Loaded so a reviewer can press Generate at once. Wikipedia and Hacker News both cover it.
+// Loaded so a reviewer can press Generate at once. Wikipedia covers it, and Hacker News when it has matching stories.
 const FIRST = EXAMPLES[0]
 
 function statusText(topic: string, running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null): string {
@@ -30,7 +30,7 @@ function statusText(topic: string, running: boolean, runningStage: StageId | nul
   if (!outcome) return topic.trim() ? 'Press Generate to look up sources and write the piece.' : 'Enter a topic to start.'
   if (outcome.kind === 'complete') return 'All steps finished. The piece and its changes are above.'
   if (outcome.kind === 'stopped') return `Stopped at ${STAGE_LABELS[outcome.stage]}. Resume continues there.`
-  return `${STAGE_LABELS[outcome.stage]} did not finish. Retry runs it again.`
+  return `${STAGE_LABELS[outcome.stage]} did not finish. Try again reruns it.`
 }
 
 function badgeFor(running: boolean, runningStage: StageId | null, outcome: PipelineOutcome | null) {
@@ -174,7 +174,7 @@ export default function App() {
     : []
   const totals = calls.length > 0 ? summarize(calls) : null
   const resume = !running && outcome && outcome.kind !== 'complete'
-    ? { label: `${outcome.kind === 'failed' ? 'Retry' : 'Resume'} from ${STAGE_LABELS[outcome.stage]}` }
+    ? { label: `${outcome.kind === 'failed' ? 'Try again' : 'Resume'} from ${STAGE_LABELS[outcome.stage]}` }
     : null
 
   return (

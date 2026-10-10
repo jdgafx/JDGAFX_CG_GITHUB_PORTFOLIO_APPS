@@ -2,8 +2,9 @@ import type { Usage } from './contract'
 import { raceAbort } from './deadline'
 
 // The one chat model for every text call in this app. Clients cannot pick it,
-// and no environment variable overrides it.
-export const MODEL = 'anthropic/claude-haiku-5.5'
+// and no environment variable overrides it. The ~ alias follows the current Haiku release, so the id is never pinned here;
+// each reply reports the model that served it.
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 export const SITE_URL = process.env.URL || 'https://jdgafx-app-07-content-pipeline.netlify.app'
 
@@ -57,7 +58,7 @@ async function chatOnce(system: string, user: string, maxTokens: number, signal:
       model: MODEL,
       max_tokens: maxTokens,
       // Reasoning stays off, so hidden tokens cannot use up the budget and cut the answer short.
-      // No temperature is sent: Haiku 5.5 rejects it.
+      // No temperature is sent: Haiku rejects it.
       reasoning: { enabled: false },
       // Asks OpenRouter to report the token counts and the cost of this call.
       usage: { include: true },

@@ -37,6 +37,7 @@ describe('the How to use block', () => {
 })
 
 describe('Try it runs the first example end to end', () => {
+  // The click itself, and the run it starts, are tested in tryit.test.tsx with a real DOM.
   it('uses a valid example brief and starts the real run with it', () => {
     const first = EXAMPLES[0]
     expect(first?.topic.length).toBeGreaterThan(0)

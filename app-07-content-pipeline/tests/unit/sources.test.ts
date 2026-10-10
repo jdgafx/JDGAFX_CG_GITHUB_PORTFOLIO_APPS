@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  clipExtract, hackerNewsUrl, isPersonLead, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
+  clipExtract, gatherSources, hackerNewsTerms, hackerNewsUrl, isPersonLead, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
   topicHits, wikipediaPageUrl, wikipediaUrl,
 } from '../../netlify/shared/sources'
 
@@ -250,5 +250,37 @@ describe('isRelevantTitle', () => {
 
   it('matches a word by its first four letters, so plurals and endings still count', () => {
     expect(isRelevantTitle('Unit testing at scale', ['unit', 'tests'])).toBe(true)
+  })
+})
+
+describe('the Hacker News lookup for a topic with filler words', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('drops "programming" and "language" for Hacker News, and keeps them when nothing else is left', () => {
+    expect(hackerNewsTerms(RUST_TERMS)).toEqual(['rust', 'memory', 'safety'])
+    expect(hackerNewsTerms(['programming', 'language'])).toEqual(['programming', 'language'])
+  })
+
+  it('asks Hacker News for "rust memory safety" while Wikipedia still gets all five words', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url))
+      return new Response(JSON.stringify({ hits: [] }), { status: 200 })
+    }))
+    await gatherSources('The Rust programming language and memory safety', 'Technical Article', new AbortController().signal)
+    const hn = new URL(urls.find(url => url.includes('hn.algolia.com')) ?? '')
+    const wiki = new URL(urls.find(url => url.includes('wikipedia.org')) ?? '')
+    expect(hn.searchParams.get('query')).toBe('rust memory safety')
+    expect(wiki.searchParams.get('gsrsearch')).toBe('rust programming language memory safety')
+  })
+
+  it('keeps a Hacker News story that shares two of the three searched words, which the five-word topic would reject', async () => {
+    const story = { title: 'Memory safety bugs in C', url: 'https://example.com/c-memory', points: 120, created_at: '2026-02-03T10:00:00Z', objectID: '901' }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const body = String(url).includes('hn.algolia.com') ? { hits: [story] } : {}
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    const pack = await gatherSources('The Rust programming language and memory safety', 'Technical Article', new AbortController().signal)
+    expect(pack.sources.filter(source => source.kind === 'hackernews').map(source => source.title)).toEqual(['Memory safety bugs in C'])
   })
 })

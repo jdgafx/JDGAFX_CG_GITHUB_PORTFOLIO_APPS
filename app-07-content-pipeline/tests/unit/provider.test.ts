@@ -59,8 +59,8 @@ describe('chat request', () => {
     expect(call.init?.signal).toBe(controller.signal)
     expect(call.init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
     const body = JSON.parse(String(call.init?.body)) as Record<string, unknown>
-    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
-    expect(body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
+    expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body).not.toHaveProperty('temperature')
     expect(body.max_tokens).toBe(160)
     expect(body.usage).toEqual({ include: true })

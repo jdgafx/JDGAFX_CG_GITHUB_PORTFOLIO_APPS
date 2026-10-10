@@ -39,7 +39,7 @@ const RETRY_LIMIT = 1
 // cap, well past both, only ends a request that is stuck. It covers the body read as well.
 export const WATCHDOG_MS = 60_000
 
-export const SLOW_SERVER_MESSAGE = 'The server did not answer in time. Press Retry to run this step again.'
+export const SLOW_SERVER_MESSAGE = 'The server did not answer in time. Press Try again to run this step again.'
 const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.'
 export const UNEXPECTED_MESSAGE = 'Something went wrong. Please retry.'
 

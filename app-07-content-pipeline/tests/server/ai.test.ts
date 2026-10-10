@@ -30,7 +30,7 @@ describe('happy path', () => {
 
     await handler(request(stageBody('research', {}, { model: 'openai/gpt-4o' })))
     expect(sent[0].url).toBe('https://openrouter.ai/api/v1/chat/completions')
-    expect(sent[0].body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(sent[0].body.model).toBe('~anthropic/claude-haiku-latest')
     expect(sent[0].body.max_tokens).toBe(400)
     expect(sent[0].body.usage).toEqual({ include: true })
     expect(sent[0].body.stream).toBe(false)

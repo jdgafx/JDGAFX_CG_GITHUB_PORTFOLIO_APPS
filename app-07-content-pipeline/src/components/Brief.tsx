@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { CONTENT_TYPES, MAX_TOPIC_CHARS, TOPIC_TOO_LONG_MESSAGE, type ContentType } from '../../netlify/shared/contract'
 
 export const EXAMPLES: ReadonlyArray<{ label: string; topic: string; type: ContentType; note: string }> = [
-  { label: 'Memory safety', topic: 'The Rust programming language and memory safety', type: 'Technical Article', note: 'Wikipedia and Hacker News both cover it' },
-  { label: 'A telescope', topic: 'The James Webb Space Telescope', type: 'Newsletter', note: 'Wikipedia; stories from Hacker News' },
+  { label: 'Memory safety', topic: 'The Rust programming language and memory safety', type: 'Technical Article', note: 'Wikipedia; Hacker News stories when they match' },
+  { label: 'A telescope', topic: 'The James Webb Space Telescope', type: 'Newsletter', note: 'Wikipedia; Hacker News stories when they match' },
   { label: 'Apollo 11', topic: 'The Apollo 11 Moon landing', type: 'Social Thread', note: 'Short links to the sources' },
 ]
 
