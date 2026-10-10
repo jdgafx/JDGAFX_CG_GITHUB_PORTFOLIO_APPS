@@ -233,7 +233,7 @@ describe('ai function happy path', () => {
     const call = mock.mock.calls[0]
     const sent = JSON.parse(String(call?.[1].body)) as { model: string; max_tokens: number; usage: unknown; messages: Array<{ content: string }> }
     expect(call?.[0]).toBe(ENDPOINT)
-    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
+    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
     expect(sent.max_tokens).toBe(4096)
     expect(sent.usage).toEqual({ include: true })
     expect(sent.messages[1]?.content).toContain(`Question: ${QUESTION}`)
@@ -426,6 +426,15 @@ describe('ai function follow-ups', () => {
     stubProvider(modelReply(JSON.stringify({ ...PLAN, cannotApply: 'nope' })))
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.result).not.toHaveProperty('cannotApply')
+  })
+
+  it('passes the off-subject flag through on a first question and drops it on a follow-up', async () => {
+    stubProvider(modelReply(JSON.stringify({ ...PLAN, aboutData: false })))
+    const first = await readReply(await handler(request(BODY)))
+    expect(first.result).toMatchObject({ aboutData: false })
+    stubProvider(modelReply(JSON.stringify({ ...PLAN, aboutData: false })))
+    const followed = await readReply(await handler(request(FOLLOW)))
+    expect(followed.result).not.toHaveProperty('aboutData')
   })
 
   it('refuses a previous plan that names a column the data does not have', async () => {

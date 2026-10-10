@@ -40,6 +40,12 @@ export interface QueryPlan {
   }
   /** Keeps only the first N groups after the threshold and the sort ("the top 5"). */
   limit?: number
+  /**
+   * What a "how many" question counts, chosen from the data: "rows" for one total over every row that passes the
+   * filters (`groupBy` is then a placeholder and the chart is a single bar), or a column header for a count of that
+   * column's distinct values (`groupBy` is that column). Absent when the plan counts nothing in particular.
+   */
+  countColumn?: string
   title: string
   explanation: string
   /**
@@ -54,6 +60,11 @@ export interface QueryPlan {
   missing?: string[]
   /** A plain remark from the model. It never marks the chart as a stand-in on its own. */
   notice?: string
+  /**
+   * Set only when the model reports that the question has nothing to do with the dataset ("asdf qwerty", "tell me a
+   * joke"). A new question with this flag is not drawn: the page says the data does not answer it. Absent otherwise.
+   */
+  aboutData?: false
 }
 
 export type StepStatus = 'ok' | 'failed' | 'skipped'
@@ -114,12 +125,16 @@ export interface HavingStats {
 export interface Vocabulary {
   /** What one row is, in the plural: "earthquakes", "days", "rows". */
   rowNoun: string
+  /** The same noun for one row, used when a count is 1: "earthquake", "day", "row". */
+  singularRowNoun: string
   /** Plain names for columns. A column without an entry keeps its own name. */
   labels: Record<string, string>
   /** Units shown after a value measured in that column. */
   units: Record<string, string>
   /** True when a YYYY-MM group label should read as a month name: "July 2026". */
   months?: boolean
+  /** The column a chart groups by when a question counts a noun the dataset has no column for: "region" for earthquakes. */
+  defaultGroupBy?: string
 }
 
 export interface EngineResult {
@@ -145,6 +160,8 @@ export interface AnalysisResult extends EngineResult {
   dataset: string
   /** The dataset's own words. Absent means the raw column names. */
   vocab?: Vocabulary
+  /** Every column header and its label, so a question that counts one of them reads as a count of groups. */
+  columnNouns?: string[]
 }
 
 /** What a follow-up changed in the plan, as one readable chip. */

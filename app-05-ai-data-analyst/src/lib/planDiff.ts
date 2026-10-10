@@ -1,4 +1,4 @@
-import { answerDirection, isValueSort, planFilters } from './queryPlan'
+import { answerDirection, isTotal, isValueSort, planFilters } from './queryPlan'
 import { labelFor, RAW_VOCABULARY, withUnit } from './vocabulary'
 import type { AggregateFn, FilterOp, HavingOp, PlanChange, PlanFilter, QueryPlan, Vocabulary } from '../types'
 
@@ -99,7 +99,15 @@ function optional(
 export function diffPlans(previous: QueryPlan, next: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY): PlanChange[] {
   const changes: PlanChange[] = [...filterChanges(previous, next, vocab)]
 
-  if (previous.groupBy !== next.groupBy) {
+  if (isTotal(previous) !== isTotal(next)) {
+    changes.push({
+      kind: 'group',
+      effect: 'changed',
+      text: isTotal(next)
+        ? `One total instead of grouping by ${labelFor(vocab, previous.groupBy)}`
+        : `Grouped by ${labelFor(vocab, next.groupBy)} instead of one total`,
+    })
+  } else if (!isTotal(next) && previous.groupBy !== next.groupBy) {
     changes.push({
       kind: 'group',
       effect: 'changed',

@@ -24,6 +24,8 @@ export interface AnalysisThreadState {
   run: RunView | null
   pending: Pending | null
   error: string | null
+  /** Set when a new question named nothing in the data: the reason, with no chart and no number. Cleared by the next action. */
+  unanswered: { question: string; message: string } | null
   /** True when the loaded rows are the ones the on-screen thread was computed from. */
   canFollowUp: boolean
   ask: (question: string, mode: AskMode) => Promise<boolean>
@@ -32,6 +34,7 @@ export interface AnalysisThreadState {
   openThread: (id: string) => void
   /** Puts the thread away without losing it, for when the rows change under it. */
   close: () => void
+  /** Clears a failed or unanswered run: its message and box, so the page falls back to the open step's own run. */
   dismissError: () => void
 }
 
@@ -52,6 +55,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
   const [ended, setEnded] = useState<RunView | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [unanswered, setUnanswered] = useState<{ question: string; message: string } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // Never leave a request in flight after the view goes away.
@@ -72,6 +76,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       setPending({ question: asked, mode: base ? 'follow-up' : 'new', startedAt })
       setError(null)
       setEnded(null)
+      setUnanswered(null)
 
       let outcome: StepOutcome | null = null
       try {
@@ -97,6 +102,11 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       if (outcome.kind === 'invalid') {
         setEnded(outcome.run)
         setError(outcome.error)
+        return false
+      }
+      if (outcome.kind === 'unanswered') {
+        setEnded(outcome.run)
+        setUnanswered({ question: asked, message: outcome.message })
         return false
       }
 
@@ -131,6 +141,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
     run: pending ? null : (ended ?? step?.run ?? null),
     pending,
     error,
+    unanswered,
     canFollowUp,
     ask,
     stop: () => abortRef.current?.abort(),
@@ -138,6 +149,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       setStepId(id)
       setEnded(null)
       setError(null)
+      setUnanswered(null)
     },
     openThread: (id) => {
       const next = threads.find((item) => item.id === id)
@@ -146,13 +158,19 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       setStepId(next.steps[next.steps.length - 1]?.id ?? null)
       setEnded(null)
       setError(null)
+      setUnanswered(null)
     },
     close: () => {
       setThreadId(null)
       setStepId(null)
       setEnded(null)
       setError(null)
+      setUnanswered(null)
     },
-    dismissError: () => setError(null),
+    dismissError: () => {
+      setError(null)
+      setEnded(null)
+      setUnanswered(null)
+    },
   }
 }

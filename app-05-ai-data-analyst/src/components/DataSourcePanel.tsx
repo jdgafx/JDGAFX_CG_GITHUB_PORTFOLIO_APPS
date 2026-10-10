@@ -69,7 +69,13 @@ export default function DataSourcePanel({ state, disabled, onReload }: DataSourc
     return (
       <div className="ds-notice ds-notice--error app-banner" role="alert">
         <span>{state.message}</span>
-        <button type="button" className="ds-button app-banner__dismiss" disabled={disabled} onClick={onReload}>
+        <button
+          type="button"
+          className="ds-button app-banner__dismiss"
+          disabled={disabled}
+          title="Fetch the live data again"
+          onClick={onReload}
+        >
           Retry
         </button>
       </div>
@@ -98,7 +104,13 @@ export default function DataSourcePanel({ state, disabled, onReload }: DataSourc
           <a className="app-source__link ds-mono" href={source.url} target="_blank" rel="noreferrer noopener">
             {linkText(source.url)}
           </a>
-          <button type="button" className="ds-button app-source__reload" disabled={disabled} onClick={onReload}>
+          <button
+            type="button"
+            className="ds-button app-source__reload"
+            disabled={disabled}
+            title="Fetch this dataset again from its source"
+            onClick={onReload}
+          >
             Fetch again
           </button>
         </div>

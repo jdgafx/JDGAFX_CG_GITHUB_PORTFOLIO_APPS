@@ -1,5 +1,6 @@
 import { topGroup } from './dataEngine'
-import { answerDirection, asksBothEnds, isValueSort, planFilters } from './queryPlan'
+import { countsOtherThanRows } from './questionNouns'
+import { answerDirection, asksBothEnds, isTotal, isValueSort, planFilters } from './queryPlan'
 import { labelFor, RAW_VOCABULARY, shownLabel, withUnit } from './vocabulary'
 import type { AggregateFn, AnalysisResult, EngineResult, FilterOp, HavingOp, QueryPlan, TopGroup, Vocabulary } from '../types'
 
@@ -105,12 +106,68 @@ function limitSentence(plan: QueryPlan, result: EngineResult, vocab: Vocabulary)
     limited.tiedBeyond > 0 && last !== undefined
       ? ` ${limited.tiedBeyond} more ${limited.tiedBeyond === 1 ? 'has' : 'have'} the same ${valueText(plan, last, vocab)} and ${limited.tiedBeyond === 1 ? 'is' : 'are'} not shown.`
       : ''
-  return `${end} ${result.labels.length} of ${limited.total} ${group} by ${measureWords(plan, vocab)}: ${named}.${split}`
+  return `${end} ${result.labels.length} of ${limited.total} ${group} by ${measureWords(plan, vocab)}${conditionWords(plan, vocab)}: ${named}.${split}`
 }
 
 /** The measure in words, such as "total revenue" or "number of earthquakes". */
 export function measureWords(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY): string {
   return MEASURE[plan.aggregate.fn](labelFor(vocab, plan.aggregate.field), vocab.rowNoun)
+}
+
+/** The grouping in words: the group column, or "all matching rows" for an overall total. */
+export function groupWords(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY): string {
+  return isTotal(plan) ? 'all matching rows' : labelFor(vocab, plan.groupBy)
+}
+
+/** "by region" for a grouped chart, ", all matching rows together" for an overall total. */
+export function byGroup(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY): string {
+  return isTotal(plan) ? ', all matching rows together' : ` by ${labelFor(vocab, plan.groupBy)}`
+}
+
+/** The title of an overall total: what is computed and the row conditions, with no grouping, such as "number of earthquakes where magnitude is at least 4.5". */
+export function totalTitle(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY): string {
+  return `${measureWords(plan, vocab)}${conditionWords(plan, vocab)}`
+}
+
+/** The row conditions in words: " where magnitude is at least 4.5", or "" when the plan has none. */
+function conditionWords(plan: QueryPlan, vocab: Vocabulary): string {
+  const conditions = planFilters(plan).map(
+    (item) => `${labelFor(vocab, item.field)} ${FILTER_WORDS[item.op]} ${withUnit(vocab, item.field, item.value)}`,
+  )
+  return conditions.length > 0 ? ` where ${conditions.join(' and ')}` : ''
+}
+
+/**
+ * The answer to a total question: the one number, with the row conditions that were applied. Null for a
+ * grouped plan. An average, minimum or maximum over no matching number says so rather than giving a value.
+ */
+function totalSentence(plan: QueryPlan, result: EngineResult, vocab: Vocabulary): string | null {
+  if (!isTotal(plan)) return null
+  const where = conditionWords(plan, vocab)
+  const value = result.datasets[0]?.values[0]
+  if (value === undefined) {
+    return `The ${measureWords(plan, vocab)}${where} cannot be worked out, because no matching row has a number in ${labelFor(vocab, plan.aggregate.field)}.`
+  }
+  if (plan.aggregate.fn === 'count') {
+    const noun = value === 1 ? vocab.singularRowNoun : vocab.rowNoun
+    return `${formatNumber(value)} ${noun}${where || ' in total'}.`
+  }
+  return `The ${measureWords(plan, vocab)}${where} is ${valueText(plan, value, vocab)}.`
+}
+
+/**
+ * The answer to a question that counts groups rather than rows: "how many regions had earthquakes?" gets
+ * "72 regions.", so the headline states the count instead of naming the largest group. Null when the
+ * question counts the rows, or when the plan is a total.
+ */
+function groupCountSentence(plan: QueryPlan, result: EngineResult, vocab: Vocabulary, options: ResultOptions): string | null {
+  const names = { rowNoun: vocab.rowNoun, nouns: options.columnNouns ?? [] }
+  if (!options.question || isTotal(plan)) return null
+  // A column the plan was resolved to count is a count of groups; without one, the question's own words decide.
+  if (plan.countColumn === undefined && !countsOtherThanRows(options.question, names)) return null
+  const count = result.labels.length
+  const group = labelFor(vocab, plan.groupBy)
+  return `${count} ${count === 1 ? group : plural(group)}${conditionWords(plan, vocab)}.`
 }
 
 const NAMED_TIES = 3
@@ -134,7 +191,7 @@ export function answerSentence(
   direction: 'highest' | 'lowest' = answerDirection(plan),
 ): string | null {
   if (!top) return null
-  const rank = `${direction} ${measureWords(plan, vocab)}: ${valueText(plan, top.value, vocab)}`
+  const rank = `${direction} ${measureWords(plan, vocab)}${conditionWords(plan, vocab)}: ${valueText(plan, top.value, vocab)}`
   if (top.tied.length > 1) return `${top.tied.length} groups tie for the ${rank} (${tiedLabels(top.tied, vocab)}).`
   return `${shownLabel(vocab, top.label)} has the ${rank}.`
 }
@@ -143,6 +200,8 @@ export interface ResultOptions {
   vocab?: Vocabulary
   /** The question the result answers. A question that names both ends gets both answered. */
   question?: string
+  /** The dataset's column headers and labels. A question that counts one of them counts groups. */
+  columnNouns?: string[]
   /** The group with the lowest value, for a question that names both ends. */
   lowest?: TopGroup | null
   highest?: TopGroup | null
@@ -186,9 +245,11 @@ export function describeResult(
 ): ResultHeadline {
   const vocab = options.vocab ?? RAW_VOCABULARY
   const answer =
+    (result && totalSentence(plan, result, vocab)) ??
     (result && bothEndsSentence(plan, result, vocab, options)) ??
     (result && havingSentence(plan, result, vocab)) ??
     (result && limitSentence(plan, result, vocab)) ??
+    (result && groupCountSentence(plan, result, vocab, options)) ??
     answerSentence(plan, top, vocab)
   if (plan.missing) {
     return {
@@ -235,7 +296,7 @@ export function describePlan(plan: QueryPlan, vocab: Vocabulary = RAW_VOCABULARY
   const having = plan.having
     ? `${measure} ${HAVING_WORDS[plan.having.op]} ${valueText(plan, plan.having.value, vocab)}`
     : null
-  const words: PlanWords = { groupBy: labelFor(vocab, plan.groupBy), measure, filter, having, sort }
+  const words: PlanWords = { groupBy: isTotal(plan) ? 'None, one total' : labelFor(vocab, plan.groupBy), measure, filter, having, sort }
   if (plan.limit !== undefined) words.limit = `${answerDirection(plan) === 'lowest' ? 'Bottom' : 'Top'} ${plan.limit}`
   return words
 }
@@ -246,6 +307,7 @@ export function headlineFor(result: AnalysisResult): ResultHeadline {
   return describeResult(plan, topGroup(result, answerDirection(plan)), result, {
     vocab: result.vocab,
     question: result.question,
+    columnNouns: result.columnNouns,
     highest: topGroup(result, 'highest'),
     lowest: topGroup(result, 'lowest'),
   })

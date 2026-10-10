@@ -1,5 +1,6 @@
 import { measureWords } from './answer'
 import { parseNumericCell } from './dataEngine'
+import { isTotal } from './queryPlan'
 import { labelFor, RAW_VOCABULARY } from './vocabulary'
 import type { AnalysisResult } from '../types'
 
@@ -18,7 +19,7 @@ export function resultToCsv(result: AnalysisResult): string {
   const values = result.datasets[0]?.values ?? []
   const unit = plan.aggregate.fn === 'count' ? undefined : vocab.units[plan.aggregate.field]
   const measure = unit ? `${measureWords(plan, vocab)} (${unit})` : measureWords(plan, vocab)
-  const lines = [[labelFor(vocab, plan.groupBy), measure].map(csvCell).join(',')]
+  const lines = [[isTotal(plan) ? 'scope' : labelFor(vocab, plan.groupBy), measure].map(csvCell).join(',')]
   result.labels.forEach((label, index) => {
     lines.push([csvCell(label), String(Number((values[index] ?? 0).toFixed(6)))].join(','))
   })

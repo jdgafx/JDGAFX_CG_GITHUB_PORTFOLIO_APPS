@@ -34,12 +34,15 @@ describe('the How to use block', () => {
     }
     expect(HOWTO_STEPS.join(' ')).toContain(DATASET_CHOICES.find(d => d.id === DEFAULT_DATASET)?.label)
   })
+
+  it('keeps the one-line summary to 15 words or fewer (the EQ.8 limit)', () => {
+    expect(HOWTO_WHAT.split(/\s+/).length).toBeLessThanOrEqual(15)
+  })
 })
 
 describe('Try it runs the live feed with a question the dataset can answer', () => {
   it('uses the default USGS dataset and one of its own example questions', () => {
     expect(DEFAULT_DATASET).toBe('quakes-week')
     expect(DATASET_CHOICES.find(d => d.id === DEFAULT_DATASET)?.questions).toContain(TRY_QUESTION)
-    expect(readFileSync('src/App.tsx', 'utf8')).toContain("ask(TRY_QUESTION, 'new')")
   })
 })

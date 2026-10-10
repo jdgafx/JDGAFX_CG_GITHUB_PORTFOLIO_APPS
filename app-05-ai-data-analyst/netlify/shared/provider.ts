@@ -6,7 +6,7 @@ import { withDeadline } from './deadline'
  * callModel(), which always sends MODEL. Request bodies cannot change the model,
  * and the only environment variable read here is the key.
  */
-export const MODEL = 'anthropic/claude-haiku-5.5'
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 

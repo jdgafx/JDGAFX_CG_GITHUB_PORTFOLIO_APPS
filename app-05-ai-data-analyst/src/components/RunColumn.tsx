@@ -26,7 +26,7 @@ function emptyText(parsedData: ParsedData | null): { title: string; body: string
 
 /** The run column, in the order of the ended state: the thread, the chart, the figures, the trace, then the rest. */
 export default function RunColumn({ parsedData, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry }: RunColumnProps) {
-  const { thread, run, pending, error } = state
+  const { thread, run, pending, error, unanswered } = state
   const running = pending !== null
   const freshRun = pending?.mode === 'new'
   const earlier = state.threads.filter((item) => item.id !== thread?.id)
@@ -42,7 +42,7 @@ export default function RunColumn({ parsedData, datasetLabel, state, lastQuestio
             <p className="ds-state__body">{pending.question}</p>
             <div className="ds-skeleton"><span /><span /><span /></div>
             <div className="ds-state__actions">
-              <button type="button" className="ds-button" onClick={state.stop}>Stop</button>
+              <button type="button" className="ds-button" title="Stop waiting for the reply" onClick={state.stop}>Stop</button>
             </div>
           </div>
         )}
@@ -52,8 +52,18 @@ export default function RunColumn({ parsedData, datasetLabel, state, lastQuestio
             <p className="ds-state__title" tabIndex={-1} data-result-focus>The run failed</p>
             <p className="ds-state__body">{error ?? 'The analysis could not be completed.'}</p>
             <div className="ds-state__actions">
-              {lastQuestion && <button type="button" className="ds-button" onClick={onRetry}>Try again</button>}
-              <button type="button" className="ds-button ds-button--quiet" onClick={state.dismissError}>Dismiss</button>
+              {lastQuestion && <button type="button" className="ds-button" title="Send the same question again" onClick={onRetry}>Try again</button>}
+              <button type="button" className="ds-button ds-button--quiet" title="Close this message" onClick={state.dismissError}>Dismiss</button>
+            </div>
+          </div>
+        )}
+        {!running && unanswered && (
+          <div className="ds-state ds-state--partial" role="status">
+            <span className="ds-state__mark" aria-hidden="true" />
+            <p className="ds-state__title" tabIndex={-1} data-result-focus>The data does not answer this question</p>
+            <p className="ds-state__body">{unanswered.message}</p>
+            <div className="ds-state__actions">
+              <button type="button" className="ds-button ds-button--quiet" title="Close this message" onClick={state.dismissError}>Dismiss</button>
             </div>
           </div>
         )}
@@ -65,7 +75,7 @@ export default function RunColumn({ parsedData, datasetLabel, state, lastQuestio
               Nothing was drawn for that question. The server may still finish the call and bill its tokens.
             </p>
             <div className="ds-state__actions">
-              {lastQuestion && <button type="button" className="ds-button" onClick={onRetry}>Ask again</button>}
+              {lastQuestion && <button type="button" className="ds-button" title="Send the stopped question again" onClick={onRetry}>Ask again</button>}
             </div>
           </div>
         )}

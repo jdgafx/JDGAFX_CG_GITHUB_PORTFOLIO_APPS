@@ -17,7 +17,7 @@ function Banner({ message, label, tone, role, onDismiss }: BannerProps) {
   return (
     <div className={`ds-notice ${tone} app-banner`} role={role}>
       <span>{message}</span>
-      <button type="button" className="ds-button app-banner__dismiss" aria-label={label} onClick={onDismiss}>
+      <button type="button" className="ds-button app-banner__dismiss" aria-label={label} title="Close this message" onClick={onDismiss}>
         Dismiss
       </button>
     </div>

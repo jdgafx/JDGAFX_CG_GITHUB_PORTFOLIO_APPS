@@ -1,7 +1,7 @@
 import type { Vocabulary } from '../types'
 
 /** Raw column names and "rows": what answers say when nothing is known about the data. */
-export const RAW_VOCABULARY: Vocabulary = { rowNoun: 'rows', labels: {}, units: {} }
+export const RAW_VOCABULARY: Vocabulary = { rowNoun: 'rows', singularRowNoun: 'row', labels: {}, units: {} }
 
 /** A column in the dataset's own words. A column the vocabulary does not know keeps its name. */
 export function labelFor(vocab: Vocabulary, field: string): string {
@@ -34,6 +34,7 @@ export function withUnit(vocab: Vocabulary, field: string, text: string): string
 /** USGS earthquake feed: what its terse column names mean. */
 export const EARTHQUAKE_VOCABULARY: Vocabulary = {
   rowNoun: 'earthquakes',
+  singularRowNoun: 'earthquake',
   labels: {
     time: 'time',
     mag: 'magnitude',
@@ -56,11 +57,13 @@ export const EARTHQUAKE_VOCABULARY: Vocabulary = {
     magSource: 'magnitude source',
   },
   units: { depth: 'km', depthError: 'km', horizontalError: 'km', dmin: 'degrees', gap: 'degrees' },
+  defaultGroupBy: 'region',
 }
 
 /** Open-Meteo daily archive after the page renames its columns. */
 export const WEATHER_VOCABULARY: Vocabulary = {
   rowNoun: 'days',
+  singularRowNoun: 'day',
   labels: {
     date: 'date',
     month: 'month',
@@ -70,4 +73,5 @@ export const WEATHER_VOCABULARY: Vocabulary = {
   },
   units: { temp_max_c: '°C', temp_min_c: '°C', precipitation_mm: 'mm' },
   months: true,
+  defaultGroupBy: 'month',
 }

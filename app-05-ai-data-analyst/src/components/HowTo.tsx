@@ -13,10 +13,14 @@ interface HowToProps {
   hasResult: boolean
   /** A plain sentence when the example could not start. */
   error?: string | null
+  /** True while the live rows are being fetched. */
+  loading?: boolean
+  /** Fetches the live rows again after a failure. */
+  onRetry?: () => void
 }
 
 /** The "How to use" block under the masthead: what the app does, the steps, and a Try it button for a real example. */
-export function HowTo({ what, steps, onTry, disabled, hasResult, error }: HowToProps) {
+export function HowTo({ what, steps, onTry, disabled, hasResult, error, loading = false, onRetry }: HowToProps) {
   // Open on the first visit; folded while a result shows. A choice made with the toggle wins.
   const [chosen, setChosen] = useState<boolean | null>(null)
   const open = chosen ?? !hasResult
@@ -31,6 +35,7 @@ export function HowTo({ what, steps, onTry, disabled, hasResult, error }: HowToP
           className="ds-button ds-button--quiet howto__toggle"
           aria-expanded={open}
           aria-controls="howto-body"
+          title={open ? 'Hide the How to use steps' : 'Show the How to use steps'}
           onClick={() => setChosen(!open)}
         >
           {open ? 'Hide' : 'Show'}
@@ -45,15 +50,38 @@ export function HowTo({ what, steps, onTry, disabled, hasResult, error }: HowToP
             ))}
           </ol>
           <div className="howto__try">
-            <button type="button" className="ds-button ds-button--primary" disabled={disabled} onClick={onTry}>
+            <button
+              type="button"
+              className="ds-button ds-button--primary"
+              disabled={disabled}
+              title="Run an example question on the live earthquake feed"
+              onClick={onTry}
+            >
               Try it
             </button>
-            <span className="howto__hint">Runs a real example on live data.</span>
+            {loading ? (
+              <span className="howto__hint" role="status">
+                Loading the live feed.
+              </span>
+            ) : (
+              <span className="howto__hint">Runs a real example on live data.</span>
+            )}
           </div>
           {error ? (
-            <p className="ds-notice ds-notice--error" role="alert">
-              {error}
-            </p>
+            <div className="ds-notice ds-notice--error app-banner" role="alert">
+              <span>{error}</span>
+              {onRetry ? (
+                <button
+                  type="button"
+                  className="ds-button app-banner__dismiss"
+                  disabled={disabled}
+                  title="Fetch the live feed again; then press Try it"
+                  onClick={onRetry}
+                >
+                  Try again
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       )}

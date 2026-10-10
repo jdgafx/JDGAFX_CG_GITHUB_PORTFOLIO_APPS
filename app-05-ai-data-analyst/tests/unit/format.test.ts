@@ -23,6 +23,7 @@ describe('figures', () => {
 
   it('drops the provider from a model id', () => {
     expect(shortModel('anthropic/claude-haiku-5.5')).toBe('claude-haiku-5.5')
+    expect(shortModel('~anthropic/claude-haiku-5.5')).toBe('claude-haiku-5.5')
     expect(shortModel('claude-haiku-5.5')).toBe('claude-haiku-5.5')
   })
 })

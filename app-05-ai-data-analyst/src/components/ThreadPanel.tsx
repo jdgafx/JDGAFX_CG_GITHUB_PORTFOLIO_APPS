@@ -83,6 +83,7 @@ function ActiveBody({ step, busy, onSuggest }: { step: ThreadStep; busy: boolean
               {
                 chartType: plan.chartType,
                 groupBy: plan.groupBy,
+                ...(plan.countColumn ? { countColumn: plan.countColumn } : {}),
                 aggregate: plan.aggregate,
                 ...(plan.filter ? { filter: plan.filter } : {}),
                 ...(plan.moreFilters ? { moreFilters: plan.moreFilters } : {}),
@@ -179,7 +180,12 @@ function FollowUpComposer({ active, data, busy, onAsk }: ComposerProps) {
           aria-describedby="follow-up-help"
           onChange={(event) => setText(event.target.value)}
         />
-        <button type="submit" className="ds-button ds-button--primary" disabled={!valid || busy}>
+        <button
+          type="submit"
+          className="ds-button ds-button--primary"
+          disabled={!valid || busy}
+          title="Send your follow-up with the plan on screen; the model returns a new plan"
+        >
           Refine plan
         </button>
       </div>
@@ -245,7 +251,7 @@ export default function ThreadPanel({ state, data, datasetLabel, onAskFollowUp }
             </div>
             <div className="ds-skeleton"><span /><span /><span /></div>
             <div className="ds-state__actions">
-              <button type="button" className="ds-button" onClick={state.stop}>Stop</button>
+              <button type="button" className="ds-button" title="Stop waiting for the reply" onClick={state.stop}>Stop</button>
             </div>
           </li>
         )}

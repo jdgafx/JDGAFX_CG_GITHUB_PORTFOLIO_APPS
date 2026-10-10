@@ -11,7 +11,7 @@ export function formatMs(value: number): string {
   return `${formatCount(Math.round(value))} ms`
 }
 
-/** The model id without its provider prefix: "anthropic/claude-haiku-5.5" -> "claude-haiku-5.5". */
+/** The model id without its provider prefix ("anthropic/" or "~anthropic/"): "anthropic/claude-haiku-5.5" -> "claude-haiku-5.5". */
 export function shortModel(id: string): string {
   return id.slice(id.lastIndexOf('/') + 1)
 }

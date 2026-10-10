@@ -1,5 +1,5 @@
 /** The "How to use" copy. Control names match the labels on screen. */
-export const HOWTO_WHAT = 'Ask a question about live public data and get a chart, then refine it with follow-ups.'
+export const HOWTO_WHAT = 'Get a chart that answers your question, with the plan the model wrote for it.'
 
 export const HOWTO_STEPS = [
   'Pick a Dataset, such as Earthquakes, past 7 days, or choose Upload CSV for your own.',

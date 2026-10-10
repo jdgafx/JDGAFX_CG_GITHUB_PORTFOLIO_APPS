@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { measureWords } from '../lib/answer'
+import { byGroup, groupWords, measureWords, totalTitle } from '../lib/answer'
 import { formatTick, isTimeAxis, limitGroups, lineNeedsOrder, MAX_PIE_SLICES, pieIsCrowded } from '../lib/chartGeometry'
 import { downloadChartPng, downloadCsv, fileSlug } from '../lib/export'
-import { chartTitle } from '../lib/titles'
+import { chartSummary } from '../lib/chartSummary'
+import { isTotal } from '../lib/queryPlan'
+import { chartTitle, titleNames } from '../lib/titles'
 import { labelFor, RAW_VOCABULARY, shownLabel, withUnit } from '../lib/vocabulary'
 import type { AnalysisResult } from '../types'
 import ChartSvg from './ChartSvg'
@@ -97,11 +99,18 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
   const horizontal = chartType === 'bar' && crowded && limited.values.every((value) => value >= 0)
   const pieCrowded = chartType === 'pie' && pieIsCrowded(labels, values, combinable)
   const unordered = lineNeedsOrder(chartType, labels)
-  const title = chartTitle(result, `${measure} by ${labelFor(vocab, plan.groupBy)}`, [...labels, ...labels.map((label) => shownLabel(vocab, label))])
+  // Names in the data keep their capitals in the title: the groups on the chart and the values the plan filters on ("Alaska").
+  const title = chartTitle(result, isTotal(plan) ? totalTitle(plan, vocab) : `${measure}${byGroup(plan, vocab)}`, titleNames(plan, labels, vocab))
   const axisUnit = plan.aggregate.fn === 'count' ? vocab.rowNoun : vocab.units[plan.aggregate.field]
   const peak = Math.max(...limited.values, 0)
   const largest = limited.values.reduce((best, v, i) => (Math.abs(v) > Math.abs(limited.values[best] ?? 0) ? i : best), 0)
-  const summary = `${chartType} chart. ${measure} by ${labelFor(vocab, plan.groupBy)}, across ${labels.length} groups. Largest: ${limited.labels[largest]} at ${unitOf(exact(limited.values[largest] ?? 0))}.`
+  const summary = chartSummary({
+    chartType,
+    subject: `${measure}${byGroup(plan, vocab)}`,
+    total: isTotal(plan),
+    groups: labels.length,
+    top: { label: limited.labels[largest] ?? '', value: unitOf(exact(limited.values[largest] ?? 0)) },
+  })
 
   const savePng = () => {
     const svg = svgRef.current
@@ -109,7 +118,7 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
     setFailure(null)
     downloadChartPng(svg, {
       title,
-      subtitle: `${measure} by ${labelFor(vocab, plan.groupBy)}, ${result.dataset}`,
+      subtitle: `${measure}${byGroup(plan, vocab)}, ${result.dataset}`,
       filename: `${fileSlug(title)}.png`,
     }).catch((error: unknown) =>
       setFailure({ result, message: error instanceof Error ? error.message : 'The image could not be saved.' }),
@@ -165,11 +174,16 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
         )}
       </div>
       <div className="ds-row app-chart__actions">
-        <button type="button" className="ds-button ds-button--quiet" onClick={() => downloadCsv(result, title)}>
+        <button
+          type="button"
+          className="ds-button ds-button--quiet"
+          title="Save every group of this result as a CSV file"
+          onClick={() => downloadCsv(result, title)}
+        >
           Download CSV
         </button>
         {!horizontal && (
-          <button type="button" className="ds-button ds-button--quiet" onClick={savePng}>
+          <button type="button" className="ds-button ds-button--quiet" title="Save this chart as a PNG image" onClick={savePng}>
             Download PNG
           </button>
         )}
@@ -182,7 +196,13 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
             {labels.length} {plural(labelFor(vocab, plan.groupBy))} are too many slices to compare, so the pie shows the largest five and Other.
           </p>
           {onSuggest && (
-            <button type="button" className="ds-button" disabled={busy} onClick={() => onSuggest('As a bar chart')}>
+            <button
+              type="button"
+              className="ds-button"
+              disabled={busy}
+              title="Redraw this result as a bar chart"
+              onClick={() => onSuggest('As a bar chart')}
+            >
               As a bar chart
             </button>
           )}
@@ -194,7 +214,13 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
             These {plural(labelFor(vocab, plan.groupBy))} have no natural order, so the line joins unrelated points. Bars compare them fairly.
           </p>
           {onSuggest && (
-            <button type="button" className="ds-button" disabled={busy} onClick={() => onSuggest('As a bar chart')}>
+            <button
+              type="button"
+              className="ds-button"
+              disabled={busy}
+              title="Redraw this result as a bar chart"
+              onClick={() => onSuggest('As a bar chart')}
+            >
               As a bar chart
             </button>
           )}
@@ -209,11 +235,11 @@ export default function ChartFrame({ result, onSuggest, busy = false }: ChartFra
         <div className="app-table-wrap">
           <table className="app-table">
             <caption>
-              {measure} by {labelFor(vocab, plan.groupBy)}
+              {measure}{byGroup(plan, vocab)}
             </caption>
             <thead>
               <tr>
-                <th scope="col">{labelFor(vocab, plan.groupBy)}</th>
+                <th scope="col">{groupWords(plan, vocab)}</th>
                 <th scope="col">{measure}</th>
               </tr>
             </thead>

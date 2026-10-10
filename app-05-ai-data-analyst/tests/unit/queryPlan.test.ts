@@ -292,6 +292,20 @@ describe('validateQueryPlan: follow-up fields', () => {
   })
 })
 
+describe('validateQueryPlan: aboutData', () => {
+  it('keeps only an explicit false, so a reply that forgets the field never blocks a real question', () => {
+    expect(planOf({ ...GOOD, aboutData: false }).aboutData).toBe(false)
+    expect(planOf({ ...GOOD, aboutData: 'false' }).aboutData).toBe(false)
+    for (const value of [true, 'true', null, 'no', 0]) expect(planOf({ ...GOOD, aboutData: value }).aboutData, String(value)).toBeUndefined()
+    expect(planOf(GOOD).aboutData).toBeUndefined()
+  })
+
+  it('drops a false that comes with a list of what the data lacks, since the model understood what was asked', () => {
+    expect(planOf({ ...GOOD, aboutData: false, missing: ['coast'] }).aboutData).toBeUndefined()
+    expect(planOf({ ...GOOD, aboutData: false, missing: [] }).aboutData).toBe(false)
+  })
+})
+
 describe('asksBothEnds', () => {
   it('is true only when the question names the high end and the low end', () => {
     expect(asksBothEnds('Which month had the most and the fewest earthquakes?')).toBe(true)

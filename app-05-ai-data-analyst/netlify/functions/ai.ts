@@ -113,8 +113,10 @@ const SYSTEM_PROMPT = `You are a data analyst assistant. Given a dataset schema 
 
 Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 {
+  "aboutData": true | false,
   "chartType": "bar" | "line" | "pie" | "area" | "scatter",
   "groupBy": "<column name to group by>",
+  "countColumn": "<a column name from the dataset, or rows, or null>",
   "aggregate": {
     "field": "<column name to aggregate>",
     "fn": "sum" | "avg" | "count" | "min" | "max"
@@ -139,6 +141,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 }
 
 Rules:
+- "countColumn" says what a "how many" question counts, or what a total sums over. Use "rows" when the question asks for one number over all rows, with no breakdown: "in total, how many earthquakes had magnitude 4.5 or greater?" or "what was the total rain?". Then put the row conditions in "filter" and "moreFilters", use fn "count" for "how many" or the fitting calculation otherwise, and pick any real column for "groupBy". Use an exact column name copied from the dataset when the question counts the distinct values of that column, such as "how many regions had earthquakes?" (the region column) or "how many earthquake types were there?" (the type column), and group by that column. Use null for every other question, including any that says by, per, each, which, top, most, fewest, or compares groups. When the question counts something the dataset has no column or row name for ("how many countries", "how many tremors"), set "countColumn" to null, list that noun in "missing", and never invent a "filter" for it.
+- "aboutData" is false only when the question has nothing to do with this dataset: random characters, a greeting, small talk, a joke, or a subject no column could describe (the meaning of life, the weather in a table of earthquakes). It is true for every question the columns could answer, however loosely it is worded: "how hot was it?" over a temperature column, "any big ones?" over a magnitude column, "show me everything" over the rows, "what sells best?" over sales. A question that names something the dataset lacks but whose subject it covers ("how many countries" over earthquakes, "anything near the coast?") is still about the data: set "aboutData" true and list the noun in "missing". Whenever "missing" is not empty, "aboutData" is true. When in doubt, use true. Still return the closest plan when it is false; the page then shows no number.
 - "filter", "moreFilters", "having", "limit" and "sortBy" are optional — only include them if relevant
 - "filter" tests individual rows before grouping, for conditions such as "only Alaska" or "magnitude over 4". A threshold on the grouped result, such as months whose total rain is at least 100, regions with at least 50 earthquakes or products whose average price is below 5, goes in "having", never in "filter". "having" compares the aggregate (sum, avg, count, min or max) of each group; its value is a plain number.
 - "moreFilters" lists further row conditions that must all hold together with "filter" (for example "magnitude over 4" in "filter" and "only Alaska" in "moreFilters"). Use it only when the question needs two or more conditions.
@@ -154,13 +158,14 @@ Rules:
 - Never use "missing" or "notice" for formatting, data quality or parsing. Numeric cells may hold thousands separators, currency signs or percent signs, for example "1,200", and the browser parses them. Set "notice" to null unless "missing" is non-empty.`
 
 const FOLLOW_UP_RULES = `This is a follow-up. You are given the previous question, the previous query plan and the follow-up. Return the NEW complete plan, using the same JSON structure.
-- Start from the previous plan and keep every part the follow-up does not change: groupBy, aggregate, filter, moreFilters, sortBy, having, limit and chartType.
+- Start from the previous plan and keep every part the follow-up does not change: groupBy, aggregate, filter, moreFilters, sortBy, having, limit, countColumn and chartType.
+- A total stays a total ("countColumn" "rows") when the follow-up only adds a row condition, such as "only Alaska". "countColumn" becomes null when the follow-up asks for groups, such as "by region" or "top 5".
 - "only Alaska", "just 2026" and "where magnitude is over 4" add a row condition. Put it in "moreFilters" when the previous plan already has a "filter", and keep the old condition unless the follow-up replaces it ("actually Texas").
 - "now by month" or "by region instead" changes groupBy. "as a line chart" changes chartType only. "show the top 5" sets "limit" 5 with "sortBy" on the aggregate field, dir "desc"; "the bottom 3" uses dir "asc".
 - Keep the previous sort direction unless the follow-up asks for another end.
 - Pick a groupBy that suits the chart type: a line or area chart needs an ordered column such as a date or month.
 - If the follow-up cannot be answered from this dataset (a time range the data does not cover, another dataset, a column that does not exist, or a comparison that needs two series), return the previous plan UNCHANGED and set "cannotApply" to one plain sentence saying why, naming what the data does cover. Do not guess a stand-in.
-- "cannotApply" is null when you applied the follow-up.`
+- "cannotApply" is null when you applied the follow-up. "aboutData" is true on a follow-up.`
 
 /** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
 class RunLog {
@@ -375,11 +380,14 @@ async function analyse(
   return json({ result: settle(outcome.plan, input), ...log.summary() }, 200, cors)
 }
 
-/** Only a follow-up can be declined. A first question that comes back with the flag gets a plain plan. */
+/**
+ * Only a follow-up can be declined, and only a first question can be off the subject. A reply that carries the other
+ * question's flag gets a plain plan.
+ */
 function settle(plan: QueryPlan, input: AnalysisInput): QueryPlan {
-  if (input.previous || plan.cannotApply === undefined) return plan
   const plain = { ...plan }
-  delete plain.cannotApply
+  if (!input.previous) delete plain.cannotApply
+  else delete plain.aboutData
   return plain
 }
 

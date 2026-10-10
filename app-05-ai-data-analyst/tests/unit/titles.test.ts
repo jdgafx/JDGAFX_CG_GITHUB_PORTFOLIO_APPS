@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { chartTitle, sentenceCase } from '../../src/lib/titles'
+import { chartTitle, sentenceCase, titleNames } from '../../src/lib/titles'
+import { EARTHQUAKE_VOCABULARY } from '../../src/lib/vocabulary'
+import type { QueryPlan } from '../../src/types'
 
 describe('sentenceCase', () => {
   it('turns a Title Case chart title into sentence case', () => {
@@ -78,5 +80,39 @@ describe('chartTitle', () => {
 
   it('ignores an empty missing list', () => {
     expect(chartTitle({ queryPlan: { ...plan, missing: [] } }, 'x by month')).toBe('Average wind speed by month')
+  })
+})
+
+describe('chartTitle on a total and on a filtered chart', () => {
+  it('uses what the plan computes for a total, never the model words "by region"', () => {
+    // The title the model wrote for a total on 2026-10-10 ("1 group" on the chart), with the title the plan describes.
+    const total = { title: 'Earthquakes with Magnitude 4.5 or More, by Region', groupBy: 'region', countColumn: 'rows' }
+    expect(chartTitle({ queryPlan: total }, 'number of earthquakes where magnitude is at least 4.5')).toBe(
+      'Number of earthquakes where magnitude is at least 4.5',
+    )
+  })
+
+  it('keeps the model title for a grouped plan, and a stand-in title for a total that stands in', () => {
+    const grouped = { title: 'Earthquakes by Region', groupBy: 'region', countColumn: 'region' }
+    expect(chartTitle({ queryPlan: grouped }, 'x')).toBe('Earthquakes by region')
+    const standIn = { title: 'T', groupBy: 'region', countColumn: 'rows', missing: ['aftershocks'] }
+    expect(chartTitle({ queryPlan: standIn }, 'number of earthquakes')).toBe('Number of earthquakes (stand-in for aftershocks)')
+  })
+
+  it('keeps the places a result names, the groups drawn and the values the plan filters on, whatever case the model used', () => {
+    const plan: QueryPlan = {
+      chartType: 'bar',
+      groupBy: 'region',
+      aggregate: { field: 'id', fn: 'count' },
+      filter: { field: 'region', op: 'eq', value: 'Alaska' },
+      title: 'Earthquakes with Magnitude 4.5 or More in Alaska',
+      explanation: '',
+    }
+    const names = titleNames(plan, ['Texas'], EARTHQUAKE_VOCABULARY)
+    expect(names).toEqual(expect.arrayContaining(['Alaska', 'Texas']))
+    expect(chartTitle({ queryPlan: plan }, 'x', names)).toBe('Earthquakes with magnitude 4.5 or more in Alaska')
+    // With the filter's value left out of the names, the place is lowered with the other Title Case words.
+    const grouped = titleNames({ ...plan, filter: undefined }, ['Texas'], EARTHQUAKE_VOCABULARY)
+    expect(chartTitle({ queryPlan: plan }, 'x', grouped)).toBe('Earthquakes with magnitude 4.5 or more in alaska')
   })
 })

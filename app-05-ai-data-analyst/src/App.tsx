@@ -7,6 +7,7 @@ import { CITIES, DATASET_CHOICES, DEFAULT_CITY, DEFAULT_DATASET } from './lib/li
 import { indicatorFor } from './lib/liveData/indicator'
 import { MAX_ROWS } from './lib/limits'
 import { plainText } from './lib/prose'
+import { decodeText, notTextMessage } from './lib/upload'
 import { useResultFocus } from './lib/useResultFocus'
 import { RAW_VOCABULARY } from './lib/vocabulary'
 import { useAnalysisThread, type AnalysisThreadState, type AskMode } from './hooks/useAnalysisThread'
@@ -24,8 +25,9 @@ const CUSTOM = 'custom'
 
 /** The live status line. It uses the same verb as the primary button: Plan and run. */
 function statusMessage(state: AnalysisThreadState, hasData: boolean): string {
-  const { pending, run, step } = state
+  const { pending, run, step, unanswered } = state
   if (pending) return pending.mode === 'follow-up' ? 'Refining the plan from your follow-up.' : 'Planning and running your question.'
+  if (unanswered) return 'Plan and run complete. The data does not answer this question, so no number is shown.'
   if (run?.outcome === 'failed') return 'Plan and run failed. The message in the result says why.'
   if (run?.outcome === 'stopped') return 'Plan and run stopped before a reply.'
   if (run?.outcome === 'done' && step) {
@@ -112,7 +114,14 @@ export default function App() {
 
     const reader = new FileReader()
     reader.onload = (evt) => {
-      const text = typeof evt.target?.result === 'string' ? evt.target.result : ''
+      // The bytes are checked before anything is parsed: a binary file named .csv must never reach the model.
+      const result = evt.target?.result
+      const bytes = result && typeof result !== 'string' ? new Uint8Array(result) : new Uint8Array(0)
+      const text = decodeText(bytes)
+      if (text === null) {
+        setFileError(notTextMessage(file.name))
+        return
+      }
       if (text.trim() === '') {
         setFileError(`"${file.name}" is empty. Choose a CSV with a header row and at least one data row.`)
         return
@@ -154,7 +163,7 @@ export default function App() {
     reader.onerror = () => {
       setFileError('Failed to read the file. Please try again.')
     }
-    reader.readAsText(file)
+    reader.readAsArrayBuffer(file)
   }
 
   const ask = (text: string, mode: AskMode) => {
@@ -164,9 +173,12 @@ export default function App() {
 
   // Try it: the live USGS week feed is chosen, the example question typed, and the run starts once its rows are parsed.
   const tryIt = () => {
+    const feedFailed = selectedDataset === DEFAULT_DATASET && datasetState.status === 'error'
     if (selectedDataset !== DEFAULT_DATASET) handleSelect(DEFAULT_DATASET)
     setQuestion(TRY_QUESTION)
     tryWaiting.current = true
+    // A feed that failed is fetched again; the run then waits for those rows like any other Try it.
+    if (feedFailed) live.reload()
     startTry()
   }
   const startTry = () => {
@@ -176,7 +188,11 @@ export default function App() {
     }
   }
 
-  useEffect(startTry)
+  useEffect(() => {
+    // When the feed fails, the wait ends with it: a later Try again reloads the rows but starts no run by itself.
+    if (datasetState.status === 'error') tryWaiting.current = false
+    startTry()
+  })
 
   const phase: HeaderStatus = isLoading ? 'running' : analysis.run ? analysis.run.outcome : 'idle'
   // On a phone the examples would push the run down, so they close when a run starts; the result is then brought into view.
@@ -189,7 +205,16 @@ export default function App() {
       <AppHeader status={phase} live={indicatorFor(datasetState, choice?.id ?? null)} />
 
       <main className="ds-main">
-        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={isLoading} hasResult={analysis.run !== null} />
+        <HowTo
+          what={HOWTO_WHAT}
+          steps={HOWTO_STEPS}
+          onTry={tryIt}
+          disabled={isLoading}
+          hasResult={analysis.run !== null}
+          loading={datasetState.status === 'loading'}
+          error={datasetState.status === 'error' ? datasetState.message : null}
+          onRetry={handleReload}
+        />
         <Banners
           error={fileError}
           notice={notice}

@@ -107,6 +107,7 @@ export default function DataSection({
             className="ds-button"
             disabled={disabled}
             aria-describedby="upload-help"
+            title="Choose a CSV file from your computer; it is read in this browser"
             onClick={onUploadClick}
           >
             Upload CSV

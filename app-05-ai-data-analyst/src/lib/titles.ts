@@ -1,3 +1,7 @@
+import type { QueryPlan, Vocabulary } from '../types'
+import { planFilters, ROWS } from './questionNouns'
+import { shownLabel } from './vocabulary'
+
 const SMALL_WORDS = new Set(['with', 'from', 'into', 'over', 'under', 'above', 'below', 'than', 'that', 'this', 'across', 'between', 'versus', 'each', 'per'])
 
 /**
@@ -30,17 +34,33 @@ export function sentenceCase(title: string, keep: string[] = []): string {
     .join(' ')
 }
 
-interface Titled {
-  queryPlan: { title: string; groupBy: string; missing?: string[] }
+/**
+ * The words in a chart title that are names in the data and keep their capitals: the groups drawn (as stored and as the page
+ * shows them) and the values the plan filters on. A model that writes "...in Alaska" in Title Case would otherwise have
+ * "Alaska" lowered to "alaska" when the title is put in sentence case.
+ */
+export function titleNames(plan: QueryPlan, labels: string[], vocab: Vocabulary): string[] {
+  return [...labels, ...labels.map((label) => shownLabel(vocab, label)), ...planFilters(plan).map((filter) => filter.value)]
 }
 
+interface Titled {
+  queryPlan: { title: string; groupBy: string; countColumn?: string; missing?: string[] }
+}
+
+const capitalised = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+
 /**
- * The title a chart, its CSV and its PNG carry. It is the model's title in sentence case, except for a
- * stand-in chart: the model's title names what the question asked for ("Average wind speed by month"), but
- * the chart plots something else, so the title says what is plotted and what it stands in for.
+ * The title a chart, its CSV and its PNG carry. It is the model's title in sentence case, except where the model's words
+ * cannot be trusted to describe what is drawn:
+ * - a stand-in chart: the model's title names what the question asked for ("Average wind speed by month"), but the chart
+ *   plots something else, so the title says what is plotted and what it stands in for;
+ * - a total: it has no groups, so a title that says "by region" would name a grouping that is not there. The title is what
+ *   the plan computes, which the caller passes as `plotted`.
+ * `keep` lists words that are names in the data (group labels, values the plan filters on) and keep their capitals.
  */
 export function chartTitle(result: Titled, plotted: string, keep: string[] = []): string {
-  const { missing, title } = result.queryPlan
-  if (!missing || missing.length === 0) return sentenceCase(title, keep)
-  return `${plotted.charAt(0).toUpperCase()}${plotted.slice(1)} (stand-in for ${missing.join(', ')})`
+  const { missing, title, countColumn } = result.queryPlan
+  if (missing && missing.length > 0) return `${capitalised(plotted)} (stand-in for ${missing.join(', ')})`
+  if (countColumn === ROWS) return capitalised(plotted)
+  return sentenceCase(title, keep)
 }

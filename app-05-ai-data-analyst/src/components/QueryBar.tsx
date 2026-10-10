@@ -78,11 +78,17 @@ export default function QueryBar({
       </section>
 
       <div className="ds-actions">
-        <button type="submit" form="question-form" className="ds-button ds-button--primary" disabled={!valid || isLoading}>
+        <button
+          type="submit"
+          form="question-form"
+          className="ds-button ds-button--primary"
+          disabled={!valid || isLoading}
+          title="Ask the model for a plan, then run it on every row"
+        >
           Plan and run
         </button>
         {isLoading && (
-          <button ref={stopRef} type="button" className="ds-button" onClick={onStop}>
+          <button ref={stopRef} type="button" className="ds-button" title="Stop waiting for the reply" onClick={onStop}>
             Stop
           </button>
         )}

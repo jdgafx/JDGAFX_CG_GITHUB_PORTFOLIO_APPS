@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import type { HavingOp, HavingStats, ParsedData, PlanFilter, QueryPlan, EngineResult, TopGroup } from '../types'
-import { isValueSort, planFilters } from './queryPlan'
+import { isTotal, isValueSort, planFilters } from './queryPlan'
 import { MAX_ROWS } from './limits'
 
 const BLANK_LABEL = '(blank)'
@@ -149,6 +149,9 @@ function rowPasses(row: Record<string, string>, { field, op, value }: PlanFilter
   }
 }
 
+/** The one label of an overall total. */
+export const OVERALL_LABEL = 'All matching rows'
+
 /** Runs a plan over every row. The plan must already have passed validateQueryPlan for these headers. */
 export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
   let rows = [...data.rows]
@@ -157,10 +160,13 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
 
   const groups = new Map<string, number[]>()
   let skippedCells = 0
+  // An overall count or sum is one group even when no row passed the filters: zero rows give a true 0.
+  // An average, minimum or maximum has no value then, so no group is made for it.
+  if (isTotal(plan) && (plan.aggregate.fn === 'count' || plan.aggregate.fn === 'sum')) groups.set(OVERALL_LABEL, [])
 
   for (const row of rows) {
     const rawKey = row[plan.groupBy]
-    const key = rawKey == null || rawKey.trim() === '' ? BLANK_LABEL : rawKey
+    const key = isTotal(plan) ? OVERALL_LABEL : rawKey == null || rawKey.trim() === '' ? BLANK_LABEL : rawKey
 
     if (!groups.has(key)) groups.set(key, [])
 
@@ -181,6 +187,8 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
   const values: number[] = []
 
   for (const [label, nums] of groups) {
+    // An average, minimum or maximum needs a number. A group without one is left out, not shown as 0.
+    if (nums.length === 0 && (plan.aggregate.fn === 'avg' || plan.aggregate.fn === 'min' || plan.aggregate.fn === 'max')) continue
     labels.push(label)
     const total = nums.reduce((a, b) => a + b, 0)
     let agg: number
@@ -189,16 +197,16 @@ export function executeQuery(data: ParsedData, plan: QueryPlan): EngineResult {
         agg = total
         break
       case 'avg':
-        agg = nums.length > 0 ? total / nums.length : 0
+        agg = total / nums.length
         break
       case 'count':
         agg = nums.length
         break
       case 'min':
-        agg = nums.length > 0 ? Math.min(...nums) : 0
+        agg = Math.min(...nums)
         break
       case 'max':
-        agg = nums.length > 0 ? Math.max(...nums) : 0
+        agg = Math.max(...nums)
         break
     }
     values.push(agg)

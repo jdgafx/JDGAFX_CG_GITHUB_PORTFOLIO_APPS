@@ -89,3 +89,13 @@ describe('diffPlans: implicit order', () => {
     expect(diffPlans(plain, { ...plain, chartType: 'line' }).map((change) => change.text)).toEqual(['Chart changed: bar to line'])
   })
 })
+
+describe('the overall flag in a follow-up', () => {
+  it('says one total instead of grouping by region, when the follow-up asks for one total', () => {
+    expect(texts({ ...BASE, countColumn: 'rows' })).toEqual(['One total instead of grouping by region'])
+  })
+
+  it('says grouped by region instead of one total, when the follow-up splits the total into groups', () => {
+    expect(texts(BASE, { ...BASE, countColumn: 'rows' })).toEqual(['Grouped by region instead of one total'])
+  })
+})
