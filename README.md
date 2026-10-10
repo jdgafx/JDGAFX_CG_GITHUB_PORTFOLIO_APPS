@@ -1,18 +1,18 @@
-# AI Portfolio — 10 AI Applications
+# AI Portfolio — 13 AI Applications
 
 **[View the live portfolio →](https://jdgafx.github.io/JDGAFX_CG_GITHUB_PORTFOLIO_APPS/)**
 
-Ten independently deployed AI applications, each a standalone Vite project with its own
+Thirteen independently deployed AI applications, each a standalone Vite project with its own
 Netlify site and serverless API layer. The frontends are live; provider-backed task flows
 require the configured production provider account to have available credit.
 
 **Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · shared CSS design tokens · Netlify Functions v2 · OpenRouter (one fixed model per app; app-06 compares models)
 
-Chat and vision calls go from the server to OpenRouter. Each app asks OpenRouter for the newest
-Claude Haiku (the alias `~anthropic/claude-haiku-latest`) and shows the model OpenRouter answered with
-(currently `anthropic/claude-haiku-5.5`), except app-06 ModelArena, which compares models from the live
-OpenRouter catalogue. Speech-to-text (app-04, Deepgram) and browser sessions (app-10, Browserbase)
-use their own server-side keys. The browser never receives any key, and the served model is shown
+Chat and vision calls go from the server to OpenRouter. Each app sends the request id
+the `claude-haiku-latest` OpenRouter alias and shows the model that answered, labelled as served (today
+`anthropic/claude-haiku-5.5`), except app-06 ModelArena, which compares models from the live
+OpenRouter catalogue. Speech-to-text (app-04, Deepgram) uses its own server-side key, and app-10 runs headless Chromium
+(`@sparticuz/chromium`) inside its Netlify function. The browser never receives any key, and the served model is shown
 wherever the provider reports it.
 
 ---
@@ -25,7 +25,7 @@ wherever the provider reports it.
 Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer).
 Each agent's output appears when it finishes, delivered over server-sent events. Visual pipeline
 showing agent status, token counts, and elapsed time. Runs on one fixed OpenRouter model
-on the server: the newest Claude Haiku, answered by `anthropic/claude-haiku-5.5` today.
+on the server: request id the `claude-haiku-latest` OpenRouter alias, answered by `anthropic/claude-haiku-5.5` today.
 
 ### 2. DocMind — RAG Document Intelligence
 **[Live Demo](https://jdgafx-app-02-rag-document-intelligence.netlify.app)** · `app-02-rag-document-intelligence/`
@@ -50,8 +50,9 @@ A text input covers the no-microphone case.
 ### 5. DataPilot — AI Data Analyst
 **[Live Demo](https://jdgafx-app-05-ai-data-analyst.netlify.app)** · `app-05-ai-data-analyst/`
 
-Upload CSV data or use a sample dataset, then ask questions in natural language. The model
-generates a query plan that is executed client-side and rendered as interactive Recharts visualizations.
+Load a live feed (USGS earthquakes or Open-Meteo daily weather) or upload a CSV, then ask questions in natural
+language. The model sees only the column names and five rows and generates a query plan that is executed
+client-side and rendered as interactive Recharts visualizations.
 
 ### 6. ModelArena — Multi-Model LLM Playground
 **[Live Demo](https://jdgafx-app-06-llm-playground.netlify.app)** · `app-06-llm-playground/`
@@ -70,23 +71,42 @@ reuse finished stages.
 ### 8. VisionLab — Multimodal Vision AI
 **[Live Demo](https://jdgafx-app-08-vision-ai.netlify.app)** · `app-08-vision-ai/`
 
-Upload images for multimodal analysis on one fixed vision-capable model, the newest Claude Haiku (answered by `anthropic/claude-haiku-5.5` today). Supports scene description, object and
+Upload images for multimodal analysis on one fixed vision-capable model, request id the `claude-haiku-latest` OpenRouter alias (answered by `anthropic/claude-haiku-5.5` today). Supports scene description, object and
 composition breakdown, text extraction, and visual Q&A.
 
 ### 9. InsightHub — SaaS Analytics Dashboard
 **[Live Demo](https://jdgafx-app-09-ai-saas.netlify.app)** · `app-09-ai-saas/`
 
-SaaS analytics dashboard with Supabase authentication and seeded usage data — API calls,
-feature usage, error rates, and latency across a 30-day window rendered in interactive Recharts.
-The dashboard dataset is explicitly seeded for the visitor experience; AI insights stream from the
-configured model provider when that backend is available.
+Analytics dashboard for npm packages. Pick one to five packages and the browser loads their real daily
+downloads from the npm downloads API, with release history from the npm registry, rendered in interactive
+Recharts. A streamed model explanation of download spikes is checked against that evidence.
 
 ### 10. BrowseBot — Browser Task Planner
 **[Live Demo](https://jdgafx-app-10-browser-agent.netlify.app)** · `app-10-browser-agent/`
 
-AI-generated browser-task plans executed in a bounded Browserbase session against an explicit public-domain
+AI-generated browser-task plans executed in headless Chromium inside the Netlify function against an explicit public-domain
 allowlist. The UI streams observed URLs, page titles, page text, step events, planner model provenance,
 session evidence, and recoverable time, step, budget, and cancellation boundaries.
+
+### 11. GraphScout — LangGraph Research Agent
+**[Live Demo](https://jdgafx-app-11-langgraph-research-agent.netlify.app)** · `app-11-langgraph-research-agent/`
+
+Answers a factual question from Wikipedia with an agent loop, a draft and a critic, and lists its cited
+sources. You can rewind to the plan or the critic, edit it, and resume the run from that checkpoint.
+
+### 12. GraphGate — GitHub Issue Triage with Approval
+**[Live Demo](https://jdgafx-app-12-langgraph-approval-flow.netlify.app)** · `app-12-langgraph-approval-flow/`
+
+Triages live public GitHub issues. It looks for earlier duplicates and quotes the evidence, then proposes
+labels, a priority and a reply or "close as duplicate", and waits for a human to approve, edit or reject.
+Nothing is posted to GitHub.
+
+### 13. GraphSwarm — LangGraph Map-Reduce
+**[Live Demo](https://jdgafx-app-13-langgraph-map-reduce.netlify.app)** · `app-13-langgraph-map-reduce/`
+
+Splits a Wikipedia article or pasted text into chunks, extracts points from each in parallel and writes a
+summary that cites its chunks. A coverage map shows which chunks the summary uses, and missed chunks are
+re-run once.
 
 ---
 
@@ -116,6 +136,9 @@ JDGAFX_CG_GITHUB_PORTFOLIO_APPS/
 ├── app-08-vision-ai/
 ├── app-09-ai-saas/
 ├── app-10-browser-agent/
+├── app-11-langgraph-research-agent/
+├── app-12-langgraph-approval-flow/
+├── app-13-langgraph-map-reduce/
 ├── n8n-automations/         — enterprise n8n workflow portfolio (JSON + docs + evidence)
 ├── docs/index.html          — landing page served via GitHub Pages
 ├── .github/workflows/ci.yml — typecheck, lint, test and build for every app on push and PR
@@ -154,12 +177,8 @@ per site for production.
 
 | Variable | Required by | Purpose |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | all 10 apps | Server-side key for OpenRouter model calls. Never exposed to the browser. |
+| `OPENROUTER_API_KEY` | all 13 apps | Server-side key for OpenRouter model calls. Never exposed to the browser. |
 | `DEEPGRAM_API_KEY` | app-04 | Server-side Deepgram `nova-3` speech-to-text key. Never exposed to the browser. |
-| `BROWSERBASE_API_KEY` | app-10 | Server-side Browserbase key for bounded browser sessions. Never exposed to the browser. |
-| `BROWSERBASE_PROJECT_ID` | app-10 | Browserbase project that owns those sessions. |
-| `VITE_SUPABASE_URL` | app-09 | Supabase project URL for dashboard authentication. |
-| `VITE_SUPABASE_ANON_KEY` | app-09 | Supabase anonymous key, safe for client-side use. |
 
 ## Quality checks
 
@@ -175,7 +194,7 @@ npm test                        # Vitest: unit tests for the core logic plus a s
 npm run build
 ```
 
-The GitHub Actions workflow in `.github/workflows/ci.yml` runs all four for each of the ten apps on
+The GitHub Actions workflow in `.github/workflows/ci.yml` runs all four for each of the 13 apps on
 every push to `main` and on every pull request.
 
 `test-all-apps.sh` is the live smoke suite. It drives every deployed app's frontend and function
