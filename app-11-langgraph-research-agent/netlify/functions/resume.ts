@@ -3,6 +3,7 @@ import { SERVER_ERROR } from '../shared/errors'
 import { resumeResearch } from '../shared/graph/stream'
 import { isRecord } from '../shared/json'
 import { chat } from '../shared/openrouter'
+import { livePriceBook } from '../shared/pricing'
 import { fail, gate, streamRun } from '../shared/serve'
 import { liveWiki } from '../shared/wikipedia'
 
@@ -22,7 +23,8 @@ export default async (req: Request): Promise<Response> => {
     if (!rewind.ok) return fail(rewind.message, 400, headers)
 
     return streamRun(
-      (signal, deadline, emit) => resumeResearch(snapshot, rewind.value, { chat, wiki: liveWiki, signal, deadline }, emit),
+      (signal, deadline, emit) =>
+        resumeResearch(snapshot, rewind.value, { chat, wiki: liveWiki, signal, deadline, priceBook: livePriceBook() }, emit),
       headers,
     )
   } catch (err) {

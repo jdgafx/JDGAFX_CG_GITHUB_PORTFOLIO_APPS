@@ -1,6 +1,6 @@
 import { Annotation } from '@langchain/langgraph'
 import type { Evidence } from '../citations'
-import type { CostSource, EndingView, NodeName, NodeStatus, SourceView } from '../events'
+import type { EndingView, NodeName, NodeStatus, SourceView } from '../events'
 import type { ChatMessage, TokenUsage, ToolCall } from '../openrouter'
 
 /** The most tool rounds the agent may run before it must draft. */
@@ -26,7 +26,6 @@ export interface TraceRow {
   servedModel?: string | null
   usage?: TokenUsage
   cost?: number
-  costSource?: CostSource
   /** True when the visitor's edit stands in for what the step produced. */
   edited?: boolean
 }

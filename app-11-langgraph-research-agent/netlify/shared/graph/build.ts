@@ -1,8 +1,8 @@
 import { END, MemorySaver, START, StateGraph, type LangGraphRunnableConfig } from '@langchain/langgraph'
-import { costFor } from '../models'
 import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
 import type { NodeName } from '../events'
 import type { ChatFn } from '../openrouter'
+import { costFor, type PriceBook } from '../pricing'
 import type { WikiTools } from '../wikipedia'
 import {
   agentStep,
@@ -27,6 +27,11 @@ export interface GraphDeps {
   now?: () => number
   /** Signs the checkpoints a finished run offers. Without it a run offers none. */
   secret?: string
+  /**
+   * OpenRouter's price list, already being fetched when the run starts. A step waits for it only when it
+   * prices a model call. Without it, or when it resolves to null, no call has a price.
+   */
+  priceBook?: Promise<PriceBook | null>
 }
 
 /** Written to the custom stream while a node runs. */
@@ -46,7 +51,7 @@ export interface FailedChunk {
 
 export type CustomChunk = StartChunk | FailedChunk
 
-function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult): TraceRow {
+async function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult, priceBook: Promise<PriceBook | null>): Promise<TraceRow> {
   const detail = result.call?.retried ? `${result.detail} The first call timed out or could not connect, so it was tried once more.` : result.detail
   const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail }
   if (result.route) row.next = result.route.label
@@ -55,11 +60,9 @@ function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult): 
     row.model = model
     row.servedModel = reply.servedModel
     row.usage = reply.usage
-    const priced = costFor(reply.servedModel ?? model, reply.usage)
-    if (priced) {
-      row.cost = priced.cost
-      row.costSource = priced.source
-    }
+    // The price is the list price of the model that answered, never of the one asked for.
+    const cost = costFor(await priceBook, reply.servedModel, reply.usage)
+    if (cost !== null) row.cost = cost
   }
   return row
 }
@@ -86,6 +89,7 @@ function routeAfter(state: ResearchValues): Target {
  */
 export function buildGraph(deps: GraphDeps) {
   const origin = Date.now()
+  const priceBook = deps.priceBook ?? Promise.resolve(null)
 
   const wrap =
     (name: NodeName, run: (state: ResearchValues, ctx: NodeContext) => NodeResult | Promise<NodeResult>) =>
@@ -96,7 +100,7 @@ export function buildGraph(deps: GraphDeps) {
       const began = Date.now()
       try {
         const result = await run(state, deps)
-        const row = rowFor(name, visit, Date.now() - began, result)
+        const row = await rowFor(name, visit, Date.now() - began, result, priceBook)
         return { ...result.update, route: result.route ?? null, trace: [row] }
       } catch (err) {
         write({ kind: 'failed', row: failedRow(name, visit, Date.now() - began, err) } satisfies FailedChunk)

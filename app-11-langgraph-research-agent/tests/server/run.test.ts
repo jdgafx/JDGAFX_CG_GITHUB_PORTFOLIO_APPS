@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RUN_BUDGET_MS } from '../../netlify/functions/run'
 import type { Frame, NodeEndFrame } from '../../netlify/shared/events'
 import { NODE_MODEL } from '../../netlify/shared/models'
+import { MODEL_LIST_URL } from '../../netlify/shared/pricing'
 import { roleOf } from '../helpers/roles'
 
-// Smoke tests for netlify/functions/run.ts. Both upstreams are stubbed: every fetch is
-// replaced before the handler runs, and the key is a placeholder for the test only.
+// Smoke tests for netlify/functions/run.ts. Every upstream is stubbed: every fetch is replaced before the
+// handler runs, and the key is a placeholder for the test only. The model list is a recorded copy of
+// OpenRouter's public list (tests/fixtures/openrouter-models.json), used here and never shown to a visitor.
 
 type Handler = (req: Request) => Promise<Response>
 
@@ -33,16 +35,21 @@ const pageFixture: unknown = JSON.parse(
   readFileSync(new URL('../fixtures/wikipedia-page.json', import.meta.url), 'utf8'),
 ) as unknown
 
+const modelList: unknown = JSON.parse(
+  readFileSync(new URL('../fixtures/openrouter-models.json', import.meta.url), 'utf8'),
+) as unknown
+
+const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
 const originalKey = process.env.OPENROUTER_API_KEY
 let handler: Handler
 let ipCounter = 0
 
-beforeAll(async () => {
-  handler = (await import('../../netlify/functions/run')).default
-})
-
-beforeEach(() => {
+beforeEach(async () => {
   process.env.OPENROUTER_API_KEY = PLACEHOLDER_KEY
+  // The handler keeps the price list for an hour. A fresh module per test gives each run an empty cache.
+  vi.resetModules()
+  handler = (await import('../../netlify/functions/run')).default
 })
 
 afterEach(() => {
@@ -74,6 +81,7 @@ function modelReply(content: string | null, toolCalls?: unknown[]): Response {
         finish_reason: toolCalls ? 'tool_calls' : 'stop',
       },
     ],
+    // OpenRouter's own charge is on every reply. The page prices tokens at the listed rate instead, so this is not used.
     usage: { prompt_tokens: 120, completion_tokens: 60, total_tokens: 180, cost: 0.0001 },
   })
 }
@@ -104,9 +112,11 @@ function sampleOpenRouter(): (body: SentBody) => Response {
 function stubUpstreams(
   openrouter: (body: SentBody) => Response | Promise<Response>,
   wikipedia: () => Response | Promise<Response> = () => Response.json(pageFixture),
+  list: () => Response | Promise<Response> = () => Response.json(modelList),
 ) {
   const fetchStub = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
+    if (url === MODEL_LIST_URL) return list()
     if (url.startsWith('https://openrouter.ai/')) return openrouter(JSON.parse(String(init?.body)) as SentBody)
     if (url.startsWith('https://en.wikipedia.org/')) return wikipedia()
     throw new Error(`Unexpected upstream call to ${url}`)
@@ -114,6 +124,10 @@ function stubUpstreams(
   vi.stubGlobal('fetch', fetchStub)
   return fetchStub
 }
+
+/** Every call except the one for the price list, which each run makes once. */
+const upstreamCalls = (stub: { mock: { calls: Array<[string | URL | Request, RequestInit?]> } }) =>
+  stub.mock.calls.filter(([url]) => String(url) !== MODEL_LIST_URL)
 
 async function readStream(response: Response): Promise<{ frames: Frame[]; lastRecord: string }> {
   const text = await response.text()
@@ -141,7 +155,8 @@ describe('POST /api/run', () => {
 
     const ends = frames.filter((frame): frame is NodeEndFrame => frame.type === 'node_end')
     expect(ends.map((end) => end.status)).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok'])
-    expect(ends[0]).toMatchObject({ node: 'plan', model: NODE_MODEL, servedModel: 'anthropic/claude-haiku-5.5', cost: 0.0001 })
+    // 120 prompt tokens at $0.10 per 1M plus 60 completion tokens at $0.50 per 1M, the rates in the recorded list.
+    expect(ends[0]).toMatchObject({ node: 'plan', model: NODE_MODEL, servedModel: 'anthropic/claude-haiku-5.5', cost: 0.000042 })
 
     expect(frames.flatMap((frame) => (frame.type === 'edge' ? [frame.label] : []))).toEqual([
       'tools (round 1 of 4)',
@@ -159,14 +174,20 @@ describe('POST /api/run', () => {
       path: starts,
       critic: { verdict: 'accept', reviewed: true },
       truncated: false,
-      // Every model call in the sample run reports a cost, so no row is left unpriced.
-      totals: { unpricedRows: 0 },
+      // Every model call in the run is priced from the list, so no row is left unpriced: 5 calls at 0.000042.
+      totals: { unpricedRows: 0, cost: 0.00021 },
+      models: ['anthropic/claude-haiku-5.5'],
     })
 
+    // The price list is fetched once, without a key.
+    const listCalls = fetchStub.mock.calls.filter(([url]) => String(url) === MODEL_LIST_URL)
+    expect(listCalls).toHaveLength(1)
+    expect(JSON.stringify(listCalls[0]?.[1] ?? {})).not.toContain('Authorization')
+
     // Five model calls and one page read. The first model call is the plan, sent with the agreed limits.
-    expect(fetchStub).toHaveBeenCalledTimes(6)
-    const [planUrl, planInit] = fetchStub.mock.calls[0] ?? []
-    expect(planUrl).toBe('https://openrouter.ai/api/v1/chat/completions')
+    expect(upstreamCalls(fetchStub)).toHaveLength(6)
+    const [planUrl, planInit] = upstreamCalls(fetchStub)[0] ?? []
+    expect(planUrl).toBe(CHAT_URL)
     expect(planInit?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
     expect(JSON.parse(String(planInit?.body)) as SentBody).toMatchObject({
       model: NODE_MODEL,
@@ -177,7 +198,7 @@ describe('POST /api/run', () => {
 
     // Every model request carries reasoning: off, so the output cap goes to the reply.
     const modelBodies = fetchStub.mock.calls
-      .filter(([url]) => String(url).startsWith('https://openrouter.ai/'))
+      .filter(([url]) => String(url) === CHAT_URL)
       .map(([, init]) => JSON.parse(String(init?.body)) as SentBody)
     expect(modelBodies).toHaveLength(5)
     for (const body of modelBodies) expect(body.reasoning).toEqual({ enabled: false })
@@ -187,6 +208,25 @@ describe('POST /api/run', () => {
       expect(body.model).toBe('~anthropic/claude-haiku-latest')
       expect('temperature' in body).toBe(false)
     }
+  })
+
+  it('shows the tokens and no price when the price list cannot be fetched, and never falls back to a table', async () => {
+    stubUpstreams(sampleOpenRouter(), undefined, () => new Response('unavailable', { status: 503 }))
+
+    const { frames, lastRecord } = await readStream(await handler(post({ question: SAMPLE })))
+
+    expect(lastRecord).toBe('data: [DONE]')
+    const ends = frames.filter((frame): frame is NodeEndFrame => frame.type === 'node_end')
+    const modelRows = ends.filter((end) => end.model !== undefined)
+    expect(modelRows).toHaveLength(5)
+    for (const end of modelRows) {
+      expect(end.servedModel).toBe('anthropic/claude-haiku-5.5')
+      expect(end.usage).toEqual({ prompt_tokens: 120, completion_tokens: 60, total_tokens: 180 })
+      expect(end.cost).toBeUndefined()
+    }
+    const result = frames.find((frame) => frame.type === 'result')
+    expect(result).toMatchObject({ totals: { tokens: 900, unpricedRows: 5 }, models: ['anthropic/claude-haiku-5.5'] })
+    expect(result && 'totals' in result ? result.totals.cost : 0).toBeUndefined()
   })
 
   it('answers a GET with 405 and makes no upstream call', async () => {
@@ -254,7 +294,7 @@ describe('POST /api/run', () => {
       { type: 'error', message: PROVIDER_REJECTED },
     ])
     expect(JSON.stringify(frames)).not.toContain('billing detail')
-    expect(fetchStub).toHaveBeenCalledTimes(1)
+    expect(upstreamCalls(fetchStub)).toHaveLength(1)
   })
 
   it('maps a provider 500 to the slow-provider message in an error frame', async () => {
@@ -290,7 +330,7 @@ describe('POST /api/run', () => {
     expect(JSON.stringify(frames)).not.toContain('internal provider detail')
     expect(JSON.stringify(frames)).not.toContain('AggregateError')
     // Plan, agent, page read, agent, then the failing draft.
-    expect(fetchStub).toHaveBeenCalledTimes(5)
+    expect(upstreamCalls(fetchStub)).toHaveLength(5)
   })
 
   it('maps a timed-out provider call to the slow-provider message', async () => {
@@ -312,6 +352,10 @@ describe('POST /api/run', () => {
           new Promise<Response>((resolve, reject) => {
             if (String(input).startsWith('https://en.wikipedia.org/')) {
               resolve(Response.json(pageFixture))
+              return
+            }
+            if (String(input) === MODEL_LIST_URL) {
+              resolve(Response.json(modelList))
               return
             }
             const timer = setTimeout(() => resolve(answers(JSON.parse(String(init?.body)) as SentBody)), 9_000)

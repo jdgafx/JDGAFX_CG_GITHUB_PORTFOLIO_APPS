@@ -36,7 +36,7 @@ flowchart TD
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
 - **out of time** edges (agent to draft, critic to final) are taken when the time left is below what the next step needs. The node detail says how many seconds were left, for example "Time left 6 s: no more searches. Drafting with what has been read." A skipped review leaves the answer labelled "Unreviewed: the time limit ended the review."
 
-Every node requests one model, the OpenRouter alias `~anthropic/claude-haiku-latest`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. The trace shows the model OpenRouter answered with (currently `anthropic/claude-haiku-5.5`), never the alias. The list price (keyed by both ids) is $0.10 in and $0.50 out per 1M tokens, checked on 2026-10-09. Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
+Every node requests one model, the OpenRouter alias `~anthropic/claude-haiku-latest`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. The trace shows the model OpenRouter answered with (the `model` field of each reply), never the alias. The app holds no price table: prices come from OpenRouter at run time (see Cost). Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
 
 | Node | What it does | Reply cap | p50 / p95 (ms) |
 | --- | --- | --- | --- |
@@ -60,7 +60,7 @@ A tool that fails, times out or finds nothing adds no source. The loop carries o
 - **Examples**: a quick lookup (Lisbon's World Exposition), a question that follows a link from one page to the next (the novel behind Blade Runner), a comparison of two pages with a sum (the Eiffel Tower and the Empire State Building), and a three-part question about one person (the first woman to win a Nobel Prize). Each has an answer on English Wikipedia. The path a run takes is decided by the models at run time, so an example may take another path.
 - **Graph**: each box shows its state as a dot and a word, and the running step pulses. Each arrow the run took turns signal colour. The two loops show their bounds before a run and their counts during it.
 - **Run totals**: total time, total tokens, total cost, and the models used.
-- **Cost**: a cost OpenRouter reports is shown as reported. Otherwise the cost is estimated from the list prices and labelled as estimated. A value that cannot be known shows as not reported. If some model calls have no price, the total is labelled partial and says how many.
+- **Cost**: tokens times the price OpenRouter lists for the model that answered. The server fetches OpenRouter's public model list (`GET https://openrouter.ai/api/v1/models`, no key), keeps it in memory for about an hour, and reads `pricing.prompt` and `pricing.completion` (USD per token) for the `model` field of each reply (`netlify/shared/pricing.ts`). The page says the price is from OpenRouter and names that model. A reply with no `model` field shows its tokens and "served model not reported"; a list that cannot be fetched, or has no price for the model, shows the tokens and "price unavailable". There is no fallback price table. If some model calls have no price, the total is labelled partial and says how many. The cost OpenRouter reports on each reply is not shown.
 - **Answer**: the cited answer, the critic's verdict and issues, and the sources as numbered links. If the draft hit its length limit, the answer carries a notice that it was cut short. If the run ended early, a notice says how far the review got: "Unreviewed: the time limit ended the review.", "Reviewed once: the critic asked for changes, but the time limit ended the revision. This is the reviewed draft.", or, with no draft, "No answer was written" and the pages read.
 - **Run trace**: one numbered row per node visit, with its status, time in milliseconds, the served model, tokens, and cost.
 
@@ -104,7 +104,7 @@ https://jdgafx-app-11-langgraph-research-agent.netlify.app
 
 - `run_start`: `runId`, the first frame of every run.
 - `node_start`: `node`, `visit`, `ms` (offset from the start of the run).
-- `node_end`: `node`, `visit`, `ms` (duration), `status` (`ok`, `failed` or `skipped`), `detail`, and when a model was called, `model`, `servedModel`, `usage`, `cost`, `costSource`.
+- `node_end`: `node`, `visit`, `ms` (duration), `status` (`ok`, `failed` or `skipped`), `detail`, and when a model was called, `model`, `servedModel`, `usage`, and `cost` when the price could be had.
 - `edge`: `from`, `to`, `label`.
 - `result`: `answer`, `sources`, `critic`, `ending`, `path`, `evidenceCount`, `toolRounds`, `revisions`, `truncated`, `totals`, `models`. `ending` is `{ kind, message }`: `complete`, `partial` (the last draft of a run that stopped early or skipped a step for time) or `no_answer` (`answer` is empty and `sources` lists the pages read).
 - `checkpoints`: `items`, sent after the result of a fresh run: each has `kind` (`plan` or `critic`), `visit`, a signed `token`, and the fields to show (`queries`, `draft`, `sources`).

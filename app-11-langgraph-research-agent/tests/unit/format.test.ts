@@ -1,21 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { costHint, plainModel, shortModel } from '../../src/lib/format'
+import { costHint, noCostText, plainModel, shortModel } from '../../src/lib/format'
 
 describe('costHint', () => {
-  it('says where a complete total came from', () => {
-    expect(costHint({ cost: 0.5, costSource: 'usage', unpricedRows: 0 })).toBe('reported by OpenRouter')
-    expect(costHint({ cost: 0.5, costSource: 'estimated', unpricedRows: 0 })).toBe('estimated from list prices')
-  })
+  const served = ['anthropic/claude-haiku-5.5']
 
-  it('labels a total built from some calls as partial, with the count of unpriced rows', () => {
-    expect(costHint({ cost: 0.5, costSource: 'usage', unpricedRows: 1 })).toBe('partial (1 row without a price)')
-    expect(costHint({ cost: 0.5, costSource: 'estimated', unpricedRows: 2 })).toBe(
-      'partial (2 rows without a price)',
+  it('says the price comes from OpenRouter and names the model that answered', () => {
+    expect(costHint({ cost: 0.5, unpricedRows: 0 }, served)).toBe('OpenRouter price for anthropic/claude-haiku-5.5')
+    expect(costHint({ cost: 0.5, unpricedRows: 0 }, ['anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-4.5'])).toBe(
+      'OpenRouter price for anthropic/claude-haiku-5.5, anthropic/claude-haiku-4.5',
     )
   })
 
-  it('says no model call has a price when there is no total', () => {
-    expect(costHint({ unpricedRows: 3 })).toBe('no model call has a price')
+  it('labels a total built from some calls as partial, with the count of unpriced rows', () => {
+    expect(costHint({ cost: 0.5, unpricedRows: 1 }, served)).toBe(
+      'partial (1 row without a price), OpenRouter price for anthropic/claude-haiku-5.5',
+    )
+    expect(costHint({ cost: 0.5, unpricedRows: 2 }, served)).toBe(
+      'partial (2 rows without a price), OpenRouter price for anthropic/claude-haiku-5.5',
+    )
+  })
+
+  it('says only that there is no price when there is no total', () => {
+    expect(costHint({ unpricedRows: 3 }, served)).toBe('tokens shown, no price')
+  })
+})
+
+describe('noCostText', () => {
+  it('says the served model was not reported when the replies named none', () => {
+    expect(noCostText([])).toBe('served model not reported')
+  })
+
+  it('says the price is unavailable when a model answered but OpenRouter gave no price for it', () => {
+    expect(noCostText(['anthropic/claude-haiku-5.5'])).toBe('price unavailable')
   })
 })
 

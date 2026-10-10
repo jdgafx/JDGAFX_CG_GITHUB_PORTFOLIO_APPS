@@ -4,7 +4,6 @@
  */
 export type NodeName = 'plan' | 'agent' | 'tools' | 'draft' | 'critic' | 'final'
 export type NodeStatus = 'ok' | 'failed' | 'skipped'
-export type CostSource = 'usage' | 'estimated'
 
 export interface FrameUsage {
   prompt_tokens?: number
@@ -38,8 +37,8 @@ export interface EndingView {
 export interface Totals {
   ms: number
   tokens?: number
+  /** Tokens times the price OpenRouter lists for the model that answered. Absent when no call could be priced. */
   cost?: number
-  costSource?: CostSource
   /** Model calls with no price. When this is above zero, `cost` covers only part of the run. */
   unpricedRows: number
 }
@@ -57,8 +56,8 @@ export interface NodeEndFrame {
   /** The model OpenRouter says served the reply, or null when it named none. */
   servedModel?: string | null
   usage?: FrameUsage
+  /** Tokens times the OpenRouter list price of `servedModel`. Absent when the reply named no model or the price could not be had. */
   cost?: number
-  costSource?: CostSource
   /** True for a step a resumed run did not run again: the row is the original run's, with its original time. */
   reused?: boolean
   /** True when the visitor's edit stands in for what the step produced. */

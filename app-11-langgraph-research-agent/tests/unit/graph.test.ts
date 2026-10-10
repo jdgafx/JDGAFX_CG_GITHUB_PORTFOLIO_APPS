@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import type { Frame, NodeEndFrame, ResultFrame } from '../../netlify/shared/events'
-import { NODE_MODEL } from '../../netlify/shared/models'
+import { fixturePriceBook } from '../helpers/priceBook'
 import { roleOf } from '../helpers/roles'
+import type { PriceBook } from '../../netlify/shared/pricing'
 import { ProviderError, type ChatFn, type ChatReply, type ChatRequest, type ToolCall } from '../../netlify/shared/openrouter'
 import { runResearch } from '../../netlify/shared/graph/stream'
 import { WikiError, type PageText, type WikiTools } from '../../netlify/shared/wikipedia'
 
 // The graph runs for real. Only the model layer and Wikipedia are replaced, so no test
 // reaches the network. Each test scripts the replies the agent, draft and critic return.
+
+/** The model that answers in these tests, as it is named in the recorded price list. */
+const SERVED = 'anthropic/claude-haiku-5.5'
+/** One scripted call of 100 prompt and 40 completion tokens at the listed $0.10 and $0.50 per 1M tokens. */
+const CALL_COST = 0.00003
+/** The five model calls of a run with one tool round and no revision, and the four that remain when one is unpriced. */
+const RUN_COST = 0.00015
+const RUN_COST_WITHOUT_DRAFT = 0.00012
 
 const QUESTION = 'In what year did Lisbon host a World Exposition, and what was its theme?'
 const EXPO_URL = "https://en.wikipedia.org/wiki/Expo_'98"
@@ -48,6 +57,8 @@ interface Script {
   draftFinish?: string
   /** When true, draft replies carry no usage, so their cost cannot be priced. */
   unpricedDraft?: boolean
+  /** The model field of every reply. Null leaves it out, as a provider can. */
+  servedModel?: string | null
 }
 
 const readPage = (id: string, title: string): ToolCall => ({
@@ -77,7 +88,7 @@ function scriptedChat(script: Script) {
   const chat: ChatFn = async (request) => {
     calls.push(request)
     const usage = { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 }
-    const base = { finishReason: 'stop', servedModel: request.model, usage }
+    const base = { finishReason: 'stop', servedModel: script.servedModel === undefined ? SERVED : script.servedModel, usage }
     const role = roleOf(request)
     if (role === 'plan') {
       return { ...base, text: script.plan ?? '{"queries": ["Expo 98 Lisbon"]}', toolCalls: [] } satisfies ChatReply
@@ -100,11 +111,14 @@ function scriptedChat(script: Script) {
   return { chat, calls }
 }
 
-async function run(script: Script, wiki: WikiTools = fakeWiki()) {
+/** `priceBook` is the list the run prices from. Null stands for a list that could not be fetched. */
+async function run(script: Script, wiki: WikiTools = fakeWiki(), priceBook: PriceBook | null = fixturePriceBook()) {
   const model = scriptedChat(script)
   const frames: Frame[] = []
-  await runResearch(QUESTION, { chat: model.chat, wiki, signal: new AbortController().signal }, (frame) =>
-    frames.push(frame),
+  await runResearch(
+    QUESTION,
+    { chat: model.chat, wiki, signal: new AbortController().signal, priceBook: Promise.resolve(priceBook) },
+    (frame) => frames.push(frame),
   )
   return {
     frames,
@@ -135,11 +149,12 @@ describe('graph: the path taken', () => {
       toolRounds: 1,
       revisions: 0,
       path: out.path,
-      models: [NODE_MODEL],
+      models: [SERVED],
       critic: { verdict: 'accept', reviewed: true, notes: 'Every claim matches source [1].' },
       truncated: false,
     })
     expect(out.result?.totals.tokens).toBe(5 * 140)
+    expect(out.result?.totals).toMatchObject({ cost: RUN_COST, unpricedRows: 0 })
     expect(out.errors).toEqual([])
     // No call sends a temperature, which Haiku 5.5 rejects.
     expect(out.calls.every((call) => !('temperature' in call))).toBe(true)
@@ -355,18 +370,60 @@ describe('graph: the path taken', () => {
     )
   })
 
-  it('(j) a model call with no price is counted, so the total is labelled partial', async () => {
-    const out = await run({
-      agent: [{ tools: [readPage('j1', "Expo '98")] }, { text: 'Enough sources.' }],
-      draft: [DRAFT_CITED],
-      critic: ['{"verdict": "accept", "notes": ""}'],
-      unpricedDraft: true,
-    })
+  const PRICED_RUN: Script = {
+    agent: [{ tools: [readPage('j1', "Expo '98")] }, { text: 'Enough sources.' }],
+    draft: [DRAFT_CITED],
+    critic: ['{"verdict": "accept", "notes": ""}'],
+  }
+  const modelRows = (ends: NodeEndFrame[]) => ends.filter((end) => end.model !== undefined)
 
+  it('(j) every model call is priced from the list price of the model that answered', async () => {
+    const out = await run(PRICED_RUN)
+
+    expect(modelRows(out.ends)).toHaveLength(5)
+    for (const end of modelRows(out.ends)) expect(end).toMatchObject({ servedModel: SERVED, cost: CALL_COST })
+    // The tool and final rows made no model call, so they carry no price and are not counted as unpriced.
+    expect(out.ends.filter((end) => end.model === undefined).every((end) => end.cost === undefined)).toBe(true)
+    expect(out.result?.totals).toMatchObject({ cost: RUN_COST, tokens: 5 * 140, unpricedRows: 0 })
+  })
+
+  it('(j2) a price follows the model named in the reply, not the one asked for', async () => {
+    const out = await run({ ...PRICED_RUN, servedModel: 'anthropic/claude-haiku-4.5' })
+
+    // 100 prompt tokens at $1 per 1M plus 40 completion tokens at $5 per 1M.
+    for (const end of modelRows(out.ends)) expect(end).toMatchObject({ servedModel: 'anthropic/claude-haiku-4.5', cost: 0.0003 })
+    expect(out.result?.models).toEqual(['anthropic/claude-haiku-4.5'])
+  })
+
+  it('(j3) a reply with no model field shows its tokens and no price', async () => {
+    const out = await run({ ...PRICED_RUN, servedModel: null })
+
+    for (const end of modelRows(out.ends)) {
+      expect(end.usage).toMatchObject({ total_tokens: 140 })
+      expect(end.cost).toBeUndefined()
+    }
+    expect(out.result?.models).toEqual([])
+    expect(out.result?.totals).toMatchObject({ tokens: 5 * 140, unpricedRows: 5 })
+    expect(out.result?.totals.cost).toBeUndefined()
+    expect(out.errors).toEqual([])
+  })
+
+  it('(j4) a price list that could not be fetched leaves the tokens and no price, with no fallback', async () => {
+    const out = await run(PRICED_RUN, fakeWiki(), null)
+
+    for (const end of modelRows(out.ends)) expect(end).toMatchObject({ servedModel: SERVED, cost: undefined })
+    expect(out.result?.totals).toMatchObject({ tokens: 5 * 140, unpricedRows: 5 })
+    expect(out.result?.totals.cost).toBeUndefined()
+    expect(out.result?.answer).toBe(DRAFT_CITED)
+  })
+
+  it('(j5) a model the list does not carry has no price, and neither does a call without token counts', async () => {
+    expect(modelRows((await run({ ...PRICED_RUN, servedModel: 'some/unlisted-model' })).ends).every((end) => end.cost === undefined)).toBe(true)
+
+    const out = await run({ ...PRICED_RUN, unpricedDraft: true })
     expect(out.ends.find((end) => end.node === 'draft')?.cost).toBeUndefined()
-    // Only the draft call lacks a price. The tool and final rows made no model call, so they are not counted.
-    expect(out.result?.totals).toMatchObject({ unpricedRows: 1, costSource: 'estimated' })
-    expect(out.result?.totals.cost).toBeGreaterThan(0)
+    // Only the draft call lacks a price, so the total covers four calls and is labelled partial.
+    expect(out.result?.totals).toMatchObject({ unpricedRows: 1, cost: RUN_COST_WITHOUT_DRAFT })
   })
 
   it('(k) a provider error wrapped in an AggregateError inside the draft reaches the client as the plain message', async () => {

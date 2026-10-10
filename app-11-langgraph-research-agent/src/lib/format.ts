@@ -1,4 +1,4 @@
-import type { CostSource, Totals } from '../../netlify/shared/events'
+import type { Totals } from '../../netlify/shared/events'
 
 export const count = (value: number): string => value.toLocaleString('en-US')
 
@@ -18,20 +18,20 @@ export const shortModel = (id: string): string => {
 
 export const plural = (value: number, word: string): string => `${value} ${word}${value === 1 ? '' : 's'}`
 
-/** Where a cost came from, in words for the trace and the metrics. */
-export const costSourceText: Record<CostSource, string> = {
-  usage: 'reported by OpenRouter',
-  estimated: 'estimated from list prices',
-}
+/** Why a run has no cost, from the models its replies named: none was named, or OpenRouter lists no price for the ones that were. */
+export const noCostText = (models: readonly string[]): string =>
+  models.length === 0 ? 'served model not reported' : 'price unavailable'
 
 /**
- * The hint under the total cost. A total built from only some calls is labelled partial and
- * says how many model calls have no price, so a partial sum is never read as the whole cost.
+ * The hint under the total cost. It says the price comes from OpenRouter and names the model that answered.
+ * A total built from only some calls is labelled partial and says how many model calls have no price, so a
+ * partial sum is never read as the whole cost.
  */
-export function costHint(totals: Pick<Totals, 'cost' | 'costSource' | 'unpricedRows'>): string {
-  if (totals.cost === undefined) return 'no model call has a price'
+export function costHint(totals: Pick<Totals, 'cost' | 'unpricedRows'>, models: readonly string[]): string {
+  if (totals.cost === undefined) return 'tokens shown, no price'
+  const source = `OpenRouter price for ${models.map(plainModel).join(', ')}`
   if (totals.unpricedRows > 0) {
-    return `partial (${totals.unpricedRows} ${totals.unpricedRows === 1 ? 'row' : 'rows'} without a price)`
+    return `partial (${totals.unpricedRows} ${totals.unpricedRows === 1 ? 'row' : 'rows'} without a price), ${source}`
   }
-  return totals.costSource ? costSourceText[totals.costSource] : 'no model call has a price'
+  return source
 }

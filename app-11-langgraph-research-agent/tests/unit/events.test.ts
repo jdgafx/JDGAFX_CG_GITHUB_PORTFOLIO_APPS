@@ -26,7 +26,6 @@ describe('encodeFrame', () => {
       servedModel: 'anthropic/claude-haiku-test',
       usage: { prompt_tokens: 900, completion_tokens: 40, total_tokens: 940 },
       cost: 0.000111,
-      costSource: 'usage',
     }
     const text = encodeFrame(frame)
     expect(text.startsWith('data: ')).toBe(true)

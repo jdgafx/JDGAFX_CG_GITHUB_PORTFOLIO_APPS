@@ -12,6 +12,7 @@ const run = vi.hoisted(() => ({
     emit: (frame: Frame) => void,
   ) => Promise<void>,
 }))
+vi.mock('../../netlify/shared/pricing', () => ({ livePriceBook: () => Promise.resolve(null) }))
 vi.mock('../../netlify/shared/graph/stream', () => ({
   runResearch: (question: string, deps: unknown, emit: (frame: Frame) => void) => run.impl(question, deps, emit),
 }))

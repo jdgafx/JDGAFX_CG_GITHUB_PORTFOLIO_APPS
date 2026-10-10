@@ -25,7 +25,6 @@ describe('run view', () => {
       servedModel: 'xiaomi/mimo-v2.6-flash',
       usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 },
       cost: 0.00002,
-      costSource: 'usage',
     })
     expect(view.marks.plan).toBe('ok')
     expect(view.active).toBeNull()
@@ -41,7 +40,6 @@ describe('run view', () => {
         servedModel: 'xiaomi/mimo-v2.6-flash',
         usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 },
         cost: 0.00002,
-        costSource: 'usage',
       },
     ])
   })

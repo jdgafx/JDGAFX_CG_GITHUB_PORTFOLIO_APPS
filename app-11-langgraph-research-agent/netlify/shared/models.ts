@@ -1,15 +1,9 @@
-import type { CostSource } from './events'
-import type { TokenUsage } from './openrouter'
-
 /**
  * The one model every node uses, requested as the OpenRouter alias for the newest Claude Haiku. OpenRouter
- * answers with a concrete id (SERVED_MODEL today), and the page shows that id, never the alias.
- * Haiku 5.5 rejects a temperature, so no call sends one.
+ * answers with a concrete id, and the page shows that id, never the alias. The price is read from OpenRouter
+ * for that id (pricing.ts). Haiku 5.5 rejects a temperature, so no call sends one.
  */
 export const NODE_MODEL = '~anthropic/claude-haiku-latest'
-
-/** The concrete model OpenRouter answered with when this was written. Its list price is the one below. */
-export const SERVED_MODEL = 'anthropic/claude-haiku-5.5'
 
 export const MAX_TOKENS = { plan: 400, agent: 800, draft: 1200, critic: 400 } as const
 
@@ -21,45 +15,5 @@ export const MAX_TOKENS = { plan: 400, agent: 800, draft: 1200, critic: 400 } as
  */
 export const STEP_NEEDS_MS = { plan: 4_000, agent: 3_000, tools: 1_500, draft: 4_000, critic: 3_500 } as const
 
-interface ListPrice {
-  inPerMillion: number
-  outPerMillion: number
-}
-
-/** The older Haiku the alias has also been answered by (seen on 2026-10-10). */
-const SERVED_MODEL_OLDER = 'anthropic/claude-haiku-4.5'
-
-/**
- * OpenRouter list prices (GET /api/v1/models, checked 2026-10-10), keyed by the ids that answer and, as a
- * fallback, the alias that is requested. Haiku 5.5 is $0.10 in and $0.50 out per million tokens; Haiku 4.5 is
- * $1 in and $5 out.
- */
-const LIST_PRICES: Record<string, ListPrice> = {
-  [NODE_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
-  [SERVED_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
-  [SERVED_MODEL_OLDER]: { inPerMillion: 1, outPerMillion: 5 },
-}
-
-/** Rounds away floating-point noise from summed or estimated costs. */
+/** Rounds away floating-point noise from costs and their sums. */
 export const round12 = (value: number) => Math.round(value * 1e12) / 1e12
-
-export interface CallCost {
-  cost: number
-  source: CostSource
-}
-
-/**
- * The cost of one call. A cost OpenRouter reported wins. Otherwise the cost is estimated
- * from the list price and labelled as an estimate. With no price or no token counts the
- * answer is null, so the app never shows a number it did not get or compute.
- */
-export function costFor(model: string, usage: TokenUsage): CallCost | null {
-  if (typeof usage.cost === 'number' && Number.isFinite(usage.cost)) {
-    return { cost: usage.cost, source: 'usage' }
-  }
-  const price = LIST_PRICES[model]
-  if (!price || usage.prompt_tokens === undefined || usage.completion_tokens === undefined) return null
-  const raw =
-    (usage.prompt_tokens * price.inPerMillion + usage.completion_tokens * price.outPerMillion) / 1_000_000
-  return { cost: round12(raw), source: 'estimated' }
-}

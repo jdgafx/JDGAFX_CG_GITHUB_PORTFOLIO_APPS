@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { costHint, count, milliseconds, plainModel, shortModel, usd } from '../lib/format'
+import { costHint, count, milliseconds, noCostText, plainModel, shortModel, usd } from '../lib/format'
 import type { RunView } from '../lib/runState'
 
 interface CellProps {
@@ -88,11 +88,15 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
               ? count(spentTokens)
               : none}
         </Cell>
-        <Cell label="Cost (USD)" hint={totals ? costHint(totals) : soFar ? sofarHint : 'Reported or estimated'}>
-          {totals
-            ? totals.cost === undefined
-              ? 'not reported'
-              : usd(totals.cost)
+        <Cell
+          label="Cost (USD)"
+          hint={result ? costHint(result.totals, result.models) : soFar ? sofarHint : 'Priced by OpenRouter'}
+          mono={!result || result.totals.cost !== undefined}
+        >
+          {result
+            ? result.totals.cost === undefined
+              ? noCostText(result.models)
+              : usd(result.totals.cost)
             : soFar && priced.length > 0
               ? usd(spentCost)
               : none}

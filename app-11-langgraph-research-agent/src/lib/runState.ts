@@ -1,6 +1,5 @@
 import type {
   CheckpointOffer,
-  CostSource,
   Frame,
   FrameUsage,
   NodeEndFrame,
@@ -28,7 +27,6 @@ export interface TraceEntry {
   servedModel?: string | null
   usage?: FrameUsage
   cost?: number
-  costSource?: CostSource
   /** A step a resumed run did not run again. Its time and cost are the original run's. */
   reused?: boolean
   /** A step the visitor's edit stands in for. */
@@ -78,8 +76,8 @@ export function startRun(): RunView {
 }
 
 function entryFor(frame: NodeEndFrame): TraceEntry {
-  const { node, visit, status, ms, detail, model, servedModel, usage, cost, costSource, reused, edited } = frame
-  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, costSource, reused, edited }
+  const { node, visit, status, ms, detail, model, servedModel, usage, cost, reused, edited } = frame
+  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, reused, edited }
 }
 
 function withEntry(trace: TraceEntry[], entry: TraceEntry): TraceEntry[] {

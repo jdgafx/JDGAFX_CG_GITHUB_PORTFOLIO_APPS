@@ -11,7 +11,7 @@ import type { ResearchValues, TraceRow } from './state'
 export const GRAPH_RECURSION_LIMIT = 30
 
 function nodeEnd(row: TraceRow): NodeEndFrame {
-  const { node, visit, ms, status, detail, model, servedModel, cost, costSource, usage } = row
+  const { node, visit, ms, status, detail, model, servedModel, cost, usage } = row
   // JSON drops the undefined fields, so a row without a model call sends none of them.
   return {
     type: 'node_end',
@@ -23,7 +23,6 @@ function nodeEnd(row: TraceRow): NodeEndFrame {
     model,
     servedModel,
     cost,
-    costSource,
     usage: usage && {
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
@@ -85,7 +84,6 @@ function totalsFor(rows: TraceRow[], ms: number): Totals {
   const priced = rows.filter((row) => row.cost !== undefined)
   if (priced.length > 0) {
     totals.cost = round12(priced.reduce((sum, row) => sum + (row.cost ?? 0), 0))
-    totals.costSource = priced.some((row) => row.costSource === 'estimated') ? 'estimated' : 'usage'
   }
   return totals
 }

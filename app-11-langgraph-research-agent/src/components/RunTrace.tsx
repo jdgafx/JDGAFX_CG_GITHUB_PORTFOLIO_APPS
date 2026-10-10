@@ -1,4 +1,4 @@
-import { costSourceText, count, milliseconds, shortModel, usd } from '../lib/format'
+import { count, milliseconds, plainModel, shortModel, usd } from '../lib/format'
 import type { CheckpointOffer } from '../../netlify/shared/events'
 import type { RunView, TraceEntry } from '../lib/runState'
 
@@ -24,9 +24,10 @@ function ModelChip({ entry }: { entry: TraceEntry }) {
   return null
 }
 
+/** The model chip already says when the reply named no model, so a row without a price says only why it has none. */
 function costLine(entry: TraceEntry): string {
-  if (entry.cost === undefined) return 'no cost reported'
-  return `${usd(entry.cost)}${entry.costSource === 'estimated' ? ' est.' : ''}`
+  if (entry.cost !== undefined) return usd(entry.cost)
+  return entry.servedModel ? 'price unavailable' : 'no price'
 }
 
 function rowClass(entry: TraceEntry): string {
@@ -78,7 +79,9 @@ function TraceRow({ index, entry, lane, rewind, onRewind }: TraceRowProps) {
         <span>{entry.edited ? 'set by you' : entry.ms === undefined ? '—' : entry.reused ? `${milliseconds(entry.ms)} (original)` : milliseconds(entry.ms)}</span>
         {tokens !== undefined && <span>{`${count(tokens)} tok`}</span>}
         {entry.model && (
-          <span title={entry.costSource ? costSourceText[entry.costSource] : undefined}>{costLine(entry)}</span>
+          <span title={entry.cost !== undefined && entry.servedModel ? `Tokens times the OpenRouter price for ${plainModel(entry.servedModel)}` : undefined}>
+            {costLine(entry)}
+          </span>
         )}
         <ModelChip entry={entry} />
       </div>
