@@ -14,7 +14,7 @@ interface SentBody {
 describe('chatBody', () => {
   it('sends the fixed model, a token cap, reasoning off and usage reporting', () => {
     const body = JSON.parse(chatBody('system text', 'user text')) as SentBody
-    expect(body.model).toBe('anthropic/claude-haiku-5.5')
+    expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body).not.toHaveProperty('temperature')
     expect(body.provider).toEqual({ require_parameters: true })
     expect(body.max_tokens).toBe(4096)

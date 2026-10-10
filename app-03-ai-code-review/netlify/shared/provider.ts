@@ -1,7 +1,7 @@
 import type { Usage } from '../../src/types'
 
 /** The one chat model this app uses. It is fixed here: the client cannot choose it and no env var changes it. */
-const MODEL = 'anthropic/claude-haiku-5.5'
+const MODEL = '~anthropic/claude-haiku-latest'
 
 /** Output ceiling for every review call, so a complete JSON reply has room to finish. */
 export const MAX_OUTPUT_TOKENS = 4096

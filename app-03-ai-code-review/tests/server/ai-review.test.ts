@@ -40,7 +40,7 @@ describe('ai function: a verified review', () => {
     expect(fetchStub).toHaveBeenCalledTimes(3)
     for (const call of [0, 1, 2]) {
       const sent = sentBody(call)
-      expect(sent).toMatchObject({ model: 'anthropic/claude-haiku-5.5', reasoning: { enabled: false }, usage: { include: true }, response_format: { type: 'json_object' } })
+      expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', reasoning: { enabled: false }, usage: { include: true }, response_format: { type: 'json_object' } })
       expect(sent).not.toHaveProperty('temperature')
       expect(fetchStub.mock.calls[call][0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     }

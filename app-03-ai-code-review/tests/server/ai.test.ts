@@ -77,7 +77,7 @@ describe('ai function: request checks', () => {
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     const res = await handler(post({ ...DIVIDE_BODY, model: 'openai/gpt-4o' }))
     expect(res.status).toBe(200)
-    expect(sentBody().model).toBe('anthropic/claude-haiku-5.5')
+    expect(sentBody().model).toBe('~anthropic/claude-haiku-latest')
   })
 
   it('falls back to a generic language when the client sends something that is not a language', async () => {
