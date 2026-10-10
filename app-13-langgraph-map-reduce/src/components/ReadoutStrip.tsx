@@ -89,8 +89,8 @@ export function ReadoutStrip({ view }: { view: RunView }) {
           {models.length > 0 ? (
             <span className="ds-chips">
               {models.map((m) => (
-                <span key={m.model} className="ds-chip" title={m.model}>
-                  {m.model.replace(/^anthropic\//, '')}
+                <span key={m.model} className="ds-chip" title={m.model.replace(/^~/, '')}>
+                  {m.model.replace(/^~?anthropic\//, '')}
                 </span>
               ))}
             </span>

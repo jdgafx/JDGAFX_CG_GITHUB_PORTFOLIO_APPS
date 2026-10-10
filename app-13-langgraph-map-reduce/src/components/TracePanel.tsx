@@ -85,8 +85,8 @@ export function TracePanel({ view }: { view: RunView }) {
                   {row.model && <span>{tokenText(row)}</span>}
                   {row.model && <span>{costText(row)}</span>}
                   {row.model && (
-                    <span className="ds-chip" title={row.model}>
-                      {row.model.replace(/^anthropic\//, '')}
+                    <span className="ds-chip" title={row.model.replace(/^~/, '')}>
+                      {row.model.replace(/^~?anthropic\//, '')}
                     </span>
                   )}
                 </div>

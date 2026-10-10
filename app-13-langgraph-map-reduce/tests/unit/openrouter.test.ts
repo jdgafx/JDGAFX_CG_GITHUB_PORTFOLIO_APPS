@@ -106,7 +106,7 @@ describe('chat', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`)
     const body = sentBody(fetchMock)
     expect(body).toMatchObject({
-      model: 'anthropic/claude-haiku-5.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: 400,
       usage: { include: true },
       response_format: { type: 'json_object' },

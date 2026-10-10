@@ -76,9 +76,9 @@ function traceRow(
   return { node, status, ms, detail, ...extra }
 }
 
-/** Model, usage and cost of one call. The model shown is the one that served it. Cost is priced at the requested model. */
+/** Model, usage and cost of one call. The model shown is the one that served it, and cost is priced at that id. */
 function callFields(requested: string, reply: ChatReply): Partial<TraceRow> {
-  const reading = readCost(requested, reply.usage, reply.cost)
+  const reading = readCost(reply.servedModel ?? requested, reply.usage, reply.cost)
   return {
     model: reply.servedModel ?? requested,
     ...(reply.usage ? { usage: reply.usage } : {}),

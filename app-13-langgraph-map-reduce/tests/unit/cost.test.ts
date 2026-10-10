@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { estimateCost, readCost } from '../../netlify/shared/cost'
-import { MODEL } from '../../netlify/shared/models'
+import { MODEL, SERVED_MODEL } from '../../netlify/shared/models'
 
 describe('estimateCost', () => {
   it('prices 1000 prompt and 200 completion tokens at $0.10 in and $0.50 out per 1M, which is 0.0002 USD', () => {
@@ -16,6 +16,14 @@ describe('estimateCost', () => {
   it('returns null when the model has no price or the usage is incomplete', () => {
     expect(estimateCost('unknown/model', { prompt_tokens: 1, completion_tokens: 1 })).toBeNull()
     expect(estimateCost(MODEL, { total_tokens: 1200 })).toBeNull()
+  })
+})
+
+describe('estimateCost for the id that answered', () => {
+  it('prices the served id like the requested alias', () => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 }
+    expect(estimateCost(SERVED_MODEL, usage)).toBe(0.0002)
+    expect(estimateCost(SERVED_MODEL, usage)).toBe(estimateCost(MODEL, usage))
   })
 })
 

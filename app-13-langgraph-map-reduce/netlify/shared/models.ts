@@ -1,8 +1,12 @@
 /**
- * The one model every node uses: extract, check, synthesis and the retry. It is pinned to the version named
- * in the project decision, not to the family alias. Settings differ per role only by token cap and JSON mode.
+ * The one model every node requests: extract, check, synthesis and the retry. It is the OpenRouter alias for
+ * the newest Claude Haiku. OpenRouter answers with a concrete id (SERVED_MODEL today), which the page shows,
+ * never the alias. Settings differ per role only by token cap and JSON mode.
  */
-export const MODEL = 'anthropic/claude-haiku-5.5'
+export const MODEL = '~anthropic/claude-haiku-latest'
+
+/** The concrete model OpenRouter answered with when this was written. Its list price is the one below. */
+export const SERVED_MODEL = 'anthropic/claude-haiku-5.5'
 
 export interface Price {
   inPerM: number
@@ -12,6 +16,7 @@ export interface Price {
 /** OpenRouter list price in USD per 1M tokens, read from the cost OpenRouter reported for two live calls, 2026-10-09. */
 export const PRICES: Readonly<Record<string, Price>> = {
   [MODEL]: { inPerM: 0.1, outPerM: 0.5 },
+  [SERVED_MODEL]: { inPerM: 0.1, outPerM: 0.5 },
 }
 
 /**
