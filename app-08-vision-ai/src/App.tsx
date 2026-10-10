@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { searchCommons, fetchCommonsFile } from './lib/commons'
 import { formatSeconds } from './lib/format'
+import { HOWTO_STEPS, HOWTO_WHAT, TRY_PRESET } from './lib/howto'
 import { liveIndicator } from './lib/liveData'
 import { scopeOf } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
@@ -11,6 +13,7 @@ import type { CommonsImage } from './lib/commons'
 import ActionDock from './components/ActionDock'
 import AskPanel from './components/AskPanel'
 import Header from './components/Header'
+import { HowTo } from './components/HowTo'
 import Hero from './components/Hero'
 import HistoryStrip from './components/HistoryStrip'
 import ImagePicker from './components/ImagePicker'
@@ -52,6 +55,10 @@ export default function App() {
   const hasB = vision.imageUrlB !== ''
   const narrow = useNarrow()
   const [commonsFailed, setCommonsFailed] = useState(false)
+  // Try it: a live Commons search and download, then a describe run once the picture is shown.
+  const [fetchingExample, setFetchingExample] = useState(false)
+  const [tryError, setTryError] = useState<string | null>(null)
+  const runAfterLoad = useRef(false)
 
   useResultFocus(PHASE[status])
 
@@ -72,6 +79,32 @@ export default function App() {
   }, [chooseFile, comparing, hasB, vision.file])
 
   const running = status === 'running'
+  const { run: startRun, file: loadedFile } = vision
+  useEffect(() => {
+    if (runAfterLoad.current && loadedFile && !running) {
+      runAfterLoad.current = false
+      void startRun()
+    }
+  }, [loadedFile, running, startRun])
+
+  const tryIt = async () => {
+    if (!TRY_PRESET || running || fetchingExample) return
+    setTryError(null)
+    setFetchingExample(true)
+    try {
+      const images = await searchCommons(TRY_PRESET.query)
+      const image = images[0]
+      if (!image) throw new Error('Wikimedia Commons found no usable picture for the example. Try again.')
+      const file = await fetchCommonsFile(image)
+      if (vision.mode !== 'describe') vision.changeMode('describe')
+      runAfterLoad.current = true
+      chooseFile(file, image, 'a')
+    } catch (err) {
+      setTryError(err instanceof Error ? err.message : 'The example picture could not be loaded. Try again.')
+    } finally {
+      setFetchingExample(false)
+    }
+  }
   const hasImage = vision.imageUrl !== ''
   const a: Picture | null = hasImage
     ? { url: vision.imageUrl, name: vision.file?.name ?? '', credit: vision.source }
@@ -102,6 +135,14 @@ export default function App() {
       />
 
       <main className="ds-main">
+        <HowTo
+          what={HOWTO_WHAT}
+          steps={HOWTO_STEPS}
+          onTry={() => void tryIt()}
+          disabled={running || fetchingExample}
+          hasResult={status !== 'idle'}
+          error={tryError}
+        />
         <div className="ds-bench">
           <div className="ds-controls">
             <ImagePicker

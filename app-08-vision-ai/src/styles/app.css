@@ -153,3 +153,20 @@ dialog.zoom::backdrop { background: color-mix(in srgb, var(--ds-text) 90%, trans
 .live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }
 .live-data[data-state="failed"] { color: var(--ds-danger); border-color: var(--ds-danger); }
 .live-data .ds-dot { flex: none; }
+
+/* How to use: what the app does, the steps, and Try it. Sits under the masthead; folds away once a result shows. */
+.howto { display: grid; gap: 8px; padding: 12px 16px; }
+.howto__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.howto__title { margin: 0; font-size: 16px; font-weight: 650; }
+.howto__toggle { min-height: 36px; padding: 0 12px; }
+.howto__body { display: grid; gap: 8px; min-width: 0; }
+.howto__what { margin: 0; font-size: 15px; color: var(--ds-text); }
+.howto__steps { margin: 0; padding-left: 22px; display: grid; gap: 4px; font-size: 15px; color: var(--ds-text-muted); }
+.howto__try { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.howto__try .ds-button { min-height: 44px; }
+.howto__hint { font-size: 13px; color: var(--ds-text-muted); }
+@media (min-width: 1000px) {
+  .howto__body { grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; align-items: start; }
+  .howto__what, .howto__steps, .howto .ds-notice { grid-column: 1; }
+  .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
+}
