@@ -1,12 +1,15 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { InputPanel } from './components/InputPanel'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
-import { applyFetch, liveIndicator, NO_FETCH, type WikiEvent } from './lib/liveData'
+import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE } from './lib/howto'
+import { applyFetch, fetchedNow, liveIndicator, NO_FETCH, type WikiEvent } from './lib/liveData'
+import { loadArticle } from './lib/wikipedia-api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { statusLine } from './lib/status'
 import { useResultFocus } from './lib/useResultFocus'
@@ -48,6 +51,8 @@ export default function App() {
   /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
   const [analyzed, setAnalyzed] = useState('')
   const [fetched, setFetched] = useState(NO_FETCH)
+  const [loadingExample, setLoadingExample] = useState(false)
+  const [tryError, setTryError] = useState<string | null>(null)
   const [collapseKey, setCollapseKey] = useState(0)
   const [railScrolled, setRailScrolled] = useState(false)
   const busy = useRef(false)
@@ -85,11 +90,37 @@ export default function App() {
     }
   }
 
+  /** Try it: fetches the example article live from Wikipedia, fills the box and analyzes it. */
+  async function tryIt(): Promise<void> {
+    if (busy.current || loadingExample) return
+    setTryError(null)
+    setLoadingExample(true)
+    try {
+      const article = await loadArticle(TRY_ARTICLE)
+      setText(article.text)
+      setFetched((prev) => applyFetch(prev, { kind: 'loaded', text: article.text, at: fetchedNow() }))
+      setLoadingExample(false)
+      await analyze(article.text)
+    } catch (err) {
+      setLoadingExample(false)
+      setFetched((prev) => applyFetch(prev, { kind: 'failed' }))
+      setTryError(err instanceof Error ? err.message : 'The example article could not be loaded. Try again.')
+    }
+  }
+
   return (
     <div className="ds-app" data-run={view.phase === 'error' ? 'failed' : view.phase}>
       <Header phase={view.phase} live={liveIndicator(text, fetched)} />
 
       <main className="ds-main">
+        <HowTo
+          what={HOWTO_WHAT}
+          steps={HOWTO_STEPS}
+          onTry={() => void tryIt()}
+          disabled={running || loadingExample}
+          hasResult={view.phase !== 'idle'}
+          error={tryError}
+        />
         <div className="ds-bench">
           <div className="ds-controls" data-scrolled={railScrolled ? 'true' : undefined} onScroll={(event) => setRailScrolled(event.currentTarget.scrollTop > 4)}>
             <InputPanel
