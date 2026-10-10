@@ -1,26 +1,19 @@
-import type { CostSource, Usage } from '../../src/types/frames'
-import { PRICES } from './models'
+import type { TraceRow, Usage } from '../../src/types/frames'
+import type { PriceList } from './prices'
 
-export interface CostReading {
-  cost: number
-  source: CostSource
-}
+/** The price fields of a call row. */
+export type CallPrice = Pick<TraceRow, 'priceState' | 'cost' | 'rate'>
 
 /**
- * Estimated cost in USD from list prices per 1M tokens. The division happens once, at the end,
- * and the result is rounded to 12 decimals to remove floating-point noise.
+ * Prices one answered call: its prompt and completion tokens times the served model's OpenRouter price per token,
+ * rounded to 12 decimals to remove floating-point noise. A reply that named no model gets no price. A list that
+ * could not be read, a served model it does not carry, or incomplete token counts make the price unavailable.
+ * There is no other price to fall back on.
  */
-export function estimateCost(model: string, usage: Usage): number | null {
-  const price = PRICES[model]
-  if (!price || usage.prompt_tokens === undefined || usage.completion_tokens === undefined) return null
-  const raw = (usage.prompt_tokens * price.inPerM + usage.completion_tokens * price.outPerM) / 1_000_000
-  return Math.round(raw * 1e12) / 1e12
-}
-
-/** The cost OpenRouter reported when it did, otherwise an estimate labelled as one. Null when neither exists. */
-export function readCost(model: string, usage: Usage | null, reported: number | null): CostReading | null {
-  if (reported !== null) return { cost: reported, source: 'usage' }
-  if (!usage) return null
-  const estimated = estimateCost(model, usage)
-  return estimated === null ? null : { cost: estimated, source: 'estimated' }
+export function priceCall(list: PriceList | null, servedModel: string | null, usage: Usage | null): CallPrice {
+  if (!servedModel) return { priceState: 'no-served-model' }
+  const rate = list?.get(servedModel)
+  if (!rate || usage?.prompt_tokens === undefined || usage.completion_tokens === undefined) return { priceState: 'unavailable' }
+  const raw = usage.prompt_tokens * rate.prompt + usage.completion_tokens * rate.completion
+  return { priceState: 'priced', cost: Math.round(raw * 1e12) / 1e12, rate }
 }

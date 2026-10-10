@@ -64,7 +64,7 @@ describe('applyFrame', () => {
             totalMs: 5,
             totalTokens: 10,
             totalCost: null,
-            costSource: null,
+            priceNote: null,
             cheapCost: null,
             cheapCalls: 0,
             synthesisCost: null,
@@ -125,7 +125,7 @@ describe('the result frame keeps the streamed states', () => {
       keyPoints: [],
       notice: 'The retry did not finish in time, so the summary is from the first pass.',
       retryOutcome: 'skipped',
-      metrics: { totalMs: 5, totalTokens: 10, totalCost: null, costSource: null, cheapCost: null, cheapCalls: 0, synthesisCost: null },
+      metrics: { totalMs: 5, totalTokens: 10, totalCost: null, priceNote: null, cheapCost: null, cheapCalls: 0, synthesisCost: null },
     },
   }
   const running = { ...initialView(), phase: 'running' as const }

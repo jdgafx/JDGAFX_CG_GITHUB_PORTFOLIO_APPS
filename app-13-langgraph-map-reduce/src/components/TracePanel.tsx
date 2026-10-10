@@ -1,4 +1,4 @@
-import { costNote, formatCost, formatMs, formatTokens } from '../lib/format'
+import { formatCost, formatMs, formatRate, formatTokens } from '../lib/format'
 import { laneFor } from '../lib/trace'
 import type { RunView, StageName } from '../lib/view'
 import type { TraceRow } from '../types/frames'
@@ -26,11 +26,16 @@ function rowDetail(row: TraceRow): string {
 const tokenText = (row: TraceRow): string =>
   row.usage?.total_tokens !== undefined ? `${formatTokens(row.usage.total_tokens)} tok` : 'tokens not reported'
 
+/** What the cost cell says. A call with no price says why; the served model's own chip carries the model. */
 function costText(row: TraceRow): string {
-  if (row.cost === undefined) return 'no cost reported'
-  const note = costNote(row.costSource)
-  return note ? `${formatCost(row.cost)} est.` : formatCost(row.cost)
+  if (row.cost !== undefined) return formatCost(row.cost)
+  if (row.priceState === 'no-served-model') return 'no price'
+  return row.priceState === 'unavailable' ? 'price unavailable' : 'no cost'
 }
+
+/** Names where a priced cost comes from, on hover. */
+const costTitle = (row: TraceRow): string | undefined =>
+  row.rate && row.servedModel ? `Price from OpenRouter for ${row.servedModel}: ${formatRate(row.rate)}` : undefined
 
 /** Steps that have started but not finished, so the trace shows the run moving. */
 function activeSteps(view: RunView): ActiveStep[] {
@@ -84,7 +89,7 @@ export function TracePanel({ view }: { view: RunView }) {
                 <div className="ds-trace__meta">
                   <span>{formatMs(row.ms)}</span>
                   {row.model && <span>{tokenText(row)}</span>}
-                  {row.model && <span>{costText(row)}</span>}
+                  {row.model && <span title={costTitle(row)}>{costText(row)}</span>}
                   {row.model && (
                     <span className="ds-chip" title={row.servedModel ? `served by ${row.servedModel}` : NOT_REPORTED}>
                       {row.servedModel ? row.servedModel.replace(/^anthropic\//, '') : NOT_REPORTED}

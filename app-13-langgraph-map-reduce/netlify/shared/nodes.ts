@@ -3,7 +3,7 @@ import type { Chunk, ChunkKeyPoints, Finding, Frame, Merged, NodeName, Outcome, 
 import { pause, type Limiter, type RunBudget } from './budget'
 import { CHUNK_TARGET, splitText } from './chunk'
 import { citedChunks, computeCoverage } from './coverage'
-import { readCost } from './cost'
+import { priceCall } from './cost'
 import { ProviderError, RunFailure, plainMessage } from './errors'
 import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
@@ -21,12 +21,15 @@ import {
 } from './models'
 import type { ChatFn, ChatReply } from './openrouter'
 import { parseExtraction, parseOmitted, parseSummary } from './parse'
+import type { PriceList } from './prices'
 import { checkMessages, extractMessages, synthesizeMessages } from './prompts'
 
 export interface NodeDeps {
   chat: ChatFn
   limiter: Limiter
   budget: RunBudget
+  /** OpenRouter's model prices, or null when they could not be read. Started with the run, so it is usually settled before the first reply. */
+  prices: Promise<PriceList | null>
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
   /** Timeout for the first-pass extract calls. Defaults to EXTRACT_CALL_TIMEOUT_MS. */
@@ -76,14 +79,13 @@ function traceRow(
   return { node, status, ms, detail, ...extra }
 }
 
-/** Models, usage and cost of one call. The row keeps the requested id and the id that served it; cost is priced at the served id. */
-function callFields(requested: string, reply: ChatReply): Partial<TraceRow> {
-  const reading = readCost(reply.servedModel ?? requested, reply.usage, reply.cost)
+/** Models, usage and price of one call. The row keeps the requested id and the id that served it; the price is the served model's, never the requested alias's. */
+async function callFields(requested: string, reply: ChatReply, prices: Promise<PriceList | null>): Promise<Partial<TraceRow>> {
   return {
     model: requested,
     servedModel: reply.servedModel,
     ...(reply.usage ? { usage: reply.usage } : {}),
-    ...(reading ? { cost: reading.cost, costSource: reading.source } : {}),
+    ...priceCall(await prices, reply.servedModel, reply.usage),
   }
 }
 
@@ -111,7 +113,7 @@ function extractFailureText(err: unknown, budget: RunBudget): string {
  * so nothing is shared between requests.
  */
 export function makeNodes(deps: NodeDeps) {
-  const { chat, limiter, budget } = deps
+  const { chat, limiter, budget, prices } = deps
   const retryPause = deps.retryPauseMs ?? RETRY_PAUSE_MS
   const extractCallTimeout = deps.extractCallTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS
   const retryCallTimeout = deps.retryCallTimeoutMs ?? RETRY_CALL_TIMEOUT_MS
@@ -156,8 +158,8 @@ export function makeNodes(deps: NodeDeps) {
       return { error: err, row }
     }
 
-    const finish = (reply: ChatReply, callMs: number): Attempt => {
-      const fields = callFields(EXTRACT.model, reply)
+    const finish = async (reply: ChatReply, callMs: number): Promise<Attempt> => {
+      const fields = await callFields(EXTRACT.model, reply, prices)
       const parsed = parseExtraction(reply.text)
       if (!parsed || parsed.points.length === 0) {
         const row = traceRow('extract', 'failed', callMs, label, {
@@ -188,7 +190,7 @@ export function makeNodes(deps: NodeDeps) {
         emit({ type: 'node_start', node: 'extract', ms: budget.elapsed(), detail: label, chunk: chunk.id })
         try {
           const request = { ...EXTRACT, messages: extractMessages(chunk, total), timeoutMs: pass === 2 ? retryCallTimeout : extractCallTimeout }
-          return finish(await chat(request, budget.signal), Date.now() - began)
+          return await finish(await chat(request, budget.signal), Date.now() - began)
         } catch (err) {
           if (err instanceof ProviderError && err.fatal) budget.halt(err)
           return fail(err, Date.now() - began)
@@ -250,7 +252,7 @@ export function makeNodes(deps: NodeDeps) {
     const startedAt = Date.now()
     const reply = await chat({ ...SYNTH, messages: synthesizeMessages(merged, chunkIds, missed) }, budget.signal)
     const ms = Date.now() - startedAt
-    const fields = callFields(SYNTH.model, reply)
+    const fields = await callFields(SYNTH.model, reply, prices)
     const summary = parseSummary(reply.text, chunkIds)
     if (!summary) {
       throw new RunFailure(
@@ -289,7 +291,7 @@ export function makeNodes(deps: NodeDeps) {
     try {
       const reply = await chat({ ...CHECK, timeoutMs: checkCallTimeout, messages: checkMessages(summary, merged) }, budget.signal)
       const ms = Date.now() - startedAt
-      const fields = callFields(CHECK.model, reply)
+      const fields = await callFields(CHECK.model, reply, prices)
       const omitted = parseOmitted(reply.text, chunkIds)
       if (omitted === null) {
         done = traceRow('check', 'failed', ms, 'Review reply was not readable. Coverage uses chunk citations only.', fields)

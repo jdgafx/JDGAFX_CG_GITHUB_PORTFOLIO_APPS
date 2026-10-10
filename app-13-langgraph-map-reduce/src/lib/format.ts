@@ -1,4 +1,4 @@
-import type { CostSource } from '../types/frames'
+import type { PriceRate } from '../types/frames'
 
 export function formatMs(ms: number): string {
   return `${Math.round(ms).toLocaleString('en-US')} ms`
@@ -14,8 +14,13 @@ export function formatCost(cost: number | null | undefined): string {
   return `$${cost.toFixed(6)}`
 }
 
-export function costNote(source: CostSource | undefined): string {
-  return source === 'estimated' ? 'estimated' : ''
+/** USD per 1M tokens from a per-token price, to at least cents and at most four decimals. */
+const perMillion = (perToken: number): string =>
+  (perToken * 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+/** A model's OpenRouter price as the page states it. */
+export function formatRate(rate: PriceRate): string {
+  return `$${perMillion(rate.prompt)} in, $${perMillion(rate.completion)} out per 1M tokens`
 }
 
 export function formatCount(count: number, word: string): string {

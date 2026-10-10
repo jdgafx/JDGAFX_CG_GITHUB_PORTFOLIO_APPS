@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { ProviderError } from '../../netlify/shared/errors'
 import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, MODEL, RETRY_CALL_TIMEOUT_MS } from '../../netlify/shared/models'
+import { recordedPrices } from '../helpers/prices'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { CUT_OFF_MESSAGE, KEPT_FIRST_PASS, runPipeline } from '../../netlify/shared/pipeline'
@@ -18,7 +19,6 @@ const reply = (text: string, model: string): ChatReply => ({
   finishReason: 'stop',
   servedModel: model,
   usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
-  cost: null,
 })
 const lastMessage = (request: ChatRequest): string => request.messages[request.messages.length - 1]?.content ?? ''
 const chunkOf = (user: string): number => Number(/^Chunk (\d+) of/.exec(user)?.[1])
@@ -82,7 +82,7 @@ async function run(source: string, script: Script, budget: RunBudget = new RunBu
   const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
   const frames: Frame[] = []
   try {
-    await runPipeline({ text: source, budget, chat: scripted(script, seen), retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: source, budget, chat: scripted(script, seen), prices: Promise.resolve(recordedPrices()), retryPauseMs: 0, sink: (f) => frames.push(f) })
   } finally {
     budget.dispose()
   }
@@ -184,7 +184,7 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
       return inner(request, signal)
     }
     const frames: Frame[] = []
-    await runPipeline({ text: THREE, budget, chat, retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: THREE, budget, chat, prices: Promise.resolve(recordedPrices()), retryPauseMs: 0, sink: (f) => frames.push(f) })
     budget.dispose()
 
     const result = frames.flatMap((f) => (f.type === 'result' ? [f.result] : []))[0]

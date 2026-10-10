@@ -57,7 +57,18 @@ export interface Coverage {
 
 export type TraceStatus = 'ok' | 'failed'
 
-export type CostSource = 'usage' | 'estimated'
+/** A model's price in USD per token, as OpenRouter lists it. */
+export interface PriceRate {
+  prompt: number
+  completion: number
+}
+
+/**
+ * How one answered call was priced. priced: its tokens times the served model's price on OpenRouter's public model
+ * list. no-served-model: the reply named no model, so there is no price. unavailable: the list could not be read,
+ * or does not carry the served model, or the reply's token counts were incomplete.
+ */
+export type PriceState = 'priced' | 'no-served-model' | 'unavailable'
 
 /** One finished node execution. Extract rows carry the chunk id, its model, usage and cost. */
 export interface TraceRow {
@@ -71,8 +82,12 @@ export interface TraceRow {
   /** The model OpenRouter answered with, or null when the reply named none. */
   servedModel?: string | null
   usage?: Usage
+  /** Set on every call that got a reply. Calls that failed before one arrived have none. */
+  priceState?: PriceState
+  /** USD, tokens times rate. Only when priceState is priced. */
   cost?: number
-  costSource?: CostSource
+  /** The served model's OpenRouter price that cost was computed from. Only when priceState is priced. */
+  rate?: PriceRate
   /** Plain message for a failed row, shown to the user if the run cannot continue. */
   message?: string
 }
@@ -80,8 +95,10 @@ export interface TraceRow {
 export interface RunMetrics {
   totalMs: number
   totalTokens: number
+  /** Null unless every call that got a reply was priced. */
   totalCost: number | null
-  costSource: CostSource | null
+  /** Why there is no total: the first of unavailable, no-served-model that applies to a call. Null when there is a total or no call answered. */
+  priceNote: Exclude<PriceState, 'priced'> | null
   cheapCost: number | null
   cheapCalls: number
   synthesisCost: number | null

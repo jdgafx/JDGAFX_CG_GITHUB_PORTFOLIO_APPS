@@ -5,6 +5,7 @@ import { BUDGET_MESSAGE, LONG_TEXT_HINT, plainMessage, ProviderError, reportedFa
 import { buildGraph } from './graph'
 import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, EXTRACT_CONCURRENCY, RETRY_CALL_TIMEOUT_MS, RETRY_PAUSE_MS } from './models'
 import { CALL_TIMEOUT_MS, chat, type ChatFn } from './openrouter'
+import { loadPrices, type PriceList } from './prices'
 
 /**
  * One run's budget. The live Netlify site closed the function at about 30 s, not at the documented 60 s,
@@ -21,6 +22,8 @@ export interface PipelineOptions {
   callTimeoutMs?: number
   /** Replaces the provider call. Tests use it to script the model layer. */
   chat?: ChatFn
+  /** Replaces the fetch of OpenRouter's model prices. Tests use it to script the price list. */
+  prices?: Promise<PriceList | null>
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
   /** Extract calls that run at once. Defaults to EXTRACT_CONCURRENCY. */
@@ -76,6 +79,8 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
   const { text, budget, sink } = options
   const call: ChatFn =
     options.chat ?? ((request, signal) => chat(request, signal, options.callTimeoutMs ?? CALL_TIMEOUT_MS))
+  // The price list is fetched while the first model calls run, so it is settled before their replies arrive.
+  const prices = options.prices ?? loadPrices()
   const startedAt = Date.now()
   const rows: TraceRow[] = []
   let outcome: Outcome | null = null
@@ -89,6 +94,7 @@ export async function runPipeline(options: PipelineOptions): Promise<void> {
       chat: call,
       limiter: createLimiter(options.extractConcurrency ?? EXTRACT_CONCURRENCY),
       budget,
+      prices,
       retryPauseMs: options.retryPauseMs ?? RETRY_PAUSE_MS,
       extractCallTimeoutMs: options.extractCallTimeoutMs ?? Math.min(EXTRACT_CALL_TIMEOUT_MS, options.callTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS),
       checkCallTimeoutMs: options.checkCallTimeoutMs ?? Math.min(CHECK_CALL_TIMEOUT_MS, options.callTimeoutMs ?? CHECK_CALL_TIMEOUT_MS),

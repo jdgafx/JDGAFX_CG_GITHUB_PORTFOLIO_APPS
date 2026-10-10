@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { CHECK, EXTRACT, EXTRACT_CONCURRENCY, MIN_RETRY_BUDGET_MS, MODEL, PRICES, RETRY_PAUSE_MS, SERVED_MODEL, SYNTH } from '../../netlify/shared/models'
+import * as models from '../../netlify/shared/models'
+import { CHECK, EXTRACT, EXTRACT_CONCURRENCY, MIN_RETRY_BUDGET_MS, MODEL, RETRY_PAUSE_MS, SYNTH } from '../../netlify/shared/models'
 import { CALL_TIMEOUT_MS } from '../../netlify/shared/openrouter'
 import { RUN_BUDGET_MS } from '../../netlify/shared/pipeline'
 
 describe('role settings', () => {
-  it('requests one model alias for extract, check and synthesis, priced at $0.10 in and $0.50 out per 1M for the alias and the id that answers', () => {
+  it('requests one model alias for extract, check and synthesis, and names no served model or price of its own', () => {
     expect(MODEL).toBe('~anthropic/claude-haiku-latest')
-    expect(SERVED_MODEL).toBe('anthropic/claude-haiku-5.5')
     expect([EXTRACT.model, CHECK.model, SYNTH.model]).toEqual([MODEL, MODEL, MODEL])
-    expect(PRICES).toEqual({ [MODEL]: { inPerM: 0.1, outPerM: 0.5 }, [SERVED_MODEL]: { inPerM: 0.1, outPerM: 0.5 } })
+    expect(Object.keys(models).sort()).not.toContain('PRICES')
+    expect(Object.keys(models).sort()).not.toContain('SERVED_MODEL')
   })
 
   it('differs between roles only by output cap, JSON mode and require_parameters, and every role turns reasoning off', () => {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { formatCost, formatCount, formatMs, formatTokens } from '../lib/format'
+import { formatCost, formatCount, formatMs, formatRate, formatTokens } from '../lib/format'
 import { metricsFor } from '../lib/metrics'
 import type { RunView } from '../lib/view'
-import type { NodeName, RunMetrics, TraceRow } from '../types/frames'
+import type { NodeName, PriceRate, RunMetrics, TraceRow } from '../types/frames'
 
 const CALL_WORD: Partial<Record<NodeName, string>> = { extract: 'Extract', check: 'Check', synthesize: 'Synthesize' }
 
@@ -22,12 +22,29 @@ export function modelUse(rows: TraceRow[]): Array<{ model: string; uses: string 
   }))
 }
 
-/** A cost that no call reported reads "Not reported", never zero. */
-const costValue = (cost: number | null, pending = false): string => (cost === null ? (pending ? '—' : 'Not reported') : formatCost(cost))
+/** Each served model whose OpenRouter price priced a call, with that price. Derived from the rows. */
+export function priceUse(rows: TraceRow[]): Array<{ model: string; rate: PriceRate }> {
+  const rates = new Map<string, PriceRate>()
+  for (const row of rows) if (row.servedModel && row.rate && !rates.has(row.servedModel)) rates.set(row.servedModel, row.rate)
+  return [...rates].map(([model, rate]) => ({ model, rate }))
+}
 
-function costHint(metrics: RunMetrics | null): string {
-  if (!metrics || metrics.totalCost === null) return 'Cost not reported'
-  return metrics.costSource === 'estimated' ? 'Estimated from list prices' : 'As reported by OpenRouter'
+/** A cost with no price reads as what is missing, never as zero. */
+const costValue = (cost: number | null, pending = false): string => (cost === null ? (pending ? '—' : 'n/a') : formatCost(cost))
+
+function totalValue(metrics: RunMetrics | null): string {
+  if (metrics?.totalCost != null) return formatCost(metrics.totalCost)
+  if (metrics?.priceNote === 'unavailable') return 'Price unavailable'
+  return metrics?.priceNote === 'no-served-model' ? 'No price' : 'n/a'
+}
+
+/** Where the total comes from: OpenRouter's price for each served model, or why there is none. */
+function costHint(metrics: RunMetrics | null, rows: TraceRow[], otherwise: string): string {
+  if (metrics?.priceNote === 'unavailable') return "OpenRouter's price list could not be read"
+  if (metrics?.priceNote === 'no-served-model') return 'Served model not reported, so no price'
+  const used = priceUse(rows)
+  if (metrics?.totalCost == null || used.length === 0) return otherwise
+  return `Price from OpenRouter for ${used.map((u) => `${u.model}: ${formatRate(u.rate)}`).join('; ')}`
 }
 
 /** Counts up from the press of Analyze while it is on screen. */
@@ -73,8 +90,8 @@ export function ReadoutStrip({ view }: { view: RunView }) {
         <Cell label="Tokens" hint={result ? 'Prompt plus completion, all calls' : show ? sofar : 'All model calls'}>
           {show && metrics ? formatTokens(metrics.totalTokens) : none}
         </Cell>
-        <Cell label="Cost (USD)" hint={result ? costHint(metrics) : show ? sofar : 'Reported or estimated'}>
-          {show && metrics ? costValue(metrics.totalCost) : none}
+        <Cell label="Cost (USD)" hint={show ? costHint(metrics, rows, result ? 'No price for this run' : sofar) : "Tokens times OpenRouter's price"}>
+          {show && metrics ? totalValue(metrics) : none}
         </Cell>
         <Cell
           label="Extract and check"

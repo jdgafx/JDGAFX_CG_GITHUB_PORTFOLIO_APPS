@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/run'
 import { BUDGET_MESSAGE } from '../../netlify/shared/errors'
 import { createRunHandler } from '../../netlify/shared/handler'
-import { MODEL, SERVED_MODEL } from '../../netlify/shared/models'
+import { MODEL } from '../../netlify/shared/models'
+import { MODELS_URL, resetPriceCache } from '../../netlify/shared/prices'
+import { modelsResponse, SERVED_MODEL } from '../helpers/prices'
 import { roleOf, type Role } from '../helpers/roles'
 
 const KEY = 'test-only-placeholder'
@@ -13,24 +15,29 @@ const THREE_CHUNKS = [1, 2, 3]
   .map((n) => Array.from({ length: 120 }, (_, i) => `term${n}w${i}`).join(' ') + '.')
   .join('\n')
 
-const COST: Record<Role, number> = { extract: 0.000036, check: 0.00005, synthesize: 0.0012 }
-
 type Behaviour = { status?: number; hang?: boolean }
 
-function reply(role: Role, content: string): Response {
+/** What else the stubbed network does: the model list can be down, and a reply can leave out its model field. */
+interface Network {
+  priceList?: 'down'
+  omitModel?: boolean
+}
+
+function reply(content: string, omitModel = false): Response {
   return new Response(
     JSON.stringify({
-      model: SERVED_MODEL,
+      ...(omitModel ? {} : { model: SERVED_MODEL }),
       choices: [{ message: { content }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: COST[role] },
+      usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
 }
 
 /** Answers each OpenRouter call from its request body, as the provider would. Overrides fail or hang one role. */
-function providerFetch(overrides: Partial<Record<Role, Behaviour>> = {}) {
-  return vi.fn(async (_url: string, init: RequestInit): Promise<Response> => {
+function providerFetch(overrides: Partial<Record<Role, Behaviour>> = {}, network: Network = {}) {
+  return vi.fn(async (url: string, init: RequestInit): Promise<Response> => {
+    if (url === MODELS_URL) return network.priceList === 'down' ? new Response('down', { status: 503 }) : modelsResponse()
     const body = JSON.parse(String(init.body)) as { max_tokens: number; messages: Array<{ content: string }> }
     const role = roleOf(body)
     const behaviour = overrides[role]
@@ -43,15 +50,12 @@ function providerFetch(overrides: Partial<Record<Role, Behaviour>> = {}) {
     const user = body.messages[body.messages.length - 1]?.content ?? ''
     if (role === 'extract') {
       const id = Number(/^Chunk (\d+) of/.exec(user)?.[1])
-      return reply(
-        'extract',
-        JSON.stringify({ points: [`Chunk ${id} sets the rule.`], entities: ['The Lessor', `Party ${id}`] }),
-      )
+      return reply(JSON.stringify({ points: [`Chunk ${id} sets the rule.`], entities: ['The Lessor', `Party ${id}`] }), network.omitModel)
     }
-    if (role === 'check') return reply('check', JSON.stringify({ omitted: [] }))
+    if (role === 'check') return reply(JSON.stringify({ omitted: [] }), network.omitModel)
     const ids = [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
     const points = ids.map((id) => ({ text: `Chunk ${id} rule is kept.`, chunks: [id] }))
-    return reply('synthesize', JSON.stringify({ overview: 'A lease.', sections: [{ heading: 'Terms', points }] }))
+    return reply(JSON.stringify({ overview: 'A lease.', sections: [{ heading: 'Terms', points }] }), network.omitModel)
   })
 }
 
@@ -76,6 +80,7 @@ function readStream(text: string): { frames: Array<Record<string, unknown>>; end
 let previousKey: string | undefined
 
 beforeEach(() => {
+  resetPriceCache()
   previousKey = process.env.OPENROUTER_API_KEY
   process.env.OPENROUTER_API_KEY = KEY
 })
@@ -111,7 +116,14 @@ describe('POST /api/run', () => {
 
     const extracts = nodeEnds.filter((f) => f.node === 'extract')
     expect(extracts.map((f) => f.detail).sort()).toEqual(['chunk 1 of 3', 'chunk 2 of 3', 'chunk 3 of 3'])
-    expect(extracts[0]).toMatchObject({ model: MODEL, servedModel: SERVED_MODEL, usage: { total_tokens: 1200 }, costSource: 'usage' })
+    expect(extracts[0]).toMatchObject({
+      model: MODEL,
+      servedModel: SERVED_MODEL,
+      usage: { total_tokens: 1200 },
+      priceState: 'priced',
+      cost: 0.0002,
+      rate: { prompt: 0.0000001, completion: 0.0000005 },
+    })
 
     const result = frames.find((f) => f.type === 'result') as { result: Record<string, unknown> } | undefined
     expect(result?.result).toMatchObject({
@@ -122,10 +134,53 @@ describe('POST /api/run', () => {
       entities: ['The Lessor', 'Party 1', 'Party 2', 'Party 3'],
     })
     const metrics = (result?.result as { metrics: Record<string, unknown> }).metrics
-    expect(metrics).toMatchObject({ totalTokens: 6000, cheapCalls: 4, costSource: 'usage' })
-    expect(metrics.totalCost as number).toBeCloseTo(3 * 0.000036 + 0.00005 + 0.0012, 9)
-    expect(metrics.synthesisCost as number).toBeCloseTo(0.0012, 9)
-    expect(metrics.cheapCost as number).toBeCloseTo(3 * 0.000036 + 0.00005, 9)
+    expect(metrics).toMatchObject({ totalTokens: 6000, cheapCalls: 4, priceNote: null })
+    expect(metrics.totalCost as number).toBeCloseTo(5 * 0.0002, 9)
+    expect(metrics.synthesisCost as number).toBeCloseTo(0.0002, 9)
+    expect(metrics.cheapCost as number).toBeCloseTo(4 * 0.0002, 9)
+  })
+
+  it('fetches the public model list without a key and prices the run from it, once for the whole run', async () => {
+    const stub = providerFetch()
+    vi.stubGlobal('fetch', stub)
+
+    await (await handler(runRequest({ text: THREE_CHUNKS }))).text()
+
+    const listCalls = stub.mock.calls.filter(([url]) => url === MODELS_URL)
+    expect(listCalls).toHaveLength(1)
+    expect(JSON.stringify(listCalls[0][1]?.headers ?? {})).not.toMatch(/authorization/i)
+  })
+
+  it('shows tokens and "served model not reported" with no price when the reply carries no model field', async () => {
+    vi.stubGlobal('fetch', providerFetch({}, { omitModel: true }))
+
+    const { frames } = readStream(await (await handler(runRequest({ text: THREE_CHUNKS }))).text())
+
+    const rows = frames.filter((f) => f.type === 'node_end' && f.model)
+    expect(rows.length).toBe(5)
+    for (const row of rows) {
+      expect(row).toMatchObject({ servedModel: null, usage: { total_tokens: 1200 }, priceState: 'no-served-model' })
+      expect(row).not.toHaveProperty('cost')
+    }
+    const result = frames.find((f) => f.type === 'result') as { result: { metrics: Record<string, unknown> } }
+    expect(result.result.metrics).toMatchObject({ totalTokens: 6000, totalCost: null, priceNote: 'no-served-model' })
+  })
+
+  it('shows tokens and "price unavailable" with no fallback price when the model list cannot be fetched, and the run still finishes', async () => {
+    vi.stubGlobal('fetch', providerFetch({}, { priceList: 'down' }))
+
+    const { frames, ended } = readStream(await (await handler(runRequest({ text: THREE_CHUNKS }))).text())
+
+    expect(ended).toBe(true)
+    const rows = frames.filter((f) => f.type === 'node_end' && f.model)
+    expect(rows.length).toBe(5)
+    for (const row of rows) {
+      expect(row).toMatchObject({ servedModel: SERVED_MODEL, usage: { total_tokens: 1200 }, priceState: 'unavailable' })
+      expect(row).not.toHaveProperty('cost')
+    }
+    const result = frames.find((f) => f.type === 'result') as { result: { coverage: unknown; metrics: Record<string, unknown> } }
+    expect(result.result.coverage).toMatchObject({ covered: [1, 2, 3], missing: [] })
+    expect(result.result.metrics).toMatchObject({ totalTokens: 6000, totalCost: null, priceNote: 'unavailable' })
   })
 
   it('answers a GET with a plain 405 and makes no provider call', async () => {

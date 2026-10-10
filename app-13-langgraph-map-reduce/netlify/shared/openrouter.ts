@@ -33,8 +33,6 @@ export interface ChatReply {
   servedModel: string | null
   /** Token counts as OpenRouter reports them, or null when the reply carried none. */
   usage: Usage | null
-  /** Cost in USD as OpenRouter reports it (usage.include), or null when it is absent. */
-  cost: number | null
 }
 
 /** The model call the graph nodes use. The signal ends the call when the run stops. */
@@ -55,7 +53,6 @@ const replySchema = z.object({
       prompt_tokens: z.number().optional(),
       completion_tokens: z.number().optional(),
       total_tokens: z.number().optional(),
-      cost: z.number().optional(),
     })
     .nullish(),
 })
@@ -63,7 +60,7 @@ const replySchema = z.object({
 /** Reads one chat-completions reply. Anything unreadable becomes an empty text, which callers treat as a miss. */
 export function parseReply(payload: unknown): ChatReply {
   const parsed = replySchema.safeParse(payload)
-  if (!parsed.success) return { text: '', finishReason: null, servedModel: null, usage: null, cost: null }
+  if (!parsed.success) return { text: '', finishReason: null, servedModel: null, usage: null }
   const data = parsed.data
   const choice = data.choices?.[0]
   const usage: Usage = {}
@@ -75,7 +72,6 @@ export function parseReply(payload: unknown): ChatReply {
     finishReason: choice?.finish_reason ?? null,
     servedModel: data.model ?? null,
     usage: Object.keys(usage).length > 0 ? usage : null,
-    cost: typeof data.usage?.cost === 'number' ? data.usage.cost : null,
   }
 }
 
@@ -88,7 +84,7 @@ export function kindForStatus(status: number): ProviderKind {
   return 'bad_request'
 }
 
-/** Usage is always requested, so OpenRouter reports cost. The other options are sent only when a role sets them. */
+/** Usage accounting is always requested, so every reply carries its token counts. The other options are sent only when a role sets them. */
 function requestBody(request: ChatRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: request.model,

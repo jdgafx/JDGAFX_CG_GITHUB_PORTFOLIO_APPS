@@ -30,7 +30,7 @@ afterEach(() => {
 const okBody = {
   model: 'anthropic/claude-haiku-5.5-served',
   choices: [{ message: { content: ' {"points": ["A rule."]} ' }, finish_reason: 'stop' }],
-  usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.00004 },
+  usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
 }
 
 /** A fetch that never answers and rejects when the call is aborted, like a hung provider. */
@@ -50,7 +50,7 @@ function sentBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> 
 }
 
 describe('parseReply', () => {
-  it('reads trimmed text, the served model, the finish reason, usage and the reported cost', () => {
+  it('reads trimmed text, the served model, the finish reason and usage', () => {
     const reply = parseReply(okBody)
 
     expect(reply).toEqual({
@@ -58,20 +58,18 @@ describe('parseReply', () => {
       finishReason: 'stop',
       servedModel: 'anthropic/claude-haiku-5.5-served',
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
-      cost: 0.00004,
     })
   })
 
-  it('reports no usage and no cost when the reply carries none', () => {
+  it('reports no usage and no served model when the reply carries none', () => {
     const reply = parseReply({ choices: [{ message: { content: 'x' } }] })
 
     expect(reply.usage).toBeNull()
-    expect(reply.cost).toBeNull()
     expect(reply.servedModel).toBeNull()
   })
 
   it('reads an unreadable payload as an empty reply, which callers treat as a miss', () => {
-    expect(parseReply('nonsense')).toEqual({ text: '', finishReason: null, servedModel: null, usage: null, cost: null })
+    expect(parseReply('nonsense')).toEqual({ text: '', finishReason: null, servedModel: null, usage: null })
     expect(parseReply({ choices: [{ message: { content: null }, finish_reason: 'length' }] }).text).toBe('')
   })
 })
@@ -100,7 +98,6 @@ describe('chat', () => {
     const reply = await chat(request, noAbort())
 
     expect(reply.text).toBe('{"points": ["A rule."]}')
-    expect(reply.cost).toBe(0.00004)
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`)
