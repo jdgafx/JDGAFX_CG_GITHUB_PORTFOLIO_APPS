@@ -1,6 +1,6 @@
 import type { Decider, ReviewComment, Verdict } from '../../src/types'
 import { importedNames, noneWithoutSource, unconfirmable } from './claims'
-import { provenanceOf } from './provenance'
+import { flowsIntoExternal, provenanceOf } from './provenance'
 import { seenLines } from './scope'
 import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
@@ -226,6 +226,9 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // A claim about the caller's object is only as good as where that object came from.
     const origin = provenanceOf(candidate.message, doc.texts, at, importsOf(doc))
     if (origin.block !== null) return unconfirmed(candidate, origin.block)
+    // A consequence that happens inside an imported function the value is handed to cannot be confirmed from this file.
+    const flow = flowsIntoExternal(candidate.message, doc.texts, at, importsOf(doc)) ?? flowsIntoExternal(reason, doc.texts, at, importsOf(doc))
+    if (flow !== null) return unconfirmed(candidate, flow)
     // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
     // point at code for is not confirmed, however real the cited line is.
     const supportShown = clip(collapse(raw.support), 80)

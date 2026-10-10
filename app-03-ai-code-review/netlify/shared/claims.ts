@@ -4,8 +4,6 @@
 import { ABOUT_A_NAME } from './anchor'
 import { enclosingScope } from './scope'
 
-const IMPORT_SCAN_LINES = 120
-
 /** Names this file imports or requires, from Python, JavaScript, TypeScript and Go import forms. Best effort. */
 export function importedNames(texts: readonly string[]): Set<string> {
   const names = new Set<string>()
@@ -14,12 +12,14 @@ export function importedNames(texts: readonly string[]): Set<string> {
     if (/^[A-Za-z_$][\w$]*$/.test(word) && word.length >= 3) names.add(word)
   }
   let inGoImports = false
-  texts.slice(0, Math.max(IMPORT_SCAN_LINES, 0)).forEach((line) => {
+  // The whole file: Python imports inside a function (click's `from glob import glob`) and dynamic imports count too.
+  texts.forEach((line) => {
     let m: RegExpExecArray | null
     if ((m = /^\s*from\s+[\w.]+\s+import\s+(.+)$/.exec(line))) m[1].split(',').forEach(add)
     else if ((m = /^\s*import\s+([\w.\s,]+?)\s*$/.exec(line)) && !/\bfrom\b/.test(line)) m[1].split(',').forEach((p) => add(p.includes(' as ') ? p : p.trim().split('.')[0]))
     if ((m = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(/.exec(line))) add(m[1])
-    if ((m = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(/.exec(line))) m[1].split(',').forEach(add)
+    if ((m = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:await\s+)?(?:require|import)\(/.exec(line))) m[1].split(',').forEach(add)
+    if ((m = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+import\(/.exec(line))) add(m[1])
     if ((m = /^\s*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s*(?:,|\s+from)/.exec(line))) add(m[1])
     if ((m = /^\s*import\s+(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from/.exec(line))) m[1].split(',').forEach(add)
     if (/^\s*import\s*\(\s*$/.test(line)) inGoImports = true
@@ -33,7 +33,7 @@ export function importedNames(texts: readonly string[]): Set<string> {
 /** Imported names that are also plain words in a message; they would match any sentence, so they never count on their own. */
 const PLAIN_WORDS = new Set(['path', 'http', 'type', 'types', 'errors', 'error', 'context', 'time', 'string', 'strings', 'file', 'files', 'url', 'text', 'data', 'name', 'join', 'key', 'sync', 'list', 'sort', 'bytes', 'math', 'json', 'copy', 'sys', 'log', 'flag', 'fmt', 'io', 'os'])
 
-const BEHAVIOUR = /\b(?:mutates?|modif(?:y|ies)|shares?|aliases|does not|doesn't|do not|will not|never|throws?|raises?|returns?|treats?|interprets?|parses?|converts?|encodes?|decodes?|handles?|accepts?|rejects?|ignores?|swallows?|fails?|behaves?|resolves?|supports?|requires?)\b/i
+const BEHAVIOUR = /\b(?:passe[sd](?:\s+on)?(?:\s+unchanged)?\s+to|handed\s+to|forwarded?\s+to|forwards?|calls?|delegates?\s+to|mutates?|modif(?:y|ies)|shares?|aliases|does not|doesn't|do not|will not|never|throws?|raises?|returns?|treats?|interprets?|parses?|converts?|encodes?|decodes?|handles?|accepts?|rejects?|ignores?|swallows?|fails?|behaves?|resolves?|supports?|requires?)\b/i
 const LINK_CLAIM = /\b(?:resolves?|resolve to|exists?|nonexistent|404|broken|disagrees?|does not match|different (?:location|path)|points? to)\b/i
 /** A failure that is only gestured at: no path to it is named, so there is nothing to confirm. */
 const HEDGE = /\b(?:unexpected (?:path|state|case|situation)|in theory|theoretical(?:ly)?|hypothetical(?:ly)?|some other path|unknown path|for some reason)\b/i
@@ -52,7 +52,8 @@ const VERSION_CLAIM = /\bPython\s*\d|\bNode(?:\.js)?\s*\d|\bGo\s*1\.\d|\bJava\s*
 export function unconfirmable(message: string, citedCode: string, imports: ReadonlySet<string>): string | null {
   if (ABOUT_A_NAME.test(message)) return null
   for (const sentence of message.split(/(?<=[.;])\s+/)) {
-    if (!BEHAVIOUR.test(sentence)) continue
+    const structural = (name: string) => new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, '\\$')}\.[\w$]+\s*\(`).test(sentence)
+    if (!BEHAVIOUR.test(sentence) && ![...imports].some((n) => !PLAIN_WORDS.has(n.toLowerCase()) && structural(n))) continue
     for (const name of imports) {
       if (PLAIN_WORDS.has(name.toLowerCase())) continue
       if (new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, '\\$')}(?![\w$])`).test(sentence)) {

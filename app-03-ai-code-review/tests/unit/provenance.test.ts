@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fileDoc } from '../../netlify/shared/anchor'
 import { importedNames } from '../../netlify/shared/claims'
-import { claimVariables, isMutationClaim, provenanceOf, traceOrigin } from '../../netlify/shared/provenance'
+import { claimVariables, flowsIntoExternal, isMutationClaim, provenanceOf, traceOrigin } from '../../netlify/shared/provenance'
 import { provenanceLines, scopeListing } from '../../netlify/shared/scope'
 import { settle, type RawVerdict } from '../../netlify/shared/verify'
 import type { Candidate } from '../../netlify/shared/review'
@@ -101,5 +101,53 @@ describe('the reason is held to the same rule as the message', () => {
     const candidate: Candidate = { id: 1, line: 2, fromLine: 2, quote: '', severity: 'info', message: 'The class has no constructor guard.', suggestion: 'Add one.', moveNote: null, loweredFrom: null }
     const raw: RawVerdict = { id: 1, verdict: 'keep', line: 2, evidence: 'class Axios {', support: 'class Axios {', reason: 'The class shares references after mergeConfig returns, so a guard is needed.' }
     expect(settle(candidate, raw, doc).reason).toBe('Not confirmed: the claim rests on how mergeConfig behaves, and mergeConfig is not defined in this file.')
+  })
+})
+
+describe('imports anywhere in the file, and what an imported call does with a value', () => {
+  // click 8.1.7 utils.py: glob is imported inside the function (line 603), the claim is about line 616.
+  const GLOB = ['import os', 'import re', '', 'def _expand_args(args, glob_recursive=True):', '    from glob import glob', '', '    out = []', '    for arg in args:', '        try:', '            matches = glob(arg, recursive=glob_recursive)', '        except re.error:', '            matches = []', '    return out']
+
+  it('finds an import inside a function, so glob counts as imported', () => {
+    expect([...importedNames(GLOB)]).toEqual(expect.arrayContaining(['glob']))
+  })
+
+  it('does not confirm the live click claim that glob can raise OSError (utils.py L616)', async () => {
+    const { unconfirmable } = await import('../../netlify/shared/claims')
+    const message = 'The re.error handler only catches regex-related errors, but glob can also raise other exceptions such as OSError on certain filesystem errors, which would propagate unexpectedly.'
+    expect(unconfirmable(message, 'except re.error:', importedNames(GLOB))).toBe('Not confirmed: the claim rests on how glob behaves, and glob is not defined in this file.')
+  })
+
+  // express 4.21.2 response.js lines 877 to 891, copied verbatim (the cookie import is line 31 there).
+  const COOKIE = [
+    "var cookie = require('cookie');",
+    'res.cookie = function (name, value, options) {',
+    '  if (opts.maxAge != null) {',
+    '    var maxAge = opts.maxAge - 0',
+    '',
+    '    if (!isNaN(maxAge)) {',
+    '      opts.expires = new Date(Date.now() + maxAge)',
+    '      opts.maxAge = Math.floor(maxAge / 1000)',
+    '    }',
+    '  }',
+    '',
+    "  this.append('Set-Cookie', cookie.serialize(name, String(val), opts));",
+    '};',
+  ]
+  const maxAgeLine = COOKIE.findIndex((l) => l.includes('var maxAge')) + 1
+
+  it('does not confirm the live express claim whose reason says opts is passed on to cookie.serialize (response.js L879)', async () => {
+    const { unconfirmable } = await import('../../netlify/shared/claims')
+    const { flowsIntoExternal } = await import('../../netlify/shared/provenance')
+    const reason = 'opts.maxAge is passed on unchanged to cookie.serialize when it is non-numeric, so the cookie is set without the intended expiry.'
+    const imports = importedNames(COOKIE)
+    expect(unconfirmable(reason, COOKIE[maxAgeLine - 1], imports)).toBe('Not confirmed: the claim rests on how cookie behaves, and cookie is not defined in this file.')
+    expect(flowsIntoExternal('If opts.maxAge is non-numeric the value is passed on to the cookie header.', COOKIE, maxAgeLine, imports)).toMatch(/^Not confirmed: opts is passed to cookie on line 12/)
+  })
+
+  it('leaves alone a consequence inside the file\'s own code, and a claim with no hand-off', () => {
+    const local = ['function build(opts) { return opts }', 'function run(opts) {', '  var maxAge = opts.maxAge - 0', '  return build(opts)', '}']
+    expect(flowsIntoExternal('The value is passed on to the builder later.', local, 3, new Set())).toBeNull()
+    expect(flowsIntoExternal('The loop is slow.', COOKIE, maxAgeLine, importedNames(COOKIE))).toBeNull()
   })
 })

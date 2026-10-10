@@ -109,3 +109,28 @@ export function provenanceOf(message: string, texts: readonly string[], line: nu
   }
   return out
 }
+
+const CONSEQUENCE = /\b(?:passed|passes|forwarded?|handed|hands?|downstream|later|eventually|ends? up|so the|is used by|feeds?)\b/i
+const FLOW_WINDOW = 40
+
+/**
+ * A claim about what happens to a value after it leaves the cited line: when the value, within the next 40 lines, is an
+ * argument to a call on an imported name, what happens is decided inside that import. `cookie.serialize(name, val, opts)`
+ * decides what a bad `opts.maxAge` does, so a claim about the cookie is not confirmed from this file. `text` is the message
+ * or the reason.
+ */
+export function flowsIntoExternal(text: string, texts: readonly string[], line: number, imports: ReadonlySet<string>): string | null {
+  if (!CONSEQUENCE.test(text)) return null
+  const vars = claimVariables(text, texts[line - 1] ?? '')
+  if (vars.length === 0) return null
+  for (let n = line; n <= Math.min(texts.length, line + FLOW_WINDOW); n += 1) {
+    const text1 = texts[n - 1] ?? ''
+    for (const m of text1.matchAll(/\b([A-Za-z_$][\w$]*)(?:\.[\w$]+)*\s*\(/g)) {
+      if (!imports.has(m[1])) continue
+      const args = text1.slice((m.index ?? 0) + m[0].length)
+      const arg = vars.find((v) => new RegExp(String.raw`(?<![\w$])${v.replace(/\$/g, '\\$')}(?![\w$])`).test(args))
+      if (arg) return `Not confirmed: ${arg} is passed to ${m[1]} on line ${n}, so what happens to it is decided inside ${m[1]}, which this file does not define.`
+    }
+  }
+  return null
+}

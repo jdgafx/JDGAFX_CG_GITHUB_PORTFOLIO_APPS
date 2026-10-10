@@ -153,6 +153,24 @@ const DEFINITION_LINES = 18
  * only when a line of the file defines it (def, func, function or class, including a Go method receiver). Definitions that sit
  * inside the cited line's own scope are left out, they are already shown.
  */
+const DEFINITION_LINE = /^\s*(?:async\s+)?(?:def|function|class)\s+([A-Za-z_$][\w$]*)|^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_$][\w$]*)/
+const definitionIndex = new WeakMap<readonly string[], Map<string, number>>()
+
+/** Each defined name's first line, from one pass over the code (built once per file, however many comments ask). */
+function definitionsByName(code: readonly string[]): Map<string, number> {
+  let index = definitionIndex.get(code)
+  if (!index) {
+    index = new Map()
+    code.forEach((l, i) => {
+      const m = DEFINITION_LINE.exec(l)
+      const name = m?.[1] ?? m?.[2]
+      if (name && !index!.has(name)) index!.set(name, i + 1)
+    })
+    definitionIndex.set(code, index)
+  }
+  return index
+}
+
 export function definitionRanges(code: readonly string[], text: string, line: number): Array<[number, number]> {
   const own = enclosingScope(code, line)
   const local = provenanceOf(text, code, line, new Set()).localCalls
@@ -166,7 +184,7 @@ export function definitionRanges(code: readonly string[], text: string, line: nu
   const seen = new Set<number>()
   const ranges: Array<[number, number]> = []
   for (const word of words) {
-    const at = code.findIndex((l) => new RegExp(String.raw`^\s*(?:async\s+)?(?:def|function|class)\s+${word}\b|^\s*func\s+(?:\([^)]*\)\s*)?${word}\b`).test(l)) + 1
+    const at = definitionsByName(code).get(word) ?? 0
     if (at === 0 || seen.has(at) || (at >= own.from && at <= own.to) || seen.size >= MAX_DEFINITIONS) continue
     seen.add(at)
     ranges.push([at, Math.min(scopeEnd(code, at), at + DEFINITION_LINES - 1)])

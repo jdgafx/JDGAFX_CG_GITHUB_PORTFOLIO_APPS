@@ -145,6 +145,7 @@
 .live-data { display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 4px 12px; font-size: 13px; font-weight: 650; color: var(--ds-text-muted); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px; }
 .live-data[data-state="live"] { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
 .live-data[data-state="failed"] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
+.live-data .ds-dot { flex: none; }
 
 /* The code that backs the claim is marked in place when it is on the cited line; elsewhere it is a chip that wraps as one box. */
 .finding__quote--backing { text-decoration-style: dotted; }
