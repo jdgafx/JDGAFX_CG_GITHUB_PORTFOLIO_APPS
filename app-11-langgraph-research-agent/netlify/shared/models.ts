@@ -2,11 +2,14 @@ import type { CostSource } from './events'
 import type { TokenUsage } from './openrouter'
 
 /**
- * The one model every node uses. Chris named Claude Haiku 5.5 for all four nodes on 2026-10-09, so the
- * version is pinned on purpose. Change it here and the price table below follows.
+ * The one model every node uses, requested as the OpenRouter alias for the newest Claude Haiku. OpenRouter
+ * answers with a concrete id (SERVED_MODEL today), and the page shows that id, never the alias.
  * Haiku 5.5 rejects a temperature, so no call sends one.
  */
-export const NODE_MODEL = 'anthropic/claude-haiku-5.5'
+export const NODE_MODEL = '~anthropic/claude-haiku-latest'
+
+/** The concrete model OpenRouter answered with when this was written. Its list price is the one below. */
+export const SERVED_MODEL = 'anthropic/claude-haiku-5.5'
 
 export const MAX_TOKENS = { plan: 400, agent: 800, draft: 1200, critic: 400 } as const
 
@@ -23,9 +26,10 @@ interface ListPrice {
   outPerMillion: number
 }
 
-/** List prices checked on 2026-10-09. */
+/** List prices checked on 2026-10-09, keyed by the alias that is requested and the id that answers. */
 const LIST_PRICES: Record<string, ListPrice> = {
   [NODE_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
+  [SERVED_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
 }
 
 /** Rounds away floating-point noise from summed or estimated costs. */

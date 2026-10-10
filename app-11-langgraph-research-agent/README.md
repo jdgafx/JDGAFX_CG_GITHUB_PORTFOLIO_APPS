@@ -36,7 +36,7 @@ flowchart TD
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
 - **out of time** edges (agent to draft, critic to final) are taken when the time left is below what the next step needs. The node detail says how many seconds were left, for example "Time left 6 s: no more searches. Drafting with what has been read." A skipped review leaves the answer labelled "Unreviewed: the time limit ended the review."
 
-Every node uses one model, `anthropic/claude-haiku-5.5`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. Its list price is $0.10 in and $0.50 out per 1M tokens, checked on 2026-10-09. Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
+Every node requests one model, the OpenRouter alias `~anthropic/claude-haiku-latest`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. The trace shows the model OpenRouter answered with (currently `anthropic/claude-haiku-5.5`), never the alias. The list price (keyed by both ids) is $0.10 in and $0.50 out per 1M tokens, checked on 2026-10-09. Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
 
 | Node | What it does | Reply cap | p50 / p95 (ms) |
 | --- | --- | --- | --- |

@@ -182,9 +182,9 @@ describe('POST /api/run', () => {
     expect(modelBodies).toHaveLength(5)
     for (const body of modelBodies) expect(body.reasoning).toEqual({ enabled: false })
 
-    // Every node uses Haiku 5.5, which rejects a temperature, so no request body carries one.
+    // Every node requests the Haiku alias, and Haiku 5.5 rejects a temperature, so no request body carries one.
     for (const body of modelBodies) {
-      expect(body.model).toBe('anthropic/claude-haiku-5.5')
+      expect(body.model).toBe('~anthropic/claude-haiku-latest')
       expect('temperature' in body).toBe(false)
     }
   })

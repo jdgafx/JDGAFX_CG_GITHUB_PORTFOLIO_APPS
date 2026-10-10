@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { costHint, count, milliseconds, shortModel, usd } from '../lib/format'
+import { costHint, count, milliseconds, plainModel, shortModel, usd } from '../lib/format'
 import type { RunView } from '../lib/runState'
 
 interface CellProps {
@@ -66,7 +66,7 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const chips = (ids: string[]) => (
     <span className="ds-chips">
       {ids.map((id) => (
-        <span key={id} className="ds-chip" title={id}>
+        <span key={id} className="ds-chip" title={plainModel(id)}>
           {shortModel(id)}
         </span>
       ))}

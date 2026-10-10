@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { costHint } from '../../src/lib/format'
+import { costHint, plainModel, shortModel } from '../../src/lib/format'
 
 describe('costHint', () => {
   it('says where a complete total came from', () => {
@@ -16,5 +16,14 @@ describe('costHint', () => {
 
   it('says no model call has a price when there is no total', () => {
     expect(costHint({ unpricedRows: 3 })).toBe('no model call has a price')
+  })
+})
+
+describe('model chips', () => {
+  it('drops the provider prefix and the ~ of an OpenRouter alias', () => {
+    expect(shortModel('anthropic/claude-haiku-5.5')).toBe('claude-haiku-5.5')
+    expect(shortModel('~anthropic/claude-haiku-latest')).toBe('claude-haiku-latest')
+    expect(plainModel('~anthropic/claude-haiku-latest')).toBe('anthropic/claude-haiku-latest')
+    expect(plainModel('anthropic/claude-haiku-5.5')).toBe('anthropic/claude-haiku-5.5')
   })
 })

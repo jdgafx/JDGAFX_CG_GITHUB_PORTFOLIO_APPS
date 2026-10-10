@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { costFor, MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../../netlify/shared/models'
+import { costFor, MAX_TOKENS, NODE_MODEL, SERVED_MODEL, STEP_NEEDS_MS } from '../../netlify/shared/models'
 
 describe('model assignment', () => {
-  it('uses Claude Haiku 5.5 for every node, named by id once', () => {
-    expect(NODE_MODEL).toBe('anthropic/claude-haiku-5.5')
+  it('requests the Claude Haiku alias for every node, named by id once', () => {
+    expect(NODE_MODEL).toBe('~anthropic/claude-haiku-latest')
+    expect(SERVED_MODEL).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('caps each node reply and sends no temperature setting at all', async () => {
@@ -24,6 +25,12 @@ describe('costFor', () => {
       cost: 0.0002,
       source: 'estimated',
     })
+  })
+
+  it('prices the id that answered as well as the alias that was requested', () => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 200 }
+    expect(costFor(SERVED_MODEL, usage)).toEqual(costFor(NODE_MODEL, usage))
+    expect(costFor(SERVED_MODEL, usage)).toEqual({ cost: 0.0002, source: 'estimated' })
   })
 
   it('prefers the cost the provider reported', () => {

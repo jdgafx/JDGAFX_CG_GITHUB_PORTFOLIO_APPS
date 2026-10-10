@@ -55,7 +55,7 @@ function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult): 
     row.model = model
     row.servedModel = reply.servedModel
     row.usage = reply.usage
-    const priced = costFor(model, reply.usage)
+    const priced = costFor(reply.servedModel ?? model, reply.usage)
     if (priced) {
       row.cost = priced.cost
       row.costSource = priced.source

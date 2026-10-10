@@ -7,8 +7,14 @@ export const milliseconds = (value: number): string => `${count(value)} ms`
 /** Six decimals, because most calls cost a fraction of a cent. */
 export const usd = (value: number): string => `$${value.toFixed(6)}`
 
+/** An OpenRouter alias id starts with "~" ("~anthropic/claude-haiku-latest"). The page never shows that prefix. */
+export const plainModel = (id: string): string => (id.startsWith('~') ? id.slice(1) : id)
+
 /** A model id without its provider prefix, so a chip stays short. The full id goes in the title. */
-export const shortModel = (id: string): string => id.slice(id.indexOf('/') + 1)
+export const shortModel = (id: string): string => {
+  const plain = plainModel(id)
+  return plain.slice(plain.indexOf('/') + 1)
+}
 
 export const plural = (value: number, word: string): string => `${value} ${word}${value === 1 ? '' : 's'}`
 

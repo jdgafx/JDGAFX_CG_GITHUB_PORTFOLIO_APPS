@@ -1,4 +1,4 @@
-import { costSourceText, count, milliseconds, shortModel, usd } from '../lib/format'
+import { costSourceText, count, milliseconds, plainModel, shortModel, usd } from '../lib/format'
 import type { CheckpointOffer } from '../../netlify/shared/events'
 import type { RunView, TraceEntry } from '../lib/runState'
 
@@ -20,7 +20,7 @@ function ModelChip({ entry }: { entry: TraceEntry }) {
   }
   if (entry.model) {
     return (
-      <span className="ds-chip ds-chip--muted" title={`asked for ${entry.model}, served model not reported`}>
+      <span className="ds-chip ds-chip--muted" title={`asked for ${plainModel(entry.model)}, served model not reported`}>
         {shortModel(entry.model)}, asked
       </span>
     )
