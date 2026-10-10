@@ -129,3 +129,37 @@ export function resolvePackages(said: string[], names: string[]): (string | null
   })
 }
 
+
+/**
+ * A model sometimes corrects itself in the text it streams ("...wait, I must use only listed figures. Let me restate cleanly
+ * as the final answer:") and then writes the answer again. Everything up to the end of that line is a draft: the reader is
+ * shown, and the check reads, only what follows.
+ */
+const RESTART = /[^\n]*\b(?:let me (?:restate|rewrite|redo|start over|try again)|(?:here is|here's) the (?:final|corrected|clean) (?:answer|version)|final answer)\b[^\n:]*(?::|\n)/i
+
+/** The text after the last self-correction in `text`, or all of it when there is none. */
+export function finalAnswer(text: string): string {
+  let rest = text
+  for (let match = RESTART.exec(rest); match; match = RESTART.exec(rest)) rest = rest.slice(match.index + match[0].length).replace(/^\s+/, '')
+  return rest
+}
+
+/** Follows the streamed explanation and says when a self-correction completes, so the page can drop the draft it already showed. */
+export class RestartTracker {
+  private visible = ''
+  private emitted = 0
+
+  /** `reset` when everything shown so far is a draft; `text` is what to show next (all of the new answer after a reset). */
+  push(delta: string): { reset: boolean; text: string } {
+    this.visible += delta
+    const match = RESTART.exec(this.visible)
+    if (match) {
+      this.visible = this.visible.slice(match.index + match[0].length).replace(/^\s+/, '')
+      this.emitted = this.visible.length
+      return { reset: true, text: this.visible }
+    }
+    const text = this.visible.slice(this.emitted)
+    this.emitted = this.visible.length
+    return { reset: false, text }
+  }
+}

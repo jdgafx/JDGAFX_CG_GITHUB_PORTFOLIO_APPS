@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Summary } from '../../netlify/shared/contract'
 import { TRACE_STAGES } from '../lib/api'
 import { buildWindow, observedDays, summarize, totalOf, type Series } from '../lib/analytics'
@@ -9,10 +9,12 @@ import { DEFAULT_NAMES, DEFAULT_WINDOW } from '../lib/presets'
 import type { Release } from '../lib/releases'
 import { buildSpikeEvidence, countSpikes } from '../lib/spikes'
 import { liveInputs, liveState } from '../lib/liveData'
+import { readPreference, readyToRun, savePreference, sameSelection, startTry } from '../lib/tryIt'
 import { useDownloads } from '../lib/useDownloads'
 import { useResultFocus } from '../lib/useResultFocus'
 import { useReleases } from '../lib/useReleases'
 import AnswerCard from './AnswerCard'
+import HowTo from './HowTo'
 import Header from './Header'
 import InsightControls from './InsightControls'
 import MoreCharts from './MoreCharts'
@@ -108,6 +110,24 @@ export default function Dashboard() {
   // On a narrow screen a finished run scrolls its result into view and focuses its heading (shared hook).
   useResultFocus(run.status)
 
+  // Directions: open on a first visit, closed on a phone while a result is shown (the visitor's own choice wins until the run changes).
+  const [howto, setHowto] = useState<{ open: boolean; status: RunStatus } | null>(null)
+  const narrow = typeof window !== 'undefined' && !window.matchMedia('(min-width: 720px)').matches
+  const resultShown = run.status === 'done' || run.status === 'failed' || run.status === 'stopped'
+  const howtoOpen = howto && howto.status === run.status ? howto.open : !(narrow && resultShown) && readPreference() !== 'closed'
+
+  // Try it: load the example selection, then run as soon as the live figures and the release history are both in.
+  const tryQueued = useRef(false)
+  const startedTry = useRef(false)
+  useEffect(() => {
+    if (!readyToRun(tryQueued.current, ready) || run.status === 'running' || startedTry.current) return
+    if (!sameSelection(names, days)) return
+    startedTry.current = true
+    tryQueued.current = false
+    // After this render, so the run starts from settled state; it must not be cancelled by the re-render it causes.
+    window.setTimeout(start, 0)
+  })
+
   const openIndex = TRACE_STAGES.findIndex((stage) => !run.steps.some((step) => step.name === stage.name))
   const checkFailed = run.steps.some((step) => step.name === 'Check figures' && step.status === 'failed')
   const anyFailedStep = run.steps.some((step) => step.status === 'failed')
@@ -118,6 +138,23 @@ export default function Dashboard() {
       <Header status={run.status} checkFailed={checkFailed} live={live} />
 
       <main className="ds-main">
+        <HowTo
+          open={howtoOpen}
+          busy={run.status === 'running'}
+          onToggle={(open) => {
+            setHowto({ open, status: run.status })
+            if (run.status === 'idle') savePreference(open ? 'open' : 'closed')
+          }}
+          onTry={() => {
+            startedTry.current = false
+            startTry({ setNames, setDays, queueRun: () => (tryQueued.current = true) })
+            if (sameSelection(names, days) && ready && run.status !== 'running') {
+              startedTry.current = true
+              tryQueued.current = false
+              start()
+            }
+          }}
+        />
         <div className="ds-bench">
           <div className="ds-controls">
             <PackagePicker names={names} days={days} onNamesChange={setNames} onDaysChange={setDays} />

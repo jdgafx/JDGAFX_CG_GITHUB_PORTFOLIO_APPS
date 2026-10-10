@@ -137,3 +137,27 @@
 .live-data[data-state="live"] { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
 .live-data[data-state="failed"] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .live-data .ds-dot { flex: none; }
+
+/* Directions: right under the masthead, open on a first visit */
+.howto { background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.howto__summary { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 16px; cursor: pointer; list-style: none; }
+.howto__summary::-webkit-details-marker { display: none; }
+.howto__summary::after { content: ""; width: 8px; height: 8px; border: solid var(--ds-text-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform 120ms var(--ds-ease); }
+.howto details[open] > .howto__summary::after { transform: rotate(225deg); }
+.howto__title { font-size: 18px; font-weight: 650; }
+.howto__body { display: grid; gap: 8px; padding: 0 16px 16px; }
+.howto__line { font-size: 15px; }
+.howto__steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 15px; }
+.howto__steps li { padding-left: 4px; }
+.howto__try { justify-self: start; }
+@media (min-width: 1000px) {
+  .howto__body { grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 24px; }
+  .howto__line, .howto__steps { grid-column: 1; }
+  .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+}
+@media (max-width: 720px) {
+  .howto__summary { padding: 0 12px; }
+  .howto__body { padding: 0 12px 12px; }
+  .howto__line, .howto__steps { font-size: 14px; }
+  .howto__try { justify-self: stretch; }
+}

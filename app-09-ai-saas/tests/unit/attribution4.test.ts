@@ -92,3 +92,21 @@ describe('"next" as a package at the end of a sentence, and a figure tied to its
     expect(outcome('Astro is the fastest by change. Its change is +48%, against +25.1% for next and +26% for nuxt.', N1)).toBe('unchecked')
   })
 })
+
+describe('weekend level and gap, whichever way round and wherever the words are (D26b)', () => {
+  const counts = (text: string) => {
+    const c = checkClaims(text, [], N1)
+    return { matched: c.matched, unchecked: c.unchecked.length, rejected: c.rejected.length }
+  }
+  it.each([
+    ['Nuxt weekend traffic is 57.3% of weekday levels (42.7% lower).', { matched: 0, unchecked: 2 }], // swapped
+    ['Nuxt weekend traffic is 42.7% of weekday levels (57.3% lower).', { matched: 2, unchecked: 0 }],
+    ['Nuxt weekend traffic is 57.3% of weekday levels, 42.7% lower.', { matched: 0, unchecked: 2 }],
+    ['Nuxt weekend traffic is 42.7% of weekday levels, 57.3% lower.', { matched: 2, unchecked: 0 }],
+    ['Nuxt loses 57.3% on weekends.', { matched: 1, unchecked: 0 }],
+    ['Nuxt loses 42.7% on weekends.', { matched: 0, unchecked: 1 }],
+    ['Nuxt weekends: 42.7%.', { matched: 0, unchecked: 1 }], // no words say which
+  ] as [string, { matched: number; unchecked: number }][])('%s', (text, expected) => {
+    expect(counts(text)).toMatchObject({ ...expected, rejected: 0 })
+  })
+})

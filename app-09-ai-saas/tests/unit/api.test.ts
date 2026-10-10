@@ -253,4 +253,11 @@ describe('getInsights: error mapping', () => {
   it('does not treat a RunError as an abort', () => {
     expect(isAbortError(new RunError('x'))).toBe(false)
   })
+
+  it('tells the page to drop a draft when the server sends a reset, then shows the final text', async () => {
+    stubFetch(async () => sseResponse(['data: {"text":"draft 99%"}\n\n', 'data: {"reset":true}\n\n', 'data: {"text":"final"}\n\n', 'data: [DONE]\n\n']))
+    const events: string[] = []
+    await getInsights(STATS, { onStep: () => undefined, onComplete: () => undefined, onText: (t) => events.push(`text:${t}`), onReset: () => events.push('reset') })
+    expect(events).toEqual(['text:draft 99%', 'reset', 'text:final'])
+  })
 })

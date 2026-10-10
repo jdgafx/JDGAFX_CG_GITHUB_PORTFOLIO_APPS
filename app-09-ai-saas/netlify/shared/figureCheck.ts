@@ -1,5 +1,5 @@
 import type { PackageFigures, Summary } from './contract'
-import { contextOf, metricOf, metricsIn, SELECTION_WORDS, wordsOfFigure, type Context, type Metric } from './attribution'
+import { contextOf, metricOf, metricsIn, SELECTION_WORDS, weekendMetric, wordsOfFigure, type Context, type Metric } from './attribution'
 import { checkEvidence } from './evidence'
 import { comparesWithPast, directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Range, type Unit } from './figures'
 
@@ -98,7 +98,7 @@ function named(ctx: Context): Set<string> {
  * belong to no package (the selection's total, a multiple with its pair). The metric the words give ("per day", "in
  * total", "usual") must be the value's; when the words give none, the figure must match values of one metric only.
  */
-function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null, clauseAmbiguous: boolean): { matched: boolean; wrongDirection: boolean; ambiguous: boolean } {
+function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null, clauseAmbiguous: boolean, weekend: Metric | null): { matched: boolean; wrongDirection: boolean; ambiguous: boolean } {
   let sizeMatched = false
   const hits: PoolValue[] = []
   const set = q.unit === 'times' ? named(ctx) : new Set<string>()
@@ -109,6 +109,9 @@ function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null
     } else if (value.owner !== undefined) {
       if (ctx.owner !== value.owner) continue
     } else if (ctx.owner !== null && !SELECTION_WORDS.test(ctx.clause)) continue // a selection-wide value, in a clause about one package
+    // A weekend level ("runs at 57.3% of weekdays") and a weekend gap ("42.7% lower") are told apart by the figure's own words,
+    // whether or not it says "weekend"; with words for neither, a weekend value is not matched.
+    if ((value.metric === 'weekend_level' || value.metric === 'weekend_gap') && value.metric !== weekend) continue
     if (!matchesQuoted(q, value.value, value.owner !== undefined)) continue
     sizeMatched = true
     if (value.trend && !directionAgrees(q, value.value)) continue
@@ -164,7 +167,8 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
       result.unmatched.push(o.whole)
       return
     }
-    const verdict = judge(o.quoted, values, ctx, said, clauseMetrics.length > 1)
+    const weekend = unit === '%' ? weekendMetric(text.slice(own.from, o.index), text.slice(end, own.to)) : null
+    const verdict = judge(o.quoted, values, ctx, said, clauseMetrics.length > 1, weekend)
     result.checked += 1
     if (verdict.matched) result.matched += 1
     else result.unmatched.push(verdict.wrongDirection ? `${o.whole} (direction does not match)` : o.whole)

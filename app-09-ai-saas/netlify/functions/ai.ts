@@ -1,7 +1,7 @@
 import { CHAT_URL, chatRequest } from '../shared/provider'
 import type { Summary } from '../shared/contract'
 import { checkClaims, describeClaimCheck, type ClaimCheck } from '../shared/claimCheck'
-import { ClaimSplitter, claimsPrompt, parseClaims, splitAnswer } from '../shared/claims'
+import { ClaimSplitter, claimsPrompt, finalAnswer, parseClaims, RestartTracker, splitAnswer } from '../shared/claims'
 import { buildPrompt, checkFigures, describeFigureCheck, parseInsightRequest } from '../shared/insights'
 import { DONE_FRAME, encodeFrame, readProviderStream, type Emit } from '../shared/stream'
 
@@ -218,12 +218,18 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
     if (!response.body) return failRun('The AI provider returned an empty response. Try again.')
     // The claims array follows the explanation after a marker line. The viewer sees the explanation only.
     const splitter = new ClaimSplitter()
+    const restarts = new RestartTracker()
+    const show = (piece: string) => {
+      if (!piece) return
+      const { reset, text } = restarts.push(piece)
+      if (reset) emit({ reset: true })
+      if (text) emit({ text })
+    }
     const answer = await readProviderStream(
       response.body,
       (frame) => {
         if ('text' in frame && typeof frame.text === 'string') {
-          const shown = splitter.push(frame.text)
-          if (shown) emit({ text: shown })
+          show(splitter.push(frame.text))
         } else emit(frame)
       },
       upstream.signal,
@@ -234,9 +240,10 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
       return
     }
     if (answer.providerError !== null) return failRun(providerFailure(answer.providerError))
-    const tail = splitter.flush()
-    if (tail) emit({ text: tail })
-    const { explanation, claimsRaw } = splitAnswer(answer.text)
+    show(splitter.flush())
+    const split = splitAnswer(answer.text)
+    const explanation = finalAnswer(split.explanation)
+    const claimsRaw = split.claimsRaw
     finishStage('ok', `${answer.chunks} ${answer.chunks === 1 ? 'chunk' : 'chunks'}, ${explanation.length} characters`, {
       tokens: answer.usage?.total_tokens,
       cost: answer.usage?.cost,

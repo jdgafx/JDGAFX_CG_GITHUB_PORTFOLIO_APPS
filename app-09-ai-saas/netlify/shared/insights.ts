@@ -34,6 +34,8 @@ ${s.packages.map((p) => packageLine(p, s.packages.length > 1)).join('\n')}
 ${spikePrompt(s)}
 Use only the figures listed above. Do not invent numbers, rankings, versions, release dates or reasons stated as fact; explain a pattern only as a possibility. Quote a download count in full or in millions or billions (for example 1.2 billion). You may state how many times larger one package is than another, using the listed figures. When you compare packages, say which one is growing fastest and which slowest using the change figures. Downloads count installs, including CI and mirrors, so they measure install volume, not users. Be direct and actionable. Format as numbered insights with brief explanations.
 
+Your reply is shown to the reader exactly as you write it, so write only the final answer: no drafts, no corrections and no notes to yourself.
+
 Output plain text only. Do not use markdown headings, asterisks, or any other markup.`
 }
 

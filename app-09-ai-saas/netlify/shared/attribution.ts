@@ -162,7 +162,7 @@ export function metricsIn(text: string, unit: 'count' | '%'): Metric[] {
  * The metric a figure's words say it is, read from the words around it between its delimiters. Null when they say
  * nothing. The first by precedence when they say more than one.
  */
-const GAP_WORDS = /\b(?:lower|drops?|dropped|below|fewer|less than|dips?|decline\w*|shortfall|gap|smaller|down)\b/i
+const GAP_WORDS = /\b(?:lower|drops?|dropped|below|fewer|less than|dips?|decline\w*|shortfall|gap|smaller|down|loses?|lost|losing)\b/i
 const LEVEL_WORDS = /\b(?:runs?|keeps?|retains?|sits?|stays?|holds?|reach(?:es)?|at)\b|\bof (?:its |their |the )?weekday/i
 
 /**

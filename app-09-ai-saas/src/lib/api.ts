@@ -64,6 +64,8 @@ export interface RunOutcome {
 export interface RunHandlers {
   onStep: (step: TraceStep) => void
   onText: (text: string) => void
+  /** The model corrected itself: what was shown so far was a draft and is cleared. */
+  onReset?: () => void
   onComplete: (outcome: RunOutcome) => void
 }
 
@@ -82,6 +84,7 @@ interface Frame extends Partial<RunOutcome> {
   stage?: 'complete'
   step?: TraceStep
   text?: string
+  reset?: boolean
   error?: string
 }
 
@@ -115,6 +118,7 @@ function consumeSseLine(line: string, handlers: RunHandlers): boolean {
 
   if (frame.error) throw new RunError(frame.error, frame.totalMs ?? null)
   if (frame.step) handlers.onStep(frame.step)
+  if (frame.reset) handlers.onReset?.()
   if (frame.text) handlers.onText(frame.text)
   if (frame.stage === 'complete') {
     handlers.onComplete({

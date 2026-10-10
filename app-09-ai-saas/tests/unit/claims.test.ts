@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkClaims, describeClaimCheck } from '../../netlify/shared/claimCheck'
-import { ClaimSplitter, CLAIMS_MARKER, parseClaims, resolvePackage, splitAnswer, type Claim } from '../../netlify/shared/claims'
+import { ClaimSplitter, CLAIMS_MARKER, finalAnswer, parseClaims, resolvePackage, RestartTracker, splitAnswer, type Claim } from '../../netlify/shared/claims'
 import type { Summary } from '../../netlify/shared/contract'
 
 // The live selection: zod 7.854 billion, react 5.7 billion, @anthropic-ai/sdk 834.9 million.
@@ -338,5 +338,28 @@ describe('spike_count claims', () => {
       expect(check.matched).toBe(0)
       expect(check.unchecked).toHaveLength(1)
     }
+  })
+})
+
+describe('a model that corrects itself in the streamed text (D28)', () => {
+  const DRAFT = 'React rose 99% last month. ...wait, I must use only listed figures. Let me restate cleanly as the final answer:\n'
+  it('keeps only what follows the last self-correction', () => {
+    expect(finalAnswer(`${DRAFT}React rose 3.2%.`)).toBe('React rose 3.2%.')
+    expect(finalAnswer(`${DRAFT}Hmm, one more thing.\nHere is the final answer:\nReact rose 3.2%.`)).toBe('React rose 3.2%.')
+    expect(finalAnswer('React rose 3.2%. Nothing odd here.')).toBe('React rose 3.2%. Nothing odd here.')
+    expect(finalAnswer('The final answer is a number we do not quote.')).toBe('The final answer is a number we do not quote.')
+  })
+
+  it('tells the page to drop the draft once the correction line is complete, then streams the answer', () => {
+    const tracker = new RestartTracker()
+    const out = ['React rose 99% last mo', 'nth. ...wait, I must use only listed figures. Let me restate clea', 'nly as the final answer:\n', 'React rose ', '3.2%.'].map((piece) => tracker.push(piece))
+    expect(out.map((o) => o.reset)).toEqual([false, false, true, false, false])
+    expect(out[2].text).toBe('')
+    expect(out.slice(3).map((o) => o.text).join('')).toBe('React rose 3.2%.')
+  })
+
+  it('shows plain text in one piece as it arrives', () => {
+    const tracker = new RestartTracker()
+    expect(['One. ', 'Two.'].map((p) => tracker.push(p))).toEqual([{ reset: false, text: 'One. ' }, { reset: false, text: 'Two.' }])
   })
 })

@@ -30,6 +30,7 @@ interface Step {
 }
 
 interface Frame {
+  reset?: boolean
   stage?: string
   step?: Step
   text?: string
@@ -624,5 +625,23 @@ describe('netlify/functions/ai: structured claims', () => {
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
     expect(check?.detail).toContain('The claims array could not be read')
     expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(EXPLANATION)
+  })
+})
+
+describe('netlify/functions/ai: a draft the model corrects', () => {
+  it('sends a reset, shows and returns only the final answer, and checks that', async () => {
+    const pieces = ['React rose 99% last month. ...wait, I must use only listed figures. Let me restate cl', 'eanly as the final answer:\n', 'React rose 3.2% and holds 62.5% of the selection.']
+    stubFetch(async () =>
+      sse([
+        ...pieces.map((content, i) => frame({ model: SERVED_MODEL, choices: [{ delta: { content }, ...(i === pieces.length - 1 ? { finish_reason: 'stop' } : {}) }] })),
+        DONE,
+      ]),
+    )
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+    const order = reply.frames.flatMap((f) => (f.reset ? ['reset'] : f.text !== undefined ? ['text'] : []))
+    expect(order).toContain('reset')
+    expect(order.lastIndexOf('reset')).toBeLessThan(order.lastIndexOf('text'))
+    expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe('React rose 3.2% and holds 62.5% of the selection.')
+    expect(stepsOf(reply.frames).find((s) => s.name === 'Check figures')).toMatchObject({ status: 'ok', detail: '2 of 2 figures match the summary' })
   })
 })

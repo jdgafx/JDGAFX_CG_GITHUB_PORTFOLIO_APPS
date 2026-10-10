@@ -48,6 +48,7 @@ export function useInsightRun(summary: Summary | null): InsightRun {
       await getInsights(summary, {
         onStep: (step) => update((prev) => ({ steps: [...prev.steps, step] })),
         onText: (chunk) => update((prev) => ({ answer: prev.answer + chunk })),
+        onReset: () => update(() => ({ answer: '' })),
         onComplete: (run) => {
           completed = true
           update(() => ({ outcome: run, answer: run.result, totalMs: run.totalMs, status: 'done' }))

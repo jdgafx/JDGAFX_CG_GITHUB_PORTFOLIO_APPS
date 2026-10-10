@@ -6,6 +6,10 @@ InsightHub is an analytics dashboard for npm packages. The visitor picks one to 
 
 What this showcases: spikes explained. A robust spike detector on live npm downloads, matched to registry release history, with a streamed model explanation whose numbers, dates and versions are checked against that evidence.
 
+## How to use
+
+The page opens with a How to use block under the masthead: what the app does in one line, three steps that name the controls (Add a package or Ready-made comparisons, Explain spikes, then click a marker and read the check), and a Try it button. Try it loads four real packages over a year (react, vite, zod and @anthropic-ai/sdk), waits for the live downloads and release history, then makes a real model call. The block is open on a first visit, remembers a visitor's choice in the browser when it can, and closes on a phone while a result is shown.
+
 ## Data
 
 The source is the public npm downloads API, `https://api.npmjs.org/downloads/range/{start}:{end}/{package}`. It allows browser requests from any origin, so the page calls it directly and no server is involved. Nothing is stored or bundled: every visit fetches live counts.
