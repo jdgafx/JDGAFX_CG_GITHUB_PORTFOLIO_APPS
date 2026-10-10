@@ -91,7 +91,7 @@ function totalsFor(rows: TraceRow[], ms: number): Totals {
 }
 
 function modelsFor(rows: TraceRow[]): string[] {
-  const names = rows.map((row) => row.servedModel ?? row.model).filter((name): name is string => !!name)
+  const names = rows.map((row) => row.servedModel).filter((name): name is string => !!name)
   return [...new Set(names)]
 }
 

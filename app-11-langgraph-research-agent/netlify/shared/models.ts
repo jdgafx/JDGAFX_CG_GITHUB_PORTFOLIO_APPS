@@ -26,10 +26,18 @@ interface ListPrice {
   outPerMillion: number
 }
 
-/** List prices checked on 2026-10-09, keyed by the alias that is requested and the id that answers. */
+/** The older Haiku the alias has also been answered by (seen on 2026-10-10). */
+const SERVED_MODEL_OLDER = 'anthropic/claude-haiku-4.5'
+
+/**
+ * OpenRouter list prices (GET /api/v1/models, checked 2026-10-10), keyed by the ids that answer and, as a
+ * fallback, the alias that is requested. Haiku 5.5 is $0.10 in and $0.50 out per million tokens; Haiku 4.5 is
+ * $1 in and $5 out.
+ */
 const LIST_PRICES: Record<string, ListPrice> = {
   [NODE_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
   [SERVED_MODEL]: { inPerMillion: 0.1, outPerMillion: 0.5 },
+  [SERVED_MODEL_OLDER]: { inPerMillion: 1, outPerMillion: 5 },
 }
 
 /** Rounds away floating-point noise from summed or estimated costs. */

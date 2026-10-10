@@ -33,6 +33,14 @@ describe('costFor', () => {
     expect(costFor(SERVED_MODEL, usage)).toEqual({ cost: 0.0002, source: 'estimated' })
   })
 
+  it('prices Haiku 4.5, which has answered the alias, at its own list price', () => {
+    // 1000 prompt tokens at $1 per 1M plus 200 completion tokens at $5 per 1M.
+    expect(costFor('anthropic/claude-haiku-4.5', { prompt_tokens: 1000, completion_tokens: 200 })).toEqual({
+      cost: 0.002,
+      source: 'estimated',
+    })
+  })
+
   it('prefers the cost the provider reported', () => {
     expect(costFor(NODE_MODEL, { prompt_tokens: 1, completion_tokens: 1, cost: 0.5 })).toEqual({
       cost: 0.5,

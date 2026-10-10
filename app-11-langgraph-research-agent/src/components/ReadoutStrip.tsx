@@ -51,7 +51,7 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const priced = own.filter((entry) => entry.cost !== undefined)
   const spentCost = priced.reduce((sum, entry) => sum + (entry.cost ?? 0), 0)
   const current = trace.find((entry) => entry.status === 'running')
-  const usedModels = Array.from(new Set(trace.map((entry) => entry.servedModel ?? entry.model ?? '').filter(Boolean)))
+  const usedModels = Array.from(new Set(trace.map((entry) => entry.servedModel ?? '').filter(Boolean)))
   // Before any step has finished there is nothing to show but dashes.
   const soFar = (running || ended) && own.some((entry) => entry.ms !== undefined)
   // A re-run that ended before any step of its own finished has no step time, so the client clock gives the elapsed time.
