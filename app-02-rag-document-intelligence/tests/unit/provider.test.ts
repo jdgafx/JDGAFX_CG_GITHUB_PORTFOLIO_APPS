@@ -33,7 +33,7 @@ describe('callModel', () => {
     const [url, init] = mock.mock.calls[0] ?? []
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
-    expect(sent['model']).toBe('anthropic/claude-haiku-5.5')
+    expect(sent['model']).toBe('~anthropic/claude-haiku-latest')
     expect(sent['max_tokens']).toBe(4096)
     expect(sent).not.toHaveProperty('temperature')
     expect(sent['usage']).toEqual({ include: true })

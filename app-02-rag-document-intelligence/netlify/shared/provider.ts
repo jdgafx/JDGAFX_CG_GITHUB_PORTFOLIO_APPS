@@ -1,6 +1,6 @@
 import { withDeadline } from './deadline'
 /** The one chat model every call in this app uses. No client field or env var overrides it. */
-export const MODEL = 'anthropic/claude-haiku-5.5'
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const CATALOGUE_URL = 'https://openrouter.ai/api/v1/models'

@@ -41,7 +41,7 @@ describe('ai function: happy path', () => {
     expect(body.trace[2]?.detail).toBe(`Response from ${SERVED}.`)
     expect(body.trace[3]?.detail).toBe('Answer cites 1 passage. Self-rated 95%.')
     expect(mock).toHaveBeenCalledTimes(1)
-    expect(sentBody(mock, 0)).toMatchObject({ model: 'anthropic/claude-haiku-5.5', max_tokens: 4096, usage: { include: true } })
+    expect(sentBody(mock, 0)).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 4096, usage: { include: true } })
     expect(mock.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
   })
 
