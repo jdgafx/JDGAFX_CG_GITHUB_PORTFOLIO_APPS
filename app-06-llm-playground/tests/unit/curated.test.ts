@@ -31,7 +31,7 @@ describe('curated picker list', () => {
   })
 
   it('uses provider/model IDs only', () => {
-    for (const id of ids) expect(id).toMatch(/^[a-z0-9.-]+\/[a-z0-9.+-]+$/i)
+    for (const id of ids) expect(id).toMatch(/^~?[a-z0-9.-]+\/[a-z0-9.+-]+$/i)
   })
 
   it('starts panels B and C from curated IDs', () => {
@@ -43,7 +43,7 @@ describe('curated picker list', () => {
 
 describe('contract limits', () => {
   it('keeps panel A on the fixed model', () => {
-    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
   })
 
   it('derives the body limits from the text limits, at 6 bytes per character plus 4096 for keys', () => {

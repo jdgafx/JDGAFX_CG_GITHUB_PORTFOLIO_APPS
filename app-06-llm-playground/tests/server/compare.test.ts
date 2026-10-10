@@ -76,12 +76,12 @@ describe('compare function', () => {
     }
   })
 
-  it('runs panel A on Haiku 5.5 and sends no temperature when the visitor sets none', async () => {
+  it('runs panel A on the Haiku alias and sends no temperature when the visitor sets none', async () => {
     const stub = providerStub(model => reply(model, 'READY'))
     await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
     const chatCalls = stub.mock.calls.filter(([url]) => url.endsWith('/chat/completions'))
     const panelA = sentBody(chatCalls[0][1])
-    expect(panelA.model).toBe('anthropic/claude-haiku-5.5')
+    expect(panelA.model).toBe('~anthropic/claude-haiku-latest')
     expect(panelA).not.toHaveProperty('temperature')
     expect(panelA).not.toHaveProperty('provider')
   })

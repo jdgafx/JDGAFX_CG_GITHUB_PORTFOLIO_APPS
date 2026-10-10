@@ -39,10 +39,16 @@ export function barPercent(value: number, scale: number | null): number {
   return Math.min(100, (value / scale) * 100)
 }
 
+// An OpenRouter alias id starts with "~" ("~anthropic/claude-haiku-latest"). The page never shows that prefix.
+export function plainModel(id: string): string {
+  return id.startsWith('~') ? id.slice(1) : id
+}
+
 // "anthropic/claude-haiku-5.5" becomes the vendor and the model name, so the name can lead.
 export function splitModel(id: string): { vendor: string; name: string } {
-  const slash = id.indexOf('/')
-  return slash < 0 ? { vendor: '', name: id } : { vendor: id.slice(0, slash), name: id.slice(slash + 1) }
+  const plain = plainModel(id)
+  const slash = plain.indexOf('/')
+  return slash < 0 ? { vendor: '', name: plain } : { vendor: plain.slice(0, slash), name: plain.slice(slash + 1) }
 }
 
 export function formatRating(rating: number): string {

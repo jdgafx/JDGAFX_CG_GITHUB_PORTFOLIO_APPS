@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { PanelResult, RatingChange, Slot } from '../../netlify/shared/contract'
-import { barPercent, formatCount, formatMs, formatUsd, splitModel } from '../lib/format'
+import { barPercent, formatCount, formatMs, formatUsd, plainModel, splitModel } from '../lib/format'
 import { panelStatus } from '../lib/run'
 import { Delta } from './Delta'
 import { Prose } from './Prose'
@@ -77,7 +77,7 @@ function ModelName({ panel, requested, revealed }: { panel: PanelResult | null; 
   const { vendor, name } = splitModel(id)
   const served = panel?.servedModel && panel.servedModel !== id ? panel.servedModel : null
   return (
-    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={id}>
+    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={plainModel(id)}>
       <span className="arena-name__model">{name}</span>
       <span className="arena-name__meta">
         {vendor}

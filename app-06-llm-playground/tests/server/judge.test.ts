@@ -56,7 +56,7 @@ describe('judge function', () => {
       reasoning: { enabled: false },
       usage: { include: true },
     })
-    expect(sentBody(stub.mock.calls[0][1]).model).toBe('anthropic/claude-haiku-5.5')
+    expect(sentBody(stub.mock.calls[0][1]).model).toBe('~anthropic/claude-haiku-latest')
     expect(sentBody(stub.mock.calls[0][1])).not.toHaveProperty('temperature')
   })
 

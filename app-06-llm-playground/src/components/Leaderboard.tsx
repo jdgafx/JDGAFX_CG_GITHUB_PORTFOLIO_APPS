@@ -2,7 +2,7 @@ import { ELO_K, ELO_START, FEW_VOTES, type Confidence, type LeaderboardResponse,
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { rankShifts, sharedConfidence } from '../lib/board'
 import type { BoardState } from '../lib/useArena'
-import { formatRating, splitModel } from '../lib/format'
+import { formatRating, plainModel, splitModel } from '../lib/format'
 import { Delta } from './Delta'
 
 const CONFIDENCE: Record<Confidence, { label: string; hint: string }> = {
@@ -173,7 +173,7 @@ function Row({ row, at, baseline, change, shift, pill }: { row: LeaderboardRow; 
           </span>
         )}
       </div>
-      <div className="arena-row__who" title={row.model}>
+      <div className="arena-row__who" title={plainModel(row.model)}>
         <span className="arena-row__name">{name}</span>
         <span className="arena-row__vendor">{vendor}</span>
       </div>

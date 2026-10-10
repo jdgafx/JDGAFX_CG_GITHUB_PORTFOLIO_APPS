@@ -172,7 +172,7 @@ export function PromptCard(props: PromptCardProps) {
                 </>
               )}
               <p className="ds-help" id="temperature-help">
-                Off keeps each model's own setting. On sends one value to the panels that accept it; Panel A (Claude Haiku 5.5)
+                Off keeps each model's own setting. On sends one value to the panels that accept it; Panel A (Claude Haiku)
                 ignores it. Each answer is capped at {maxTokens} output tokens.
               </p>
             </div>

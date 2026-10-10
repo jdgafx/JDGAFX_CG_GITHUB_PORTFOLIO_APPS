@@ -22,7 +22,7 @@ describe('models function', () => {
     const response = await (await handler())(request(URL, 'GET'))
     expect(response.status).toBe(200)
     const body = (await response.json()) as CatalogueResponse
-    expect(body).toMatchObject({ source: 'live', defaultModel: 'anthropic/claude-haiku-5.5' })
+    expect(body).toMatchObject({ source: 'live', defaultModel: '~anthropic/claude-haiku-latest' })
     expect(body.groups.map(g => g.label)).toEqual(['Speed and latency', 'Frontier quality'])
     expect(body.groups[0].options).toEqual([
       {

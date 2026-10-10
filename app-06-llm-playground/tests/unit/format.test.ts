@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barPercent, formatCost, formatCount, formatDelta, formatMs, formatPrice, formatRating, formatUsd, splitModel, tokensPerSecond } from '../../src/lib/format'
+import { barPercent, formatCost, formatCount, formatDelta, formatMs, formatPrice, formatRating, formatUsd, plainModel, splitModel, tokensPerSecond } from '../../src/lib/format'
 
 describe('formatUsd', () => {
   it('shows six decimals', () => {
@@ -76,6 +76,9 @@ describe('model and rating formatting', () => {
     expect(splitModel('anthropic/claude-haiku-5.5')).toEqual({ vendor: 'anthropic', name: 'claude-haiku-5.5' })
     expect(splitModel('qwen/qwen3-coder:free/x')).toEqual({ vendor: 'qwen', name: 'qwen3-coder:free/x' })
     expect(splitModel('plain')).toEqual({ vendor: '', name: 'plain' })
+    expect(splitModel('~anthropic/claude-haiku-latest')).toEqual({ vendor: 'anthropic', name: 'claude-haiku-latest' })
+    expect(plainModel('~anthropic/claude-haiku-latest')).toBe('anthropic/claude-haiku-latest')
+    expect(plainModel('anthropic/claude-haiku-5.5')).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('rounds a rating to a whole number and a change to one decimal with its sign', () => {

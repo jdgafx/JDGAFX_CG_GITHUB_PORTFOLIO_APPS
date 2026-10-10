@@ -1,6 +1,6 @@
 # ModelArena (app-06-llm-playground)
 
-ModelArena sends one prompt to three models at the same time and shows what each one returned: the answer, the latency, the output tokens, the cost, and the model that served it. Panel A always runs Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned. Panels B and C take any text model from the live OpenRouter catalogue, chosen from a grouped picker. An AI judge then gives one model's opinion on the three answers, and the page labels that note as opinion. Timings, tokens and cost are measured.
+ModelArena sends one prompt to three models at the same time and shows what each one returned: the answer, the latency, the output tokens, the cost, and the model that served it. Panel A always runs the newest Claude Haiku, requested as the OpenRouter alias `~anthropic/claude-haiku-latest`; the result shows the model that answered (currently `anthropic/claude-haiku-5.5`). Panels B and C take any text model from the live OpenRouter catalogue, chosen from a grouped picker. An AI judge then gives one model's opinion on the three answers, and the page labels that note as opinion. Timings, tokens and cost are measured.
 
 What this showcases: the same prompt measured on three models at once, with cost from the provider's usage and an AI judge's note labelled as opinion.
 
@@ -30,10 +30,10 @@ A run makes up to four model calls. The run trace names them with these steps:
 
 | Step | What it does | What the UI shows |
 | --- | --- | --- |
-| `Panel A request` | One chat call to Claude Haiku 5.5. | Answer, served model, latency, output tokens, cost. |
+| `Panel A request` | One chat call to Claude Haiku (the `~anthropic/claude-haiku-latest` alias). | Answer, served model, latency, output tokens, cost. |
 | `Panel B request` | One chat call to the model picked for B. | The same fields. |
 | `Panel C request` | One chat call to the model picked for C. | The same fields. |
-| `Judge` | One chat call to Claude Haiku 5.5. It reads the answers that came back and names the best one, with a short note per panel. Skipped when fewer than two panels answer. | The verdict, the judge model, and its time and tokens. |
+| `Judge` | One chat call to Claude Haiku (the same alias). It reads the answers that came back and names the best one, with a short note per panel. Skipped when fewer than two panels answer. | The verdict, the judge model, and its time and tokens. |
 | `Compare request` | Shown only when the compare call fails before any panel answers. | The plain-language error. |
 
 The three panels run in parallel. Each one reports its own failure, so one failed panel does not stop the others. The Evidence section and its summary lines use only measured numbers: the fastest panel, the cheapest panel, and the panel with the most output tokens. Ties go to the earlier panel. The Run totals section shows the run time, which covers the compare request and the judge. Its token and cost totals cover the answering panels only. The judge's own tokens and cost appear on its trace step.
@@ -51,7 +51,7 @@ The browser (React and Vite) calls five Netlify Functions. Each function calls O
 
 The server holds `OPENROUTER_API_KEY`. The key is read in `netlify/shared/openrouter.ts`. It is never sent to the browser, and this code never writes it to the logs. The model list is public, so it is fetched without a key.
 
-**Model rule.** Panel A is fixed to Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), and the server ignores the first model the browser sends. Panels B and C must be models the picker offers, and the server accepts exactly that set. The set is the curated IDs that the live list still shows, plus the other text models with a context of at least 32,000 tokens. Free, batch and router models are left out of both the picker and the accepted set. If the catalogue cannot be read, the server accepts only the curated IDs in `netlify/shared/curated.ts`. The picker's starting picks are checked against the loaded list. If a starting pick is missing from it, that slot switches to the first listed model. Compare stays disabled until both picks are listed.
+**Model rule.** Panel A is fixed to the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku; the result and the page show the model OpenRouter answered with, never the alias), and the server ignores the first model the browser sends. Panels B and C must be models the picker offers, and the server accepts exactly that set. The set is the curated IDs that the live list still shows, plus the other text models with a context of at least 32,000 tokens. Free, batch and router models are left out of both the picker and the accepted set. If the catalogue cannot be read, the server accepts only the curated IDs in `netlify/shared/curated.ts`. The picker's starting picks are checked against the loaded list. If a starting pick is missing from it, that slot switches to the first listed model. Compare stays disabled until both picks are listed.
 
 **Validation.** Every POST is checked before any provider call, in this order: origin (403), method (405), rate limit (429), JSON (400), and body size (400). The body limits are 40,096 bytes for compare and 148,096 bytes for judge, and every body within the character limits fits. Then come the fields. The prompt is 1 to 4,000 characters, the system prompt is up to 2,000 characters, the temperature is from 0 to 1, and the three model IDs are up to 200 characters each, with B and C on the picker's list. For the judge there are one to three answers with unique slots. Each answer must be 8,000 characters or fewer, and all answers together must be 20,000 characters or fewer. Longer judge input is refused, not cut.
 
@@ -83,7 +83,7 @@ Live site: https://jdgafx-app-06-llm-playground.netlify.app
 ## Known limits
 
 - Votes are one per comparison, not one per person. Anyone can run many comparisons, each costing a rate-limited provider call (20 POST requests per minute per client on each warm instance), so the board resists casual stuffing but not a determined one. There is no account system.
-- Elo from a handful of votes is noisy. The board marks models under 5 votes, and no rating here is a benchmark. The judge is Claude Haiku 5.5, which is also Panel A's model, so its opinion may favour its own style.
+- Elo from a handful of votes is noisy. The board marks models under 5 votes, and no rating here is a benchmark. The judge is Claude Haiku (the same alias as Panel A), so it is also Panel A's model, so its opinion may favour its own style.
 - Timeouts: the first try of a panel is capped at 12 s for Panel A and 16 s for B and C, the judge at 12 s. After a timeout or lost connection, one automatic second try runs when at least 5 s of the 24 s budget remain; the trace says "Retried once". A refusal (401, 402, 429, 5xx) is never retried. The browser gives up on a compare call after 60 s.
 - Stop aborts the browser request. The server call can still complete and bill, so a stopped run may still cost money.
 - Nothing streams. Each panel's answer appears when that panel finishes.

@@ -9,7 +9,7 @@ const FETCHED = new Date(2026, 9, 9, 14, 32).toISOString()
 const catalogue = (source: CatalogueResponse['source']): CatalogueResponse => ({
   source,
   fetchedAt: source === 'fallback' ? null : FETCHED,
-  defaultModel: 'anthropic/claude-haiku-5.5',
+  defaultModel: '~anthropic/claude-haiku-latest',
   groups: [],
 })
 const ready: BoardState = { state: 'ready', board: { rows: [], ballots: 0 } as unknown as LeaderboardResponse }

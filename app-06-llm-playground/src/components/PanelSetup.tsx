@@ -1,5 +1,5 @@
-import { MODEL, type CatalogueResponse, type ModelGroup, type ModelOption } from '../../netlify/shared/contract'
-import { formatPrice } from '../lib/format'
+import { type CatalogueResponse, type ModelGroup, type ModelOption } from '../../netlify/shared/contract'
+import { formatPrice, plainModel } from '../lib/format'
 import type { Picks } from '../lib/run'
 
 // Plain-language reasons for the picker's groups. The server sends each group's label and its models.
@@ -30,16 +30,16 @@ export function PanelSetup({ catalogue, catalogueFailed, picks, onPick, disabled
     <section className="ds-section" aria-labelledby="models-title">
       <div className="ds-section__head">
         <h2 className="ds-section__title" id="models-title">Models</h2>
-        <p className="ds-section__sub">Panel A stays on Claude Haiku 5.5. Pick B and C to compare it against.</p>
+        <p className="ds-section__sub">Panel A stays on Claude Haiku. Pick B and C to compare it against.</p>
       </div>
       <div className="ds-stack">
         <div className="ds-field">
           <span className="ds-label">Panel A model</span>
           <p className="arena-fixed" aria-describedby="fixed-help">
-            Claude Haiku 5.5 ({MODEL})
+            Claude Haiku, newest version
           </p>
           <p className="ds-help" id="fixed-help">
-            Fixed for every run, so each comparison includes the same Claude Haiku 5.5 model.
+            Fixed for every run, so each comparison includes the same Claude Haiku model. Each result names the model that answered.
           </p>
         </div>
         <ModelPicker
@@ -64,7 +64,7 @@ export function PanelSetup({ catalogue, catalogueFailed, picks, onPick, disabled
 }
 
 function optionText(option: ModelOption): string {
-  return `${option.id}: ${option.why || option.label}. ${formatPrice(option.inPerM, option.outPerM)}`
+  return `${plainModel(option.id)}: ${option.why || option.label}. ${formatPrice(option.inPerM, option.outPerM)}`
 }
 
 // The category's reason, then this model's note and price. Each sentence starts with a capital and ends once.

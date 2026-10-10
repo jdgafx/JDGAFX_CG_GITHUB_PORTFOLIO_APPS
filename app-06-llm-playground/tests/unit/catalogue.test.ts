@@ -43,7 +43,7 @@ describe('live catalogue', () => {
     const cat = await fresh()
     const view = await cat.catalogueView()
     expect(stub).toHaveBeenCalledTimes(1)
-    expect(view).toMatchObject({ source: 'live', defaultModel: 'anthropic/claude-haiku-5.5' })
+    expect(view).toMatchObject({ source: 'live', defaultModel: '~anthropic/claude-haiku-latest' })
     expect(view.groups.map(g => g.label)).toEqual(['Speed and latency', 'Frontier quality', 'All other live text models'])
     const speed = view.groups[0]
     expect(speed.options).toEqual([
@@ -131,9 +131,9 @@ describe('fallback catalogue', () => {
     expect(view.fetchedAt).toBeNull()
     expect(view.groups.map(g => g.label)).toEqual(CURATED_LABELS)
     expect(view.groups[0].options[0]).toEqual({
-      id: 'anthropic/claude-haiku-5.5',
-      label: 'anthropic/claude-haiku-5.5',
-      why: 'fast Claude model, the fixed Panel A model',
+      id: '~anthropic/claude-haiku-latest',
+      label: '~anthropic/claude-haiku-latest',
+      why: 'fast Claude model, the fixed Panel A model, answered by the served Haiku',
       inPerM: null,
       outPerM: null,
       contextLength: null,
