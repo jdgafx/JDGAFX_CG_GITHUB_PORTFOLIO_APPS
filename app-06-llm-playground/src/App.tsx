@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchCatalogue, isAbortError } from './lib/api'
 import { blockedReason, chooseOption, DEFAULT_PICKS, statusText, type Mode, type Picks, type RunView } from './lib/run'
 import { liveIndicator } from './lib/liveData'
+import { HOWTO_STEPS, HOWTO_WHAT } from './lib/howto'
 import { useArena } from './lib/useArena'
 import { useResultFocus } from './lib/useResultFocus'
 import type { CatalogueResponse } from '../netlify/shared/contract'
 import { AnswersSection } from './components/AnswersSection'
 import { EvidenceCard } from './components/EvidenceCard'
 import { Header } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { JudgeCard } from './components/JudgeCard'
 import { Leaderboard } from './components/Leaderboard'
 import { PanelSetup } from './components/PanelSetup'
@@ -90,12 +92,25 @@ export default function App() {
     void arena.start({ mode, prompt, system, temperature, models: [picks.B, picks.C] })
   }
 
+  // Try it: the first sample prompt, compared blind on the picked panels. It never casts a vote.
+  const tryPrompt = SAMPLES[0].prompt
+  const tryBlocked = blockedReason(catalogue, picks, tryPrompt) !== null
+  function handleTry() {
+    if (running || tryBlocked) return
+    setMode('blind')
+    setPrompt(tryPrompt)
+    setSystem('')
+    setTemperature(null)
+    void arena.start({ mode: 'blind', prompt: tryPrompt, system: '', temperature: null, models: [picks.B, picks.C] })
+  }
+
   const voted = run?.vote.state === 'counted' ? run.vote.changes : []
 
   return (
     <div className="ds-app" data-run={phase} data-vote={run?.vote.state === 'counted' ? 'counted' : undefined}>
       <Header catalogue={catalogue} catalogueFailed={catalogueFailed} run={run} live={liveIndicator(catalogue, catalogueFailed, arena.board)} />
       <main className="ds-main">
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={handleTry} disabled={running || tryBlocked} hasResult={run !== null} />
         <div className="ds-bench">
           <div className="ds-controls">
             <PromptCard
