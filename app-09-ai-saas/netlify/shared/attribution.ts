@@ -170,9 +170,11 @@ const LEVEL_WORDS = /\b(?:runs?|keeps?|retains?|sits?|stays?|holds?|reach(?:es)?
  * lower"), from the words just after the figure and then the words before it. Null when the words say neither.
  */
 export function weekendMetric(before: string, after: string): Metric | null {
+  const levelAfter = /\bof (?:its |their |the )?weekday/i.test(after)
   if (GAP_WORDS.test(after)) return 'weekend_gap'
-  if (LEVEL_WORDS.test(before) || /^\s*(?:of|per)\b/i.test(after) || /\bof (?:its |their |the )?weekday/i.test(after)) return 'weekend_level'
-  if (GAP_WORDS.test(before)) return 'weekend_gap'
+  // "loses 42.7% of its downloads at weekends": a gap word before the figure makes it the gap, unless "of weekday" follows it.
+  if (GAP_WORDS.test(before) && !levelAfter) return 'weekend_gap'
+  if (LEVEL_WORDS.test(before) || levelAfter) return 'weekend_level'
   return null
 }
 

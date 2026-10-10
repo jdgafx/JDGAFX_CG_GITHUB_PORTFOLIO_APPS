@@ -85,3 +85,17 @@ export function tickIndices(count: number, width: number, minPx: number): number
   for (let i = count - 1; i >= 0; i -= every) indices.unshift(i)
   return indices
 }
+
+/**
+ * The key of the marker nearest to a tap, or null when none is within `radius` pixels. On a long window markers sit a pixel
+ * or less apart, so a tap on one must not fall to its neighbour's tap area: the nearest to the finger wins, and a tie goes to
+ * the earlier one.
+ */
+export function nearestMark(marks: { x: number; y: number; key: string }[], px: number, py: number, radius: number): string | null {
+  let best: { key: string; d: number } | null = null
+  for (const m of marks) {
+    const d = Math.hypot(m.x - px, m.y - py)
+    if (d <= radius && (best === null || d < best.d)) best = { key: m.key, d }
+  }
+  return best?.key ?? null
+}

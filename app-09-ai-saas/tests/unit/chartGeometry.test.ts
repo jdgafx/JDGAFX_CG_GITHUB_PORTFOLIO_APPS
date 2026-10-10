@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { linearAxis, linePath, logAxis, spreadLabels, tickIndices } from '../../src/lib/chartGeometry'
+import { linearAxis, linePath, logAxis, nearestMark, spreadLabels, tickIndices } from '../../src/lib/chartGeometry'
 
 describe('linearAxis', () => {
   it('rounds the top up to a 1, 2 or 5 step and places values proportionally', () => {
@@ -51,5 +51,25 @@ describe('tickIndices', () => {
     expect(tickIndices(10, 100, 40)).toEqual([4, 9])
     expect(tickIndices(1, 100, 40)).toEqual([0])
     expect(tickIndices(5, 1000, 40)).toEqual([0, 1, 2, 3, 4])
+  })
+})
+
+describe('nearestMark', () => {
+  const marks = [
+    { x: 100, y: 50, key: 'a' },
+    { x: 101, y: 50, key: 'b' }, // the next day, one pixel to the right
+    { x: 200, y: 80, key: 'c' },
+  ]
+  it('gives a tap to the marker nearest to it, not to the neighbour whose area overlaps', () => {
+    expect(nearestMark(marks, 100, 50, 16)).toBe('a')
+    expect(nearestMark(marks, 101, 50, 16)).toBe('b')
+    expect(nearestMark(marks, 100.4, 50, 16)).toBe('a')
+    expect(nearestMark(marks, 100.6, 50, 16)).toBe('b')
+  })
+
+  it('picks nothing when no marker is within the radius, and breaks a tie to the earlier one', () => {
+    expect(nearestMark(marks, 150, 50, 16)).toBeNull()
+    expect(nearestMark([{ x: 10, y: 10, key: 'first' }, { x: 10, y: 10, key: 'second' }], 10, 10, 16)).toBe('first')
+    expect(nearestMark([], 0, 0, 16)).toBeNull()
   })
 })

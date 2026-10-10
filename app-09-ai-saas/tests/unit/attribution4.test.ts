@@ -106,6 +106,10 @@ describe('weekend level and gap, whichever way round and wherever the words are 
     ['Nuxt loses 57.3% on weekends.', { matched: 1, unchecked: 0 }],
     ['Nuxt loses 42.7% on weekends.', { matched: 0, unchecked: 1 }],
     ['Nuxt weekends: 42.7%.', { matched: 0, unchecked: 1 }], // no words say which
+    ['Nuxt loses 42.7% of its downloads at weekends.', { matched: 0, unchecked: 1 }], // "of" after the figure is not "of weekday"
+    ['Nuxt loses 57.3% of its downloads at weekends.', { matched: 1, unchecked: 0 }],
+    ['Nuxt drops to 42.7% of weekday downloads at weekends.', { matched: 1, unchecked: 0 }], // "of weekday" makes it the level
+    ['Nuxt drops to 57.3% of weekday downloads at weekends.', { matched: 0, unchecked: 1 }],
   ] as [string, { matched: number; unchecked: number }][])('%s', (text, expected) => {
     expect(counts(text)).toMatchObject({ ...expected, rejected: 0 })
   })

@@ -135,7 +135,17 @@ export function resolvePackages(said: string[], names: string[]): (string | null
  * as the final answer:") and then writes the answer again. Everything up to the end of that line is a draft: the reader is
  * shown, and the check reads, only what follows.
  */
-const RESTART = /[^\n]*\b(?:let me (?:restate|rewrite|redo|start over|try again)|(?:here is|here's) the (?:final|corrected|clean) (?:answer|version)|final answer)\b[^\n:]*(?::|\n)/i
+const FINALISH = '(?:final|clean(?:ly)?|correct(?:ed|ly)?|properly|again|from scratch|answer)'
+const RESTART = new RegExp(
+  [
+    // A line that is only a label announcing a corrected answer: "Correction:", "Actually, correction:", "Revised answer:".
+    '(?:^|\\n)[ \\t]*(?:actually,?\\s*)?(?:correction|revised(?: answer)?|corrected(?: answer)?|final answer)[ \\t]*:',
+    // "...wait, I must use only listed figures. Let me restate cleanly as the final answer:": the whole line, up to its colon.
+    `[^\\n]*\\blet me (?:restate|rewrite|redo|start over|try again)\\b[^\\n:]*\\b${FINALISH}\\b[^\\n:]*:`,
+    `[^\\n]*\\b(?:here is|here's) the (?:final|corrected|clean) (?:answer|version)[^\\n:]*:`,
+  ].join('|'),
+  'i',
+)
 
 /** The text after the last self-correction in `text`, or all of it when there is none. */
 export function finalAnswer(text: string): string {

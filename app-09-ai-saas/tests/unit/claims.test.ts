@@ -350,6 +350,16 @@ describe('a model that corrects itself in the streamed text (D28)', () => {
     expect(finalAnswer('The final answer is a number we do not quote.')).toBe('The final answer is a number we do not quote.')
   })
 
+  it.each(['Actually, correction:', 'Correction:', 'Revised:', 'Revised answer:', 'Corrected answer:'])('drops everything before the restart line "%s"', (line) => {
+    expect(finalAnswer(`React rose 99%.\n${line}\nReact rose 3.2%.`)).toBe('React rose 3.2%.')
+  })
+
+  it('does not delete a normal line that only contains "Let me restate"', () => {
+    const text = 'React rose 3.2%.\nLet me restate the key point: install volume is not users.\nVue fell 4.1%.'
+    expect(finalAnswer(text)).toBe(text)
+    expect(finalAnswer('A note: correction factors differ.\nReact rose.')).toBe('A note: correction factors differ.\nReact rose.')
+  })
+
   it('tells the page to drop the draft once the correction line is complete, then streams the answer', () => {
     const tracker = new RestartTracker()
     const out = ['React rose 99% last mo', 'nth. ...wait, I must use only listed figures. Let me restate clea', 'nly as the final answer:\n', 'React rose ', '3.2%.'].map((piece) => tracker.push(piece))

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import type { SpikeEvidence } from '../../netlify/shared/contract'
 import { logDomain, logRows, type ChartRow, type DownloadWindow } from '../lib/analytics'
-import { linearAxis, linePath, logAxis, spreadLabels, tickIndices, type Axis } from '../lib/chartGeometry'
+import { linearAxis, linePath, logAxis, nearestMark, spreadLabels, tickIndices, type Axis } from '../lib/chartGeometry'
 import { compact, full, seriesColor, shortDate } from '../lib/format'
 
 /** The id a spike has on the chart and in the list, so the two can highlight each other. */
@@ -12,6 +12,8 @@ const LEFT = 52
 /** Room right of the plot for names written at the line ends. Narrow screens rely on the legend alone. */
 const LABEL_ROOM = 118
 const WIDE_FROM = 480
+/** How far from a marker a tap still picks it, in pixels. */
+const TAP_RADIUS = 16
 const X_AXIS_ROOM = 30
 
 const seriesClass = (index: number): string => (index % 5 === 4 ? 'hub-c-s5' : `ds-c-s${(index % 5) + 1}`)
@@ -183,7 +185,22 @@ export default function LineChart({ title, caption, headRight, span, rows, under
         {hover !== null && <line className="ds-c-axis" x1={xs[hover]} x2={xs[hover]} y1={TOP} y2={bottom} strokeDasharray="3 3" />}
         {active && <line className="hub-guide" x1={active.x} x2={active.x} y1={TOP} y2={bottom} />}
 
-        <rect x={LEFT} y={TOP} width={plotW} height={bottom - TOP} fill="transparent" onPointerMove={move} onPointerLeave={() => setHover(null)} />
+        <rect
+          x={LEFT}
+          y={TOP}
+          width={plotW}
+          height={bottom - TOP}
+          fill="transparent"
+          onPointerMove={move}
+          onPointerLeave={() => setHover(null)}
+          onClick={(event) => {
+            // Markers sit a pixel or less apart on a long window, so a tap picks the nearest one to the finger.
+            const box = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
+            if (!box) return
+            const best = nearestMark(marks.map((m) => ({ x: m.x, y: m.y, key: spikeKey(m.spike) })), event.clientX - box.left, event.clientY - box.top, TAP_RADIUS)
+            if (best) onActive?.(best === activeKey ? null : best)
+          }}
+        />
 
         {marks.map(({ spike, si, x, y, ay }) =>
           ay !== null && Math.abs(ay - y) > 6 ? (
@@ -199,13 +216,13 @@ export default function LineChart({ title, caption, headRight, span, rows, under
             <g
               key={key}
               className={`hub-spike ${seriesClass(colorIndex[si])}${key === activeKey ? ' hub-spike--active' : ''}`}
+              pointerEvents="none"
               style={{ color: seriesColor(colorIndex[si]) }}
               transform={`translate(${x} ${y})`}
               tabIndex={0}
               role="button"
               aria-pressed={key === activeKey}
               aria-label={text}
-              onClick={toggle}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
