@@ -8,8 +8,9 @@ require the configured production provider account to have available credit.
 
 **Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · shared CSS design tokens · Netlify Functions v2 · OpenRouter (one fixed model per app; app-06 compares models)
 
-Chat and vision calls go from the server to OpenRouter. Each app pins one model,
-`~anthropic/claude-haiku-latest`, except app-06 ModelArena, which compares models from the live
+Chat and vision calls go from the server to OpenRouter. Each app asks OpenRouter for the newest
+Claude Haiku (the alias `~anthropic/claude-haiku-latest`) and shows the model OpenRouter answered with
+(currently `anthropic/claude-haiku-5.5`), except app-06 ModelArena, which compares models from the live
 OpenRouter catalogue. Speech-to-text (app-04, Deepgram) and browser sessions (app-10, Browserbase)
 use their own server-side keys. The browser never receives any key, and the served model is shown
 wherever the provider reports it.
@@ -24,7 +25,7 @@ wherever the provider reports it.
 Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer).
 Each agent's output appears when it finishes, delivered over server-sent events. Visual pipeline
 showing agent status, token counts, and elapsed time. Runs on one fixed OpenRouter model
-(`~anthropic/claude-haiku-latest`) on the server.
+on the server: the newest Claude Haiku, answered by `anthropic/claude-haiku-5.5` today.
 
 ### 2. DocMind — RAG Document Intelligence
 **[Live Demo](https://jdgafx-app-02-rag-document-intelligence.netlify.app)** · `app-02-rag-document-intelligence/`
@@ -55,7 +56,7 @@ generates a query plan that is executed client-side and rendered as interactive 
 ### 6. ModelArena — Multi-Model LLM Playground
 **[Live Demo](https://jdgafx-app-06-llm-playground.netlify.app)** · `app-06-llm-playground/`
 
-Side-by-side comparison of one prompt. Panel A always runs the fixed Claude Haiku alias. Panels B and C
+Side-by-side comparison of one prompt. Panel A always runs the newest Claude Haiku, and the result shows the model that answered. Panels B and C
 take any model from the live OpenRouter catalogue, grouped by speed, reasoning, agentic work, value and
 frontier quality. Each run shows measured latency, tokens and cost, an evidence summary, and an AI judge note.
 
@@ -69,7 +70,7 @@ reuse finished stages.
 ### 8. VisionLab — Multimodal Vision AI
 **[Live Demo](https://jdgafx-app-08-vision-ai.netlify.app)** · `app-08-vision-ai/`
 
-Upload images for multimodal analysis on one fixed vision-capable model (`~anthropic/claude-haiku-latest`). Supports scene description, object and
+Upload images for multimodal analysis on one fixed vision-capable model, the newest Claude Haiku (answered by `anthropic/claude-haiku-5.5` today). Supports scene description, object and
 composition breakdown, text extraction, and visual Q&A.
 
 ### 9. InsightHub — SaaS Analytics Dashboard
