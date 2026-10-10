@@ -1,5 +1,6 @@
 import type { Decider, ReviewComment, Verdict } from '../../src/types'
 import { importedNames, noneWithoutSource, unconfirmable } from './claims'
+import { guardedClaim, supportHandlesCondition } from './guards'
 import { flowsIntoExternal, provenanceOf } from './provenance'
 import { seenLines } from './scope'
 import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
@@ -229,12 +230,17 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // A consequence that happens inside an imported function the value is handed to cannot be confirmed from this file.
     const flow = flowsIntoExternal(candidate.message, doc.texts, at, importsOf(doc)) ?? flowsIntoExternal(reason, doc.texts, at, importsOf(doc))
     if (flow !== null) return unconfirmed(candidate, flow)
+    // A claim that a value may be unset is answered by a guard before the cited line.
+    const guarded = guardedClaim(candidate.message, doc.texts, at)
+    if (guarded !== null) return unconfirmed(candidate, guarded)
     // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
     // point at code for is not confirmed, however real the cited line is.
     const supportShown = clip(collapse(raw.support), 80)
     if (collapse(raw.support).length < MIN_QUOTE_CHARS) {
       return unconfirmed(candidate, 'Not confirmed: the second pass could not quote the code that shows the claim is true.')
     }
+    const selfRefuting = supportHandlesCondition(candidate.message, doc.texts[at - 1], raw.support)
+    if (selfRefuting !== null) return unconfirmed(candidate, selfRefuting)
     const noSource = noneWithoutSource(candidate.message, raw.support)
     if (noSource !== null) return unconfirmed(candidate, noSource)
     const supportAt = findEvidence(doc, raw.support, at, doc.texts.length)

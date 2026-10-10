@@ -3,6 +3,7 @@ import { accountFiles, buildDiff, type PrFileInput } from '../netlify/shared/dif
 import { CodeEditor } from './components/CodeEditor'
 import { FileSource } from './components/FileSource'
 import { Header, statusBadge } from './components/Header'
+import { HowTo } from './components/HowTo'
 import { ModeTabs, type Mode } from './components/ModeTabs'
 import { PrFiles } from './components/PrFiles'
 import { PrSource } from './components/PrSource'
@@ -17,6 +18,7 @@ import type { GitHubFile } from './lib/github'
 import { MAX_CODE_LENGTH } from './lib/limits'
 import { diffContext, fileContext, type ContextLine } from './lib/context'
 import { initialSelection, lineHref, type PullRequest } from './lib/pullrequest'
+import { loadExample } from './lib/tryit'
 import { useResultFocus } from './lib/useResultFocus'
 import { countVerdicts, isShown, VERDICT_WORD } from './lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
@@ -57,6 +59,10 @@ export default function App() {
   const [prFetchedAt, setPrFetchedAt] = useState<Date | null>(null)
   const [fetchFailed, setFetchFailed] = useState(false)
   const [collapseKey, setCollapseKey] = useState(0)
+  /** Try it: fetching the example file, and why that failed. */
+  const [tryBusy, setTryBusy] = useState(false)
+  const [tryError, setTryError] = useState<string | null>(null)
+  const tryAbortRef = useRef<AbortController | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lineNumbersRef = useRef<HTMLDivElement>(null)
@@ -116,6 +122,7 @@ export default function App() {
   useEffect(
     () => () => {
       abortRef.current?.abort()
+      tryAbortRef.current?.abort()
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
     },
     [],
@@ -152,8 +159,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new jump moves focus, not each keystroke
   }, [jump])
 
-  const handleReview = useCallback(async () => {
-    if (!canReview) return
+  const handleReview = useCallback(async (example?: { code: string; language: string }) => {
+    if (!example && !canReview) return
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -167,16 +174,18 @@ export default function App() {
     setCopied(false)
     setReviewedInput(null)
     setJump(null)
-    const files = (pr?.files ?? []).filter((f) => selected.has(f.path))
+    const asFile = example !== undefined || mode === 'file'
+    const text = example?.code ?? code
+    const files = asFile ? [] : (pr?.files ?? []).filter((f) => selected.has(f.path))
     try {
-      const run = mode === 'file' ? await reviewCode(code, language, controller.signal) : await reviewPullRequest(files, controller.signal)
+      const run = asFile ? await reviewCode(text, example?.language ?? language, controller.signal) : await reviewPullRequest(files, controller.signal)
       if (controller.signal.aborted) return
       const { result: next, ...runSummary } = run
       setResult(next)
       setSummary(runSummary)
-      setReviewedInput(inputKey)
-      setReviewedCode(mode === 'file' ? code : null)
-      setReviewedFiles(mode === 'pr' ? files : null)
+      setReviewedInput(asFile ? `file:${text}` : inputKey)
+      setReviewedCode(asFile ? text : null)
+      setReviewedFiles(asFile ? null : files)
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) return
@@ -200,6 +209,31 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [handleReview])
+
+  /** Try it: fetch the example file from GitHub, put it in the editor, and review it through the same path as Review code. */
+  const handleTryIt = async () => {
+    if (running || tryBusy) return
+    tryAbortRef.current?.abort()
+    const controller = new AbortController()
+    tryAbortRef.current = controller
+    setTryBusy(true)
+    setTryError(null)
+    setMode('file')
+    try {
+      const loaded = await loadExample(controller.signal).catch(() => null)
+      if (loaded === null || controller.signal.aborted) return
+      if (!loaded.ok) {
+        setFetchFailed(true)
+        setTryError(loaded.error)
+        return
+      }
+      handleFileLoaded(loaded.value.file, loaded.value.language)
+      await handleReview({ code: loaded.value.file.text, language: loaded.value.language })
+    } finally {
+      if (tryAbortRef.current === controller) tryAbortRef.current = null
+      setTryBusy(false)
+    }
+  }
 
   const handleCancel = () => {
     abortRef.current?.abort()
@@ -342,6 +376,7 @@ export default function App() {
       <Header badge={badge} live={live} />
 
       <main className="ds-main">
+        <HowTo busy={running || tryBusy} error={tryError} collapseKey={collapseKey} onTry={() => void handleTryIt()} />
         <div className="ds-bench">
           <div className="ds-controls">
             <ModeTabs
