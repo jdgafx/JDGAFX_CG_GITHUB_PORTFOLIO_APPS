@@ -3,6 +3,7 @@ import { laneFor } from '../lib/trace'
 import type { RunView, StageName } from '../lib/view'
 import type { TraceRow } from '../types/frames'
 
+const NOT_REPORTED = 'served model not reported'
 const STAGE_ORDER: StageName[] = ['split', 'reduce', 'synthesize', 'check', 'final']
 const STAGE_TITLE: Record<StageName, string> = { split: 'Split', reduce: 'Reduce', synthesize: 'Synthesize', check: 'Check', final: 'Final' }
 const MODEL_STAGES: ReadonlySet<StageName> = new Set<StageName>(['synthesize', 'check'])
@@ -85,8 +86,8 @@ export function TracePanel({ view }: { view: RunView }) {
                   {row.model && <span>{tokenText(row)}</span>}
                   {row.model && <span>{costText(row)}</span>}
                   {row.model && (
-                    <span className="ds-chip" title={row.model.replace(/^~/, '')}>
-                      {row.model.replace(/^~?anthropic\//, '')}
+                    <span className="ds-chip" title={row.servedModel ? `served by ${row.servedModel}` : NOT_REPORTED}>
+                      {row.servedModel ? row.servedModel.replace(/^anthropic\//, '') : NOT_REPORTED}
                     </span>
                   )}
                 </div>

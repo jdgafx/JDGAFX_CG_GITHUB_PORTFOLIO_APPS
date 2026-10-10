@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Frame, TraceRow } from '../../src/types/frames'
+import { modelUse } from '../../src/components/ReadoutStrip'
 import { applyFrame, endView, failView, initialView, stopView } from '../../src/lib/view'
 
 const row = (over: Partial<TraceRow> & Pick<TraceRow, 'node' | 'status'>): Frame => ({
@@ -181,5 +182,30 @@ describe('failure handling', () => {
 
     expect(endView(done)).toBe(done)
     expect(failView(done, 'x').phase).toBe('error')
+  })
+})
+
+describe('modelUse', () => {
+  it('lists the models that answered, never the id a call requested', () => {
+    const call = (node: TraceRow['node'], servedModel: string | null): TraceRow => ({
+      node,
+      status: 'ok',
+      ms: 1,
+      detail: '',
+      model: '~anthropic/claude-haiku-latest',
+      servedModel,
+    })
+    const uses = modelUse([
+      call('extract', 'anthropic/claude-haiku-5.5'),
+      call('extract', 'anthropic/claude-haiku-5.5'),
+      call('check', 'anthropic/claude-haiku-4.5'),
+      call('synthesize', null),
+    ])
+
+    expect(uses).toEqual([
+      { model: 'anthropic/claude-haiku-5.5', uses: 'Extract 2' },
+      { model: 'anthropic/claude-haiku-4.5', uses: 'Check 1' },
+    ])
+    expect(modelUse([call('extract', null)])).toEqual([])
   })
 })

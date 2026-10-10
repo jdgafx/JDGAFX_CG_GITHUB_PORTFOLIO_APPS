@@ -6,15 +6,15 @@ import type { NodeName, RunMetrics, TraceRow } from '../types/frames'
 
 const CALL_WORD: Partial<Record<NodeName, string>> = { extract: 'Extract', check: 'Check', synthesize: 'Synthesize' }
 
-/** Each distinct model that served a call, with how many calls each role made to it. Derived from the rows. */
+/** Each distinct model that answered a call, with how many calls each role made to it. Derived from the rows; a call whose reply named no model is left out. */
 export function modelUse(rows: TraceRow[]): Array<{ model: string; uses: string }> {
   const counts = new Map<string, Map<string, number>>()
   for (const row of rows) {
     const word = CALL_WORD[row.node]
-    if (!row.model || !word) continue
-    const roles = counts.get(row.model) ?? new Map<string, number>()
+    if (!row.servedModel || !word) continue
+    const roles = counts.get(row.servedModel) ?? new Map<string, number>()
     roles.set(word, (roles.get(word) ?? 0) + 1)
-    counts.set(row.model, roles)
+    counts.set(row.servedModel, roles)
   }
   return [...counts].map(([model, roles]) => ({
     model,
@@ -89,11 +89,13 @@ export function ReadoutStrip({ view }: { view: RunView }) {
           {models.length > 0 ? (
             <span className="ds-chips">
               {models.map((m) => (
-                <span key={m.model} className="ds-chip" title={m.model.replace(/^~/, '')}>
-                  {m.model.replace(/^~?anthropic\//, '')}
+                <span key={m.model} className="ds-chip" title={`served by ${m.model}`}>
+                  {m.model.replace(/^anthropic\//, '')}
                 </span>
               ))}
             </span>
+          ) : rows.some((row) => row.model) ? (
+            'served model not reported'
           ) : (
             none
           )}

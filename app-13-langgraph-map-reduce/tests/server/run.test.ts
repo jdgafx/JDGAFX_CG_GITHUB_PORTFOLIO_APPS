@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/run'
 import { BUDGET_MESSAGE } from '../../netlify/shared/errors'
 import { createRunHandler } from '../../netlify/shared/handler'
-import { MODEL } from '../../netlify/shared/models'
+import { MODEL, SERVED_MODEL } from '../../netlify/shared/models'
 import { roleOf, type Role } from '../helpers/roles'
 
 const KEY = 'test-only-placeholder'
@@ -20,7 +20,7 @@ type Behaviour = { status?: number; hang?: boolean }
 function reply(role: Role, content: string): Response {
   return new Response(
     JSON.stringify({
-      model: MODEL,
+      model: SERVED_MODEL,
       choices: [{ message: { content }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: COST[role] },
     }),
@@ -111,7 +111,7 @@ describe('POST /api/run', () => {
 
     const extracts = nodeEnds.filter((f) => f.node === 'extract')
     expect(extracts.map((f) => f.detail).sort()).toEqual(['chunk 1 of 3', 'chunk 2 of 3', 'chunk 3 of 3'])
-    expect(extracts[0]).toMatchObject({ model: MODEL, usage: { total_tokens: 1200 }, costSource: 'usage' })
+    expect(extracts[0]).toMatchObject({ model: MODEL, servedModel: SERVED_MODEL, usage: { total_tokens: 1200 }, costSource: 'usage' })
 
     const result = frames.find((f) => f.type === 'result') as { result: Record<string, unknown> } | undefined
     expect(result?.result).toMatchObject({

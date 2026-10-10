@@ -76,11 +76,12 @@ function traceRow(
   return { node, status, ms, detail, ...extra }
 }
 
-/** Model, usage and cost of one call. The model shown is the one that served it, and cost is priced at that id. */
+/** Models, usage and cost of one call. The row keeps the requested id and the id that served it; cost is priced at the served id. */
 function callFields(requested: string, reply: ChatReply): Partial<TraceRow> {
   const reading = readCost(reply.servedModel ?? requested, reply.usage, reply.cost)
   return {
-    model: reply.servedModel ?? requested,
+    model: requested,
+    servedModel: reply.servedModel,
     ...(reply.usage ? { usage: reply.usage } : {}),
     ...(reading ? { cost: reading.cost, costSource: reading.source } : {}),
   }
@@ -171,7 +172,7 @@ export function makeNodes(deps: NodeDeps) {
         chunkId: chunk.id,
         points: parsed.points,
         entities: parsed.entities,
-        model: fields.model ?? EXTRACT.model,
+        model: reply.servedModel ?? EXTRACT.model,
         usage: reply.usage,
       }
       const row = traceRow('extract', 'ok', callMs, label, { chunk: chunk.id, ...fields })

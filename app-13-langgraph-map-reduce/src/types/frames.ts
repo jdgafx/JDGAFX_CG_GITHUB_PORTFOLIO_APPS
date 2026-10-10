@@ -66,7 +66,10 @@ export interface TraceRow {
   ms: number
   detail: string
   chunk?: number
+  /** The model id the call requested. Never shown: the page shows servedModel. */
   model?: string
+  /** The model OpenRouter answered with, or null when the reply named none. */
+  servedModel?: string | null
   usage?: Usage
   cost?: number
   costSource?: CostSource
