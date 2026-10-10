@@ -148,3 +148,112 @@ describe('a bound is true when the real value is on its side (D30)', () => {
     expect(outcome('React had over 900 million downloads in total.', C1, [claim('over 900 million downloads in total', 'total', ['react'])])).toBe('rejected')
   })
 })
+
+describe('"nearly", "almost" and "just under" approximate from below, not bound (D31)', () => {
+  const claimFor = (text: string, q: string, k: Claim['k'], p: string[]) => outcome(text, C1, [claim(q, k, p)])
+  it('does not accept a figure far above the real value', () => {
+    expect(outcome('React is nearly 30 times Vue.', C1)).toBe('unchecked') // 11
+    expect(claimFor('React is nearly 30 times Vue.', 'nearly 30 times', 'multiple', ['react', 'vue'])).toBe('rejected')
+    expect(outcome('Vue holds nearly 50% of the selection.', C1)).toBe('unchecked') // 8.1
+    expect(claimFor('Vue holds nearly 50% of the selection.', 'nearly 50%', 'share_pct', ['vue'])).toBe('rejected')
+    expect(outcome('Svelte had nearly 100 million downloads in total.', C1)).toBe('unchecked') // 26.5 million
+    expect(claimFor('Svelte had nearly 100 million downloads in total.', 'nearly 100 million downloads', 'total', ['svelte'])).toBe('rejected')
+    expect(outcome('Svelte had almost 100 million downloads in total.', C1)).toBe('unchecked')
+    expect(outcome('Svelte had just under 100 million downloads in total.', C1)).toBe('unchecked')
+  })
+
+  it('accepts a figure a little above the real value', () => {
+    expect(outcome('React is nearly 11 times Vue.', C1)).toBe('matched') // 10.99
+    expect(outcome('Vue holds nearly 8.2% of the selection.', C1)).toBe('matched')
+    expect(outcome('Svelte had almost 27 million downloads in total.', C1)).toBe('matched')
+    expect(outcome('Svelte had just under 27 million downloads in total.', C1)).toBe('matched')
+    expect(outcome('The gap is nearly 100,000 per day between openai and @anthropic-ai/sdk.', F.B2, [claim('nearly 100,000 per day', 'difference', ['openai', '@anthropic-ai/sdk'])])).toBe('matched')
+  })
+
+  it('does not accept a figure below the real value, and reads "just over" from the other side', () => {
+    expect(outcome('Svelte had nearly 25 million downloads in total.', C1)).toBe('unchecked') // true 26.5 is above it
+    expect(outcome('Svelte had just over 26 million downloads in total.', C1)).toBe('matched')
+    expect(outcome('Svelte had just over 20 million downloads in total.', C1)).toBe('unchecked')
+  })
+
+  it('leaves "up to" unchecked', () => {
+    expect(outcome('Vue holds up to 8.1% of the selection.', C1)).toBe('unchecked')
+    expect(claimFor('Vue holds up to 8.1% of the selection.', 'up to 8.1%', 'share_pct', ['vue'])).toBe('unchecked')
+  })
+
+  it('leaves "up to" unchecked whatever the value, since it is a ceiling and not a value', () => {
+    expect(outcome('Vue holds up to 50% of the selection.', C1)).toBe('unchecked') // 8.1 is under 50: a bound would match
+    expect(claimFor('Vue holds up to 50% of the selection.', 'up to 50%', 'share_pct', ['vue'])).toBe('unchecked')
+  })
+
+  it('reads "almost" as a little under, so 12.4% is not almost 20%', () => {
+    expect(outcome('Vue grew almost 20%.', C1)).toBe('unchecked')
+    expect(claimFor('Vue grew almost 20%.', 'almost 20%', 'change_pct', ['vue'])).toBe('rejected')
+  })
+
+  it('reads "nearly 50 times smaller" against the true ratio of next to astro (10.9)', () => {
+    const t = 'Astro is nearly 50 times smaller than Next.'
+    expect(outcome(t, N1)).toBe('unchecked')
+    expect(outcome(t, N1, [claim('nearly 50 times smaller than Next', 'multiple', ['astro', 'next'])])).toBe('rejected')
+    expect(outcome('Astro is nearly 11 times smaller than Next.', N1, [claim('nearly 11 times smaller than Next', 'multiple', ['astro', 'next'])])).toBe('matched') // 10.87
+  })
+
+  it('does not match a figure above an approximation from below, even when it rounds to it', () => {
+    expect(outcome('Nuxt holds nearly 3% of the selection.', N1)).toBe('unchecked') // 3.2 rounds to 3 but is above it
+    expect(outcome('Nuxt holds nearly 3% of the selection.', N1, [claim('nearly 3%', 'share_pct', ['nuxt'])])).toBe('rejected')
+  })
+
+  it('sets the band at about 5% under the figure, or one unit of its decimals if that is wider', () => {
+    expect(outcome('React holds nearly 90% of the selection.', C1)).toBe('matched') // 88.9 is 1.1 under
+    expect(outcome('React holds nearly 92% of the selection.', C1)).toBe('matched') // 88.9 is 3.1 under, within 4.6
+    expect(outcome('React holds nearly 95% of the selection.', C1)).toBe('unchecked') // 88.9 is 6.1 under, outside 4.75
+    expect(claimFor('React holds nearly 95% of the selection.', 'nearly 95%', 'share_pct', ['react'])).toBe('rejected')
+    expect(outcome('Vue holds nearly 8.5% of the selection.', C1)).toBe('matched') // 8.1 is 0.4 under, within 0.425
+    expect(outcome('Vue holds nearly 8.6% of the selection.', C1)).toBe('unchecked') // 8.1 is 0.5 under, outside 0.43
+  })
+
+  it('reads "just over" as a little over: 8.1% is just over 8%, not just over 9%', () => {
+    expect(outcome('Vue holds just over 8% of the selection.', C1)).toBe('matched')
+    expect(outcome('Vue holds just over 9% of the selection.', C1)).toBe('unchecked')
+  })
+})
+
+describe('"no more than" is an upper bound, not a lower one', () => {
+  it('accepts "no more than 12 times" when React is 10.99 times Vue, in a sentence and in a claim', () => {
+    expect(outcome('React is no more than 12 times Vue.', C1)).toBe('matched')
+    expect(outcome('React is no more than 12 times Vue.', C1, [claim('no more than 12 times Vue', 'multiple', ['react', 'vue'])])).toBe('matched')
+  })
+
+  it('rejects "no more than 10 times" in a claim when React is 10.99 times Vue, and leaves the sentence unchecked', () => {
+    expect(outcome('React is no more than 10 times Vue.', C1)).toBe('unchecked')
+    expect(outcome('React is no more than 10 times Vue.', C1, [claim('no more than 10 times Vue', 'multiple', ['react', 'vue'])])).toBe('rejected')
+  })
+
+  it('reads "no more than about 12 times" as an upper bound too, so a true 10.99 is accepted in a sentence and in a claim', () => {
+    expect(outcome('React is no more than about 12 times Vue.', C1)).toBe('matched')
+    expect(outcome('React is no more than about 12 times Vue.', C1, [claim('no more than about 12 times Vue', 'multiple', ['react', 'vue'])])).toBe('matched')
+  })
+
+  it('rejects "no more than about 10 times" in a claim when React is 10.99 times Vue, and leaves the sentence unchecked', () => {
+    expect(outcome('React is no more than about 10 times Vue.', C1)).toBe('unchecked')
+    expect(outcome('React is no more than about 10 times Vue.', C1, [claim('no more than about 10 times Vue', 'multiple', ['react', 'vue'])])).toBe('rejected')
+  })
+})
+
+describe('the approximation band on the far side of the figure', () => {
+  // React's share is 80 here, 10 under "nearly 90%": the band (about 5% of 90, so 4.5) does not reach it.
+  const far = { ...C1, packages: C1.packages.map((p) => (p.name === 'react' ? { ...p, sharePct: 80 } : p)) }
+  it('rejects "nearly 90%" in a claim and leaves it unchecked in a sentence when the real share is 80', () => {
+    expect(outcome('React holds nearly 90% of the selection.', far)).toBe('unchecked')
+    expect(outcome('React holds nearly 90% of the selection.', far, [claim('nearly 90%', 'share_pct', ['react'])])).toBe('rejected')
+  })
+})
+
+describe('a bare approximation with no metric word is left unchecked when several metrics lie on its side (U14)', () => {
+  // Nuxt's values under "nearly 40%" are its change (25.1), share (3.2), a spike (35) and another spike (38): a reader cannot tell which is meant.
+  it('leaves "nearly 40%" unchecked, while "reached nearly 48% growth" still matches Astro', () => {
+    const c = checkClaims('Astro reached nearly 48% growth while Nuxt reached nearly 40%.', [], N1)
+    expect(c.unchecked).toContain('40%')
+    expect(c.matched).toBe(1)
+  })
+})

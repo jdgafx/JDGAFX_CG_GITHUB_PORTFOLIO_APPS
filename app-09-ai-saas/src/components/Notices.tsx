@@ -43,7 +43,7 @@ export default function Notices({ failures, allFailed, span, loading, releaseFai
               </button>
             ) : (
               <button type="button" className="ds-button" onClick={onRetry}>
-                Retry
+                Try again
               </button>
             )}
           </div>
@@ -85,7 +85,7 @@ export default function Notices({ failures, allFailed, span, loading, releaseFai
           ))}
           <p>Their unusual days are still marked, but no releases are matched to them.</p>
           <button type="button" className="ds-button" onClick={onRetryReleases}>
-            Retry release history
+            Try again
           </button>
         </div>
       )}

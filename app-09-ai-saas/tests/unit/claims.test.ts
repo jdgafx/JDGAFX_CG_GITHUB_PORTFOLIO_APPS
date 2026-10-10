@@ -261,12 +261,19 @@ describe('hedged figures', () => {
   }
   const gap = (said: string) => checkClaims(`openai averages 5,386,613 a day and the SDK 5,287,553, a gap of ${said} per day.`, [claim(said, 'difference', ['openai', 'sdk'], { m: 'per_day' })], T)
 
-  it.each(['roughly 99,000', 'about 99,000', 'around 99,000', 'approximately 99,000', 'nearly 99,000', 'almost 99,000', 'close to 99,000', 'just over 99,000', '~99,000', 'some 99,000', 'roughly 99,060'])(
+  it.each(['roughly 99,000', 'about 99,000', 'around 99,000', 'approximately 99,000', 'close to 99,000', 'just over 99,000', '~99,000', 'some 99,000', 'roughly 99,060', 'nearly 99,000', 'almost 99,000'])(
     'accepts %s for a true gap of 99,060 (true value rounded to the figure\'s own significant figures)',
     (said) => {
       expect(gap(said).rejected).toEqual([])
     },
   )
+
+  it('rejects "just over 99,000" for a true gap of 98,600, which is below the figure', () => {
+    // 98,600 rounds to 99,000 at two figures, but "just over" names the side above, so the rounding does not reach it.
+    const below = { ...T, packages: T.packages.map((pkg) => (pkg.name === '@anthropic-ai/sdk' ? { ...pkg, avgPerDay: 5_288_013 } : pkg)) }
+    const text = 'openai averages 5,386,613 a day and the SDK 5,288,013, a gap of just over 99,000 per day.'
+    expect(checkClaims(text, [claim('just over 99,000 per day', 'difference', ['openai', 'sdk'], { m: 'per_day' })], below).rejected).toHaveLength(1)
+  })
 
   it('still rejects a hedged figure that is not the true value at its own precision', () => {
     expect(gap('roughly 120,000').rejected).toHaveLength(1)

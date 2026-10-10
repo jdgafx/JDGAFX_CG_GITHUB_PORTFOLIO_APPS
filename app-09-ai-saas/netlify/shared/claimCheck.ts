@@ -200,6 +200,11 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     }
     const fits = (values: number[], hedge: boolean) => values.filter((value) => !(quoted.bound && unit === 'times' && value < 1)).some((value) => matchesQuoted(quoted, value, hedge) && (!expected.trend || directionAgrees(quoted, value)))
 
+    if (quoted.vague) {
+      leaveUnchecked(figure.whole, start)
+      continue
+    }
+
     if (claim.k === 'weekend_pct') {
       // The level ("keeps 57%") and the gap ("43% lower") are different figures; the words must say which.
       const w = wordsOfFigure(text, start, end)

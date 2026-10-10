@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fetchedTime, liveInputs, liveState, liveText, type LiveInputs } from '../../src/lib/liveData'
+import { fetchedTime, LIVE_HOSTS, liveInputs, liveState, liveText, type LiveInputs } from '../../src/lib/liveData'
 
 const base: LiveInputs = { downloadsLoading: false, downloadsParsed: 0, downloadsFailed: 0, releasesLoading: false, releasesParsed: 0, releasesFailed: 0 }
 
@@ -43,6 +43,14 @@ describe('the words', () => {
     expect(liveText('live', at)).toBe('Live data: npm registry · fetched 14:32')
     expect(liveText('live', null)).toBe('Live data: npm registry')
     expect(liveText('failed', at)).toBe('Live data unavailable: npm registry')
+  })
+
+  it('is described in the README with the same words and the same two hosts the chip shows', () => {
+    const readme = readFileSync('README.md', 'utf8')
+    expect(readme).toContain(liveText('idle', null))
+    expect(readme).toContain('Live data: npm registry · fetched HH:MM')
+    expect(readme).toContain(liveText('failed', null))
+    for (const host of LIVE_HOSTS.split(', ')) expect(readme).toContain(host)
   })
 })
 

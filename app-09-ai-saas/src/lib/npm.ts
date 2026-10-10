@@ -9,6 +9,8 @@ export interface Day {
 
 const RANGE_ENDPOINT = 'https://api.npmjs.org/downloads/range'
 const REQUEST_TIMEOUT_MS = 10_000
+/** The message for a read that never reached npm. Shown for a single package and for a whole batch, so both say the same thing. */
+const NETWORK_MESSAGE = 'Could not reach npm. Check your connection, then try again.'
 /** npm publishes a day or two late, so the request reaches back this many days past the window to find the latest published day. */
 const LAG_ALLOWANCE_DAYS = 7
 /** Days of history always requested, whatever the window, so spike detection has weeks of same-weekday baseline behind a 30-day view. */
@@ -61,8 +63,8 @@ export function parseRange(json: unknown): Day[] {
 /** Maps a failed HTTP status to a message the viewer can act on. */
 function errorForStatus(name: string, status: number): NpmError {
   if (status === 404) return new NpmError('not-found', `"${name}" is not on npm. Check the spelling.`)
-  if (status === 429) return new NpmError('rate-limit', 'npm is limiting requests right now. Wait a minute, then retry.')
-  return new NpmError('unexpected', `npm answered with an error (HTTP ${status}). Retry in a moment.`)
+  if (status === 429) return new NpmError('rate-limit', 'npm is limiting requests right now. Wait a minute, then try again.')
+  return new NpmError('unexpected', `npm answered with an error (HTTP ${status}). Try again in a moment.`)
 }
 
 /** Fetches one package's daily downloads. Rethrows the caller's own abort; every other failure is an NpmError. */
@@ -73,8 +75,8 @@ export async function fetchDownloads(name: string, start: string, end: string, s
     response = await fetch(rangeUrl(name, start, end), { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   } catch (err) {
     if (signal?.aborted) throw err
-    if (timeout.aborted) throw new NpmError('timeout', `npm did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Retry.`)
-    throw new NpmError('network', 'Could not reach npm. Check your connection, then retry.')
+    if (timeout.aborted) throw new NpmError('timeout', `npm did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again.`)
+    throw new NpmError('network', NETWORK_MESSAGE)
   }
   if (!response.ok) throw errorForStatus(name, response.status)
   try {
@@ -98,6 +100,6 @@ export async function loadDownloads(names: string[], days: number, today: string
   return settled.map((result, index): PackageOutcome => {
     const name = names[index]
     if (result.status === 'fulfilled') return { name, days: result.value }
-    return { name, error: result.reason instanceof NpmError ? result.reason : new NpmError('network', 'Could not reach npm. Check your connection, then retry.') }
+    return { name, error: result.reason instanceof NpmError ? result.reason : new NpmError('network', NETWORK_MESSAGE) }
   })
 }

@@ -102,18 +102,23 @@ function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null
   let sizeMatched = false
   const hits: PoolValue[] = []
   const set = q.unit === 'times' ? named(ctx) : new Set<string>()
-  for (const value of values) {
-    if (value.unit !== q.unit) continue
+  /** Whether the figure may be about this value at all: its unit, its package, its weekend sense and its pair. */
+  const admitted = (value: PoolValue): boolean => {
+    if (value.unit !== q.unit) return false
     if (value.pair) {
-      if (!pairNamed(value.pair as [string, string], set)) continue
+      if (!pairNamed(value.pair as [string, string], set)) return false
     } else if (value.owner !== undefined) {
-      if (ctx.owner !== value.owner) continue
-    } else if (ctx.owner !== null && !SELECTION_WORDS.test(ctx.clause)) continue // a selection-wide value, in a clause about one package
+      if (ctx.owner !== value.owner) return false
+    } else if (ctx.owner !== null && !SELECTION_WORDS.test(ctx.clause)) return false // a selection-wide value, in a clause about one package
     // A weekend level ("runs at 57.3% of weekdays") and a weekend gap ("42.7% lower") are told apart by the figure's own words,
     // whether or not it says "weekend"; with words for neither, a weekend value is not matched.
-    if ((value.metric === 'weekend_level' || value.metric === 'weekend_gap') && value.metric !== weekend) continue
+    if ((value.metric === 'weekend_level' || value.metric === 'weekend_gap') && value.metric !== weekend) return false
     // "less than 10 times" is about the larger over the smaller: the inverse ratio would satisfy any upper bound.
-    if (q.bound && value.pair && value.value < 1) continue
+    if (q.bound && value.pair && value.value < 1) return false
+    return true
+  }
+  for (const value of values) {
+    if (!admitted(value)) continue
     if (!matchesQuoted(q, value.value, value.owner !== undefined)) continue
     sizeMatched = true
     if (value.trend && !directionAgrees(q, value.value)) continue
@@ -123,10 +128,19 @@ function judge(q: Quoted, values: PoolValue[], ctx: Context, said: Metric | null
   // metrics, is not told apart.
   if (said === null && clauseAmbiguous && q.unit !== 'times') return { matched: false, wrongDirection: false, ambiguous: true }
   const kept = said === null ? hits : hits.filter((value) => value.metric === said)
-  const metrics = new Set(kept.map((value) => value.metric))
+  // A bare approximation ("nearly 40%") also takes in every admitted value on its side of the figure, not only those inside
+  // its band: a band that leaves one metric standing is not a reading the reader can tell apart from the others on that side.
+  const side = said === null && q.approx && q.unit !== 'times' ? values.filter((value) => admitted(value) && onSide(q, value.value) && (!value.trend || directionAgrees(q, value.value))) : []
+  const metrics = new Set([...kept, ...side].map((value) => value.metric))
   // Without words that name the metric, a figure that fits values of two metrics is not told apart.
   const ambiguous = said === null && q.unit !== 'times' && metrics.size > 1
   return { matched: kept.length > 0 && !ambiguous, wrongDirection: sizeMatched && kept.length === 0 && hits.length === 0, ambiguous }
+}
+
+/** Whether a value is on the side of an approximation's figure that the real value lies on: under it for "nearly", over it for "just over". */
+function onSide(q: Quoted, value: number): boolean {
+  const v = Math.abs(value) / q.scale
+  return q.approx === 'below' ? v <= q.value : v >= q.value
 }
 
 /**

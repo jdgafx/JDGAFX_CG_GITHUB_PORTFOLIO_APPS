@@ -35,6 +35,12 @@ describe('the How to use block', () => {
     expect(html).toContain('aria-labelledby="howto-title"')
   })
 
+  it('names "Add a package" once, so the label is not read twice in the steps', () => {
+    const html = render()
+    expect(html.match(/Add a package/g)?.length ?? 0).toBe(1)
+    expect(html).toContain('press <strong>Add</strong>')
+  })
+
   it('is open or closed as told, and the Try it button is disabled while a run is going', () => {
     expect(render({ open: true })).toMatch(/<details[^>]* open/)
     expect(render({ open: false })).not.toMatch(/<details[^>]* open/)

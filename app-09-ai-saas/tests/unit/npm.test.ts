@@ -79,8 +79,8 @@ describe('fetchDownloads', () => {
 
   it.each([
     [404, 'not-found', '"nope" is not on npm. Check the spelling.'],
-    [429, 'rate-limit', 'npm is limiting requests right now. Wait a minute, then retry.'],
-    [503, 'unexpected', 'npm answered with an error (HTTP 503). Retry in a moment.'],
+    [429, 'rate-limit', 'npm is limiting requests right now. Wait a minute, then try again.'],
+    [503, 'unexpected', 'npm answered with an error (HTTP 503). Try again in a moment.'],
   ])('maps HTTP %i to a plain message', async (status, kind, message) => {
     vi.stubGlobal('fetch', vi.fn(async () => reply(status, { error: 'x' })))
     await expect(fetchDownloads('nope', '2026-10-04', '2026-10-07')).rejects.toMatchObject({ name: 'NpmError', kind, message })
@@ -90,7 +90,7 @@ describe('fetchDownloads', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))))
     await expect(fetchDownloads('react', '2026-10-04', '2026-10-07')).rejects.toMatchObject({
       kind: 'network',
-      message: 'Could not reach npm. Check your connection, then retry.',
+      message: 'Could not reach npm. Check your connection, then try again.',
     })
   })
 
@@ -108,7 +108,7 @@ describe('fetchDownloads', () => {
     })))
     const settled = fetchDownloads('react', '2026-10-04', '2026-10-07').catch((err: unknown) => err)
     limit.abort(new DOMException('The operation timed out.', 'TimeoutError'))
-    expect(await settled).toMatchObject({ kind: 'timeout', message: 'npm did not answer within 10 seconds. Retry.' })
+    expect(await settled).toMatchObject({ kind: 'timeout', message: 'npm did not answer within 10 seconds. Try again.' })
   })
 
   it("rethrows the caller's own abort instead of calling it a network error", async () => {

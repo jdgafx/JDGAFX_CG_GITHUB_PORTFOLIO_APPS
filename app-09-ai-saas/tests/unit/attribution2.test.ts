@@ -70,7 +70,7 @@ describe('hedges of one significant figure (D17)', () => {
   const B2 = F.B2
   it('leaves a coarse hedge unchecked in a claim, instead of rejecting it', () => {
     const text = 'The gap is nearly 100,000 per day between openai and @anthropic-ai/sdk.'
-    // "nearly" is an upper bound: 99,060 is not more than 100,000, so it is true. A bare 100,000 would be unchecked.
+    // "nearly" approximates from below: 99,060 is 940 under 100,000, inside the 5,000 band (5% of 100,000), so it is true. The "about" variant is coarse and left unchecked.
     expect(outcome(text, B2, [claim('nearly 100,000 per day', 'difference', ['openai', '@anthropic-ai/sdk'], { m: 'per_day' })])).toBe('matched')
     expect(outcome(text.replace('nearly ', 'about '), B2, [claim('about 100,000 per day', 'difference', ['openai', '@anthropic-ai/sdk'], { m: 'per_day' })])).toBe('unchecked')
     expect(outcome('Svelte averages about 1,000,000 downloads per day.', C1, [claim('about 1,000,000 downloads per day', 'per_day', ['svelte'])])).toBe('unchecked')

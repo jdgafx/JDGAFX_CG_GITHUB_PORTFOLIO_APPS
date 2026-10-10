@@ -78,6 +78,13 @@ export interface Quoted {
   hedged?: boolean
   /** "more than 10 times" is a lower bound, "less than 10 times" an upper one: true when the real value is on that side of it. */
   bound?: 'lower' | 'upper'
+  /**
+   * "nearly 100,000" is a little under, "just over 98,000" a little over. The real value matches on that side only, within
+   * about 5% of the figure or one unit of its written decimals, whichever is wider.
+   */
+  approx?: 'below' | 'above'
+  /** "up to 50%": not a value, never matched. */
+  vague?: boolean
 }
 
 /** A checkable figure written in the text: where it starts, how it is written and what it says. Its sign is read from the text around it. */
@@ -87,13 +94,23 @@ export interface Occurrence {
   quoted: Quoted
 }
 
-const LOWER_BOUND = /\b(?:more than|over|above|at least|upwards? of|in excess of|exceeding|greater than|beyond|just over)\s+(?:about\s+|roughly\s+)?$/i
-const UPPER_BOUND = /\b(?:less than|under|below|at most|fewer than|up to|no more than|nearly|almost|just under)\s+$/i
+/** Both bounds accept an optional "about" or "roughly" between their words and the figure: "no more than about 10 times" is an upper bound. */
+const LOWER_BOUND = /\b(?:more than|over|above|at least|upwards? of|in excess of|exceeding|greater than|beyond)\s+(?:about\s+|roughly\s+)?$/i
+const UPPER_BOUND = /\b(?:less than|under|below|at most|fewer than|no more than)\s+(?:about\s+|roughly\s+)?$/i
+/** One-sided approximations: the real value is a little under (nearly, almost, just under) or a little over (just over) the figure. */
+const APPROX_BELOW = /\b(?:nearly|almost|just under|just below)\s+$/i
+const APPROX_ABOVE = /\bjust over\s+$/i
+/** "up to 50%" is a ceiling nobody states the value of; it is never matched. */
+const VAGUE = /\bup to\s+$/i
 
-/** The bound the words just before the figure put on it, if any. */
-export function boundBefore(text: string, index: number): 'lower' | 'upper' | undefined {
+/** How a figure's words limit it: a bound, a one-sided approximation, or vague. */
+export function limitBefore(text: string, index: number): Pick<Quoted, 'bound' | 'approx' | 'vague'> {
   const before = clauseBefore(text, index).slice(-40)
-  return LOWER_BOUND.test(before) ? 'lower' : UPPER_BOUND.test(before) ? 'upper' : undefined
+  if (VAGUE.test(before)) return { vague: true }
+  if (APPROX_BELOW.test(before)) return { approx: 'below' }
+  if (APPROX_ABOVE.test(before)) return { approx: 'above' }
+  // UPPER first: "no more than" contains "more than", which LOWER_BOUND also matches.
+  return { bound: UPPER_BOUND.test(before) ? 'upper' : LOWER_BOUND.test(before) ? 'lower' : undefined }
 }
 
 /** Words that say a figure is approximate. */
@@ -123,7 +140,7 @@ export function figureOccurrences(text: string): Occurrence[] {
         scale: word === undefined ? 1 : SCALES[word.toLowerCase()],
         sign: unit === '%' ? signOf(text, match.index ?? 0) : 0,
         hedged: isHedged(text, match.index ?? 0),
-        bound: boundBefore(text, match.index ?? 0),
+        ...limitBefore(text, match.index ?? 0),
       },
     }
   })
@@ -173,15 +190,26 @@ function significantFigures(value: number): number {
 /**
  * Whether `value`, divided by the figure's own scale and rounded to its own decimals, is what the figure says. A count
  * written out in full is exact, unless the text hedges it ("roughly 99,000") and it carries at least two significant
- * figures: then it may be the true value rounded to those. `allowHedge` is off where nothing says whose value it is.
+ * figures: then it may be the true value rounded to those. "Nearly" and "almost" keep that rounding, so "nearly 99,000" matches
+ * 99,060; "just over" does not, since a value below the figure is not "just over" it. `allowHedge` is off where nothing says whose value it is.
  */
 export function matchesQuoted(q: Quoted, value: number, allowHedge = true): boolean {
+  if (q.vague) return false
+  if (q.approx) {
+    // A one-sided approximation is judged on its own side only: "nearly 30" is not 30.4, though 30.4 rounds to 30.
+    const v = Math.abs(value) / q.scale
+    const tolerance = Math.max(q.value * 0.05, 10 ** -q.decimals)
+    if (q.approx === 'below' ? v <= q.value && v >= q.value - tolerance : v >= q.value && v <= q.value + tolerance) return true
+  }
   if (q.bound) {
     const v = Math.abs(value) / q.scale
     if (q.bound === 'lower' ? v >= q.value : v <= q.value) return true
   }
-  if (roundTo(Math.abs(value) / q.scale, q.decimals) === q.value) return true
-  if (allowHedge && q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
+  // Rounding to the written decimals. An approximation takes none of it, so "nearly 30" does not match 30.4. A whole count of two or
+  // more significant figures keeps its hedge rounding under "nearly" or "almost" (so a value above the figure can match), but not
+  // under "just over", which would accept a value below it.
+  if (!q.approx && roundTo(Math.abs(value) / q.scale, q.decimals) === q.value) return true
+  if (allowHedge && q.approx !== 'above' && q.hedged && q.unit === 'count' && q.scale === 1 && q.decimals === 0 && q.value > 0) {
     const sf = significantFigures(q.value)
     return sf >= 2 && Number(Math.abs(value).toPrecision(sf)) === q.value
   }

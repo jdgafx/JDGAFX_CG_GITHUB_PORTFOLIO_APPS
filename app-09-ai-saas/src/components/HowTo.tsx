@@ -20,7 +20,7 @@ export default function HowTo({ open, onToggle, onTry, busy }: HowToProps) {
           <p className="howto__line">Compare npm packages by real downloads; unusual days are matched to releases and explained.</p>
           <ol className="howto__steps">
             <li>
-              Add a package in <strong>Add a package</strong>, or open <strong>Ready-made comparisons</strong>.
+              Type a name under <strong>Add a package</strong> and press <strong>Add</strong>, or open <strong>Ready-made comparisons</strong>.
             </li>
             <li>
               Press <strong>Explain spikes</strong>. It takes about 10 seconds.
