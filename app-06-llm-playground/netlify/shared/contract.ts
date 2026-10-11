@@ -170,7 +170,7 @@ export interface LeaderboardResponse {
   allBad: number
   updatedAt: string | null
   // memory: Netlify Blobs is not configured here, so votes live in this server's memory only.
-  storage: 'blobs' | 'memory'
+  storage: 'blobs' | 'blobs-deploy' | 'memory'
 }
 
 export interface RatingChange {

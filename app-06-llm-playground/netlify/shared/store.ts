@@ -1,4 +1,4 @@
-import { getStore } from '@netlify/blobs'
+import { getDeployStore, getStore } from '@netlify/blobs'
 
 /** The Netlify Blobs store that holds blind runs and the leaderboard. */
 export const ARENA_STORE_NAME = 'modelarena-arena'
@@ -27,7 +27,8 @@ export interface KeyValueStore {
   setIfMatch(key: string, value: string, etag: string): Promise<boolean>
 }
 
-export type StorageKind = 'blobs' | 'memory'
+/** 'blobs-deploy' is the store scoped to a preview or branch deploy. 'blobs' is the shared site store. */
+export type StorageKind = 'blobs' | 'blobs-deploy' | 'memory'
 
 interface OpenStore {
   store: KeyValueStore
@@ -95,10 +96,33 @@ export function createMemoryStore(): KeyValueStore {
   }
 }
 
-/** Netlify Blobs behind the same four operations. Strong consistency reads after writes. */
-function blobsStore(): KeyValueStore {
-  const blobs = getStore({ name: ARENA_STORE_NAME, consistency: 'strong' })
-  return {
+/** The Netlify runtime global. Its typings are not installed here, so only the field read below is named. */
+interface NetlifyRuntime {
+  context?: { deploy?: { context?: string } } | null
+}
+
+/**
+ * The deploy context this function runs in, such as 'production', 'deploy-preview' or 'branch-deploy'. The runtime's
+ * own context wins over the CONTEXT variable. Undefined when neither names one.
+ */
+export function deployContext(): string | undefined {
+  const runtime = (globalThis as { Netlify?: NetlifyRuntime }).Netlify
+  return runtime?.context?.deploy?.context ?? process.env.CONTEXT
+}
+
+/** Deploy previews and branch deploys use a store scoped to their own deploy. Every other context uses the site store. */
+const DEPLOY_SCOPED_CONTEXTS = ['deploy-preview', 'branch-deploy']
+
+/**
+ * Netlify Blobs behind the same four operations. Strong consistency reads after writes. A deploy-scoped store is
+ * removed with its deploy, so its votes never reach the production store.
+ */
+function blobsStore(): OpenStore {
+  const deployScoped = DEPLOY_SCOPED_CONTEXTS.includes(deployContext() ?? '')
+  const blobs = deployScoped
+    ? getDeployStore({ name: ARENA_STORE_NAME, consistency: 'strong' })
+    : getStore({ name: ARENA_STORE_NAME, consistency: 'strong' })
+  const store: KeyValueStore = {
     async get(key) {
       const value: string | null = await blobs.get(key, { type: 'text' })
       return value ?? undefined
@@ -127,15 +151,16 @@ function blobsStore(): KeyValueStore {
       return (await blobs.set(key, value, { onlyIfMatch: etag })).modified
     },
   }
+  return { store, kind: deployScoped ? 'blobs-deploy' : 'blobs' }
 }
 
 /**
- * Picks Netlify Blobs when the function runs inside a Netlify environment. getStore throws
+ * Picks Netlify Blobs when the function runs inside a Netlify environment. getStore and getDeployStore throw
  * synchronously when the site context is missing, which is how local dev without Blobs looks.
  */
 export function createStore(): OpenStore {
   try {
-    return { store: blobsStore(), kind: 'blobs' }
+    return blobsStore()
   } catch {
     return { store: createMemoryStore(), kind: 'memory' }
   }
@@ -151,7 +176,7 @@ let memory: OpenStore | undefined
 export function activeStore(): OpenStore {
   if (active) return active
   const opened = createStore()
-  if (opened.kind === 'blobs') return opened
+  if (opened.kind !== 'memory') return opened
   memory ??= opened
   return memory
 }
