@@ -22,7 +22,16 @@ type StreamFrame =
 
 /** The five fields the client reads from a finished run. */
 function runBody(run: RunPayload): RunPayload {
-  return { result: run.result, trace: run.trace, usage: run.usage, model: run.model, totalMs: run.totalMs }
+  return {
+    result: run.result,
+    trace: run.trace,
+    usage: run.usage,
+    servedModel: run.servedModel,
+    newestModel: run.newestModel,
+    modelCheck: run.modelCheck,
+    mismatchedModel: run.mismatchedModel,
+    totalMs: run.totalMs,
+  }
 }
 
 function streamRun(
@@ -76,7 +85,7 @@ const json = (status: number, payload: unknown, extra: Record<string, string> = 
   new Response(JSON.stringify(payload), { status, headers: { ...extra, 'Content-Type': 'application/json' } })
 
 async function respond(req: Request, started: number): Promise<Response> {
-  if (!originAllowed(req.headers.get('origin'))) {
+  if (!originAllowed(req.headers.get('origin'), req.url)) {
     return json(403, { error: 'Origin not allowed.' })
   }
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { parseAnswer, sentencesCiting, supportingSentence } from '../lib/evidence'
-import { count, score } from '../lib/format'
+import { count, modelMarker, modelTitle, score } from '../lib/format'
 import { locationLabel } from '../lib/location'
 import { AnswerBody, citeKey } from './AnswerBody'
 import { SourcePanel } from './SourcePanel'
@@ -176,9 +176,10 @@ function TurnCard({ turn, doc, lead, selection, onSelect, onClose }: TurnCardPro
       {!noMatch && (
         <p className="ds-lead__foot">
           {turn.selfRated !== null && `Self-rated ${Math.round(turn.selfRated * 100)}%: the model rated its own answer, and the rating is not checked against the passages. `}
-          {turn.model && (
+          {turn.servedModel && (
             <>
-              Served by <span className="ds-mono">{turn.model}</span>.
+              Served by <span className="ds-mono" title={modelTitle(turn.servedModel, turn.newestModel, turn.mismatchedModel)}>{turn.servedModel}</span>
+              {modelMarker(turn.modelCheck) && <span className={turn.modelCheck === 'mismatch' ? 'ds-badge--warning' : undefined}> {modelMarker(turn.modelCheck)}</span>}.
             </>
           )}
         </p>

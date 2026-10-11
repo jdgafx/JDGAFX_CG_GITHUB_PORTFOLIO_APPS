@@ -1,7 +1,7 @@
 import { retrieve, type Retrieval } from './bm25'
 import { noun } from './passageMap'
 import { startWatchdog, type WatchdogReason } from './watchdog'
-import type { RunReport, TraceStep, Usage } from '../types'
+import type { ModelCheck, RunReport, TraceStep, Usage } from '../types'
 
 // The step names the server records.
 const RETRIEVE_STEP = 'Retrieve passages'
@@ -39,7 +39,10 @@ interface ServerRun {
   result: { answer: string; source_chunk_indices: number[]; confidence: number }
   trace: TraceStep[]
   usage: Usage
-  model: string | null
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: ModelCheck
+  mismatchedModel: string | null
   totalMs: number
 }
 
@@ -56,7 +59,7 @@ function fallbackMessage(status: number): string {
 }
 
 function runWith(trace: TraceStep[], totalMs: number | null): RunReport {
-  return { trace, usage: null, model: null, totalMs }
+  return { trace, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs }
 }
 
 function failedStep(name: string, detail: string): TraceStep {
@@ -251,7 +254,15 @@ export async function askQuestion(
       answer: run.result.answer,
       sourceChunks: run.result.source_chunk_indices,
       selfRated: Math.min(1, Math.max(0, run.result.confidence)),
-      run: { trace: [retrievalStep, ...run.trace], usage: run.usage, model: run.model, totalMs: run.totalMs },
+      run: {
+        trace: [retrievalStep, ...run.trace],
+        usage: run.usage,
+        servedModel: run.servedModel,
+        newestModel: run.newestModel,
+        modelCheck: run.modelCheck,
+        mismatchedModel: run.mismatchedModel,
+        totalMs: run.totalMs,
+      },
       retrieval,
     }
   } finally {

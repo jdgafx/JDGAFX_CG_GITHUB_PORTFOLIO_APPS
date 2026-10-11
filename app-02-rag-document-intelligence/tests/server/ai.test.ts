@@ -30,7 +30,9 @@ describe('ai function: happy path', () => {
     expect(res.status).toBe(200)
     const body = await runOf(res)
     expect(body.result).toEqual({ answer: 'The Harbor Station was opened in 1987.', source_chunk_indices: [3], confidence: 0.95 })
-    expect(body.model).toBe(SERVED)
+    expect(body.servedModel).toBe(SERVED)
+    expect(body.newestModel).toBe(SERVED)
+    expect(body.modelCheck).toBe('match')
     expect(body.usage).toMatchObject({ prompt_tokens: 120, completion_tokens: 30, total_tokens: 150, cost: 0.00012, cost_source: 'reported' })
     expect(body.trace.map(step => [step.name, step.status])).toEqual([
       ['Accept request', 'ok'],

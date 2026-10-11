@@ -3,6 +3,8 @@ import { afterEach, beforeEach, vi } from 'vitest'
 const PLACEHOLDER = 'test-only-placeholder'
 export const ORIGIN = 'http://localhost:5173'
 export const SERVED = 'anthropic/claude-haiku-5-5'
+export const ALIAS = '~anthropic/claude-haiku-latest'
+export const LIST_URL = 'https://openrouter.ai/api/v1/models'
 const previousKey = process.env.OPENROUTER_API_KEY
 
 export const VALID = {
@@ -24,7 +26,10 @@ export interface RunJson {
   result: { answer: string; source_chunk_indices: number[]; confidence: number }
   trace: StepJson[]
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cost_source: string }
-  model: string
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: string
+  mismatchedModel: string | null
   totalMs: number
 }
 
@@ -48,10 +53,27 @@ let current: ReturnType<typeof stubProvider>
 /** The stub for the test in progress, for asserting whether the provider was called. */
 export const upstream = () => current
 
-export function chatBody(content: string, options: { finish?: string; cost?: boolean } = {}) {
+export function chatBody(content: string, options: { finish?: string; cost?: boolean; model?: string | null } = {}) {
   const usage: Record<string, number> = { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 }
   if (options.cost !== false) usage['cost'] = 0.00012
-  return { model: SERVED, choices: [{ finish_reason: options.finish ?? 'stop', message: { content } }], usage }
+  // `model: null` leaves the field out, as a reply that names no model does.
+  const served = options.model === undefined ? SERVED : options.model
+  return { ...(served === null ? {} : { model: served }), choices: [{ finish_reason: options.finish ?? 'stop', message: { content } }], usage }
+}
+
+const DEFAULT_LIST = { data: [{ id: ALIAS, alias_target: { name: 'Anthropic: Claude Haiku 5.5', slug: SERVED } }] }
+
+// The model list the function reads for the newest model. Reset before each test; tests change it with `setList`.
+let listBody: unknown = DEFAULT_LIST
+
+/** Replaces the model list the function reads, for the test in progress. */
+export function setList(body: unknown) {
+  listBody = body
+}
+
+/** Answers the model list from `listBody` and sends every other call to the chat stub, so a list read never takes a chat reply. */
+function dispatcher(chat: (url: string, init?: RequestInit) => Promise<Response>) {
+  return async (url: string, init?: RequestInit) => (url === LIST_URL ? jsonReply(listBody) : chat(url, init))
 }
 
 export function jsonReply(body: unknown, status = 200): Response {
@@ -59,7 +81,10 @@ export function jsonReply(body: unknown, status = 200): Response {
 }
 
 interface RequestOptions {
-  origin?: string
+  /** The Origin header. Null sends no Origin header at all. */
+  origin?: string | null
+  /** The request's own URL. Defaults to the local test host. */
+  url?: string
   headers?: Record<string, string>
   rawBody?: string
   signal?: AbortSignal
@@ -69,11 +94,11 @@ export function request(body: unknown, options: RequestOptions = {}): Request {
   clientCount += 1
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Origin: options.origin ?? ORIGIN,
     'x-nf-client-connection-ip': `10.1.${Math.floor(clientCount / 256)}.${clientCount % 256}`,
     ...options.headers,
   }
-  return new Request('http://localhost/api/ai', {
+  if (options.origin !== null) headers['Origin'] = options.origin ?? ORIGIN
+  return new Request(options.url ?? 'http://localhost/api/ai', {
     method: 'POST',
     headers,
     body: options.rawBody ?? JSON.stringify(body),
@@ -88,14 +113,14 @@ export function stubProvider(...replies: Array<() => Response>) {
     if (!next) throw new Error('The test made an unexpected provider call.')
     return next()
   })
-  vi.stubGlobal('fetch', mock)
+  vi.stubGlobal('fetch', dispatcher(mock))
   current = mock
   return mock
 }
 
 /** Replaces the stub with one the test built itself, so `upstream()` still reports on it. */
 export function useStub(mock: ReturnType<typeof stubProvider>) {
-  vi.stubGlobal('fetch', mock)
+  vi.stubGlobal('fetch', dispatcher(mock))
   current = mock
 }
 
@@ -130,6 +155,7 @@ export function installProviderStub() {
   beforeEach(() => {
     process.env.OPENROUTER_API_KEY = PLACEHOLDER
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    listBody = DEFAULT_LIST
     stubProvider()
   })
 

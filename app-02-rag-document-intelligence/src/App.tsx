@@ -137,21 +137,24 @@ export default function App() {
                 answer: outcome.answer,
                 sourceChunks: outcome.sourceChunks,
                 selfRated: outcome.selfRated,
-                model: outcome.run.model,
+                servedModel: outcome.run.servedModel,
+                newestModel: outcome.run.newestModel,
+                modelCheck: outcome.run.modelCheck,
+                mismatchedModel: outcome.run.mismatchedModel,
                 retrieval: outcome.retrieval,
               }
-            : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, model: null, retrieval: outcome.retrieval }
+            : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, retrieval: outcome.retrieval }
         setTurns(prev => [...prev, turn])
       } catch (err) {
         if (!isCurrent()) return
         if (controller.signal.aborted) {
-          setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'stopped' })
+          setLatest({ report: { trace: steps, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'stopped' })
         } else if (err instanceof AskError) {
           setAskError(err.message)
           setLatest({ report: err.run, state: 'failed' })
         } else {
           setAskError('Something went wrong while answering. Please try again.')
-          setLatest({ report: { trace: steps, usage: null, model: null, totalMs: null }, state: 'failed' })
+          setLatest({ report: { trace: steps, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'failed' })
         }
       } finally {
         if (isCurrent()) {

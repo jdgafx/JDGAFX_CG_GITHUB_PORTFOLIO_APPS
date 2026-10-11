@@ -41,11 +41,17 @@ export interface Usage {
   cost_source: 'reported' | 'estimated' | null
 }
 
+/** Whether the served model is the newest one the alias resolves to. Same values as netlify/shared/newest-model.ts. */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 /** What the run report shows about one question. Null fields render as "not reported". */
 export interface RunReport {
   trace: TraceStep[]
   usage: Usage | null
-  model: string | null
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: ModelCheck
+  mismatchedModel: string | null
   totalMs: number | null
 }
 
@@ -64,7 +70,10 @@ export interface Turn {
   answer: string
   sourceChunks: number[]
   selfRated: number | null
-  model: string | null
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: ModelCheck
+  mismatchedModel: string | null
   /** What the browser ranked for this question: the terms, and the passages with their BM25 scores. */
   retrieval: Retrieval
 }

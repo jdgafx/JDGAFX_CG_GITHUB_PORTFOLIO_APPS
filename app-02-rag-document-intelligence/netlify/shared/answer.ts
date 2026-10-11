@@ -1,4 +1,5 @@
-import { callModel, estimateCost, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type RawUsage } from './provider'
+import { newestModel, servedCheck, worstCheck, type ModelCheck } from './newest-model'
+import { callModel, estimateCost, MODEL, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type RawUsage } from './provider'
 
 /** 'passage' or 'passages', by count. */
 function noun(count: number): string {
@@ -43,7 +44,13 @@ export interface RunPayload {
   result: AiResponse
   trace: TraceStep[]
   usage: Usage
-  model: string | null
+  /** The model that wrote the shown answer, as the provider named it. Null when the reply named none. */
+  servedModel: string | null
+  newestModel: string | null
+  /** The worst check across every model call in the run. */
+  modelCheck: ModelCheck
+  /** The served id of a call that did not match the newest model, or null when none did. */
+  mismatchedModel: string | null
   totalMs: number
 }
 
@@ -228,16 +235,21 @@ export async function runAnswer(
 
   const deadline = started + UPSTREAM_TIMEOUT_MS
   const callLimit = () => Math.min(deadline, Date.now() + CALL_LIMIT_MS)
+  // One list read per run, started before the first call. It never rejects and is awaited only after the answer.
+  const newestP = newestModel()
   events.start(STEP_CALL)
   const called = Date.now()
   const first = await callModel(apiKey, messages, callLimit(), signal)
 
   const usages: RawUsage[] = []
+  // Every call that returned a reply, so each one's served model is checked.
+  const replies: AttemptOk[] = []
   let attempt: AttemptOk | null = null
   // Why a second call is made, or null when the first one is used as it is.
   let reason: string | null = null
   if (first.ok) {
     usages.push(first.usage)
+    replies.push(first)
     if (usable(first)) {
       attempt = first
       record(STEP_CALL, called, 'ok', servedBy(first), costOf(first))
@@ -265,6 +277,7 @@ export async function runAnswer(
       return fail(second.status, second.message, [STEP_PARSE])
     }
     usages.push(second.usage)
+    replies.push(second)
     attempt = second
     record(STEP_RETRY, retried, 'ok', `Retried once because ${reason}. ${servedBy(second)}`, costOf(second))
   }
@@ -277,12 +290,20 @@ export async function runAnswer(
     record(STEP_PARSE, parsing, 'failed', parsed.message)
     return fail(502, parsed.message, [])
   }
-  const model = attempt.model ?? (first.ok ? first.model : null)
-  const usage = await buildUsage(model, usages, deadline)
+  // Only the call that wrote the shown answer names its model. Another call's model is never used in its place.
+  const servedModel = attempt.model
+  const usage = await buildUsage(servedModel, usages, deadline)
+  const newest = await newestP
+  const checks = replies.map(reply => ({ served: reply.model, check: servedCheck(newest, reply.model) }))
+  for (const { served, check } of checks) {
+    if (check === 'mismatch') console.warn(`model mismatch: served ${served}, newest ${newest}, requested ${MODEL}`)
+  }
+  const modelCheck = worstCheck(checks.map(c => c.check))
+  const mismatchedModel = checks.find(c => c.check === 'mismatch')?.served ?? null
   const cited = parsed.result.source_chunk_indices.length
   const confidence = Math.round(parsed.result.confidence * 100)
   const estimateNote = usage.cost_source === 'estimated' ? ' Cost estimated from catalogue pricing.' : ''
   record(STEP_PARSE, parsing, 'ok', `Answer cites ${cited} ${noun(cited)}. Self-rated ${confidence}%.${estimateNote}`)
 
-  return { ok: true, result: parsed.result, trace, usage, model, totalMs: Date.now() - started }
+  return { ok: true, result: parsed.result, trace, usage, servedModel, newestModel: newest, modelCheck, mismatchedModel, totalMs: Date.now() - started }
 }

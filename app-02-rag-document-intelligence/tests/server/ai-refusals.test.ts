@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import handler from '../../netlify/functions/ai'
 import { MAX_BODY_BYTES } from '../../netlify/shared/http'
-import { installProviderStub, request, upstream, VALID, ORIGIN } from './helpers'
+import { chatBody, installProviderStub, jsonReply, request, runOf, stubProvider, upstream, VALID, ORIGIN } from './helpers'
 
 installProviderStub()
 
@@ -76,5 +76,53 @@ describe('ai function: request refusals', () => {
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'The document assistant failed. Please try again.' })
     expect(upstream()).not.toHaveBeenCalled()
+  })
+})
+
+describe('ai function: same-origin requests', () => {
+  const PREVIEW = 'https://deploy-preview-9--jdgafx-app-02.netlify.app'
+  const LIVE = 'https://jdgafx-app-02.netlify.app'
+  const ANSWER = chatBody('{"answer":"1987.","source_chunk_indices":[3],"confidence":0.9}')
+  const names = ['URL', 'DEPLOY_PRIME_URL', 'DEPLOY_URL', 'ALLOWED_ORIGINS'] as const
+  const saved = names.map(name => process.env[name])
+
+  beforeEach(() => {
+    for (const name of names) delete process.env[name]
+  })
+
+  afterEach(() => {
+    names.forEach((name, i) => {
+      const value = saved[i]
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    })
+  })
+
+  it('allows a request whose Origin is the origin of its own URL, such as a deploy preview', async () => {
+    stubProvider(() => jsonReply(ANSWER))
+    const res = await handler(request(VALID, { origin: PREVIEW, url: `${PREVIEW}/api/ai` }))
+    expect(res.status).toBe(200)
+    expect((await runOf(res)).result.answer).toBe('1987.')
+  })
+
+  it('refuses a foreign origin, even when the request URL is a deploy preview', async () => {
+    const res = await handler(request(VALID, { origin: 'https://evil.example', url: `${PREVIEW}/api/ai` }))
+    expect(res.status).toBe(403)
+    expect(upstream()).not.toHaveBeenCalled()
+  })
+
+  it('still allows the production origin named by the site URL', async () => {
+    process.env.URL = LIVE
+    stubProvider(() => jsonReply(ANSWER))
+    const res = await handler(request(VALID, { origin: LIVE }))
+    expect(res.status).toBe(200)
+    expect((await runOf(res)).result.answer).toBe('1987.')
+  })
+
+  it('allows a request with no Origin header, as before', async () => {
+    stubProvider(() => jsonReply(ANSWER))
+    const res = await handler(request(VALID, { origin: null }))
+    expect(res.status).toBe(200)
+    expect((await runOf(res)).result.answer).toBe('1987.')
   })
 })

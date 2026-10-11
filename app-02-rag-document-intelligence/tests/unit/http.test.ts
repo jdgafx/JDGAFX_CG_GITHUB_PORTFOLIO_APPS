@@ -106,6 +106,7 @@ describe('readJsonBody', () => {
 
 describe('originAllowed', () => {
   const previous = process.env.ALLOWED_ORIGINS
+  const own = 'http://localhost/api/ai'
 
   afterEach(() => {
     if (previous === undefined) delete process.env.ALLOWED_ORIGINS
@@ -113,18 +114,24 @@ describe('originAllowed', () => {
   })
 
   it('allows requests with no Origin header and the local dev origins', () => {
-    expect(originAllowed(null)).toBe(true)
-    expect(originAllowed('http://localhost:5173')).toBe(true)
-    expect(originAllowed('http://localhost:5173/')).toBe(true)
+    expect(originAllowed(null, own)).toBe(true)
+    expect(originAllowed('http://localhost:5173', own)).toBe(true)
+    expect(originAllowed('http://localhost:5173/', own)).toBe(true)
   })
 
   it('refuses an origin that is not on the list', () => {
-    expect(originAllowed('https://evil.example')).toBe(false)
+    expect(originAllowed('https://evil.example', own)).toBe(false)
+  })
+
+  it('allows the origin of the request URL itself, such as a deploy preview', () => {
+    const preview = 'https://deploy-preview-9--jdgafx-app-02.netlify.app'
+    expect(originAllowed(preview, `${preview}/api/ai`)).toBe(true)
+    expect(originAllowed(preview, own)).toBe(false)
   })
 
   it('allows an origin named in ALLOWED_ORIGINS, with or without a trailing slash', () => {
     process.env.ALLOWED_ORIGINS = 'https://docmind.example.com/'
-    expect(originAllowed('https://docmind.example.com')).toBe(true)
+    expect(originAllowed('https://docmind.example.com', own)).toBe(true)
   })
 })
 

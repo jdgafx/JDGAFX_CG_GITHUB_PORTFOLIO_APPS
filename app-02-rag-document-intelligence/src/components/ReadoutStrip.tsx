@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { count, milliseconds, shortModel, usd } from '../lib/format'
+import { count, milliseconds, modelMarker, modelTitle, shortModel, usd } from '../lib/format'
 import type { LatestRun, TraceStep } from '../types'
 
 function Cell({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
@@ -46,7 +46,11 @@ export function ReadoutStrip({ running, pending, liveTrace, latest, sent, total 
   const notCalled = latest?.state === 'no-matches'
   const ended = !running && latest !== null
   const tone = running ? ' ds-strip--live' : latest ? '' : ' ds-strip--pending'
-  const model = report?.model ?? null
+  const served = report?.servedModel ?? null
+  const newest = report?.newestModel ?? null
+  const check = report?.modelCheck ?? 'not-reported'
+  const mismatched = report?.mismatchedModel ?? null
+  const marker = modelMarker(check)
   const partial = !running && (latest?.state === 'failed' || latest?.state === 'stopped')
   const sofar = partial ? (latest?.state === 'failed' ? 'Before it failed' : 'Before it stopped') : null
 
@@ -85,14 +89,17 @@ export function ReadoutStrip({ running, pending, liveTrace, latest, sent, total 
           </Cell>
         ) : (
           <Cell label="Model" hint="Named in the provider reply">
-            {model ? (
+            {served ? (
               <span className="ds-chips">
-                <span className="ds-chip" title={model}>
-                  {shortModel(model)}
+                <span className="ds-chip" title={modelTitle(served, newest, mismatched)}>
+                  {shortModel(served)}
+                  {marker && <span className={check === 'mismatch' ? 'ds-badge--warning' : undefined}> {marker}</span>}
                 </span>
               </span>
             ) : notCalled ? (
               'not called'
+            ) : latest?.state === 'answered' ? (
+              'not reported'
             ) : (
               NONE
             )}

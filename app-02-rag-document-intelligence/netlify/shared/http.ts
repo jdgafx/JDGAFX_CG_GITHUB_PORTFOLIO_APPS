@@ -32,9 +32,12 @@ function allowedOrigins(): string[] {
 }
 
 // Requests without an Origin header are not browser cross-site traffic (curl,
-// server-to-server), so they are allowed through.
-export function originAllowed(origin: string | null): boolean {
+// server-to-server), so they are allowed through. The env variables above are not
+// reliable when the function runs, so the request's own origin (its deploy preview
+// or live site) is also allowed, read from the request URL.
+export function originAllowed(origin: string | null, requestUrl: string): boolean {
   if (!origin) return true
+  if (origin === new URL(requestUrl).origin) return true
   return allowedOrigins().includes(origin.replace(/\/$/, ''))
 }
 
