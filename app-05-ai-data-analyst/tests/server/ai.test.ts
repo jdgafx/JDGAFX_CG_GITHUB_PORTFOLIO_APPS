@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/ai'
+import { modelListReply, routeFetch } from '../fixtures/openRouterList'
 
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>
 
@@ -16,6 +17,8 @@ interface Reply {
   trace?: TraceStep[]
   usage?: Record<string, number>
   model?: string | null
+  newestModel?: string | null
+  modelCheck?: string
 }
 
 const ORIGIN = 'http://localhost:5173'
@@ -57,7 +60,10 @@ afterEach(() => {
 })
 
 /** A fresh client address per request keeps each test clear of the per-address rate limit. */
-function request(body: unknown, options: { method?: string; origin?: string | null; raw?: string; client?: string } = {}) {
+function request(
+  body: unknown,
+  options: { method?: string; origin?: string | null; raw?: string; client?: string; url?: string } = {},
+) {
   clientCounter += 1
   const method = options.method ?? 'POST'
   const headers: Record<string, string> = {
@@ -67,20 +73,21 @@ function request(body: unknown, options: { method?: string; origin?: string | nu
   const origin = options.origin === undefined ? ORIGIN : options.origin
   if (origin) headers.origin = origin
   const payload = options.raw ?? (body === undefined ? undefined : JSON.stringify(body))
-  return new Request('https://app.example/api/ai', {
+  return new Request(options.url ?? 'https://app.example/api/ai', {
     method,
     headers,
     body: method === 'GET' || method === 'OPTIONS' ? undefined : payload,
   })
 }
 
+/** The chat replies in order. The model list is answered by its own mock, so it never takes a chat reply. */
 function stubProvider(...replies: Array<Response | Error>) {
   const mock = vi.fn<FetchFn>()
   for (const item of replies) {
     if (item instanceof Error) mock.mockRejectedValueOnce(item)
     else mock.mockResolvedValueOnce(item)
   }
-  vi.stubGlobal('fetch', mock)
+  vi.stubGlobal('fetch', routeFetch(mock, async () => modelListReply(SERVED)))
   return mock
 }
 
@@ -139,6 +146,7 @@ describe('ai function contract', () => {
     expect(await readReply(response)).toEqual({ error: 'Origin not allowed.' })
     expect(mock).not.toHaveBeenCalled()
   })
+
 
   it('reports a missing server key as a 500 and never calls the provider', async () => {
     process.env.OPENROUTER_API_KEY = ''
@@ -211,6 +219,8 @@ describe('ai function happy path', () => {
       explanation: 'Adds up revenue for each product.',
     })
     expect(reply.model).toBe(SERVED)
+    expect(reply.newestModel).toBe(SERVED)
+    expect(reply.modelCheck).toBe('match')
     expect(reply.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 })
     expect(stepStatuses(reply)).toEqual([
       ['Build request', 'ok'],
@@ -235,6 +245,7 @@ describe('ai function happy path', () => {
     expect(call?.[0]).toBe(ENDPOINT)
     expect(sent.model).toBe('~anthropic/claude-haiku-latest')
     expect(sent.max_tokens).toBe(4096)
+    expect(sent).not.toHaveProperty('tool_choice')
     expect(sent.usage).toEqual({ include: true })
     expect(sent.messages[1]?.content).toContain(`Question: ${QUESTION}`)
     expect(call?.[1].headers).toEqual({ Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' })

@@ -95,6 +95,17 @@ describe('callModel usage and retries', () => {
     expect(result.usage).toEqual({ prompt_tokens: 1500, completion_tokens: 300, total_tokens: 1800 })
   })
 
+  it('reports the model of the try that produced the reply, not an empty first try', async () => {
+    const unnamed = new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }], usage: {} }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const mock = vi.fn<FetchFn>().mockResolvedValueOnce(reply('')).mockResolvedValueOnce(unnamed)
+    vi.stubGlobal('fetch', mock)
+    const result = await callModel(MESSAGES, SIGNAL)
+    expect(result).toMatchObject({ text: '{"ok":true}', attempts: 2, model: null })
+  })
+
   it('does not ask again when the reply was cut off', async () => {
     const mock = stubFetch(async () => reply('{"chartType":"bar"', { finish: 'length' }))
     const result = await callModel(MESSAGES, SIGNAL)

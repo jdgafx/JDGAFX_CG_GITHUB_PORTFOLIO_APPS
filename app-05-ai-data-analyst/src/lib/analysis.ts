@@ -55,7 +55,14 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
     },
     { signal },
   )
-  const summary = { usage: response.usage, model: response.model, totalMs: response.totalMs }
+  const summary = {
+    usage: response.usage,
+    model: response.model,
+    newestModel: response.newestModel,
+    modelCheck: response.modelCheck,
+    checkedModel: response.checkedModel,
+    totalMs: response.totalMs,
+  }
 
   // Second gate: the function already checked the plan, but a plan never reaches the engine,
   // and never renders as a chart, without matching this dataset.

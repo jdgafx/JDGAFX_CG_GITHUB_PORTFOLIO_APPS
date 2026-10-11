@@ -166,11 +166,12 @@ export async function callModel(
   const first = await attempt()
   if (first.text || first.finish === 'length') return { ...first, attempts: 1, retriedAfter }
 
+  // The served model is the one that answered the second try. A missing name is not filled in from the first try.
   const second = await attempt()
   return {
     text: second.text,
     finish: second.finish,
-    model: second.model ?? first.model,
+    model: second.model,
     usage: sumUsage([first.usage, second.usage]),
     attempts: 2,
     retriedAfter,

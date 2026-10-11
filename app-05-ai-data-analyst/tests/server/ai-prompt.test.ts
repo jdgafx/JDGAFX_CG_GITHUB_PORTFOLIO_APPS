@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
+import { modelListReply, routeFetch } from '../fixtures/openRouterList'
 
 // The system prompt is sent to the provider, so these tests read it from the outgoing request.
 // A literal `"countColumn": "rows"` in the template makes the model set a total on every plan.
@@ -42,7 +43,7 @@ function modelReply(content: string): Response {
 async function systemPromptFor(body: Record<string, unknown>): Promise<string> {
   clientCounter += 1
   const mock = vi.fn(async () => modelReply(JSON.stringify(PLAN)))
-  vi.stubGlobal('fetch', mock)
+  vi.stubGlobal('fetch', routeFetch(mock, async () => modelListReply(null)))
   const request = new Request('https://app.example/api/ai', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-forwarded-for': `prompt-client-${clientCounter}` },

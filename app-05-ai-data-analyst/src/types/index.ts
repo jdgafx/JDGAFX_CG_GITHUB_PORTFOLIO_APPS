@@ -87,10 +87,23 @@ export interface RunUsage {
   cost?: number
 }
 
+/**
+ * Whether the served model is the newest one the alias resolves to: "match", "mismatch" (shown and logged, never
+ * refused), "unchecked" (the list could not say which is newest) or "not-reported" (the reply named no model).
+ */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 export interface RunSummary {
   trace: RunStep[]
   usage: RunUsage
+  /** The model that named the reply the run shows, or null when it named none. */
   model: string | null
+  /** The newest model the list says the requested alias resolves to, or null when the list cannot say. */
+  newestModel: string | null
+  /** The worst check across every model call in the run, so a mismatch on any call shows. */
+  modelCheck: ModelCheck
+  /** The served model of the call that set `modelCheck`. Null when that call named none. */
+  checkedModel: string | null
   totalMs: number
 }
 

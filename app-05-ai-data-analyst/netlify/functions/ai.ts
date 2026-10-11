@@ -5,10 +5,12 @@ import {
   callModel,
   describeFailure,
   getApiKey,
+  MODEL,
   sumUsage,
   type ChatMessage,
   type ModelReply,
 } from '../shared/provider'
+import { newestModel, runCheck, servedCheck } from '../shared/newest-model'
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-05-ai-data-analyst.netlify.app',
@@ -63,6 +65,12 @@ function clientKey(req: Request): string {
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     'unknown'
   )
+}
+
+/** No Origin header, a listed origin, or the origin of the request's own URL (a deploy preview answers its own origin). */
+function isAllowedOrigin(req: Request, origin: string | null): boolean {
+  if (!origin || ALLOWED_ORIGINS.includes(origin)) return true
+  return origin === new URL(req.url).origin
 }
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -172,7 +180,18 @@ class RunLog {
   readonly startedAt = Date.now()
   readonly trace: RunStep[] = []
   readonly usage: RunUsage[] = []
+  /** The model that named the latest reply. Null when that reply named none: another call's model is never put in its place. */
   model: string | null = null
+  /** The served model of every model call in the run, in order. Each one is checked, not only the reply shown. */
+  calls: Array<string | null> = []
+  /** The newest model, asked for once per run alongside the first model call. */
+  newest: Promise<string | null> = Promise.resolve(null)
+
+  /** Records one model call's served model. The latest call is the one whose reply the run shows. */
+  served(model: string | null): void {
+    this.model = model
+    this.calls.push(model)
+  }
 
   step(
     name: string,
@@ -188,11 +207,20 @@ class RunLog {
     for (const name of names) this.trace.push({ name, status: 'skipped', ms: 0, detail })
   }
 
-  summary(): RunSummary {
+  async summary(): Promise<RunSummary> {
+    // Calls that named no model have nothing to compare, so the list is waited for only when some call did.
+    const newest = this.calls.some((model) => model !== null) ? await this.newest : null
+    for (const model of this.calls) {
+      if (servedCheck(newest, model) === 'mismatch') console.warn(`model mismatch: served ${model}, newest ${newest}, requested ${MODEL}`)
+    }
+    const { modelCheck, checkedModel } = runCheck(newest, this.calls)
     return {
       trace: this.trace,
       usage: sumUsage(this.usage),
       model: this.model,
+      newestModel: newest,
+      modelCheck,
+      checkedModel,
       totalMs: Date.now() - this.startedAt,
     }
   }
@@ -304,7 +332,7 @@ async function repairPlan(
     log.step('Repair turn', 'failed', repairAt, failure.message)
     return { ok: false, status: failure.status, message: failure.message }
   }
-  log.model = reply.model ?? log.model
+  log.served(reply.model)
   log.usage.push(reply.usage)
   const costs = { tokens: reply.usage.total_tokens, cost: reply.usage.cost }
 
@@ -323,9 +351,9 @@ async function repairPlan(
   return { ok: true, plan: check.plan }
 }
 
-function failed(log: RunLog, status: number, error: string, cors: Record<string, string>): Response {
+async function failed(log: RunLog, status: number, error: string, cors: Record<string, string>): Promise<Response> {
   const headers = status === 429 ? { ...cors, 'Retry-After': '10' } : cors
-  return json({ error, ...log.summary() }, status, headers)
+  return json({ error, ...(await log.summary()) }, status, headers)
 }
 
 async function analyse(
@@ -344,6 +372,8 @@ async function analyse(
   )
 
   const callAt = Date.now()
+  // One list per run, started with the model call and read after it, so it adds nothing to a slower call.
+  log.newest = newestModel()
   let reply: ModelReply
   try {
     reply = await callModel(messages, signal, { deadlineAt: log.startedAt + UPSTREAM_TIMEOUT_MS })
@@ -353,7 +383,7 @@ async function analyse(
     log.skip(AFTER_MODEL_CALL, 'Not reached: the model call did not finish.')
     return failed(log, failure.status, failure.message, cors)
   }
-  log.model = reply.model ?? log.model
+  log.served(reply.model)
   log.usage.push(reply.usage)
   log.step('Model call', 'ok', callAt, callDetail(reply), {
     tokens: reply.usage.total_tokens,
@@ -373,11 +403,11 @@ async function analyse(
   const checked = checkPlan(read.value, input.headers, log)
   if (checked.ok) {
     log.skip(['Repair turn'], 'Not needed: the first plan passed the column check.')
-    return json({ result: settle(checked.plan, input), ...log.summary() }, 200, cors)
+    return json({ result: settle(checked.plan, input), ...(await log.summary()) }, 200, cors)
   }
   const outcome = await repairPlan({ reply, message: checked.message }, messages, input.headers, log, signal)
   if (!outcome.ok) return failed(log, outcome.status, outcome.message, cors)
-  return json({ result: settle(outcome.plan, input), ...log.summary() }, 200, cors)
+  return json({ result: settle(outcome.plan, input), ...(await log.summary()) }, 200, cors)
 }
 
 /**
@@ -392,7 +422,7 @@ function settle(plan: QueryPlan, input: AnalysisInput): QueryPlan {
 }
 
 async function handle(req: Request, origin: string | null, cors: Record<string, string>): Promise<Response> {
-  const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin)
+  const originAllowed = isAllowedOrigin(req, origin)
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: originAllowed ? 204 : 403, headers: cors })

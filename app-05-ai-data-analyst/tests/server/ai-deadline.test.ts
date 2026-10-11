@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
+import { modelListReply, routeFetch } from '../fixtures/openRouterList'
 
 // A provider that sends its headers and then stalls must end at the 25 second run deadline
 // with the existing timeout message, even though the stubbed fetch ignores the abort signal.
@@ -33,7 +34,7 @@ describe('ai function deadline', () => {
         headers: { 'content-type': 'application/json' },
       })
     const fetchMock = vi.fn(async () => stalled())
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', routeFetch(fetchMock, async () => modelListReply('anthropic/claude-haiku-5.5')))
     const request = new Request('https://app.example/api/ai', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': 'deadline-client' },

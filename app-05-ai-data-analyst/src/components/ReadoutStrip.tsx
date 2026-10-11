@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatCost, formatCount, formatMs, shortModel } from '../lib/format'
-import type { RunStep, RunView } from '../types'
+import type { ModelCheck, RunStep, RunView } from '../types'
 
 const NONE = '—'
 
@@ -41,6 +41,20 @@ function spent(trace: RunStep[]) {
   }
 }
 
+/** The one marker after the served id. A reply that named no model gets none: its "not reported" already says so. */
+function checkMarker(check: ModelCheck | undefined) {
+  switch (check) {
+    case 'match':
+      return ' · newest'
+    case 'mismatch':
+      return <span className="ds-trace__state--stopped"> · not newest</span>
+    case 'unchecked':
+      return ' · unchecked'
+    default:
+      return null
+  }
+}
+
 interface ReadoutStripProps {
   running: boolean
   run: RunView | null
@@ -78,7 +92,11 @@ export default function ReadoutStrip({ running, run }: ReadoutStripProps) {
           {running ? (
             <span className="ds-chips"><span className="ds-chip ds-chip--live">planning</span></span>
           ) : run?.model ? (
-            <span className="ds-chips"><span className="ds-chip" title={run.model}>{shortModel(run.model)}</span></span>
+            <span className="ds-chips">
+              <span className="ds-chip" title={run.modelCheck === 'mismatch' && run.checkedModel && run.newestModel ? `${run.checkedModel}, newest: ${run.newestModel}` : run.model}>
+                {shortModel(run.model)}{checkMarker(run.modelCheck)}
+              </span>
+            </span>
           ) : run ? 'not reported' : NONE}
         </Cell>
       </dl>

@@ -54,6 +54,9 @@ export function clientRun(detail: string, startedAt: number, status: RunStep['st
     trace: [{ name: 'Send request', status, ms: elapsed, detail }],
     usage: {},
     model: null,
+    newestModel: null,
+    modelCheck: 'not-reported',
+    checkedModel: null,
     totalMs: elapsed,
   }
 }
