@@ -75,9 +75,9 @@ const errorOf = (frames: Frame[]): string | undefined => frames.find((f) => f.er
 let ipCounter = 0
 
 /** A browser-style POST from the allowed origin. Each request gets its own client, so the rate limit never bleeds between tests. */
-function post(payload: unknown, headers: Record<string, string> = {}): Request {
+function post(payload: unknown, headers: Record<string, string> = {}, url = 'https://site.example/api/ai'): Request {
   ipCounter += 1
-  return new Request('https://site.example/api/ai', {
+  return new Request(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -303,6 +303,45 @@ describe('netlify/functions/ai: request checks', () => {
     expect(await res.json()).toEqual({ error: 'Origin not allowed' })
     expect(res.headers.get('access-control-allow-origin')).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  describe('same-origin requests from a deploy preview', () => {
+    const PREVIEW = 'https://deploy-preview-9--jdgafx-app-09-ai-saas.netlify.app'
+    const PREVIEW_CALL = `${PREVIEW}/api/ai`
+
+    it('allows a page on the same origin as the request URL', async () => {
+      stubFetch(async () => happyReply())
+      const res = await handler(post({ summary: SUMMARY }, { origin: PREVIEW }, PREVIEW_CALL))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('access-control-allow-origin')).toBe(PREVIEW)
+    })
+
+    it('still refuses a foreign origin when the request URL is a preview', async () => {
+      const fetchMock = stubFetch(async () => happyReply())
+      const res = await handler(post({ summary: SUMMARY }, { origin: 'https://evil.example' }, PREVIEW_CALL))
+      expect(res.status).toBe(403)
+      expect(res.headers.get('access-control-allow-origin')).toBeNull()
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('still allows the production origin when the request URL is a preview', async () => {
+      const res = await handler(new Request(PREVIEW_CALL, { method: 'OPTIONS', headers: { origin: ORIGIN } }))
+      expect(res.status).toBe(204)
+      expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN)
+    })
+
+    it('allows a request with no Origin header, as before', async () => {
+      stubFetch(async () => happyReply())
+      const res = await handler(
+        new Request(PREVIEW_CALL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-nf-client-connection-ip': 'test-no-origin' },
+          body: JSON.stringify({ summary: SUMMARY }),
+        }),
+      )
+      expect(res.status).toBe(200)
+      expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    })
   })
 
   it('answers a body that is not JSON with 400', async () => {

@@ -68,9 +68,12 @@ function corsHeaders(origin: string | null): HeaderMap {
 
 // Requests without an Origin header are not browser cross-site traffic (curl,
 // server-to-server), so they are allowed through without an echo header.
-function originAllowed(origin: string | null): boolean {
+// A page on the same origin as the function (a deploy preview calling its own function) is allowed too:
+// the injected host variables do not always name a preview, but the request URL always does.
+function originAllowed(origin: string | null, req: Request): boolean {
   if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
+  const clean = origin.replace(/\/$/, '')
+  return clean === new URL(req.url).origin || allowedOrigins().includes(clean)
 }
 
 // Best-effort per-instance throttle. Netlify may run many warm instances, so
@@ -357,7 +360,7 @@ async function respond(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
   const headers = corsHeaders(origin)
 
-  if (!originAllowed(origin)) return jsonResponse(403, { error: 'Origin not allowed' }, corsHeaders(null))
+  if (!originAllowed(origin, req)) return jsonResponse(403, { error: 'Origin not allowed' }, corsHeaders(null))
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   if (req.method !== 'POST') {
     return jsonResponse(405, { error: 'Method not allowed. Use POST.' }, { ...headers, Allow: 'POST, OPTIONS' })
@@ -397,6 +400,6 @@ export default async function handler(req: Request): Promise<Response> {
   } catch (err) {
     console.error('ai function: unexpected error', err)
     const origin = req.headers.get('origin')
-    return jsonResponse(500, { error: GENERIC_FAILURE }, corsHeaders(originAllowed(origin) ? origin : null))
+    return jsonResponse(500, { error: GENERIC_FAILURE }, corsHeaders(originAllowed(origin, req) ? origin : null))
   }
 }
