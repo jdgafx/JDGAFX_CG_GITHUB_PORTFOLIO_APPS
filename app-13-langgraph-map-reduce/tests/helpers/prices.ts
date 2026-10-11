@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { parsePriceList, type PriceList } from '../../netlify/shared/prices'
+import { parseModelList, parsePriceList, type ModelList, type PriceList } from '../../netlify/shared/prices'
 
 /**
  * The model id OpenRouter's list carries for Claude Haiku 5.5 when the fixture was recorded. A test constant:
@@ -13,6 +13,13 @@ export const RECORDED_LIST: unknown = JSON.parse(readFileSync('tests/fixtures/op
 /** The recorded list as the server reads it. */
 export const recordedPrices = (): PriceList => {
   const list = parsePriceList(RECORDED_LIST)
+  if (!list) throw new Error('The recorded model list is not readable.')
+  return list
+}
+
+/** The recorded list as the server reads it, with its alias entries, for the runs that take the whole list. */
+export const recordedModels = (): ModelList => {
+  const list = parseModelList(RECORDED_LIST)
   if (!list) throw new Error('The recorded model list is not readable.')
   return list
 }

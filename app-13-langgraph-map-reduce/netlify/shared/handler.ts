@@ -1,7 +1,7 @@
 import { RunBudget } from './budget'
 import { SERVER_MESSAGE } from './errors'
 import { DONE_FRAME, encodeFrame } from './events'
-import { allowedOrigins, clientKey, corsHeaders, rateLimit, readJsonBody, validateRunBody } from './guard'
+import { allowedOrigins, clientKey, corsHeaders, rateLimit, readJsonBody, requestOrigin, validateRunBody } from './guard'
 import { RUN_BUDGET_MS, runPipeline } from './pipeline'
 
 export interface HandlerOptions {
@@ -35,7 +35,9 @@ export function createRunHandler(options: HandlerOptions = {}): (req: Request) =
 }
 
 async function handleRun(req: Request, options: HandlerOptions): Promise<Response> {
-  const allowed = allowedOrigins(process.env.ALLOWED_ORIGINS)
+  // The origin the request was sent to is allowed too, so a deploy preview can call its own function.
+  const self = requestOrigin(req.url)
+  const allowed = [...allowedOrigins(process.env.ALLOWED_ORIGINS), ...(self ? [self] : [])]
   const origin = req.headers.get('origin')
   const cors = corsHeaders(origin, allowed)
   if (origin && !allowed.includes(origin)) return fail('Origin not allowed.', 403, cors)

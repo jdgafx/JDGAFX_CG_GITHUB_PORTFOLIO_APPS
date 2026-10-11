@@ -1,6 +1,22 @@
-import type { NodeName, RunMetrics, TraceRow } from '../types/frames'
+import type { ModelCheck, NodeName, RunMetrics, TraceRow } from '../types/frames'
 
 const CHEAP_NODES: ReadonlySet<NodeName> = new Set<NodeName>(['extract', 'check'])
+
+/** Worse checks rank higher. A run's readout shows the worst check among its calls. */
+const CHECK_RANK: Record<ModelCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
+/**
+ * The worst model check over the calls that got a reply, or null when none did. A call with no reply has no check
+ * and is left out, so a timed-out chunk does not change the readout.
+ */
+export function worstModelCheck(rows: TraceRow[]): ModelCheck | null {
+  let worst: ModelCheck | null = null
+  for (const row of rows) {
+    if (row.modelCheck === undefined) continue
+    if (worst === null || CHECK_RANK[row.modelCheck] > CHECK_RANK[worst]) worst = row.modelCheck
+  }
+  return worst
+}
 
 /** The sum of the costs of these calls, or null when there are none or any of them has no price. A missing price never counts as zero. */
 function costOf(calls: TraceRow[]): number | null {

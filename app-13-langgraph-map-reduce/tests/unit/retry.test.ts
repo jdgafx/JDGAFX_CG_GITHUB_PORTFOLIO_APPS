@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { ProviderError } from '../../netlify/shared/errors'
 import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, MODEL, RETRY_CALL_TIMEOUT_MS } from '../../netlify/shared/models'
-import { recordedPrices } from '../helpers/prices'
+import { recordedModels } from '../helpers/prices'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { CUT_OFF_MESSAGE, KEPT_FIRST_PASS, runPipeline } from '../../netlify/shared/pipeline'
@@ -82,7 +82,7 @@ async function run(source: string, script: Script, budget: RunBudget = new RunBu
   const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
   const frames: Frame[] = []
   try {
-    await runPipeline({ text: source, budget, chat: scripted(script, seen), prices: Promise.resolve(recordedPrices()), retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: source, budget, chat: scripted(script, seen), models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
   } finally {
     budget.dispose()
   }
@@ -184,7 +184,7 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
       return inner(request, signal)
     }
     const frames: Frame[] = []
-    await runPipeline({ text: THREE, budget, chat, prices: Promise.resolve(recordedPrices()), retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: THREE, budget, chat, models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
     budget.dispose()
 
     const result = frames.flatMap((f) => (f.type === 'result' ? [f.result] : []))[0]

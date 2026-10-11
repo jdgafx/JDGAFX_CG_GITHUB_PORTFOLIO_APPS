@@ -19,17 +19,18 @@ import {
   RETRY_PAUSE_MS,
   SYNTH,
 } from './models'
+import { newestModel, servedCheck } from './newest-model'
 import type { ChatFn, ChatReply } from './openrouter'
 import { parseExtraction, parseOmitted, parseSummary } from './parse'
-import type { PriceList } from './prices'
+import type { ModelList } from './prices'
 import { checkMessages, extractMessages, synthesizeMessages } from './prompts'
 
 export interface NodeDeps {
   chat: ChatFn
   limiter: Limiter
   budget: RunBudget
-  /** OpenRouter's model prices, or null when they could not be read. Started with the run, so it is usually settled before the first reply. */
-  prices: Promise<PriceList | null>
+  /** OpenRouter's model list (prices and the newest model), or null when it could not be read. Started with the run, so it is usually settled before the first reply. */
+  models: Promise<ModelList | null>
   /** Pause before each retry call. Defaults to RETRY_PAUSE_MS. */
   retryPauseMs?: number
   /** Timeout for the first-pass extract calls. Defaults to EXTRACT_CALL_TIMEOUT_MS. */
@@ -79,13 +80,22 @@ function traceRow(
   return { node, status, ms, detail, ...extra }
 }
 
-/** Models, usage and price of one call. The row keeps the requested id and the id that served it; the price is the served model's, never the requested alias's. */
-async function callFields(requested: string, reply: ChatReply, prices: Promise<PriceList | null>): Promise<Partial<TraceRow>> {
+/**
+ * Models, usage, price and model check of one call. The row keeps the requested id and the id that served it; the price
+ * and the check are the served model's, never the requested alias's. A mismatch is shown and logged, never refused.
+ */
+async function callFields(requested: string, reply: ChatReply, models: Promise<ModelList | null>): Promise<Partial<TraceRow>> {
+  const list = await models
+  const newest = newestModel(list)
+  const check = servedCheck(newest, reply.servedModel)
+  if (check === 'mismatch') console.warn(`model mismatch: served ${reply.servedModel}, newest ${newest}, requested ${requested}`)
   return {
     model: requested,
     servedModel: reply.servedModel,
+    newestModel: newest,
+    modelCheck: check,
     ...(reply.usage ? { usage: reply.usage } : {}),
-    ...priceCall(await prices, reply.servedModel, reply.usage),
+    ...priceCall(list?.prices ?? null, reply.servedModel, reply.usage),
   }
 }
 
@@ -113,7 +123,7 @@ function extractFailureText(err: unknown, budget: RunBudget): string {
  * so nothing is shared between requests.
  */
 export function makeNodes(deps: NodeDeps) {
-  const { chat, limiter, budget, prices } = deps
+  const { chat, limiter, budget, models } = deps
   const retryPause = deps.retryPauseMs ?? RETRY_PAUSE_MS
   const extractCallTimeout = deps.extractCallTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS
   const retryCallTimeout = deps.retryCallTimeoutMs ?? RETRY_CALL_TIMEOUT_MS
@@ -159,7 +169,7 @@ export function makeNodes(deps: NodeDeps) {
     }
 
     const finish = async (reply: ChatReply, callMs: number): Promise<Attempt> => {
-      const fields = await callFields(EXTRACT.model, reply, prices)
+      const fields = await callFields(EXTRACT.model, reply, models)
       const parsed = parseExtraction(reply.text)
       if (!parsed || parsed.points.length === 0) {
         const row = traceRow('extract', 'failed', callMs, label, {
@@ -174,7 +184,7 @@ export function makeNodes(deps: NodeDeps) {
         chunkId: chunk.id,
         points: parsed.points,
         entities: parsed.entities,
-        model: reply.servedModel ?? EXTRACT.model,
+        model: reply.servedModel,
         usage: reply.usage,
       }
       const row = traceRow('extract', 'ok', callMs, label, { chunk: chunk.id, ...fields })
@@ -252,7 +262,7 @@ export function makeNodes(deps: NodeDeps) {
     const startedAt = Date.now()
     const reply = await chat({ ...SYNTH, messages: synthesizeMessages(merged, chunkIds, missed) }, budget.signal)
     const ms = Date.now() - startedAt
-    const fields = await callFields(SYNTH.model, reply, prices)
+    const fields = await callFields(SYNTH.model, reply, models)
     const summary = parseSummary(reply.text, chunkIds)
     if (!summary) {
       throw new RunFailure(
@@ -291,7 +301,7 @@ export function makeNodes(deps: NodeDeps) {
     try {
       const reply = await chat({ ...CHECK, timeoutMs: checkCallTimeout, messages: checkMessages(summary, merged) }, budget.signal)
       const ms = Date.now() - startedAt
-      const fields = await callFields(CHECK.model, reply, prices)
+      const fields = await callFields(CHECK.model, reply, models)
       const omitted = parseOmitted(reply.text, chunkIds)
       if (omitted === null) {
         done = traceRow('check', 'failed', ms, 'Review reply was not readable. Coverage uses chunk citations only.', fields)

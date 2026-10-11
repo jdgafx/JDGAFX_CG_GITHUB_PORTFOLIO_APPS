@@ -17,6 +17,19 @@ export function allowedOrigins(extra: string | undefined): string[] {
   return [LIVE_ORIGIN, ...LOCAL_ORIGINS, ...listed]
 }
 
+/**
+ * The origin a request was sent to, read from the request's own URL, or null when the URL does not parse. A deploy
+ * preview's function gets its preview origin here, which the list above does not carry. Browsers set Origin, so a
+ * cross-site page cannot make it match.
+ */
+export function requestOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
 export function corsHeaders(origin: string | null, allowed: string[]): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

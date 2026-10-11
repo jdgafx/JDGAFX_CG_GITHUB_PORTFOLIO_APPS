@@ -292,3 +292,58 @@ describe('POST /api/run', () => {
     expect(stub).not.toHaveBeenCalled()
   })
 })
+
+describe('same-origin requests', () => {
+  const PREVIEW = 'https://deploy-preview-9--jdgafx-app-13-langgraph-map-reduce.netlify.app'
+  const PREVIEW_RUN = `${PREVIEW}/api/run`
+  let client = 0
+
+  /** Each request gets its own client address, so the rate limit never shares a bucket between these tests. */
+  function from(url: string, origin: string | null, method: string, body?: unknown): Request {
+    client += 1
+    return new Request(url, {
+      method,
+      headers: {
+        ...(origin ? { Origin: origin } : {}),
+        'Content-Type': 'application/json',
+        'x-nf-client-connection-ip': `203.0.113.${client}`,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  }
+
+  it('allows a deploy preview to call its own function, with CORS echoing its own origin', async () => {
+    const preflight = await handler(from(PREVIEW_RUN, PREVIEW, 'OPTIONS'))
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe(PREVIEW)
+
+    const post = await handler(from(PREVIEW_RUN, PREVIEW, 'POST', { text: 'too short' }))
+    expect(post.status).toBe(400)
+    expect(await post.json()).toMatchObject({ success: false })
+  })
+
+  it('still refuses a foreign origin, on the production URL and on a preview URL', async () => {
+    const onProduction = await handler(from(URL_RUN, 'https://evil.example', 'OPTIONS'))
+    expect(onProduction.status).toBe(403)
+    expect(await onProduction.json()).toEqual({ success: false, error: 'Origin not allowed.' })
+
+    const onPreview = await handler(from(PREVIEW_RUN, 'https://evil.example', 'POST', { text: 'x' }))
+    expect(onPreview.status).toBe(403)
+  })
+
+  it('still allows the production origin', async () => {
+    const response = await handler(from(URL_RUN, 'https://jdgafx-app-13-langgraph-map-reduce.netlify.app', 'OPTIONS'))
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://jdgafx-app-13-langgraph-map-reduce.netlify.app')
+  })
+
+  it('answers a request with no Origin header as before, with no CORS origin echoed', async () => {
+    const preflight = await handler(from(URL_RUN, null, 'OPTIONS'))
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('Access-Control-Allow-Origin')).toBeNull()
+
+    const post = await handler(from(URL_RUN, null, 'POST', { text: 'too short' }))
+    expect(post.status).toBe(400)
+  })
+})

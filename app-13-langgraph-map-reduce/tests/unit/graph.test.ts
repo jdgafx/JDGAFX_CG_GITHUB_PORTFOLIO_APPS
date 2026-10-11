@@ -3,7 +3,7 @@ import { createLimiter, RunBudget } from '../../netlify/shared/budget'
 import { ProviderError, type ProviderKind } from '../../netlify/shared/errors'
 import { buildGraph } from '../../netlify/shared/graph'
 import { MODEL } from '../../netlify/shared/models'
-import { recordedPrices } from '../helpers/prices'
+import { recordedModels } from '../helpers/prices'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import type { Frame, Outcome } from '../../src/types/frames'
@@ -79,7 +79,7 @@ interface RunOutput {
 /** Streams one run and records the node path (from updates), the custom frames and the final outcome. */
 async function runGraph(text: string, chat: ChatFn): Promise<RunOutput> {
   const budget = new RunBudget(60_000)
-  const graph = buildGraph({ chat, limiter: createLimiter(4), budget, prices: Promise.resolve(recordedPrices()), retryPauseMs: 0 })
+  const graph = buildGraph({ chat, limiter: createLimiter(4), budget, models: Promise.resolve(recordedModels()), retryPauseMs: 0 })
   const out: RunOutput = { path: [], frames: [], final: null }
   try {
     const stream = await graph.stream(

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatCost, formatCount, formatMs, formatRate, formatTokens } from '../lib/format'
-import { metricsFor } from '../lib/metrics'
+import { metricsFor, worstModelCheck } from '../lib/metrics'
 import type { RunView } from '../lib/view'
 import type { NodeName, PriceRate, RunMetrics, TraceRow } from '../types/frames'
 
@@ -27,6 +27,21 @@ export function priceUse(rows: TraceRow[]): Array<{ model: string; rate: PriceRa
   const rates = new Map<string, PriceRate>()
   for (const row of rows) if (row.servedModel && row.rate && !rates.has(row.servedModel)) rates.set(row.servedModel, row.rate)
   return [...rates].map(([model, rate]) => ({ model, rate }))
+}
+
+/** The marker after the served ids: the worst model check across the run's calls. Null when no extra text is shown. */
+export function checkMarker(rows: TraceRow[]): { text: string; className: string } | null {
+  const worst = worstModelCheck(rows)
+  if (worst === 'match') return { text: '· newest', className: 'ds-chip--muted' }
+  if (worst === 'unchecked') return { text: '· unchecked', className: 'ds-chip--muted' }
+  if (worst === 'mismatch') return { text: '· not newest', className: 'ds-badge ds-badge--warning' }
+  return null
+}
+
+/** The served id's title. On a mismatch it also names the newest model the list gave. */
+function servedTitle(served: string, rows: TraceRow[]): string {
+  const mismatch = rows.find((row) => row.modelCheck === 'mismatch' && row.servedModel === served)
+  return mismatch ? `served by ${served}, newest: ${mismatch.newestModel}` : `served by ${served}`
 }
 
 /** A cost with no price reads as what is missing, never as zero. */
@@ -75,6 +90,7 @@ export function ReadoutStrip({ view }: { view: RunView }) {
   const spent = rows.length > 0 && (running || ended)
   const metrics = result?.metrics ?? (rows.length > 0 ? metricsFor(rows, 0) : null)
   const models = modelUse(rows)
+  const marker = checkMarker(rows)
   const sofar = running ? 'So far' : phase === 'error' ? 'Before it failed' : 'Before it stopped'
   const none = '—'
   const show = result !== null || spent
@@ -106,10 +122,11 @@ export function ReadoutStrip({ view }: { view: RunView }) {
           {models.length > 0 ? (
             <span className="ds-chips">
               {models.map((m) => (
-                <span key={m.model} className="ds-chip" title={`served by ${m.model}`}>
+                <span key={m.model} className="ds-chip" title={servedTitle(m.model, rows)}>
                   {m.model.replace(/^anthropic\//, '')}
                 </span>
               ))}
+              {marker && <span className={marker.className}>{marker.text}</span>}
             </span>
           ) : rows.some((row) => row.model) ? (
             'served model not reported'

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { BUDGET_MESSAGE, LONG_TEXT_HINT, ProviderError } from '../../netlify/shared/errors'
 import { MIN_RETRY_BUDGET_MS, MODEL, RETRY_PAUSE_MS } from '../../netlify/shared/models'
-import { recordedPrices } from '../helpers/prices'
+import { recordedModels } from '../helpers/prices'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { BUDGET_GRACE_MS, LONG_TEXT_CHARS, runPipeline } from '../../netlify/shared/pipeline'
@@ -75,7 +75,7 @@ async function run(
       text: source,
       budget,
       chat,
-      prices: Promise.resolve(recordedPrices()),
+      models: Promise.resolve(recordedModels()),
       retryPauseMs: 0,
       extractConcurrency: limits.extractConcurrency,
       sink: (frame) => {

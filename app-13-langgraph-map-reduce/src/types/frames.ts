@@ -70,6 +70,12 @@ export interface PriceRate {
  */
 export type PriceState = 'priced' | 'no-served-model' | 'unavailable'
 
+/**
+ * How the served model of one call compares with the newest model OpenRouter's list names for the alias. match and
+ * mismatch compare two ids. not-reported: the reply named no model. unchecked: the list did not name a newest model.
+ */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 /** One finished node execution. Extract rows carry the chunk id, its model, usage and cost. */
 export interface TraceRow {
   node: NodeName
@@ -81,6 +87,10 @@ export interface TraceRow {
   model?: string
   /** The model OpenRouter answered with, or null when the reply named none. */
   servedModel?: string | null
+  /** The newest model the list names for the alias, or null when the list does not name one. Set with modelCheck. */
+  newestModel?: string | null
+  /** The served model compared with newestModel. Set on every call that got a reply. */
+  modelCheck?: ModelCheck
   usage?: Usage
   /** Set on every call that got a reply. Calls that failed before one arrived have none. */
   priceState?: PriceState

@@ -6,6 +6,7 @@ import {
   MAX_BODY_BYTES,
   rateLimit,
   readJsonBody,
+  requestOrigin,
   validateRunBody,
 } from '../../netlify/shared/guard'
 
@@ -46,6 +47,15 @@ describe('origins and CORS', () => {
 
     expect(corsHeaders('http://localhost:5173', origins)['Access-Control-Allow-Origin']).toBe('http://localhost:5173')
     expect(corsHeaders('https://evil.test', origins)['Access-Control-Allow-Origin']).toBeUndefined()
+  })
+})
+
+describe('requestOrigin', () => {
+  it("reads the origin of the request's own URL, and is null for a URL that does not parse", () => {
+    expect(requestOrigin('https://deploy-preview-9--jdgafx-app-13-langgraph-map-reduce.netlify.app/api/run?x=1')).toBe(
+      'https://deploy-preview-9--jdgafx-app-13-langgraph-map-reduce.netlify.app',
+    )
+    expect(requestOrigin('not a url')).toBeNull()
   })
 })
 

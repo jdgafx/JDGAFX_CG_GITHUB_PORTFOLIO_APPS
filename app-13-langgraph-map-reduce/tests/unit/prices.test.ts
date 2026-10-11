@@ -58,6 +58,7 @@ describe('loadPrices', () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(MODELS_URL)
     expect(JSON.stringify(init.headers ?? {})).not.toMatch(/authorization/i)
+    expect(init.headers).toMatchObject({ 'User-Agent': 'jdgafx-portfolio-bot/1.0 (+https://github.com/jdgafx)' })
   })
 
   it('keeps the list in memory for an hour and fetches again after it', async () => {
