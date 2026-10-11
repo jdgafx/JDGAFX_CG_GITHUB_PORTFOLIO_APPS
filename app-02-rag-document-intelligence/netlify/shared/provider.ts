@@ -5,8 +5,11 @@ export const MODEL = '~anthropic/claude-haiku-latest'
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const CATALOGUE_URL = 'https://openrouter.ai/api/v1/models'
 
-/** Output cap sent on every model call, so no answer can run unbounded. */
-const MAX_OUTPUT_TOKENS = 4096
+/**
+ * Output cap sent on every model call, so no answer can run unbounded. Thinking is on, and its tokens
+ * count toward this cap: 4096 for the JSON answer plus room for the reasoning (a few hundred to about 500 tokens).
+ */
+const MAX_OUTPUT_TOKENS = 6144
 
 export const TIMEOUT_MESSAGE = 'The AI provider did not answer in time.'
 
@@ -53,7 +56,10 @@ function readUsage(raw: unknown): RawUsage {
   }
 }
 
-/** The fields this app reads from a chat completion body. Anything else is ignored. */
+/**
+ * The fields this app reads from a chat completion body. Anything else is ignored, so the model's
+ * `reasoning` and `reasoning_details` never reach the answer text or the citation parser.
+ */
 function readReply(raw: unknown): { model: string | null; content: string; finishReason: string | null; usage: RawUsage } | null {
   if (typeof raw !== 'object' || raw === null) return null
   const body = raw as Record<string, unknown>
@@ -93,7 +99,6 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
           model: MODEL,
           messages,
           max_tokens: MAX_OUTPUT_TOKENS,
-          reasoning: { enabled: false },
           response_format: { type: 'json_object' },
           usage: { include: true },
         }),

@@ -28,7 +28,7 @@ The steps below are the trace names the UI shows, in the order they run.
 1. **Retrieve passages** (browser). Scores every passage with BM25 (k1 1.2, b 0.75, idf `ln(1 + (N - n + 0.5) / (n + 0.5))`). Words are lower-cased, stop words and question verbs such as "take" and "place" are dropped, and a small suffix stripper joins plurals and -ed or -ing forms. The index is built once per document. The top 20 go on to the server, in document order. If none shares a word with the question, the model is not called and the UI says so.
 2. **Accept request** (server). Checks the question and the passage count. The step time includes the request checks made before it.
 3. **Build prompt** (server). Adds the system prompt and the labelled passages, then reports the character count sent.
-4. **Call model** (server). One chat call to the fixed model, limited to 12 seconds. The step reports which model served the reply.
+4. **Call model** (server). One chat call to the fixed model, limited to 14 seconds (thinking is on, and its time counts). The step reports which model served the reply.
 5. **Retry model call** (server). Runs once when the first reply was empty or cut off at the output cap, or when the first call timed out or did not connect, and at least 5 seconds of the request budget remain. A provider error (a 4xx, 429 or 5xx reply) and a stop by the visitor are never retried. The trace says why it ran ("Retried once because ...").
 6. **Parse and validate** (server). Reads the JSON reply, keeps only citations that name a passage that was sent, and reports the cited count and the self-rated percentage.
 
@@ -57,7 +57,7 @@ browser (React, pdf.js)
 - **Content Security Policy.** `connect-src` allows `'self'`, `https://en.wikipedia.org` and `https://arxiv.org`, the two hosts the browser calls directly. The model call goes through this app's function.
 - **Keys.** `OPENROUTER_API_KEY` is read only inside the function. The browser never receives it and never calls OpenRouter.
 - **Model.** One server constant, the OpenRouter alias `~anthropic/claude-haiku-latest`, which resolves to the newest Claude Haiku. The UI shows the model OpenRouter answered with, never the alias, and marks whether it is the newest model the alias resolves to ("newest", "not newest" or "unchecked"). The newest model comes from OpenRouter's public model list, read by the function. The UI has no model picker, and any model name the client sends is ignored.
-- **Output cap.** Every model call sends `max_tokens: 4096` and `usage: { include: true }`, so the reply reports tokens and cost.
+- **Output cap.** Every model call sends `max_tokens: 6144` (thinking tokens count toward it), no reasoning override, and `usage: { include: true }`, so the reply reports tokens and cost.
 - **Same origin only.** The app and its function share one origin, so the function sends no CORS headers and do not answer OPTIONS. A request whose Origin header is its own origin (the deploy preview or live site it was sent to) or is on the list is allowed. Any other Origin gets 403. Requests with no Origin header are allowed.
 - **Validation.** Non-POST methods get 405. Bad JSON gets 400. Bodies over 256 KB get 413. The question is at most 2000 characters, at most 20 passages are accepted, and each passage must start with its `[Chunk N]` label. Each passage is cut to 2000 characters and the title to 200.
 - **Rate limit.** 20 requests per minute per client address, kept in memory by each function instance. It is a cost guard, not a quota.

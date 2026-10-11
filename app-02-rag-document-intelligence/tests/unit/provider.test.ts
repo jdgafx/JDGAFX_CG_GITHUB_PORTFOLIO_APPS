@@ -34,10 +34,45 @@ describe('callModel', () => {
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
     expect(sent['model']).toBe('~anthropic/claude-haiku-latest')
-    expect(sent['max_tokens']).toBe(4096)
+    expect(sent['max_tokens']).toBe(6144)
     expect(sent).not.toHaveProperty('temperature')
     expect(sent['usage']).toEqual({ include: true })
     expect(sent['messages']).toEqual(MESSAGES)
+  })
+
+  it('leaves thinking on: the request body carries no reasoning override', async () => {
+    const mock = fetchReturns(reply('{"answer":"ok"}'))
+    await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
+    const sent = JSON.parse(String(mock.mock.calls[0]?.[1]?.body)) as { reasoning?: { enabled?: boolean } }
+    expect(sent.reasoning?.enabled).not.toBe(false)
+    expect(sent).not.toHaveProperty('reasoning')
+  })
+
+  it('returns only the answer content when the reply also carries reasoning and reasoning_details', async () => {
+    const thought = 'Passage [Chunk 9] looks relevant. Let me think about [Chunk 2].'
+    fetchReturns(
+      new Response(
+        JSON.stringify({
+          model: 'anthropic/claude-haiku-5-5',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                content: '{"answer":"ok [Chunk 3]"}',
+                reasoning: thought,
+                reasoning_details: [{ type: 'reasoning.text', text: thought }],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 505, total_tokens: 515, cost: 0.0001 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    const result = await callModel(PLACEHOLDER, MESSAGES, FAR_FUTURE)
+    expect(result).toMatchObject({ ok: true, content: '{"answer":"ok [Chunk 3]"}' })
+    expect(JSON.stringify(result)).not.toContain('Let me think')
+    expect(JSON.stringify(result)).not.toContain('Chunk 9')
   })
 
   it('returns the content, the finish reason, the served model and the usage', async () => {

@@ -69,9 +69,10 @@ interface RunEvents {
 const UPSTREAM_TIMEOUT_MS = 25_000
 // A retry is started only when at least this much of the deadline is left.
 const RETRY_MIN_MS = 5_000
-// One model call may take this long, about 1.5 times a healthy answer (4 to 8 seconds), so a stalled call leaves
-// room for the one retry inside the deadline.
-const CALL_LIMIT_MS = 12_000
+// One model call may take this long, about 1.5 times a healthy answer with thinking on (about 7 to 11 seconds:
+// the 4 to 8 seconds of the answer plus a few hundred reasoning tokens), so a stalled call leaves room for the
+// one retry inside the 25 s deadline (14 s + a retry with the 11 s left, under the 30 s cut-off).
+const CALL_LIMIT_MS = 14_000
 
 // The browser repeats these names for steps it skips when no passage matches,
 // so keep the two lists in step.

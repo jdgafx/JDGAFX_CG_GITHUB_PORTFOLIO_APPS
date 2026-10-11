@@ -43,8 +43,20 @@ describe('ai function: happy path', () => {
     expect(body.trace[2]?.detail).toBe(`Response from ${SERVED}.`)
     expect(body.trace[3]?.detail).toBe('Answer cites 1 passage. Self-rated 95%.')
     expect(mock).toHaveBeenCalledTimes(1)
-    expect(sentBody(mock, 0)).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 4096, usage: { include: true } })
+    expect(sentBody(mock, 0)).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 6144, usage: { include: true } })
     expect(mock.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
+  })
+
+  it('shows only the answer and its citations when the reply carries reasoning text with other chunk markers', async () => {
+    const body = chatBody('{"answer":"Opened in 1987 [Chunk 3].","source_chunk_indices":[3],"confidence":0.9}')
+    const message = body.choices[0]?.message as Record<string, unknown>
+    message['reasoning'] = 'Maybe [Chunk 7] says so, or [Chunk 9]. Hidden thought.'
+    message['reasoning_details'] = [{ type: 'reasoning.text', text: 'Hidden thought about [Chunk 7].' }]
+    stubProvider(() => jsonReply(body))
+    const res = await handler(request(VALID))
+    const run = await runOf(res)
+    expect(run.result).toEqual({ answer: 'Opened in 1987 [Chunk 3].', source_chunk_indices: [3], confidence: 0.9 })
+    expect(JSON.stringify(run)).not.toContain('Hidden thought')
   })
 
   it('streams each step as it runs, then the result, then [DONE]', async () => {
