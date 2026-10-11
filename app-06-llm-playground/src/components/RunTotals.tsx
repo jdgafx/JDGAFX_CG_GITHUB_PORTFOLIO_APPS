@@ -70,7 +70,7 @@ export function RunTotalsStrip({ run }: { run: RunView | null }) {
           {models.length > 0 ? (
             <span className="ds-chips">
               {models.map(id => (
-                <span key={id} className="ds-chip" title={id}>{splitModel(id).name}</span>
+                <span key={id} className="ds-chip ds-chip--wrap" title={id}>{splitModel(id).name}</span>
               ))}
             </span>
           ) : (
