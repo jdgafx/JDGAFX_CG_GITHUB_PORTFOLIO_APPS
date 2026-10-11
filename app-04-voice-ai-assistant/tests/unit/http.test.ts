@@ -55,6 +55,36 @@ describe('guardRequest', () => {
     expect(guardRequest(request(URL_AI))).toBeNull()
   })
 
+  // A deploy preview calls its own functions: the request's own origin is allowed, a foreign one is not.
+  const PREVIEW = 'https://deploy-preview-9--jdgafx-app-04-x.netlify.app'
+  const previewUrl = `${PREVIEW}/api/ai`
+
+  it('allows a POST from the origin the request was sent to, such as a deploy preview', () => {
+    expect(guardRequest(request(previewUrl, { origin: PREVIEW }))).toBeNull()
+  })
+
+  it("allows a preflight from the request's own origin with 204", () => {
+    expect(guardRequest(request(previewUrl, { method: 'OPTIONS', origin: PREVIEW }))?.status).toBe(204)
+  })
+
+  it('still refuses a foreign origin on a deploy preview URL', async () => {
+    const res = guardRequest(request(previewUrl, { origin: 'https://evil.example' }))
+
+    expect(res?.status).toBe(403)
+    expect((await bodyOf(res as Response)).error).toBe('Origin not allowed')
+  })
+
+  it('still allows the production origin from the URL variable', () => {
+    const before = process.env.URL
+    process.env.URL = 'https://jdgafx-app-04.netlify.app'
+    try {
+      expect(guardRequest(request(previewUrl, { origin: 'https://jdgafx-app-04.netlify.app' }))).toBeNull()
+    } finally {
+      if (before === undefined) delete process.env.URL
+      else process.env.URL = before
+    }
+  })
+
   it('throttles one client after 20 requests in the window', async () => {
     const client = { 'x-nf-client-connection-ip': '192.0.2.77' }
     const allowed = Array.from({ length: 20 }, () => guardRequest(new Request(URL_AI, {

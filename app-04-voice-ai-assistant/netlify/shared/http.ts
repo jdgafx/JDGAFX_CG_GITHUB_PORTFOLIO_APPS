@@ -34,9 +34,13 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 
 // Requests without an Origin header are not browser cross-site traffic (curl,
 // server-to-server), so they are allowed through without an echo header.
-function originAllowed(origin: string | null): boolean {
+// The origin the request was sent to is always allowed too: a deploy preview calls its own functions,
+// and the URL variables above do not reliably name that host when the function runs.
+function originAllowed(origin: string | null, req: Request): boolean {
   if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
+  const sent = origin.replace(/\/$/, '')
+  if (sent === new URL(req.url).origin) return true
+  return allowedOrigins().includes(sent)
 }
 
 // Best-effort per-instance throttle. Netlify may run many warm instances, so
@@ -79,11 +83,11 @@ export function guardRequest(req: Request): Response | null {
   const origin = req.headers.get('origin')
 
   if (req.method === 'OPTIONS') {
-    if (!originAllowed(origin)) return jsonError('Origin not allowed', 403, null)
+    if (!originAllowed(origin, req)) return jsonError('Origin not allowed', 403, null)
     return new Response(null, { status: 204, headers: corsHeaders(origin) })
   }
 
-  if (!originAllowed(origin)) return jsonError('Origin not allowed', 403, null)
+  if (!originAllowed(origin, req)) return jsonError('Origin not allowed', 403, null)
   if (req.method !== 'POST') return jsonError('Method not allowed', 405, origin)
   if (rateLimited(req)) {
     return jsonError('Too many requests. Wait a moment and try again.', 429, origin)

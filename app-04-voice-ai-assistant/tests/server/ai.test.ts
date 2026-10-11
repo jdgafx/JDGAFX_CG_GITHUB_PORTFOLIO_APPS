@@ -159,6 +159,14 @@ describe('ai function', () => {
     expect(mock).not.toHaveBeenCalled()
   })
 
+  it("answers a POST from the function's own deploy-preview origin, not only the production URL", async () => {
+    route([() => sseResponse(fixtureChunks('plain'))])
+    const preview = 'https://deploy-preview-9--jdgafx-app-04-x.netlify.app'
+    const res = await handler(request(`${preview}/api/ai`, { json: { message: 'hi' }, origin: preview }))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBe(preview)
+  })
+
   it('answers 405 to a GET request', async () => {
     const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { method: 'GET' }))
