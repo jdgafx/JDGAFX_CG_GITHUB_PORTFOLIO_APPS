@@ -36,7 +36,7 @@ export function headerOf(mock: FetchMock, call: number, name: string): string | 
 interface SentRequest {
   model: string
   max_tokens: number
-  reasoning: { enabled: boolean }
+  reasoning?: { enabled?: boolean }
   usage: { include: boolean }
   tools: Array<{ type: string; function: { name: string } }>
   tool_choice?: string

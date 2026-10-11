@@ -3,8 +3,9 @@ import { runModelCall, type Turn } from '../shared/provider'
 import { DONE_EVENT, PING, encodeEvent } from '../shared/sse'
 import { createRecorder } from '../shared/trace'
 
-// Output cap sent with every chat call.
-const MAX_OUTPUT_TOKENS = 1024
+// Output cap sent with every chat call. Thinking tokens count against it: a few hundred to about
+// 500 for Haiku here, then the 1 to 3 sentence reply, so 2560 leaves the reply room.
+const MAX_OUTPUT_TOKENS = 2560
 const MAX_MESSAGE_CHARS = 5000
 const MAX_HISTORY_MESSAGES = 20
 

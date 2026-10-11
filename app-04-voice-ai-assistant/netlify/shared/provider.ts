@@ -7,9 +7,11 @@ export { MODEL, type Turn, type Usage }
 
 // A retry needs at least this much of the run's budget left to be worth sending.
 const MIN_RETRY_MS = 8_000
-// Per-call limits. Healthy first data arrives in about 1.2 to 2 s; a call that has said nothing
-// by FIRST_BYTE_MS is one of the provider's rare hangs and is tried once more.
-export const FIRST_BYTE_MS = 6_000
+// Per-call limits. Healthy first data arrives in about 1.2 to 2 s, plus up to about 3 s when the
+// provider holds its stream while Haiku thinks (about 500 tokens); a call that has said nothing
+// by FIRST_BYTE_MS is one of the provider's rare hangs and is tried once more. A hang at 9 s
+// still leaves 16 s of the 25 s run budget, above MIN_RETRY_MS.
+export const FIRST_BYTE_MS = 9_000
 const IDLE_MS = 10_000
 
 // One round of tool calls per question, and at most this many calls in it.

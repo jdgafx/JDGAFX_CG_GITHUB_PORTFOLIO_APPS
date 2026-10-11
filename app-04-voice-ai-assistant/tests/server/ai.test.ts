@@ -149,6 +149,32 @@ describe('ai function', () => {
     expect(deltas.map(e => e.text).join('').trim()).toBe(String(events.find(e => e.type === 'done')?.result))
   })
 
+  // Thinking is left on, so OpenRouter streams reasoning in its own delta fields. None of it may reach the card or the voice.
+  it('shows and speaks only answer content when the streams carry reasoning deltas, and sends no reasoning override', async () => {
+    const thought = (delta: Record<string, unknown>) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: '', role: 'assistant', ...delta } }] })}\n\n`
+    const thinking = [
+      thought({ reasoning: 'The user wants Lisbon weather, so I should call the weather tool.' }),
+      thought({ reasoning_details: [{ type: 'reasoning.text', text: 'Plan: call weather, then answer.' }] }),
+    ]
+    const mock = route([() => sseResponse([...thinking, ...fixtureChunks('weather')]), () => sseResponse([...thinking, ...fixtureChunks('answer')])])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'weather in Lisbon?' } })))
+    const done = events.find(e => e.type === 'done')
+    const streamed = events.filter(e => e.type === 'delta').map(e => e.text).join('')
+    expect(streamed.trim()).toBe(String(done?.result))
+    expect(streamed).toContain("It's currently")
+    for (const leaked of ['Lisbon weather, so', 'Plan: call weather']) {
+      expect(streamed).not.toContain(leaked)
+      expect(String(done?.result)).not.toContain(leaked)
+    }
+    const calls = chatCallsOf(mock)
+    expect(calls).toHaveLength(2)
+    for (const call of calls) {
+      const sent = JSON.parse(String(call[1]?.body)) as { max_tokens: number; reasoning?: { enabled?: boolean } }
+      expect(sent.reasoning?.enabled).not.toBe(false)
+      expect(sent.max_tokens).toBe(2560)
+    }
+  })
+
   it('sends a ping comment while the model has not answered yet', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
     route([init => silentResponse(init?.signal)])

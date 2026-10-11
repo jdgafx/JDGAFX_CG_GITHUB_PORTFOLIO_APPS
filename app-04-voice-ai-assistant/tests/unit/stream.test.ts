@@ -58,12 +58,33 @@ describe('streamChat', () => {
     expect(out.finishReason).toBe('tool_calls')
   })
 
-  it('sends the fixed model, streaming, reasoning off, usage reporting and no temperature', async () => {
+  it('sends the fixed model, streaming, usage reporting, no temperature and no reasoning override', async () => {
     const mock = stubFetch(async () => sseResponse(fixtureChunks('plain')))
     await streamChat(PLACEHOLDER, TURNS, options({ toolChoice: 'none' }))
     const sent = JSON.parse(String(mock.mock.calls[0][1]?.body)) as Record<string, unknown>
-    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', stream: true, max_tokens: 64, reasoning: { enabled: false }, usage: { include: true }, tool_choice: 'none' })
+    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', stream: true, max_tokens: 64, usage: { include: true }, tool_choice: 'none' })
     expect(sent).not.toHaveProperty('temperature')
+    expect(sent).not.toHaveProperty('reasoning')
+  })
+
+  it('hands on only content deltas when the stream also carries reasoning and reasoning_details', async () => {
+    const delta = (d: Record<string, unknown>) => `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { role: 'assistant', content: '', ...d } }] })}\n\n`
+    stubFetch(async () =>
+      sseResponse([
+        delta({ reasoning: 'Let me think about the greeting.' }),
+        delta({ reasoning_details: [{ type: 'reasoning.text', text: 'Greeting, so reply briefly.' }] }),
+        delta({ content: 'Hello there, ' }),
+        delta({ reasoning: 'more thinking mid-reply' }),
+        delta({ content: 'how can I help you today?' }),
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+      ]),
+    )
+    const o = options()
+    const out = await streamChat(PLACEHOLDER, TURNS, o)
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.text).toBe('Hello there, how can I help you today?')
+    expect(o.texts.join('')).toBe('Hello there, how can I help you today?')
   })
 
   it('reports no data before the first-byte limit as a retryable failure', async () => {

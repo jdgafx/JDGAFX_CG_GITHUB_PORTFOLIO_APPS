@@ -70,6 +70,8 @@ function failure(httpStatus: number, message: string, detail: string, retryable 
   return { ok: false, httpStatus, message, detail, retryable }
 }
 
+// OpenRouter may also send `reasoning` and `reasoning_details` in a delta. They are never read
+// here: only `content` is answer text, so thinking is neither shown nor spoken.
 interface Delta {
   content?: unknown
   tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
@@ -144,9 +146,8 @@ export async function streamChat(apiKey: string, turns: Turn[], options: StreamO
         body: JSON.stringify({
           model: MODEL,
           max_tokens: options.maxTokens,
-          // Reasoning tokens count against max_tokens, so a reasoning route could
-          // use up the budget and leave no room for the reply.
-          reasoning: { enabled: false },
+          // No reasoning override: Haiku thinks at its default. Thinking tokens count against
+          // max_tokens, so the caller's cap leaves room for the thinking and the reply.
           // Asks OpenRouter to return token counts and cost with the last event.
           usage: { include: true },
           stream: true,

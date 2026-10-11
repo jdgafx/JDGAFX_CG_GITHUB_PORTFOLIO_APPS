@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runModelCall, type RunOptions } from '../../netlify/shared/provider'
+import { FIRST_BYTE_MS, runModelCall, type RunOptions } from '../../netlify/shared/provider'
 import { createRecorder } from '../../netlify/shared/trace'
 import { FORECAST_LISBON, GEOCODE_LISBON } from '../tool-fixtures'
 import { NEWEST_LIST, PLACEHOLDER, fixtureChunks, isChatCall, isModelList, jsonResponse, silentResponse, sseResponse, stubFetch, type FetchMock } from '../helpers'
@@ -202,7 +202,7 @@ describe('runModelCall', () => {
     const mock = route([init => silentResponse(init?.signal), () => sseResponse(fixtureChunks('plain'))])
     const run = createRecorder()
     const pending = runModelCall(PLACEHOLDER, TURNS, options(), run)
-    await vi.advanceTimersByTimeAsync(6_000)
+    await vi.advanceTimersByTimeAsync(FIRST_BYTE_MS)
     const out = await pending
     expect(out.ok).toBe(true)
     expect(chatCalls(mock)).toHaveLength(2)
