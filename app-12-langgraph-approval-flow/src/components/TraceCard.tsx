@@ -91,7 +91,7 @@ export function TraceCard({ run, current, phase }: TraceCardProps) {
                   {row.usage?.total_tokens !== undefined ? <span>{formatTokens(row.usage.total_tokens)} tok</span> : null}
                   {row.cost !== undefined ? <span>{formatCost(row.cost, row.costSource)}</span> : null}
                   {row.model !== undefined ? (
-                    <span className="ds-chip" title={model.title}>
+                    <span className="ds-chip ds-chip--wrap" title={model.title}>
                       {model.chip}
                       {model.marker ? <span className={model.warn ? 'ds-trace__state--stopped' : undefined}>{model.marker}</span> : null}
                     </span>
