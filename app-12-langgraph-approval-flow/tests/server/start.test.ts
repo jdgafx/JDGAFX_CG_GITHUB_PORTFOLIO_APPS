@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { REPLY_PROMPT } from '../../netlify/shared/nodes'
 import { NEWEST_HAIKU } from '../helpers/fake-chat'
 import { callsExceptList, providerFetch } from '../helpers/fake-openrouter'
 import { untilSettled } from '../helpers/fake-time'
@@ -183,7 +184,7 @@ describe('POST /api/start', () => {
     expect(typesOf(frames).at(-1)).toBe('[DONE]')
   })
 
-  it('ends a model call that hangs twice at the call limit, names the step and the retry, and keeps the run retryable', async () => {
+  it('ends a hung classify call at the call limit without a retry, since 12 s more would not fit the budget, and keeps the run retryable', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     // The fetch ignores its abort signal, so only the call's own timer can end it.
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
@@ -194,22 +195,23 @@ describe('POST /api/start', () => {
     expect(find(frames, 'error')).toEqual({
       type: 'error',
       message:
-        'The AI provider did not answer within 8 seconds during the classify step, even after one automatic retry. Finished steps are saved, so you can retry the thread.',
+        'The AI provider did not answer within 12 seconds during the classify step. Finished steps are saved, so you can retry the thread.',
     })
     expect(nodeEnds(frames)).toEqual([['classify', 'failed']])
     expect(frames[frames.length - 1]).toBe('[DONE]')
   })
 
-  it('retries a hung classify call once, and completes with one retry row in the trace', async () => {
+  it('retries a hung reply call once, and completes with one retry row in the trace', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const answering = providerFetch()
-    let calls = 0
+    let replies = 0
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string, init: RequestInit) => {
-        calls += 1
-        // The first call hangs and ignores its abort signal. Every later call answers.
-        return calls === 1 ? new Promise(() => {}) : answering(url, init)
+        const system = typeof init.body === 'string' ? (JSON.parse(init.body) as { messages: Array<{ content: string }> }).messages[0]?.content : ''
+        // The first reply call hangs and ignores its abort signal. Every other call answers.
+        if (system === REPLY_PROMPT && (replies += 1) === 1) return new Promise(() => {})
+        return answering(url, init)
       }),
     )
 
@@ -217,14 +219,14 @@ describe('POST /api/start', () => {
     const frames = parseFrames(await untilSettled(response.text()))
 
     expect(find(frames, 'error')).toBeUndefined()
-    expect(calls).toBe(5)
-    const classify = frames.find((frame): frame is Record<string, unknown> => frame !== '[DONE]' && frame.type === 'node_end' && frame.node === 'classify')
-    expect(classify).toMatchObject({ status: 'ok', detail: expect.stringMatching(/^Retried once after 8 s timeout\. Read as question/) })
+    expect(replies).toBe(2)
+    const reply = frames.find((frame): frame is Record<string, unknown> => frame !== '[DONE]' && frame.type === 'node_end' && frame.node === 'reply')
+    expect(reply).toMatchObject({ status: 'ok', detail: expect.stringMatching(/^Retried once after 12 s timeout\./) })
     expect(find(frames, 'result')?.result).toMatchObject({ outcome: 'auto' })
     expect(frames.at(-1)).toBe('[DONE]')
   })
 
-  it('ends a reply whose body never finishes at the call limit, retries once, then gives the same message', async () => {
+  it('ends a reply whose body never finishes at the call limit and names the step', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.stubGlobal(
       'fetch',
@@ -234,7 +236,7 @@ describe('POST /api/start', () => {
     const response = await start(postJson('/api/start', { issue: QUESTION }, 'ip-start-11'))
     const frames = parseFrames(await untilSettled(response.text()))
 
-    expect(find(frames, 'error')).toMatchObject({ message: expect.stringContaining('did not answer within 8 seconds during the classify step, even after one automatic retry') })
+    expect(find(frames, 'error')).toMatchObject({ message: expect.stringContaining('did not answer within 12 seconds during the classify step') })
     expect(frames[frames.length - 1]).toBe('[DONE]')
   })
 })

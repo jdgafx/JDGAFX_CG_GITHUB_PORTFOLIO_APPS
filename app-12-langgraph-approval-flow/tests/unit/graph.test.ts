@@ -100,8 +100,8 @@ describe('graph: auto-triage path', () => {
     await start(graph, 'auto-2', QUESTION)
 
     expect(chat.mock.calls.map(([request]) => request.model)).toEqual([MODEL, MODEL])
-    expect(chat.mock.calls[0][0]).toMatchObject({ maxTokens: 400, json: true })
-    expect(chat.mock.calls[1][0]).toMatchObject({ maxTokens: 500 })
+    expect(chat.mock.calls[0][0]).toMatchObject({ maxTokens: 2_000, json: true })
+    expect(chat.mock.calls[1][0]).toMatchObject({ maxTokens: 2_000 })
     const classify = (await stateOf(graph, 'auto-2')).trace.find((row: TraceRow) => row.node === 'classify')
     expect(classify).toMatchObject({ model: NEWEST_HAIKU, usage: { total_tokens: 120 } })
   })
@@ -117,7 +117,10 @@ describe('graph: auto-triage path', () => {
       expect(request).not.toHaveProperty('temperature')
       const wire = requestBody(request)
       expect(wire).not.toHaveProperty('temperature')
-      expect(wire).toMatchObject({ provider: { require_parameters: true }, reasoning: { enabled: false } })
+      expect(wire).toMatchObject({ provider: { require_parameters: true } })
+      // Thinking stays on: the body carries no reasoning field at all, neither enabled: false nor a low effort.
+      expect(wire).not.toHaveProperty('reasoning')
+      expect(JSON.stringify(wire)).not.toContain('reasoning')
     }
     expect(requestBody(classify)).toMatchObject({ response_format: { type: 'json_object' } })
   })

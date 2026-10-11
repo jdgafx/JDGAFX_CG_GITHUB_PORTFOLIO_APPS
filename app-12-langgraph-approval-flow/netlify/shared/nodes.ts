@@ -24,8 +24,11 @@ export interface NodeDeps {
   newest?: Promise<string | null>
 }
 
-/** What a model call is expected to take at most when it is healthy: about the p95 measured on live calls. */
-const EXPECTED_CALL_MS = 3_000
+/**
+ * What a model call is expected to take at most when it is healthy, thinking on: 500 reasoning tokens plus
+ * the answer is 5.6 to 7 s (see CALL_TIMEOUT_MS), so 7 s. It was 3 s with thinking off.
+ */
+const EXPECTED_CALL_MS = 7_000
 /** Headroom kept for the store writes and the stream that follow the model calls. */
 const RETRY_MARGIN_MS = 1_000
 
@@ -237,6 +240,10 @@ export async function runChat(
     return await checked(deps, { requested: model, result: await deps.chat(request, signal) })
   } catch (err) {
     const reason = retryReason(err)
+    // 12 s retry + 7 s per call still to come + 1 s margin: 27 s for classify (two calls after), 20 s for the
+    // judge, 13 s for the reply, against a 25 s budget. A hung call has already spent 12 s, so after a hang only
+    // the reply call of /api/resume (13 s left) can pass this, and only just. A lost connection fails fast,
+    // so it is retried wherever the budget still has the room.
     const needed = CALL_TIMEOUT_MS + modelCallsAfter * EXPECTED_CALL_MS + RETRY_MARGIN_MS
     if (reason === null || signal.aborted || deps.remainingMs() < needed) throw err
     try {

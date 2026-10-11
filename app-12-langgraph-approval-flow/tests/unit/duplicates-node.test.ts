@@ -6,7 +6,7 @@ import { mergeFound } from '../../netlify/shared/duplicate-rank'
 import { SearchError, parseSearch, type SearchFn } from '../../netlify/shared/github-search'
 import { buildGraph } from '../../netlify/shared/graph'
 import { REPLY_PROMPT } from '../../netlify/shared/nodes'
-import { ProviderError } from '../../netlify/shared/openrouter'
+import { ProviderError, requestBody } from '../../netlify/shared/openrouter'
 import { createMemoryStore } from '../../netlify/shared/store'
 import type { DuplicateReport, ReviewPayload } from '../../src/types'
 import { fakeChat } from '../helpers/fake-chat'
@@ -68,6 +68,18 @@ describe('the duplicates step', () => {
     expect(data.earlierIssues.map((c) => c.number)).toEqual([334403, 334776, 332309])
   })
 
+  it('sizes the judge cap for thinking and sends no reasoning override on the classify or judge call', async () => {
+    const { chat } = await run()
+    const [classify, judged] = [chat.mock.calls[0][0], chat.mock.calls.map(([request]) => request).find((request) => request.messages[0].content === JUDGE_PROMPT)]
+    expect(judged).toBeDefined()
+    expect(judged).toMatchObject({ maxTokens: 3_000, json: true })
+    for (const request of [classify, judged as typeof classify]) {
+      const wire = requestBody(request)
+      expect(wire).not.toHaveProperty('reasoning')
+      expect(JSON.stringify(wire)).not.toContain('reasoning')
+    }
+  })
+
   it('does not confirm a duplicate whose quote is not in the candidate: the claim shows as unverified and the issue is only labelled', async () => {
     const forged = judge([{ ...DUPLICATE, candidateQuote: 'The hamburger menu is broken in exactly the same way' }])
     const { first, report } = await run({ chat: fakeChat({ classification: CLASSIFIED_BUG_LOW, judge: forged }) })
@@ -111,10 +123,10 @@ describe('the duplicates step', () => {
     expect(first.__interrupt__).toBeUndefined()
   })
 
-  it('skips the step, and calls neither GitHub nor the model, when under ten seconds are left', async () => {
+  it('skips the step, and calls neither GitHub nor the model, when under fifteen seconds are left', async () => {
     const search = searchReturning()
     const chat = fakeChat({ classification: CLASSIFIED_BUG_LOW })
-    const { report } = await run({ search, chat, remainingMs: () => 9_999 })
+    const { report } = await run({ search, chat, remainingMs: () => 14_999 })
     expect(report).toMatchObject({ status: 'skipped', candidates: [] })
     expect(search).not.toHaveBeenCalled()
     expect(chat.mock.calls.some(([request]) => request.messages[0].content === JUDGE_PROMPT)).toBe(false)

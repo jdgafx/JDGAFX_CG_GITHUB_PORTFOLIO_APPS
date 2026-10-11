@@ -16,8 +16,8 @@ import { announce, required, runChat, signalOf, traceRow, type CallRecord, type 
 import { ProviderError } from './openrouter'
 import type { GraphValues } from './state'
 
-/** The search and the judge need about this long when healthy: two parallel searches, one model call, and the reply call after. */
-const MIN_REMAINING_MS = 10_000
+/** The search and the judge need about this long when healthy: two parallel searches (1 s), the judge (7 s), and the reply call after (7 s). */
+const MIN_REMAINING_MS = 15_000
 
 const emptyReport = (status: DuplicateReport['status'], message: string | null, terms: string[] = []): DuplicateReport => ({
   status,

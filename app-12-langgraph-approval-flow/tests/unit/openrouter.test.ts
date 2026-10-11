@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CLASSIFIED_BUG, CLASSIFIED_QUESTION } from '../helpers/issues'
+import { readClassification } from '../../netlify/shared/classify'
 import { MODEL } from '../../netlify/shared/models'
 import {
   CALL_TIMEOUT_MS,
@@ -51,6 +53,33 @@ describe('parseChatReply', () => {
     expect(reply.usage).toEqual({})
   })
 
+  it('reads only the content when the reply also carries reasoning, never the reasoning', () => {
+    const thought = JSON.stringify({ ...CLASSIFIED_BUG, summary: 'thought' })
+    const answer = JSON.stringify(CLASSIFIED_QUESTION)
+    const reply = parseChatReply({
+      model: MODEL,
+      choices: [
+        {
+          message: { content: answer, reasoning: thought, reasoning_details: [{ type: 'reasoning.text', text: thought }] },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { completion_tokens: 640, completion_tokens_details: { reasoning_tokens: 500 } },
+    })
+    expect(reply.text).toBe(answer)
+    expect(readClassification(reply.text)).toMatchObject({ type: 'question', severity: 'low' })
+    expect(JSON.stringify(reply)).not.toContain('thought')
+  })
+
+  it('gives empty text, not the reasoning, when thinking used the whole cap and left no content', () => {
+    const thought = JSON.stringify(CLASSIFIED_BUG)
+    for (const content of [null, '', undefined]) {
+      const reply = parseChatReply({ choices: [{ message: { content, reasoning: thought }, finish_reason: 'length' }] })
+      expect(reply).toMatchObject({ text: '', finishReason: 'length' })
+      expect(readClassification(reply.text)).toBeNull()
+    }
+  })
+
   it('survives a body that is not an object', () => {
     expect(parseChatReply(null)).toMatchObject({ text: '', usage: {} })
     expect(parseChatReply('nope')).toMatchObject({ text: '', usage: {} })
@@ -69,12 +98,17 @@ describe('requestBody', () => {
     expect(requestBody({ ...REQUEST, json: false })).not.toHaveProperty('response_format')
   })
 
-  it('always routes only to providers that accept every parameter, and always turns reasoning off', () => {
-    expect(requestBody(REQUEST)).toMatchObject({
-      provider: { require_parameters: true },
-      reasoning: { enabled: false },
-    })
+  it('always routes only to providers that accept every parameter', () => {
+    expect(requestBody(REQUEST)).toMatchObject({ provider: { require_parameters: true } })
     expect(requestBody({ ...REQUEST, json: false })).toMatchObject({ provider: { require_parameters: true } })
+  })
+
+  it('sends no reasoning field at all: thinking stays on, neither disabled nor set to a low effort', () => {
+    for (const request of [REQUEST, { ...REQUEST, json: false }, { ...REQUEST, maxTokens: 3_000 }]) {
+      const body = requestBody(request)
+      expect(body).not.toHaveProperty('reasoning')
+      expect(JSON.stringify(body)).not.toContain('reasoning')
+    }
   })
 
   it('never sends a temperature: Haiku 5.5 rejects it next to require_parameters with a 404', () => {
@@ -176,7 +210,7 @@ describe('chat', () => {
     })
     await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)
     await assertion
-    expect(PROVIDER_TIMEOUT).toBe('The AI provider did not answer within 8 seconds.')
+    expect(PROVIDER_TIMEOUT).toBe('The AI provider did not answer within 12 seconds.')
   })
 
   it('cuts a reply whose body never finishes at the call limit', async () => {

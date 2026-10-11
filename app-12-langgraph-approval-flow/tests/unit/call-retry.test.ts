@@ -21,7 +21,8 @@ function scripted(script: Array<Error | 'ok'>) {
   })
 }
 
-async function run(chat: ChatFn, remainingMs = () => 25_000) {
+/** Roomy by default, so the tests of the retry itself do not depend on the gate. The gate has its own tests. */
+async function run(chat: ChatFn, remainingMs = () => 60_000) {
   const graph = buildGraph({ chat, now: () => new Date(), remainingMs, checkpointer: new GraphGateSaver(createMemoryStore()) })
   const config = { configurable: { thread_id: 't' } }
   const outcome = await graph.invoke({ issue: QUESTION }, config).then(
@@ -32,8 +33,8 @@ async function run(chat: ChatFn, remainingMs = () => 25_000) {
 }
 
 describe('one automatic retry of a hung or disconnected model call', () => {
-  it('uses an 8 second call limit', () => {
-    expect(CALL_TIMEOUT_MS).toBe(8_000)
+  it('uses a 12 second call limit, sized for a call that thinks', () => {
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
   })
 
   it('retries a hung classify call once and records it in the trace', async () => {
@@ -41,7 +42,7 @@ describe('one automatic retry of a hung or disconnected model call', () => {
     const { outcome, trace } = await run(chat)
     expect(outcome).toBeNull()
     expect(chat).toHaveBeenCalledTimes(3)
-    expect(trace[0]).toMatchObject({ node: 'classify', status: 'ok', detail: expect.stringMatching(/^Retried once after 8 s timeout\. Read as question/) })
+    expect(trace[0]).toMatchObject({ node: 'classify', status: 'ok', detail: expect.stringMatching(/^Retried once after 12 s timeout\. Read as question/) })
     expect(trace[2].detail).not.toContain('Retried')
   })
 
@@ -50,7 +51,7 @@ describe('one automatic retry of a hung or disconnected model call', () => {
     const { outcome, trace } = await run(chat)
     expect(outcome).toBeNull()
     expect(chat).toHaveBeenCalledTimes(3)
-    expect(trace.find((row) => row.node === 'reply')?.detail).toMatch(/^Retried once after 8 s timeout\./)
+    expect(trace.find((row) => row.node === 'reply')?.detail).toMatch(/^Retried once after 12 s timeout\./)
   })
 
   it('retries a lost connection once', async () => {
@@ -82,24 +83,30 @@ describe('one automatic retry of a hung or disconnected model call', () => {
     expect(chat).toHaveBeenCalledTimes(1)
   })
 
-  it('does not retry when the budget has no room for the retry and the reply call still to come', async () => {
-    // 8 s for the retry + 3 s each for the duplicate check and the reply + 1 s margin = 15 s needed.
+  it('does not retry when the budget has no room for the retry and the two calls still to come', async () => {
+    // 12 s for the retry + 7 s each for the duplicate check and the reply + 1 s margin = 27 s needed.
     const chat = scripted([timeout()])
-    const { outcome } = await run(chat, () => 14_999)
+    const { outcome } = await run(chat, () => 26_999)
     expect(outcome).toMatchObject({ kind: 'timeout' })
     expect(outcome).toMatchObject({ retried: false })
     expect(chat).toHaveBeenCalledTimes(1)
 
     const roomy = scripted([timeout()])
-    expect((await run(roomy, () => 15_000)).outcome).toBeNull()
+    expect((await run(roomy, () => 27_000)).outcome).toBeNull()
     expect(roomy).toHaveBeenCalledTimes(3)
+  })
+
+  it('cannot retry a hung classify call inside the 25 s run budget, even when nothing has been spent', async () => {
+    const chat = scripted([timeout()])
+    expect((await run(chat, () => 25_000)).outcome).toMatchObject({ kind: 'timeout', retried: false })
+    expect(chat).toHaveBeenCalledTimes(1)
   })
 
   it('needs less room for the last model call, since nothing follows it', async () => {
     const chat = scripted(['ok', timeout()])
-    // 8 s for the retry + 0 + 1 s margin = 9 s.
-    expect((await run(chat, () => 9_000)).outcome).toBeNull()
+    // 12 s for the retry + 0 + 1 s margin = 13 s. The room is read only when a call fails.
+    expect((await run(chat, () => 13_000)).outcome).toBeNull()
     const tight = scripted(['ok', timeout()])
-    expect((await run(tight, () => 8_999)).outcome).toMatchObject({ kind: 'timeout' })
+    expect((await run(tight, () => 12_999)).outcome).toMatchObject({ kind: 'timeout' })
   })
 })

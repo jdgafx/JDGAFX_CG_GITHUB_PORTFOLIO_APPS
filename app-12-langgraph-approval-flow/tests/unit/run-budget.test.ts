@@ -76,7 +76,7 @@ describe('the run budget', () => {
   it('is 25 seconds, with the message and the model call limit to match', () => {
     expect(RUN_BUDGET_MS).toBe(25_000)
     expect(budgetMessage('reply')).toContain('25-second budget during the reply step')
-    expect(CALL_TIMEOUT_MS).toBe(8_000)
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
     expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
   })
 
@@ -102,16 +102,17 @@ describe('the run budget', () => {
 
   it('names the budget, not the provider, when the budget ends a call, and the call limit when a call overruns', async () => {
     const store = createMemoryStore()
-    const slowCall = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 8 seconds.', 'timeout')))
+    const slowCall = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 12 seconds.', 'timeout')))
     const deps: RunDeps = { store, storage: 'memory', chat: slowCall as unknown as RunDeps['chat'], now: () => NOW }
     const events: StreamEvent[] = []
 
-    await startRun(deps, { issue: QUESTION, threadId: 'call-limit', budget: new AbortController().signal, send: (event) => events.push(event) })
+    // 27 s are left, so the retry fits: 12 s for the retry, 7 s for each of the two calls after classify, 1 s margin.
+    await startRun(deps, { issue: QUESTION, threadId: 'call-limit', budget: new AbortController().signal, remainingMs: () => 27_000, send: (event) => events.push(event) })
 
     expect(events.find((event) => event.type === 'error')).toEqual({
       type: 'error',
       message:
-        'The AI provider did not answer within 8 seconds during the classify step, even after one automatic retry. Finished steps are saved, so you can retry the thread.',
+        'The AI provider did not answer within 12 seconds during the classify step, even after one automatic retry. Finished steps are saved, so you can retry the thread.',
     })
     expect(budgetMessage('classify')).toBe(
       'The run reached its 25-second budget during the classify step and was stopped. Finished steps are saved, so you can retry the thread.',
@@ -119,5 +120,15 @@ describe('the run budget', () => {
     expect(events.find((event) => event.type === 'node_end')).toMatchObject({ node: 'classify', status: 'failed' })
     // The call was made twice: the first hang was retried.
     expect(slowCall).toHaveBeenCalledTimes(2)
+
+    // On the full 25 s budget a hung classify call is not retried: the retry and the two calls after it need 27 s.
+    const single = vi.fn(() => Promise.reject(new ProviderError(504, 'The AI provider did not answer within 12 seconds.', 'timeout')))
+    const full: StreamEvent[] = []
+    await startRun({ ...deps, chat: single as unknown as RunDeps['chat'] }, { issue: QUESTION, threadId: 'call-limit-full', budget: new AbortController().signal, send: (event) => full.push(event) })
+    expect(single).toHaveBeenCalledTimes(1)
+    expect(full.find((event) => event.type === 'error')).toEqual({
+      type: 'error',
+      message: 'The AI provider did not answer within 12 seconds during the classify step. Finished steps are saved, so you can retry the thread.',
+    })
   })
 })

@@ -1,11 +1,14 @@
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 /**
- * One model call gets at most this long. The run budget is shared by every call in a run. Measured calls
- * take about 3 s at p95, so a call past 8 s is a hang and not a slow answer. Chosen so that a hung call and
- * its one automatic retry still leave room for the rest of a request inside the 25 s budget.
+ * One model call gets at most this long. The run budget is shared by every call in a run. With thinking
+ * on, a healthy call is estimated at 0.8 s plus (500 reasoning tokens + its answer) at 130 tokens a second:
+ * about 5.6 s for classify, 7 s for the duplicate judge, 5.8 s for the reply. That is derived from the
+ * thinking-off measurements, not measured. The old 8 s limit sat on a 3 s p95 and would now cut healthy
+ * calls, so it is 12 s: past that is a hang. Inside the 25 s budget this leaves no room to retry a hung
+ * classify call (see runChat in nodes.ts); only the reply call of a resume can still be retried after a hang.
  */
-export const CALL_TIMEOUT_MS = 8_000
+export const CALL_TIMEOUT_MS = 12_000
 
 // User-facing copy. Provider bodies, keys and raw errors never leave the server.
 export const PROVIDER_NOT_CONFIGURED = 'The AI provider is not configured.'
@@ -89,7 +92,11 @@ function parseUsage(value: unknown): ChatUsage {
   return usage
 }
 
-/** Reads one chat completion reply: text, finish reason, served model and usage. Pure. */
+/**
+ * Reads one chat completion reply: text, finish reason, served model and usage. Pure. Only message.content
+ * is the answer. The reasoning fields (message.reasoning, reasoning_details) are never read, so thinking
+ * can neither be parsed as the JSON reply nor shown. A reply that spent its cap on thinking has empty content.
+ */
 export function parseChatReply(body: unknown): ChatResult {
   const reply = isRecord(body) ? body : {}
   const first = Array.isArray(reply.choices) && isRecord(reply.choices[0]) ? reply.choices[0] : {}
@@ -111,8 +118,7 @@ export function requestBody(request: ChatRequest): Record<string, unknown> {
     // No temperature, ever: Haiku 5.5 does not take one, and with require_parameters a request that sends
     // it fails with 404 "No endpoints found". ChatRequest has no field for it.
     usage: { include: true },
-    // Reasoning off: Haiku 5.5 reasons by default, and that spends the output cap before the answer.
-    reasoning: { enabled: false },
+    // No reasoning field, ever: thinking stays on at Haiku's default, and max_tokens is sized for it.
     // Route only to providers that honour every parameter in the request.
     provider: { require_parameters: true },
     ...(request.json ? { response_format: { type: 'json_object' } } : {}),
@@ -143,7 +149,7 @@ async function exchange(request: ChatRequest, apiKey: string, signal: AbortSigna
 }
 
 /**
- * One chat completion. Two deadlines apply: the call's own 8 s, and the run's signal. Both are timers
+ * One chat completion. Two deadlines apply: the call's own limit, and the run's signal. Both are timers
  * that settle a race with the whole exchange, the body read included, so a reply whose body never
  * finishes is cut at the limit even if the fetch ignores its abort signal. The fetch is aborted too, to
  * free the connection. The error says which deadline ended the call.

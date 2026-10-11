@@ -9,7 +9,8 @@ import { proseOf, type SearchedIssue } from './duplicate-rank'
  * that are not there.
  */
 
-export const DUPLICATES_MAX_TOKENS = 700
+/** About 500 reasoning tokens plus up to three verdicts with two quotes each (about 600 tokens of JSON), with room to spare. */
+export const DUPLICATES_MAX_TOKENS = 3_000
 
 export const JUDGE_PROMPT = [
   'You compare one NEW GitHub issue with earlier issues from the same repository and decide whether each earlier issue is a duplicate of it.',
