@@ -77,7 +77,10 @@ export function streamVisionRun(run: VisionRun): Response {
       }
       const conclude = async (frame: Record<string, unknown>, state?: ReadState) => {
         const newest = await newestP
-        const checked = calls.map(call => ({ served: call.served, check: servedCheck(newest, call.served) }))
+        // A try that got headers but no words and no model name said nothing about the model, so it is left out.
+        const checked = calls
+          .filter(call => call.served !== null || call.chunks > 0)
+          .map(call => ({ served: call.served, check: servedCheck(newest, call.served) }))
         for (const call of checked) {
           if (call.check === 'mismatch') console.warn(`model mismatch: served ${call.served}, newest ${newest}, requested ${MODEL}`)
         }
