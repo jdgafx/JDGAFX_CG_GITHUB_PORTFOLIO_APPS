@@ -6,21 +6,34 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-07-content-pipeline.netlify.app'
+
 describe('originAllowed', () => {
   it('accepts a request with no Origin header, which is not cross-site browser traffic', () => {
-    expect(originAllowed(null)).toBe(true)
+    expect(originAllowed(null, SITE_URL)).toBe(true)
+    expect(originAllowed(null, PREVIEW)).toBe(true)
   })
 
   it('accepts the site and the local dev servers, with or without a trailing slash', () => {
-    expect(originAllowed(SITE_URL)).toBe(true)
-    expect(originAllowed(`${SITE_URL}/`)).toBe(true)
-    expect(originAllowed('http://localhost:5173')).toBe(true)
-    expect(originAllowed('http://localhost:8888')).toBe(true)
+    expect(originAllowed(SITE_URL, SITE_URL)).toBe(true)
+    expect(originAllowed(`${SITE_URL}/`, SITE_URL)).toBe(true)
+    expect(originAllowed('http://localhost:5173', SITE_URL)).toBe(true)
+    expect(originAllowed('http://localhost:8888', SITE_URL)).toBe(true)
   })
 
   it('rejects any other origin, including one that only starts with the site name', () => {
-    expect(originAllowed('https://evil.example')).toBe(false)
-    expect(originAllowed('https://jdgafx-app-07-content-pipeline.netlify.app.evil.example')).toBe(false)
+    expect(originAllowed('https://evil.example', SITE_URL)).toBe(false)
+    expect(originAllowed('https://jdgafx-app-07-content-pipeline.netlify.app.evil.example', SITE_URL)).toBe(false)
+  })
+
+  it('accepts a deploy preview calling its own function, and still the live site', () => {
+    expect(originAllowed(PREVIEW, PREVIEW)).toBe(true)
+    expect(originAllowed(`${PREVIEW}/`, PREVIEW)).toBe(true)
+    expect(originAllowed(SITE_URL, PREVIEW)).toBe(true)
+  })
+
+  it('rejects a foreign origin calling a deploy preview', () => {
+    expect(originAllowed('https://evil.example', PREVIEW)).toBe(false)
   })
 })
 

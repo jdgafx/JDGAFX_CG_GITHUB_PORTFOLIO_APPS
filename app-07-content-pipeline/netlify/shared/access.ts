@@ -6,8 +6,8 @@ const DEV_ORIGINS = ['http://localhost:5173', 'http://localhost:8888']
 const RATE_LIMIT_MAX = 30
 const RATE_LIMIT_WINDOW_MS = 60_000
 
-// Netlify injects URL, DEPLOY_PRIME_URL and DEPLOY_URL for the live site and
-// deploy previews, so no preview host has to be listed here.
+// The live site and the dev servers. Netlify's URL variables are not reliable at runtime, so a
+// deploy preview is accepted through its own request origin (see originAllowed).
 function allowedOrigins(): string[] {
   return [SITE_URL, process.env.DEPLOY_PRIME_URL ?? '', process.env.DEPLOY_URL ?? '', ...DEV_ORIGINS]
     .map(origin => origin.trim().replace(/\/$/, ''))
@@ -25,10 +25,12 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 }
 
 // Requests without an Origin header are not cross-site browser traffic, so they
-// pass without an echo header.
-export function originAllowed(origin: string | null): boolean {
+// pass without an echo header. A request from the origin it was served from (a deploy
+// preview) passes too: requestOrigin is the origin of the request URL.
+export function originAllowed(origin: string | null, requestOrigin: string): boolean {
   if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
+  const clean = origin.replace(/\/$/, '')
+  return clean === requestOrigin || allowedOrigins().includes(clean)
 }
 
 // Best-effort, per warm instance. Netlify may run several instances, so this is a

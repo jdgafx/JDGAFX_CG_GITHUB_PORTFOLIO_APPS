@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STAGE_LABELS, type StageId, type Usage } from '../../netlify/shared/contract'
+import { STAGE_LABELS, type ModelCheck, type StageId, type Usage } from '../../netlify/shared/contract'
 import type { CallRecord } from '../../src/lib/api'
 import { buildTrace, formatCount, formatMs, formatUsd, stageViews, summarize } from '../../src/lib/run'
 
@@ -7,12 +7,21 @@ const MODEL = 'anthropic/claude-haiku-5.5'
 const FIRST: Usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 }
 const SECOND: Usage = { prompt_tokens: 500, completion_tokens: 100, total_tokens: 600, cost: 0.0001 }
 
-function record(stage: StageId, ms: number, usage: Usage | null = null, status: 'ok' | 'failed' = 'ok', model: string | null = MODEL): CallRecord {
+function record(
+  stage: StageId,
+  ms: number,
+  usage: Usage | null = null,
+  status: 'ok' | 'failed' = 'ok',
+  model: string | null = MODEL,
+  modelCheck: ModelCheck | null = model ? 'match' : 'not-reported',
+): CallRecord {
   return {
     stage,
     row: { name: STAGE_LABELS[stage], status, ms, detail: 'detail', tokens: usage?.total_tokens, cost: usage?.cost },
     usage,
     model,
+    newestModel: model ? MODEL : null,
+    modelCheck,
   }
 }
 
@@ -93,6 +102,45 @@ describe('summarize', () => {
   it('counts a failed call that the provider billed', () => {
     const totals = summarize([record('research', 900, FIRST), record('outline', 700, SECOND, 'failed')])
     expect(totals.totalTokens).toBe(1_800)
+  })
+})
+
+describe('model checks across a run', () => {
+  const OTHER = 'anthropic/claude-haiku-5.4'
+
+  it('shows the served model of the reply call, and the worst check across the writing calls', () => {
+    const totals = summarize([
+      record('sources', 400, null, 'ok', null),
+      record('research', 900, FIRST, 'ok', MODEL, 'match'),
+      record('outline', 700, SECOND, 'ok', OTHER, 'mismatch'),
+    ])
+    expect(totals).toMatchObject({ replyModel: OTHER, modelCheck: 'mismatch' })
+    expect(totals.mismatch).toMatchObject({ stage: 'outline', model: OTHER, newestModel: MODEL })
+  })
+
+  it('leaves the Sources lookup out of the check, so a run of matching calls still shows a match', () => {
+    const totals = summarize([record('sources', 400, null, 'ok', null), record('research', 900, FIRST, 'ok', MODEL, 'match')])
+    expect(totals).toMatchObject({ modelCheck: 'match', mismatch: null })
+  })
+
+  it('ranks a call that named no model above an unchecked one, and a mismatch above both', () => {
+    expect(summarize([record('research', 900, FIRST, 'ok', MODEL, 'match'), record('outline', 700, null, 'ok', null, 'not-reported')]).modelCheck).toBe('not-reported')
+    expect(summarize([record('research', 900, FIRST, 'ok', MODEL, 'unchecked'), record('outline', 700, FIRST, 'ok', MODEL, 'match')]).modelCheck).toBe('unchecked')
+    expect(summarize([record('research', 900, FIRST, 'ok', null, 'not-reported'), record('outline', 700, FIRST, 'ok', OTHER, 'mismatch')]).modelCheck).toBe('mismatch')
+  })
+
+  it('takes the reply from the last call that finished, not from a failed call after it', () => {
+    const totals = summarize([record('research', 900, FIRST, 'ok', MODEL, 'match'), record('outline', 700, SECOND, 'failed', OTHER, 'mismatch')])
+    expect(totals.replyModel).toBe(MODEL)
+  })
+
+  it('ignores a call the browser made when the server sent no answer, so the check still shows a match', () => {
+    const watchdog = { ...record('outline', 700, null, 'failed', null), modelCheck: null }
+    expect(summarize([record('research', 900, FIRST, 'ok', MODEL, 'match'), watchdog])).toMatchObject({ modelCheck: 'match' })
+  })
+
+  it('has no check and no reply before any writing call runs', () => {
+    expect(summarize([record('sources', 400, null, 'ok', null)])).toMatchObject({ replyModel: null, modelCheck: null, mismatch: null })
   })
 })
 

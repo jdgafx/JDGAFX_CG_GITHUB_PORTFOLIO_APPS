@@ -30,6 +30,10 @@ export interface Usage {
   cost?: number
 }
 
+// How a reply's served model compares with the newest Haiku the model list names (netlify/shared/newest-model.ts).
+export const MODEL_CHECKS = ['match', 'mismatch', 'unchecked', 'not-reported'] as const
+export type ModelCheck = (typeof MODEL_CHECKS)[number]
+
 export interface TraceRow {
   name: string
   status: 'ok' | 'failed'

@@ -1,4 +1,5 @@
 import { chat, MODEL, ProviderStatusError, type ChatReply } from '../shared/provider'
+import { newestModel, servedCheck } from '../shared/newest-model'
 import { CONTENT_TYPES, MAX_TOPIC_CHARS, STAGE_IDS, STAGE_LABELS, TOPIC_TOO_LONG_MESSAGE, wordCount, type ModelStageId, type StageId, type TraceRow, type Usage } from '../shared/contract'
 import {
   MAX_STAGE_TEXT_CHARS, NOTE_STAGES, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, plainPreview, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
@@ -31,16 +32,25 @@ function json(body: unknown, status: number, origin: string | null): Response {
   })
 }
 
+// The served model of one call, the newest model the list names, and how the two compare. The served
+// id is never replaced by the requested one: a reply that names no model reports none.
+async function modelRecord(served: string | null, newestP: Promise<string | null>) {
+  const newest = await newestP
+  const modelCheck = servedCheck(newest, served)
+  if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${served}, newest ${newest}, requested ${MODEL}`)
+  return { model: served, newestModel: newest, modelCheck }
+}
+
 // Every failure has a plain message, a retry hint and one failed trace row. A call that
 // reached the provider keeps its usage and model, because the provider still billed it.
-function failureFor(stage: StageId, startedAt: number, origin: string | null) {
-  return (
+function failureFor(stage: StageId, startedAt: number, origin: string | null, newestP: Promise<string | null> = Promise.resolve(null)) {
+  return async (
     message: string,
     status: number,
     retryable: boolean,
     attempt: { usage: Usage | null; model: string | null } = { usage: null, model: null },
     note?: string,
-  ): Response => {
+  ): Promise<Response> => {
     const ms = Date.now() - startedAt
     const trace: TraceRow[] = [{
       name: STAGE_LABELS[stage],
@@ -50,7 +60,7 @@ function failureFor(stage: StageId, startedAt: number, origin: string | null) {
       tokens: attempt.usage?.total_tokens,
       cost: attempt.usage?.cost,
     }]
-    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt.usage, model: attempt.model }, status, origin)
+    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt.usage, ...(await modelRecord(attempt.model, newestP)) }, status, origin)
   }
 }
 
@@ -158,12 +168,14 @@ function retryNote(err: unknown, limitMs: number): string | null {
 async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Request, origin: string | null): Promise<Response> {
   const { stage } = run
   const startedAt = Date.now()
-  const fail = failureFor(stage, startedAt, origin)
   const sources = parseSourcePack(run.context.sources ?? '')
   const system = buildSystemPrompt(stage, run.topic, run.contentType, sources.sources.length)
   const user = buildUserMessage(stage, run.topic, run.contentType, run.context)
   const limitMs = stageTimeoutMs(stage)
   let retried: string | null = null
+  // Started with the model call and awaited once the reply, or the failure, is known.
+  const newestP = newestModel()
+  const fail = failureFor(stage, startedAt, origin, newestP)
 
   try {
     let reply: ChatReply
@@ -180,7 +192,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
       }
     }
     const ms = Date.now() - startedAt
-    const attempt = { usage: reply.usage, model: reply.servedModel ?? MODEL }
+    const attempt = { usage: reply.usage, model: reply.servedModel }
     // Edit and Polish return change notes after the text. The text alone is checked and passed on; a
     // reply cut off inside the notes still has its whole text.
     const split = NOTE_STAGES.has(stage) ? splitChanges(reply.content) : null
@@ -206,7 +218,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
       tokens: reply.usage?.total_tokens,
       cost: reply.usage?.cost,
     }
-    return json({ result: content, ...(split ? { notes } : {}), trace: [row], usage: reply.usage, model: attempt.model, totalMs: ms }, 200, origin)
+    return json({ result: content, ...(split ? { notes } : {}), trace: [row], usage: reply.usage, ...(await modelRecord(attempt.model, newestP)), totalMs: ms }, 200, origin)
   } catch (err) {
     if (req.signal.aborted) {
       return fail('The run was stopped before this stage finished.', 503, false)
@@ -224,7 +236,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
 }
 
 async function handle(req: Request, origin: string | null): Promise<Response> {
-  if (!originAllowed(origin)) {
+  if (!originAllowed(origin, new URL(req.url).origin)) {
     return new Response('Origin not allowed', { status: 403, headers: corsHeaders(null) })
   }
   if (req.method === 'OPTIONS') {

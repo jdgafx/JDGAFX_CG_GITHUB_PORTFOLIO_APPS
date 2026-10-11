@@ -1,4 +1,4 @@
-import { formatCount, formatMs, formatUsd, lanesFor, type TraceLine, type TraceStatus } from '../lib/run'
+import { CHECK_LABEL, formatCount, formatMs, formatUsd, lanesFor, modelTitle, type TraceLine, type TraceStatus } from '../lib/run'
 
 const STATE: Record<TraceStatus, { word: string; dot: string; tone: string; row: string }> = {
   ok: { word: 'Finished', dot: 'ds-dot--ok', tone: 'ds-trace__state--ok', row: '' },
@@ -51,7 +51,12 @@ export default function RunTrace({ lines }: { lines: TraceLine[] }) {
                         <>
                           <span>{line.tokens === undefined ? 'tokens not reported' : `${formatCount(line.tokens)} tok`}</span>
                           <span>{line.cost === undefined ? 'cost not reported' : formatUsd(line.cost)}</span>
-                          {line.model && <span className="ds-chip" title={line.model}>{shortModel(line.model)}</span>}
+                          <span className="ds-chip" title={modelTitle(line.model, line.newestModel, line.modelCheck)}>
+                            {line.model ? shortModel(line.model) : 'not reported'}
+                            {line.modelCheck && CHECK_LABEL[line.modelCheck] && (
+                              <span className={line.modelCheck === 'mismatch' ? 'ds-trace__state--stopped' : undefined}>{CHECK_LABEL[line.modelCheck]}</span>
+                            )}
+                          </span>
                         </>
                       )}
                     </>

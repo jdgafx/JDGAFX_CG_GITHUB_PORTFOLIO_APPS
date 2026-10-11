@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { STAGE_LABELS, type StageId } from '../../netlify/shared/contract'
-import { formatCount, formatMs, formatUsd, type Phase, type RunTotals } from '../lib/run'
+import { CHECK_LABEL, formatCount, formatMs, formatUsd, modelTitle, type Phase, type RunTotals } from '../lib/run'
 
 function shortModel(id: string): string {
   return id.slice(id.indexOf('/') + 1)
@@ -67,9 +67,16 @@ export default function Readout({ phase, totals, runningStage, startedAt }: Read
           </Cell>
         ) : (
           <Cell label="Model" hint="Named in the provider replies" small>
-            {totals && totals.models.length > 0
-              ? <span className="ds-chips">{totals.models.map(id => <span key={id} className="ds-chip" title={id}>{shortModel(id)}</span>)}</span>
-              : totals && modelCalls > 0 ? 'not reported' : none}
+            {totals && modelCalls > 0 ? (
+              <span className="ds-chips">
+                <span className="ds-chip" title={totals.mismatch ? modelTitle(totals.mismatch.model, totals.mismatch.newestModel, 'mismatch') : modelTitle(totals.replyModel, null, null)}>
+                  {totals.replyModel ? shortModel(totals.replyModel) : 'not reported'}
+                  {totals.modelCheck && CHECK_LABEL[totals.modelCheck] && (
+                    <span className={totals.modelCheck === 'mismatch' ? 'ds-trace__state--stopped' : undefined}>{CHECK_LABEL[totals.modelCheck]}</span>
+                  )}
+                </span>
+              </span>
+            ) : none}
           </Cell>
         )}
       </dl>

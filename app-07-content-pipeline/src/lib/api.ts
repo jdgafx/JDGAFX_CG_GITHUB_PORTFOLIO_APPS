@@ -1,14 +1,18 @@
 import type { ChangeNote } from '../../netlify/shared/changes'
 import {
-  STAGE_IDS, STAGE_LABELS, type ContentType, type StageId, type StageOutputs, type TraceRow, type Usage,
+  MODEL_CHECKS, STAGE_IDS, STAGE_LABELS, type ContentType, type ModelCheck, type StageId, type StageOutputs, type TraceRow, type Usage,
 } from '../../netlify/shared/contract'
 
-// One call to the server, with the usage and model the provider reported for it.
+// One call to the server, with the usage and model the provider reported for it, and the server's
+// check of that model against the newest Haiku.
 export interface CallRecord {
   stage: StageId
   row: TraceRow
   usage: Usage | null
   model: string | null
+  newestModel: string | null
+  // Null when the server sent no answer, so no model call is known to have run.
+  modelCheck: ModelCheck | null
 }
 
 export type PipelineOutcome =
@@ -87,6 +91,11 @@ function readRow(value: unknown): TraceRow | null {
   }
 }
 
+// The server's check. Without a usable one, a reply that named no model is not reported and any other is unchecked.
+function readCheck(value: unknown, served: string | null): ModelCheck {
+  return MODEL_CHECKS.find(check => check === value) ?? (served === null ? 'not-reported' : 'unchecked')
+}
+
 // Null when the body is not a JSON object. An abort or the watchdog ends the read with its own error.
 async function readBody(response: Response, signal: AbortSignal): Promise<Record<string, unknown> | null> {
   try {
@@ -120,7 +129,7 @@ async function postStage(
   const signal = AbortSignal.any([req.signal, watchdog])
   // The user's own stop stays silent; the watchdog firing is a failure the page explains.
   const slow = () => new StageFailure(SLOW_SERVER_MESSAGE, false, {
-    stage, usage: null, model: null, row: { name, status: 'failed', ms: elapsed(), detail: `No answer after ${(req.watchdogMs ?? WATCHDOG_MS) / 1000} s.` },
+    stage, usage: null, model: null, newestModel: null, modelCheck: null, row: { name, status: 'failed', ms: elapsed(), detail: `No answer after ${(req.watchdogMs ?? WATCHDOG_MS) / 1000} s.` },
   })
   let response: Response
   try {
@@ -137,6 +146,8 @@ async function postStage(
       stage,
       usage: null,
       model: null,
+      newestModel: null,
+      modelCheck: null,
       row: { name, status: 'failed', ms: elapsed(), detail: 'Connection lost before the stage finished.' },
     })
   }
@@ -149,7 +160,13 @@ async function postStage(
     throw slow()
   }
   const serverRow = readRow(body?.trace)
-  const attempt: Pick<CallRecord, 'usage' | 'model'> = { usage: readUsage(body?.usage), model: typeof body?.model === 'string' ? body.model : null }
+  const served = typeof body?.model === 'string' ? body.model : null
+  const attempt: Pick<CallRecord, 'usage' | 'model' | 'newestModel' | 'modelCheck'> = {
+    usage: readUsage(body?.usage),
+    model: served,
+    newestModel: typeof body?.newestModel === 'string' ? body.newestModel : null,
+    modelCheck: body ? readCheck(body.modelCheck, served) : null,
+  }
 
   if (!response.ok) {
     const message = typeof body?.error === 'string' ? body.error.slice(0, 300) : friendlyHttpError(response.status)
@@ -177,7 +194,7 @@ async function postStage(
   return {
     content,
     notes: readNotes(body?.notes),
-    record: { stage, row: { ...serverRow, name }, usage: attempt.usage, model: attempt.model },
+    record: { stage, row: { ...serverRow, name }, ...attempt },
   }
 }
 

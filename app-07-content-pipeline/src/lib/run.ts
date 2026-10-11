@@ -1,4 +1,4 @@
-import { STAGE_IDS, STAGE_LABELS, wordCount, type StageId, type StageOutputs, type Usage } from '../../netlify/shared/contract'
+import { STAGE_IDS, STAGE_LABELS, wordCount, type ModelCheck, type StageId, type StageOutputs, type Usage } from '../../netlify/shared/contract'
 import { parseSourcePack } from '../../netlify/shared/sourcepack'
 import type { CallRecord } from './api'
 
@@ -15,6 +15,8 @@ export interface TraceLine {
   tokens?: number
   cost?: number
   model?: string
+  newestModel?: string
+  modelCheck?: ModelCheck
   // Bar length, as a percentage of the slowest call in the run.
   share: number
 }
@@ -32,6 +34,8 @@ interface Row {
   tokens?: number
   cost?: number
   model?: string
+  newestModel?: string
+  modelCheck?: ModelCheck
 }
 
 // One line per call, then one "skipped" line per stage that never produced a call or output.
@@ -41,6 +45,8 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
     stage: call.stage,
     ...call.row,
     model: call.model ?? undefined,
+    newestModel: call.newestModel ?? undefined,
+    modelCheck: call.modelCheck ?? undefined,
   }))
 
   if (end) {
@@ -66,6 +72,27 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
   }))
 }
 
+// The worst check first: a mismatch outranks a call that named no model, which outranks an unchecked one.
+const CHECK_RANK: Record<ModelCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
+// The marker after a served id. A reply that named no model gets none.
+export const CHECK_LABEL: Record<ModelCheck, string | null> = {
+  match: '· newest',
+  mismatch: '· not newest',
+  unchecked: '· unchecked',
+  'not-reported': null,
+}
+
+// The full text of a served-model chip. On a mismatch it names the newest model after the served one.
+export function modelTitle(served: string | null | undefined, newest: string | null | undefined, check: ModelCheck | null | undefined): string | undefined {
+  if (!served) return undefined
+  return check === 'mismatch' && newest ? `${served}, newest: ${newest}` : served
+}
+
+function worstCheck(checks: ModelCheck[]): ModelCheck | null {
+  return checks.reduce<ModelCheck | null>((worst, check) => (worst === null || CHECK_RANK[check] > CHECK_RANK[worst] ? check : worst), null)
+}
+
 export interface RunTotals {
   calls: number
   // Calls to a model. The Sources lookup is a call, but it has no tokens or cost to report.
@@ -78,6 +105,12 @@ export interface RunTotals {
   costCalls: number
   cost: number | null
   models: string[]
+  // The served model of the reply the page shows: the last writing call that finished, else the last one tried.
+  replyModel: string | null
+  // The worst check across the writing calls, or null when none ran.
+  modelCheck: ModelCheck | null
+  // The first call whose served model is not the newest, for the title on a mismatch.
+  mismatch: CallRecord | null
 }
 
 // Totals across every call, including failed calls the provider billed. A figure is
@@ -87,10 +120,12 @@ export function summarize(calls: CallRecord[]): RunTotals {
   const costed = reported.filter(usage => usage.cost !== undefined)
   const sum = (pick: (usage: Usage) => number): number | null =>
     reported.length > 0 ? reported.reduce((total, usage) => total + pick(usage), 0) : null
+  const writing = calls.filter(call => call.stage !== 'sources')
+  const reply: CallRecord | undefined = [...writing].reverse().find(call => call.row.status === 'ok') ?? writing[writing.length - 1]
 
   return {
     calls: calls.length,
-    modelCalls: calls.filter(call => call.stage !== 'sources').length,
+    modelCalls: writing.length,
     ms: calls.reduce((total, call) => total + call.row.ms, 0),
     usageCalls: reported.length,
     promptTokens: sum(usage => usage.prompt_tokens),
@@ -99,6 +134,9 @@ export function summarize(calls: CallRecord[]): RunTotals {
     costCalls: costed.length,
     cost: costed.length > 0 ? costed.reduce((total, usage) => total + (usage.cost ?? 0), 0) : null,
     models: [...new Set(calls.flatMap(call => (call.model ? [call.model] : [])))],
+    replyModel: reply?.model ?? null,
+    modelCheck: worstCheck(writing.flatMap(call => (call.modelCheck ? [call.modelCheck] : []))),
+    mismatch: writing.find(call => call.modelCheck === 'mismatch') ?? null,
   }
 }
 
