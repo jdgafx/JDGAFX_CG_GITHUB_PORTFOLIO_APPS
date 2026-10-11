@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
+import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 
 // Every provider call goes through this stub. No test reaches the network.
 type Provider = (input: string, init?: RequestInit) => Promise<Response>
 
 const PLACEHOLDER = 'test-only-placeholder'
 const ORIGIN = 'http://localhost:5173'
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-08-vision-ai.netlify.app'
+const PRODUCTION = 'https://jdgafx-app-08-vision-ai.netlify.app'
 const PNG = 'aGVsbG8=' // base64 of "hello"
 const ORIGINAL_KEY = process.env.OPENROUTER_API_KEY
+// The newest-model list the function reads once per instance. Its alias entry names the model the replies carry.
+const NEWEST_LIST = {
+  data: [
+    {
+      id: '~anthropic/claude-haiku-latest',
+      alias_target: { name: 'Anthropic: Claude Haiku 5.5', slug: 'anthropic/claude-haiku-5.5' },
+    },
+  ],
+}
 let clientCount = 0
 
 beforeEach(() => {
@@ -27,17 +39,24 @@ function nextClient(): string {
 }
 
 function stubProvider(reply: () => Promise<Response>) {
-  const mock = vi.fn<Provider>(() => reply())
+  const mock = vi.fn<Provider>(input =>
+    input === MODEL_LIST_URL ? Promise.resolve(new Response(JSON.stringify(NEWEST_LIST), { status: 200 })) : reply(),
+  )
   vi.stubGlobal('fetch', mock)
   return mock
 }
 
-function post(body: unknown, headers: Record<string, string> = {}): Request {
-  return new Request('http://localhost:5173/api/ai', {
+function post(body: unknown, headers: Record<string, string> = {}, url = 'http://localhost:5173/api/ai'): Request {
+  return new Request(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-nf-client-connection-ip': nextClient(), ...headers },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   })
+}
+
+// The list read is answered from the stub; the chat calls are the ones the tests count.
+function chatCalls(provider: ReturnType<typeof vi.fn<Provider>>) {
+  return provider.mock.calls.filter(([url]) => url !== MODEL_LIST_URL)
 }
 
 function sse(chunks: unknown[]): Response {
@@ -76,8 +95,8 @@ describe('POST /api/ai streamed analysis', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
     const out = await frames(res)
-    expect(provider).toHaveBeenCalledTimes(1)
-    const [url, init] = provider.mock.calls[0]
+    expect(chatCalls(provider)).toHaveLength(1)
+    const [url, init] = chatCalls(provider)[0]
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(JSON.parse(String(init?.body))).toMatchObject({
       model: '~anthropic/claude-haiku-latest',
@@ -102,7 +121,10 @@ describe('POST /api/ai streamed analysis', () => {
         { name: 'Parse and validate', status: 'ok', ms: expect.any(Number), detail: '8 characters, finish reason stop' },
       ],
       usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-      model: 'anthropic/claude-haiku-5.5',
+      servedModel: 'anthropic/claude-haiku-5.5',
+      newestModel: 'anthropic/claude-haiku-5.5',
+      modelCheck: 'match',
+      mismatchedModel: null,
       totalMs: expect.any(Number),
     })
   })
@@ -216,6 +238,49 @@ describe('POST /api/ai request checks', () => {
     expect(provider).not.toHaveBeenCalled()
   })
 
+  it('accepts the origin of the function itself, such as a deploy preview, which the production list does not name', async () => {
+    const provider = stubProvider(async () => sse([{ choices: [{ delta: { content: 'Hi' }, finish_reason: 'stop' }] }]))
+
+    const res = await handler(
+      post({ image: PNG, mediaType: 'image/png', mode: 'describe' }, { origin: PREVIEW }, `${PREVIEW}/api/ai`),
+    )
+
+    expect(res.status).toBe(200)
+    expect(chatCalls(provider)).toHaveLength(1)
+  })
+
+  it('still accepts the production origin', async () => {
+    stubProvider(async () => sse([{ choices: [{ delta: { content: 'Hi' }, finish_reason: 'stop' }] }]))
+
+    const res = await handler(post({ image: PNG, mediaType: 'image/png', mode: 'describe' }, { origin: PRODUCTION }))
+
+    expect(res.status).toBe(200)
+  })
+
+  it('refuses a foreign origin even when it is a deploy preview of another site', async () => {
+    const provider = stubProvider(async () => sse([]))
+
+    const res = await handler(
+      post({ image: PNG, mediaType: 'image/png', mode: 'describe' }, { origin: PREVIEW }, 'https://evil.example/api/ai'),
+    )
+
+    expect(res.status).toBe(403)
+    expect(provider).not.toHaveBeenCalled()
+  })
+
+  it('accepts a request that sends no Origin header, as before', async () => {
+    stubProvider(async () => sse([{ choices: [{ delta: { content: 'Hi' }, finish_reason: 'stop' }] }]))
+    const req = new Request('http://localhost:5173/api/ai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nf-client-connection-ip': nextClient() },
+      body: JSON.stringify({ image: PNG, mediaType: 'image/png', mode: 'describe' }),
+    })
+
+    const res = await handler(req)
+
+    expect(res.status).toBe(200)
+  })
+
   it('answers 429 after 20 requests from one client within a minute', async () => {
     const client = nextClient()
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -276,7 +341,7 @@ describe('POST /api/ai provider failures', () => {
 
     const out = await frames(await handler(post(body)))
 
-    expect(provider).toHaveBeenCalledTimes(1)
+    expect(chatCalls(provider)).toHaveLength(1)
     expect(JSON.stringify(out)).not.toContain('acct_987')
     expect(out.at(-1)).toMatchObject({
       stage: 'failed',
@@ -290,7 +355,7 @@ describe('POST /api/ai provider failures', () => {
 
     const out = await frames(await handler(post(body)))
 
-    expect(provider).toHaveBeenCalledTimes(1)
+    expect(chatCalls(provider)).toHaveLength(1)
     expect(out.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.' })
   })
 
@@ -301,7 +366,7 @@ describe('POST /api/ai provider failures', () => {
 
     const out = await frames(await handler(post(body)))
 
-    expect(provider).toHaveBeenCalledTimes(1)
+    expect(chatCalls(provider)).toHaveLength(1)
     expect(out.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.' })
   })
 })

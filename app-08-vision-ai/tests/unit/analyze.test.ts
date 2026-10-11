@@ -71,7 +71,10 @@ describe('analyzeImage with a streamed reply', () => {
           result: 'A red sign.',
           trace: [CHECKED, modelOk, parseOk],
           usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-          model: 'anthropic/claude-haiku-5.5',
+          servedModel: 'anthropic/claude-haiku-5.5',
+          newestModel: 'anthropic/claude-haiku-5.5',
+          modelCheck: 'match',
+          mismatchedModel: null,
           totalMs: 1200,
         },
       ]),
@@ -92,7 +95,10 @@ describe('analyzeImage with a streamed reply', () => {
       summary: {
         trace: [CHECKED, modelOk, parseOk],
         usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-        model: 'anthropic/claude-haiku-5.5',
+        servedModel: 'anthropic/claude-haiku-5.5',
+        newestModel: 'anthropic/claude-haiku-5.5',
+        modelCheck: 'match',
+        mismatchedModel: null,
         totalMs: 1200,
       },
     })
@@ -110,7 +116,7 @@ describe('analyzeImage with a streamed reply', () => {
 
   it('sends the question only in Question mode', async () => {
     const fetchMock = stubFetch(async () =>
-      sseReply([{ stage: 'complete', result: 'Two words.', trace: [], usage: null, model: null, totalMs: 5 }]),
+      sseReply([{ stage: 'complete', result: 'Two words.', trace: [], usage: null, servedModel: null, totalMs: 5 }]),
     )
 
     await analyzeImage({ file: hi, mode: 'qa', question: 'What words appear?', onStep: () => undefined, onText: () => undefined })
@@ -129,7 +135,7 @@ describe('analyzeImage with a streamed reply', () => {
           truncated: true,
           trace: [{ name: 'Model call', status: 'failed', ms: 40, detail: 'Stopped at the 25-second limit; partial output kept' }],
           usage: null,
-          model: null,
+          servedModel: null,
           totalMs: 25000,
         },
       ]),
@@ -141,7 +147,7 @@ describe('analyzeImage with a streamed reply', () => {
       status: 'failed',
       message: 'The AI provider did not answer in time. The partial answer above may be incomplete.',
       truncated: true,
-      summary: { totalMs: 25000, model: null },
+      summary: { totalMs: 25000, servedModel: null },
     })
   })
 
@@ -192,7 +198,10 @@ describe('analyzeImage request failures', () => {
           },
         ],
         usage: null,
-        model: null,
+        servedModel: null,
+        newestModel: null,
+        modelCheck: 'not-reported',
+        mismatchedModel: null,
         totalMs: expect.any(Number),
       },
     })

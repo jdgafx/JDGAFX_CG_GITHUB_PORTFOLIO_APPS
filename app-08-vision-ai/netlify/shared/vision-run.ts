@@ -1,6 +1,7 @@
 import { missingParts } from './compare'
 import { raceAbort } from './deadline'
-import { chatBody, type ChatMessage, type Provider } from './provider'
+import { MODEL, chatBody, type ChatMessage, type Provider } from './provider'
+import { newestModel, servedCheck, worstCheck, type NewestSource } from './newest-model'
 import {
   NO_ANALYSIS_MESSAGE,
   PARTIAL_TIMEOUT_MESSAGE,
@@ -32,6 +33,8 @@ export interface VisionRun {
   checked: TraceStep
   /** Comparison replies must carry all three parts before the run counts as complete. */
   mode?: string
+  /** Where the newest model comes from. The live list by default; tests pass a stub so no list is read. */
+  newest?: NewestSource
 }
 
 // One deadline covers the whole run, connecting and reading the answer alike, retry included.
@@ -51,12 +54,16 @@ const encoder = new TextEncoder()
 // Streams one vision call to the browser as SSE frames:
 //   step  - a trace step as it starts (status running) and as it finishes
 //   text  - a streamed delta of the answer
-//   complete / failed - the terminal frame, carrying trace, usage, model, totalMs
+//   complete / failed - the terminal frame, carrying trace, usage, servedModel, the newest-model check, totalMs
 // The stream always ends with a data: [DONE] line.
 export function streamVisionRun(run: VisionRun): Response {
   let upstreamAbort = new AbortController()
   const deadline = run.startedAt + UPSTREAM_BUDGET_MS
   const trace: TraceStep[] = []
+  // Every provider answer of this run, retry included. A call that never got an answer has nothing to check.
+  const calls: ReadState[] = []
+  // One list read per run, started before the first model call and awaited only when the run ends.
+  const newestP = (run.newest ?? newestModel)()
   let open = true
 
   const stream = new ReadableStream<Uint8Array>({
@@ -68,18 +75,32 @@ export function streamVisionRun(run: VisionRun): Response {
         trace.push(step)
         emit({ stage: 'step', step })
       }
-      const conclude = (frame: Record<string, unknown>, state?: ReadState) => {
-        emit({ ...frame, trace, usage: state?.usage ?? null, model: state?.served ?? null, totalMs: Date.now() - run.startedAt })
+      const conclude = async (frame: Record<string, unknown>, state?: ReadState) => {
+        const newest = await newestP
+        const checked = calls.map(call => ({ served: call.served, check: servedCheck(newest, call.served) }))
+        for (const call of checked) {
+          if (call.check === 'mismatch') console.warn(`model mismatch: served ${call.served}, newest ${newest}, requested ${MODEL}`)
+        }
+        emit({
+          ...frame,
+          trace,
+          usage: state?.usage ?? null,
+          servedModel: state?.served ?? null,
+          newestModel: newest,
+          modelCheck: checked.length === 0 ? 'not-reported' : worstCheck(checked.map(call => call.check)),
+          mismatchedModel: checked.find(call => call.check === 'mismatch')?.served ?? null,
+          totalMs: Date.now() - run.startedAt,
+        })
       }
 
       // One try at the call. Returns 'hang' only when nothing was shown yet and the caller may try again;
       // every other ending has already been written to the trace and the terminal frame.
       const attempt = async (callStart: number, retried: boolean, mayRetry: boolean): Promise<'hang' | 'finished'> => {
         const state = newState()
-        const fail = (stepDetail: string, message: string, truncated: boolean): 'finished' => {
+        const fail = async (stepDetail: string, message: string, truncated: boolean): Promise<'finished'> => {
           finish({ name: MODEL_STEP, status: 'failed', ms: Date.now() - callStart, detail: stepDetail })
           finish({ name: VALIDATE_STEP, status: 'skipped', detail: 'Skipped because the model call did not finish' })
-          conclude({ stage: 'failed', error: message, truncated }, state)
+          await conclude({ stage: 'failed', error: message, truncated }, state)
           return 'finished'
         }
         upstreamAbort = new AbortController()
@@ -101,7 +122,7 @@ export function streamVisionRun(run: VisionRun): Response {
           emit(frame)
         }
         // A first try that heard nothing is retried; one that was stopped by the visitor or the deadline is not.
-        const hangOrFail = (stepDetail: string, message: string): 'hang' | 'finished' =>
+        const hangOrFail = async (stepDetail: string, message: string): Promise<'hang' | 'finished'> =>
           mayRetry && open && state.chunks === 0 && Date.now() < deadline ? 'hang' : fail(stepDetail, message, false)
 
         try {
@@ -129,6 +150,7 @@ export function streamVisionRun(run: VisionRun): Response {
             return hangOrFail('Could not reach the AI provider', UNREACHABLE_MESSAGE)
           }
 
+          calls.push(state)
           if (!upstream.ok || !upstream.body) {
             void upstream.body?.cancel().catch(() => undefined)
             const message = upstream.ok ? EMPTY_MESSAGE : providerMessage(upstream.status)
@@ -167,7 +189,7 @@ export function streamVisionRun(run: VisionRun): Response {
           const validateMs = Date.now() - validateStart
           if (problem) {
             finish({ name: VALIDATE_STEP, status: 'failed', ms: validateMs, detail: problem.detail })
-            conclude({ stage: 'failed', error: problem.message, truncated: problem.truncated }, state)
+            await conclude({ stage: 'failed', error: problem.message, truncated: problem.truncated }, state)
             return 'finished'
           }
           finish({
@@ -176,7 +198,7 @@ export function streamVisionRun(run: VisionRun): Response {
             ms: validateMs,
             detail: `${state.text.length.toLocaleString('en-US')} characters, finish reason ${state.finishReason ?? 'not reported'}`,
           })
-          conclude({ stage: 'complete', result: state.text }, state)
+          await conclude({ stage: 'complete', result: state.text }, state)
           return 'finished'
         } finally {
           stopTimers()
@@ -201,7 +223,7 @@ export function streamVisionRun(run: VisionRun): Response {
         await runCall()
       } catch (err) {
         if (open) console.error('Vision run failed:', err instanceof Error ? err.name : 'unknown')
-        conclude({ stage: 'failed', error: UNEXPECTED_MESSAGE, truncated: false })
+        await conclude({ stage: 'failed', error: UNEXPECTED_MESSAGE, truncated: false })
       } finally {
         if (open) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))

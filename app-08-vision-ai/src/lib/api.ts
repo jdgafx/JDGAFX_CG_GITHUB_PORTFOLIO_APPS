@@ -1,3 +1,4 @@
+import type { ModelCheck } from '../../netlify/shared/newest-model'
 import { isRecord } from './guards'
 import { cropRegion, fileProblem, fitForCompare, parseDataUrl, type CropResult, type DataUrlParts } from './image'
 import { describeRect, isSmallCrop, type Box } from './region'
@@ -28,9 +29,18 @@ interface RunUsage {
 export interface RunSummary {
   trace: TraceStep[]
   usage: RunUsage | null
-  model: string | null
+  /** The served model of the call that produced the shown output. */
+  servedModel: string | null
+  /** The newest model the list named for the alias, or null when it could not say. */
+  newestModel: string | null
+  /** The worst check across every provider answer of the run. */
+  modelCheck: ModelCheck
+  /** The served model of the call that failed the check, when one did. */
+  mismatchedModel: string | null
   totalMs: number
 }
+
+const MODEL_CHECKS: readonly ModelCheck[] = ['match', 'mismatch', 'unchecked', 'not-reported']
 
 type RunOutcome =
   | { status: 'complete'; result: string; summary: RunSummary }
@@ -90,7 +100,15 @@ function fileToBase64(file: File): Promise<DataUrlParts> {
 }
 
 function localSummary(trace: Trace): RunSummary {
-  return { trace: trace.steps, usage: null, model: null, totalMs: Date.now() - trace.startedAt }
+  return {
+    trace: trace.steps,
+    usage: null,
+    servedModel: null,
+    newestModel: null,
+    modelCheck: 'not-reported',
+    mismatchedModel: null,
+    totalMs: Date.now() - trace.startedAt,
+  }
 }
 
 function fail(trace: Trace, name: string, detail: string, message: string): RunOutcome {
@@ -365,7 +383,10 @@ function summaryFrom(frame: Record<string, unknown>, trace: Trace): RunSummary {
   return {
     trace: Array.isArray(frame.trace) ? [...local, ...server] : server,
     usage: isRecord(frame.usage) ? (frame.usage as RunUsage) : null,
-    model: typeof frame.model === 'string' ? frame.model : null,
+    servedModel: typeof frame.servedModel === 'string' ? frame.servedModel : null,
+    newestModel: typeof frame.newestModel === 'string' ? frame.newestModel : null,
+    modelCheck: MODEL_CHECKS.find(check => check === frame.modelCheck) ?? 'not-reported',
+    mismatchedModel: typeof frame.mismatchedModel === 'string' ? frame.mismatchedModel : null,
     totalMs: typeof frame.totalMs === 'number' ? frame.totalMs : localSummary(trace).totalMs,
   }
 }

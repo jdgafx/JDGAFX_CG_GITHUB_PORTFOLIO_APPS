@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
+import type { ModelCheck } from '../../netlify/shared/newest-model'
 import type { RunSummary, TraceStep } from '../lib/api'
 import { NOT_REPORTED, formatCount, formatMs, formatUsd, shortModel } from '../lib/format'
 import type { RunStatus } from '../lib/useAnalysis'
 
 interface CellProps {
   label: string
-  hint: string
+  hint: React.ReactNode
   children: React.ReactNode
   small?: boolean
 }
@@ -41,6 +42,46 @@ interface ReadoutStripProps {
 
 const NONE = '—'
 
+// The marker in the hint line after the usual text. A check the provider could not support adds nothing.
+const MARKS: Record<ModelCheck, { text: string; className?: string } | null> = {
+  match: { text: '· newest' },
+  mismatch: { text: '· not newest', className: 'ds-badge--warning' },
+  unchecked: { text: '· unchecked' },
+  'not-reported': null,
+}
+
+/** The served id in full; on a mismatch, the newest id beside it. */
+function modelTitle(summary: RunSummary): string {
+  if (summary.modelCheck === 'mismatch') return `${summary.mismatchedModel}, newest: ${summary.newestModel}`
+  return summary.servedModel ?? NOT_REPORTED
+}
+
+/** The served model in its chip. Plain text when the reply named no model and nothing mismatched. */
+function modelReadout(summary: RunSummary | null) {
+  if (!summary) return NONE
+  if (!summary.servedModel && summary.modelCheck !== 'mismatch') return NOT_REPORTED
+  return (
+    <span className="ds-chips">
+      <span className="ds-chip" title={modelTitle(summary)}>
+        {summary.servedModel ? shortModel(summary.servedModel) : NOT_REPORTED}
+      </span>
+    </span>
+  )
+}
+
+/** The hint line: the usual text, then the newest-model marker when the check gave one. */
+function modelHint(summary: RunSummary | null) {
+  const base = 'Named in the provider reply'
+  const mark = summary ? MARKS[summary.modelCheck] : null
+  if (!mark) return base
+  return (
+    <>
+      {base}{' '}
+      <span className={mark.className}>{mark.text}</span>
+    </>
+  )
+}
+
 /** Live figures while the run is going, the run's own totals once it has ended, dashes before one. */
 export default function ReadoutStrip({ status, steps, summary }: ReadoutStripProps) {
   const running = status === 'running'
@@ -71,18 +112,8 @@ export default function ReadoutStrip({ status, steps, summary }: ReadoutStripPro
             </span>
           </Cell>
         ) : (
-          <Cell label="Model" hint="Named in the provider reply" small>
-            {summary?.model ? (
-              <span className="ds-chips">
-                <span className="ds-chip" title={summary.model}>
-                  {shortModel(summary.model)}
-                </span>
-              </span>
-            ) : summary ? (
-              NOT_REPORTED
-            ) : (
-              NONE
-            )}
+          <Cell label="Model" hint={modelHint(summary)} small>
+            {modelReadout(summary)}
           </Cell>
         )}
       </dl>

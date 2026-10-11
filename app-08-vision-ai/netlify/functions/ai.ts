@@ -38,7 +38,7 @@ export default async function handler(req: Request): Promise<Response> {
 // The page and this function share one origin, so no CORS headers are sent. The Origin
 // allow-list still stops a page on another site from using the endpoint.
 async function respond(req: Request, startedAt: number): Promise<Response> {
-  if (!isOriginAllowed(req.headers.get('origin'))) return jsonError('Origin not allowed', 403)
+  if (!isOriginAllowed(req.headers.get('origin'), new URL(req.url).origin)) return jsonError('Origin not allowed', 403)
   if (req.method !== 'POST') return jsonError('Method not allowed', 405)
   if (isRateLimited(clientKey(req))) {
     return checkFailed('Too many requests. Please wait a minute and try again.', 429, startedAt)
@@ -104,9 +104,11 @@ function checkFailed(message: string, status: number, startedAt: number): Respon
   return jsonError(message, status, { trace, totalMs })
 }
 
-function isOriginAllowed(origin: string | null): boolean {
+function isOriginAllowed(origin: string | null, ownOrigin: string): boolean {
   // Same-origin requests and non-browser clients may omit Origin entirely.
-  return origin === null || ALLOWED_ORIGINS.includes(origin)
+  if (origin === null) return true
+  // A deploy preview runs under its own host, which the production list does not name, so the page's own origin is allowed too.
+  return ALLOWED_ORIGINS.includes(origin) || origin === ownOrigin
 }
 
 function clientKey(req: Request): string {

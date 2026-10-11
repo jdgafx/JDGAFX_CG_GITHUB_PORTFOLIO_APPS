@@ -40,7 +40,7 @@ afterEach(() => {
 })
 
 const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`
-const complete = frame({ stage: 'complete', result: 'Done.', trace: [], usage: null, model: null, totalMs: 5 })
+const complete = frame({ stage: 'complete', result: 'Done.', trace: [], usage: null, servedModel: null, totalMs: 5 })
 
 function stubFetch(reply: () => Promise<Response>) {
   const mock = vi.fn<Fetch>(() => reply())

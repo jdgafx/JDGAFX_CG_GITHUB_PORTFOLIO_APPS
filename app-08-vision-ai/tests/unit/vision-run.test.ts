@@ -5,6 +5,8 @@ type Provider = (input: string, init?: RequestInit) => Promise<Response>
 
 const CHECKED: TraceStep = { name: 'Request checked', status: 'ok', ms: 1, detail: 'Describe, image/png, about 1 KB' }
 const NO_ANALYSIS = 'The vision service returned no usable analysis. Please retry with the same image.'
+// The newest model the stubbed list names. Every reply in these tests is served by it, so the check matches.
+const NEWEST = 'anthropic/claude-haiku-5.5'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -18,6 +20,7 @@ function makeRun(overrides: Partial<VisionRun> = {}): VisionRun {
     maxTokens: 4096,
     startedAt: Date.now(),
     checked: CHECKED,
+    newest: () => Promise.resolve(NEWEST),
     ...overrides,
   }
 }
@@ -110,7 +113,10 @@ describe('streamVisionRun happy path', () => {
           },
         ],
         usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 },
-        model: 'anthropic/claude-haiku-5.5',
+        servedModel: 'anthropic/claude-haiku-5.5',
+        newestModel: NEWEST,
+        modelCheck: 'match',
+        mismatchedModel: null,
         totalMs: expect.any(Number),
       },
     ])
@@ -159,7 +165,10 @@ describe('streamVisionRun content and token checks', () => {
         { name: 'Parse and validate', status: 'skipped', detail: 'Skipped because the model call did not finish' },
       ],
       usage: null,
-      model: 'openai/content-safety-guard',
+      servedModel: 'openai/content-safety-guard',
+      newestModel: NEWEST,
+      modelCheck: 'mismatch',
+      mismatchedModel: 'openai/content-safety-guard',
       totalMs: expect.any(Number),
     })
   })
