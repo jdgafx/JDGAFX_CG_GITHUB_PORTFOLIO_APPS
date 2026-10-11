@@ -180,8 +180,9 @@ export function traceRow(node: NodeName, startedAt: number, status: TraceStatus,
     row.costSource = 'usage'
   } else {
     const { prompt_tokens: prompt, completion_tokens: completion } = call.result.usage
+    // Priced by the model that answered. An unnamed or unknown model gets no estimate, so no cost is shown.
     const estimate =
-      prompt !== undefined && completion !== undefined ? estimateCost(call.requested, prompt, completion) : undefined
+      prompt !== undefined && completion !== undefined ? estimateCost(row.model ?? null, prompt, completion) : undefined
     if (estimate !== undefined) {
       row.cost = estimate
       row.costSource = 'estimated'

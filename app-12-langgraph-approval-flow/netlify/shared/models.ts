@@ -18,13 +18,17 @@ interface Price {
   output: number
 }
 
+/** Keyed by the served model id the price was measured for. The alias MODEL is not a served id, so it has no price. */
 export const PRICES: Readonly<Record<string, Price>> = {
-  [MODEL]: { input: 0.1, output: 0.5 },
+  'anthropic/claude-haiku-5.5': { input: 0.1, output: 0.5 },
 }
 
-/** The estimated USD for one call, or undefined when the model has no known price. */
-export function estimateCost(model: string, promptTokens: number, completionTokens: number): number | undefined {
-  const price = PRICES[model] as Price | undefined
-  if (!price) return undefined
+/**
+ * The estimated USD for one call, priced by the model that answered, or undefined when that model is unknown
+ * or the reply named none. An unknown model is never priced at another model's rate.
+ */
+export function estimateCost(servedModel: string | null, promptTokens: number, completionTokens: number): number | undefined {
+  if (servedModel === null || !Object.hasOwn(PRICES, servedModel)) return undefined
+  const price = PRICES[servedModel] as Price
   return (promptTokens * price.input + completionTokens * price.output) / 1_000_000
 }

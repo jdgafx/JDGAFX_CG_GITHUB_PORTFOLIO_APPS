@@ -32,7 +32,7 @@ export function modelReadoutOf(row: TraceRow): { chip: string; marker: string | 
     case 'match':
       return { chip, marker: '· newest', warn: false, title: row.model ?? undefined }
     case 'mismatch':
-      return { chip, marker: '· not newest', warn: true, title: `newest: ${row.newestModel ?? 'unknown'}` }
+      return { chip, marker: '· not newest', warn: true, title: `${row.model}, newest: ${row.newestModel ?? 'unknown'}` }
     case 'unchecked':
       return { chip, marker: '· unchecked', warn: false, title: row.model ?? undefined }
     default:

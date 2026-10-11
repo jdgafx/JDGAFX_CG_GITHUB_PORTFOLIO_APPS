@@ -41,6 +41,29 @@ describe('the served model in the trace', () => {
   })
 })
 
+describe('the estimated cost in the trace', () => {
+  const usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 }
+
+  it('is priced by the model that answered, when the provider reports no cost', async () => {
+    const call = await callOf(replying({ servedModel: NEWEST_HAIKU, usage }), Promise.resolve(NEWEST_HAIKU))
+
+    expect(traceRow('duplicates', Date.now(), 'ok', 'Judged.', call)).toMatchObject({ cost: expect.any(Number), costSource: 'estimated' })
+    expect(traceRow('duplicates', Date.now(), 'ok', 'Judged.', call).cost).toBeCloseTo(0.0002, 12)
+  })
+
+  it('is no cost when the model that answered has no known price, never the old rate', async () => {
+    const call = await callOf(replying({ servedModel: 'anthropic/claude-other', usage }), Promise.resolve(NEWEST_HAIKU))
+
+    expect(traceRow('duplicates', Date.now(), 'ok', 'Judged.', call)).not.toHaveProperty('cost')
+  })
+
+  it('is no cost when the reply named no model', async () => {
+    const call = await callOf(replying({ servedModel: undefined, usage }), Promise.resolve(NEWEST_HAIKU))
+
+    expect(traceRow('duplicates', Date.now(), 'ok', 'Judged.', call)).not.toHaveProperty('cost')
+  })
+})
+
 describe('a reply from another model', () => {
   it('is a mismatch, is logged once, and the reply is kept: nothing is refused', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

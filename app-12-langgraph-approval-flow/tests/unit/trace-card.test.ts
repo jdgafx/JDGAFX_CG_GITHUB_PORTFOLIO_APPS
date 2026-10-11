@@ -18,12 +18,12 @@ describe('modelReadoutOf', () => {
     })
   })
 
-  it('shows the served id, "not newest" as a warning, and the full newest id in the title when another model answered', () => {
+  it('shows the served id, "not newest" as a warning, and the full served and newest ids in the title when another model answered', () => {
     expect(modelReadoutOf(row({ model: 'anthropic/claude-haiku-5', newestModel: NEWEST, modelCheck: 'mismatch' }))).toEqual({
       chip: 'claude-haiku-5',
       marker: '· not newest',
       warn: true,
-      title: `newest: ${NEWEST}`,
+      title: `anthropic/claude-haiku-5, newest: ${NEWEST}`,
     })
   })
 
@@ -58,7 +58,7 @@ describe('the served-model chip in the trace', () => {
   it('renders the marker inside the chip, in the warning colour for a mismatch', () => {
     const html = chipsOf([row({ model: 'anthropic/claude-haiku-5', newestModel: NEWEST, modelCheck: 'mismatch' })])
 
-    expect(html).toContain(`title="newest: ${NEWEST}"`)
+    expect(html).toContain(`title="anthropic/claude-haiku-5, newest: ${NEWEST}"`)
     expect(html).toContain('claude-haiku-5<span class="ds-trace__state--stopped">· not newest</span>')
   })
 
