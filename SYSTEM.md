@@ -13,22 +13,28 @@ Each row is one checkable sentence. "On file" means the evidence exists in `.acc
 
 | Component | Done means (checkable) | On file today |
 |---|---|---|
-| app-01 AgentFlow | A citation audit on a live run gives the right verdict for each cited claim, checked against the fetched source, and the SP2 checklist is 8 of 8 | No SP2 evidence. Last verifier FAIL (8 FAIL reports) |
+| app-01 AgentFlow | The citation audit's verdict on each cited claim matches a hand verdict written into the evidence file before the run (3 claims per live run), and SP2 8 of 8 | No SP2 evidence. Last verifier FAIL (8 FAIL reports) |
 | app-02 DocMind | Live Wikipedia or arXiv question returns cited answers whose markers match the passages shown, and SP2 8 of 8 | No SP2 evidence |
-| app-03 CodeLens | Live GitHub file review flags only claims the file can confirm, with the false-claim rate at zero on a fixed sample, and SP2 8 of 8 | No SP2 evidence. Last FAIL on record (3 of 45 wrong) |
+| app-03 CodeLens | Live GitHub file review flags only claims the file can confirm: zero false claims on the frozen sample (file list and count fixed in `.acceptance/samples/app-03.json` before any run), and SP2 8 of 8 | No SP2 evidence. Last FAIL on record (3 of 45 wrong) |
 | app-04 VoxAI | A typed or spoken question gets a live weather or Wikipedia answer with no "Let me check" text and no empty answer, and SP2 8 of 8 | Uncommitted tree (48 paths), not verified |
 | app-05 DataPilot | Live USGS or Open-Meteo question returns the value the source gives (checked by hand), and SP2 8 of 8 | **Accepted under SP2 8 of 8** (`.acceptance/dw/es/app-05-sp2/`, `app-05-fix3-2026-10-10/`) |
-| app-06 ModelArena | Votes are stored one record each and the leaderboard matches them, with no test votes left in production | No SP2 evidence. Test votes purge pending (section 5, C7) |
-| app-07 ContentForge | Every citation in a generated piece links to a live source that says it, with no 404 source, and no auto-run on first load | Uncommitted tree (30 paths), cause of the auto-run not found |
+| app-06 ModelArena | Votes are stored one record each, the leaderboard matches them, no test votes remain in production (read-only check, section 8), and SP2 8 of 8 | No SP2 evidence. Test votes purge pending (section 5, C7) |
+| app-07 ContentForge | Every citation in a generated piece links to a live source that says it, no 404 source, no auto-run on first load, and SP2 8 of 8 | Uncommitted tree (30 paths), cause of the auto-run not found |
 | app-08 VisionLab | Commons picks load and the pick error clears on a new image, and SP2 8 of 8 | No SP2 evidence |
-| app-09 InsightHub | Every figure in a summary matches the npm data by hand, and the figure check's verdicts match the hand check on a fixed sample | Uncommitted tree (43 paths), 24 tests failing |
-| app-10 BrowseBot | The trace total equals the sum of its rows, the idle chip names the providers, and the run is repeated 10 times with no failure | Uncommitted tree (34 paths) |
+| app-09 InsightHub | Every figure in a summary matches the npm data by hand, the figure check's verdicts match the hand check on the frozen sample, and SP2 8 of 8 | Uncommitted tree (43 paths), 24 tests failing |
+| app-10 BrowseBot | The trace total equals the sum of its rows, the idle chip names the providers, the run is repeated 10 times with no failure, and SP2 8 of 8 (10 runs in item 7) | Uncommitted tree (34 paths) |
 | app-11 GraphScout | A live run cites every answer sentence, the served model is the newest Haiku, and SP2 8 of 8 | Tool-choice fix and guard committed `7aca059`; one live round of 5 runs on file in `.acceptance/dw/es/app-11-toolchoice-2026-10-11/`. Still **REJECT** on its earlier Lows |
-| app-12 GraphGate | Live GitHub issues triage, the approval card fits 390 px, and the public thread list shows no test fixtures | Uncommitted tree (54 paths). Token and purge decisions open |
-| app-13 GraphSwarm | A live Wikipedia summary completes inside the platform time limit with every chunk extracted, and SP2 8 of 8 | Price logic verified by hand; six Lows open. **REJECT** |
-| n8n workflows 01 to 05 | Each live workflow's model call names the newest Haiku or Sonnet in its response, and each run completes | Files and live instance synced (`96fbf04`). Captured ids for 01, 02 (both nodes), 03 and 05 are the newest. **Live runs not done**: the n8n OpenRouter credential returns 402 (`Insufficient credits`) |
+| app-12 GraphGate | Live GitHub issues triage, the approval card fits 390 px, the public thread list shows no test fixtures (read-only check, section 8), and SP2 8 of 8 | Uncommitted tree (54 paths). Token and purge decisions open |
+| app-13 GraphSwarm | A live Wikipedia summary completes inside the 30 s platform cut-off (run budget 23 s, `pipeline.ts:15`) with every chunk extracted, and SP2 8 of 8 | Price logic verified by hand; six Lows open. **REJECT** |
+| n8n workflows 01 to 05 | Each live workflow's model call names the newest Haiku or Sonnet in its response (checked against the dated list snapshot), and the run's output fields match a fixture written before the run | Files and live instance synced (`96fbf04`). Captured ids for 01, 02 (both nodes), 03 and 05 are the newest. **Live runs not done**: the n8n OpenRouter credential returns 402 (`Insufficient credits`) |
 
 Count: **one** app (05) is accepted. Everything else is not done.
+
+**Definitions used by the checks** (apply to every row):
+- **Newest model:** the `alias_target` of `~anthropic/claude-haiku-latest` (or `-sonnet-latest`) in OpenRouter's public list, saved as a dated copy (`openrouter-models-<date>.json`) in each run's evidence folder. A run without the copy is not evidence.
+- **Served bundle matches the build:** the JS and CSS asset names in the deployed `index.html` equal those in the local `dist/index.html` from the same commit.
+- **Above the fold:** visible in the first screen at 1440x900 (desktop) and 390x844 (phone).
+- **Platform cut-off:** 30 s, the figure in `c-incidents.md`. Each app's run budget must sit under it.
 
 ## 3. Shared mechanisms (what each app re-implements)
 
@@ -76,9 +82,9 @@ Verifier history from `~/dev/CC-MAESTRO/reviews/portfolio-review/c-incidents.md`
 ## 6. The SP2 checklist (the one acceptance bar)
 
 For each app, all eight points, evidence saved under `.acceptance/dw/es/<app>-<date>/`:
-1. Tree clean and pushed; the served bundle matches the build.
+1. Tree clean and pushed; the served bundle matches the build (asset names in deployed `index.html` equal those in local `dist/index.html`, same commit).
 2. Lint, typecheck, tests and build pass; no mock data in `src/` or `netlify/`.
-3. Cold visit at 1440 and 390: task line, directions and an idle "Live data: <source>" chip above the fold.
+3. Cold visit at 1440x900 and 390x844: task line, directions and an idle "Live data: <source>" chip visible without scrolling.
 4. Run the example from the directions alone: request and response captured, chip lights, served model shown.
 5. Three values checked by hand against the source.
 6. Block the fetch and the model: clear error, "unavailable" chip, no substitute data.
@@ -91,10 +97,10 @@ Each step names the check that would fail before the fix. Effort is an estimate.
 
 | Order | Fix | Covers | Verification that fails before the fix | Effort |
 |---|---|---|---|---|
-| 1 | **Preview-first gate.** Each fix goes to a branch or a Netlify deploy preview. The SP2 run happens on the preview and writes the evidence file for that commit SHA. Merge to `main` only when that file exists and says PASS | C6, C7, C9 | Today a push goes straight to `main` (`git push origin HEAD:main`, used in every commit in this plan). A check that refuses the merge without a PASS evidence file for the SHA fails on any unproven commit | Small: one script and one rule |
-| 2 | **Frozen SP2 sample.** The fixed input list per app (questions, sources, expected values) lives in the repo. Rates are recomputed on that list only. The verifier cites checklist items by number | C5 | A rate computed on a different sample is refused by the script (the sample hash differs) | Medium: one list per app, written once |
-| 3 | **Model path.** `tool_choice: auto` everywhere (done in app-11, `7aca059`). Served model shown in the UI. A mismatch is logged in the trace and shown, never silent. The pinned-id grep is scoped to the call paths and excludes catalogue data (for example app-06 `curated.ts`) | C1, C10 | Grep on the call paths finds a pinned id: fails before, passes after. Served-model tests `graph.test.ts` (f), (j2), (j3) fail when the guard is reverted (verified in app-11) | Small per app; app-11 done, 12 to go |
-| 4 | **Park the five dirty trees** (04, 07, 09, 10, 12) on branches `wip/app-NN`, so `main` holds no unverified work. Each comes back only through step 1 | C6 | `main` clean of unverified paths; each branch later passes SP1 and SP2 or is dropped | Small |
+| 1 | **Park the dirty trees (209 paths: 04 48, 07 30, 09 43, 10 34, 12 54)** on branches `wip/app-NN`, so `main` holds no unverified work (this was step 4) | C6 | `git status --porcelain` on `main` is empty of those paths; each branch later passes SP1 and SP2 or is dropped | Small |
+| 2 | **Preview-first gate.** Each fix goes to a branch or a Netlify deploy preview. The SP2 run happens on the preview and writes the evidence file for that commit SHA. Merge to `main` only when that file exists and says PASS. First check whether branch deploys share the production Blobs store; if they do, previews must use their own store before verifiers run | C6, C7, C9 | Today a push goes straight to `main` (`git push origin HEAD:main`, used in every commit in this plan). A check that refuses the merge without a PASS evidence file for the SHA fails on any unproven commit | Small: one script and one rule |
+| 3 | **Frozen SP2 sample.** The fixed input list per app (questions, sources, expected values) lives in the repo. Rates are recomputed on that list only. The verifier cites checklist items by number | C5 | A rate computed on a different sample is refused by the script (the sample hash differs) | Medium: one list per app, written once |
+| 4 | **Model path.** `tool_choice: auto` everywhere (done in app-11, `7aca059`). Served model shown in the UI. A mismatch is logged in the trace and shown, never silent. The pinned-id grep is scoped to the call paths and excludes catalogue data (for example app-06 `curated.ts`) | C1, C10 | Grep on the call paths finds a pinned id: fails before, passes after. Served-model tests `graph.test.ts` (f), (j2), (j3) fail when the guard is reverted (verified in app-11) | Small per app; app-11 done, 12 to go |
 | 5 | **Docs claim check.** A script fails when README or docs name a model id other than the alias, or an app count other than 13. Run against `docs/` and the n8n docs | C2 | Fails on the current n8n docs 4.5 and 4.6 text (reproduced this session, before `96fbf04`) | Small |
 
 **Deferred (not in this plan):**
@@ -102,7 +108,7 @@ Each step names the check that would fail before the fix. Effort is an estimate.
 - Word-list replacement (C4). Done inside each app when that app is reached, one structured check per app.
 - n8n served-model check node (C1). Needs the n8n credential to have credit (Chris).
 
-**Blocked on Chris:** the app-12 purge (C7), the n8n credit, the app-12 GitHub token.
+**Blocked on Chris:** the app-12 purge (C7), the n8n credit, the app-12 GitHub token, and the read-only production check for app-06 and app-12 (section 8, item 5).
 
 ## 8. Open decisions (Chris)
 
@@ -110,6 +116,7 @@ Each step names the check that would fail before the fix. Effort is an estimate.
 2. Add credit to, or re-point, the n8n OpenRouter credential (`ZbDfo...`, shared by 01, 02, 03, 05). Blocks live runs.
 3. The GitHub token for app-12 (sign-in needed).
 4. Foundever application and the stray Gmail draft (job search, not portfolio).
+5. May the app-06 and app-12 leftover-data checks read production (a read-only count of Blob keys, no writes)? Without it those two "done" rows cannot be checked under the local-only rule.
 
 ## 9. Advisor review
 
@@ -129,7 +136,12 @@ Reviewer: Opus, read-only (`opus-advisor`). Each point below is either accepted 
 - "The guard turns a fallback into a user failure, so drop the refusal." Rejected for now. Chris's rule is that a run on a non-newest model is not priced or accepted silently. With `auto` the known cause is gone, but the refusal stays as the guard against the next fallback. Revisit only if a live run shows `auto` falling back.
 - "The guard fails open when the price list is down (`checked: false`)." Partly accepted: the trace marks it and the served model is shown, so it is visible. It is not refused, because refusing on a missing list would fail every run for a price lookup. This is a deliberate trade-off, recorded here.
 
-**Pending** (the advisor's answers to points 4 and 5 were still arriving at the time of writing; this section is updated when they do.)
+**Points 4 and 5 (received)**
+- Accepted: every "done" bar is now defined (sample file, dated model list, bundle and viewport methods, 30 s cut-off, the n8n output fixture). SP2 8 of 8 added to the rows for 06, 07, 09, 10 and 12.
+- Accepted: move the parking of the five trees to step 1, and the preview gate to step 2, as the advisor ordered.
+- Accepted as an open question: whether Netlify branch previews share production Blobs. Not verified here; step 2 starts with that check.
+- Accepted as a Chris decision: a read-only production count for app-06 and app-12 (section 8, item 5).
+- Not changed: the app-01 "who decides" issue is answered by the hand verdict written before the run; the app-13 number is the 30 s cut-off, not an invented limit.
 
 ## 10. How this file stays true
 
