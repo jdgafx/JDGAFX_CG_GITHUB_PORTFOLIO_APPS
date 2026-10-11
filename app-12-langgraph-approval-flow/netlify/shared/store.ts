@@ -1,4 +1,4 @@
-import { getStore } from '@netlify/blobs'
+import { getDeployStore, getStore } from '@netlify/blobs'
 
 /** The Netlify Blobs store that holds checkpoints and the thread index. */
 export const CHECKPOINT_STORE_NAME = 'graphgate-checkpoints'
@@ -27,7 +27,8 @@ export interface KeyValueStore {
   setIfMatch(key: string, value: string, etag: string): Promise<boolean>
 }
 
-export type StorageKind = 'blobs' | 'memory'
+/** blobs-deploy: a deploy preview or branch deploy, whose checkpoints sit in a store of that deploy only. */
+export type StorageKind = 'blobs' | 'blobs-deploy' | 'memory'
 
 interface OpenStore {
   store: KeyValueStore
@@ -109,13 +110,31 @@ export function isTokenExpired(err: unknown): boolean {
 }
 
 /**
+ * The deploy context of this function: production, deploy-preview, branch-deploy or dev. Functions read it from
+ * the Netlify global; CONTEXT is the fallback. Netlify's global is untyped here, so it is read through a cast.
+ */
+export function deployContext(): string | undefined {
+  const netlify = (globalThis as { Netlify?: { context?: { deploy?: { context?: string } } } }).Netlify
+  return netlify?.context?.deploy?.context ?? process.env.CONTEXT
+}
+
+/** A deploy preview or branch deploy gets a store of its own, so its checkpoints never reach production's store. */
+function deployScoped(): boolean {
+  const context = deployContext()
+  return context === 'deploy-preview' || context === 'branch-deploy'
+}
+
+/**
  * Netlify Blobs behind the same operations. Strong consistency reads after writes. The token that getStore
  * reads from the environment belongs to one invocation and expires, so a store kept by a warm instance goes
  * bad. Every request therefore builds its own store. As a second line, a call that fails because the token
  * expired builds a new store and tries once more.
  */
 function blobsStore(): KeyValueStore {
-  const open = () => getStore({ name: CHECKPOINT_STORE_NAME, consistency: 'strong' })
+  const open = () =>
+    deployScoped()
+      ? getDeployStore({ name: CHECKPOINT_STORE_NAME, consistency: 'strong' })
+      : getStore({ name: CHECKPOINT_STORE_NAME, consistency: 'strong' })
   let blobs = open()
   const call = async <T>(operation: (store: ReturnType<typeof open>) => Promise<T>): Promise<T> => {
     try {
@@ -165,7 +184,7 @@ function blobsStore(): KeyValueStore {
  */
 export function createStore(): OpenStore {
   try {
-    return { store: blobsStore(), kind: 'blobs' }
+    return { store: blobsStore(), kind: deployScoped() ? 'blobs-deploy' : 'blobs' }
   } catch {
     return { store: memoryStore(), kind: 'memory' }
   }

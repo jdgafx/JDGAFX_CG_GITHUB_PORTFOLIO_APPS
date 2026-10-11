@@ -3,7 +3,7 @@ import type { ThreadEntry, ThreadStatus } from '../types'
 
 export interface ThreadsState {
   loading: boolean
-  storage: 'blobs' | 'memory' | null
+  storage: 'blobs' | 'blobs-deploy' | 'memory' | null
   notice: string | null
   items: ThreadEntry[]
   error: string | null

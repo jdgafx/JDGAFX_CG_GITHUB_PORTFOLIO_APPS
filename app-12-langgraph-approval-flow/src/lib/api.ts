@@ -42,7 +42,7 @@ export function failureText(err: unknown): string {
 
 export interface ThreadsResponse {
   success: boolean
-  storage: 'blobs' | 'memory'
+  storage: 'blobs' | 'blobs-deploy' | 'memory'
   notice: string | null
   threads: ThreadEntry[]
 }
