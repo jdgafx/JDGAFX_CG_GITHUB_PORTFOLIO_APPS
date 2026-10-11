@@ -15,6 +15,10 @@ const DEFAULTS = [
   'http://localhost:5173',
 ]
 
+const RUN_URL = 'https://example.test/.netlify/functions/run'
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-11-langgraph-research-agent.netlify.app'
+const PREVIEW_RUN = `${PREVIEW}/.netlify/functions/run`
+
 const postJson = (body: string): Request =>
   new Request('https://example.test/api/run', {
     method: 'POST',
@@ -36,9 +40,21 @@ describe('origins', () => {
   })
 
   it('lets a request with no Origin through and refuses an origin that is not listed', () => {
-    expect(originAllowed(null, DEFAULTS)).toBe(true)
-    expect(originAllowed('https://evil.example', DEFAULTS)).toBe(false)
-    expect(originAllowed('http://localhost:5173', DEFAULTS)).toBe(true)
+    expect(originAllowed(null, DEFAULTS, RUN_URL)).toBe(true)
+    expect(originAllowed('https://evil.example', DEFAULTS, RUN_URL)).toBe(false)
+    expect(originAllowed('http://localhost:5173', DEFAULTS, RUN_URL)).toBe(true)
+  })
+
+  it('lets a deploy preview call its own function, whose origin is the request URL origin', () => {
+    expect(originAllowed(PREVIEW, DEFAULTS, PREVIEW_RUN)).toBe(true)
+  })
+
+  it('still refuses a foreign origin when the request URL is a deploy preview', () => {
+    expect(originAllowed('https://evil.example', DEFAULTS, PREVIEW_RUN)).toBe(false)
+  })
+
+  it('still allows the production origin when the request URL is a deploy preview', () => {
+    expect(originAllowed(DEFAULTS[0], DEFAULTS, PREVIEW_RUN)).toBe(true)
   })
 
   it('echoes only an allowed origin in the CORS header', () => {

@@ -23,9 +23,12 @@ export function allowedOrigins(extra: string | undefined): string[] {
   return [...DEFAULT_ORIGINS, ...listed]
 }
 
-/** A request with no Origin header passes; a browser request must come from the allowlist. */
-export function originAllowed(origin: string | null, allowed: string[]): boolean {
-  return !origin || allowed.includes(origin)
+/**
+ * A request with no Origin header passes. A browser request passes when it comes from the allowlist or from
+ * the origin of the URL it was sent to, which is how a deploy preview calls its own functions.
+ */
+export function originAllowed(origin: string | null, allowed: string[], requestUrl: string): boolean {
+  return !origin || allowed.includes(origin) || origin === new URL(requestUrl).origin
 }
 
 export function corsHeaders(origin: string | null, allowed: string[]): Record<string, string> {

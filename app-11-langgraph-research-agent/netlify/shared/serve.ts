@@ -117,7 +117,7 @@ export async function gate(req: Request, maxBytes: number): Promise<Gate> {
     ok: false,
     response: fail(message, status, { ...headers, ...extra }),
   })
-  if (!originAllowed(origin, allowed)) return refuse('Origin not allowed.', 403)
+  if (!originAllowed(origin, allowed, req.url)) return refuse('Origin not allowed.', 403)
   if (req.method === 'OPTIONS') return { ok: false, response: new Response(null, { status: 204, headers }) }
   if (req.method !== 'POST') return refuse('Method not allowed.', 405)
   const limit = limiter.check(clientKey(req), Date.now())
