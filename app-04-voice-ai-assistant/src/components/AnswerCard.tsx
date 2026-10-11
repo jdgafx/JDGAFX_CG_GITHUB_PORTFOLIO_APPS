@@ -132,7 +132,7 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
             {ended && <span className="ds-section__title">{run.outcome === 'stopped' ? 'Partial answer' : 'Answer before the failure'}</span>}
             <span className="ds-chip ds-chip--muted">{voiceWord(run)}</span>
             {run.modelCheck !== undefined && (
-              <span className="ds-chip" title={chip.title}>
+              <span className="ds-chip ds-chip--wrap" title={chip.title}>
                 {chip.label}
                 {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}>{chip.marker}</span>}
               </span>
