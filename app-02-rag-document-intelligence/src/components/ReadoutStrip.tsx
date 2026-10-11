@@ -91,7 +91,7 @@ export function ReadoutStrip({ running, pending, liveTrace, latest, sent, total 
           <Cell label="Model" hint="Named in the provider reply">
             {served || mismatched ? (
               <span className="ds-chips">
-                <span className="ds-chip" title={modelTitle(served ?? mismatched ?? '', newest, mismatched)}>
+                <span className="ds-chip ds-chip--wrap" title={modelTitle(served ?? mismatched ?? '', newest, mismatched)}>
                   {served ? shortModel(served) : 'not reported'}
                   {marker && <span className={check === 'mismatch' ? 'ds-badge--warning' : undefined}> {marker}</span>}
                 </span>
