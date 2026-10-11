@@ -7,6 +7,8 @@ if [[ $# -ne 2 ]]; then echo "usage: $0 <old-sha> <new-sha>" >&2; exit 2; fi
 old=$1
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$root"
+# Evidence lives in the main checkout (.acceptance/ is gitignored), also when pushing from a worktree.
+ev=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 if [[ ! $old =~ ^0+$ ]] && ! git cat-file -e "$old^{commit}" 2>/dev/null; then
   echo "GATE FAIL range: old sha ${old:0:12} not in local repo, fetch first"
   exit 1
@@ -75,8 +77,8 @@ PY
 check() {
   local sample S f reason="no evidence file for this commit"
   # The tip's own evidence wins; otherwise any evidence for an identical app tree.
-  local cands=("$root/.acceptance/gate/$1/$2.json")
-  if [[ ! -f ${cands[0]} ]]; then cands=("$root/.acceptance/gate/$1"/*.json); fi
+  local cands=("$ev/.acceptance/gate/$1/$2.json")
+  if [[ ! -f ${cands[0]} ]]; then cands=("$ev/.acceptance/gate/$1"/*.json); fi
   [[ -f ${cands[0]} ]] || { echo "$reason"; return 1; }
   if ! sample=$("$root/scripts/sp2-sample-hash.sh" "$1" "$2" 2>/dev/null); then
     echo "no frozen sample committed"
