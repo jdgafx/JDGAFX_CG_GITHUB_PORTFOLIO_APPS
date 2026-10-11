@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { formatCount, formatUsd, sumUsage } from '../lib/usage'
 import { milliseconds, shortModel } from '../lib/format'
 import type { AuditView } from '../lib/auditState'
@@ -19,11 +20,11 @@ interface ReadoutProps {
   audit: AuditView
 }
 
-/** The marker for each check. A reply that named no model carries none. */
-const MODEL_MARKER: Partial<Record<ModelCheck, { text: string; className: string }>> = {
-  match: { text: '· newest', className: 'ds-chip--muted' },
-  mismatch: { text: '· not newest', className: 'ds-badge ds-badge--warning' },
-  unchecked: { text: '· unchecked', className: 'ds-chip--muted' },
+/** The marker for each check, as text coloured with the page's own tokens. A reply that named no model carries none. */
+const MODEL_MARKER: Partial<Record<ModelCheck, { text: string; style: CSSProperties }>> = {
+  match: { text: '· newest', style: { color: 'var(--ds-text-muted)' } },
+  mismatch: { text: '· not newest', style: { color: 'var(--ds-warning)', fontWeight: 600 } },
+  unchecked: { text: '· unchecked', style: { color: 'var(--ds-text-muted)' } },
 }
 
 /** How bad a check is when several calls in one run are compared. */
@@ -34,21 +35,19 @@ function worstCall(calls: ModelFacts[]): ModelFacts | undefined {
   return calls.reduce<ModelFacts | undefined>((worst, call) => (!worst || CHECK_RANK[call.modelCheck] > CHECK_RANK[worst.modelCheck] ? call : worst), undefined)
 }
 
-/** The served model of a reply-producing call, or "not reported". Its id stays in the title. */
-function ModelChip({ facts }: { facts: ModelFacts }) {
+/**
+ * The served model of a reply-producing call, or "not reported". The first chip also carries the run's one marker, the worst
+ * check across its calls. A mismatch names the mismatching call's served id and the newest in the title.
+ */
+function ModelChip({ facts, worst }: { facts: ModelFacts; worst?: ModelFacts }) {
+  const marker = worst ? MODEL_MARKER[worst.modelCheck] : undefined
+  const title = worst?.modelCheck === 'mismatch' ? `${worst.servedModel}, newest: ${worst.newestModel}` : (facts.servedModel ?? undefined)
   return (
-    <span className="ds-chip" title={facts.servedModel ?? undefined}>
+    <span className="ds-chip" title={title}>
       {facts.servedModel ? shortModel(facts.servedModel) : 'not reported'}
+      {marker && <span style={marker.style}>{marker.text}</span>}
     </span>
   )
-}
-
-/** The run's one marker: the worst check across its calls. A mismatch names the mismatching call's served id and the newest. */
-function ModelMarker({ worst }: { worst: ModelFacts }) {
-  const marker = MODEL_MARKER[worst.modelCheck]
-  if (!marker) return null
-  const title = worst.modelCheck === 'mismatch' ? `${worst.servedModel}, newest: ${worst.newestModel}` : undefined
-  return <span className={marker.className} title={title}>{marker.text}</span>
 }
 
 function Cell({ label, hint, children, mono = true }: { label: string; hint: string; children: React.ReactNode; mono?: boolean }) {
@@ -92,10 +91,9 @@ export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, ca
         <Cell label="Model" hint="Named in the provider replies" mono={false}>
           {shown.length > 0 ? (
             <span className="ds-chips">
-              {shown.map(facts => (
-                <ModelChip key={facts.servedModel ?? 'none'} facts={facts} />
+              {shown.map((facts, i) => (
+                <ModelChip key={facts.servedModel ?? 'none'} facts={facts} worst={i === 0 ? worst : undefined} />
               ))}
-              {worst && <ModelMarker worst={worst} />}
             </span>
           ) : state === 'idle' || running ? (
             dash

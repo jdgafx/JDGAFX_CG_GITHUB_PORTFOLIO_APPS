@@ -39,7 +39,10 @@ export interface StageResult {
   content: string
   /** The provider's finish reason, or a cut-off reason from src/lib/finish.ts. */
   finish: string | null
+  /** The served model of the attempt that gave the reply. */
   servedModel?: string
+  /** The served model of every attempt that was read, in order, so a mismatch in an earlier attempt is still seen. */
+  attemptServed?: Array<string | undefined>
   reasoningTokens: number
   usage: StageUsage
   /** Why a second attempt was made, when it was: 'timeout', 'connection', 'provider' or 'reply'. */
@@ -224,12 +227,13 @@ function combineAttempts(attempts: StageResult[], retried: string | undefined): 
   for (const attempt of attempts) {
     if (best && attempt.content.trim().length >= best.content.trim().length) best = attempt
   }
-  if (!best) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {}, ...(retried ? { retried } : {}) }
+  if (!best) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {}, attemptServed: [], ...(retried ? { retried } : {}) }
   return {
     ...(retried ? { retried } : {}),
     content: best.content,
     finish: best.finish,
     servedModel: best.servedModel,
+    attemptServed: attempts.map(attempt => attempt.servedModel),
     reasoningTokens: attempts.reduce((sum, attempt) => sum + attempt.reasoningTokens, 0),
     usage: sumUsage(attempts.map(attempt => attempt.usage)),
   }

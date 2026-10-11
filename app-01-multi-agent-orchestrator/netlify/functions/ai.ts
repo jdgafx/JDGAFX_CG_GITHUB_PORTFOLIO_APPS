@@ -123,7 +123,10 @@ async function runPipeline(
       const content = agent.role === 'synthesizer' ? withSources(cleaned, found.sources) : cleaned
       context[agent.role] = content
       const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
-      const model = modelFacts(stage.servedModel, await newestP)
+      const newest = await newestP
+      const model = modelFacts(stage.servedModel, newest)
+      // One record per attempt. The attempt that gave the reply shares its record, so it is judged and logged once.
+      const calls = (stage.attemptServed ?? [stage.servedModel]).map(served => (served === stage.servedModel ? model : modelFacts(served, newest)))
       if (agent.role === 'synthesizer') shownModel = model
       records.push({ name: agent.name, status, ms, detail, usage: stage.usage })
       send({ type: 'agent_chunk', agent: agent.role, content })
@@ -135,6 +138,7 @@ async function runPipeline(
         finish: stage.finish,
         reasoningTokens: stage.reasoningTokens,
         model,
+        calls,
         usage: stage.usage,
         ...(stage.retried ? { retried: stage.retried } : {}),
       })

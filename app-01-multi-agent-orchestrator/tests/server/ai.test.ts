@@ -204,6 +204,36 @@ describe('ai function: request handling', () => {
     expect(events.at(-1)).toMatchObject({ type: 'session_complete', model: { servedModel: null, modelCheck: 'not-reported' } })
   })
 
+  it('judges every attempt of a stage, so a cut-off attempt that named another model shows as not newest', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const other = 'anthropic/claude-other-model'
+    const cutOff = () =>
+      new Response(
+        `data: ${JSON.stringify({ model: other, choices: [{ delta: { content: 'SSE is' } }] })}\n\n` +
+          `data: ${JSON.stringify({ model: other, choices: [{ delta: {}, finish_reason: 'length' }] })}\n\ndata: [DONE]\n\n`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      )
+    let attempt = 0
+    plan({
+      researcher: reply('- SSE sends one-way events.', 0.0001, 120, 40),
+      analyst: reply('- One-way push fits LLM output.', 0.00008, 150, 30),
+      critic: reply('- Browser support is not discussed.', 0.00005, 180, 20),
+      synthesizer: () => {
+        attempt += 1
+        return attempt === 1 ? cutOff() : reply('SSE is one-way and simpler to proxy.', 0.0004, 300, 90)()
+      },
+    })
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(events.find(event => event.type === 'agent_complete' && event.agent === 'synthesizer')).toMatchObject({
+      model: { servedModel: SERVED, modelCheck: 'match' },
+      calls: [
+        { servedModel: other, modelCheck: 'mismatch' },
+        { servedModel: SERVED, modelCheck: 'match' },
+      ],
+    })
+    warn.mockRestore()
+  })
+
   it('shows and logs a served model that is not the newest, and still returns the reply', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const other = 'anthropic/claude-other-model'

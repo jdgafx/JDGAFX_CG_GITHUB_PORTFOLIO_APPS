@@ -28,10 +28,8 @@ describe('served-model chip and marker', () => {
 
   it('marks a mismatch as not newest, with the mismatching id and the newest in the marker title', () => {
     const out = readout(mismatch)
-    expect(out).toContain('claude-haiku-4.5')
-    expect(out).toContain('· not newest')
-    expect(out).toContain('ds-badge--warning')
-    expect(out).toContain(`title="${OLDER}, newest: ${NEWEST}"`)
+    expect(out).toMatch(new RegExp(`<span class="ds-chip" title="${OLDER}, newest: ${NEWEST}">claude-haiku-4\\.5<span[^>]*>· not newest</span></span>`))
+    expect(out).not.toContain('ds-badge')
   })
 
   it('marks an unchecked model as unchecked', () => {
@@ -51,10 +49,8 @@ describe('served-model chip and marker', () => {
 describe('run-wide marker: the worst check across the run calls', () => {
   it('shows not newest when one stage matches and another mismatches, keeping the reply call id', () => {
     const out = readout(match, [mismatch, match])
-    expect(out).toContain('claude-haiku-5.5')
-    expect(out).toContain('· not newest')
+    expect(out).toMatch(new RegExp(`<span class="ds-chip" title="${OLDER}, newest: ${NEWEST}">claude-haiku-5\\.5<span[^>]*>· not newest</span></span>`))
     expect(out).not.toContain('· newest')
-    expect(out).toContain(`title="${OLDER}, newest: ${NEWEST}"`)
   })
 
   it('ranks unchecked above match', () => {

@@ -72,6 +72,8 @@ export interface AgentState {
   reasoningTokens: number
   usage?: StageUsage
   model?: ModelFacts
+  /** One record per attempt of the stage. */
+  calls?: ModelFacts[]
   /** Why this stage was tried a second time, when it was. */
   retried?: string
   /** Set on the retriever only: what it found. An empty list means it found nothing. */
@@ -92,6 +94,8 @@ export type StreamEvent =
       finish: string | null
       reasoningTokens: number
       model: ModelFacts
+      /** One record per attempt of the stage; the reply's own record is `model`. */
+      calls: ModelFacts[]
       usage: StageUsage
       /** Why the stage was tried a second time, when it was: 'timeout', 'connection' or 'reply'. */
       retried?: string
@@ -152,6 +156,8 @@ export interface AuditResult {
   overLimit: number
   /** The model of the audit's one judgment call. Absent when no sentence needed the model. */
   model?: ModelFacts
+  /** One record per attempt of the judgment call. */
+  calls?: ModelFacts[]
   usage: StageUsage
   ms: number
   /** Why the model call was tried a second time, when it was. */

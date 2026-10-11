@@ -146,13 +146,18 @@ export async function runAudit(
   let judgments: Judgment[] = []
   let usage = {}
   let model: ModelFacts | undefined
+  let calls: ModelFacts[] = []
   let retried: string | undefined
   if (toJudge.length > 0) {
     const newestP = newestModel()
     const stage = await runStage(AUDIT_AGENT, auditMessage(toJudge, sources), provider, deadline, runSignal)
     judgments = parseJudgments(stage.content)
     usage = stage.usage
-    model = modelFacts(stage.servedModel, await newestP)
+    const newest = await newestP
+    const reply = modelFacts(stage.servedModel, newest)
+    model = reply
+    // One record per attempt. The attempt that gave the reply shares its record, so it is judged and logged once.
+    calls = (stage.attemptServed ?? [stage.servedModel]).map(served => (served === stage.servedModel ? reply : modelFacts(served, newest)))
     retried = stage.retried
     if (judgments.length === 0) {
       throw new AuditUnavailableError(
@@ -176,7 +181,7 @@ export async function runAudit(
     claims,
     summary: summarize(claims),
     overLimit: overLimit.length,
-    ...(model ? { model } : {}),
+    ...(model ? { model, calls } : {}),
     usage,
     ms: Date.now() - started,
     ...(retried ? { retried } : {}),

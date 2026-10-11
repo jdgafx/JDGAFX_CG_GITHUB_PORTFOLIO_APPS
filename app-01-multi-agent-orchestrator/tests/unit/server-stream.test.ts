@@ -35,13 +35,13 @@ const SSE = { status: 200, headers: { 'content-type': 'text/event-stream' } }
 /** One upstream reply: a text frame, a finish frame with usage, and the end marker. */
 function upstreamReply(
   text: string,
-  options: { finish?: string; prompt?: number; completion?: number; cost?: number } = {},
+  options: { finish?: string; prompt?: number; completion?: number; cost?: number; model?: string } = {},
 ): Response {
-  const { finish = 'stop', prompt = 10, completion = 4, cost = 0.00002 } = options
+  const { finish = 'stop', prompt = 10, completion = 4, cost = 0.00002, model = SERVED } = options
   const body =
-    frame({ model: SERVED, choices: [{ delta: { content: text } }] }) +
+    frame({ model, choices: [{ delta: { content: text } }] }) +
     frame({
-      model: SERVED,
+      model,
       choices: [{ delta: {}, finish_reason: finish }],
       usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, cost },
     }) +
@@ -190,6 +190,7 @@ describe('runStage', () => {
       content: 'Hello!',
       finish: 'stop',
       servedModel: SERVED,
+      attemptServed: [SERVED],
       reasoningTokens: 0,
       usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14, cost: 0.00002 },
     })
@@ -216,6 +217,18 @@ describe('runStage', () => {
       status: 402,
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the served model of every attempt, so an earlier attempt that named another model is still seen', async () => {
+    const other = 'anthropic/claude-other-model'
+    stubFetch(
+      () => upstreamReply('Half', { finish: 'length', model: other }),
+      () => upstreamReply('Full answer'),
+    )
+
+    const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
+
+    expect(result).toMatchObject({ content: 'Full answer', servedModel: SERVED, attemptServed: [other, SERVED] })
   })
 
   it('retries a cut-off reply, keeps the fuller text, and bills both attempts', async () => {
