@@ -355,7 +355,7 @@ re-maps them to their own accounts. No API keys appear in any exported file.
 Models used: `~anthropic/claude-haiku-latest` for classification at temperature 0, and
 `~anthropic/claude-sonnet-latest` for drafting at temperature 0.2. Both are OpenRouter
 auto-updating aliases, so a model being retired does not silently break the workflow. As of
-they resolve to whichever Haiku and Sonnet are newest. On 2026-10-11 OpenRouter served `anthropic/claude-haiku-5.5` and `anthropic/claude-sonnet-5.5`.
+they resolve to whichever Haiku and Sonnet are newest. On 2026-10-11 they resolved to the 5.5 releases of Haiku and Sonnet.
 
 The token ceilings (2000 for classification, 4096 for drafting) are deliberately far above what
 the replies need. Because the aliases auto-update, a future resolution could land on a reasoning

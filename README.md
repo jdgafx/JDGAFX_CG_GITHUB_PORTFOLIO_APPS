@@ -9,8 +9,7 @@ require the configured production provider account to have available credit.
 **Tech stack:** React 19 · Vite 6 · TypeScript 5.7 · shared CSS design tokens · Netlify Functions v2 · OpenRouter (one fixed model per app; app-06 compares models)
 
 Chat and vision calls go from the server to OpenRouter. Each app sends the request id
-the `claude-haiku-latest` OpenRouter alias and shows the model that answered, labelled as served (today
-`anthropic/claude-haiku-5.5`), except app-06 ModelArena, which compares models from the live
+the `claude-haiku-latest` OpenRouter alias and shows the model that answered, labelled as served (the alias resolves to the newest Claude Haiku), except app-06 ModelArena, which compares models from the live
 OpenRouter catalogue. Speech-to-text (app-04, Deepgram) uses its own server-side key, and app-10 runs headless Chromium
 (`@sparticuz/chromium`) inside its Netlify function. The browser never receives any key, and the served model is shown
 wherever the provider reports it.
@@ -25,7 +24,7 @@ wherever the provider reports it.
 Interactive React Flow graph orchestrating 4 AI agents (Researcher, Analyst, Critic, Synthesizer).
 Each agent's output appears when it finishes, delivered over server-sent events. Visual pipeline
 showing agent status, token counts, and elapsed time. Runs on one fixed OpenRouter model
-on the server: request id the `claude-haiku-latest` OpenRouter alias, answered by `anthropic/claude-haiku-5.5` today.
+on the server: request id the `claude-haiku-latest` OpenRouter alias (the app shows the served model).
 
 ### 2. DocMind — RAG Document Intelligence
 **[Live Demo](https://jdgafx-app-02-rag-document-intelligence.netlify.app)** · `app-02-rag-document-intelligence/`
@@ -71,7 +70,7 @@ reuse finished stages.
 ### 8. VisionLab — Multimodal Vision AI
 **[Live Demo](https://jdgafx-app-08-vision-ai.netlify.app)** · `app-08-vision-ai/`
 
-Upload images for multimodal analysis on one fixed vision-capable model, request id the `claude-haiku-latest` OpenRouter alias (answered by `anthropic/claude-haiku-5.5` today). Supports scene description, object and
+Upload images for multimodal analysis on one fixed vision-capable model, request id the `claude-haiku-latest` OpenRouter alias (the app shows the served model). Supports scene description, object and
 composition breakdown, text extraction, and visual Q&A.
 
 ### 9. InsightHub — SaaS Analytics Dashboard
