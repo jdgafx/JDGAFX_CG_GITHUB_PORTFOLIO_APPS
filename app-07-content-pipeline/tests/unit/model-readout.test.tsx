@@ -34,14 +34,14 @@ function readoutHtml(calls: CallRecord[]): string {
 describe('served-model chip on a trace line', () => {
   it('shows the served id and "newest" when it matches, with the full id as the title', () => {
     const html = traceHtml('match')
-    expect(html).toContain('>claude-haiku-5.5<')
+    expect(html).toContain('>claude-haiku-5.5 <')
     expect(html).toContain('· newest')
     expect(html).toContain(`title="${NEWEST}"`)
   })
 
   it('shows "not newest" in the warning style on a mismatch, and names the newest id in the title', () => {
     const html = traceHtml('mismatch', OTHER)
-    expect(html).toContain('>claude-haiku-5.4<')
+    expect(html).toContain('>claude-haiku-5.4 <')
     expect(html).toContain('· not newest')
     expect(html).toContain('class="ds-trace__state--stopped"')
     expect(html).toContain(`title="${OTHER}, newest: ${NEWEST}"`)
@@ -62,14 +62,14 @@ describe('served-model chip on a trace line', () => {
 describe('served-model readout for a run', () => {
   it('shows the reply call\'s served id, and "not newest" when another call mismatched, with the mismatching call named in the title', () => {
     const html = readoutHtml([call('research', NEWEST, 'match'), call('outline', OTHER, 'mismatch')])
-    expect(html).toContain('>claude-haiku-5.4<')
+    expect(html).toContain('>claude-haiku-5.4 <')
     expect(html).toContain('· not newest')
     expect(html).toContain(`title="${OTHER}, newest: ${NEWEST}"`)
   })
 
   it('keeps "not newest" when the mismatching call came before a matching one, and shows the reply call\'s id', () => {
     const html = readoutHtml([call('research', OTHER, 'mismatch'), call('outline', NEWEST, 'match')])
-    expect(html).toContain('>claude-haiku-5.5<')
+    expect(html).toContain('>claude-haiku-5.5 <')
     expect(html).toContain('· not newest')
     expect(html).toContain(`title="${OTHER}, newest: ${NEWEST}"`)
   })
@@ -77,7 +77,7 @@ describe('served-model readout for a run', () => {
   it('shows "newest" when every writing call matched, and leaves the Sources lookup out of the check', () => {
     const sources = { ...call('sources', null, 'not-reported'), row: { name: 'Sources', status: 'ok' as const, ms: 400, detail: 'd' }, usage: null }
     const html = readoutHtml([sources, call('research', NEWEST, 'match')])
-    expect(html).toContain('>claude-haiku-5.5<')
+    expect(html).toContain('>claude-haiku-5.5 <')
     expect(html).toContain('· newest')
   })
 

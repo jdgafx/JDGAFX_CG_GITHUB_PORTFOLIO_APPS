@@ -51,8 +51,8 @@ export default function RunTrace({ lines }: { lines: TraceLine[] }) {
                         <>
                           <span>{line.tokens === undefined ? 'tokens not reported' : `${formatCount(line.tokens)} tok`}</span>
                           <span>{line.cost === undefined ? 'cost not reported' : formatUsd(line.cost)}</span>
-                          <span className="ds-chip" title={modelTitle(line.model, line.newestModel, line.modelCheck)}>
-                            {line.model ? shortModel(line.model) : 'not reported'}
+                          <span className="ds-chip ds-chip--wrap" title={modelTitle(line.model, line.newestModel, line.modelCheck)}>
+                            {line.model ? shortModel(line.model) : 'not reported'}{' '}
                             {line.modelCheck && CHECK_LABEL[line.modelCheck] && (
                               <span className={line.modelCheck === 'mismatch' ? 'ds-trace__state--stopped' : undefined}>{CHECK_LABEL[line.modelCheck]}</span>
                             )}
