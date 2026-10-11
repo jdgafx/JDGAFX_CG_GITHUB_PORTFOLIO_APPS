@@ -5,6 +5,10 @@ const PLACEHOLDER = 'test-only-placeholder'
 const ORIGIN = 'https://jdgafx-app-09-ai-saas.netlify.app'
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const SERVED_MODEL = 'anthropic/claude-haiku-5.5'
+const ALIAS = '~anthropic/claude-haiku-latest'
+const LIST_URL = 'https://openrouter.ai/api/v1/models'
+/** The public model list, in which the requested alias resolves to SERVED_MODEL, so a run checks as a match. */
+const LIST = { data: [{ id: ALIAS, alias_target: { slug: SERVED_MODEL } }] }
 const STEP_NAMES = ['Build request', 'Call model', 'Stream answer', 'Check figures', 'Validate output']
 const TIMEOUT_TEXT = 'The AI provider did not answer within 25 seconds. Try again.'
 const HAPPY_TEXT = 'React rose 3.2% and averaged 32,583,774 downloads a day. It holds 62.5% of the selection.'
@@ -38,7 +42,9 @@ interface Frame {
   result?: string
   trace?: Step[]
   usage?: Record<string, number>
-  model?: string | null
+  servedModel?: string | null
+  newestModel?: string | null
+  modelCheck?: string
   totalMs?: number
 }
 
@@ -85,9 +91,12 @@ function post(payload: unknown, headers: Record<string, string> = {}): Request {
 
 type FetchImpl = (url: string, init?: RequestInit) => Promise<Response>
 
+/** Answers the model list here, so the mock counts only the chat calls. */
 function stubFetch(impl: FetchImpl) {
   const mock = vi.fn(impl)
-  vi.stubGlobal('fetch', mock)
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+    url === LIST_URL ? Promise.resolve(new Response(JSON.stringify(LIST), { status: 200 })) : mock(url, init),
+  )
   return mock
 }
 
@@ -167,7 +176,9 @@ describe('netlify/functions/ai: streamed run', () => {
     const finalFrame = reply.frames.find((f) => f.stage === 'complete')
     expect(finalFrame).toMatchObject({
       result: HAPPY_TEXT,
-      model: SERVED_MODEL,
+      servedModel: SERVED_MODEL,
+      newestModel: SERVED_MODEL,
+      modelCheck: 'match',
       usage: { prompt_tokens: 812, completion_tokens: 240, total_tokens: 1052, cost: 0.000421 },
     })
     expect(finalFrame?.trace?.map((s) => s.name)).toEqual(STEP_NAMES)
@@ -179,7 +190,7 @@ describe('netlify/functions/ai: streamed run', () => {
     expect(init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
     const sent = JSON.parse(String(init?.body)) as { model: string; messages: { content: string }[] }
     expect(sent).toMatchObject({
-      model: 'anthropic/claude-haiku-5.5',
+      model: ALIAS,
       max_tokens: 4096,
       reasoning: { enabled: false },
       usage: { include: true },
@@ -187,6 +198,34 @@ describe('netlify/functions/ai: streamed run', () => {
     })
     expect(sent).not.toHaveProperty('temperature')
     expect(sent.messages[0].content).toContain('- react: 912,345,678 downloads in total')
+  })
+
+  it('reports a served model that is not the newest as a mismatch, logs it, and still completes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    stubFetch(async () =>
+      sse([frame({ model: 'anthropic/claude-haiku-5.4', choices: [{ delta: { content: HAPPY_TEXT }, finish_reason: 'stop' }] }), DONE]),
+    )
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+
+    expect(errorOf(reply.frames)).toBeUndefined()
+    expect(reply.frames.find((f) => f.stage === 'complete')).toMatchObject({
+      result: HAPPY_TEXT,
+      servedModel: 'anthropic/claude-haiku-5.4',
+      newestModel: SERVED_MODEL,
+      modelCheck: 'mismatch',
+    })
+    expect(warn).toHaveBeenCalledWith(`model mismatch: served anthropic/claude-haiku-5.4, newest ${SERVED_MODEL}, requested ${ALIAS}`)
+  })
+
+  it('reports a reply that names no model as not-reported, and never puts the requested alias in its place', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    stubFetch(async () => sse([frame({ choices: [{ delta: { content: HAPPY_TEXT }, finish_reason: 'stop' }] }), DONE]))
+    const reply = await readReply(await handler(post({ summary: SUMMARY })))
+
+    const finalFrame = reply.frames.find((f) => f.stage === 'complete')
+    expect(finalFrame).toMatchObject({ result: HAPPY_TEXT, servedModel: null, newestModel: SERVED_MODEL, modelCheck: 'not-reported' })
+    expect(finalFrame?.servedModel).not.toBe(ALIAS)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('marks the figure check failed, and still completes, when a figure is not in the summary', async () => {

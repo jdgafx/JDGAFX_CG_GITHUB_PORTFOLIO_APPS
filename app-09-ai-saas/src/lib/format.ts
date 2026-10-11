@@ -1,3 +1,5 @@
+import type { ModelCheck } from '../../netlify/shared/contract'
+
 const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
 const FULL = new Intl.NumberFormat('en-US')
 const SHORT_DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -29,3 +31,11 @@ export const usd = (n: number): string => `$${n.toFixed(n < 0.01 ? 6 : 4)}`
 
 /** "anthropic/claude-haiku-5.5" as "claude-haiku-5.5", for a chip. The full id stays in the title. */
 export const shortModel = (id: string): string => id.split('/').pop() ?? id
+
+/** The text after the served model's chip: how it compares with the newest model. Null when there is nothing to add. */
+export function modelCheckText(check: ModelCheck): string | null {
+  if (check === 'match') return '· newest'
+  if (check === 'mismatch') return '· not newest'
+  if (check === 'unchecked') return '· unchecked'
+  return null
+}

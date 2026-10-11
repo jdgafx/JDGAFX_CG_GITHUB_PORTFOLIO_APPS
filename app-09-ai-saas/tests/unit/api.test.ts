@@ -110,7 +110,7 @@ describe('getInsights: streamed frames', () => {
       sseResponse([
         'data: {"text":"Hel',
         'lo"}\n\ndata: {"step":{"name":"Stream answer","status":"ok","ms":12,"detail":"2 chunks, 5 characters","tokens":1052}}\n\n',
-        'data: {"stage":"complete","result":"Hello","trace":[{"name":"Stream answer","status":"ok","ms":12,"detail":"2 chunks, 5 characters","tokens":1052}],"usage":{"prompt_tokens":812,"completion_tokens":240,"total_tokens":1052,"cost":0.000421},"model":"anthropic/claude-haiku-5.5","totalMs":640}\n\ndata: [DONE]\n\n',
+        'data: {"stage":"complete","result":"Hello","trace":[{"name":"Stream answer","status":"ok","ms":12,"detail":"2 chunks, 5 characters","tokens":1052}],"usage":{"prompt_tokens":812,"completion_tokens":240,"total_tokens":1052,"cost":0.000421},"servedModel":"anthropic/claude-haiku-5.5","newestModel":"anthropic/claude-haiku-5.5","modelCheck":"match","totalMs":640}\n\ndata: [DONE]\n\n',
       ]),
     )
     const { seen, handlers } = collect()
@@ -131,7 +131,9 @@ describe('getInsights: streamed frames', () => {
         result: 'Hello',
         trace: [{ name: 'Stream answer', status: 'ok', ms: 12, detail: '2 chunks, 5 characters', tokens: 1052 }],
         usage: { prompt_tokens: 812, completion_tokens: 240, total_tokens: 1052, cost: 0.000421 },
-        model: 'anthropic/claude-haiku-5.5',
+        servedModel: 'anthropic/claude-haiku-5.5',
+        newestModel: 'anthropic/claude-haiku-5.5',
+        modelCheck: 'match',
         totalMs: 640,
       },
     ])

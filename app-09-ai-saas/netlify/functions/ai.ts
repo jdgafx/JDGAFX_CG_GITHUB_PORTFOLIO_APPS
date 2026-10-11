@@ -1,8 +1,9 @@
-import { CHAT_URL, chatRequest } from '../shared/provider'
+import { CHAT_URL, chatRequest, MODEL } from '../shared/provider'
 import type { Summary } from '../shared/contract'
 import { checkClaims, describeClaimCheck, type ClaimCheck } from '../shared/claimCheck'
 import { ClaimSplitter, claimsPrompt, finalAnswer, parseClaims, RestartTracker, splitAnswer } from '../shared/claims'
 import { buildPrompt, checkFigures, describeFigureCheck, parseInsightRequest } from '../shared/insights'
+import { newestModel, servedCheck } from '../shared/newest-model'
 import { DONE_FRAME, encodeFrame, readProviderStream, type Emit } from '../shared/stream'
 
 export const config = { path: '/api/ai' }
@@ -198,6 +199,8 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
     finishStage('ok', `${packages} ${packages === 1 ? 'package' : 'packages'}, ${summary.startDate} to ${summary.endDate}`)
 
     beginStage('Call model')
+    // The newest model is looked up alongside the call and awaited after the stream, so a slow list never holds the run.
+    const newestP = newestModel()
     const { response, retriedAfter } = await callProvider(
       JSON.stringify(chatRequest(prompt, MAX_OUTPUT_TOKENS)),
       apiKey,
@@ -271,12 +274,18 @@ async function runInsight(summary: Summary, apiKey: string, upstream: AbortContr
       cut ? `Stopped at the ${MAX_OUTPUT_TOKENS}-token output cap, so the answer may be cut short` : 'Non-empty answer that finished normally',
     )
 
+    // The served model is reported as the provider named it, never replaced by the requested alias. A mismatch is shown and logged, not refused.
+    const newest = await newestP
+    const modelCheck = servedCheck(newest, answer.model)
+    if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${answer.model}, newest ${newest}, requested ${MODEL}`)
     emit({
       stage: 'complete',
       result: explanation,
       trace: steps,
       usage: answer.usage,
-      model: answer.model,
+      servedModel: answer.model,
+      newestModel: newest,
+      modelCheck,
       totalMs: Date.now() - started,
     })
   } catch (err) {

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { TRACE_STAGES } from '../lib/api'
-import { milliseconds, shortModel, usd } from '../lib/format'
+import { milliseconds, modelCheckText, shortModel, usd } from '../lib/format'
 import type { InsightRun } from '../lib/insightRun'
 
 const NONE = '—'
@@ -43,7 +43,11 @@ export default function ReadoutStrip({ run }: { run: InsightRun }) {
   const done = status === 'done'
 
   const tone = running ? ' ds-strip--live' : done || soFar ? '' : ' ds-strip--pending'
-  const model = outcome?.model ?? null
+  const model = outcome?.servedModel ?? null
+  const marker = outcome ? modelCheckText(outcome.modelCheck) : null
+  const mismatch = outcome?.modelCheck === 'mismatch'
+  const markerClass = mismatch ? 'ds-badge ds-badge--warning' : 'ds-chip ds-chip--muted'
+  const markerTitle = mismatch && outcome.newestModel ? `newest: ${outcome.newestModel}` : undefined
 
   return (
     <section className="ds-run__readout" aria-label="Run totals">
@@ -70,6 +74,11 @@ export default function ReadoutStrip({ run }: { run: InsightRun }) {
                 <span className="ds-chip" title={model}>
                   {shortModel(model)}
                 </span>
+                {marker && (
+                  <span className={markerClass} title={markerTitle}>
+                    {marker}
+                  </span>
+                )}
               </span>
             ) : done ? (
               'not reported'

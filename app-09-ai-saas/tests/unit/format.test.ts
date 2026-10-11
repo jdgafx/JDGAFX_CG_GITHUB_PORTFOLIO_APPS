@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compact, full, longDate, seriesColor, shortDate, signedPercent } from '../../src/lib/format'
+import { compact, full, longDate, modelCheckText, seriesColor, shortDate, signedPercent } from '../../src/lib/format'
 
 describe('format', () => {
   it('shortens large counts for axes and cards', () => {
@@ -28,5 +28,12 @@ describe('format', () => {
     expect(seriesColor(0)).toBe('var(--hub-s1)')
     expect(seriesColor(4)).toBe('var(--hub-s5)')
     expect(seriesColor(5)).toBe(seriesColor(0))
+  })
+
+  it('words the model marker for each check, and adds nothing when no model was reported', () => {
+    expect(modelCheckText('match')).toBe('· newest')
+    expect(modelCheckText('mismatch')).toBe('· not newest')
+    expect(modelCheckText('unchecked')).toBe('· unchecked')
+    expect(modelCheckText('not-reported')).toBeNull()
   })
 })

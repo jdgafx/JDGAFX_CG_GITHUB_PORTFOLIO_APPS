@@ -1,4 +1,4 @@
-import type { Summary } from '../../netlify/shared/contract'
+import type { ModelCheck, Summary } from '../../netlify/shared/contract'
 
 const INSIGHTS_ENDPOINT = '/api/ai'
 const SSE_PREFIX = 'data: '
@@ -57,7 +57,11 @@ export interface RunOutcome {
   result: string
   trace: TraceStep[]
   usage: RunUsage | null
-  model: string | null
+  /** The model the provider named on its stream, or null when it named none. */
+  servedModel: string | null
+  /** The newest model the list names for the requested alias, or null when the list did not say. */
+  newestModel: string | null
+  modelCheck: ModelCheck
   totalMs: number
 }
 
@@ -125,7 +129,9 @@ function consumeSseLine(line: string, handlers: RunHandlers): boolean {
       result: frame.result ?? '',
       trace: frame.trace ?? [],
       usage: frame.usage ?? null,
-      model: frame.model ?? null,
+      servedModel: frame.servedModel ?? null,
+      newestModel: frame.newestModel ?? null,
+      modelCheck: frame.modelCheck ?? 'not-reported',
       totalMs: frame.totalMs ?? 0,
     })
   }

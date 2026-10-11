@@ -1,5 +1,5 @@
-/** The one chat model this endpoint calls, pinned to Haiku 5.5 on OpenRouter. The browser cannot choose it and no env var overrides it. Haiku 5.5 rejects `temperature`, so none is ever sent. */
-export const MODEL = 'anthropic/claude-haiku-5.5'
+/** The one chat model this endpoint calls: OpenRouter's alias for the newest Haiku, so a new release needs no code change. The browser cannot choose it and no env var overrides it. Haiku 5.5 rejects `temperature`, so none is ever sent. */
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 export const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 

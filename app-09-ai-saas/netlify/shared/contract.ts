@@ -5,6 +5,9 @@
 
 export const MAX_PACKAGES = 5
 
+/** How the model that answered compares with the newest model the list names: `not-reported` when the reply named none, `unchecked` when the list did not say. */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 /** Longest package name npm accepts, scope included. */
 const MAX_NAME_LENGTH = 214
 

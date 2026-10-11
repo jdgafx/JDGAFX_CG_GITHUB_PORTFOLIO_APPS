@@ -4,7 +4,7 @@ import { CHAT_URL, chatRequest, MODEL } from '../../netlify/shared/provider'
 describe('chatRequest', () => {
   it('always sends the output cap, reasoning off and usage reporting, with the fixed model', () => {
     expect(chatRequest('Summarise the week', 1024)).toEqual({
-      model: 'anthropic/claude-haiku-5.5',
+      model: '~anthropic/claude-haiku-latest',
       max_tokens: 1024,
       reasoning: { enabled: false },
       usage: { include: true },
@@ -17,8 +17,8 @@ describe('chatRequest', () => {
     expect(chatRequest('x', 8)).not.toHaveProperty('temperature')
   })
 
-  it('uses the fixed model constant', () => {
-    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+  it('uses the fixed model constant, the OpenRouter alias for the newest Haiku', () => {
+    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
     expect(chatRequest('x', 8).model).toBe(MODEL)
   })
 })
