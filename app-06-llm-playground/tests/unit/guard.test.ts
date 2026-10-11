@@ -89,6 +89,32 @@ describe('gate', () => {
   })
 })
 
+describe('gate, same origin', () => {
+  const DEPLOY = 'https://deploy-preview-9--jdgafx-app-06-x.netlify.app'
+  const PRODUCTION = 'https://jdgafx-app-06.netlify.app'
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('allows a request from the origin it was sent to, such as a deploy preview', () => {
+    const result = gate(new Request(`${DEPLOY}/api/compare`, { method: 'POST', headers: { origin: DEPLOY } }), 'POST')
+    expect(result.ok).toBe(true)
+  })
+
+  it('refuses a foreign origin with 403, even on a deploy preview', async () => {
+    const result = gate(new Request(`${DEPLOY}/api/compare`, { method: 'POST', headers: { origin: 'https://evil.example' } }), 'POST')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.response.status).toBe(403)
+  })
+
+  it('keeps the production origin from the environment', () => {
+    vi.stubEnv('URL', PRODUCTION)
+    const result = gate(new Request(`${DEPLOY}/api/compare`, { method: 'POST', headers: { origin: PRODUCTION } }), 'POST')
+    expect(result.ok).toBe(true)
+  })
+})
+
 describe('remainingMs', () => {
   it('leaves the 24 second request budget less the time already used', () => {
     expect(REQUEST_BUDGET_MS).toBe(24_000)

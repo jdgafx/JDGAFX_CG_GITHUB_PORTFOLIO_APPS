@@ -22,6 +22,22 @@ export const LIVE_CATALOGUE = {
   ],
 }
 
+// The same list with the Haiku alias entry the newest-model check reads: the alias resolves to 5.5 today.
+// The catalogue and the newest-model check both read this list, so the alias also shows in the picker.
+export const NEWEST_CATALOGUE = {
+  data: [
+    ...LIVE_CATALOGUE.data,
+    {
+      id: '~anthropic/claude-haiku-latest',
+      name: 'Claude Haiku (latest)',
+      context_length: 200_000,
+      pricing: { prompt: '0.000001', completion: '0.000005' },
+      architecture: { output_modalities: ['text'] },
+      alias_target: { slug: 'anthropic/claude-haiku-5.5' },
+    },
+  ],
+}
+
 interface ReplyOptions {
   prompt?: number
   completion?: number
@@ -66,6 +82,11 @@ export function request(
     body: options.raw ?? JSON.stringify(body),
     signal: options.signal,
   })
+}
+
+// The provider calls a stub saw, without the catalogue fetch and the newest-model list fetch (both read the same URL).
+export function chatCalls(stub: { mock: { calls: [string, RequestInit?][] } }): [string, RequestInit?][] {
+  return stub.mock.calls.filter(([url]) => url.endsWith('/chat/completions'))
 }
 
 // The JSON body the server sent to a provider.

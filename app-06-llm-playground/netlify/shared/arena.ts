@@ -253,11 +253,11 @@ export async function castBallot(store: KeyValueStore, storage: StorageKind, bal
 }
 
 /**
- * The leaderboard key of an answered panel: the model id the provider answered with. The requested id is only
- * the fallback for a panel whose reply named no model.
+ * An answered panel that can be keyed on the board: its reply named the model that answered. A reply that named no
+ * model is left off the board, never keyed by the requested id.
  */
-function boardKey(panel: Pick<PanelResult, 'servedModel' | 'requestedModel'>): string {
-  return panel.servedModel ?? panel.requestedModel
+function keyedAnswer(panel: PanelResult): panel is PanelResult & { servedModel: string } {
+  return panel.ok && panel.servedModel !== null
 }
 
 // ---- Ballots from a stored run -----------------------------------------------------------------
@@ -272,19 +272,27 @@ export type BallotPlan =
  */
 export function planBallot(run: StoredRun, choice: VoteChoice): BallotPlan {
   const shown = displayPanels(run.compare.panels, run.order)
-  const answered = shown.filter(p => p.ok)
-  const entries: Entry[] = answered.map(p => ({ model: boardKey(p), served: p.servedModel }))
+  const keyed = shown.filter(keyedAnswer)
+  const entries: Entry[] = keyed.map(p => ({ model: p.servedModel, served: p.servedModel }))
   if (new Set(entries.map(e => e.model)).size < 2) {
     return { ok: false, error: 'This run cannot take a vote: fewer than two different models answered.' }
   }
   if (choice === 'tie') return { ok: true, entries, outcome: 'tie', tie: true }
   if (choice === 'all-bad') return { ok: true, entries, outcome: 'all-bad', tie: false }
-  const winner = answered.findIndex(p => p.slot === choice)
-  if (winner < 0) return { ok: false, error: `Panel ${choice} did not give an answer, so it cannot be picked.` }
+  const winner = keyed.findIndex(p => p.slot === choice)
+  if (winner < 0) {
+    const unnamed = shown.some(p => p.slot === choice && p.ok)
+    return {
+      ok: false,
+      error: unnamed
+        ? `Panel ${choice} named no model, so its answer cannot be counted.`
+        : `Panel ${choice} did not give an answer, so it cannot be picked.`,
+    }
+  }
   return { ok: true, entries, outcome: { winner }, tie: false }
 }
 
 /** True when a blind compare can take a vote: two answered panels on two different models. */
 export function voteable(panels: PanelResult[]): boolean {
-  return new Set(panels.filter(p => p.ok).map(boardKey)).size >= 2
+  return new Set(panels.filter(keyedAnswer).map(p => p.servedModel)).size >= 2
 }

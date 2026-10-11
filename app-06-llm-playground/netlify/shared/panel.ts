@@ -4,6 +4,7 @@ import { usageFrom, emptyUsage } from './measure'
 import { replyOf, type ChatMessage } from './openrouter'
 import { ATTEMPT_MS, ATTEMPT_OTHER_MS, chatWithRetry } from './retry'
 import { strOrNull } from './parse'
+import { checkRecord, NOT_CHECKED } from './newest-model'
 
 export const PANEL_TIMEOUT_MS = 25_000
 
@@ -17,6 +18,8 @@ interface PanelInput {
   prices: Map<string, LiveModel> | null
   timeoutMs: number
   signal?: AbortSignal
+  // Panel A only: the newest model the list names for the alias, started before the panels ran.
+  newest?: Promise<string | null>
 }
 
 export async function runPanel(input: PanelInput): Promise<PanelResult> {
@@ -46,7 +49,9 @@ export async function runPanel(input: PanelInput): Promise<PanelResult> {
     : finishReason === 'length'
       ? `Hit the ${COMPARE_MAX_TOKENS}-token limit before any answer text`
       : 'The model returned no text'
-  return { ...base, servedModel: served, ok, error, text, finishReason, usage, cost, retried: result.retried }
+  // Panel A's reply is checked against the newest model. Visitor-picked panels B and C are not.
+  const record = input.newest ? checkRecord(await input.newest, served, input.model) : NOT_CHECKED
+  return { ...base, servedModel: served, ok, error, text, finishReason, usage, cost, retried: result.retried, ...record }
 }
 
 export function panelStep(panel: PanelResult): TraceStep {
@@ -76,6 +81,7 @@ function failed(slot: Slot, model: string, error: string, latencyMs: number | nu
     latencyMs,
     usage: emptyUsage(),
     cost: null,
+    ...NOT_CHECKED,
   }
 }
 

@@ -133,7 +133,7 @@ function Revealed({ run, picks }: { run: RunView; picks: Picks }) {
       <div className="arena-grid">
         {SLOTS.map(slot => {
           const panel = panels.find(p => p.slot === slot) ?? null
-          const change = panel ? (changes.get(panel.servedModel ?? panel.requestedModel) ?? null) : null
+          const change = panel?.servedModel ? (changes.get(panel.servedModel) ?? null) : null
           return (
             <ResultCard
               key={slot}

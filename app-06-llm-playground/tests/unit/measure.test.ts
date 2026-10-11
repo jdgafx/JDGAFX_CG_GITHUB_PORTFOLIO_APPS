@@ -127,8 +127,8 @@ describe('summarise', () => {
     expect(summary).toMatchObject({ fastest: null, cheapest: null, mostOutputTokens: null })
   })
 
-  it('names the requested model when the provider did not report the served one', () => {
+  it('leaves the model unnamed when the provider did not report the served one, never the requested id', () => {
     const summary = summarise([answered('C', { servedModel: null, latencyMs: 300 })])
-    expect(summary.fastest).toEqual({ slot: 'C', model: 'req/C', latencyMs: 300 })
+    expect(summary.fastest).toEqual({ slot: 'C', model: null, latencyMs: 300 })
   })
 })

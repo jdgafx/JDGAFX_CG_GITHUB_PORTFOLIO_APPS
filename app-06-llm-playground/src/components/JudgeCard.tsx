@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { SLOTS, type CompareResponse, type JudgeVerdict, type Slot } from '../../netlify/shared/contract'
-import { panelNote, type JudgeView } from '../lib/run'
+import { checkMarker, panelNote, type JudgeView } from '../lib/run'
 import { Prose } from './Prose'
 
 interface JudgeCardProps {
@@ -68,6 +68,7 @@ function nameTag(slot: Slot, compare: CompareResponse | null): ReactNode {
 function Verdict({ verdict, compare }: { verdict: JudgeVerdict; compare: CompareResponse | null }) {
   const best = verdict.bestOverall
   const answered = SLOTS.filter(slot => verdict.perPanel[slot] !== undefined)
+  const marker = checkMarker(verdict.modelCheck, verdict.newestModel)
   return (
     <div className="arena-judge">
       <p className="arena-judge__headline">
@@ -94,7 +95,14 @@ function Verdict({ verdict, compare }: { verdict: JudgeVerdict; compare: Compare
       {verdict.caveat && <p className="ds-help">{verdict.caveat}</p>}
       <p className="ds-help">
         Judged by{' '}
-        {verdict.model ? <span className="ds-mono">{verdict.model}</span> : 'a model not reported'}.
+        {verdict.model ? (
+          <span className="ds-mono" title={`${verdict.model}${marker?.titleSuffix ?? ''}`}>
+            {verdict.model}
+          </span>
+        ) : (
+          'a model not reported'
+        )}
+        {marker && <span className={marker.warn ? 'ds-badge--warning' : undefined}> {marker.label}</span>}.
       </p>
     </div>
   )

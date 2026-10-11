@@ -38,7 +38,7 @@ const catalogue: CatalogueResponse = {
   defaultModel: MODEL,
   groups: [
     { label: 'Speed and latency', options: [option('google/gemini-2.5-flash-lite', 0.1, 0.5)] },
-    { label: 'Agentic and coding', options: [option('anthropic/claude-sonnet-5', 3, 15)] },
+    { label: 'Agentic and coding', options: [option('anthropic/claude-sonnet-5', 3, 15), option('anthropic/claude-sonnet-5.5', 3, 15)] },
   ],
 }
 
@@ -266,7 +266,7 @@ describe('failedJudgeStep', () => {
 })
 
 describe('blockedReason and the idle status line', () => {
-  const picks = { B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5' }
+  const picks = { B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5.5' }
   const IDLE = 'Ready. Choose Compare models to send the prompt to all three panels.'
 
   it('names what stops Compare, in the order a visitor can fix it', () => {

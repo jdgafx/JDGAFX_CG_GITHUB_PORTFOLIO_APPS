@@ -162,10 +162,69 @@ describe('failedPanel', () => {
       latencyMs: null,
       usage: { prompt_tokens: null, completion_tokens: null, reasoning_tokens: null, total_tokens: null },
       cost: null,
+      newestModel: null,
+      modelCheck: null,
     })
   })
 
   it('gives each panel a 25 second timeout', () => {
     expect(PANEL_TIMEOUT_MS).toBe(25_000)
+  })
+})
+
+describe('runPanel newest-model check', () => {
+  const NEWEST = 'anthropic/claude-haiku-5.5'
+  const ALIAS = '~anthropic/claude-haiku-latest'
+  const panelA = { ...input, slot: 'A' as const, model: ALIAS }
+
+  function reply(model?: string) {
+    return Response.json({
+      ...(model === undefined ? {} : { model }),
+      choices: [{ message: { content: 'READY' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+    })
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('checks the served id of Panel A against the newest id and records both', async () => {
+    stubFetch(async () => reply(NEWEST))
+    const panel = await runPanel({ ...panelA, newest: Promise.resolve(NEWEST) })
+    expect(panel).toMatchObject({ servedModel: NEWEST, newestModel: NEWEST, modelCheck: 'match', ok: true })
+  })
+
+  it('shows a served id that is not the newest, logs it, and keeps the answer', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    stubFetch(async () => reply('anthropic/claude-haiku-5.4'))
+    const panel = await runPanel({ ...panelA, newest: Promise.resolve(NEWEST) })
+    expect(panel).toMatchObject({ ok: true, text: 'READY', servedModel: 'anthropic/claude-haiku-5.4', newestModel: NEWEST, modelCheck: 'mismatch' })
+    expect(warn).toHaveBeenCalledWith(`model mismatch: served anthropic/claude-haiku-5.4, newest ${NEWEST}, requested ${ALIAS}`)
+  })
+
+  it('never puts the requested id in place of a served id the reply did not name', async () => {
+    stubFetch(async () => reply())
+    const panel = await runPanel({ ...panelA, newest: Promise.resolve(NEWEST) })
+    expect(panel.servedModel).toBeNull()
+    expect(panel.modelCheck).toBe('not-reported')
+  })
+
+  it('reports unchecked when the list gave no newest id', async () => {
+    stubFetch(async () => reply(NEWEST))
+    const panel = await runPanel({ ...panelA, newest: Promise.resolve(null) })
+    expect(panel).toMatchObject({ servedModel: NEWEST, newestModel: null, modelCheck: 'unchecked' })
+  })
+
+  it('leaves a visitor-picked panel unchecked, with no newest id', async () => {
+    stubFetch(async () => reply(NEWEST))
+    const panel = await runPanel(input)
+    expect(panel).toMatchObject({ servedModel: NEWEST, newestModel: null, modelCheck: null })
+  })
+
+  it('records no check for a panel with no reply', async () => {
+    stubFetch(async () => new Response('{}', { status: 503 }))
+    const panel = await runPanel({ ...panelA, newest: Promise.resolve(NEWEST) })
+    expect(panel).toMatchObject({ ok: false, servedModel: null, newestModel: null, modelCheck: null })
   })
 })

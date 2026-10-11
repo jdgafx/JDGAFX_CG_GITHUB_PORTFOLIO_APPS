@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CURATED_GROUPS } from '../../netlify/shared/curated'
-import { DEFAULT_PICKS } from '../../src/lib/run'
+import { DEFAULT_PICKS } from '../../src/lib/defaultPicks'
 import {
   ANSWER_MAX_CHARS,
   COMPARE_BODY_MAX_BYTES,
@@ -34,10 +34,14 @@ describe('curated picker list', () => {
     for (const id of ids) expect(id).toMatch(/^~?[a-z0-9.-]+\/[a-z0-9.+-]+$/i)
   })
 
-  it('starts panels B and C from curated IDs', () => {
-    expect(DEFAULT_PICKS).toEqual({ B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5' })
+  it('starts panels B and C from curated IDs, with C the newest curated Sonnet', () => {
+    expect(DEFAULT_PICKS).toEqual({ B: 'google/gemini-2.5-flash-lite', C: 'anthropic/claude-sonnet-5.5' })
     expect(ids).toContain(DEFAULT_PICKS.B)
     expect(ids).toContain(DEFAULT_PICKS.C)
+  })
+
+  it('lists every default pick as a curated ID', () => {
+    for (const id of Object.values(DEFAULT_PICKS)) expect(ids).toContain(id)
   })
 })
 

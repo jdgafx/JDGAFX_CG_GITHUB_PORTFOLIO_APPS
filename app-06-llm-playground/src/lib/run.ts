@@ -9,6 +9,7 @@ import {
   type CompareSummary,
   type Cost,
   type JudgeVerdict,
+  type ModelCheck,
   type ModelOption,
   type PanelResult,
   type RatingChange,
@@ -18,8 +19,11 @@ import {
 } from '../../netlify/shared/contract'
 import { formatUsd } from './format'
 
+export { DEFAULT_PICKS } from './defaultPicks'
+
 const IDLE_STATUS = 'Ready. Choose Compare models to send the prompt to all three panels.'
 const NO_NOTE = 'The judge gave no note for this panel.'
+const NOT_NAMED = 'a model not reported'
 
 // voting: a blind run whose answers are shown and whose models are still hidden.
 type RunStatus = 'running' | 'voting' | 'done' | 'stopped' | 'error'
@@ -75,10 +79,26 @@ export function panelStatus(panel: PanelResult): { label: string; dot: string } 
 
 export type Picks = Record<'B' | 'C', string>
 
-// The picker's starting models for panels B and C. Both must be curated IDs (see curated.ts).
-export const DEFAULT_PICKS: Picks = {
-  B: 'google/gemini-2.5-flash-lite',
-  C: 'anthropic/claude-sonnet-5',
+export interface CheckMarker {
+  label: string
+  // A warning look for a mismatch, so the marker is not read as a plain note.
+  warn: boolean
+  // Added to the served id in the title: the newest id, on a mismatch.
+  titleSuffix: string
+}
+
+// The marker after a served model. Null when there is nothing to show: no check, or the reply named no model.
+export function checkMarker(check: ModelCheck | null | undefined, newest: string | null | undefined): CheckMarker | null {
+  switch (check) {
+    case 'match':
+      return { label: '· newest', warn: false, titleSuffix: '' }
+    case 'mismatch':
+      return { label: '· not newest', warn: true, titleSuffix: `, newest: ${newest}` }
+    case 'unchecked':
+      return { label: '· unchecked', warn: false, titleSuffix: '' }
+    default:
+      return null
+  }
 }
 
 function allOptions(catalogue: CatalogueResponse): ModelOption[] {
@@ -142,12 +162,12 @@ export function statusLine(run: RunView | null): string {
 export function verdictSentences(summary: CompareSummary): string[] {
   const { fastest, cheapest, mostOutputTokens } = summary
   return [
-    fastest ? `Fastest: ${fastest.model} at ${Math.round(fastest.latencyMs)} ms` : 'Fastest: no panel completed',
+    fastest ? `Fastest: ${fastest.model ?? NOT_NAMED} at ${Math.round(fastest.latencyMs)} ms` : 'Fastest: no panel completed',
     cheapest
-      ? `Cheapest: ${cheapest.model} at ${formatUsd(cheapest.usd)} (${cheapest.source})`
+      ? `Cheapest: ${cheapest.model ?? NOT_NAMED} at ${formatUsd(cheapest.usd)} (${cheapest.source})`
       : 'Cheapest: no panel reported a cost',
     mostOutputTokens
-      ? `Most output: ${mostOutputTokens.model} with ${mostOutputTokens.tokens} tokens`
+      ? `Most output: ${mostOutputTokens.model ?? NOT_NAMED} with ${mostOutputTokens.tokens} tokens`
       : 'Most output: no panel reported output tokens',
   ]
 }

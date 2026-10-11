@@ -75,6 +75,7 @@ export function summarise(panels: PanelResult[]): CompareSummary {
   }
 }
 
-function modelOf(panel: PanelResult): string {
-  return panel.servedModel ?? panel.requestedModel
+// The served id only. A reply that named no model stays unnamed; the requested id is never put in its place.
+function modelOf(panel: PanelResult): string | null {
+  return panel.servedModel
 }

@@ -65,11 +65,19 @@ describe('planBallot', () => {
     expect(planBallot(partial, 'B')).toEqual({ ok: false, error: 'Panel B did not give an answer, so it cannot be picked.' })
   })
 
-  it('keys the entry by the model that answered, and falls back to the requested id only when none was reported', () => {
+  it('keys each entry by the model that answered, and leaves out a reply that named no model', () => {
     const alias = { ...panel('A', '~vendor/model-latest'), servedModel: 'vendor/model-5' }
     const bare = { ...panel('B', 'm2'), servedModel: null }
-    const plan = planBallot(run([alias, bare, panel('C', 'm3', false)], ['A', 'B', 'C']), 'tie')
-    expect(plan.ok && plan.entries).toEqual([{ model: 'vendor/model-5', served: 'vendor/model-5' }, { model: 'm2', served: null }])
+    const plan = planBallot(run([alias, bare, panel('C', 'm3')], ['A', 'B', 'C']), 'tie')
+    expect(plan.ok && plan.entries).toEqual([{ model: 'vendor/model-5', served: 'vendor/model-5' }, { model: 'm3-s', served: 'm3-s' }])
+  })
+
+  it('never keys a reply that named no model by its requested id, so it cannot be picked or counted', () => {
+    const bare = { ...panel('B', 'm2'), servedModel: null }
+    const unnamed = run([panel('A', 'm1'), bare, panel('C', 'm3')], ['A', 'B', 'C'])
+    expect(planBallot(unnamed, 'B')).toEqual({ ok: false, error: 'Panel B named no model, so its answer cannot be counted.' })
+    expect(voteable([panel('A', 'm1'), bare])).toBe(false)
+    expect(voteable([panel('A', 'm1'), bare, panel('C', 'm3')])).toBe(true)
   })
 
   it('needs two different models', () => {

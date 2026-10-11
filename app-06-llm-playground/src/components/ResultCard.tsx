@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { PanelResult, RatingChange, Slot } from '../../netlify/shared/contract'
 import { barPercent, formatCount, formatMs, formatUsd, plainModel, splitModel } from '../lib/format'
-import { panelStatus } from '../lib/run'
+import { checkMarker, panelStatus } from '../lib/run'
 import { Delta } from './Delta'
 import { Prose } from './Prose'
 
@@ -75,15 +75,18 @@ interface ResultCardProps {
 
 // The model behind a panel: the model the provider answered with leads, then its vendor. The request alias is never
 // shown. A panel with no reported served model says so; a panel still waiting shows the visitor's own pick, or nothing for the alias.
+// Panel A's served model also carries its newest-model marker; the title keeps the full id, and the newest id on a mismatch.
 function ModelName({ panel, requested, revealed }: { panel: PanelResult | null; requested: string; revealed: boolean }) {
   const served = panel ? panel.servedModel : null
   const pickedId = !panel && !requested.startsWith('~') ? requested : null
   const id = served ?? pickedId
   const { vendor, name } = id ? splitModel(id) : { vendor: '', name: panel ? NOT_REPORTED : 'shown with the answer' }
+  const marker = panel ? checkMarker(panel.modelCheck, panel.newestModel) : null
   return (
-    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={id ? plainModel(id) : name}>
+    <p className={revealed ? 'arena-name arena-name--revealed' : 'arena-name'} title={id ? `${plainModel(id)}${marker?.titleSuffix ?? ''}` : name}>
       <span className="arena-name__model">{name}</span>
       <span className="arena-name__meta">{vendor}</span>
+      {marker && <span className={marker.warn ? 'ds-badge--warning' : undefined}> {marker.label}</span>}
     </p>
   )
 }

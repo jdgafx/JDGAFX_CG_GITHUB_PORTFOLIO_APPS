@@ -1,6 +1,7 @@
-import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type JudgeResponse } from '../shared/contract'
+import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type JudgeResponse, type ModelCheck } from '../shared/contract'
 import { gate, json, readJson, remainingMs, SERVER_ERROR } from '../shared/guard'
 import { usageFrom } from '../shared/measure'
+import { checkRecord, NOT_CHECKED, newestModel } from '../shared/newest-model'
 import { providerKey, replyOf } from '../shared/openrouter'
 import { chatWithRetry } from '../shared/retry'
 import { errorName, strOrNull } from '../shared/parse'
@@ -25,6 +26,7 @@ export default async (req: Request): Promise<Response> => {
 
     const { prompt, answers } = parsed.value
     // Reasoning is off so a reasoning model cannot spend the budget and cut the JSON short.
+    const newestP = newestModel()
     const result = await chatWithRetry(
       key,
       {
@@ -39,10 +41,11 @@ export default async (req: Request): Promise<Response> => {
     if (!result.ok) return json(failure(result.error, null, result.latencyMs), 200, guard.headers)
 
     const served = strOrNull(result.data.model)
+    const record = checkRecord(await newestP, served, MODEL)
     const { text } = replyOf(result.data)
-    if (text.trim() === '') return json(failure('The judge returned no text', served, result.latencyMs), 200, guard.headers)
+    if (text.trim() === '') return json(failure('The judge returned no text', served, result.latencyMs, record), 200, guard.headers)
     const verdict = parseVerdict(text, answers.map(answer => answer.slot))
-    if (!verdict.ok) return json(failure(verdict.reason, served, result.latencyMs), 200, guard.headers)
+    if (!verdict.ok) return json(failure(verdict.reason, served, result.latencyMs, record), 200, guard.headers)
 
     const { usage, cost } = usageFrom(result.data, served, null)
     const picked = verdict.bestOverall === 'tie' ? 'a tie' : `Panel ${verdict.bestOverall}`
@@ -55,6 +58,7 @@ export default async (req: Request): Promise<Response> => {
       caveat: verdict.caveat,
       usage,
       cost,
+      ...record,
       trace: [
         {
           name: 'Judge',
@@ -73,12 +77,13 @@ export default async (req: Request): Promise<Response> => {
   }
 }
 
-function failure(reason: string, model: string | null, latencyMs: number): JudgeResponse {
+function failure(reason: string, model: string | null, latencyMs: number, record: { newestModel: string | null; modelCheck: ModelCheck | null } = NOT_CHECKED): JudgeResponse {
   return {
     ok: false,
     reason,
     model,
     latencyMs,
+    ...record,
     trace: [{ name: 'Judge', status: 'failed', ms: latencyMs, detail: reason, tokens: null, cost: null }],
   }
 }

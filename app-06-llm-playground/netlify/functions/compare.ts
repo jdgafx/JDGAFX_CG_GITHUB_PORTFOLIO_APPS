@@ -2,6 +2,7 @@ import { blindView, newRunId, runExpiry, saveRun, shuffleOrder, sweepRuns, votea
 import { COMPARE_BODY_MAX_BYTES, MODEL, SLOTS, type CompareResponse, type CompareResult, type PanelResult } from '../shared/contract'
 import { acceptedIds, liveModels } from '../shared/catalogue'
 import { gate, json, readJson, remainingMs, SERVER_ERROR } from '../shared/guard'
+import { newestModel } from '../shared/newest-model'
 import { summarise } from '../shared/measure'
 import { providerKey } from '../shared/openrouter'
 import { failedPanel, PANEL_TIMEOUT_MS, panelStep, runPanel } from '../shared/panel'
@@ -39,8 +40,9 @@ export default async (req: Request): Promise<Response> => {
       return json({ error: UNKNOWN_MODEL }, 400, guard.headers)
     }
 
-    // models[0] is ignored. Panel A always runs the fixed default model.
+    // models[0] is ignored. Panel A always runs the fixed default model, and only Panel A is checked against the newest one.
     const models = [MODEL, modelB, modelC]
+    const newestP = newestModel()
     const outcomes = await Promise.allSettled(
       SLOTS.map((slot, i) =>
         runPanel({
@@ -53,6 +55,7 @@ export default async (req: Request): Promise<Response> => {
           prices,
           timeoutMs: Math.min(PANEL_TIMEOUT_MS, remainingMs(started)),
           signal: req.signal,
+          newest: slot === 'A' ? newestP : undefined,
         }),
       ),
     )

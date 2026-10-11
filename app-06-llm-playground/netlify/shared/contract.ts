@@ -76,6 +76,10 @@ export interface TraceStep {
   cost: Cost | null
 }
 
+// What the newest-model check found for one reply. 'not-reported': the reply named no model. 'unchecked': the
+// list did not say which model is newest. 'match' and 'mismatch': the served id against the newest id.
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 export interface PanelResult {
   slot: Slot
   requestedModel: string
@@ -89,12 +93,17 @@ export interface PanelResult {
   cost: Cost | null
   // True when the first attempt timed out or lost its connection and a second one was made.
   retried?: boolean
+  // Panel A only: the newest model the list names for the alias, and the check of the reply. Null for panels B and C
+  // (visitor-picked ids are not checked) and for a panel with no reply.
+  newestModel?: string | null
+  modelCheck?: ModelCheck | null
 }
 
 export interface CompareSummary {
-  fastest: { slot: Slot; model: string; latencyMs: number } | null
-  cheapest: { slot: Slot; model: string; usd: number; source: Cost['source'] } | null
-  mostOutputTokens: { slot: Slot; model: string; tokens: number } | null
+  // The served id; null when the reply named no model. Never the requested id.
+  fastest: { slot: Slot; model: string | null; latencyMs: number } | null
+  cheapest: { slot: Slot; model: string | null; usd: number; source: Cost['source'] } | null
+  mostOutputTokens: { slot: Slot; model: string | null; tokens: number } | null
   measuredAt: string
 }
 
@@ -203,6 +212,9 @@ export interface JudgeVerdict {
   usage: Usage
   cost: Cost | null
   trace: TraceStep[]
+  // The newest model the list names for the alias, and the check of the judge's reply.
+  newestModel?: string | null
+  modelCheck?: ModelCheck
 }
 
 interface JudgeFailure {
@@ -211,6 +223,9 @@ interface JudgeFailure {
   model: string | null
   latencyMs: number
   trace: TraceStep[]
+  // Set once the judge replied; null when no reply came back.
+  newestModel?: string | null
+  modelCheck?: ModelCheck | null
 }
 
 export type JudgeResponse = JudgeVerdict | JudgeFailure

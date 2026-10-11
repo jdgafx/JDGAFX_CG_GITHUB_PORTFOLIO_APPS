@@ -7,7 +7,8 @@ const TOO_LARGE = 'The request is too large. Shorten the prompt and try again.'
 type Gate = { ok: true; headers: Record<string, string> } | { ok: false; response: Response }
 
 // Browser origins allowed to call these endpoints. Netlify injects URL and DEPLOY_PRIME_URL
-// for the live site and deploy previews, so the deployed host is never hardcoded.
+// for the live site and deploy previews, so the deployed host is never hardcoded. Those variables are not
+// reliable when the function runs, so originAllowed also accepts the origin the request was sent to.
 function allowedOrigins(): string[] {
   const configured = process.env.ALLOWED_ORIGINS?.split(',') ?? []
   return [
@@ -22,10 +23,20 @@ function allowedOrigins(): string[] {
     .filter(Boolean)
 }
 
+// The origin of the URL this request was sent to, or null when the URL does not parse.
+function requestOrigin(req: Request): string | null {
+  try {
+    return new URL(req.url).origin
+  } catch {
+    return null
+  }
+}
+
 // A request with no Origin header is not browser cross-site traffic (curl, server to server).
-function originAllowed(origin: string | null): boolean {
+function originAllowed(origin: string | null, req: Request): boolean {
   if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
+  const clean = origin.replace(/\/$/, '')
+  return allowedOrigins().includes(clean) || clean === requestOrigin(req)
 }
 
 function corsHeaders(origin: string | null, method: string): Record<string, string> {
@@ -82,7 +93,7 @@ function clientKey(req: Request): string {
 // Origin check, CORS preflight, method check and (for POST) the rate limit, in one place.
 export function gate(req: Request, method: 'GET' | 'POST'): Gate {
   const origin = req.headers.get('origin')
-  if (!originAllowed(origin)) {
+  if (!originAllowed(origin, req)) {
     return { ok: false, response: json({ error: 'Origin not allowed' }, 403, corsHeaders(null, method)) }
   }
   const headers = corsHeaders(origin, method)

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MODEL, type JudgeResponse } from '../../netlify/shared/contract'
 import { useTestKey } from '../helpers'
-import { providerStub, reply, request, sentBody } from './fixtures'
+import { chatCalls, NEWEST_CATALOGUE, providerStub, reply, request, sentBody } from './fixtures'
 
 const URL = 'http://localhost:8888/api/judge'
 const ANSWERS = [
@@ -38,6 +38,8 @@ describe('judge function', () => {
       caveat: 'One prompt, one sample.',
       usage: { prompt_tokens: 300, completion_tokens: 60, reasoning_tokens: null, total_tokens: 360 },
       cost: { usd: 0.000045, source: 'usage' },
+      newestModel: null,
+      modelCheck: 'unchecked',
       trace: [
         {
           name: 'Judge',
@@ -49,22 +51,22 @@ describe('judge function', () => {
         },
       ],
     })
-    expect(stub).toHaveBeenCalledTimes(1)
-    expect(sentBody(stub.mock.calls[0][1])).toMatchObject({
+    expect(chatCalls(stub)).toHaveLength(1)
+    expect(sentBody(chatCalls(stub)[0][1])).toMatchObject({
       model: MODEL,
       max_tokens: 1024,
       reasoning: { enabled: false },
       usage: { include: true },
     })
-    expect(sentBody(stub.mock.calls[0][1]).model).toBe('~anthropic/claude-haiku-latest')
-    expect(sentBody(stub.mock.calls[0][1])).not.toHaveProperty('temperature')
+    expect(sentBody(chatCalls(stub)[0][1]).model).toBe('~anthropic/claude-haiku-latest')
+    expect(sentBody(chatCalls(stub)[0][1])).not.toHaveProperty('temperature')
   })
 
   it('reads a verdict wrapped in a code fence', async () => {
     const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', '```json\n' + VERDICT + '\n```'))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
     expect(await response.json()).toMatchObject({ ok: true, bestOverall: 'B' })
-    expect(stub).toHaveBeenCalledTimes(1)
+    expect(chatCalls(stub)).toHaveLength(1)
   })
 
   it('refuses an empty list of answers with a plain message, and makes no provider call', async () => {
@@ -132,7 +134,7 @@ describe('judge function', () => {
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ ok: true, bestOverall: 'B' })
-    expect(stub).toHaveBeenCalledTimes(1)
+    expect(chatCalls(stub)).toHaveLength(1)
   })
 
   it('refuses a body that is not JSON before any provider call', async () => {
@@ -163,7 +165,7 @@ describe('judge function', () => {
   it('reports a reply with no JSON as a failed judge step, with the model that answered', async () => {
     const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', 'Panel A is better.'))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
-    expect(stub).toHaveBeenCalledTimes(1)
+    expect(chatCalls(stub)).toHaveLength(1)
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       ok: false,
@@ -176,7 +178,7 @@ describe('judge function', () => {
   it('reports an empty reply as a failed judge step', async () => {
     const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', '   '))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
-    expect(stub).toHaveBeenCalledTimes(1)
+    expect(chatCalls(stub)).toHaveLength(1)
     expect(await response.json()).toMatchObject({ ok: false, reason: 'The judge returned no text' })
   })
 
@@ -184,7 +186,7 @@ describe('judge function', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const stub = providerStub(() => new Response('{"error":"no credit"}', { status: 402 }))
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
-    expect(stub).toHaveBeenCalledTimes(1)
+    expect(chatCalls(stub)).toHaveLength(1)
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       ok: false,
@@ -201,7 +203,28 @@ describe('judge function', () => {
     })
     const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
     // The first try timed out, so the judge asked once more before giving up.
-    expect(stub).toHaveBeenCalledTimes(2)
+    expect(chatCalls(stub)).toHaveLength(2)
     expect(await response.json()).toMatchObject({ ok: false, reason: 'The AI provider did not answer in time' })
+  })
+})
+
+describe('judge function, newest-model check', () => {
+  useTestKey()
+  const NEWEST = 'anthropic/claude-haiku-5.5'
+  const withList = () => Response.json(NEWEST_CATALOGUE)
+
+  it('shows a judge reply from another model as a mismatch, and still gives the verdict', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    providerStub(() => reply('anthropic/claude-haiku-5.4', VERDICT), withList)
+    const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
+    expect(await response.json()).toMatchObject({ ok: true, bestOverall: 'B', model: 'anthropic/claude-haiku-5.4', newestModel: NEWEST, modelCheck: 'mismatch' })
+  })
+
+  it('reports not-reported when the judge reply names no model, and never names the alias', async () => {
+    providerStub(() => new Response(JSON.stringify({ choices: [{ message: { content: VERDICT }, finish_reason: 'stop' }] })), withList)
+    const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
+    const body = (await response.json()) as JudgeResponse
+    expect(body).toMatchObject({ ok: true, model: null, modelCheck: 'not-reported' })
+    expect(JSON.stringify(body)).not.toContain('claude-haiku-latest')
   })
 })

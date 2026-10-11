@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MODEL, type CompareResponse } from '../../netlify/shared/contract'
 import { TEST_KEY, useTestKey } from '../helpers'
-import { providerStub, reply, request, sentBody } from './fixtures'
+import { chatCalls, NEWEST_CATALOGUE, providerStub, reply, request, sentBody } from './fixtures'
 
 const URL = 'http://localhost:8888/api/compare'
 const PROMPT = 'Reply with exactly the word READY.'
@@ -58,7 +58,7 @@ describe('compare function', () => {
     expect(body.summary.mostOutputTokens).toEqual({ slot: 'B', model: 'google/gemini-2.5-flash-lite-001', tokens: 5 })
     expect(body.summary.fastest).not.toBeNull()
     expect(JSON.stringify(body)).not.toContain(TEST_KEY)
-    expect(stub).toHaveBeenCalledTimes(4)
+    expect(chatCalls(stub)).toHaveLength(3)
   })
 
   it('reads the catalogue once, then sends each panel with max_tokens and usage.include, panel A on the fixed model', async () => {
@@ -156,7 +156,7 @@ describe('compare function', () => {
     })
     expect(body.panels[2]).toMatchObject({ ok: false, error: NO_ANSWER })
     expect(body.trace[1]).toMatchObject({ name: 'Panel B request', status: 'failed', detail: body.panels[1].error })
-    expect(stub).toHaveBeenCalledTimes(4)
+    expect(chatCalls(stub)).toHaveLength(3)
   })
 
   it('maps a provider 429 and a provider timeout to their plain-language messages', async () => {
@@ -173,7 +173,7 @@ describe('compare function', () => {
     expect(body.panels[2]).toMatchObject({ ok: false, error: NO_ANSWER, retried: true })
     expect(body.panels[1].retried).toBe(false)
     expect(body.trace[2].detail).toBe(`${NO_ANSWER}. Retried once after the first try timed out`)
-    expect(stub).toHaveBeenCalledTimes(5)
+    expect(chatCalls(stub)).toHaveLength(4)
   })
 
   it('passes the request abort signal to each provider call, so a stop during the first call stops every panel', async () => {
@@ -191,7 +191,7 @@ describe('compare function', () => {
     )
     const body = (await response.json()) as CompareResponse
     expect(body.panels.map(p => p.error)).toEqual([STOPPED, STOPPED, STOPPED])
-    expect(stub).toHaveBeenCalledTimes(4)
+    expect(chatCalls(stub)).toHaveLength(3)
   })
 
   it('stops every panel whose call is still pending when the request is aborted', async () => {
@@ -206,7 +206,7 @@ describe('compare function', () => {
     const body = (await (await running).json()) as CompareResponse
     expect(body.panels.map(p => p.error)).toEqual([STOPPED, STOPPED, STOPPED])
     expect(body.panels.every(p => !p.ok)).toBe(true)
-    expect(stub).toHaveBeenCalledTimes(4)
+    expect(chatCalls(stub)).toHaveLength(3)
   })
 
   it('keeps accepting curated models when the catalogue is down, and still refuses an unknown one', async () => {
@@ -221,6 +221,45 @@ describe('compare function', () => {
     const unknown = await run(request(URL, 'POST', { prompt: PROMPT, models: ['a/x', 'openai/gpt-5.4-nano', 'made/up-model'] }))
     expect(unknown.status).toBe(400)
     // The first run makes one catalogue request and three panel calls. The refused run makes none.
-    expect(stub).toHaveBeenCalledTimes(4)
+    expect(chatCalls(stub)).toHaveLength(3)
+  })
+})
+
+describe('compare function, newest-model check', () => {
+  useTestKey()
+
+  const NEWEST = 'anthropic/claude-haiku-5.5'
+  const withList = () => Response.json(NEWEST_CATALOGUE)
+
+  it('checks Panel A against the newest Haiku the list names, and leaves Panels B and C unchecked', async () => {
+    const stub = providerStub(model => reply(model === MODEL ? NEWEST : model, 'READY'), withList)
+    const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const body = (await response.json()) as CompareResponse
+    expect(body.panels[0]).toMatchObject({ slot: 'A', servedModel: NEWEST, newestModel: NEWEST, modelCheck: 'match' })
+    for (const panel of body.panels.slice(1)) expect(panel).toMatchObject({ newestModel: null, modelCheck: null })
+    expect(chatCalls(stub)).toHaveLength(3)
+  })
+
+  it('shows a Panel A reply from another model as a mismatch, and still answers the panel', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    providerStub(model => reply(model === MODEL ? 'anthropic/claude-haiku-5.4' : model, 'READY'), withList)
+    const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const body = (await response.json()) as CompareResponse
+    expect(body.panels[0]).toMatchObject({ ok: true, text: 'READY', servedModel: 'anthropic/claude-haiku-5.4', newestModel: NEWEST, modelCheck: 'mismatch' })
+  })
+
+  it('reports Panel A as not-reported when its reply names no model, and never names the alias in the summary', async () => {
+    providerStub(model => (model === MODEL ? new Response(JSON.stringify({ choices: [{ message: { content: 'READY' }, finish_reason: 'stop' }] })) : reply(model, 'READY')), withList)
+    const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const body = (await response.json()) as CompareResponse
+    expect(body.panels[0]).toMatchObject({ ok: true, servedModel: null, modelCheck: 'not-reported' })
+    expect(JSON.stringify(body.summary)).not.toContain('claude-haiku-latest')
+  })
+
+  it('reports Panel A as unchecked when the list does not name the alias', async () => {
+    providerStub(model => reply(model === MODEL ? NEWEST : model, 'READY'))
+    const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const body = (await response.json()) as CompareResponse
+    expect(body.panels[0]).toMatchObject({ servedModel: NEWEST, newestModel: null, modelCheck: 'unchecked' })
   })
 })
