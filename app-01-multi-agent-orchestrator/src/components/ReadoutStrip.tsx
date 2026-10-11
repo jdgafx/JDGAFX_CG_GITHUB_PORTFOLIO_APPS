@@ -43,9 +43,14 @@ function ModelChip({ facts, worst }: { facts: ModelFacts; worst?: ModelFacts }) 
   const marker = worst ? MODEL_MARKER[worst.modelCheck] : undefined
   const title = worst?.modelCheck === 'mismatch' ? `${worst.servedModel}, newest: ${worst.newestModel}` : (facts.servedModel ?? undefined)
   return (
-    <span className="ds-chip" title={title}>
+    <span className="ds-chip ds-chip--wrap" title={title}>
       {facts.servedModel ? shortModel(facts.servedModel) : 'not reported'}
-      {marker && <span style={marker.style}>{marker.text}</span>}
+      {marker && (
+        <>
+          {' '}
+          <span style={marker.style}>{marker.text}</span>
+        </>
+      )}
     </span>
   )
 }

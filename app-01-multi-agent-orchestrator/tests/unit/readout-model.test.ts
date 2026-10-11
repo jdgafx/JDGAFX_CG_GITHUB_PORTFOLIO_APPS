@@ -28,7 +28,7 @@ describe('served-model chip and marker', () => {
 
   it('marks a mismatch as not newest, with the mismatching id and the newest in the marker title', () => {
     const out = readout(mismatch)
-    expect(out).toMatch(new RegExp(`<span class="ds-chip" title="${OLDER}, newest: ${NEWEST}">claude-haiku-4\\.5<span[^>]*>· not newest</span></span>`))
+    expect(out).toMatch(new RegExp(`<span class="ds-chip ds-chip--wrap" title="${OLDER}, newest: ${NEWEST}">claude-haiku-4\\.5 <span[^>]*>· not newest</span></span>`))
     expect(out).not.toContain('ds-badge')
   })
 
@@ -49,7 +49,7 @@ describe('served-model chip and marker', () => {
 describe('run-wide marker: the worst check across the run calls', () => {
   it('shows not newest when one stage matches and another mismatches, keeping the reply call id', () => {
     const out = readout(match, [mismatch, match])
-    expect(out).toMatch(new RegExp(`<span class="ds-chip" title="${OLDER}, newest: ${NEWEST}">claude-haiku-5\\.5<span[^>]*>· not newest</span></span>`))
+    expect(out).toMatch(new RegExp(`<span class="ds-chip ds-chip--wrap" title="${OLDER}, newest: ${NEWEST}">claude-haiku-5\\.5 <span[^>]*>· not newest</span></span>`))
     expect(out).not.toContain('· newest')
   })
 
