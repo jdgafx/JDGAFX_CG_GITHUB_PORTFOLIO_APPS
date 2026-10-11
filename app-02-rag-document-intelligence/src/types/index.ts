@@ -71,9 +71,6 @@ export interface Turn {
   sourceChunks: number[]
   selfRated: number | null
   servedModel: string | null
-  newestModel: string | null
-  modelCheck: ModelCheck
-  mismatchedModel: string | null
   /** What the browser ranked for this question: the terms, and the passages with their BM25 scores. */
   retrieval: Retrieval
 }

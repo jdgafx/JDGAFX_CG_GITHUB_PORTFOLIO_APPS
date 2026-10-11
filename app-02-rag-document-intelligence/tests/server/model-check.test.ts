@@ -88,6 +88,35 @@ describe('ai function: which model answered', () => {
     expect(run.mismatchedModel).toBeNull()
   })
 
+  it('prices each call at the model that served it, and sums the calls', async () => {
+    // Prompt and completion counts are 120 and 30 on every call. Two different priced models give different rates.
+    setList({
+      data: [
+        { id: SERVED, pricing: { prompt: '0.000001', completion: '0.000005' } },
+        { id: NEWER, pricing: { prompt: '0.000002', completion: '0.000002' } },
+      ],
+    })
+    stubProvider(
+      () => jsonReply(chatBody('{"answer":"The Harbor', { finish: 'length', cost: false })),
+      () => jsonReply(chatBody(ANSWER, { model: NEWER, cost: false })),
+    )
+    const run = await runOf(await (await freshHandler())(request(VALID)))
+    // First call: 120 x 0.000001 + 30 x 0.000005 = 0.00027. Second call: 120 x 0.000002 + 30 x 0.000002 = 0.0003.
+    expect(run.usage.cost_source).toBe('estimated')
+    expect(run.usage.cost).toBeCloseTo(0.00057, 9)
+  })
+
+  it('gives no estimate when one call names no model, even if the other call can be priced', async () => {
+    setList({ data: [{ id: SERVED, pricing: { prompt: '0.000001', completion: '0.000005' } }] })
+    stubProvider(
+      () => jsonReply(chatBody('{"answer":"The Harbor', { finish: 'length', cost: false })),
+      () => jsonReply(chatBody(ANSWER, { model: null, cost: false })),
+    )
+    const run = await runOf(await (await freshHandler())(request(VALID)))
+    expect(run.usage.cost).toBeNull()
+    expect(run.usage.cost_source).toBeNull()
+  })
+
   it('prices a reply only by the model it names, never by the alias', async () => {
     setList({ data: [{ id: ALIAS, pricing: { prompt: '0.000001', completion: '0.000005' } }] })
     stubProvider(() => jsonReply(chatBody(ANSWER, { model: null, cost: false })))

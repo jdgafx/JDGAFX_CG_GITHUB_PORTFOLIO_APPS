@@ -56,6 +56,13 @@ describe('the served-model chip in the run readout', () => {
     expect(html).toContain(`title="${SERVED}, newest: ${NEWER}"`)
   })
 
+  it('keeps not reported when the shown answer named no model, and still flags a mismatching call in the chip', () => {
+    const html = strip({ report: report(null, NEWER, 'mismatch', SERVED), state: 'answered' })
+    expect(html).toContain('not reported')
+    expect(html).toContain('· not newest')
+    expect(html).toContain(`title="${SERVED}, newest: ${NEWER}"`)
+  })
+
   it('shows unchecked when the list did not name the newest model', () => {
     const html = strip({ report: report(SERVED, null, 'unchecked'), state: 'answered' })
     expect(html).toContain('· unchecked')

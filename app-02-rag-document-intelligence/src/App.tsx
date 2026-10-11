@@ -138,12 +138,9 @@ export default function App() {
                 sourceChunks: outcome.sourceChunks,
                 selfRated: outcome.selfRated,
                 servedModel: outcome.run.servedModel,
-                newestModel: outcome.run.newestModel,
-                modelCheck: outcome.run.modelCheck,
-                mismatchedModel: outcome.run.mismatchedModel,
                 retrieval: outcome.retrieval,
               }
-            : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, retrieval: outcome.retrieval }
+            : { id: newId(), question: text, kind: 'no-matches', answer: NO_MATCH_ANSWER, sourceChunks: [], selfRated: null, servedModel: null, retrieval: outcome.retrieval }
         setTurns(prev => [...prev, turn])
       } catch (err) {
         if (!isCurrent()) return

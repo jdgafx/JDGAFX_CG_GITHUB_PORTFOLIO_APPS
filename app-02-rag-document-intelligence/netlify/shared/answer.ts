@@ -1,5 +1,5 @@
 import { newestModel, servedCheck, worstCheck, type ModelCheck } from './newest-model'
-import { callModel, estimateCost, MODEL, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage, type RawUsage } from './provider'
+import { callModel, estimateCost, MODEL, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage } from './provider'
 
 /** 'passage' or 'passages', by count. */
 function noun(count: number): string {
@@ -169,8 +169,19 @@ function sumOrNull(values: Array<number | null>): number | null {
   return values.reduce<number>((total, v) => total + (v ?? 0), 0)
 }
 
-/** Totals across every attempt, since each attempt was billed. */
-async function buildUsage(model: string | null, usages: RawUsage[], deadline: number): Promise<Usage> {
+/** One call's cost at the list price of the model that served it. Null when the call named no model or has no token counts. */
+function estimateCallCost(reply: AttemptOk, deadline: number): Promise<number | null> {
+  const { model, usage } = reply
+  if (model === null || usage.prompt_tokens === null || usage.completion_tokens === null) return Promise.resolve(null)
+  return estimateCost(model, usage.prompt_tokens, usage.completion_tokens, deadline)
+}
+
+/**
+ * Totals across every attempt, since each attempt was billed. A reported cost is used as it is. Otherwise each call is
+ * priced at its own served model, and the estimate is null when any call cannot be priced.
+ */
+async function buildUsage(replies: AttemptOk[], deadline: number): Promise<Usage> {
+  const usages = replies.map(reply => reply.usage)
   const prompt = sumOrNull(usages.map(u => u.prompt_tokens))
   const completion = sumOrNull(usages.map(u => u.completion_tokens))
   const total = sumOrNull(usages.map(u => u.total_tokens))
@@ -178,8 +189,9 @@ async function buildUsage(model: string | null, usages: RawUsage[], deadline: nu
   if (reported !== null) {
     return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total, cost: reported, cost_source: 'reported' }
   }
-  const estimated =
-    model !== null && prompt !== null && completion !== null ? await estimateCost(model, prompt, completion, deadline) : null
+  const estimates: Array<number | null> = []
+  for (const reply of replies) estimates.push(await estimateCallCost(reply, deadline))
+  const estimated = sumOrNull(estimates)
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
@@ -241,14 +253,12 @@ export async function runAnswer(
   const called = Date.now()
   const first = await callModel(apiKey, messages, callLimit(), signal)
 
-  const usages: RawUsage[] = []
-  // Every call that returned a reply, so each one's served model is checked.
+  // Every call that returned a reply, so each one's served model is checked and priced.
   const replies: AttemptOk[] = []
   let attempt: AttemptOk | null = null
   // Why a second call is made, or null when the first one is used as it is.
   let reason: string | null = null
   if (first.ok) {
-    usages.push(first.usage)
     replies.push(first)
     if (usable(first)) {
       attempt = first
@@ -276,7 +286,6 @@ export async function runAnswer(
       record(STEP_RETRY, retried, 'failed', second.message)
       return fail(second.status, second.message, [STEP_PARSE])
     }
-    usages.push(second.usage)
     replies.push(second)
     attempt = second
     record(STEP_RETRY, retried, 'ok', `Retried once because ${reason}. ${servedBy(second)}`, costOf(second))
@@ -292,7 +301,7 @@ export async function runAnswer(
   }
   // Only the call that wrote the shown answer names its model. Another call's model is never used in its place.
   const servedModel = attempt.model
-  const usage = await buildUsage(servedModel, usages, deadline)
+  const usage = await buildUsage(replies, deadline)
   const newest = await newestP
   const checks = replies.map(reply => ({ served: reply.model, check: servedCheck(newest, reply.model) }))
   for (const { served, check } of checks) {
