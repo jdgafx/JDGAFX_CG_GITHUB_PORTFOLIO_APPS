@@ -16,6 +16,8 @@ import {
   type StageResult,
 } from '../shared/stream'
 
+const NO_DATA_MESSAGE = 'Live data unavailable, so no report was written.'
+
 type Outcome = { ok: true; stage: StageResult } | { ok: false; message: string; usage?: StageUsage }
 
 /** What the server keeps about each stage, to build the trace and the totals. */
@@ -94,6 +96,12 @@ async function runPipeline(
     status: found.reached ? 'ok' : 'failed',
     ms: retrieveMs,
     detail: found.detail,
+  }
+  // No sources means no live data. A report from model memory would be substitute data, so the run ends here, before any model call.
+  if (found.sources.length === 0) {
+    send({ type: 'agent_error', agent: 'retriever', ms: retrieveMs, error: `${NO_DATA_MESSAGE} ${found.detail}` })
+    for (const agent of AGENTS) send({ type: 'agent_skipped', agent: agent.role, detail: 'Not started: no live data was retrieved.' })
+    return
   }
   send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail })
 

@@ -5,13 +5,13 @@ import type { Source } from '../../src/types'
 describe('stage definitions', () => {
   it('runs four stages in order, each with an explicit token ceiling and a time cap', () => {
     expect(AGENTS.map(agent => agent.role)).toEqual(['researcher', 'analyst', 'critic', 'synthesizer'])
-    expect(AGENTS.map(agent => agent.maxTokens)).toEqual([600, 600, 400, 1200])
-    expect(AGENTS.map(agent => agent.timeoutMs)).toEqual([5500, 5500, 4500, 10000])
+    expect(AGENTS.map(agent => agent.maxTokens)).toEqual([2200, 2200, 2000, 2800])
+    expect(AGENTS.map(agent => agent.timeoutMs)).toEqual([8500, 8500, 7500, 13000])
   })
 
-  it('keeps the run budget inside the 60 s function limit and every stage cap inside the budget', () => {
-    expect(RUN_BUDGET_MS).toBe(24_000)
-    expect(RUN_BUDGET_MS).toBeLessThan(60_000)
+  it('keeps the run budget inside the 30 s cut-off and every stage cap inside the budget', () => {
+    expect(RUN_BUDGET_MS).toBe(27_000)
+    expect(RUN_BUDGET_MS).toBeLessThan(30_000)
     expect(MIN_STAGE_MS).toBe(2_000)
     for (const agent of AGENTS) expect(agent.timeoutMs).toBeLessThan(RUN_BUDGET_MS)
   })

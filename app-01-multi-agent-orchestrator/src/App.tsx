@@ -15,7 +15,6 @@ import {
   MAX_QUERY_CHARS,
   MODEL_ORDER,
   createAgents,
-  foundNoSources,
   hasUsefulOutput,
   wasTruncated,
 } from './lib/agents'
@@ -24,6 +23,7 @@ import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
 import { buildSteps } from './lib/graphLayout'
 import { derivePhase, failInFlight, settleAgents, type RunPhase } from './lib/pipeline'
 import { buildTraceRows } from './lib/traceRows'
+import { settleAudit } from './lib/auditState'
 import { useAudit } from './lib/useAudit'
 import { useResultFocus, type RunPhase as FocusPhase } from './lib/useResultFocus'
 import { sumUsage } from './lib/usage'
@@ -187,7 +187,8 @@ export default function App() {
 
   const handleStart = useCallback(() => void startRun(query), [startRun, query])
 
-  const handleExample = useCallback(
+  /** Try it fills the topic and runs it in one press. An Example only fills the topic: the run starts on Start research. */
+  const handleTry = useCallback(
     (text: string) => {
       setQuery(text)
       void startRun(text)
@@ -253,8 +254,10 @@ export default function App() {
   const model = summary ? summary.model : agents.synthesizer.model
   const modelCalls = [...MODEL_ORDER.flatMap(role => agents[role].calls ?? []), ...(audit.view.result?.calls ?? [])]
 
-  const steps = buildSteps(agents, { phase: audit.view.phase, ms: audit.view.result?.ms })
-  const traceRows = buildTraceRows(steps, agents, audit.view)
+  // Once the run has ended, an audit that never started is "Not run", not "Waiting".
+  const traceAudit = settleAudit(audit.view, !isRunning && hasStarted, wasStopped)
+  const steps = buildSteps(agents, { phase: traceAudit.phase, ms: audit.view.result?.ms })
+  const traceRows = buildTraceRows(steps, agents, traceAudit)
 
   const names = (roles: AgentRole[]) => roles.map(role => AGENT_META[role].name).join(', ')
   const notices: string[] = []
@@ -265,11 +268,9 @@ export default function App() {
   if (!isRunning && incomplete.length > 0) notices.push(`No usable output from: ${names(incomplete)}. The report is incomplete.`)
   const notRun = AGENT_ORDER.filter(role => agents[role].status === 'skipped')
   if (!isRunning && notRun.length > 0) notices.push(`Not run: ${names(notRun)}. The run ended before reaching them.`)
-  if (!isRunning && foundNoSources(agents.retriever)) {
-    notices.push('No sources were retrieved, so the Researcher worked from model memory. Its facts carry no citations and are unverified.')
-  }
-  if (AGENT_ORDER.some(role => agents[role].reasoningTokens > 0)) {
-    notices.push('The model spent part of its budget on internal reasoning, which shortens the visible answers.')
+  // Thinking is on, so reasoning tokens are normal. They are worth a note only when a stage was cut off and spent some of its budget on them.
+  if (!isRunning && cut.some(role => agents[role].reasoningTokens > 0)) {
+    notices.push('A cut-off stage spent part of its budget on internal reasoning, which left less room for the visible answer.')
   }
   const showNotices = notices.length > 0 && !noticesHidden
   const exportState: ExportState = isRunning ? 'running' : !hasAnyOutput ? 'empty' : phase === 'complete' ? 'complete' : 'partial'
@@ -279,7 +280,7 @@ export default function App() {
       <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt)} />
 
       <main className="ds-main">
-        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleExample(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready'} hint={HOWTO_HINT} />
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready'} hint={HOWTO_HINT} />
         <div className="ds-bench">
           <div className="ds-controls">
             <QueryBar
@@ -292,7 +293,7 @@ export default function App() {
               onDismissError={() => setPipelineError(null)}
               onStart={handleStart}
               onStop={handleStop}
-              onExample={handleExample}
+              onExample={setQuery}
             />
             <ExportBar variant="rail" state={exportState} busy={exporting} onExport={handleExport} />
           </div>
@@ -304,7 +305,7 @@ export default function App() {
               synthesizer={agents.synthesizer}
               sources={agents.retriever.sources ?? []}
               error={pipelineError}
-              hasSteps={AGENT_ORDER.some(role => agents[role].status === 'complete')}
+              hasSteps={AGENT_ORDER.some(role => agents[role].status === 'complete' || agents[role].status === 'error')}
               audit={audit.view}
               onRetryRun={() => void startRun(ranQuery || query)}
               onRetryAudit={audit.retry}

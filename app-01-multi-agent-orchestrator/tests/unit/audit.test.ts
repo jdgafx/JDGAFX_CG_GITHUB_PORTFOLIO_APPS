@@ -129,6 +129,30 @@ describe('preCheck', () => {
     expect(namesIn('Posted in December and on Friday')).toEqual([])
   })
 
+  it('counts an acronym as present when the cited source spells it out in capitalised words (the captured r2 claim)', () => {
+    const hn: Source = {
+      n: 4,
+      title: 'James Webb Space Telescope Finds Most Distant Known Galaxy',
+      site: 'Hacker News',
+      url: '',
+      snippet: 'Hacker News story "James Webb Space Telescope Finds Most Distant Known Galaxy", linking to blogs.nasa.gov. 148 points, 55 comments, May 2024.',
+      note: '148 points, 55 comments, May 2024',
+    }
+    const text = 'One post reports JWST identifying the most distant known galaxy, dated May 2024 [4].'
+    const pre = preCheck(text, [4], [hn])
+    expect(pre.missingNames).toEqual([])
+    const draft = { id: 1, block: 0, piece: 0, text, cites: [4] }
+    const claim = settleClaim(draft, pre, [hn], { id: 1, verdict: 'supported', source: 4, quote: 'James Webb Space Telescope Finds Most Distant Known Galaxy', reason: 'Headline states it.' })
+    expect(claim.verdict).toBe('supported')
+  })
+
+  it('still flags an acronym the source neither contains nor spells out, and does not read one out of lower-case words', () => {
+    const source: Source = { n: 1, title: 'Space', site: 'Wikipedia', url: '', snippet: 'A space telescope that studies infrared light, used to see far.' }
+    expect(preCheck('The telescope is run by NASA and the ESA [1].', [1], [source]).missingNames).toEqual(['NASA', 'ESA'])
+    // "used to see far" is not a capitalised expansion of UTSF-style names; "a space telescope" does not spell AST.
+    expect(preCheck('The AST data is used [1].', [1], [source]).missingNames).toEqual(['AST'])
+  })
+
   it('flags a name the source does not contain', () => {
     const pre = preCheck('The telescope was built by Northrop Grumman with infrared astronomy goals [1].', [1], SOURCES)
     expect(pre.missingNames).toEqual(['Northrop Grumman'])

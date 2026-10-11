@@ -22,6 +22,8 @@ function auditDetail(view: AuditView): string {
       return 'Waits for the finished report.'
     case 'none':
       return view.note ?? 'Nothing to check.'
+    case 'skipped':
+      return view.note ?? 'Not run: there was no report to check.'
     case 'running':
       return `Checking ${view.summary.total} cited ${view.summary.total === 1 ? 'claim' : 'claims'} against the text of their sources.`
     case 'done':

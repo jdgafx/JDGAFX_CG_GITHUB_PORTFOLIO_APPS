@@ -12,7 +12,7 @@ interface AuditSummaryProps {
 export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
   const { phase, summary } = view
 
-  if (phase === 'idle') return null
+  if (phase === 'idle' || phase === 'skipped') return null
   if (phase === 'none') return <p className="ds-help audit-note">{view.note ?? 'Nothing to check.'}</p>
 
   if (phase === 'failed' || phase === 'stopped') {

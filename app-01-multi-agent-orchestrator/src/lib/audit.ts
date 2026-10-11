@@ -182,6 +182,21 @@ const FAIL_BELOW = 0.25
 const WEAK_BELOW = 0.5
 
 /**
+ * True when an all-capitals token such as "JWST" is spelled out in the text: a run of consecutive capitalised words whose
+ * initial letters are the token ("James Webb Space Telescope"). Lower-case words never count, so "used to see far" does not
+ * spell a name. No list of acronyms is involved.
+ */
+export function spellsOut(token: string, text: string): boolean {
+  if (!/^\p{Lu}{2,}$/u.test(token)) return false
+  const words = text.match(/[\p{L}\p{N}]+/gu) ?? []
+  const initials = words.map(word => (/^\p{Lu}/u.test(word) ? word.charAt(0).toUpperCase() : ''))
+  for (let start = 0; start + token.length <= words.length; start += 1) {
+    if (token.split('').every((letter, i) => initials[start + i] === letter)) return true
+  }
+  return false
+}
+
+/**
  * The deterministic check of one sentence against the sources it cites: how many of its content words the
  * cited text contains, whether every number in it appears there, and whether every name does.
  */
@@ -216,6 +231,7 @@ export function preCheck(claim: string, cites: number[], sources: Source[]): Pre
   // A name is missing only when none of its words is in the cited text, so "Ukrainian SSR" is backed by "Ukrainian Soviet Socialist Republic".
   const missingNames = namesIn(plain).filter(name =>
     name.split(/[\s-]+/).every(part => {
+      if (spellsOut(part, union)) return false
       const lower = part.toLowerCase()
       // The singular counts too: "Suns" is backed by "the Sun".
       return !unionWords.has(stem(lower)) && ![lower, lower.replace(/(?<=\w{2})e?s$/, '')].some(form => union.toLowerCase().includes(form))

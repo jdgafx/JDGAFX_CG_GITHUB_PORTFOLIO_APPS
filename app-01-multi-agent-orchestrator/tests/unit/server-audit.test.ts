@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RequestError } from '../../netlify/shared/gate'
-import { auditMessage, parseJudgments, readAuditRequest } from '../../netlify/shared/audit'
+import { AUDIT_AGENT, AUDIT_BUDGET_MS, auditMessage, parseJudgments, readAuditRequest } from '../../netlify/shared/audit'
 import { extractClaims } from '../../src/lib/audit'
 
 function post(body: unknown): Request {
@@ -56,5 +56,23 @@ describe('readAuditRequest', () => {
     expect(failure).toBeInstanceOf(RequestError)
     expect((failure as RequestError).message).toBe(message)
     expect((failure as RequestError).status).toBe(400)
+  })
+})
+
+describe('audit call budget', () => {
+  it('leaves room for thinking plus the JSON, and its request limit stays under the 30 s cut-off', () => {
+    expect(AUDIT_AGENT.maxTokens).toBeGreaterThanOrEqual(3_900)
+    expect(AUDIT_AGENT.timeoutMs).toBeLessThan(AUDIT_BUDGET_MS)
+    expect(AUDIT_BUDGET_MS + 2_000).toBeLessThan(30_000)
+  })
+})
+
+describe('audit prompt', () => {
+  it('states the scope rule: a claim must cover what the source covers, in both directions, with a worked example', () => {
+    const prompt = AUDIT_AGENT.systemPrompt
+    expect(prompt).toContain('Scope rule')
+    expect(prompt).toContain('narrower than the source')
+    expect(prompt).toContain('wider than the source')
+    expect(prompt).toContain('Example of a scope shift')
   })
 })

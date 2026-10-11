@@ -196,7 +196,7 @@ describe('runStage', () => {
     })
     const init = fetchMock.mock.calls[0]?.[1]
     const sent = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; usage: { include: boolean } }
-    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 600, usage: { include: true } })
+    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', max_tokens: 2200, usage: { include: true } })
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-only-placeholder' })
   })
 

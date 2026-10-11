@@ -38,7 +38,6 @@ describe('buildChatBody', () => {
       stream: true,
       stream_options: { include_usage: true },
       usage: { include: true },
-      reasoning: { enabled: false },
       provider: { require_parameters: true },
       messages: [
         { role: 'system', content: 'SYS' },
@@ -52,6 +51,12 @@ describe('buildChatBody', () => {
     expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body.provider).toEqual({ require_parameters: true })
     expect(body).not.toHaveProperty('temperature')
+  })
+
+  it('leaves thinking on: the body carries no reasoning override at all, so Haiku uses its default', () => {
+    const body = buildChatBody('SYS', 'USER', 2200)
+    expect(body).not.toHaveProperty('reasoning')
+    expect(JSON.stringify(body)).not.toMatch(/"reasoning"|"enabled":\s*false/)
   })
 
   it('carries the stage token ceiling it is given', () => {

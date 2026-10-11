@@ -3,7 +3,9 @@ import handler from '../../netlify/functions/ai'
 import {
   installHarness,
   VALID_BODY,
+  WIKIPEDIA_BODY,
   frames,
+  jsonReply,
   plan,
   providerCalls,
   reply,
@@ -53,7 +55,7 @@ describe('ai function: retrieval', () => {
     )
   })
 
-  it('degrades honestly when both public sources fail: no sources, the trace says why, the Researcher is told', async () => {
+  it('stops before any model call when no source was retrieved: no report, a Failed Retrieve, the four stages not run', async () => {
     const down = () => new Response('unavailable', { status: 503 })
     const fetchMock = plan(
       {
@@ -67,21 +69,46 @@ describe('ai function: retrieval', () => {
 
     const events = await frames(await handler(request(VALID_BODY)))
 
+    expect(events.map(event => event.type)).toEqual(['retrieve_start', 'agent_error', 'agent_skipped', 'agent_skipped', 'agent_skipped', 'agent_skipped'])
     expect(events[1]).toEqual({
-      type: 'retrieve_complete',
+      type: 'agent_error',
+      agent: 'retriever',
       ms: expect.any(Number),
-      sources: [],
-      detail: 'No sources retrieved: Wikipedia answered HTTP 503; Hacker News answered HTTP 503.',
+      error:
+        'Live data unavailable, so no report was written. No sources retrieved: Wikipedia answered HTTP 503; Hacker News answered HTTP 503.',
     })
-    const researcherMessage = (JSON.parse(String(providerCalls(fetchMock)[0]?.[1]?.body)) as { messages: Array<{ content: string }> }).messages[1]?.content
-    expect(researcherMessage).toContain('Sources: none were retrieved.')
+    // Only the two data lookups went out: no model call, and not even the model list.
+    expect(providerCalls(fetchMock)).toHaveLength(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(events.some(event => event.type === 'agent_chunk' || event.type === 'session_complete')).toBe(false)
+  })
+
+  it('stops the same way when both sources answer but nothing matches', async () => {
+    const empty = jsonReply({ query: { pages: [] }, hits: [] })
+    const fetchMock = plan(
+      { researcher: reply('x', 0, 1, 1), analyst: reply('x', 0, 1, 1), critic: reply('x', 0, 1, 1), synthesizer: reply('x', 0, 1, 1) },
+      { wikipedia: empty, hn: empty },
+    )
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(events.map(event => event.type)).toContain('agent_error')
+    expect(events.some(event => event.type === 'agent_chunk' || event.type === 'session_complete')).toBe(false)
+    expect(providerCalls(fetchMock)).toHaveLength(0)
+  })
+
+  it('keeps going when only one source fails, and names which one was unavailable', async () => {
+    const fetchMock = plan(
+      {
+        researcher: reply('- A [1].', 0.1, 10, 10),
+        analyst: reply('- B [1].', 0.1, 10, 10),
+        critic: reply('- C.', 0.1, 10, 10),
+        synthesizer: reply('D [1].', 0.1, 10, 10),
+      },
+      { wikipedia: jsonReply(WIKIPEDIA_BODY), hn: () => new Response('unavailable', { status: 503 }) },
+    )
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(events[1]).toMatchObject({ type: 'retrieve_complete', detail: expect.stringContaining('Hacker News answered HTTP 503') })
     expect(providerCalls(fetchMock)).toHaveLength(4)
-    const finalChunk = events.find(event => event.type === 'agent_chunk' && event.agent === 'synthesizer')?.content as string
-    expect(finalChunk).toContain('### Sources\n\nNo sources were retrieved. This report rests on model memory and is unverified.')
-    expect(events.at(-1)).toMatchObject({
-      type: 'session_complete',
-      trace: [expect.objectContaining({ name: 'Retrieve', status: 'failed' }), ...Array.from({ length: 4 }, () => expect.objectContaining({ status: 'ok' }))],
-    })
+    expect(events.at(-1)).toMatchObject({ type: 'session_complete' })
   })
 
   it('keeps retrieval out of the model usage totals', async () => {
@@ -113,30 +140,6 @@ describe('ai function: retrieval', () => {
     expect(events.map(event => event.type)).toEqual(['retrieve_start'])
     expect(providerCalls(fetchMock)).toHaveLength(0)
     expect(fetchMock.mock.calls.every(call => call[1]?.signal?.aborted)).toBe(true)
-  })
-
-  it('strips citation markers the model wrote when nothing was retrieved, from every stage and the result', async () => {
-    const down = () => new Response('unavailable', { status: 503 })
-    plan(
-      {
-        researcher: reply('No sources retrieved: working from model memory, unverified.\n- SSE is one-way [n].', 0.1, 10, 10),
-        analyst: reply('- One-way push fits [1] output [number].', 0.1, 10, 10),
-        critic: reply('- Nothing is cited [2].', 0.1, 10, 10),
-        synthesizer: reply('SSE is one-way [1][n]. WebSockets are two-way [3].', 0.1, 10, 10),
-      },
-      { wikipedia: down, hn: down },
-    )
-
-    const events = await frames(await handler(request(VALID_BODY)))
-
-    const chunks = events.filter(event => event.type === 'agent_chunk').map(event => event.content)
-    expect(chunks.slice(0, 3)).toEqual([
-      'No sources retrieved: working from model memory, unverified.\n- SSE is one-way.',
-      '- One-way push fits output.',
-      '- Nothing is cited.',
-    ])
-    expect(chunks[3]).toMatch(/^SSE is one-way\. WebSockets are two-way\.\n\n### Sources/)
-    expect(JSON.stringify(events.at(-1))).not.toMatch(/\[(?:\d|n|number)\]/)
   })
 
   it('drops a marker that points past the retrieved list and keeps the valid ones', async () => {

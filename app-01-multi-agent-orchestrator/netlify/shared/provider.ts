@@ -23,15 +23,15 @@ interface ChatBody {
   stream: true
   stream_options: { include_usage: true }
   usage: { include: true }
-  reasoning: { enabled: false }
   provider: { require_parameters: true }
   messages: Array<{ role: 'system' | 'user'; content: string }>
 }
 
 /**
  * The chat request for one stage. Every call carries an explicit `max_tokens` ceiling and
- * asks for usage, including cost, in the stream. Reasoning stays off because reasoning
- * tokens are billed against `max_tokens`.
+ * asks for usage, including cost, in the stream. No reasoning override is sent, so the model
+ * keeps its default thinking. Thinking tokens count against `max_tokens`, so each stage's
+ * ceiling is sized to hold the thinking and the answer.
  */
 export function buildChatBody(systemPrompt: string, userMessage: string, maxTokens: number): ChatBody {
   return {
@@ -40,7 +40,6 @@ export function buildChatBody(systemPrompt: string, userMessage: string, maxToke
     stream: true,
     stream_options: { include_usage: true },
     usage: { include: true },
-    reasoning: { enabled: false },
     provider: { require_parameters: true },
     messages: [
       { role: 'system', content: systemPrompt },

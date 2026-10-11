@@ -58,6 +58,17 @@ describe('Try it', () => {
     await startResearch(TRY_IT.question, () => undefined).catch(() => undefined)
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toEqual({ query: TRY_IT.question })
-    expect(read('src/App.tsx')).toContain('onTry={() => handleExample(TRY_IT.question)}')
+    expect(read('src/App.tsx')).toContain('onTry={() => handleTry(TRY_IT.question)}')
+  })
+})
+
+describe('Examples', () => {
+  it('only fill the topic: the run starts on Start research, as step 2 says', () => {
+    const app = read('src/App.tsx')
+    expect(HOWTO_STEPS[1]).toContain('Press "Start research"')
+    expect(app).toContain('onExample={setQuery}')
+    expect(app).toMatch(/const handleTry = useCallback\(\s*\(text: string\) => \{\s*setQuery\(text\)\s*void startRun\(text\)/)
+    expect(app).not.toMatch(/handleExample/)
+    expect(read('src/components/QueryBar.tsx')).toContain('onExample(example.question)')
   })
 })

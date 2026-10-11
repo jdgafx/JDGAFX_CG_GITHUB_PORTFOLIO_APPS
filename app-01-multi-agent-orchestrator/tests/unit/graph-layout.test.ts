@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createAgents } from '../../src/lib/agents'
 import { buildSteps, narrowLayout, takenEdges, wideLayout } from '../../src/lib/graphLayout'
 import { buildTraceRows, laneFor } from '../../src/lib/traceRows'
-import { IDLE_AUDIT } from '../../src/lib/auditState'
+import { IDLE_AUDIT, settleAudit } from '../../src/lib/auditState'
 
 describe('layouts', () => {
   it('snakes the six steps three to a row on a wide stage: right, right, down, left, left', () => {
@@ -70,5 +70,18 @@ describe('trace rows', () => {
     expect(laneFor(rows)[0]).toEqual({ left: 0, width: 25 })
     expect(laneFor(rows)[1]).toEqual({ left: 25, width: 75 })
     expect(laneFor(rows)[5]).toBeNull()
+  })
+
+  it('says the audit was not run, never "Waiting", once the run has ended without a report', () => {
+    const agents = createAgents()
+    const rows = (view: ReturnType<typeof settleAudit>) => buildTraceRows(buildSteps(agents, view), agents, view)
+    expect(settleAudit(IDLE_AUDIT, false)).toBe(IDLE_AUDIT)
+    const failed = settleAudit(IDLE_AUDIT, true)
+    expect(rows(failed)[5]).toMatchObject({ name: 'Audit', mark: 'skipped', word: 'Not run', detail: 'Not run: the run ended before a report was written.' })
+    const stopped = settleAudit(IDLE_AUDIT, true, true)
+    expect(rows(stopped)[5]?.detail).toBe('Not run: you stopped the run before a report was written.')
+    // A finished audit is left alone.
+    const done = { ...IDLE_AUDIT, phase: 'done' as const }
+    expect(settleAudit(done, true)).toBe(done)
   })
 })

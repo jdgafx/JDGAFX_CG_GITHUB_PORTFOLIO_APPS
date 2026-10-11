@@ -25,6 +25,24 @@ const PREVIEW = 'https://deploy-preview-9--jdgafx-app-01-multi-agent-orchestrato
 
 installHarness()
 
+describe('ai function: thinking stays on', () => {
+  it('sends no reasoning override on any of the four model calls, and a token ceiling that leaves room for thinking', async () => {
+    const fetchMock = plan({
+      researcher: reply('- A [1].', 0.1, 10, 10),
+      analyst: reply('- B [1].', 0.1, 10, 10),
+      critic: reply('- C.', 0.1, 10, 10),
+      synthesizer: reply('D [1].', 0.1, 10, 10),
+    })
+    await frames(await handler(request(VALID_BODY)))
+    const bodies = providerCalls(fetchMock).map(call => JSON.parse(String(call[1]?.body)) as Record<string, unknown> & { max_tokens: number })
+    expect(bodies).toHaveLength(4)
+    for (const body of bodies) {
+      expect(body).not.toHaveProperty('reasoning')
+      expect(body.max_tokens).toBeGreaterThanOrEqual(2000)
+    }
+  })
+})
+
 describe('ai function: success path', () => {
   it('streams each stage as it finishes, then one summary with trace, usage, cost and served model', async () => {
     const fetchMock = plan({
@@ -47,7 +65,7 @@ describe('ai function: success path', () => {
       'agent_start', 'agent_chunk', 'agent_complete',
       'session_complete',
     ])
-    expect(events[2]).toEqual({ type: 'agent_start', agent: 'researcher', maxTokens: 600 })
+    expect(events[2]).toEqual({ type: 'agent_start', agent: 'researcher', maxTokens: 2200 })
     expect(events[3]).toEqual({ type: 'agent_chunk', agent: 'researcher', content: '- SSE sends one-way events.\n- WebSockets are two-way.' })
     expect(events[4]).toMatchObject({
       type: 'agent_complete',
@@ -57,8 +75,8 @@ describe('ai function: success path', () => {
       usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160, cost: 0.0001 },
     })
     expect(typeof events[4]?.ms).toBe('number')
-    expect(events[8]).toEqual({ type: 'agent_start', agent: 'critic', maxTokens: 400 })
-    expect(events[11]).toEqual({ type: 'agent_start', agent: 'synthesizer', maxTokens: 1200 })
+    expect(events[8]).toEqual({ type: 'agent_start', agent: 'critic', maxTokens: 2000 })
+    expect(events[11]).toEqual({ type: 'agent_start', agent: 'synthesizer', maxTokens: 2800 })
 
     const summary = events[14]
     expect(summary).toMatchObject({
@@ -79,7 +97,7 @@ describe('ai function: success path', () => {
     const modelCalls = providerCalls(fetchMock)
     expect(modelCalls).toHaveLength(4)
     const sent = modelCalls.map(call => JSON.parse(String(call[1]?.body)) as { model: string; max_tokens: number; usage: { include: boolean } })
-    expect(sent.map(body => body.max_tokens)).toEqual([600, 600, 400, 1200])
+    expect(sent.map(body => body.max_tokens)).toEqual([2200, 2200, 2000, 2800])
     expect(sent.every(body => body.model === FIXED_MODEL && body.usage.include)).toBe(true)
     expect(modelCalls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${KEY}` })
   })
@@ -357,12 +375,13 @@ describe('ai function: budget and cut-off replies', () => {
         expect.objectContaining({ name: 'Retrieve', status: 'ok' }),
         expect.objectContaining({ name: 'Researcher', status: 'failed' }),
         expect.objectContaining({ name: 'Analyst', status: 'failed' }),
-        expect.objectContaining({ name: 'Critic', status: 'failed' }),
+        expect.objectContaining({ name: 'Critic', status: 'skipped' }),
         expect.objectContaining({ name: 'Synthesizer', status: 'skipped' }),
       ],
     })
-    // Researcher and Analyst each retry once after a cut-off body. Critic gets only the 2 s left.
-    expect(providerCalls(fetchMock)).toHaveLength(5)
+    // Retrieval is instant here. The Researcher's 8.5 s cap runs twice (17 s), the Analyst's once (25.5 s), and the 1.5 s left of
+    // the 27 s budget is under the 2 s minimum, so there is no Analyst retry and neither the Critic nor the Synthesizer starts.
+    expect(providerCalls(fetchMock)).toHaveLength(3)
   })
 
   it('labels a reply that ends without a finish reason as cut off in the trace', async () => {

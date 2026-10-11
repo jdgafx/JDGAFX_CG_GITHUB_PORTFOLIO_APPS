@@ -4,8 +4,8 @@ import { getProvider } from '../shared/provider'
 import { RunCancelledError, friendlyUpstreamMessage, UpstreamError } from '../shared/stream'
 import { withDeadline } from '../shared/deadline'
 
-/** Hard stop for the whole request, body read included, a little past the audit's own budget. */
-const REQUEST_LIMIT_MS = AUDIT_BUDGET_MS + 3_000
+/** Hard stop for the whole request, body read included, a little past the audit's own budget and under the 30 s cut-off. */
+const REQUEST_LIMIT_MS = AUDIT_BUDGET_MS + 2_000
 
 async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')

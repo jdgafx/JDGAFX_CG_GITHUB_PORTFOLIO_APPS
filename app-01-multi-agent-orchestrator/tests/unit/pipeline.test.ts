@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createAgents, foundNoSources, statusView } from '../../src/lib/agents'
+import { liveDataView } from '../../src/lib/liveData'
 import { derivePhase, retryLine, settleAgents, traceDetail, traceMeta } from '../../src/lib/pipeline'
 
 describe('retryLine', () => {
@@ -55,5 +56,17 @@ describe('derivePhase', () => {
   it('is failed when Retrieve ran and no model stage produced text', () => {
     const agents = settleAgents({ ...createAgents(), retriever: { ...createAgents().retriever, status: 'complete' } }, false)
     expect(derivePhase(agents, false, false)).toBe('failed')
+  })
+})
+
+describe('a failed Retrieve', () => {
+  it('ends in the Failed state with the Live data unavailable chip and the four stages not run', () => {
+    const agents = createAgents()
+    agents.retriever = { ...agents.retriever, status: 'error', error: 'Live data unavailable, so no report was written.', detail: 'x', ms: 900 }
+    const settled = settleAgents(agents, false)
+    expect(derivePhase(settled, false, false)).toBe('failed')
+    expect(['researcher', 'analyst', 'critic', 'synthesizer'].map(role => settled[role as 'critic'].status)).toEqual(['skipped', 'skipped', 'skipped', 'skipped'])
+    expect(liveDataView(settled.retriever, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
+    expect(statusView(settled.retriever).word).toBe('Failed')
   })
 })

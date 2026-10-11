@@ -9,18 +9,20 @@ export interface AgentConfig {
   name: string
   systemPrompt: string
   buildUserMessage: (query: string, context: AgentContext) => string
-  /** Explicit ceiling on generated tokens. Always sent upstream. */
+  /** Explicit ceiling on generated tokens, thinking included. Always sent upstream. */
   maxTokens: number
   /** Wall-clock cap for one attempt. The run deadline can shorten it. */
   timeoutMs: number
 }
 
 /**
- * Netlify's synchronous function limit is 60 s and cannot be configured. This budget is the
- * app's own bound, well inside that limit. Every stage and retry draws on it, starting when the
- * run does. Per-stage timeouts are caps inside it, not a sum.
+ * Netlify's synchronous function cut-off is treated as 30 s. This budget is the app's own bound,
+ * 3 s inside it for the closing events. Thinking is on, so each stage runs a few seconds longer
+ * than it did with thinking off (the captured runs took 11 to 15 s in all); the per-stage caps
+ * below are the old caps plus about 3 s each. Every stage and retry draws on this budget,
+ * starting when the run does. Per-stage timeouts are caps inside it, not a sum.
  */
-export const RUN_BUDGET_MS = 24_000
+export const RUN_BUDGET_MS = 27_000
 /** A stage is not started with less time than this left in the budget. */
 export const MIN_STAGE_MS = 2_000
 
@@ -70,8 +72,8 @@ export const AGENTS: AgentConfig[] = [
       }
       return `Research: ${query}\n\nSources:\n${sourcesPromptBlock(ctx.sources)}\n\n3-5 bullet points only, each cited like [1]. Be extremely concise.`
     },
-    maxTokens: 600,
-    timeoutMs: 5500,
+    maxTokens: 2200,
+    timeoutMs: 8500,
   },
   {
     role: 'analyst',
@@ -80,8 +82,8 @@ export const AGENTS: AgentConfig[] = [
       'You are an analyst. Identify 2-3 key patterns from the research. Keep the [n] citation on every fact you use, but only when the research has citations; never write a literal [n]. Markdown bullets. STRICT LIMIT: 150 words max.',
     buildUserMessage: (_query, ctx) =>
       `Analyze:\n${trimCtx(ctx.researcher, MAX_RESEARCH_CHARS)}\n\n2-3 key patterns only. Extremely concise.${citationNote(ctx)}`,
-    maxTokens: 600,
-    timeoutMs: 5500,
+    maxTokens: 2200,
+    timeoutMs: 8500,
   },
   {
     role: 'critic',
@@ -89,8 +91,8 @@ export const AGENTS: AgentConfig[] = [
     systemPrompt:
       'You are a critic. Note 2-3 gaps or missing angles, including any claim that has no [n] citation or rests on one source. Never write a literal [n]. Markdown bullets. STRICT LIMIT: 100 words max.',
     buildUserMessage: (_query, ctx) => `Review:\n${trimCtx(ctx.analyst)}\n\n2-3 gaps only. Very brief.${citationNote(ctx)}`,
-    maxTokens: 400,
-    timeoutMs: 4500,
+    maxTokens: 2000,
+    timeoutMs: 7500,
   },
   {
     role: 'synthesizer',
@@ -99,7 +101,7 @@ export const AGENTS: AgentConfig[] = [
       'You are a synthesis agent. Combine research, analysis, and critique into a final report with clear markdown sections. Keep the [n] citations from the research on the claims they support, and never cite a number the research did not use. A claim that comes from the analysis or the critique rather than from a cited research fact gets no citation. If the research has no citations, write no [n] markers. Do not write a Sources list: the app adds it. If the question sets a length or format, such as "in two sentences" or "under 50 words", follow it exactly. Otherwise aim for 200-300 words.',
     buildUserMessage: (query, ctx) =>
       `Final report on "${query}".\n\nResearch:\n${trimCtx(ctx.researcher, MAX_RESEARCH_CHARS)}\n\nAnalysis:\n${trimCtx(ctx.analyst)}\n\nGaps:\n${trimCtx(ctx.critic)}${citationNote(ctx)}`,
-    maxTokens: 1200,
-    timeoutMs: 10000,
+    maxTokens: 2800,
+    timeoutMs: 13000,
   },
 ]

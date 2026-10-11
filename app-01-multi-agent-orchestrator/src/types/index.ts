@@ -101,7 +101,7 @@ export type StreamEvent =
       retried?: string
     }
   | { type: 'agent_skipped'; agent: ModelRole; detail: string }
-  | { type: 'agent_error'; agent: ModelRole | 'system'; ms?: number; error: string }
+  | { type: 'agent_error'; agent: AgentRole | 'system'; ms?: number; error: string }
   | ({ type: 'session_complete'; agent: 'synthesizer' } & RunSummary)
 
 /** The audit's verdict on one cited claim. 'unchecked' means no verdict was reached; it is never hidden. 'checking' exists only in the browser, while the request is out. */

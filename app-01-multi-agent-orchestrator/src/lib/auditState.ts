@@ -3,9 +3,9 @@ import type { AuditClaim, AuditResult, AuditSummary, Source } from '../types'
 
 /**
  * idle: no report yet. none: the report has no cited sentence, or there is no report. running: the request is out.
- * done, failed, stopped: how it ended.
+ * skipped: the run ended without a report, so the audit never started. done, failed, stopped: how it ended.
  */
-export type AuditPhase = 'idle' | 'none' | 'running' | 'done' | 'failed' | 'stopped'
+export type AuditPhase = 'idle' | 'none' | 'skipped' | 'running' | 'done' | 'failed' | 'stopped'
 
 export interface AuditView {
   phase: AuditPhase
@@ -18,6 +18,16 @@ export interface AuditView {
 }
 
 const EMPTY_SUMMARY: AuditSummary = { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0 }
+
+/** An audit still waiting once the run has ended will never start, so the trace and graph say it was not run. */
+export function settleAudit(view: AuditView, runEnded: boolean, runStopped = false): AuditView {
+  if (view.phase !== 'idle' || !runEnded) return view
+  return {
+    ...view,
+    phase: 'skipped',
+    note: runStopped ? 'Not run: you stopped the run before a report was written.' : 'Not run: the run ended before a report was written.',
+  }
+}
 
 export const IDLE_AUDIT: AuditView = { phase: 'idle', claims: [], summary: EMPTY_SUMMARY }
 

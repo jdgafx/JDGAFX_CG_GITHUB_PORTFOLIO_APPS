@@ -55,6 +55,7 @@ const BOX_H = 76
 const AUDIT_STEP: Record<AuditPhase, { mark: Mark; word: string }> = {
   idle: { mark: 'idle', word: 'Waiting' },
   none: { mark: 'skipped', word: 'Nothing to check' },
+  skipped: { mark: 'skipped', word: 'Not run' },
   running: { mark: 'active', word: 'Auditing' },
   done: { mark: 'ok', word: 'Finished' },
   failed: { mark: 'failed', word: 'Failed' },

@@ -4,9 +4,9 @@ const API_URL = '/.netlify/functions/ai'
 
 /** The server must answer the request within 15 s. */
 const CONNECT_TIMEOUT_MS = 15_000
-/** No bytes for 30 s means the connection is dead. A stage's text arrives when the stage ends, at most about 10 s apart. */
+/** No bytes for 30 s means the connection is dead. A stage's text arrives when the stage ends, at most about 13 s apart. */
 export const READ_TIMEOUT_MS = 30_000
-/** The whole run, from the request to the end marker: the server's 24 s budget plus a wide margin. */
+/** The whole run, from the request to the end marker: the server's 27 s budget plus a wide margin. */
 export const OVERALL_TIMEOUT_MS = 60_000
 
 const UNREACHABLE_MESSAGE = 'Could not reach the server. Check your connection and try again.'
