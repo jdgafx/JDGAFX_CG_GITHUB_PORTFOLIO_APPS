@@ -206,7 +206,7 @@
     },
     {
       "parameters": {
-        "model": "anthropic/claude-haiku-4.5",
+        "model": "~anthropic/claude-haiku-latest",
         "options": {
           "maxTokens": 1024
         }
@@ -450,7 +450,7 @@
     },
     {
       "parameters": {
-        "content": "## Enrich + Score (LLM)\nDomain is derived deterministically in code. Company-size/industry classification and the 1-100 sales-readiness score (with reasoning) come from a single structured-JSON call to `OpenRouter Chat Model` (anthropic/claude-haiku-4.5) via a Basic LLM Chain + Structured Output Parser - one round trip, not two, to keep the webhook response fast.\n\n`retryOnFail` (3 tries, fixed 2s wait) covers transient LLM/network failures. Note: n8n's node-level retry is fixed-interval, not true exponential backoff - documented honestly in docs/01-lead-capture-crm.md.",
+        "content": "## Enrich + Score (LLM)\nDomain is derived deterministically in code. Company-size/industry classification and the 1-100 sales-readiness score (with reasoning) come from a single structured-JSON call to `OpenRouter Chat Model` (~anthropic/claude-haiku-latest, the newest Haiku) via a Basic LLM Chain + Structured Output Parser - one round trip, not two, to keep the webhook response fast.\n\n`retryOnFail` (3 tries, fixed 2s wait) covers transient LLM/network failures. Note: n8n's node-level retry is fixed-interval, not true exponential backoff - documented honestly in docs/01-lead-capture-crm.md.",
         "height": 340,
         "width": 460,
         "color": 3

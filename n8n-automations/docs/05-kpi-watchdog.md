@@ -44,7 +44,7 @@ flowchart TD
     DET --> INS[Insert History Rows]
     INS --> PROMPT[Build Digest Prompt]
     PROMPT --> LLM[Generate Digest - Basic LLM Chain]
-    OR[OpenRouter Chat Model - claude-haiku-4.5] -.model.-> LLM
+    OR[OpenRouter Chat Model - ~anthropic/claude-haiku-latest] -.model.-> LLM
     LLM --> PREP[Prepare Digest Record]
     PREP --> EXEC[Execute Workflow: 05a Adapter]
     EXEC --> ISWH{Is Webhook Run?}
@@ -123,7 +123,7 @@ flowchart TD
 |---|---|---|
 | Digest delivery | `Deliver: Data Table` node in 05a inserts into `kpi_digests` | Replace with a Slack `postMessage` node or a Send Email node - the input shape (`run_timestamp, digest_text, anomaly_count, source_down_count, metrics_json`) is unchanged |
 | Metric sources | 3 free, unauthenticated public APIs (GitHub, CoinGecko, Open-Meteo) | Swap the 3 HTTP Request nodes for whatever internal dashboards/APIs matter (Stripe MRR, product analytics, infra health) - `Aggregate Metrics` onward needs no changes |
-| LLM | OpenRouter -> `anthropic/claude-haiku-4.5` | Swap the model string in `OpenRouter Chat Model`, or swap the credential/node entirely - `Basic LLM Chain` interface is unchanged |
+| LLM | OpenRouter -> `~anthropic/claude-haiku-latest` | Swap the model string in `OpenRouter Chat Model`, or swap the credential/node entirely - `Basic LLM Chain` interface is unchanged |
 | Anomaly threshold | Single constant `THRESHOLD_PCT = 15` in `Detect Anomalies` | Make per-metric if needed; the code node is the only place to touch |
 
 ## Execution evidence

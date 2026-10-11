@@ -22,7 +22,7 @@ Workflow ID: `fRrm0krQbxldOuYM` · Webhook: `POST /webhook/lead-intake`
    no duplicate row, no wasted LLM call.
 5. **Enrich + Score** — the domain is derived in code; company-size band, industry, a
    1–100 sales-readiness score, and a short reasoning string all come from **one** structured
-   JSON call to OpenRouter (`anthropic/claude-haiku-4.5`) via a Basic LLM Chain + Structured
+   JSON call to OpenRouter (`~anthropic/claude-haiku-latest`, the newest Haiku) via a Basic LLM Chain + Structured
    Output Parser. The spec describes classification and scoring as two steps; they're combined
    into a single LLM round trip here specifically to keep the webhook response fast — see
    "Design decisions" below.
@@ -48,7 +48,7 @@ flowchart TD
     DUPRESP --> R200[Respond 200]
 
     ROWNOTEX --> CHAIN[Classify & Score Lead<br/>Basic LLM Chain]
-    LLM[OpenRouter Chat Model<br/>claude-haiku-4.5] -.ai_languageModel.-> CHAIN
+    LLM[OpenRouter Chat Model<br/>claude-haiku-latest] -.ai_languageModel.-> CHAIN
     PARSER[Structured Output Parser] -.ai_outputParser.-> CHAIN
     CHAIN --> MERGE[Merge LLM Result<br/>+ routed = hot/standard]
     MERGE --> HOT{Hot Lead?<br/>score >= 70}

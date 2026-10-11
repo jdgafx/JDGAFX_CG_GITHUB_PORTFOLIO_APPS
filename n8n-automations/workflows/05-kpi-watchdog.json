@@ -59,7 +59,7 @@
         -420
       ],
       "parameters": {
-        "content": "### Digest + delivery\nBasic LLM Chain (OpenRouter -> claude-haiku-4.5) writes the executive digest, then hands off to **05a - Adapter: Digest Delivery** (Execute Workflow) which is the single swap point for Slack/email in production.",
+        "content": "### Digest + delivery\nBasic LLM Chain (OpenRouter -> ~anthropic/claude-haiku-latest) writes the executive digest, then hands off to **05a - Adapter: Digest Delivery** (Execute Workflow) which is the single swap point for Slack/email in production.",
         "height": 200,
         "width": 360,
         "color": 4
@@ -555,7 +555,7 @@
         560
       ],
       "parameters": {
-        "model": "anthropic/claude-haiku-4.5",
+        "model": "~anthropic/claude-haiku-latest",
         "options": {
           "maxTokens": 600
         }

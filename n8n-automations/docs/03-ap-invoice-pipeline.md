@@ -29,7 +29,7 @@ The interesting part is not the extraction. Any LLM will read an invoice. The in
 | Stage | What happens | Failure behaviour |
 | --- | --- | --- |
 | Intake | `POST /webhook/invoice-intake` with `{ source, invoiceText }` | Missing or too-short input returns **400** before a single token is spent |
-| Extraction | Information Extractor over OpenRouter (`anthropic/claude-sonnet-4.6`) into a fixed JSON schema, including the model's own confidence | Provider flakiness retried inside the LLM client; a terminal failure routes to the exception queue, it does not throw |
+| Extraction | Information Extractor over OpenRouter (`~anthropic/claude-sonnet-latest`) into a fixed JSON schema, including the model's own confidence | Provider flakiness retried inside the LLM client; a terminal failure routes to the exception queue, it does not throw |
 | Validation | Every number recomputed - line maths, subtotal, tax, dates, required fields | Any failure routes to the exception desk with plain-English reasons, returns **422** |
 | Idempotency | Dedupe on a normalised `vendor::invoiceNumber` against both the ledger and the pending queue | A repeat submission returns **409** and changes nothing |
 | Approval gate | Auto-approve only if `total <= 5000` **and** `confidence >= 0.8` | Anything else is parked in `ap_pending` and the approver is notified, returns **200 held_for_approval** |
@@ -117,7 +117,7 @@ curl -X POST http://localhost:5678/webhook/invoice-intake \
   "total": 2892.13,
   "confidence": 0.99,
   "lineItemCount": 3,
-  "extractionModel": "anthropic/claude-sonnet-4.6",
+  "extractionModel": "~anthropic/claude-sonnet-latest",
   "ledgerRef": "1",
   "sink": "n8n Data Table: ap_ledger (demo sink for the GL)",
   "postedAt": "2026-08-03T03:17:16.371Z"
@@ -422,4 +422,4 @@ This is a portfolio demonstration on a local n8n instance. What is genuinely bui
 
 ---
 
-*Built on n8n 2.32.7. Extraction via OpenRouter (`anthropic/claude-sonnet-4.6`). All execution ids in this document are real and were produced by HTTP calls against the published workflow.*
+*Built on n8n 2.32.7. Extraction via OpenRouter (`~anthropic/claude-sonnet-latest`). All execution ids in this document are real and were produced by HTTP calls against the published workflow.*

@@ -274,7 +274,7 @@
     },
     {
       "parameters": {
-        "model": "anthropic/claude-sonnet-4.6",
+        "model": "~anthropic/claude-sonnet-latest",
         "options": {
           "temperature": 0,
           "maxTokens": 4096,
