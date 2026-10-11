@@ -47,14 +47,28 @@ describe('callModel request', () => {
     expect(call?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(sent).toMatchObject({
       model: '~anthropic/claude-haiku-latest',
-      max_tokens: 4096,
-      reasoning: { enabled: false },
+      max_tokens: 6144,
       response_format: { type: 'json_object' },
       usage: { include: true },
       messages: MESSAGES,
     })
     expect(sent).not.toHaveProperty('temperature')
     expect(call?.[1].headers).toEqual({ Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' })
+  })
+
+  it('leaves thinking to the model default: no request body carries reasoning.enabled false', async () => {
+    const mock = vi
+      .fn<FetchFn>()
+      .mockResolvedValueOnce(reply(''))
+      .mockResolvedValueOnce(reply('{}'))
+    vi.stubGlobal('fetch', mock)
+    await callModel(MESSAGES, SIGNAL)
+    expect(mock).toHaveBeenCalledTimes(2)
+    for (const call of mock.mock.calls) {
+      const sent = JSON.parse(String(call[1].body)) as { reasoning?: { enabled?: unknown } }
+      expect(sent.reasoning?.enabled).not.toBe(false)
+      expect(sent).not.toHaveProperty('reasoning')
+    }
   })
 
   it('refuses to call the provider when no key is set', async () => {
@@ -107,6 +121,40 @@ describe('callModel usage and retries', () => {
     expect(result.servedModels).toEqual(['anthropic/claude-haiku-test', null])
   })
 
+  it('parses only message.content when the reply also carries reasoning fields', async () => {
+    const decoy = '{"chartType":"pie","title":"from the reasoning"}'
+    stubFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            model: 'anthropic/claude-haiku-test',
+            choices: [
+              {
+                message: {
+                  content: '{"answer":"content"}',
+                  reasoning: decoy,
+                  reasoning_details: [{ type: 'reasoning.text', text: decoy }],
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { total_tokens: 900, completion_tokens_details: { reasoning_tokens: 400 } },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    )
+    const result = await callModel(MESSAGES, SIGNAL)
+    expect(result.text).toBe('{"answer":"content"}')
+    expect(JSON.stringify(result)).not.toContain('from the reasoning')
+  })
+
+  it('returns an empty cut-off reply as such, without a second try, so the caller can report it', async () => {
+    const mock = stubFetch(async () => reply('', { finish: 'length' }))
+    const result = await callModel(MESSAGES, SIGNAL)
+    expect(mock).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ text: '', finish: 'length', attempts: 1 })
+  })
+
   it('does not ask again when the reply was cut off', async () => {
     const mock = stubFetch(async () => reply('{"chartType":"bar"', { finish: 'length' }))
     const result = await callModel(MESSAGES, SIGNAL)
@@ -139,7 +187,7 @@ describe('callModel retry after a timeout or a lost connection', () => {
     expect(mock).toHaveBeenCalledTimes(2)
   })
 
-  it('does not retry an HTTP error, a stop by the caller, or a run with under 6 seconds left', async () => {
+  it('does not retry an HTTP error, a stop by the caller, or a run with under 10 seconds left', async () => {
     const http = vi.fn<FetchFn>().mockResolvedValue(new Response('{}', { status: 500 }))
     vi.stubGlobal('fetch', http)
     await expect(callModel(MESSAGES, SIGNAL)).rejects.toBeInstanceOf(ProviderError)

@@ -10,17 +10,21 @@ export const MODEL = '~anthropic/claude-haiku-latest'
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
-/** Explicit cap on every call. With reasoning off, the whole budget goes to the visible JSON. */
-const MAX_TOKENS = 4096
+/**
+ * Explicit cap on every call. Thinking is on and its tokens count toward this cap, so it holds the thinking
+ * (a few hundred to about 500 tokens here) plus the plan JSON (a few hundred). It was 4096 with thinking off.
+ */
+const MAX_TOKENS = 6144
 
 /**
- * The most one model call may take. Over 24 live plan calls (first questions and follow-ups) the median was
- * 1.7 s, p95 2.6 s and the slowest 4.1 s, so 6 s is 1.5 times the slowest healthy call. A call that hangs
- * is cut here and, budget allowing, repeated once.
+ * The most one model call may take. Over 24 live plan calls with thinking off the median was 1.7 s, p95 2.6 s
+ * and the slowest 4.1 s. Thinking adds up to about 500 tokens of output, roughly 4 s more at Haiku speed, so
+ * a slow healthy call is about 8 s and 10 s leaves a margin. A call that hangs is cut here and, budget
+ * allowing, repeated once. It was 6 s with thinking off.
  */
-export const CALL_LIMIT_MS = 6_000
+export const CALL_LIMIT_MS = 10_000
 /** A retry after a timeout needs at least this much of the run budget left, or the failure is reported. */
-const RETRY_MIN_MS = 6_000
+const RETRY_MIN_MS = 10_000
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -100,7 +104,6 @@ async function readOnce(messages: ChatMessage[], apiKey: string, signal: AbortSi
     body: JSON.stringify({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      reasoning: { enabled: false },
       response_format: { type: 'json_object' },
       usage: { include: true },
       messages,
@@ -121,6 +124,7 @@ async function readOnce(messages: ChatMessage[], apiKey: string, signal: AbortSi
   }
   const choice = data.choices?.[0]
   return {
+    // Only message.content is read. The model's reasoning arrives in other fields and is never parsed or shown.
     text: typeof choice?.message?.content === 'string' ? choice.message.content.trim() : '',
     finish: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
     model: typeof data.model === 'string' ? data.model : null,

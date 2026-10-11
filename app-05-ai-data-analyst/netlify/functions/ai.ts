@@ -30,8 +30,8 @@ const ALLOWED_ORIGINS = [
 
 /** One budget for the whole request: the first call, its empty-reply retry and the repair turn. */
 const UPSTREAM_TIMEOUT_MS = 25_000
-/** A repair turn needs at least this much time left in the budget, or it is skipped. */
-const REPAIR_MIN_MS = 8_000
+/** A repair turn needs at least this much time left in the budget, or it is skipped. One full call limit, so it can finish. */
+const REPAIR_MIN_MS = 10_000
 
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -227,6 +227,7 @@ class RunLog {
 }
 
 const CUT_OFF_MESSAGE = 'The AI reply was cut off before the JSON finished. Try a narrower question.'
+const NO_ANSWER_MESSAGE = 'The AI used up its reply length while thinking, before it wrote an answer. Try a narrower question.'
 const EMPTY_MESSAGE = 'The AI returned an empty response. Try rephrasing your question.'
 const UNREADABLE_MESSAGE = 'The AI response could not be read. Try rephrasing your question.'
 const AFTER_MODEL_CALL = ['Read JSON reply', 'Check plan against columns', 'Repair turn']
@@ -255,6 +256,11 @@ function readPlanJson(text: string): PlanRead {
     return { ok: false, message: UNREADABLE_MESSAGE }
   }
   return { ok: true, value: parsed, fields: Object.keys(parsed).length }
+}
+
+/** A reply stopped by the token cap. With thinking on, the cap may be spent before any answer text exists. */
+function cutOffMessage(reply: ModelReply): string {
+  return reply.text ? CUT_OFF_MESSAGE : NO_ANSWER_MESSAGE
 }
 
 function planSummary(plan: QueryPlan): string {
@@ -338,7 +344,7 @@ async function repairPlan(
 
   const read = readPlanJson(reply.text)
   if (!read.ok) {
-    const message = reply.finish === 'length' ? CUT_OFF_MESSAGE : read.message
+    const message = reply.finish === 'length' ? cutOffMessage(reply) : read.message
     log.step('Repair turn', 'failed', repairAt, message, costs)
     return { ok: false, status: 502, message }
   }
@@ -393,7 +399,7 @@ async function analyse(
   const readAt = Date.now()
   const read = readPlanJson(reply.text)
   if (!read.ok) {
-    const message = reply.finish === 'length' ? CUT_OFF_MESSAGE : read.message
+    const message = reply.finish === 'length' ? cutOffMessage(reply) : read.message
     log.step('Read JSON reply', 'failed', readAt, message)
     log.skip(AFTER_READ, 'Not reached: the reply was not a readable JSON object.')
     return failed(log, 502, message, cors)

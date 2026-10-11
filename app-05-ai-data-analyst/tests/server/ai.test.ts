@@ -244,7 +244,8 @@ describe('ai function happy path', () => {
     const sent = JSON.parse(String(call?.[1].body)) as { model: string; max_tokens: number; usage: unknown; messages: Array<{ content: string }> }
     expect(call?.[0]).toBe(ENDPOINT)
     expect(sent.model).toBe('~anthropic/claude-haiku-latest')
-    expect(sent.max_tokens).toBe(4096)
+    expect(sent.max_tokens).toBe(6144)
+    expect(sent).not.toHaveProperty('reasoning')
     expect(sent).not.toHaveProperty('tool_choice')
     expect(sent.usage).toEqual({ include: true })
     expect(sent.messages[1]?.content).toContain(`Question: ${QUESTION}`)
@@ -318,6 +319,43 @@ describe('ai function model replies that cannot be used', () => {
       error: 'The AI reply was cut off before the JSON finished. Try a narrower question.',
     })
     expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers 502 with a clear error when thinking used the whole token cap and no answer came', async () => {
+    const mock = stubProvider(modelReply('', undefined, 'length'))
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(502)
+    const reply = await readReply(response)
+    expect(reply.error).toBe(
+      'The AI used up its reply length while thinking, before it wrote an answer. Try a narrower question.',
+    )
+    expect(reply.result).toBeUndefined()
+    expect(reply.trace?.find((step) => step.name === 'Read JSON reply')).toMatchObject({ status: 'failed' })
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads only the content of a reply that also carries reasoning, and shows none of it', async () => {
+    const reasoning = JSON.stringify({ ...PLAN, title: 'REASONING TEXT' })
+    stubProvider(
+      new Response(
+        JSON.stringify({
+          model: SERVED,
+          choices: [
+            {
+              message: { content: JSON.stringify(PLAN), reasoning, reasoning_details: [{ type: 'reasoning.text', text: reasoning }] },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1000, completion_tokens: 700, total_tokens: 1700, cost: 0.0003 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    expect(body).not.toContain('REASONING TEXT')
+    expect(JSON.parse(body).result.title).toBe(PLAN.title)
   })
 
   it('answers 502 when the reply has no JSON object', async () => {
