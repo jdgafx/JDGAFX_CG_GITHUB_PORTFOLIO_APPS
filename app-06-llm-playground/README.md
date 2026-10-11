@@ -1,6 +1,6 @@
 # ModelArena (app-06-llm-playground)
 
-ModelArena sends one prompt to three models at the same time and shows what each one returned: the answer, the latency, the output tokens, the cost, and the model that served it. Panel A always runs the newest Claude Haiku, requested as the OpenRouter alias `~anthropic/claude-haiku-latest`; the result shows the model that answered (currently `anthropic/claude-haiku-5.5`). Panels B and C take any text model from the live OpenRouter catalogue, chosen from a grouped picker. An AI judge then gives one model's opinion on the three answers, and the page labels that note as opinion. Timings, tokens and cost are measured.
+ModelArena sends one prompt to three models at the same time and shows what each one returned: the answer, the latency, the output tokens, the cost, and the model that served it. Panel A always runs the newest Claude Haiku, requested as the OpenRouter alias `~anthropic/claude-haiku-latest`; the result shows the model that answered and whether it is the newest Haiku. Panels B and C take any text model from the live OpenRouter catalogue, chosen from a grouped picker. An AI judge then gives one model's opinion on the three answers, and the page labels that note as opinion. Timings, tokens and cost are measured.
 
 What this showcases: the same prompt measured on three models at once, with cost from the provider's usage and an AI judge's note labelled as opinion.
 
