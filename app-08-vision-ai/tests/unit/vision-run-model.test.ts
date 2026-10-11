@@ -124,7 +124,7 @@ describe('streamVisionRun newest-model check', () => {
     vi.useFakeTimers()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     let calls = 0
-    // Headers arrive, then nothing: the first try hangs until the 9-second limit and the run retries once.
+    // Headers arrive, then nothing: the first try hangs until the first-word limit and the run retries once.
     stubFetch(async () =>
       ++calls === 1
         ? new Response(new ReadableStream<Uint8Array>(), { status: 200 })

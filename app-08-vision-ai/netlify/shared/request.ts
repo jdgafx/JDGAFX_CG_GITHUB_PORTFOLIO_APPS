@@ -50,10 +50,12 @@ export const MAX_COMPARE_IMAGE_BYTES = 2 * 1024 * 1024
 const MAX_COMPARE_IMAGE_CHARS = Math.ceil(MAX_COMPARE_IMAGE_BYTES / 3) * 4
 const MAX_PIXELS = 100_000
 
-const MAX_TOKENS_DEFAULT = 4096
-const MAX_TOKENS_EXTRACT = 8192
-const MAX_TOKENS_REGION = 2048
-const MAX_TOKENS_COMPARE = 3072
+// Thinking tokens count toward max_tokens. Haiku spends a few hundred to about 500 on these tasks, so each cap
+// is the answer budget (4096, 8192, 2048, 3072) plus room for thinking; Extract gets more because its answer is long.
+const MAX_TOKENS_DEFAULT = 6144
+const MAX_TOKENS_EXTRACT = 11264
+const MAX_TOKENS_REGION = 4096
+const MAX_TOKENS_COMPARE = 5120
 
 const SYSTEM_PROMPTS: Record<'describe' | 'analyze' | 'extract', string> = {
   describe:

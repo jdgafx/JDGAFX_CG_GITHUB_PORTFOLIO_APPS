@@ -38,11 +38,13 @@ export interface VisionRun {
 }
 
 // One deadline covers the whole run, connecting and reading the answer alike, retry included.
-// It is counted from the start of the request and stays well under Netlify's 60-second limit.
+// It is counted from the start of the request and stays under Netlify's 30-second cut-off, leaving 5 seconds to close the stream.
 export const UPSTREAM_BUDGET_MS = 25_000
-// A healthy call starts to answer within about 6 seconds; 9 seconds without a first word is a hang.
-// The one retry only starts when it still has RETRY_MIN_LEFT_MS of the budget to work with.
-export const FIRST_TEXT_LIMIT_MS = 9_000
+// The model thinks before it writes. A healthy call streams its first reasoning or answer word within about
+// 6 seconds, and the first answer word after about 8 to 10. Any reasoning or answer word ends the watch, so thinking
+// is never taken for a hang; 12 seconds of nothing at all (not even reasoning) is a hang. This was 9 seconds
+// when thinking was off. The one retry only starts when it still has RETRY_MIN_LEFT_MS of the budget to work with.
+export const FIRST_TEXT_LIMIT_MS = 12_000
 export const RETRY_MIN_LEFT_MS = 10_000
 const MODEL_STEP = 'Model call'
 const VALIDATE_STEP = 'Parse and validate'
@@ -124,6 +126,10 @@ export function streamVisionRun(run: VisionRun): Response {
           if (typeof frame.text === 'string') clearTimeout(firstTimer)
           emit(frame)
         }
+        // A reasoning delta shows the model is working on the answer, so the first-word watch ends there too.
+        const heard = () => {
+          if (state.reasoningChunks > 0 || state.chunks > 0) clearTimeout(firstTimer)
+        }
         // A first try that heard nothing is retried; one that was stopped by the visitor or the deadline is not.
         const hangOrFail = async (stepDetail: string, message: string): Promise<'hang' | 'finished'> =>
           mayRetry && open && state.chunks === 0 && Date.now() < deadline ? 'hang' : fail(stepDetail, message, false)
@@ -161,7 +167,7 @@ export function streamVisionRun(run: VisionRun): Response {
             return fail(message, message, false)
           }
 
-          const outcome = await readUpstream(upstream.body, deadline, signal, state, emitText)
+          const outcome = await readUpstream(upstream.body, deadline, signal, state, emitText, heard)
           if (!open) return 'finished'
           if (outcome === 'aborted' || outcome === 'watchdog') {
             if (hung && state.chunks === 0) return hangOrFail('No answer from the AI provider', TIMEOUT_MESSAGE)
@@ -260,6 +266,7 @@ async function readUpstream(
   signal: AbortSignal,
   state: ReadState,
   emit: Emit,
+  heard: () => void,
 ): Promise<'ended' | 'watchdog' | 'dropped' | 'aborted'> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -301,6 +308,7 @@ async function readUpstream(
       buffer = lines.pop() ?? ''
       for (const line of lines) {
         absorb(line, state, emit)
+        heard()
         if (state.moderated || state.providerError) return 'ended'
       }
     }

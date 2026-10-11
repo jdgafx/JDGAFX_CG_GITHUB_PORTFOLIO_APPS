@@ -25,6 +25,20 @@ function stateWith(overrides: Partial<ReadState>): ReadState {
   return { ...newState(), ...overrides }
 }
 
+describe('absorb reasoning', () => {
+  it('counts reasoning deltas without emitting or keeping them as answer text', () => {
+    const { state, frames } = absorbAll([
+      line({ choices: [{ delta: { content: '', reasoning: 'secret thoughts' } }] }),
+      line({ choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'more thoughts' } ] } }] }),
+      line({ choices: [{ delta: { content: 'Answer' } }] }),
+    ])
+    expect(frames).toEqual([{ text: 'Answer' }])
+    expect(state.text).toBe('Answer')
+    expect(state.chunks).toBe(1)
+    expect(state.reasoningChunks).toBe(2)
+  })
+})
+
 describe('absorb', () => {
   it('emits each text delta in order and records the served model', () => {
     const { state, frames } = absorbAll([
@@ -98,6 +112,14 @@ describe('validate', () => {
       detail: 'Output reached the token limit before the analysis finished',
       message: 'The vision service stopped before the analysis finished. Please retry with the same image.',
       truncated: true,
+    })
+  })
+
+  it('names thinking when the token limit was used up and no answer was written', () => {
+    expect(validate(stateWith({ text: '', finishReason: 'length', reasoningChunks: 3 }))).toEqual({
+      detail: 'The token limit was used up by thinking before any answer was written',
+      message: 'The AI model used its whole output limit thinking and wrote no answer. Please retry with the same image.',
+      truncated: false,
     })
   })
 

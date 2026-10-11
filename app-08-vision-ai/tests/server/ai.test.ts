@@ -100,10 +100,10 @@ describe('POST /api/ai streamed analysis', () => {
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(JSON.parse(String(init?.body))).toMatchObject({
       model: '~anthropic/claude-haiku-latest',
-      max_tokens: 4096,
-      reasoning: { enabled: false },
+      max_tokens: 6144,
       usage: { include: true },
     })
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty('reasoning')
     expect(out.filter(frame => 'text' in frame).map(frame => frame.text).join('')).toBe('HELLO 42')
     expect(out.at(-1)).toEqual({
       stage: 'complete',

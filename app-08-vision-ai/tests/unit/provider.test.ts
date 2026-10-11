@@ -21,10 +21,16 @@ describe('getProvider', () => {
       apiKey: 'test-only-placeholder',
     })
   })
+
+  it('never sends a reasoning override, so the model keeps its default thinking', () => {
+    const body = chatBody([{ role: 'system' as const, content: 'x' }], 6144)
+    expect(body).not.toHaveProperty('reasoning')
+    expect(JSON.stringify(body)).not.toContain('"enabled":false')
+  })
 })
 
 describe('chatBody', () => {
-  it('names the vision model alias and always sends max_tokens, reasoning off and usage', () => {
+  it('names the vision model alias and always sends max_tokens and usage, with no reasoning override', () => {
     const messages = [{ role: 'system' as const, content: 'Describe it.' }]
     expect(MODEL).toBe('~anthropic/claude-haiku-latest')
     expect(chatBody(messages, 8192)).not.toHaveProperty('temperature')
@@ -33,7 +39,6 @@ describe('chatBody', () => {
       messages,
       stream: true,
       max_tokens: 8192,
-      reasoning: { enabled: false },
       provider: { require_parameters: true },
       usage: { include: true },
     })

@@ -205,6 +205,89 @@ describe('streamVisionRun content and token checks', () => {
   })
 })
 
+describe('streamVisionRun thinking', () => {
+  it('sends no reasoning override in the request body', async () => {
+    const provider = stubFetch(async () =>
+      sseReply([{ model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'Hi' }, finish_reason: 'stop' }] }]),
+    )
+    await framesOf(streamVisionRun(makeRun()))
+    const body = JSON.parse(String(provider.mock.calls[0][1]?.body)) as { reasoning?: { enabled?: boolean } }
+    expect(body.reasoning?.enabled === false).toBe(false)
+    expect(body).not.toHaveProperty('reasoning')
+  })
+
+  it('shows only the answer when the stream carries reasoning deltas', async () => {
+    stubFetch(async () =>
+      sseReply([
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { role: 'assistant', content: '', reasoning: 'The user wants a sign. ' } }] },
+        { choices: [{ delta: { content: '', reasoning: 'It looks red.', reasoning_details: [{ type: 'reasoning.text', text: 'It looks red.' }] } }] },
+        { choices: [{ delta: { content: 'A red ' } }] },
+        { choices: [{ delta: { content: 'sign.' }, finish_reason: 'stop' }] },
+      ]),
+    )
+
+    const frames = await framesOf(streamVisionRun(makeRun()))
+
+    expect(frames.filter(frame => 'text' in frame)).toEqual([{ text: 'A red ' }, { text: 'sign.' }])
+    expect(JSON.stringify(frames)).not.toContain('The user wants')
+    expect(JSON.stringify(frames)).not.toContain('It looks red')
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A red sign.' })
+  })
+
+  it('does not take thinking for a hang: reasoning that outlasts the first-word limit is not retried', async () => {
+    vi.useFakeTimers()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const encoder = new TextEncoder()
+    const provider = stubFetch(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              controller = c
+              c.enqueue(encoder.encode('data: {"model":"anthropic/claude-haiku-5.5","choices":[{"delta":{"reasoning":"Hmm"}}]}\n\n'))
+            },
+          }),
+          { status: 200 },
+        ),
+    )
+
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(FIRST_TEXT_LIMIT_MS + 3_000)
+    controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"A sign."},"finish_reason":"stop"}]}\n\n'))
+    controller.close()
+    const frames = await done
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A sign.' })
+  })
+
+  it('fails with a clear error when thinking used the whole limit and the answer is empty', async () => {
+    stubFetch(async () =>
+      sseReply([
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: '', reasoning: 'Thinking at length' } }] },
+        { choices: [{ delta: { content: '' }, finish_reason: 'length' }] },
+      ]),
+    )
+
+    const frames = await framesOf(streamVisionRun(makeRun()))
+
+    expect(frames.some(frame => 'text' in frame)).toBe(false)
+    expect(frames.at(-2)).toMatchObject({
+      step: {
+        name: 'Parse and validate',
+        status: 'failed',
+        detail: 'The token limit was used up by thinking before any answer was written',
+      },
+    })
+    expect(frames.at(-1)).toMatchObject({
+      stage: 'failed',
+      error: 'The AI model used its whole output limit thinking and wrote no answer. Please retry with the same image.',
+      truncated: false,
+    })
+    expect(frames.some(frame => frame.stage === 'complete')).toBe(false)
+  })
+})
+
 describe('streamVisionRun failure mapping', () => {
   it('maps a provider 402 to plain words and never forwards the provider body', async () => {
     stubFetch(async () => new Response('{"error":{"message":"Insufficient credits, account acct_123"}}', { status: 402 }))
@@ -336,7 +419,7 @@ describe('streamVisionRun deadline', () => {
     await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
     const frames = await done
 
-    // One try at the 9-second hang limit, one retry that runs into the shared 25-second deadline.
+    // One try at the 12-second hang limit, one retry that runs into the shared 25-second deadline.
     expect(provider).toHaveBeenCalledTimes(2)
     expect(frames.at(-3)).toMatchObject({
       stage: 'step',
@@ -353,7 +436,7 @@ describe('streamVisionRun hang retry', () => {
       { choices: [], usage: { total_tokens: 10 } },
     ])
 
-  it('retries once when the first call says nothing for 9 seconds, and shows it in the trace', async () => {
+  it('retries once when the first call says nothing for 12 seconds, and shows it in the trace', async () => {
     vi.useFakeTimers()
     let calls = 0
     const provider = stubFetch(() => (++calls === 1 ? new Promise<Response>(() => {}) : Promise.resolve(ok())))
@@ -365,7 +448,7 @@ describe('streamVisionRun hang retry', () => {
     expect(provider).toHaveBeenCalledTimes(2)
     expect(frames).toContainEqual({
       stage: 'step',
-      step: { name: 'Model call', status: 'running', detail: 'No answer within 9 seconds. Retried once' },
+      step: { name: 'Model call', status: 'running', detail: 'No answer within 12 seconds. Retried once' },
     })
     expect(frames).toContainEqual({ text: 'A sign.' })
     expect(frames.at(-3)).toMatchObject({

@@ -13,6 +13,8 @@ interface Usage {
 export interface ReadState {
   text: string
   chunks: number
+  /** Reasoning deltas seen. They prove the model is working, and are never shown as the answer. */
+  reasoningChunks: number
   finishReason: string | null
   served: string | null
   usage: Usage | null
@@ -37,13 +39,15 @@ export const PARTIAL_TIMEOUT_MESSAGE =
 export const UNREACHABLE_MESSAGE = 'Could not reach the AI provider. Try again in a moment.'
 export const STREAM_ERROR_MESSAGE = 'The AI provider stopped the analysis partway through. Please retry.'
 export const NO_ANALYSIS_MESSAGE = 'The vision service returned no usable analysis. Please retry with the same image.'
+const THINKING_CUT_MESSAGE =
+  'The AI model used its whole output limit thinking and wrote no answer. Please retry with the same image.'
 const TRUNCATED_MESSAGE = 'The vision service stopped before the analysis finished. Please retry with the same image.'
 const REJECTED_MESSAGE = 'The AI provider rejected the key or is out of credit.'
 const RATE_LIMIT_MESSAGE = 'Rate limited, try again in a minute.'
 const REFUSED_IMAGE_MESSAGE = 'The AI provider could not process this image.'
 
 export function newState(): ReadState {
-  return { text: '', chunks: 0, finishReason: null, served: null, usage: null, moderated: false, providerError: false }
+  return { text: '', chunks: 0, reasoningChunks: 0, finishReason: null, served: null, usage: null, moderated: false, providerError: false }
 }
 
 // Absorbs one line of the stream. Text deltas are emitted as they arrive; the moderation
@@ -75,7 +79,16 @@ export function absorb(line: string, state: ReadState, emit: Emit): void {
   if (isRecord(parsed.usage)) state.usage = readUsage(parsed.usage)
   const choice = firstChoice(parsed.choices)
   if (choice && typeof choice.finish_reason === 'string') state.finishReason = choice.finish_reason
-  const delta = choice && isRecord(choice.delta) ? choice.delta.content : undefined
+  const deltaRecord = choice && isRecord(choice.delta) ? choice.delta : null
+  // Reasoning arrives as delta.reasoning and/or delta.reasoning_details. It is counted, never emitted or kept as text.
+  if (
+    deltaRecord &&
+    ((typeof deltaRecord.reasoning === 'string' && deltaRecord.reasoning !== '') ||
+      (Array.isArray(deltaRecord.reasoning_details) && deltaRecord.reasoning_details.length > 0))
+  ) {
+    state.reasoningChunks += 1
+  }
+  const delta = deltaRecord ? deltaRecord.content : undefined
   if (typeof delta === 'string' && delta) {
     state.text += delta
     state.chunks += 1
@@ -85,6 +98,15 @@ export function absorb(line: string, state: ReadState, emit: Emit): void {
 
 // Decides whether a finished reply can be shown. A null result means it can.
 export function validate(state: ReadState): Problem | null {
+  // Thinking can use up max_tokens before any answer is written: content comes back empty with finish reason 'length'.
+  // That is an error, never an empty answer passed off as done, and there is no partial answer to point at.
+  if (state.finishReason === 'length' && !state.text.trim()) {
+    return {
+      detail: 'The token limit was used up by thinking before any answer was written',
+      message: THINKING_CUT_MESSAGE,
+      truncated: false,
+    }
+  }
   if (state.finishReason === 'length') {
     return {
       detail: 'Output reached the token limit before the analysis finished',
