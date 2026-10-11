@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-merge gate: an app change reaches main only with a PASS SP2 evidence file
-# for the commit that last touched that app, and the app tree at new must match it.
+# for a commit whose app tree equals the tip's, and the app tree at new must match it.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then echo "usage: $0 <old-sha> <new-sha>" >&2; exit 2; fi
@@ -38,19 +38,9 @@ tip_of() {
   if [[ -n $range ]]; then git log -1 --no-merges --format=%H "$range" -- "$1"; else echo "$new"; fi
 }
 
-# Prints the reason and returns nonzero unless the evidence file passes.
-check() {
-  local file="$root/.acceptance/gate/$1/$2.json"
-  if [[ ! -f $file ]]; then
-    echo "no evidence file for this commit"
-    return 1
-  fi
-  local sample
-  if ! sample=$("$root/scripts/sp2-sample-hash.sh" "$1" "$2" 2>/dev/null); then
-    echo "no frozen sample committed"
-    return 1
-  fi
-  python3 -I - "$file" "$1" "$2" "$sample" 2>&1 <<'PY' || return 1
+# Checks evidence $3 (claiming sha $2) for app $1 against the frozen sample $4.
+judge() {
+  python3 -I - "$3" "$1" "$2" "$4" 2>&1 <<'PY' || return 1
 import json, sys
 path, app, sha, sample = sys.argv[1:5]
 try:
@@ -81,6 +71,31 @@ PY
   fi
 }
 
+# Prints the evidence sha that passes for app $1 at tip $2, else the reason.
+check() {
+  local sample S f reason="no evidence file for this commit"
+  # The tip's own evidence wins; otherwise any evidence for an identical app tree.
+  local cands=("$root/.acceptance/gate/$1/$2.json")
+  if [[ ! -f ${cands[0]} ]]; then cands=("$root/.acceptance/gate/$1"/*.json); fi
+  [[ -f ${cands[0]} ]] || { echo "$reason"; return 1; }
+  if ! sample=$("$root/scripts/sp2-sample-hash.sh" "$1" "$2" 2>/dev/null); then
+    echo "no frozen sample committed"
+    return 1
+  fi
+  for f in "${cands[@]}"; do
+    S=$(basename "$f" .json)
+    [[ -f $f && $S =~ ^[0-9a-f]{40}$ ]] || continue
+    git cat-file -e "$S^{commit}" 2>/dev/null || continue
+    git diff --quiet "$S" "$2" -- "$1" || continue
+    if reason=$(judge "$1" "$S" "$f" "$sample"); then
+      echo "$S"
+      return 0
+    fi
+  done
+  echo "$reason"
+  return 1
+}
+
 status=0
 while read -r app; do
   if ! git cat-file -e "$new:$app" 2>/dev/null; then
@@ -88,10 +103,14 @@ while read -r app; do
     continue
   fi
   tip=$(tip_of "$app")
-  if reason=$(check "$app" "$tip"); then
-    echo "GATE PASS $app ${tip:0:12}"
+  if out=$(check "$app" "$tip"); then
+    if [[ $out == "$tip" ]]; then
+      echo "GATE PASS $app ${tip:0:12}"
+    else
+      echo "GATE PASS $app ${tip:0:12} (evidence ${out:0:12}, same app tree)"
+    fi
   else
-    echo "GATE FAIL $app ${tip:0:12}: $reason"
+    echo "GATE FAIL $app ${tip:0:12}: $out"
     status=1
   fi
 done <<<"$apps"

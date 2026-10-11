@@ -124,5 +124,32 @@ run_case "old sha missing locally fails with a fetch hint" 1 \
   0123456789abcdef0123456789abcdef01234567 "$R" \
   "^GATE FAIL range: old sha 0123456789ab not in local repo, fetch first$"
 
+# Rebase: the same app tree under a new sha, now behind a docs-only commit.
+put app-09-theta/t.txt "v1"
+put config/sp2-samples/app-09-theta.json '{"questions": ["q9"]}'
+S9=$(commit "app-09 v1")
+evidence app-09-theta "$S9" PASS PASS "$(hash_of app-09-theta "$S9")"
+git checkout -q -b rebased "$R"
+put docs/rebase.md "docs"
+commit "docs on the new base" >/dev/null
+git cherry-pick "$S9" >/dev/null
+RB=$(git rev-parse HEAD)
+run_case "evidence for an identical app tree passes" 0 "$R" "$RB" \
+  '^GATE PASS app-09-theta [0-9a-f]{12} [(]evidence [0-9a-f]{12}, same app tree[)]$'
+
+git checkout -q -b differ "$RB"
+put app-09-theta/t.txt "v2"
+RB2=$(commit "app-09 v2")
+run_case "evidence for a different app tree fails" 1 "$R" "$RB2" "^GATE FAIL app-09-theta [0-9a-f]{12}: no evidence"
+
+git checkout -q -b sampled "$RB"
+put app-09-theta/t.txt "v2"
+commit "app-09 v2 again" >/dev/null
+put app-09-theta/t.txt "v1"
+put config/sp2-samples/app-09-theta.json '{"questions": ["q9", "q10"]}'
+Y=$(commit "app-09 back to v1 with a new sample")
+run_case "identical app tree with a changed sample fails" 1 "$R" "$Y" \
+  "^GATE FAIL app-09-theta [0-9a-f]{12}: sample_sha256 does not match"
+
 echo "$((n - fails))/$n passed"
 [[ $fails -eq 0 ]]
