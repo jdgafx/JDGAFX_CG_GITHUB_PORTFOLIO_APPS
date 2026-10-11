@@ -9,6 +9,8 @@ const plan: PlanResponse = {
   trace: [{ name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.' }],
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.0001 },
   model: 'anthropic/claude-haiku-5.5',
+  newestModel: 'anthropic/claude-haiku-5.5',
+  modelCheck: 'match',
   totalMs: 800,
 }
 const NETWORK = 'Could not reach the server. Check your connection and try again.'
@@ -25,6 +27,8 @@ describe('planning', () => {
     expect(planned.steps).toEqual([navigate])
     expect(planned.usage?.total_tokens).toBe(15)
     expect(planned.model).toBe('anthropic/claude-haiku-5.5')
+    expect(planned.newestModel).toBe('anthropic/claude-haiku-5.5')
+    expect(planned.modelCheck).toBe('match')
     expect(planned.planMs).toBe(800)
     expect(planned.planTrace).toHaveLength(1)
   })

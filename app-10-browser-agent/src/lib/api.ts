@@ -1,8 +1,9 @@
-import type { BotStep, PlanResponse, RunEvent, TraceEntry, TraceStatus } from '../types'
+import type { BotStep, ModelCheck, PlanResponse, RunEvent, TraceEntry, TraceStatus } from '../types'
 import { cleanFrame } from './replay'
 import { isAction, usageOf } from './shared'
 
 const TRACE_STATUSES: TraceStatus[] = ['ok', 'failed', 'skipped']
+const MODEL_CHECKS: ModelCheck[] = ['match', 'mismatch', 'unchecked', 'not-reported']
 const EVENT_TYPES: RunEvent['type'][] = ['browser', 'stage', 'step_start', 'step_complete', 'result', 'error', 'done']
 const MAX_ERROR_CHARS = 300
 const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
@@ -104,7 +105,7 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
   const response = await postJson('/api/ai', { task }, signal, 20_000)
   if (!response.ok) throw await readFailure(response, 'plan')
 
-  let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; totalMs?: unknown }
+  let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; newestModel?: unknown; modelCheck?: unknown; totalMs?: unknown }
   try {
     data = await response.json()
   } catch {
@@ -115,11 +116,14 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
   const steps = Array.isArray(rawSteps) ? rawSteps.map(toStep).filter((step): step is BotStep => step !== null) : []
   if (steps.length === 0) throw new RequestFailure('The agent returned no usable steps for this task.')
 
+  const model = typeof data.model === 'string' ? data.model : null
   return {
     result: { steps },
     trace: toTrace(data.trace),
     usage: usageOf(data.usage),
-    model: typeof data.model === 'string' ? data.model : null,
+    model,
+    newestModel: typeof data.newestModel === 'string' ? data.newestModel : null,
+    modelCheck: MODEL_CHECKS.find((check) => check === data.modelCheck) ?? (model === null ? 'not-reported' : 'unchecked'),
     totalMs: typeof data.totalMs === 'number' ? data.totalMs : 0,
   }
 }

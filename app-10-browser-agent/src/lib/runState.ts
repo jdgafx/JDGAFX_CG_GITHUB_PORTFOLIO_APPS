@@ -1,4 +1,4 @@
-import type { BotStep, ObservedPage, PlanResponse, RunEvent, StepFrame, TraceEntry, TraceStatus, UsageReport } from '../types'
+import type { BotStep, ModelCheck, ObservedPage, PlanResponse, RunEvent, StepFrame, TraceEntry, TraceStatus, UsageReport } from '../types'
 
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
@@ -30,6 +30,10 @@ export interface RunState {
   planTrace: TraceEntry[]
   usage: UsageReport | null
   model: string | null
+  /** The newest model the list names for the requested alias. Null when the list does not say. */
+  newestModel: string | null
+  /** How the served model compares with the newest one. Null when no planner call was made. */
+  modelCheck: ModelCheck | null
   planMs: number | null
   rows: RunRow[]
   runMs: number | null
@@ -49,6 +53,8 @@ export const initialRunState: RunState = {
   planTrace: [],
   usage: null,
   model: null,
+  newestModel: null,
+  modelCheck: null,
   planMs: null,
   rows: [],
   runMs: null,
@@ -164,6 +170,8 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         planTrace: action.plan.trace,
         usage: action.plan.usage,
         model: action.plan.model,
+        newestModel: action.plan.newestModel,
+        modelCheck: action.plan.modelCheck,
         planMs: action.plan.totalMs,
       }
     case 'planFailed':

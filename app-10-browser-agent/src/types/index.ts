@@ -47,11 +47,21 @@ export interface UsageReport {
   cost: number | null
 }
 
+/**
+ * How the served model compares with the newest one the model list names. `unchecked` when the list gave no
+ * newest model, `not-reported` when the reply named no model.
+ */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 export interface PlanResponse {
   result: { steps: BotStep[] }
   trace: TraceEntry[]
   usage: UsageReport
+  /** The model that served the planner call. Null when the reply named none. */
   model: string | null
+  /** The newest model the list says the requested alias resolves to. Null when the list does not say. */
+  newestModel: string | null
+  modelCheck: ModelCheck
   totalMs: number
 }
 

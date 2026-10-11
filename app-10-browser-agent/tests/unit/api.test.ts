@@ -66,6 +66,8 @@ describe('planTask', () => {
       ],
       usage: { prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 },
       model: 'anthropic/claude-haiku-5.5',
+      newestModel: 'anthropic/claude-haiku-5.5',
+      modelCheck: 'match',
       totalMs: 1500,
     }))
 
@@ -78,6 +80,8 @@ describe('planTask', () => {
     expect(plan.trace).toEqual([{ name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.' }])
     expect(plan.usage).toEqual({ prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 })
     expect(plan.model).toBe('anthropic/claude-haiku-5.5')
+    expect(plan.newestModel).toBe('anthropic/claude-haiku-5.5')
+    expect(plan.modelCheck).toBe('match')
     expect(plan.totalMs).toBe(1500)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -95,7 +99,20 @@ describe('planTask', () => {
     const plan = await planTask('x', signal())
     expect(plan.usage).toEqual({ prompt_tokens: null, completion_tokens: null, total_tokens: null, cost: null })
     expect(plan.model).toBeNull()
+    expect(plan.newestModel).toBeNull()
+    expect(plan.modelCheck).toBe('not-reported')
     expect(plan.totalMs).toBe(0)
+  })
+
+  it('reads a model check it does not know as unchecked when a model was named', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      result: { steps: [{ action: 'extract', target: 'page title', thought: 'Read it.' }] },
+      model: 'anthropic/claude-haiku-5.5',
+      modelCheck: 'maybe',
+    }))
+    const plan = await planTask('x', signal())
+    expect(plan.modelCheck).toBe('unchecked')
+    expect(plan.newestModel).toBeNull()
   })
 
   it('shows the server curated error and its trace, never a raw body', async () => {

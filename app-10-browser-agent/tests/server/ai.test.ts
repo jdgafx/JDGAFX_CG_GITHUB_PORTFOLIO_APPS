@@ -1,9 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
+import { newestModel } from '../../netlify/shared/newest-model'
+import { MODEL } from '../../netlify/shared/provider'
+
+// The list is its own fetch, so these tests stub it. Its parsing and caching are tested in newest-model.test.ts.
+vi.mock('../../netlify/shared/newest-model', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../netlify/shared/newest-model')>()),
+  newestModel: vi.fn(),
+}))
 
 const ORIGIN = 'https://jdgafx-app-10-browser-agent.netlify.app'
 const PLACEHOLDER = 'test-only-placeholder'
 const SERVED = 'anthropic/claude-haiku-5.5'
+const NEWER = 'anthropic/claude-haiku-5.6'
 const USAGE = { prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 }
 const PLAN = {
   steps: [
@@ -24,7 +33,9 @@ interface PlanBody {
   result?: { steps: unknown[] }
   trace?: TraceEntry[]
   usage?: typeof USAGE
-  model?: string
+  model?: string | null
+  newestModel?: string | null
+  modelCheck?: string
   error?: string
   totalMs?: number
 }
@@ -39,6 +50,7 @@ beforeEach(() => {
   // The handler logs failures on purpose. The logs are silenced here and checked where it matters.
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   process.env.OPENROUTER_API_KEY = PLACEHOLDER
+  vi.mocked(newestModel).mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -71,10 +83,10 @@ function planRequest(body: unknown, options: RequestOptions = {}): Request {
   })
 }
 
-/** A provider answer in the chat-completions shape, with a fresh body on every call. */
-function reply(content: string, finish: string | null = 'stop'): Response {
+/** A provider answer in the chat-completions shape, with a fresh body on every call. A null `served` names no model. */
+function reply(content: string, finish: string | null = 'stop', served: string | null = SERVED): Response {
   return new Response(JSON.stringify({
-    model: SERVED,
+    model: served,
     choices: [{ message: { content }, finish_reason: finish }],
     usage: USAGE,
   }), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -86,6 +98,7 @@ async function bodyOf(response: Response): Promise<PlanBody> {
 
 describe('planner function: a plan', () => {
   it('returns the parsed steps, the served model, the usage and a measured trace', async () => {
+    vi.mocked(newestModel).mockResolvedValueOnce(SERVED)
     fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
     const response = await handler(planRequest({ task: 'Open google.com and report the page title.' }))
     const body = await bodyOf(response)
@@ -94,6 +107,8 @@ describe('planner function: a plan', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN)
     expect(body.result?.steps).toEqual(PLAN.steps)
     expect(body.model).toBe(SERVED)
+    expect(body.newestModel).toBe(SERVED)
+    expect(body.modelCheck).toBe('match')
     expect(body.usage).toEqual(USAGE)
     expect(body.trace?.map((entry) => entry.name)).toEqual(['Request built', 'Model call', 'Parse and validate'])
     expect(body.trace?.[0]?.detail).toContain(`Allowed sites: ${ALLOWED_LIST}.`)
@@ -140,7 +155,9 @@ describe('planner function: a plan', () => {
       stream: boolean
       messages: Array<{ role: string; content: string }>
     }
-    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
+    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
+    expect(sent.model).toBe(MODEL)
+    expect(sent).not.toHaveProperty('tool_choice')
     expect(sent).not.toHaveProperty('temperature')
     expect(sent.max_tokens).toBe(4096)
     expect(sent.usage).toEqual({ include: true })
@@ -441,5 +458,41 @@ describe('planner function: provider failures', () => {
     expect((await bodyOf(response)).error).toBe('Something went wrong while planning this task. Please try again.')
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN)
     expect(console.error).toHaveBeenCalledWith('Planner handler failed:', 'Error')
+  })
+})
+
+describe('planner function: the served model against the newest', () => {
+  it('reports a mismatch, and logs the served, newest and requested ids', async () => {
+    vi.mocked(newestModel).mockResolvedValueOnce(NEWER)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+
+    expect(body.model).toBe(SERVED)
+    expect(body.newestModel).toBe(NEWER)
+    expect(body.modelCheck).toBe('mismatch')
+    expect(warn).toHaveBeenCalledWith(`model mismatch: served ${SERVED}, newest ${NEWER}, requested ${MODEL}`)
+  })
+
+  it('reports unchecked when the list gives no newest model, and does not warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+
+    expect(body.newestModel).toBeNull()
+    expect(body.modelCheck).toBe('unchecked')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('keeps a reply that named no model as null, never the requested alias', async () => {
+    vi.mocked(newestModel).mockResolvedValueOnce(NEWER)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN), 'stop', null))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+
+    expect(body.model).toBeNull()
+    expect(body.modelCheck).toBe('not-reported')
+    expect(body.trace?.[1]?.detail).toContain('Served by a model the provider did not name.')
+    expect(warn).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary, type ReadoutCell } from '../../src/lib/trace'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
 
@@ -25,6 +25,34 @@ describe('labels and figures', () => {
 
   it('labels a step the way the server labels its run rows', () => {
     expect(stepLabel(click)).toBe('Click: Search button')
+  })
+})
+
+describe('the served model in the readout', () => {
+  const SERVED = 'anthropic/claude-haiku-5.5'
+  const model = (patch: Partial<RunState>): ReadoutCell => readoutFor(stateWith({ phase: 'complete', model: SERVED, planMs: 1000, runMs: 2000, ...patch }), 0)[3]
+
+  it('shows the served id with a newest marker when it is the newest model', () => {
+    expect(model({ newestModel: SERVED, modelCheck: 'match' })).toEqual({ label: 'Model', value: SERVED, hint: 'Reported by the planner response', marker: { text: '· newest', warn: false } })
+  })
+
+  it('shows a warning marker with the newest model when the served one is not the newest', () => {
+    expect(model({ newestModel: 'anthropic/claude-haiku-5.6', modelCheck: 'mismatch' })).toMatchObject({
+      value: SERVED,
+      marker: { text: '· not newest', warn: true, title: 'newest: anthropic/claude-haiku-5.6' },
+    })
+  })
+
+  it('shows an unchecked marker when the list gave no newest model', () => {
+    expect(model({ newestModel: null, modelCheck: 'unchecked' })).toMatchObject({ value: SERVED, marker: { text: '· unchecked', warn: false } })
+  })
+
+  it('shows not reported with no marker when the reply named no model', () => {
+    expect(model({ model: null, newestModel: null, modelCheck: 'not-reported', usage: { prompt_tokens: null, completion_tokens: null, total_tokens: null, cost: null } })).toEqual({ label: 'Model', value: 'not reported', hint: 'Reported by the planner response', marker: undefined })
+  })
+
+  it('shows no marker before any planner call', () => {
+    expect(readoutFor(stateWith({}), 0)[3]).toEqual({ label: 'Model', value: '—', hint: 'Reported by the planner response', marker: undefined })
   })
 })
 

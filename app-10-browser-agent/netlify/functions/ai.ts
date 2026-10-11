@@ -1,5 +1,6 @@
 import { withDeadline } from '../shared/deadline'
 import { MAX_TOKENS, MODEL, OPENROUTER_URL } from '../shared/provider'
+import { newestModel, servedCheck } from '../shared/newest-model'
 import { allowedDomains, hostsIn, isAllowedHost } from '../shared/domains'
 import { clientKey, corsHeaders, CuratedError, jsonResponse, originAllowed, rateLimited, readJson } from '../shared/guard'
 import { validateSteps } from '../shared/steps'
@@ -300,6 +301,8 @@ async function handle(req: Request): Promise<Response> {
   }
 
   const modelStarted = Date.now()
+  // The list is read alongside the model call, so it never holds the call up. It never throws, and it is bounded by its own limit.
+  const newestP = newestModel()
   let attempts: Attempt[]
   let hangRetried: boolean
   try {
@@ -318,6 +321,9 @@ async function handle(req: Request): Promise<Response> {
   const retryNote = hangRetried ? 'Retried once: the first call did not answer in time. ' : ''
   const usage = aggregateUsage(attempts)
   const modelMs = attempts.reduce((total, attempt) => total + attempt.ms, 0)
+  const newest = await newestP
+  const modelCheck = servedCheck(newest, last.model)
+  if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${last.model}, newest ${newest}, requested ${MODEL}`)
 
   if (!last.content.trim() || last.finish === 'length') {
     const cut = last.finish === 'length'
@@ -367,6 +373,8 @@ async function handle(req: Request): Promise<Response> {
     trace,
     usage,
     model: last.model,
+    newestModel: newest,
+    modelCheck,
     totalMs: tracedMs(trace),
   }, 200, headers)
 }

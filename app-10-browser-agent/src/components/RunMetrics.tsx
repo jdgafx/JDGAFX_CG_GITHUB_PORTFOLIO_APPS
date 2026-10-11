@@ -33,6 +33,7 @@ export default function RunMetrics({ state, phase }: RunMetricsProps) {
               {cell.label === 'Model' && cell.value.includes('/')
                 ? <span className="ds-chip" title={cell.value}>{cell.value.replace(/^anthropic\//, '')}</span>
                 : cell.value}
+              {cell.marker ? <span className={cell.marker.warn ? 'bb-warn' : 'ds-strip__hint'} title={cell.marker.title}> {cell.marker.text}</span> : null}
             </dd>
             <dd className="ds-strip__hint">{cell.hint}</dd>
           </div>

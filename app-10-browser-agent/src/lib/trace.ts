@@ -126,11 +126,26 @@ export function statusSummary(state: RunState): string {
   }
 }
 
-/** One cell of the run readout. */
+/** One cell of the run readout. `marker` is a short note after the value; `warn` marks a note that needs attention, and `title` holds its full text. */
 export interface ReadoutCell {
   label: string
   value: string
   hint: string
+  marker?: { text: string; warn: boolean; title?: string }
+}
+
+/** The note after the served model: whether it is the newest model the list names. */
+function modelMarker(state: RunState): ReadoutCell['marker'] {
+  switch (state.modelCheck) {
+    case 'match':
+      return { text: '· newest', warn: false }
+    case 'mismatch':
+      return { text: '· not newest', warn: true, title: `newest: ${state.newestModel ?? 'not reported'}` }
+    case 'unchecked':
+      return { text: '· unchecked', warn: false }
+    default:
+      return undefined
+  }
 }
 
 /** Milliseconds spent so far: the planner rows plus the browser rows, the same figures the trace shows. */
@@ -165,7 +180,7 @@ export function readoutFor(state: RunState, now: number): ReadoutCell[] {
     { label: 'Time', ...time },
     { label: 'Tokens', value: countOf(usage?.total_tokens ?? null, planned), hint },
     { label: 'Cost (USD)', value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—', hint: 'From usage.cost in the provider response' },
-    { label: 'Model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response' },
+    { label: 'Model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response', marker: modelMarker(state) },
   ]
 }
 
