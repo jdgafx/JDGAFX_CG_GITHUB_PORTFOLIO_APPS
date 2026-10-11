@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Refuses a push to main unless every changed app has a PASS preview evidence file.
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel)
+status=0
+while read -r _ local_sha remote_ref remote_sha; do
+  [[ $remote_ref == refs/heads/main ]] || continue
+  [[ $local_sha =~ ^0+$ ]] && continue
+  "$root/scripts/preview-gate.sh" "$remote_sha" "$local_sha" </dev/null || status=1
+done
+exit $status
