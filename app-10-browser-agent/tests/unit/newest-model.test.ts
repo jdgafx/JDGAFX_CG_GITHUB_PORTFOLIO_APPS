@@ -91,6 +91,17 @@ describe('newestModel', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('does not keep a list that lacks the requested alias, so the next call fetches again', async () => {
+    const otherAlias = { id: '~anthropic/claude-sonnet-latest', alias_target: { slug: 'anthropic/claude-sonnet-5.5' } }
+    fetchMock.mockImplementationOnce(async () => list({ data: [otherAlias] }))
+    fetchMock.mockImplementationOnce(async () => list())
+    const source = createAliasTargetSource()
+
+    await expect(newestModel(source)).resolves.toBeNull()
+    await expect(newestModel(source)).resolves.toBe(NEWEST)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('does not keep a failed fetch, so the next call asks again', async () => {
     fetchMock.mockResolvedValueOnce(list(LIST, 500))
     fetchMock.mockResolvedValueOnce(list())

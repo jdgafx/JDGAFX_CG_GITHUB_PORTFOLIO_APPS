@@ -49,7 +49,7 @@ async function fetchAliasTargets(): Promise<AliasTargets | null> {
 
 /**
  * A source that keeps the parsed list in memory for `LIST_CACHE_MS` and lets callers that arrive together share
- * one fetch. A failed fetch is not kept, so the next call tries again.
+ * one fetch. A failed fetch, or a list without the requested alias, is not kept, so the next call tries again.
  */
 export function createAliasTargetSource(load: () => Promise<AliasTargets | null> = fetchAliasTargets, now: () => number = Date.now): AliasTargetSource {
   let kept: { targets: AliasTargets; at: number } | null = null
@@ -59,7 +59,7 @@ export function createAliasTargetSource(load: () => Promise<AliasTargets | null>
     pending ??= load()
       .catch(() => null)
       .then((targets) => {
-        if (targets) kept = { targets, at: now() }
+        if (targets?.has(MODEL)) kept = { targets, at: now() }
         return targets
       })
       .finally(() => {
