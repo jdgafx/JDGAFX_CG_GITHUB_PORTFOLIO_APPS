@@ -94,6 +94,21 @@ describe('runModelCall', () => {
     expect(out).toMatchObject({ ok: true, record: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: null, modelCheck: 'unchecked' } })
   })
 
+  // The tool call's model names the first call; when the answer names none, the run must not inherit it.
+  it('records the answer call itself, not the tool call, when the answer names no model', async () => {
+    const unnamedAnswer = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'It is warm.' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(unnamedAnswer)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: true, record: { servedModel: null, modelCheck: 'not-reported' } })
+    expect(run.steps.find(s => s.name === 'model answer')).toMatchObject({ servedModel: null, modelCheck: 'not-reported' })
+    expect(run.steps.find(s => s.name === 'model call')).toMatchObject({ servedModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' })
+  })
+
   it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
     const mock = route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
     const run = createRecorder()

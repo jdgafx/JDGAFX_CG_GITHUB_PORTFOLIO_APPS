@@ -67,6 +67,15 @@ describe('newestModel', () => {
     expect(await newestModel()).toBeNull()
     expect(await newestModel()).toBe('anthropic/claude-haiku-5.5')
   })
+
+  it('does not keep a 200 list that lacks the alias entry, so a later read can find it', async () => {
+    let calls = 0
+    const mock = stubFetch(async () => (++calls === 1 ? jsonResponse({ data: [] }) : jsonResponse(NEWEST_LIST)))
+    const { newestModel } = await load()
+    expect(await newestModel()).toBeNull()
+    expect(await newestModel()).toBe('anthropic/claude-haiku-5.5')
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('servedCheck', () => {

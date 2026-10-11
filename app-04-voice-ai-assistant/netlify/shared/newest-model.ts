@@ -17,7 +17,8 @@ const LIST_TIMEOUT_MS = 3_000
  */
 export type ServedCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
 
-// The newest model as the list last gave it. Only a list that was read is kept, so a failed read is tried again.
+// The newest model as the list last gave it. Only a list that named the newest model is kept, so a failed or
+// incomplete read is tried again on the next run.
 let kept: { newest: string | null; at: number } | undefined
 
 /** The alias_target of the list entry for the requested alias. Null when the list or that entry is not there. */
@@ -39,7 +40,7 @@ export async function newestModel(): Promise<string | null> {
     })
     if (!response.ok) return null
     const newest = aliasTarget((await response.json()) as unknown)
-    kept = { newest, at: Date.now() }
+    if (newest !== null) kept = { newest, at: Date.now() }
     return newest
   } catch {
     return null

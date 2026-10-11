@@ -167,7 +167,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
     text,
     usage: sumUsage([...first.usages, ...answer.usages]),
     finishReason: answer.call.finishReason,
-    // The run answers with the model that wrote the final reply; the first call's model stands when the answer named none.
-    record: answer.call.model === undefined ? firstRecord : answerRecord,
+    // The run is recorded as the model that wrote the final reply, so an answer that names no model reads "not reported".
+    record: answerRecord,
   }
 }
