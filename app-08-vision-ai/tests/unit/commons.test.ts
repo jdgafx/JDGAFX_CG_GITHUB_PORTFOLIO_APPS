@@ -146,7 +146,7 @@ describe('parseSearchResponse', () => {
 
   it('reads title, author and licence as plain text', () => {
     expect(images[0]).toMatchObject({
-      title: '(Crowd in busy city street)',
+      title: 'Street scene',
       author: 'Jane & Co',
       licence: 'CC BY 4.0',
       pageUrl: 'https://commons.wikimedia.org/wiki/File:Street_scene.jpg',
@@ -157,6 +157,26 @@ describe('parseSearchResponse', () => {
       licence: 'CC BY-SA 3.0',
       licenceUrl: 'http://creativecommons.org/licenses/by-sa/3.0/',
     })
+  })
+
+  it('titles each result by its file name, so two results with the same ObjectName stay apart', () => {
+    const crowd = (index: number, name: string) =>
+      page(index, name, {
+        size: 1000,
+        width: 2200,
+        height: 3270,
+        mime: 'image/jpeg',
+        thumburl: SCALED,
+        descriptionurl: `https://commons.wikimedia.org/wiki/File:${name.replace(/ /g, '_')}`,
+        extmetadata: { ObjectName: { value: '(Crowd in busy city street)' } },
+      })
+    const [first, second] = parseSearchResponse({
+      query: {
+        pages: [crowd(1, 'Crowd in busy city street (AM 80804-2).jpg'), crowd(2, 'Crowd in busy city street (AM 80804-2-1).jpg')],
+      },
+    })
+    expect(first).toMatchObject({ title: 'Crowd in busy city street (AM 80804-2)', fileName: 'Crowd in busy city street (AM 80804-2).jpg' })
+    expect(second).toMatchObject({ title: 'Crowd in busy city street (AM 80804-2-1)' })
   })
 
   it('only links a licence whose address is http or https', () => {

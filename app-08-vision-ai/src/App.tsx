@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { searchCommons, fetchCommonsFile } from './lib/commons'
+import { loadTryExample } from './lib/tryExample'
 import { formatSeconds } from './lib/format'
 import { HOWTO_STEPS, HOWTO_WHAT, TRY_PRESET } from './lib/howto'
 import { liveIndicator } from './lib/liveData'
@@ -92,15 +92,15 @@ export default function App() {
     setTryError(null)
     setFetchingExample(true)
     try {
-      const images = await searchCommons(TRY_PRESET.query)
-      const image = images[0]
-      if (!image) throw new Error('Wikimedia Commons found no usable picture for the example. Try again.')
-      const file = await fetchCommonsFile(image)
+      const outcome = await loadTryExample(TRY_PRESET.query)
+      setCommonsFailed(outcome.commonsFailed)
+      if (outcome.status === 'failed') {
+        setTryError(outcome.message)
+        return
+      }
       if (vision.mode !== 'describe') vision.changeMode('describe')
       runAfterLoad.current = true
-      chooseFile(file, image, 'a')
-    } catch (err) {
-      setTryError(err instanceof Error ? err.message : 'The example picture could not be loaded. Try again.')
+      chooseFile(outcome.file, outcome.image, 'a')
     } finally {
       setFetchingExample(false)
     }

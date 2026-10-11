@@ -170,7 +170,8 @@ function readPage(page: Record<string, unknown>): CommonsImage | null {
   const fileName = page.title.replace(/^File:/, '')
   const licenceUrl = metaValue(meta, 'LicenseUrl')
   return {
-    title: stripHtml(metaValue(meta, 'ObjectName')) || fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' '),
+    // The file name is what Commons resolves, and it tells apart results whose ObjectName is the same.
+    title: fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' '),
     fileName,
     pageUrl: descriptionurl,
     thumbUrl: thumburl,
