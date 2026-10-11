@@ -10,7 +10,10 @@ import { judgeMessages, parseVerdict } from '../shared/verdict'
 
 export const config = { path: '/api/judge' }
 
-const JUDGE_TIMEOUT_MS = 20_000
+// The judge thinks before it answers, which adds a few seconds, so it gets the whole 24 s request budget
+// (remainingMs still caps it) and a 14 s first try. A second try then keeps up to 10 s.
+const JUDGE_TIMEOUT_MS = 24_000
+const JUDGE_ATTEMPT_MS = 14_000
 
 export default async (req: Request): Promise<Response> => {
   const guard = gate(req, 'POST')
@@ -25,7 +28,8 @@ export default async (req: Request): Promise<Response> => {
     if (!key) return json({ error: 'The server is missing its provider key' }, 503, guard.headers)
 
     const { prompt, answers } = parsed.value
-    // Reasoning is off so a reasoning model cannot spend the budget and cut the JSON short.
+    // No reasoning override: the judge thinks as Haiku does by default, and JUDGE_MAX_TOKENS leaves room for it.
+    // Only the reply's content is read, so thinking text is never shown as the verdict.
     const newestP = newestModel()
     const result = await chatWithRetry(
       key,
@@ -33,9 +37,8 @@ export default async (req: Request): Promise<Response> => {
         model: MODEL,
         messages: judgeMessages(prompt, answers),
         max_tokens: JUDGE_MAX_TOKENS,
-        reasoning: { enabled: false },
       },
-      { budgetMs: Math.min(JUDGE_TIMEOUT_MS, remainingMs(started)), signal: req.signal },
+      { budgetMs: Math.min(JUDGE_TIMEOUT_MS, remainingMs(started)), attemptMs: JUDGE_ATTEMPT_MS, signal: req.signal },
     )
     // A judge failure is a normal result for the page, so it returns 200 with ok: false.
     if (!result.ok) return json(failure(result.error, null, result.latencyMs), 200, guard.headers)

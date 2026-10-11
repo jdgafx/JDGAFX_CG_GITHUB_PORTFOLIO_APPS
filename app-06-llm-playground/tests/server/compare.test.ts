@@ -22,6 +22,24 @@ afterEach(() => {
 describe('compare function', () => {
   useTestKey()
 
+  it('sends no reasoning override from any panel, and shows no reasoning field as an answer', async () => {
+    const THOUGHT = 'PRIVATE-THINKING-TEXT'
+    const stub = providerStub(model =>
+      Response.json({
+        model,
+        choices: [{ message: { content: 'READY', reasoning: THOUGHT, reasoning_details: [{ text: THOUGHT }] }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+      }),
+    )
+    const response = await (await handler())(request(URL, 'POST', { prompt: PROMPT, models: MODELS }))
+    const body = (await response.json()) as CompareResponse
+    const calls = chatCalls(stub)
+    expect(calls).toHaveLength(3)
+    for (const call of calls) expect(sentBody(call[1])).not.toHaveProperty('reasoning')
+    expect(body.panels.map(p => p.text)).toEqual(['READY', 'READY', 'READY'])
+    expect(JSON.stringify(body)).not.toContain(THOUGHT)
+  })
+
   it('answers each panel with its text, latency, usage, served model and cost, then the trace and summary', async () => {
     const stub = providerStub(model => {
       if (model === MODEL) return reply('anthropic/claude-haiku-5.5', 'READY', { completion: 3, cost: 0.000001 })

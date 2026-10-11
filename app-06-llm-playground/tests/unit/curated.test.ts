@@ -61,7 +61,7 @@ describe('contract limits', () => {
 
   it('keeps the output caps and the model ID length limit', () => {
     expect(COMPARE_MAX_TOKENS).toBe(2048)
-    expect(JUDGE_MAX_TOKENS).toBe(1024)
+    expect(JUDGE_MAX_TOKENS).toBe(3072)
     expect(MODEL_ID_MAX_CHARS).toBe(200)
   })
 })

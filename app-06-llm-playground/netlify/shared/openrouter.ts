@@ -17,7 +17,6 @@ interface ChatRequest {
   messages: ChatMessage[]
   max_tokens: number
   temperature?: number
-  reasoning?: { enabled: boolean }
 }
 
 interface ChatLimits {

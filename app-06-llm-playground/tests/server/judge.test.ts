@@ -54,12 +54,53 @@ describe('judge function', () => {
     expect(chatCalls(stub)).toHaveLength(1)
     expect(sentBody(chatCalls(stub)[0][1])).toMatchObject({
       model: MODEL,
-      max_tokens: 1024,
-      reasoning: { enabled: false },
+      max_tokens: 3072,
       usage: { include: true },
     })
     expect(sentBody(chatCalls(stub)[0][1]).model).toBe('~anthropic/claude-haiku-latest')
     expect(sentBody(chatCalls(stub)[0][1])).not.toHaveProperty('temperature')
+  })
+
+  it('sends no reasoning override, so the judge thinks, and leaves room for it in max_tokens', async () => {
+    const stub = providerStub(() => reply('anthropic/claude-haiku-5.5', VERDICT))
+    await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
+    const sent = sentBody(chatCalls(stub)[0][1])
+    expect(sent).not.toHaveProperty('reasoning')
+    expect(sent.max_tokens).toBeGreaterThanOrEqual(1024 + 1500)
+  })
+
+  it('never shows the reply\'s reasoning fields as the judge\'s opinion', async () => {
+    const THOUGHT = 'PRIVATE-THINKING-TEXT'
+    providerStub(() =>
+      Response.json({
+        model: 'anthropic/claude-haiku-5.5',
+        choices: [
+          {
+            message: { content: VERDICT, reasoning: THOUGHT, reasoning_details: [{ type: 'reasoning.text', text: THOUGHT }] },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 300, completion_tokens: 560, total_tokens: 860, completion_tokens_details: { reasoning_tokens: 500 } },
+      }),
+    )
+    const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
+    const body = (await response.json()) as JudgeResponse
+    expect(body).toMatchObject({ ok: true, bestOverall: 'B', usage: { reasoning_tokens: 500 } })
+    expect(JSON.stringify(body)).not.toContain(THOUGHT)
+  })
+
+  it('treats a reply that has only reasoning and no content as no text, and does not show the reasoning', async () => {
+    const THOUGHT = 'PRIVATE-THINKING-TEXT {"bestOverall":"A"}'
+    providerStub(() =>
+      Response.json({
+        model: 'anthropic/claude-haiku-5.5',
+        choices: [{ message: { content: null, reasoning: THOUGHT }, finish_reason: 'length' }],
+      }),
+    )
+    const response = await (await handler())(request(URL, 'POST', { prompt: 'Q', answers: ANSWERS }))
+    const body = await response.json()
+    expect(body).toMatchObject({ ok: false, reason: 'The judge returned no text' })
+    expect(JSON.stringify(body)).not.toContain('PRIVATE-THINKING-TEXT')
   })
 
   it('reads a verdict wrapped in a code fence', async () => {

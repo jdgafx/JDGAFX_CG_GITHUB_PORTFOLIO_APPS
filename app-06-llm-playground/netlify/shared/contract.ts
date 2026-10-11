@@ -9,7 +9,8 @@ export const SYSTEM_MAX_CHARS = 2000
 export const ANSWER_MAX_CHARS = 8000
 export const JUDGE_TOTAL_MAX_CHARS = 20000
 export const COMPARE_MAX_TOKENS = 2048
-export const JUDGE_MAX_TOKENS = 1024
+// Thinking tokens count toward this cap: about 500 for thinking plus the JSON for up to three panels, with room to spare.
+export const JUDGE_MAX_TOKENS = 3072
 
 export const SLOTS = ['A', 'B', 'C'] as const
 export type Slot = (typeof SLOTS)[number]
