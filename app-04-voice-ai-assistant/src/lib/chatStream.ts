@@ -4,6 +4,7 @@
 // for IDLE_MS (the server pings every 10 s, so silence means a dead connection), and OVERALL_MS for the
 // whole reply (the server's run budget is 25 s). The visitor's own Stop is not a stall: it passes through.
 import { createSseParser } from '../../netlify/shared/sse'
+import type { ServedCheck } from '../../netlify/shared/newest-model'
 import {
   RunError,
   numberOrUndefined,
@@ -35,6 +36,9 @@ export interface ChatHandlers {
 export interface ChatDone {
   text: string
   model?: string
+  /** How the served model compares with the newest one, as the server checked it. */
+  modelCheck?: ServedCheck
+  newestModel?: string | null
   usage?: Usage
   totalMs?: number
 }
@@ -125,6 +129,8 @@ async function attempt(message: string, history: Message[], handlers: ChatHandle
           result = {
             text: typeof event.result === 'string' && event.result.trim() ? event.result.trim() : text.trim(),
             model: typeof event.model === 'string' ? event.model : undefined,
+            modelCheck: typeof event.modelCheck === 'string' ? (event.modelCheck as ServedCheck) : undefined,
+            newestModel: typeof event.newestModel === 'string' ? event.newestModel : undefined,
             usage: parseUsage(event.usage),
             totalMs: numberOrUndefined(event.totalMs),
           }

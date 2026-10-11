@@ -1,6 +1,7 @@
 import { TOOL_DEFINITIONS, runTool } from './tools'
-import type { Recorder } from './trace'
+import type { ModelRecord, Recorder } from './trace'
 import { MODEL, streamChat, type StreamOutcome, type ToolCall, type Turn, type Usage } from './stream'
+import { newestModel, servedCheck } from './newest-model'
 
 export { MODEL, type Turn, type Usage }
 
@@ -39,7 +40,7 @@ export interface RunOptions {
 }
 
 export type ModelOutcome =
-  | { ok: true; text: string; model?: string; usage?: Usage; finishReason?: string }
+  | { ok: true; text: string; usage?: Usage; finishReason?: string; record: ModelRecord }
   | { ok: false; httpStatus: number; message: string }
 
 type Okay = Extract<StreamOutcome, { ok: true }>
@@ -81,11 +82,19 @@ async function askModel(apiKey: string, turns: Turn[], options: RunOptions, tool
   return { ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.', detail: 'No time left in the run budget' }
 }
 
-function stepFor(asked: Extract<Asked, { ok: true }>, note = ''): { detail: string; tokens?: number; cost?: number } {
+function stepFor(asked: Extract<Asked, { ok: true }>, record: ModelRecord, note = ''): { detail: string; tokens?: number; cost?: number } & ModelRecord {
   const usage = sumUsage(asked.usages)
   const first = asked.call.firstTextMs !== undefined ? `, first words after ${Math.round(asked.call.firstTextMs).toLocaleString('en-US')} ms` : ''
   const retried = asked.attempts > 1 ? `, retried once (${asked.firstFailure ?? 'the first try failed'})` : ''
-  return { detail: `${asked.call.model ?? MODEL}${note}${first}${retried}`, tokens: usage?.total_tokens, cost: usage?.cost }
+  return { detail: `${record.servedModel ?? 'not reported'}${note}${first}${retried}`, tokens: usage?.total_tokens, cost: usage?.cost, ...record }
+}
+
+// What one model call says about itself, checked against the newest model. A mismatch is logged and shown, never refused.
+function recordFor(served: string | undefined, newest: string | null): ModelRecord {
+  const servedModel = served ?? null
+  const modelCheck = servedCheck(newest, servedModel)
+  if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${servedModel}, newest ${newest}, requested ${MODEL}`)
+  return { servedModel, newestModel: newest, modelCheck }
 }
 
 const toolNames = (calls: ToolCall[]) => [...new Set(calls.map(call => call.function.name))].join(' and ')
@@ -96,20 +105,24 @@ const toolNames = (calls: ToolCall[]) => [...new Set(calls.map(call => call.func
 // and 'model answer'. Without a tool request it is a single 'model call' step. Text of either call
 // goes to onText the moment it arrives.
 export async function runModelCall(apiKey: string, turns: Turn[], options: RunOptions, run: Recorder): Promise<ModelOutcome> {
+  // The newest model is looked up while the model works, so the list adds to the run only when it is slower than the call.
+  const newestP = newestModel()
   const first = await askModel(apiKey, turns, options)
   if (!first.ok) {
     run.add('model call', 'failed', first.detail)
     return { ok: false, httpStatus: first.httpStatus, message: first.message }
   }
+  const newest = await newestP
+  const firstRecord = recordFor(first.call.model, newest)
 
   const calls = first.call.toolCalls.slice(0, MAX_TOOL_CALLS)
   if (calls.length === 0) {
-    const { detail, ...figures } = stepFor(first)
+    const { detail, ...figures } = stepFor(first, firstRecord)
     run.add('model call', 'ok', detail, figures)
-    return { ok: true, text: first.call.text, model: first.call.model, usage: sumUsage(first.usages), finishReason: first.call.finishReason }
+    return { ok: true, text: first.call.text, usage: sumUsage(first.usages), finishReason: first.call.finishReason, record: firstRecord }
   }
 
-  const { detail, ...figures } = stepFor(first, `, asked for ${toolNames(calls)}`)
+  const { detail, ...figures } = stepFor(first, firstRecord, `, asked for ${toolNames(calls)}`)
   run.add('model call', 'ok', detail, figures)
 
   const results = await Promise.all(calls.map(call => runTool(call.function.name, call.function.arguments, options.deadlineAt, options.cancel)))
@@ -145,14 +158,16 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
     run.add('model answer', 'failed', answer.detail)
     return { ok: false, httpStatus: answer.httpStatus, message: answer.message }
   }
-  const { detail: answerDetail, ...answerFigures } = stepFor(answer)
+  const answerRecord = recordFor(answer.call.model, newest)
+  const { detail: answerDetail, ...answerFigures } = stepFor(answer, answerRecord)
   run.add('model answer', 'ok', answerDetail, answerFigures)
   const text = [first.call.text, answer.call.text].filter(Boolean).join(' ')
   return {
     ok: true,
     text,
-    model: answer.call.model ?? first.call.model,
     usage: sumUsage([...first.usages, ...answer.usages]),
     finishReason: answer.call.finishReason,
+    // The run answers with the model that wrote the final reply; the first call's model stands when the answer named none.
+    record: answer.call.model === undefined ? firstRecord : answerRecord,
   }
 }

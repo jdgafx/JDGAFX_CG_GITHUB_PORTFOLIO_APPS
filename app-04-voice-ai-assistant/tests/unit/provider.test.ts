@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runModelCall, type RunOptions } from '../../netlify/shared/provider'
 import { createRecorder } from '../../netlify/shared/trace'
 import { FORECAST_LISBON, GEOCODE_LISBON } from '../tool-fixtures'
-import { PLACEHOLDER, fixtureChunks, jsonResponse, silentResponse, sseResponse, stubFetch, type FetchMock } from '../helpers'
+import { NEWEST_LIST, PLACEHOLDER, fixtureChunks, isChatCall, isModelList, jsonResponse, silentResponse, sseResponse, stubFetch, type FetchMock } from '../helpers'
 
 const TURNS = [{ role: 'user' as const, content: 'What is the weather in Lisbon right now?' }]
 
@@ -16,14 +16,15 @@ function route(chats: Array<(init?: RequestInit) => Response>): FetchMock {
   let call = 0
   return stubFetch(async (input, init) => {
     const url = String(input)
-    if (url.includes('openrouter.ai')) return chats[Math.min(call++, chats.length - 1)](init)
+    if (isModelList(url)) return jsonResponse(NEWEST_LIST)
+    if (isChatCall(url)) return chats[Math.min(call++, chats.length - 1)](init)
     if (url.includes('geocoding-api')) return jsonResponse(GEOCODE_LISBON)
     if (url.includes('api.open-meteo.com')) return jsonResponse(FORECAST_LISBON)
     throw new Error(`unexpected request to ${url}`)
   })
 }
 
-const chatCalls = (mock: FetchMock) => mock.mock.calls.filter(call => String(call[0]).includes('openrouter.ai'))
+const chatCalls = (mock: FetchMock) => mock.mock.calls.filter(call => isChatCall(String(call[0])))
 
 describe('runModelCall', () => {
   beforeEach(() => {
@@ -40,10 +41,57 @@ describe('runModelCall', () => {
     const run = createRecorder()
     const o = options()
     const out = await runModelCall(PLACEHOLDER, TURNS, o, run)
-    expect(out).toMatchObject({ ok: true, model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 653, cost: 0.000102267 } })
+    expect(out).toMatchObject({
+      ok: true,
+      record: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' },
+      usage: { total_tokens: 653, cost: 0.000102267 },
+    })
     expect(o.texts.join('').trim()).toBe(out.ok ? out.text : '')
     expect(run.steps.map(s => s.name)).toEqual(['model call'])
     expect(run.steps[0].detail).toMatch(/^anthropic\/claude-haiku-5\.5, first words after [\d,]+ ms$/)
+    expect(run.steps[0]).toMatchObject({ servedModel: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' })
+  })
+
+  it('sends the alias as the requested model and no tool_choice on the first call', async () => {
+    const mock = route([() => sseResponse(fixtureChunks('plain'))])
+    await runModelCall(PLACEHOLDER, TURNS, options(), createRecorder())
+    const sent = JSON.parse(String(chatCalls(mock)[0][1]?.body)) as Record<string, unknown>
+    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
+    expect(sent).not.toHaveProperty('tool_choice')
+  })
+
+  it('records null, never the requested model, when the reply names no model', async () => {
+    const unnamed = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Hi there.' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    route([() => sseResponse(unnamed)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: true, record: { servedModel: null, newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'not-reported' } })
+    expect(run.steps[0]).toMatchObject({ servedModel: null, modelCheck: 'not-reported' })
+    expect(run.steps[0].detail).toMatch(/^not reported, first words after/)
+  })
+
+  it('shows a reply from another model as a mismatch, logs it, and still answers', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const other = fixtureChunks('plain').map(chunk => chunk.replaceAll('anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-4.5'))
+    route([() => sseResponse(other)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: true, record: { servedModel: 'anthropic/claude-haiku-4.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'mismatch' } })
+    expect(run.steps[0]).toMatchObject({ servedModel: 'anthropic/claude-haiku-4.5', modelCheck: 'mismatch' })
+    expect(warn).toHaveBeenCalledWith('model mismatch: served anthropic/claude-haiku-4.5, newest anthropic/claude-haiku-5.5, requested ~anthropic/claude-haiku-latest')
+  })
+
+  it('reports unchecked, not a guess, when the newest model cannot be read', async () => {
+    vi.resetModules()
+    const { runModelCall: fresh } = await import('../../netlify/shared/provider')
+    stubFetch(async input => (isModelList(String(input)) ? new Response('down', { status: 503 }) : sseResponse(fixtureChunks('plain'))))
+    const run = createRecorder()
+    const out = await fresh(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: true, record: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: null, modelCheck: 'unchecked' } })
   })
 
   it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
@@ -76,7 +124,8 @@ describe('runModelCall', () => {
   it('passes a failed tool to the model as plain text and still answers', async () => {
     const mock = stubFetch(async input => {
       const url = String(input)
-      if (url.includes('openrouter.ai')) return sseResponse(chatCalls(mock).length === 1 ? fixtureChunks('weather') : fixtureChunks('answer'))
+      if (isModelList(url)) return jsonResponse(NEWEST_LIST)
+      if (isChatCall(url)) return sseResponse(chatCalls(mock).length === 1 ? fixtureChunks('weather') : fixtureChunks('answer'))
       throw new TypeError('network down')
     })
     const run = createRecorder()

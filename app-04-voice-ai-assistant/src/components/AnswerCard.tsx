@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import { parseInline } from '../lib/markdown'
 import { answerText, type RunState } from '../lib/run'
-import { drawSentences, readingNote } from '../lib/view'
+import { drawSentences, modelChip, readingNote } from '../lib/view'
 import { formatCount, formatMs, formatUsd } from '../lib/format'
 
 function Inline({ text }: { text: string }) {
@@ -82,6 +82,7 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
 
   const ended = run.outcome === 'failed' || run.outcome === 'stopped'
   const spent = run.usage
+  const chip = modelChip(run)
   const footBits = [
     run.totalMs !== undefined ? `Server time ${formatMs(run.totalMs)}` : null,
     spent?.total_tokens !== undefined ? `${formatCount(spent.total_tokens)} tokens` : null,
@@ -130,9 +131,10 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
             )}
             {ended && <span className="ds-section__title">{run.outcome === 'stopped' ? 'Partial answer' : 'Answer before the failure'}</span>}
             <span className="ds-chip ds-chip--muted">{voiceWord(run)}</span>
-            {run.model && (
-              <span className="ds-chip" title={run.model}>
-                {run.model.replace(/^anthropic\//, '')}
+            {run.modelCheck !== undefined && (
+              <span className="ds-chip" title={chip.title}>
+                {chip.label}
+                {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}>{chip.marker}</span>}
               </span>
             )}
           </div>

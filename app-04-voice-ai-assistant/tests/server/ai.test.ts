@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
 import { FORECAST_LISBON, GEOCODE_LISBON } from '../tool-fixtures'
 import {
+  NEWEST_LIST,
   ORIGIN,
   PLACEHOLDER,
   bodyOf,
   fixtureChunks,
+  isChatCall,
+  isModelList,
   jsonResponse,
   readEvents,
   request,
@@ -24,12 +27,15 @@ function route(chats: Array<(init?: RequestInit) => Response>): FetchMock {
   let call = 0
   return stubFetch(async (input, init) => {
     const url = String(input)
-    if (url.includes('openrouter.ai')) return chats[Math.min(call++, chats.length - 1)](init)
+    if (isModelList(url)) return jsonResponse(NEWEST_LIST)
+    if (isChatCall(url)) return chats[Math.min(call++, chats.length - 1)](init)
     if (url.includes('geocoding-api')) return jsonResponse(GEOCODE_LISBON)
     if (url.includes('api.open-meteo.com')) return jsonResponse(FORECAST_LISBON)
     throw new Error(`unexpected request to ${url}`)
   })
 }
+
+const chatCallsOf = (mock: FetchMock) => mock.mock.calls.filter(call => isChatCall(String(call[0])))
 
 const never = async () => jsonResponse({})
 
@@ -61,8 +67,21 @@ describe('ai function', () => {
     expect(names).toEqual(['request built', 'model call', 'parse and validate'])
     const done = events[events.length - 1]
     const text = events.filter(e => e.type === 'delta').map(e => e.text).join('')
-    expect(done).toMatchObject({ type: 'done', model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 653 } })
+    expect(done).toMatchObject({ type: 'done', model: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match', usage: { total_tokens: 653 } })
     expect(String(done.result)).toBe(text.trim())
+  })
+
+  // The requested alias is never reported as the model that answered: a reply with no model says so.
+  it('reports a null served model, never the requested alias, when the reply names none', async () => {
+    const unnamed = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'It is warm.' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    route([() => sseResponse(unnamed)])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+    expect(events.find(e => e.type === 'done')).toMatchObject({ type: 'done', model: null, modelCheck: 'not-reported' })
+    expect(JSON.stringify(events)).not.toContain('claude-haiku-latest')
   })
 
   it('sends the tool call steps before the first word of the answer', async () => {
@@ -84,8 +103,8 @@ describe('ai function', () => {
       { role: 'assistant', content: 'second' },
     ]
     await (await handler(request(URL_AI, { json: { message: 'third', history, model: 'evil/model' } }))).text()
-    const sent = JSON.parse(String(mock.mock.calls[0][1]?.body)) as { model: string; messages: Array<{ role: string; content: string }> }
-    expect(sent.model).toBe('anthropic/claude-haiku-5.5')
+    const sent = JSON.parse(String(chatCallsOf(mock)[0][1]?.body)) as { model: string; messages: Array<{ role: string; content: string }> }
+    expect(sent.model).toBe('~anthropic/claude-haiku-latest')
     expect(sent.messages.map(m => `${m.role}:${m.content.slice(0, 5)}`)).toEqual(['system:You a', 'user:first', 'assistant:secon', 'user:third'])
   })
 
@@ -110,7 +129,7 @@ describe('ai function', () => {
     const reader = res.body!.getReader()
     await reader.read()
     await reader.cancel()
-    const signal = mock.mock.calls[0][1]?.signal as AbortSignal
+    const signal = chatCallsOf(mock)[0][1]?.signal as AbortSignal
     await vi.waitFor(() => expect(signal.aborted).toBe(true))
   })
 

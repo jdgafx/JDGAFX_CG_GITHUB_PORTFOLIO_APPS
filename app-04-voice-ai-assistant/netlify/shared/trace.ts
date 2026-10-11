@@ -3,9 +3,19 @@
 // to the run's total. The exception is a step given its own `ms`: tool calls run
 // in parallel and are timed one by one, so their times can overlap.
 
+import type { ServedCheck } from './newest-model'
+
 type StepStatus = 'ok' | 'failed' | 'skipped'
 
-export interface TraceStep {
+// What a model call says about the model that answered, checked against the newest one. `servedModel` is
+// null when the reply named no model.
+export interface ModelRecord {
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: ServedCheck
+}
+
+export interface TraceStep extends Partial<ModelRecord> {
   name: string
   status: StepStatus
   ms: number
@@ -31,7 +41,7 @@ export interface Reading {
 
 // Extra fields a step may carry. `ms` replaces the time since the previous step, for
 // steps that ran in parallel and were timed on their own.
-interface StepExtras {
+interface StepExtras extends Partial<ModelRecord> {
   tokens?: number
   cost?: number
   call?: string

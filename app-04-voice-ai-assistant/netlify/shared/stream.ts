@@ -8,7 +8,8 @@ import { providerFailure, upstreamStatus } from './http'
 import { createSseParser } from './sse'
 import { labelShaped, unsuitableModel, GATE_CHARS } from './reply-guard'
 
-export const MODEL = 'anthropic/claude-haiku-5.5'
+// The family alias: OpenRouter resolves it to the newest Haiku. The model that answered is read from the reply.
+export const MODEL = '~anthropic/claude-haiku-latest'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const PROVIDER = 'The AI provider'
 

@@ -19,6 +19,11 @@ export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
+// OpenRouter's public model list as the newest-model check reads it: the requested alias resolves to Haiku 5.5.
+export const NEWEST_LIST = { data: [{ id: '~anthropic/claude-haiku-latest', alias_target: { slug: 'anthropic/claude-haiku-5.5' } }] }
+export const isModelList = (url: string) => url.includes('/api/v1/models')
+export const isChatCall = (url: string) => url.includes('/chat/completions')
+
 export function urlOf(mock: FetchMock, call = 0): string {
   return String(mock.mock.calls[call]?.[0])
 }

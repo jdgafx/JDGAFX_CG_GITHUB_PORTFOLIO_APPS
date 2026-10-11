@@ -1,5 +1,5 @@
 import { corsHeaders, guardRequest, jsonError, readJsonBody } from '../shared/http'
-import { MODEL, runModelCall, type Turn } from '../shared/provider'
+import { runModelCall, type Turn } from '../shared/provider'
 import { DONE_EVENT, PING, encodeEvent } from '../shared/sse'
 import { createRecorder } from '../shared/trace'
 
@@ -91,7 +91,8 @@ function answerStream(
         } else {
           const cut = outcome.finishReason === 'length'
           run.add('parse and validate', 'ok', cut ? `${outcome.text.length} characters, cut off at the length limit` : `${outcome.text.length} characters`)
-          send({ type: 'done', result: outcome.text, model: outcome.model ?? MODEL, usage: outcome.usage, totalMs: run.elapsed() })
+          const { servedModel, newestModel, modelCheck } = outcome.record
+          send({ type: 'done', result: outcome.text, model: servedModel, newestModel, modelCheck, usage: outcome.usage, totalMs: run.elapsed() })
         }
       } catch (err) {
         console.error('ai: stream failed', err)

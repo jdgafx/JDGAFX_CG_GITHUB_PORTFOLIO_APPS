@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IDLE_RUN, type RunState } from '../../src/lib/run'
-import { badgeFor, drawSentences, lanes, readingNote, statusLine } from '../../src/lib/view'
+import { badgeFor, drawSentences, lanes, modelChip, readingNote, statusLine } from '../../src/lib/view'
 
 const running = (over: Partial<RunState>): RunState => ({ ...IDLE_RUN, outcome: 'running', stage: 'thinking', ...over })
 
@@ -19,6 +19,41 @@ describe('statusLine', () => {
   it('says there is no voice while the text streams, and points to the answer panel on failure', () => {
     expect(statusLine(running({ stage: 'answering', voice: 'none' }), true)).toContain('no voice')
     expect(statusLine({ ...IDLE_RUN, outcome: 'failed' }, true)).toBe('Failed. The answer panel says why.')
+  })
+})
+
+describe('modelChip', () => {
+  const served = { model: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5' }
+
+  it('shows the served id and "newest" when it matches the newest model', () => {
+    expect(modelChip({ ...served, modelCheck: 'match' })).toEqual({ label: 'claude-haiku-5.5', marker: '· newest', warn: false, title: served.model })
+  })
+
+  it('shows a short warning marker, with the newest id in the title, when the reply came from another model', () => {
+    expect(modelChip({ model: 'anthropic/claude-haiku-4.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'mismatch' })).toEqual({
+      label: 'claude-haiku-4.5',
+      marker: '· not newest',
+      warn: true,
+      title: 'anthropic/claude-haiku-4.5, newest: anthropic/claude-haiku-5.5',
+    })
+  })
+
+  it('shows "unchecked" when the newest model could not be read', () => {
+    expect(modelChip({ model: served.model, newestModel: null, modelCheck: 'unchecked' })).toEqual({
+      label: 'claude-haiku-5.5',
+      marker: '· unchecked',
+      warn: false,
+      title: served.model,
+    })
+  })
+
+  it('shows "not reported" with no extra marker when the reply named no model', () => {
+    expect(modelChip({ model: undefined, newestModel: served.newestModel, modelCheck: 'not-reported' })).toEqual({
+      label: 'not reported',
+      marker: '',
+      warn: false,
+      title: 'The reply named no model',
+    })
   })
 })
 

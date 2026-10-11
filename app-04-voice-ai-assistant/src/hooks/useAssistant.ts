@@ -106,7 +106,15 @@ export function useAssistant() {
         voice.finish()
         pendingQuestionRef.current = null
         commitMessages([...messagesRef.current, { ...newMessage('assistant', done.text), model: done.model }])
-        dispatch({ type: 'stream-done', model: done.model, usage: done.usage, totalMs: serverMs + (done.totalMs ?? 0), now: now() })
+        dispatch({
+          type: 'stream-done',
+          model: done.model,
+          modelCheck: done.modelCheck,
+          newestModel: done.newestModel,
+          usage: done.usage,
+          totalMs: serverMs + (done.totalMs ?? 0),
+          now: now(),
+        })
       } catch (err) {
         // Stop has already ended the run and marked the question.
         if (isAbort(err)) return

@@ -1,6 +1,7 @@
 // The state of the run on screen: one question, from the end of speech (or Ask) to the end of the voice.
 // A pure reducer, so the streaming order of events is tested without a browser. The hook feeds it.
 import type { TraceStep, Usage } from './api'
+import type { ServedCheck } from '../../netlify/shared/newest-model'
 import type { Marks } from './ttfa'
 
 export type Outcome = 'idle' | 'running' | 'done' | 'failed' | 'stopped'
@@ -28,6 +29,9 @@ export interface RunState {
   /** The server finished the answer. */
   streamDone: boolean
   model?: string
+  /** How the served model compares with the newest one. Set once the server finished the answer. */
+  modelCheck?: ServedCheck
+  newestModel?: string | null
   usage?: Usage
   totalMs?: number
   error?: string
@@ -64,7 +68,7 @@ export type RunAction =
   | { type: 'voice-idle'; now: number }
   | { type: 'no-voice'; now: number }
   | { type: 'voice-failed'; message: string; now: number }
-  | { type: 'stream-done'; model?: string; usage?: Usage; totalMs?: number; now: number }
+  | { type: 'stream-done'; model?: string; modelCheck?: ServedCheck; newestModel?: string | null; usage?: Usage; totalMs?: number; now: number }
   | { type: 'fail'; message: string; totalMs?: number }
   | { type: 'stop'; now: number }
   | { type: 'clear' }
@@ -153,7 +157,10 @@ export function runReducer(run: RunState, action: RunAction): RunState {
     case 'voice-failed':
       return settle({ ...run, voice: 'failed', voiceNote: action.message, active: -1 }, action.now)
     case 'stream-done':
-      return settle({ ...run, streamDone: true, model: action.model, usage: action.usage, totalMs: action.totalMs }, action.now)
+      return settle(
+        { ...run, streamDone: true, model: action.model, modelCheck: action.modelCheck, newestModel: action.newestModel, usage: action.usage, totalMs: action.totalMs },
+        action.now,
+      )
     case 'fail':
       return { ...run, outcome: 'failed', stage: 'idle', error: action.message, totalMs: action.totalMs ?? run.totalMs, active: -1 }
     case 'clear':

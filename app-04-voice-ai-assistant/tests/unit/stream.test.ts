@@ -62,7 +62,7 @@ describe('streamChat', () => {
     const mock = stubFetch(async () => sseResponse(fixtureChunks('plain')))
     await streamChat(PLACEHOLDER, TURNS, options({ toolChoice: 'none' }))
     const sent = JSON.parse(String(mock.mock.calls[0][1]?.body)) as Record<string, unknown>
-    expect(sent).toMatchObject({ model: 'anthropic/claude-haiku-5.5', stream: true, max_tokens: 64, reasoning: { enabled: false }, usage: { include: true }, tool_choice: 'none' })
+    expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', stream: true, max_tokens: 64, reasoning: { enabled: false }, usage: { include: true }, tool_choice: 'none' })
     expect(sent).not.toHaveProperty('temperature')
   })
 

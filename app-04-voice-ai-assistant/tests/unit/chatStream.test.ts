@@ -25,7 +25,7 @@ const GOOD = [
   ev({ type: 'step', step: step('tool call', 'Lisbon: 21.9 °C') }),
   ev({ type: 'delta', text: 'It is warm. ' }),
   ev({ type: 'delta', text: 'And clear.' }),
-  ev({ type: 'done', result: 'It is warm. And clear.', model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 12, cost: 0.1 }, totalMs: 900 }),
+  ev({ type: 'done', result: 'It is warm. And clear.', model: 'anthropic/claude-haiku-5.5', modelCheck: 'match', newestModel: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 12, cost: 0.1 }, totalMs: 900 }),
   'data: [DONE]\n\n',
 ]
 
@@ -45,7 +45,14 @@ describe('chat (browser side, streaming)', () => {
     const done = await chat('weather?', [{ role: 'user', content: 'hi' }], h)
     expect(steps).toEqual(['request built', 'tool call'])
     expect(text).toEqual(['It is warm. ', 'And clear.'])
-    expect(done).toEqual({ text: 'It is warm. And clear.', model: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 12, cost: 0.1, prompt_tokens: undefined, completion_tokens: undefined }, totalMs: 900 })
+    expect(done).toEqual({
+      text: 'It is warm. And clear.',
+      model: 'anthropic/claude-haiku-5.5',
+      modelCheck: 'match',
+      newestModel: 'anthropic/claude-haiku-5.5',
+      usage: { total_tokens: 12, cost: 0.1, prompt_tokens: undefined, completion_tokens: undefined },
+      totalMs: 900,
+    })
     expect(JSON.parse(String(mock.mock.calls[0][1]?.body))).toEqual({ message: 'weather?', history: [{ role: 'user', content: 'hi' }] })
   })
 
