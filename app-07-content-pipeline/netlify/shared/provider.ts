@@ -57,9 +57,8 @@ async function chatOnce(system: string, user: string, maxTokens: number, signal:
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
-      // Reasoning stays off, so hidden tokens cannot use up the budget and cut the answer short.
-      // No temperature is sent: Haiku rejects it.
-      reasoning: { enabled: false },
+      // No temperature is sent: Haiku rejects it. No reasoning override is sent either: thinking stays
+      // on at the model's default, and its tokens count toward max_tokens (see stageMaxTokens).
       // Asks OpenRouter to report the token counts and the cost of this call.
       usage: { include: true },
       stream: false,
@@ -81,6 +80,8 @@ async function chatOnce(system: string, user: string, maxTokens: number, signal:
     usage?: unknown
   }
   const choice = parsed.choices?.[0]
+  // Only message.content is the answer. The provider may also send message.reasoning or
+  // message.reasoning_details; they are never read, so thinking cannot reach a stage's text.
   return {
     content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
     finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,

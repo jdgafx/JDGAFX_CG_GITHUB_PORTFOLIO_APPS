@@ -81,14 +81,17 @@ describe('buildUserMessage: text a stage rewrites is passed whole', () => {
 describe('stageTimeoutMs and retryFits', () => {
   const limits = (['research', 'outline', 'draft', 'edit', 'polish'] as const).map(stageTimeoutMs)
 
-  it('abandons a hung call at about 1.5 times the p95 of healthy calls', () => {
-    expect(limits).toEqual([6_000, 8_000, 10_000, 7_000, 9_000])
+  it('abandons a hung call at the thinking-off limit plus 8 s for thinking', () => {
+    expect(limits).toEqual([14_000, 16_000, 18_000, 15_000, 17_000])
   })
 
-  it('lets a call that used a whole limit run a second full limit, inside the 21 second request budget', () => {
-    for (const limit of limits) expect(retryFits(limit, limit)).toBe(true)
-    // Worst case for a stage request: two full limits, which stays under the 22 seconds the lead set.
-    expect(Math.max(...limits) * 2).toBeLessThanOrEqual(20_000)
+  it('keeps one full limit inside the 21 second request budget, so a stage request stays under the 30 s cut-off', () => {
+    for (const limit of limits) expect(limit).toBeLessThanOrEqual(21_000)
+  })
+
+  it('does not retry a call that hung for a whole limit, but retries one that failed early', () => {
+    for (const limit of limits) expect(retryFits(limit, limit)).toBe(false)
+    for (const limit of limits) expect(retryFits(500, limit)).toBe(true)
   })
 
   it('refuses a retry that would run past the request budget', () => {
@@ -99,8 +102,8 @@ describe('stageTimeoutMs and retryFits', () => {
 })
 
 describe('stageMaxTokens', () => {
-  it('is five tokens per budget word, so a stage that runs on is cut off and refused', () => {
-    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([400, 500, 800, 1020, 1020])
+  it('is five tokens per budget word plus 1,500 for thinking, so a stage that runs on is cut off and refused', () => {
+    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([1900, 2000, 2300, 2520, 2520])
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import handler, { config } from '../../netlify/functions/ai'
-import { CONTENT_TYPES, STAGE_LABELS } from '../../netlify/shared/contract'
+import { CONTENT_TYPES } from '../../netlify/shared/contract'
 import { SITE_URL } from '../../netlify/shared/provider'
 import {
   ARTICLE, CUT_OFF_MESSAGE, EMPTY_MESSAGE, KEY_MESSAGE, LABEL_MESSAGE, NOTES, PLACEHOLDER, RATE_MESSAGE, SHORT_MESSAGE, SLOW_MESSAGE, SOURCES, TOPIC,
@@ -25,19 +25,19 @@ describe('happy path', () => {
     expect(sent).toHaveLength(1)
   })
 
-  it('sends the fixed model, a ceiling of five tokens per budget word and usage reporting, whatever model the browser names', async () => {
+  it('sends the fixed model, a ceiling of five tokens per budget word plus thinking room and usage reporting, whatever model the browser names', async () => {
     const sent = providerWill(() => completion(ARTICLE))
 
     await handler(request(stageBody('research', {}, { model: 'openai/gpt-4o' })))
     expect(sent[0].url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(sent[0].body.model).toBe('~anthropic/claude-haiku-latest')
-    expect(sent[0].body.max_tokens).toBe(400)
+    expect(sent[0].body.max_tokens).toBe(1900)
     expect(sent[0].body.usage).toEqual({ include: true })
     expect(sent[0].body.stream).toBe(false)
     expect(sent[0].init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
   })
 
-  it.each([['research', 400], ['outline', 500], ['draft', 800], ['edit', 1020], ['polish', 1020]])('limits %s to %i tokens (edit and polish add room for their change notes)', async (stage, tokens) => {
+  it.each([['research', 1900], ['outline', 2000], ['draft', 2300], ['edit', 2520], ['polish', 2520]])('limits %s to %i tokens (edit and polish add room for their change notes)', async (stage, tokens) => {
     const sent = providerWill(() => completion(ARTICLE))
     await handler(request(stageBody(stage, { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE })))
     expect(sent[0].body.max_tokens).toBe(tokens)
@@ -209,15 +209,15 @@ describe('provider failures', () => {
     expect(await res.json()).toMatchObject({ error: SLOW_MESSAGE, retryable: false })
   })
 
-  // The call limit of each stage: about 1.5 times the p95 of healthy calls over 32 live runs on Haiku 5.5.
-  const LIMITS: Array<[string, number]> = [['research', 6_000], ['outline', 8_000], ['draft', 10_000], ['edit', 7_000], ['polish', 9_000]]
+  // The call limit of each stage: the thinking-off limit (1.5 times the p95 of 32 live runs on Haiku 5.5) plus 8 s for thinking.
+  const LIMITS: Array<[string, number]> = [['research', 14_000], ['outline', 16_000], ['draft', 18_000], ['edit', 15_000], ['polish', 17_000]]
   const context = { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE }
   const hangs = (call: Sent) => new Promise<Response>((_resolve, reject) => {
     call.init?.signal?.addEventListener('abort', () => reject(call.init?.signal?.reason))
   })
 
-  it.each(LIMITS)('lets the %s call run until %i ms and abandons it then', async (stage, limit) => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  it.each(LIMITS)('lets the %s call run until %i ms and abandons it then, with no second call: the request budget has no room left', async (stage, limit) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const sent = providerWill(hangs)
 
     const pending = handler(request(stageBody(stage, context)))
@@ -226,53 +226,24 @@ describe('provider failures', () => {
     expect(sent[0].init?.signal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     expect(sent[0].init?.signal?.aborted).toBe(true)
-    // The second attempt starts at once, with its own full limit.
-    expect(sent).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(limit)
 
     const res = await pending
     expect(res.status).toBe(504)
     const body = (await res.json()) as ErrorBody
     expect(body.error).toBe(SLOW_MESSAGE)
     expect(body.retryable).toBe(false)
-    expect(body.trace?.[0]).toMatchObject({ status: 'failed', detail: `${SLOW_MESSAGE} Retried once after a timeout of ${limit / 1000} s.` })
-    expect(sent).toHaveLength(2)
+    expect(body.trace?.[0]).toMatchObject({ status: 'failed', detail: SLOW_MESSAGE })
+    expect(sent).toHaveLength(1)
   })
 
-  it.each(LIMITS)('answers the %s stage with one retry row when the first call hangs and the second answers', async (stage, limit) => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    let calls = 0
-    const sent = providerWill(call => {
-      calls += 1
-      return calls === 1 ? hangs(call) : completion(ARTICLE)
-    })
-
-    const pending = handler(request(stageBody(stage, context)))
-    await vi.advanceTimersByTimeAsync(limit)
-
-    const res = await pending
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as StageBody
-    expect(body.trace).toHaveLength(1)
-    expect(body.trace[0]).toMatchObject({ name: STAGE_LABELS[stage as 'research'], status: 'ok', tokens: 1200 })
-    expect(String(body.trace[0].detail)).toMatch(new RegExp(`^Retried once after a timeout of ${limit / 1000} s\\. (?:No change notes came back\\. )?\\d+ words: `))
-    expect(sent).toHaveLength(2)
-  })
-
-  it('also ends a call whose body never finishes at the limit and retries it', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    let calls = 0
-    const sent = providerWill(() => {
-      calls += 1
-      return calls === 1
-        ? new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } })
-        : completion(ARTICLE)
-    })
+  it('also ends a call whose body never finishes at the limit', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const sent = providerWill(() => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
 
     const pending = handler(request(stageBody('research')))
-    await vi.advanceTimersByTimeAsync(6_000)
-    expect((await pending).status).toBe(200)
-    expect(sent).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect((await pending).status).toBe(504)
+    expect(sent).toHaveLength(1)
   })
 
   it('retries a call that could not connect once, and says so', async () => {
@@ -331,6 +302,43 @@ describe('provider failures', () => {
     const res = await handler(req)
     expect(res.status).toBe(503)
     expect(sent).toHaveLength(1)
+  })
+})
+
+describe('thinking stays on', () => {
+  it.each(['research', 'outline', 'draft', 'edit', 'polish'])('sends no reasoning override with the %s call', async stage => {
+    const sent = providerWill(() => completion(ARTICLE))
+    await handler(request(stageBody(stage, { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE })))
+    expect(sent).toHaveLength(1)
+    const body = sent[0].body as { reasoning?: { enabled?: unknown } }
+    expect(body.reasoning?.enabled).not.toBe(false)
+    expect(JSON.stringify(sent[0].body)).not.toMatch(/"enabled":\s*false/)
+  })
+
+  it('uses only the answer as the stage text and the trace, never the reasoning the reply carries', async () => {
+    const thought = 'SECRET-THOUGHT I should cite source [7] and think about the plan.'
+    providerWill(() => completion(ARTICLE, {
+      choices: [{
+        message: { content: ARTICLE, reasoning: thought, reasoning_details: [{ type: 'reasoning.text', text: thought }] },
+        finish_reason: 'stop',
+      }],
+    }))
+    const res = await handler(request(stageBody('research')))
+    expect(res.status).toBe(200)
+    const raw = JSON.stringify(await res.json())
+    expect(raw).not.toContain('SECRET-THOUGHT')
+    expect(raw).toContain('Unit tests give')
+  })
+
+  it('does not fall back to the reasoning when the answer is empty', async () => {
+    providerWill(() => completion('', {
+      choices: [{ message: { content: '', reasoning: `${words(40)} thinking text` }, finish_reason: 'stop' }],
+    }))
+    const res = await handler(request(stageBody('research')))
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as ErrorBody
+    expect(body.error).toBe(EMPTY_MESSAGE)
+    expect(JSON.stringify(body)).not.toContain('thinking text')
   })
 })
 

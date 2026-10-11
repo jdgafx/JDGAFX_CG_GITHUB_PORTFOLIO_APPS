@@ -62,6 +62,9 @@ describe('chat request', () => {
     expect(MODEL).toBe('~anthropic/claude-haiku-latest')
     expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body).not.toHaveProperty('temperature')
+    // Thinking stays on: nothing in the request turns reasoning off.
+    expect((body.reasoning as { enabled?: unknown } | undefined)?.enabled).not.toBe(false)
+    expect(JSON.stringify(body)).not.toMatch(/"enabled":\s*false/)
     expect(body.max_tokens).toBe(160)
     expect(body.usage).toEqual({ include: true })
     expect(body.stream).toBe(false)
@@ -82,6 +85,24 @@ describe('chat reply', () => {
       servedModel: 'anthropic/claude-haiku-5.5',
       usage: USAGE,
     })
+  })
+
+  it('reads only the answer text, never the reasoning fields of the reply', async () => {
+    fetchReturns(() => completion({
+      choices: [{
+        message: { content: 'Article text.', reasoning: 'private thoughts', reasoning_details: [{ type: 'reasoning.text', text: 'private thoughts' }] },
+        finish_reason: 'stop',
+      }],
+    }))
+    const reply = await chat('S', 'U', 160, new AbortController().signal)
+    expect(reply.content).toBe('Article text.')
+    expect(JSON.stringify(reply)).not.toContain('private thoughts')
+  })
+
+  it('gives an empty answer back empty rather than using the reasoning in its place', async () => {
+    fetchReturns(() => completion({ choices: [{ message: { content: '', reasoning: 'private thoughts' }, finish_reason: 'stop' }] }))
+    const reply = await chat('S', 'U', 160, new AbortController().signal)
+    expect(reply.content).toBe('')
   })
 
   it('reports no cost when the provider sends none, rather than inventing one', async () => {

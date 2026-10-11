@@ -33,7 +33,7 @@ describe('change notes from Edit and Polish', () => {
     const sent = providerWill(() => completion(EDITED))
     await handler(request(stageBody('edit', context)))
     expect((sent[0].body.messages as Array<{ content: string }>)[0].content).toContain('---CHANGES---')
-    expect(sent[0].body.max_tokens).toBe(1020)
+    expect(sent[0].body.max_tokens).toBe(2520)
   })
 
   it('keeps the text and returns no notes when the reply has no notes section', async () => {

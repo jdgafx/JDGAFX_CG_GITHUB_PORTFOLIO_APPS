@@ -31,9 +31,14 @@ const STAGE_WORD_BUDGETS: Record<ModelStageId, number> = {
   polish: 160,
 }
 
-// Tokens a word can take, with room for Markdown and citation markers. The ceiling is a multiple of
-// the word budget, so a stage that runs on is cut off and refused, never passed on half written.
+// Tokens a word can take, with room for Markdown and citation markers. The answer's share of the ceiling
+// is a multiple of the word budget; a stage that runs on past all of it is cut off and refused, never
+// passed on half written.
 const TOKENS_PER_BUDGET_WORD = 5
+
+// Thinking is on, and its tokens count toward max_tokens. Haiku spends a few hundred to about 500 on
+// these tasks, so each ceiling gets 1,500 on top for thinking, which the word budget does not cover.
+const THINKING_TOKENS = 1_500
 
 // Edit and Polish also write their change notes (up to five short lines), which need room of their own.
 const NOTES_TOKENS = 220
@@ -42,19 +47,22 @@ const NOTES_TOKENS = 220
 export const NOTE_STAGES: ReadonlySet<ModelStageId> = new Set(['edit', 'polish'])
 
 export function stageMaxTokens(stage: ModelStageId): number {
-  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD + (NOTE_STAGES.has(stage) ? NOTES_TOKENS : 0)
+  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD + (NOTE_STAGES.has(stage) ? NOTES_TOKENS : 0) + THINKING_TOKENS
 }
 
-// How long one model call may take before the function gives up on it: about 1.5 times the p95 of
-// calls that were not stalled, over 32 live runs on Haiku 5.5 (p95 in seconds: research 3.6,
-// outline 4.1, draft 4.2, edit 3.6, polish 4.0). A call that is still silent then is hung, and
-// waiting longer does not help, so it is abandoned and tried once more (see retryFits).
+// How long one model call may take before the function gives up on it. Measured over 32 live runs
+// on Haiku 5.5 with thinking off, healthy calls had a p95 of research 3.6 s, outline 4.1 s, draft 4.2 s,
+// edit 3.6 s, polish 4.0 s (limits were 1.5 times that: 6, 8, 10, 7, 9 s). Thinking adds up to about
+// 500 tokens before the answer, about 7 s at the 70 tokens a second those runs imply, so each limit
+// is the old one plus 8 s: 14, 16, 18, 15 and 17 s. One limit fits inside the request budget, which
+// keeps a stage request under the function cut-off; a second full limit does not, so a call that hangs
+// is retried only when it failed early (see retryFits). Re-measure live and tighten if p95 allows.
 const STAGE_TIMEOUTS_MS: Record<ModelStageId, number> = {
-  research: 6_000,
-  outline: 8_000,
-  draft: 10_000,
-  edit: 7_000,
-  polish: 9_000,
+  research: 14_000,
+  outline: 16_000,
+  draft: 18_000,
+  edit: 15_000,
+  polish: 17_000,
 }
 
 export function stageTimeoutMs(stage: ModelStageId): number {
