@@ -31,7 +31,7 @@ export default function RunMetrics({ state, phase }: RunMetricsProps) {
             <dt className="ds-strip__label">{cell.label}</dt>
             <dd className="ds-strip__value">
               {cell.label === 'Model' && cell.value.includes('/')
-                ? <span className="ds-chip" title={cell.value}>{cell.value.replace(/^anthropic\//, '')}</span>
+                ? <span className="ds-chip ds-chip--wrap" title={cell.value}>{cell.value.replace(/^anthropic\//, '')}</span>
                 : cell.value}
               {cell.marker ? <span className={cell.marker.warn ? 'bb-warn' : 'ds-strip__hint'} title={cell.marker.title}> {cell.marker.text}</span> : null}
             </dd>
