@@ -121,6 +121,35 @@ describe('parseReply', () => {
     expect(reply.finishReason).toBeNull()
   })
 
+  it('reads only content and tool calls when the reply also carries reasoning', () => {
+    const reply = parseReply({
+      model: 'anthropic/claude-haiku-5.5',
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: 'Final answer [1].',
+            reasoning: 'The user wants X. I should cite [9] and call wikipedia_page with {"title":"Wrong"}.',
+            reasoning_details: [{ type: 'reasoning.text', text: 'secret thinking [9]' }],
+            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'wikipedia_page', arguments: '{"title":"Expo 98"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+      usage: { prompt_tokens: 100, completion_tokens: 600, total_tokens: 700, completion_tokens_details: { reasoning_tokens: 500 } },
+    })
+    expect(reply.text).toBe('Final answer [1].')
+    expect(reply.toolCalls).toEqual([{ id: 'call_1', name: 'wikipedia_page', args: '{"title":"Expo 98"}' }])
+    expect(JSON.stringify(reply)).not.toContain('secret thinking')
+    expect(reply.usage.reasoning_tokens).toBe(500)
+  })
+
+  it('returns no text when the reply holds only reasoning', () => {
+    const reply = parseReply({ choices: [{ message: { role: 'assistant', content: null, reasoning: 'thinking only' } }] })
+    expect(reply.text).toBe('')
+    expect(reply.toolCalls).toEqual([])
+  })
+
   it('ignores usage fields that are not finite numbers', () => {
     const reply = parseReply(replyBody({ usage: { prompt_tokens: '120', completion_tokens: 30, cost: Number.NaN } }))
     expect(reply.usage).toEqual({ completion_tokens: 30 })
@@ -148,7 +177,7 @@ describe('messageForStatus', () => {
 })
 
 describe('chat', () => {
-  it('posts the request with reasoning off, usage accounting on and the placeholder key, and returns the parsed reply', async () => {
+  it('posts the request with no reasoning setting, usage accounting on and the placeholder key, and returns the parsed reply', async () => {
     const fetchStub = vi.fn<typeof fetch>(async () => Response.json(replyBody()))
     vi.stubGlobal('fetch', fetchStub)
 
@@ -159,12 +188,10 @@ describe('chat', () => {
     const [url, init] = fetchStub.mock.calls[0] ?? []
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
-    // Reasoning is off, so a reasoning-capable model cannot spend the output cap on hidden reasoning.
-    expect(JSON.parse(String(init?.body))).toEqual({
-      ...REQUEST,
-      reasoning: { enabled: false },
-      usage: { include: true },
-    })
+    // Thinking stays on: the body carries no reasoning setting at all.
+    const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
+    expect(sent).toEqual({ ...REQUEST, usage: { include: true } })
+    expect('reasoning' in sent).toBe(false)
   })
 
   it.each([

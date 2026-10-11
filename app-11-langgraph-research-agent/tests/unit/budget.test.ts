@@ -107,12 +107,12 @@ const UNCHECKED = ' The served model was not checked: the price list was unavail
 
 describe('time-aware edges', () => {
   it('skips a tool round the time left cannot cover, with the reason on the edge and in the trace', async () => {
-    // 4.9 s left at the first agent turn: a round needs 5 s (the tools and a draft), so the agent goes to the draft.
-    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 0, deadline: 4_900 })
+    // 8.4 s left at the first agent turn: a round needs 8.5 s (the tools and a draft), so the agent goes to the draft.
+    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 0, deadline: 8_400 })
     expect(out.path).toEqual(['plan', 'agent', 'draft', 'critic', 'final'])
     expect(out.edges).toEqual(['draft (out of time)', 'final (accepted)'])
     expect(out.ends.find((end) => end.node === 'agent')?.detail).toBe(
-      `Time left 4 s: no more searches. Drafting with what has been read.${UNCHECKED}`,
+      `Time left 8 s: no more searches. Drafting with what has been read.${UNCHECKED}`,
     )
   })
 
@@ -123,22 +123,23 @@ describe('time-aware edges', () => {
   })
 
   it('skips the next agent turn once a page is read and the time left cannot cover a draft and its review', async () => {
-    // Each call takes 6 s of a 20 s budget. After plan and agent, 8 s are left: enough for the tools, not for another turn.
-    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 6_000, deadline: 20_000 })
+    // Each call takes 3 s of a 20 s budget. After plan and agent, 14 s are left: enough for the tools, not for another turn (19.5 s).
+    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 3_000, deadline: 20_000 })
     expect(out.path).toEqual(['plan', 'agent', 'tools', 'agent', 'draft', 'critic', 'final'])
     const secondAgent = out.ends.filter((end) => end.node === 'agent')[1]
     expect(secondAgent).toMatchObject({
       status: 'skipped',
-      detail: 'Time left 8 s: finishing with the 1 page(s) already read.',
+      detail: 'Time left 14 s: finishing with the 1 page(s) already read.',
     })
     expect(secondAgent?.model).toBeUndefined()
     expect(out.counts.agent).toBe(1)
   })
 
   it('skips the review when the time left is under what the critic needs, and labels the answer unreviewed', async () => {
-    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 6_000, deadline: 20_000 })
+    // Each call takes 7.5 s of a 28.8 s budget: 13.8 s are left for the draft (13.5 s needed), 6.3 s after it (6.5 s needed).
+    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 7_500, deadline: 28_800 })
     const criticEnd = out.ends.find((end) => end.node === 'critic')
-    expect(criticEnd).toMatchObject({ status: 'skipped', detail: 'Time left 2 s: skipping the review. The draft goes out unreviewed.' })
+    expect(criticEnd).toMatchObject({ status: 'skipped', detail: 'Time left 6 s: skipping the review. The draft goes out unreviewed.' })
     expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (out of time)', 'final (out of time)'])
     expect(out.counts.critic).toBe(0)
     expect(out.result).toMatchObject({
@@ -150,7 +151,7 @@ describe('time-aware edges', () => {
   })
 
   it('goes to final instead of a revision when the time left cannot cover a draft and a review', async () => {
-    // 6.5 s a call, 30 s budget: after the critic 4 s are left, a revision needs 5.5 s.
+    // 6.5 s a call, 30 s budget: after the critic 4 s are left, a revision needs 13.5 s.
     const out = await run({
       script: { critic: [revise(QUOTE, 'State the theme.')] },
       step: 6_500,

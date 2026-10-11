@@ -7,7 +7,7 @@ describe('model assignment', () => {
   })
 
   it('caps each node reply and sends no temperature setting at all', async () => {
-    expect(MAX_TOKENS).toEqual({ plan: 400, agent: 800, draft: 1200, critic: 400 })
+    expect(MAX_TOKENS).toEqual({ plan: 2000, agent: 2400, draft: 2800, critic: 2000 })
     const models = (await import('../../netlify/shared/models')) as Record<string, unknown>
     expect(Object.keys(models).filter((name) => name.includes('TEMPERATURE'))).toEqual([])
   })

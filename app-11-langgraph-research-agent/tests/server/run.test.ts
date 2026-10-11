@@ -191,17 +191,18 @@ describe('POST /api/run', () => {
     expect(planInit?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER_KEY}` })
     expect(JSON.parse(String(planInit?.body)) as SentBody).toMatchObject({
       model: NODE_MODEL,
-      max_tokens: 400,
+      max_tokens: 2000,
       usage: { include: true },
       response_format: { type: 'json_object' },
     })
 
-    // Every model request carries reasoning: off, so the output cap goes to the reply.
+    // Thinking stays on: no model request carries a reasoning setting.
     const modelBodies = fetchStub.mock.calls
       .filter(([url]) => String(url) === CHAT_URL)
       .map(([, init]) => JSON.parse(String(init?.body)) as SentBody)
     expect(modelBodies).toHaveLength(5)
-    for (const body of modelBodies) expect(body.reasoning).toEqual({ enabled: false })
+    for (const body of modelBodies) expect(body.reasoning?.enabled).not.toBe(false)
+    for (const body of modelBodies) expect('reasoning' in body).toBe(false)
 
     // Every node requests the Haiku alias, and Haiku 5.5 rejects a temperature, so no request body carries one.
     for (const body of modelBodies) {
@@ -345,8 +346,10 @@ describe('POST /api/run', () => {
   it('ends a run that outlasts the run budget with the pages read, the budget message and [DONE], before the platform cut-off', async () => {
     vi.useFakeTimers()
     try {
-      // Every provider call takes 9 s, inside the per-call limit, so only the budget for the whole run can stop the chain.
+      // Every provider call takes 8 to 9 s, inside the per-call limit, so only the budget for the whole run can stop the chain.
       const answers = sampleOpenRouter()
+      const delays = [8_000, 8_200]
+      let modelCalls = 0
       const fetchStub = vi.fn(
         (input: string | URL | Request, init?: RequestInit) =>
           new Promise<Response>((resolve, reject) => {
@@ -358,7 +361,7 @@ describe('POST /api/run', () => {
               resolve(Response.json(modelList))
               return
             }
-            const timer = setTimeout(() => resolve(answers(JSON.parse(String(init?.body)) as SentBody)), 9_000)
+            const timer = setTimeout(() => resolve(answers(JSON.parse(String(init?.body)) as SentBody)), delays[modelCalls++] ?? 9_000)
             init?.signal?.addEventListener('abort', () => {
               clearTimeout(timer)
               reject(new DOMException('The operation was aborted.', 'AbortError'))
@@ -373,7 +376,7 @@ describe('POST /api/run', () => {
 
       expect(RUN_BUDGET_MS).toBeLessThan(30_000)
       expect(lastRecord).toBe('data: [DONE]')
-      // Plan and agent took 18 s, so the agent turn was skipped for time and the 9 s draft hit the budget.
+      // Plan and agent took 16.2 s: the 8.8 s left covered the tools (8.5 s with a draft) but not another agent turn, and the 9 s draft hit the budget.
       expect(frames.at(-1)).toMatchObject({ type: 'result', answer: '', ending: { kind: 'no_answer' } })
       const stopped = frames.find((frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.status === 'failed')
       expect(stopped).toMatchObject({ node: 'draft', detail: BUDGET_MESSAGE })

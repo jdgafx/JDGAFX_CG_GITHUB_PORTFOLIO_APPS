@@ -43,6 +43,14 @@ describe('parsePriceBook', () => {
 describe('costFor', () => {
   const book = fixturePriceBook()
 
+  it('prices reasoning tokens as output, once', () => {
+    const book = fixturePriceBook()
+    // OpenRouter counts reasoning inside completion_tokens: 200 output tokens, 150 of them reasoning, no extra charge.
+    expect(costFor(book, 'anthropic/claude-haiku-5.5', { ...USAGE, reasoning_tokens: 150 })).toBe(0.0002)
+    // A reply whose completion_tokens cannot include its reasoning tokens is charged for both.
+    expect(costFor(book, 'anthropic/claude-haiku-5.5', { prompt_tokens: 1000, completion_tokens: 200, reasoning_tokens: 500 })).toBe(0.00045)
+  })
+
   it('is the tokens times the list price of the model that answered', () => {
     // 1000 prompt tokens at $0.10 per 1M plus 200 completion tokens at $0.50 per 1M.
     expect(costFor(book, 'anthropic/claude-haiku-5.5', USAGE)).toBe(0.0002)

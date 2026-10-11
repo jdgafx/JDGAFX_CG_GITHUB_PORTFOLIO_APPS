@@ -5,12 +5,10 @@ import { isAbortError, isRecord, isTimeoutError } from './json'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 /**
- * Reasoning is off in every request. A reasoning-capable model would otherwise spend a small
- * output cap on hidden reasoning and return little or no text.
+ * The longest wait for one model call. The run budget can end a call sooner. Thinking is on, so Haiku spends
+ * a few hundred reasoning tokens before it answers (about 3 s more than with thinking off). A call that
+ * takes more than 12 s is stalled, not thinking, and two such waits would not fit the 25 s run budget.
  */
-const REASONING_OFF = { enabled: false }
-
-/** The longest wait for one model call. The run budget can end a call sooner. */
 export const MODEL_CALL_TIMEOUT_MS = 12_000
 
 export const SLOW_MESSAGE = 'The AI provider did not answer in time.'
@@ -28,8 +26,11 @@ export class ProviderError extends PlainError {
 
 export interface TokenUsage {
   prompt_tokens?: number
+  /** Output tokens as the provider bills them. OpenRouter counts reasoning tokens in this figure. */
   completion_tokens?: number
   total_tokens?: number
+  /** Reasoning tokens, when the provider reports them (completion_tokens_details.reasoning_tokens). */
+  reasoning_tokens?: number
   /** USD, reported by OpenRouter when usage accounting is on. */
   cost?: number
 }
@@ -97,7 +98,10 @@ export function messageForStatus(status: number): string {
   return 'The AI provider rejected the request.'
 }
 
-/** One chat completion. Usage accounting is always on so OpenRouter reports the cost. */
+/**
+ * One chat completion. Usage accounting is always on so OpenRouter reports the cost. No reasoning setting is
+ * sent, so the model thinks by default; its reasoning comes back in fields parseReply never reads.
+ */
 export async function chat(request: ChatRequest, signal: AbortSignal): Promise<ChatReply> {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) throw new ProviderError(503, NOT_CONFIGURED_MESSAGE)
@@ -108,7 +112,7 @@ export async function chat(request: ChatRequest, signal: AbortSignal): Promise<C
       const response = await fetch(OPENROUTER_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, reasoning: REASONING_OFF, usage: { include: true } }),
+        body: JSON.stringify({ ...request, usage: { include: true } }),
         signal: callSignal,
       })
       if (!response.ok) throw new ProviderError(response.status, messageForStatus(response.status))
@@ -139,6 +143,7 @@ export function parseReply(json: unknown): ChatReply {
   const first = isRecord(choices[0]) ? choices[0] : null
   if (!first) throw new ProviderError(502, UNREADABLE_MESSAGE)
 
+  // Only `content` and `tool_calls` are read. `reasoning` and `reasoning_details` never reach an answer, a citation or a tool call.
   const message = isRecord(first.message) ? first.message : {}
   const rawCalls: unknown[] = Array.isArray(message.tool_calls) ? message.tool_calls : []
   return {
@@ -166,5 +171,8 @@ function parseUsage(value: unknown): TokenUsage {
     const amount = value[key]
     if (typeof amount === 'number' && Number.isFinite(amount)) usage[key] = amount
   }
+  const details = value.completion_tokens_details
+  const reasoning = isRecord(details) ? details.reasoning_tokens : undefined
+  if (typeof reasoning === 'number' && Number.isFinite(reasoning)) usage.reasoning_tokens = reasoning
   return usage
 }

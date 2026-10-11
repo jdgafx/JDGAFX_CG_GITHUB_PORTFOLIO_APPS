@@ -100,11 +100,15 @@ export function servedMismatch(newest: string, served: string | null): string | 
 }
 
 /**
- * The cost of one model call: its tokens times the list price of the model that answered. Null, never a
+ * The cost of one model call: its tokens (reasoning tokens count as output) times the list price of the model that answered. Null, never a
  * guess, when the reply named no model, the list is missing or has no price for that model, or the token counts are missing.
  */
 export function costFor(book: PriceBook | null, servedModel: string | null, usage: TokenUsage): number | null {
   const price = book && servedModel ? book.get(servedModel) : undefined
   if (!price || usage.prompt_tokens === undefined || usage.completion_tokens === undefined) return null
-  return round12(usage.prompt_tokens * price.inPerToken + usage.completion_tokens * price.outPerToken)
+  // Reasoning tokens are billed as output. OpenRouter already counts them in completion_tokens; if a reply
+  // reports more reasoning tokens than completion tokens, the figure cannot include them, so they are added.
+  const reasoning = usage.reasoning_tokens ?? 0
+  const output = reasoning > usage.completion_tokens ? usage.completion_tokens + reasoning : usage.completion_tokens
+  return round12(usage.prompt_tokens * price.inPerToken + output * price.outPerToken)
 }
