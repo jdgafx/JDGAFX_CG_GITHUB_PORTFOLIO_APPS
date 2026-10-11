@@ -124,6 +124,19 @@ describe('runModelCall', () => {
     expect(run.steps.find(s => s.name === 'model answer')).toMatchObject({ servedModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' })
   })
 
+  // Text the model writes before a tool call is not part of the reply: the reply is the answer call's text alone.
+  it('returns only the final answer text when the first reply wrote text before its tool call', async () => {
+    const preTool = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Let me check the weather in Lisbon.' } }] })}\n\n`
+    route([() => sseResponse([preTool, ...fixtureChunks('weather')]), () => sseResponse(fixtureChunks('answer'))])
+    const withPreTool = await runModelCall(PLACEHOLDER, TURNS, options(), createRecorder())
+
+    route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
+    const plain = await runModelCall(PLACEHOLDER, TURNS, options(), createRecorder())
+
+    expect(withPreTool.ok && withPreTool.text).not.toContain('Let me check')
+    expect(withPreTool.ok && withPreTool.text).toBe(plain.ok && plain.text)
+  })
+
   it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
     const mock = route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
     const run = createRecorder()

@@ -108,6 +108,24 @@ describe('ai function', () => {
     expect(sent.messages.map(m => `${m.role}:${m.content.slice(0, 5)}`)).toEqual(['system:You a', 'user:first', 'assistant:secon', 'user:third'])
   })
 
+  it('tells the model to call a tool without announcing it, and never to say "Let me check"', async () => {
+    const mock = route([() => sseResponse(fixtureChunks('plain'))])
+    await (await handler(request(URL_AI, { json: { message: 'hi' } }))).text()
+    const system = (JSON.parse(String(chatCallsOf(mock)[0][1]?.body)) as { messages: Array<{ role: string; content: string }> }).messages[0].content
+    expect(system).not.toContain('Let me check')
+    expect(system).not.toMatch(/first say|one short sentence/)
+    expect(system).toContain('Call a tool without saying anything before it')
+  })
+
+  it('sends only the final answer text as the done result when the first reply wrote text before its tool call', async () => {
+    const preTool = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Let me check the weather in Lisbon.' } }] })}\n\n`
+    route([() => sseResponse([preTool, ...fixtureChunks('weather')]), () => sseResponse(fixtureChunks('answer'))])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'weather in Lisbon?' } })))
+    const done = events.find(e => e.type === 'done')
+    expect(String(done?.result)).not.toContain('Let me check')
+    expect(String(done?.result)).toContain("It's currently")
+  })
+
   it('sends a ping comment while the model has not answered yet', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
     route([init => silentResponse(init?.signal)])

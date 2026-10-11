@@ -25,8 +25,7 @@ const SYSTEM_PROMPT =
   'If a tool reports that it failed or found nothing, say so plainly and do not guess a value. ' +
   'Do not use a tool for small talk or questions you can answer without live data. ' +
   'Your words are read aloud: write plain sentences with no markdown, lists or emoji. ' +
-  'When you are about to call a tool, first say one short sentence naming what you are checking, for example "Let me check the weather in Lisbon.", then call it. ' +
-  'Never state any value in that sentence.'
+  'Call a tool without saying anything before it, then answer from its result.'
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 

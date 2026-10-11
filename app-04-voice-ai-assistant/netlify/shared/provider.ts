@@ -176,7 +176,8 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
   const answerRecord = recordFor(answer.call.model, newest)
   const { detail: answerDetail, ...answerFigures } = stepFor(answer, answerRecord)
   run.add('model answer', 'ok', answerDetail, answerFigures)
-  const text = [first.call.text, answer.call.text].filter(Boolean).join(' ')
+  // The reply is the final answer call's text. Any text written before the tool call is not part of it.
+  const text = answer.call.text
   return {
     ok: true,
     text,
