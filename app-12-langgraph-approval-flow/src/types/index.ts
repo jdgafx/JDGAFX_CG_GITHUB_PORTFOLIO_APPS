@@ -252,7 +252,7 @@ export interface ThreadView {
   /** running: another run holds the thread right now, so nothing else can be done with it yet. */
   status: ThreadStatus | 'running'
   updatedAt: string
-  storage: 'blobs' | 'memory'
+  storage: 'blobs' | 'blobs-deploy' | 'memory'
   proposal: ReviewPayload | null
   /** True for a failed thread whose checkpoint still has a step to run. */
   retryable: boolean
