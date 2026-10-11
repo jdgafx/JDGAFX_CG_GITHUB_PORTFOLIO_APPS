@@ -104,6 +104,7 @@ describe('callModel usage and retries', () => {
     vi.stubGlobal('fetch', mock)
     const result = await callModel(MESSAGES, SIGNAL)
     expect(result).toMatchObject({ text: '{"ok":true}', attempts: 2, model: null })
+    expect(result.servedModels).toEqual(['anthropic/claude-haiku-test', null])
   })
 
   it('does not ask again when the reply was cut off', async () => {

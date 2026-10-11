@@ -41,13 +41,24 @@ function spent(trace: RunStep[]) {
   }
 }
 
+/** On a mismatch, the id of the call that mismatched and the newest id, so the title says which reply was off. */
+function mismatchTitle(run: RunView) {
+  return run.modelCheck === 'mismatch' && run.checkedModel && run.newestModel ? `${run.checkedModel}, newest: ${run.newestModel}` : undefined
+}
+
 /** The one marker after the served id. A reply that named no model gets none: its "not reported" already says so. */
 function checkMarker(check: ModelCheck | undefined) {
   switch (check) {
     case 'match':
       return ' · newest'
     case 'mismatch':
-      return <span className="ds-trace__state--stopped"> · not newest</span>
+      // The dot is text, so the chip's 8px gap falls where the space of " · newest" does.
+      return (
+        <>
+          {' · '}
+          <span className="ds-trace__state--stopped">not newest</span>
+        </>
+      )
     case 'unchecked':
       return ' · unchecked'
     default:
@@ -93,8 +104,14 @@ export default function ReadoutStrip({ running, run }: ReadoutStripProps) {
             <span className="ds-chips"><span className="ds-chip ds-chip--live">planning</span></span>
           ) : run?.model ? (
             <span className="ds-chips">
-              <span className="ds-chip" title={run.modelCheck === 'mismatch' && run.checkedModel && run.newestModel ? `${run.checkedModel}, newest: ${run.newestModel}` : run.model}>
+              <span className="ds-chip" title={mismatchTitle(run) ?? run.model}>
                 {shortModel(run.model)}{checkMarker(run.modelCheck)}
+              </span>
+            </span>
+          ) : run?.modelCheck === 'mismatch' ? (
+            <span className="ds-chips">
+              <span className="ds-chip" title={mismatchTitle(run)}>
+                not reported{checkMarker(run.modelCheck)}
               </span>
             </span>
           ) : run ? 'not reported' : NONE}

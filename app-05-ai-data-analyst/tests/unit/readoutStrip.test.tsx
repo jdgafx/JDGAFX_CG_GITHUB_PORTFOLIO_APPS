@@ -25,13 +25,13 @@ describe('the served model chip in the readout', () => {
 
   it('marks a served id that is not the newest, and puts the newest id in the title', () => {
     const html = readout(runWith(SERVED, 'mismatch', NEWER))
-    expect(html).toContain('claude-haiku-5.5<span class="ds-trace__state--stopped"> · not newest</span>')
+    expect(html).toContain('claude-haiku-5.5 · <span class="ds-trace__state--stopped">not newest</span>')
     expect(html).toContain(`title="${SERVED}, newest: ${NEWER}"`)
   })
 
   it('names the call that mismatched in the title when the shown reply came from a matching repair turn', () => {
     const html = readout(runWith(SERVED, 'mismatch', NEWER, OLDER))
-    expect(html).toContain('claude-haiku-5.5<span class="ds-trace__state--stopped"> · not newest</span>')
+    expect(html).toContain('claude-haiku-5.5 · <span class="ds-trace__state--stopped">not newest</span>')
     expect(html).toContain(`title="${OLDER}, newest: ${NEWER}"`)
   })
 
@@ -39,6 +39,12 @@ describe('the served model chip in the readout', () => {
     const html = readout(runWith(SERVED, 'unchecked', null))
     expect(html).toContain('claude-haiku-5.5 · unchecked')
     expect(html).toContain(`title="${SERVED}"`)
+  })
+
+  it('keeps not reported and adds the mismatch marker when the shown reply named no model but another try mismatched', () => {
+    const html = readout(runWith(null, 'mismatch', NEWER, OLDER))
+    expect(html).toContain('not reported · <span class="ds-trace__state--stopped">not newest</span>')
+    expect(html).toContain(`title="${OLDER}, newest: ${NEWER}"`)
   })
 
   it('shows not reported with no marker when the reply named no model', () => {

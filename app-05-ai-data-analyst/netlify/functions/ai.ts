@@ -182,15 +182,15 @@ class RunLog {
   readonly usage: RunUsage[] = []
   /** The model that named the latest reply. Null when that reply named none: another call's model is never put in its place. */
   model: string | null = null
-  /** The served model of every model call in the run, in order. Each one is checked, not only the reply shown. */
+  /** The served model of every try in the run, in order. Each one is checked, not only the reply shown. */
   calls: Array<string | null> = []
   /** The newest model, asked for once per run alongside the first model call. */
   newest: Promise<string | null> = Promise.resolve(null)
 
-  /** Records one model call's served model. The latest call is the one whose reply the run shows. */
-  served(model: string | null): void {
-    this.model = model
-    this.calls.push(model)
+  /** Records one model call's served models, one per try that replied. The last is the reply the run shows. */
+  served(models: Array<string | null>): void {
+    this.model = models.at(-1) ?? null
+    this.calls.push(...models)
   }
 
   step(
@@ -332,7 +332,7 @@ async function repairPlan(
     log.step('Repair turn', 'failed', repairAt, failure.message)
     return { ok: false, status: failure.status, message: failure.message }
   }
-  log.served(reply.model)
+  log.served(reply.servedModels)
   log.usage.push(reply.usage)
   const costs = { tokens: reply.usage.total_tokens, cost: reply.usage.cost }
 
@@ -383,7 +383,7 @@ async function analyse(
     log.skip(AFTER_MODEL_CALL, 'Not reached: the model call did not finish.')
     return failed(log, failure.status, failure.message, cors)
   }
-  log.served(reply.model)
+  log.served(reply.servedModels)
   log.usage.push(reply.usage)
   log.step('Model call', 'ok', callAt, callDetail(reply), {
     tokens: reply.usage.total_tokens,

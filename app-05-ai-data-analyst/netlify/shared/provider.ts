@@ -30,7 +30,10 @@ export interface ChatMessage {
 export interface ModelReply {
   text: string
   finish: string | null
+  /** The model that answered the try whose reply is returned. */
   model: string | null
+  /** The served model of each try that replied, in order. A retried empty first reply keeps its own model here. */
+  servedModels: Array<string | null>
   usage: RunUsage
   attempts: number
   /** Why the call was repeated once, when it was: the first try hit the call limit or lost the connection. */
@@ -164,7 +167,7 @@ export async function callModel(
   }
 
   const first = await attempt()
-  if (first.text || first.finish === 'length') return { ...first, attempts: 1, retriedAfter }
+  if (first.text || first.finish === 'length') return { ...first, servedModels: [first.model], attempts: 1, retriedAfter }
 
   // The served model is the one that answered the second try. A missing name is not filled in from the first try.
   const second = await attempt()
@@ -172,6 +175,7 @@ export async function callModel(
     text: second.text,
     finish: second.finish,
     model: second.model,
+    servedModels: [first.model, second.model],
     usage: sumUsage([first.usage, second.usage]),
     attempts: 2,
     retriedAfter,

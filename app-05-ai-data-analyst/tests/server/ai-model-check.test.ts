@@ -165,6 +165,17 @@ describe('ai function served model against the newest model', () => {
     expect(warn).toHaveBeenCalledWith(`model mismatch: served ${OLDER}, newest ${SERVED}, requested ${ALIAS}`)
   })
 
+  it('checks the first try of an empty reply that is retried, so its mismatch still shows', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const handler = await loadHandler()
+    const replies = [chatReply('', OLDER), chatReply(JSON.stringify(PLAN), SERVED)]
+    let call = 0
+    stub(() => modelListReply(SERVED), () => replies[call++] as Response)
+    const reply = await readReply(await handler(request()))
+    expect(reply).toMatchObject({ model: SERVED, newestModel: SERVED, modelCheck: 'mismatch', checkedModel: OLDER })
+    expect(warn).toHaveBeenCalledWith(`model mismatch: served ${OLDER}, newest ${SERVED}, requested ${ALIAS}`)
+  })
+
   it('keeps a mismatch from the first try when the repair turn matched, and names that first try', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const handler = await loadHandler()
