@@ -27,7 +27,7 @@ import { buildTraceRows } from './lib/traceRows'
 import { useAudit } from './lib/useAudit'
 import { useResultFocus, type RunPhase as FocusPhase } from './lib/useResultFocus'
 import { sumUsage } from './lib/usage'
-import type { AgentRole, AgentState, RunSummary, Source, StreamEvent } from './types'
+import type { AgentRole, AgentState, ModelFacts, RunSummary, Source, StreamEvent } from './types'
 
 const BADGE: Record<RunPhase, { label: string; tone: BadgeTone }> = {
   ready: { label: 'Ready', tone: 'neutral' },
@@ -251,6 +251,7 @@ export default function App() {
   const usage = summary ? summary.usage : sumUsage(startedRoles.map(role => agents[role].usage))
   // The readout names the model of the Synthesizer, whose reply is the report shown. Never another stage's model.
   const model = summary ? summary.model : agents.synthesizer.model
+  const modelCalls = [...MODEL_ORDER.map(role => agents[role].model), audit.view.result?.model].filter((facts): facts is ModelFacts => facts !== undefined)
 
   const steps = buildSteps(agents, { phase: audit.view.phase, ms: audit.view.result?.ms })
   const traceRows = buildTraceRows(steps, agents, audit.view)
@@ -309,7 +310,7 @@ export default function App() {
               onRetryAudit={audit.retry}
               after={<ExportBar variant="run" state={exportState} busy={exporting} onExport={handleExport} />}
             />
-            <ReadoutStrip state={readoutState} totalMs={totalMs} totalIsStageSum={totalIsStageSum} usage={usage} model={model} summary={summary} audit={audit.view} />
+            <ReadoutStrip state={readoutState} totalMs={totalMs} totalIsStageSum={totalIsStageSum} usage={usage} model={model} calls={modelCalls} summary={summary} audit={audit.view} />
             <GraphView steps={steps} />
             <RunTrace rows={traceRows} />
             <StageOutputs agents={agents} active={activeTab} onSelect={setActiveTab} />

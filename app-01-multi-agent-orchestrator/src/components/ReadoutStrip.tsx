@@ -11,29 +11,44 @@ interface ReadoutProps {
   /** True when the run ended before the server's total arrived, so the total is a sum of stage times. */
   totalIsStageSum: boolean
   usage: StageUsage
+  /** The reply-producing call's model: the Synthesizer's, whose reply is the report shown. */
   model?: ModelFacts
+  /** Every model call of the run, stages and audit. The marker shows the worst of their checks. */
+  calls: ModelFacts[]
   summary: RunSummary | null
   audit: AuditView
 }
 
-/** The one marker a served-model chip carries. A mismatch uses the warning badge; a reply that named no model carries none. */
+/** The marker for each check. A reply that named no model carries none. */
 const MODEL_MARKER: Partial<Record<ModelCheck, { text: string; className: string }>> = {
   match: { text: '· newest', className: 'ds-chip--muted' },
   mismatch: { text: '· not newest', className: 'ds-badge ds-badge--warning' },
   unchecked: { text: '· unchecked', className: 'ds-chip--muted' },
 }
 
-/** The served model, or "not reported", then its marker. The full ids stay in the title. */
+/** How bad a check is when several calls in one run are compared. */
+const CHECK_RANK: Record<ModelCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
+/** The call with the worst check, the first one when two are equally bad, or undefined when there are no calls. */
+function worstCall(calls: ModelFacts[]): ModelFacts | undefined {
+  return calls.reduce<ModelFacts | undefined>((worst, call) => (!worst || CHECK_RANK[call.modelCheck] > CHECK_RANK[worst.modelCheck] ? call : worst), undefined)
+}
+
+/** The served model of a reply-producing call, or "not reported". Its id stays in the title. */
 function ModelChip({ facts }: { facts: ModelFacts }) {
-  const { servedModel, newestModel, modelCheck } = facts
-  const marker = MODEL_MARKER[modelCheck]
-  const title = modelCheck === 'mismatch' ? `${servedModel}, newest: ${newestModel}` : (servedModel ?? undefined)
   return (
-    <span className="ds-chip" title={title}>
-      {servedModel ? shortModel(servedModel) : 'not reported'}
-      {marker && <span className={marker.className}>{marker.text}</span>}
+    <span className="ds-chip" title={facts.servedModel ?? undefined}>
+      {facts.servedModel ? shortModel(facts.servedModel) : 'not reported'}
     </span>
   )
+}
+
+/** The run's one marker: the worst check across its calls. A mismatch names the mismatching call's served id and the newest. */
+function ModelMarker({ worst }: { worst: ModelFacts }) {
+  const marker = MODEL_MARKER[worst.modelCheck]
+  if (!marker) return null
+  const title = worst.modelCheck === 'mismatch' ? `${worst.servedModel}, newest: ${worst.newestModel}` : undefined
+  return <span className={marker.className} title={title}>{marker.text}</span>
 }
 
 function Cell({ label, hint, children, mono = true }: { label: string; hint: string; children: React.ReactNode; mono?: boolean }) {
@@ -49,13 +64,14 @@ function Cell({ label, hint, children, mono = true }: { label: string; hint: str
 }
 
 /** The run's figures, plus the audit's once it has run. A figure the provider did not send shows as "not reported". */
-export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, summary, audit }: ReadoutProps) {
+export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, calls, summary, audit }: ReadoutProps) {
   const running = state === 'running'
   const auditUsage = audit.result?.usage
   const both = audit.phase === 'done' && auditUsage ? sumUsage([usage, auditUsage]) : usage
   const ms = totalMs === undefined ? undefined : totalMs + (audit.phase === 'done' ? (audit.result?.ms ?? 0) : 0)
-  const models = [model, audit.result?.model].filter((facts): facts is ModelFacts => facts !== undefined)
-  const shown = models.filter((facts, i) => models.findIndex(other => other.servedModel === facts.servedModel && other.modelCheck === facts.modelCheck) === i)
+  const replies = [model, audit.result?.model].filter((facts): facts is ModelFacts => facts !== undefined)
+  const shown = replies.filter((facts, i) => replies.findIndex(other => other.servedModel === facts.servedModel) === i)
+  const worst = worstCall(calls)
   const dash = '—'
   const tone = running ? ' ds-strip--live' : state === 'idle' ? ' ds-strip--pending' : ''
   const withAudit = audit.phase === 'done'
@@ -77,8 +93,9 @@ export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, su
           {shown.length > 0 ? (
             <span className="ds-chips">
               {shown.map(facts => (
-                <ModelChip key={`${facts.servedModel}|${facts.modelCheck}`} facts={facts} />
+                <ModelChip key={facts.servedModel ?? 'none'} facts={facts} />
               ))}
+              {worst && <ModelMarker worst={worst} />}
             </span>
           ) : state === 'idle' || running ? (
             dash

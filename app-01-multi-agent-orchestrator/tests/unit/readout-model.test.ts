@@ -7,31 +7,34 @@ import type { ModelFacts } from '../../src/types'
 
 const NEWEST = 'anthropic/claude-haiku-5.5'
 const OLDER = 'anthropic/claude-haiku-4.5'
+const match: ModelFacts = { servedModel: NEWEST, newestModel: NEWEST, modelCheck: 'match' }
+const mismatch: ModelFacts = { servedModel: OLDER, newestModel: NEWEST, modelCheck: 'mismatch' }
 
-function readout(model: ModelFacts | undefined) {
+/** The readout for a run whose reply-producing call is `model` and whose calls are `calls` (default: that call alone). */
+function readout(model: ModelFacts | undefined, calls: ModelFacts[] = model ? [model] : []) {
   return renderToStaticMarkup(
-    createElement(ReadoutStrip, { state: 'done', totalMs: 1200, totalIsStageSum: false, usage: {}, model, summary: null, audit: IDLE_AUDIT }),
+    createElement(ReadoutStrip, { state: 'done', totalMs: 1200, totalIsStageSum: false, usage: {}, model, calls, summary: null, audit: IDLE_AUDIT }),
   )
 }
 
-describe('served-model chip', () => {
-  it('marks a match as newest and keeps the id in the title', () => {
-    const out = readout({ servedModel: NEWEST, newestModel: NEWEST, modelCheck: 'match' })
+describe('served-model chip and marker', () => {
+  it('marks a match as newest and keeps the id in the chip title', () => {
+    const out = readout(match)
     expect(out).toContain('claude-haiku-5.5')
     expect(out).toContain('· newest')
     expect(out).toContain(`title="${NEWEST}"`)
     expect(out).not.toContain('not newest')
   })
 
-  it('marks a mismatch as not newest, with the newest id in the title and the warning badge', () => {
-    const out = readout({ servedModel: OLDER, newestModel: NEWEST, modelCheck: 'mismatch' })
+  it('marks a mismatch as not newest, with the mismatching id and the newest in the marker title', () => {
+    const out = readout(mismatch)
     expect(out).toContain('claude-haiku-4.5')
     expect(out).toContain('· not newest')
     expect(out).toContain('ds-badge--warning')
     expect(out).toContain(`title="${OLDER}, newest: ${NEWEST}"`)
   })
 
-  it('marks an unchecked model as unchecked, with the served id as the title', () => {
+  it('marks an unchecked model as unchecked', () => {
     const out = readout({ servedModel: NEWEST, newestModel: null, modelCheck: 'unchecked' })
     expect(out).toContain('· unchecked')
     expect(out).toContain(`title="${NEWEST}"`)
@@ -42,5 +45,46 @@ describe('served-model chip', () => {
     expect(out).toContain('not reported')
     expect(out).not.toContain('·')
     expect(out).not.toContain('title=')
+  })
+})
+
+describe('run-wide marker: the worst check across the run calls', () => {
+  it('shows not newest when one stage matches and another mismatches, keeping the reply call id', () => {
+    const out = readout(match, [mismatch, match])
+    expect(out).toContain('claude-haiku-5.5')
+    expect(out).toContain('· not newest')
+    expect(out).not.toContain('· newest')
+    expect(out).toContain(`title="${OLDER}, newest: ${NEWEST}"`)
+  })
+
+  it('ranks unchecked above match', () => {
+    const unchecked: ModelFacts = { servedModel: NEWEST, newestModel: null, modelCheck: 'unchecked' }
+    expect(readout(match, [match, unchecked])).toContain('· unchecked')
+  })
+
+  it('ranks not reported above unchecked, and then shows no marker', () => {
+    const unchecked: ModelFacts = { servedModel: NEWEST, newestModel: null, modelCheck: 'unchecked' }
+    const unreported: ModelFacts = { servedModel: null, newestModel: NEWEST, modelCheck: 'not-reported' }
+    const out = readout(match, [unchecked, unreported])
+    expect(out).not.toContain('·')
+    expect(out).toContain('claude-haiku-5.5')
+  })
+
+  it('shows the audit id chip with the run marker when the audit call is the mismatch', () => {
+    const out = renderToStaticMarkup(
+      createElement(ReadoutStrip, {
+        state: 'done',
+        totalMs: 1200,
+        totalIsStageSum: false,
+        usage: {},
+        model: match,
+        calls: [match, mismatch],
+        summary: null,
+        audit: { ...IDLE_AUDIT, phase: 'done', result: { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0 }, overLimit: 0, usage: {}, ms: 1, model: mismatch } },
+      }),
+    )
+    expect(out).toContain('claude-haiku-4.5')
+    expect(out).toContain('· not newest')
+    expect(out).toContain(`title="${OLDER}, newest: ${NEWEST}"`)
   })
 })
