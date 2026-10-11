@@ -150,7 +150,7 @@ describe('reviewErrorMessage', () => {
   it('shows only a review error message and hides any other error', () => {
     expect(reviewErrorMessage(new TypeError('Failed to fetch'))).toBe(GENERIC)
     expect(reviewErrorMessage(new Error('internal detail'))).toBe(GENERIC)
-    expect(reviewErrorMessage(new ReviewError(NETWORK, { trace: [], usage: null, model: null, totalMs: 0 }))).toBe(NETWORK)
+    expect(reviewErrorMessage(new ReviewError(NETWORK, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: 0 }))).toBe(NETWORK)
   })
 })
 

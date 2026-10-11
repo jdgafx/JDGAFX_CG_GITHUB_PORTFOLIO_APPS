@@ -1,11 +1,12 @@
 import { SEVERITIES } from '../constants'
 import type { PrFileInput } from '../../netlify/shared/diff'
-import type { Decider, PrCounts, ReviewComment, ReviewResult, ReviewRun, RunSummary, Severity, StepStatus, TraceStep, Usage, Verdict } from '../types'
+import type { Decider, ModelCheck, PrCounts, ReviewComment, ReviewResult, ReviewRun, RunSummary, ServedCall, Severity, StepStatus, TraceStep, Usage, Verdict } from '../types'
 
 const REQUEST_TIMEOUT_MS = 45_000
 const STEP_STATUSES: StepStatus[] = ['ok', 'failed', 'skipped']
 const VERDICTS: Verdict[] = ['kept', 'moved', 'dropped', 'unverified']
 const DECIDERS: Decider[] = ['verifier', 'check', 'none']
+const MODEL_CHECKS: ModelCheck[] = ['match', 'mismatch', 'unchecked', 'not-reported']
 /** A connection that drops sooner than this is retried once; later than this the run budget is spent. */
 const RETRY_WITHIN_MS = 12_000
 
@@ -72,6 +73,10 @@ function isStep(value: unknown): value is TraceStep {
   )
 }
 
+function isServedCall(value: unknown): value is ServedCall {
+  return isRecord(value) && typeof value.pass === 'string' && (value.model === null || typeof value.model === 'string')
+}
+
 function isCounts(value: unknown): value is PrCounts {
   return isRecord(value) && isNumber(value.filesIncluded) && isNumber(value.changedIncluded) && isNumber(value.charsIncluded) && isNumber(value.charLimit)
 }
@@ -98,6 +103,9 @@ function summaryOf(data: unknown): RunSummary {
     trace: Array.isArray(reply.trace) && reply.trace.every(isStep) ? reply.trace : [],
     usage: isRecord(reply.usage) && Object.values(reply.usage).every(isNumber) ? (reply.usage as Usage) : null,
     model: typeof reply.model === 'string' ? reply.model : null,
+    newestModel: typeof reply.newestModel === 'string' ? reply.newestModel : null,
+    modelCheck: MODEL_CHECKS.includes(reply.modelCheck as ModelCheck) ? (reply.modelCheck as ModelCheck) : 'not-reported',
+    servedModels: Array.isArray(reply.servedModels) && reply.servedModels.every(isServedCall) ? reply.servedModels : [],
     totalMs: isNumber(reply.totalMs) ? reply.totalMs : 0,
   }
 }
@@ -150,7 +158,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
         if (signal?.aborted) throw err
         const totalMs = Date.now() - startedAt
         if ((err as Error)?.name === 'TimeoutError') {
-          throw new ReviewError(TIMEOUT_ERROR, withDropped({ trace: [attemptStep('No answer from the server in time', attemptAt)], usage: null, model: null, totalMs }, dropped))
+          throw new ReviewError(TIMEOUT_ERROR, withDropped({ trace: [attemptStep('No answer from the server in time', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs }, dropped))
         }
         if (retryable()) {
           dropped = attemptStep('Could not reach the server. Retried once', attemptAt)
@@ -158,7 +166,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
         }
         // Logged only when the last try fails: a dropped connection that the retry recovers is not an error.
         console.error('CodeLens: review request failed', err)
-        throw new ReviewError(NETWORK_ERROR, withDropped({ trace: [attemptStep('Could not reach the server', attemptAt)], usage: null, model: null, totalMs }, dropped))
+        throw new ReviewError(NETWORK_ERROR, withDropped({ trace: [attemptStep('Could not reach the server', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs }, dropped))
       }
 
       // A reply that started and then ended before its JSON did: the connection dropped mid-answer.
@@ -167,7 +175,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
           dropped = attemptStep(`The connection dropped before the reply finished (HTTP ${response.status}). Retried once`, attemptAt)
           continue
         }
-        throw new ReviewError(CUT_OFF_ERROR, withDropped({ trace: [attemptStep('The reply ended before it finished', attemptAt)], usage: null, model: null, totalMs: Date.now() - startedAt }, dropped))
+        throw new ReviewError(CUT_OFF_ERROR, withDropped({ trace: [attemptStep('The reply ended before it finished', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: Date.now() - startedAt }, dropped))
       }
       if (!response.ok || !isRecord(data) || data.success !== true) {
         const summary = summaryOf(data)
@@ -181,7 +189,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
       signal?.removeEventListener('abort', onAbort)
     }
   }
-  throw new ReviewError(NETWORK_ERROR, { trace: [], usage: null, model: null, totalMs: Date.now() - startedAt })
+  throw new ReviewError(NETWORK_ERROR, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: Date.now() - startedAt })
 }
 
 /** Puts the dropped first attempt in front of the server's trace, so a retry is never invisible. */

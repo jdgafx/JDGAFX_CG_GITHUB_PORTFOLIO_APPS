@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { count, milliseconds, shortModel, usd } from '../lib/format'
+import { count, milliseconds, servedChip, usd } from '../lib/format'
 import { passTimes, seconds } from '../lib/verdicts'
 import type { RunPhase, RunSummary } from '../types'
 
@@ -41,6 +41,7 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
   const tone = running ? ' ds-strip--live' : summary ? '' : ' ds-strip--pending'
   /** A figure the provider did not report is a dash, never a big word. */
   const reported = (value: number | undefined, show: (n: number) => string) => (value === undefined ? none : show(value))
+  const chip = servedChip(summary?.model ?? null, summary?.newestModel ?? null, summary?.modelCheck ?? 'not-reported', summary?.servedModels ?? [])
   const unreported = (value: number | undefined, base: string) => (summary && value === undefined ? (sofar ? `${sofar}, not reported` : 'Not reported by the provider') : base)
 
   return (
@@ -56,10 +57,11 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
           {summary ? reported(usage?.cost, usd) : none}
         </Cell>
         <Cell label="Model" hint={summary && !summary.model ? 'Not reported by the provider' : 'Named in the provider reply'}>
-          {summary?.model ? (
+          {summary ? (
             <span className="ds-chips">
-              <span className="ds-chip" title={summary.model}>
-                {shortModel(summary.model)}
+              <span className="ds-chip" title={chip.title}>
+                {chip.text}
+                {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}> {chip.marker}</span>}
               </span>
             </span>
           ) : (

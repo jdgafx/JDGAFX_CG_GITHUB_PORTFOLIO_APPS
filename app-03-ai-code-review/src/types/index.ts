@@ -110,12 +110,27 @@ export interface Usage {
   cost?: number
 }
 
+/** The served model against the newest one: match, mismatch, unchecked (the list gave no answer) or not-reported (no model was named). */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
+/** The model one call named, under the pass it belongs to. Null when that reply named none. */
+export interface ServedCall {
+  pass: string
+  model: string | null
+}
+
 export interface ReviewRun {
   result: ReviewResult
   trace: TraceStep[]
   usage: Usage | null
-  /** The model named in the provider's reply. Null when the reply named none. */
+  /** The model named in the reply that wrote the review. Null when that reply named none. */
   model: string | null
+  /** The newest model the list gives for the requested alias. Null when the list could not say. */
+  newestModel: string | null
+  /** The worst check across every call: mismatch, then not-reported, unchecked and match. */
+  modelCheck: ModelCheck
+  /** Every call's served model, in call order. */
+  servedModels: ServedCall[]
   totalMs: number
 }
 

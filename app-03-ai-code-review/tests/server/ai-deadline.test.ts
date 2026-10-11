@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 
 // A provider that sends its headers and then stalls must end at the first pass's 17.4 second limit
 // with the existing timeout message, even though the stubbed fetch ignores the abort signal.
@@ -23,7 +24,8 @@ describe('ai function deadline', () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })
-    vi.stubGlobal('fetch', vi.fn(async () => stalled))
+    // The model list has its own answer, so only the provider's body stalls.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (url === MODEL_LIST_URL ? new Response('unavailable', { status: 503 }) : stalled)))
     const handler = (await import('../../netlify/functions/ai')).default
     const request = new Request('http://localhost/api/ai', {
       method: 'POST',

@@ -1,9 +1,10 @@
-import type { ReviewResult } from '../../src/types'
+import type { ModelCheck, ReviewResult, ServedCall } from '../../src/types'
 import { buildDiff, MAX_DIFF_CHARS, type PrFileInput } from './diff'
 import { diffDoc, fileDoc } from './anchor'
-import { PASS1, PASS2, TOTAL_MS, callLimit } from './budget'
+import { PASS1, PASS2, SAFETY_MS, TOTAL_MS, callLimit } from './budget'
+import { newestModel, servedCheck, waitForNewest } from './newest-model'
 import { callModel, type Attempt } from './model'
-import { MAX_OUTPUT_TOKENS, chatBody, replyCutShort, replyText, type ProviderReply } from './provider'
+import { MAX_OUTPUT_TOKENS, MODEL, chatBody, replyCutShort, replyText, type ProviderReply } from './provider'
 import { buildPrPrompt, buildSystemPrompt, commentBudget, parseReview, precheck } from './review'
 import { noun, record, type Run } from './trace'
 import { assemble, buildRefutePrompt, buildVerifyPrompt, buildVerifyUser, readVerdicts } from './verify'
@@ -23,12 +24,33 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
 
 const numbered = (texts: string[]) => texts.map((text, i) => `${i + 1}\t| ${text}`).join('\n')
 
-function noteReply(run: Run, reply: ProviderReply): void {
+/** The model a reply names, or null. Never a model from another call: a reply that names none is not reported. */
+const servedOf = (reply: ProviderReply): string | null => (typeof reply.model === 'string' && reply.model !== '' ? reply.model : null)
+
+function noteReply(run: Run, pass: string, reply: ProviderReply): void {
   run.usages.push(reply.usage ?? {})
-  run.model = reply.model ?? run.model
+  run.served.push({ pass, model: servedOf(reply) })
 }
 
+/** The order of the checks, worst last: a mismatch on any call is the check the run shows. */
+const RANK: Record<ModelCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
 const remaining = (run: Run) => TOTAL_MS - (Date.now() - run.started)
+
+/**
+ * The newest model, the worst check across every call, and each call's served model. A console warning goes out for
+ * every call that named a model other than the newest. The list is waited for only within what is left of the run's budget.
+ */
+export async function settleModel(run: Run): Promise<{ newestModel: string | null; modelCheck: ModelCheck; servedModels: ServedCall[] }> {
+  if (run.served.length === 0 || !run.newest) return { newestModel: null, modelCheck: 'not-reported', servedModels: [] }
+  const newest = await waitForNewest(run.newest, remaining(run) - SAFETY_MS)
+  const checks = run.served.map((call) => servedCheck(newest, call.model))
+  run.served.forEach((call, i) => {
+    if (checks[i] === 'mismatch') console.warn(`model mismatch: served ${call.model}, newest ${newest}, requested ${MODEL}`)
+  })
+  const modelCheck = checks.reduce((worst, check) => (RANK[check] > RANK[worst] ? check : worst))
+  return { newestModel: newest, modelCheck, servedModels: run.served }
+}
 
 /**
  * One model call with its own limit and, when the budget allows, one automatic retry after a timeout or a lost
@@ -64,7 +86,7 @@ async function callWithRetry(
       note = `Retried once after: ${attempt.detail}. `
       continue
     }
-    noteReply(run, attempt.reply)
+    noteReply(run, name, attempt.reply)
     const problem = acceptable?.(attempt.reply) ?? null
     const detail = `${note}Reply received (limit ${seconds(limit)}, healthy p95 ${seconds(pass.p95)})`
     if (problem && tryNo === 1 && callLimit(pass, remaining(run), reserve) !== null) {
@@ -83,6 +105,8 @@ const failure = (attempt: Extract<Attempt, { ok: false }>): Outcome => {
 }
 
 export async function runPipeline(run: Run, input: ReviewInput, apiKey: string): Promise<Outcome> {
+  // One list promise per run, started before the first model call so it runs alongside pass 1.
+  run.newest = newestModel()
   const buildAt = Date.now()
   const isPr = input.kind === 'pr'
   const built = isPr ? buildDiff(input.files) : null
@@ -136,6 +160,7 @@ export async function runPipeline(run: Run, input: ReviewInput, apiKey: string):
   )
   if (!first.attempt.ok) return failure(first.attempt)
   const reply = first.attempt.reply
+  run.model = servedOf(reply)
   const parseAt = Date.now()
   const text = replyText(reply)
   const truncated = replyCutShort(reply)
@@ -237,7 +262,7 @@ export async function runPipeline(run: Run, input: ReviewInput, apiKey: string):
 
   return {
     ok: true,
-    model: reply.model ?? run.model,
+    model: run.model,
     result: {
       comments,
       lineCount,

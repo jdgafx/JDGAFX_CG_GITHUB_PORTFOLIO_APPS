@@ -1,4 +1,6 @@
 import { afterEach, beforeAll, beforeEach, vi } from 'vitest'
+import { MODEL } from '../../netlify/shared/provider'
+import { MODEL_LIST_URL, resetNewestModel } from '../../netlify/shared/newest-model'
 
 // Smoke tests for netlify/functions/ai.ts. The provider is a stub: every fetch is
 // replaced before the handler runs, and the key is the placeholder for the test only.
@@ -32,6 +34,9 @@ export interface Payload {
   trace: TraceEntry[]
   usage: Usage | null
   model: string | null
+  newestModel: string | null
+  modelCheck: string
+  servedModels: Array<{ pass: string; model: string | null }>
   totalMs: number
 }
 
@@ -58,6 +63,9 @@ export const CRITICAL_DIVIDE = {
 export const DEFAULT_USAGE = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015 }
 
 export const fetchStub = vi.fn<FetchStub>()
+/** OpenRouter's public model list, answered apart from the provider queues so their order never shifts. */
+export const listStub = vi.fn<FetchStub>()
+const routedFetch: FetchStub = (url, init) => (url === MODEL_LIST_URL ? listStub(url, init) : fetchStub(url, init))
 export const api: { handler: Handler | null } = { handler: null }
 /** The function under test, loaded in beforeAll with the origin allowlist pinned. */
 export const handler: Handler = (req) => (api.handler as Handler)(req)
@@ -77,7 +85,9 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   fetchStub.mockReset()
   fetchStub.mockRejectedValue(new Error('unexpected provider call'))
-  vi.stubGlobal('fetch', fetchStub)
+  listAnswers(SERVED_MODEL)
+  resetNewestModel()
+  vi.stubGlobal('fetch', routedFetch)
 })
 
 afterEach(() => {
@@ -86,6 +96,15 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+}
+
+/** What the model list says the alias resolves to. Null: the list gives no answer (HTTP 503). */
+export function listAnswers(newest: string | null): void {
+  listStub.mockImplementation(async () =>
+    newest === null
+      ? new Response('unavailable', { status: 503 })
+      : new Response(JSON.stringify({ data: [{ id: MODEL, alias_target: { slug: newest } }, { id: 'anthropic/claude-haiku-5.5' }] }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  )
 }
 
 /** A fresh address per request, so the per-address limit never trips across tests. */
@@ -98,6 +117,8 @@ export interface RequestOptions {
   origin?: string | null
   ip?: string
   headers?: Record<string, string>
+  /** The request's own URL. Defaults to the local test address. */
+  url?: string
 }
 
 export function buildRequest(method: string, body: string | undefined, options: RequestOptions): Request {
@@ -106,7 +127,7 @@ export function buildRequest(method: string, body: string | undefined, options: 
     'x-nf-client-connection-ip': options.ip ?? nextIp(),
   }
   if (options.origin !== null) headers.origin = options.origin ?? ORIGIN
-  return new Request('http://localhost/api/ai', { method, headers: { ...headers, ...options.headers }, body })
+  return new Request(options.url ?? 'http://localhost/api/ai', { method, headers: { ...headers, ...options.headers }, body })
 }
 
 /** A POST whose body is the JSON of `payload`, or the raw text when a string is given. */
@@ -115,8 +136,8 @@ export function post(payload: unknown, options: RequestOptions = {}): Request {
 }
 
 /** One chat completion as the provider returns it. A new Response per call, so a retry reads its own body. */
-export function providerReply(content: string, finish = 'stop', usage: Usage = DEFAULT_USAGE): Response {
-  const body = { model: SERVED_MODEL, choices: [{ message: { content }, finish_reason: finish }], usage }
+export function providerReply(content: string, finish = 'stop', usage: Usage = DEFAULT_USAGE, served: string | null = SERVED_MODEL): Response {
+  const body = { ...(served === null ? {} : { model: served }), choices: [{ message: { content }, finish_reason: finish }], usage }
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 

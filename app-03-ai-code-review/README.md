@@ -53,7 +53,7 @@ A file over 50,000 characters, a binary or empty file and a folder are refused w
 
 ## Time budget
 
-One function invocation must finish inside the platform's cut-off, so the two model calls share one 25 s deadline (`netlify/shared/budget.ts`, tested in `tests/unit/budget.test.ts`). Healthy latencies were measured live on `anthropic/claude-haiku-5.5` over 39 complete runs (about 120 model calls) on 2026-10-09:
+One function invocation must finish inside the platform's cut-off, so the two model calls share one 25 s deadline (`netlify/shared/budget.ts`, tested in `tests/unit/budget.test.ts`). Healthy latencies were measured live on the alias `~anthropic/claude-haiku-latest`, which resolved to the newest Haiku then, over 39 complete runs (about 120 model calls) on 2026-10-09:
 
 | Call | p50 | p95 | Per-call limit (1.5 x p95) |
 |---|---|---|---|
@@ -72,7 +72,7 @@ One function invocation must finish inside the platform's cut-off, so the two mo
 
 - **Browser**: React and Vite in `src/`. `lib/api.ts` posts `{ code, language }` or `{ mode: "pr", files }` to `/api/ai` and checks the shape of the reply once. `lib/github.ts` and `lib/pullrequest.ts` parse links and read GitHub replies. `lib/verdicts.ts` holds the counting and wording of verdicts. Model prose is rendered through `lib/markdown.ts` as elements, never as raw markers or HTML.
 - **Server**: the Netlify Function `netlify/functions/ai.ts` (request checks, rate limit, responses). The pipeline sits in `netlify/shared/`: `pipeline.ts` (stages, retry), `budget.ts`, `model.ts` (one call with its own limit), `review.ts` (prompts, parsing, checks), `anchor.ts` (where a comment sits), `verify.ts` (second-pass prompt, verdicts, re-validation), `diff.ts` (patch parsing, file selection), `trace.ts`, `provider.ts`, `deadline.ts`.
-- **Provider**: OpenRouter chat completions. The model is one constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The page shows the model OpenRouter answered with (currently `anthropic/claude-haiku-5.5`), never the alias. No temperature is sent; reasoning is off. The client cannot choose the model.
+- **Provider**: OpenRouter chat completions. The model is one constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The page shows the model OpenRouter answered with, never the alias, and checks it against the newest Haiku that OpenRouter's public model list gives for the alias (`newest-model.ts`): match, not newest, unchecked, or not reported. No temperature is sent; reasoning is off. The client cannot choose the model.
 - **Key**: `OPENROUTER_API_KEY` is read only on the server.
 - **Request checks**: POST only (405); the Origin must be on the allowlist (403); the body must be JSON (400) and at most 256 KiB (413); 20 requests a minute per address (429).
 - **Errors**: every failure returns `{ success: false, error }` in plain language with the trace of the stages that ran. Provider bodies, keys and stack traces never reach the browser.

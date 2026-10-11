@@ -1,6 +1,6 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
 import { buildDiff, MAX_DIFF_CHARS, type PrFileInput } from '../shared/diff'
-import { runPipeline, type ReviewInput } from '../shared/pipeline'
+import { runPipeline, settleModel, type ReviewInput } from '../shared/pipeline'
 import { PIPELINE, noun, padSkipped, record, sumUsage, type Run } from '../shared/trace'
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -159,10 +159,11 @@ async function checkRequest(req: Request): Promise<Checked> {
   }
 }
 
-function endWithError(run: Run, error: string, status: number, headers: Record<string, string> = {}): Response {
+async function endWithError(run: Run, error: string, status: number, headers: Record<string, string> = {}): Promise<Response> {
   if (run.trace.length > 0) padSkipped(run)
+  const model = await settleModel(run)
   return json(
-    { success: false, error, trace: run.trace, usage: sumUsage(run.usages), model: run.model, totalMs: Date.now() - run.started },
+    { success: false, error, trace: run.trace, usage: sumUsage(run.usages), model: run.model, ...model, totalMs: Date.now() - run.started },
     status,
     { ...run.headers, ...headers },
   )
@@ -180,6 +181,7 @@ async function handle(req: Request, run: Run): Promise<Response> {
 
   const outcome = await runPipeline(run, checked.input, checked.apiKey)
   if (!outcome.ok) return endWithError(run, outcome.error, outcome.status, outcome.headers)
+  const model = await settleModel(run)
   return json(
     {
       success: true,
@@ -187,6 +189,7 @@ async function handle(req: Request, run: Run): Promise<Response> {
       trace: run.trace,
       usage: sumUsage(run.usages),
       model: outcome.model,
+      ...model,
       totalMs: Date.now() - run.started,
     },
     200,
@@ -200,7 +203,8 @@ export default async (req: Request): Promise<Response> => {
   try {
     const origin = req.headers.get('origin')
     headers = corsHeaders(origin)
-    const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin)
+    // A deploy preview's own origin is allowed too: its URL is the request's, whatever the production list says.
+    const originAllowed = !origin || ALLOWED_ORIGINS.includes(origin) || origin === new URL(req.url).origin
 
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: originAllowed ? 204 : 403, headers })
@@ -212,7 +216,7 @@ export default async (req: Request): Promise<Response> => {
       return fail('Method not allowed.', 405, headers)
     }
 
-    run = { headers, started: Date.now(), trace: [], usages: [], model: null }
+    run = { headers, started: Date.now(), trace: [], usages: [], model: null, served: [], newest: null }
     return await handle(req, run)
   } catch (err) {
     console.error('CodeLens: unexpected server error', err)

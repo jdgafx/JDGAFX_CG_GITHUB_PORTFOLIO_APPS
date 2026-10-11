@@ -1,4 +1,4 @@
-import type { StepStatus, TraceStep, Usage } from '../../src/types'
+import type { ServedCall, StepStatus, TraceStep, Usage } from '../../src/types'
 
 const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
@@ -19,7 +19,12 @@ export interface Run {
   started: number
   trace: TraceStep[]
   usages: Usage[]
+  /** The model named in the reply that wrote the review. Null when that reply named none. */
   model: string | null
+  /** The model each call named, in call order. A call that named none has a null model. */
+  served: ServedCall[]
+  /** The newest model from the list, started before the first model call. Null until then. */
+  newest: Promise<string | null> | null
 }
 
 export function noun(count: number, word: string): string {
