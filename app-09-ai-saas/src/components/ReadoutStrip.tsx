@@ -71,7 +71,7 @@ export default function ReadoutStrip({ run }: { run: InsightRun }) {
           <Cell label="Model" hint="As named in the response">
             {model ? (
               <span className="ds-chips">
-                <span className="ds-chip" title={model}>
+                <span className="ds-chip ds-chip--wrap" title={model}>
                   {shortModel(model)}
                 </span>
                 {marker && (
