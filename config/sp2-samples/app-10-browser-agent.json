@@ -1,0 +1,107 @@
+{
+  "app": "app-10-browser-agent",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "The trace total equals the sum of its rows, the idle chip names the providers, the run is repeated 10 times with no failure, and SP2 8 of 8 (10 runs in item 7)",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "task": "Open news.ycombinator.com and report the top three story titles",
+        "source_ref": "app-10-browser-agent/src/lib/constants.ts:19"
+      },
+      "live_source": "https://news.ycombinator.com/",
+      "hand_checks": [
+        {
+          "claim": "Lists the top three story titles on news.ycombinator.com, in page order",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://news.ycombinator.com/"
+        },
+        {
+          "claim": "The Time readout (planMs + runMs, trace.ts:154) equals the planner row plus the sum of browser step rows, within formatMs rounding",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "The idle chip names the providers",
+          "expected": "Live data: news.ycombinator.com via headless Chromium",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "task": "Open en.wikipedia.org/wiki/Hubble_Space_Telescope and report its launch date",
+        "source_ref": "app-10-browser-agent/src/lib/constants.ts:26"
+      },
+      "live_source": "https://en.wikipedia.org/wiki/Hubble_Space_Telescope",
+      "hand_checks": [
+        {
+          "claim": "States the Hubble Space Telescope launch date as April 24, 1990",
+          "expected": "April 24, 1990",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1378228161"
+        },
+        {
+          "claim": "The Time readout (planMs + runMs, trace.ts:154) equals the planner row plus the sum of browser step rows, within formatMs rounding",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "The idle chip names the providers",
+          "expected": "Live data: en.wikipedia.org via headless Chromium",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "task": "Open en.wikipedia.org and report the title of today's featured article",
+        "source_ref": "app-10-browser-agent/src/lib/constants.ts:25"
+      },
+      "live_source": "https://en.wikipedia.org/",
+      "hand_checks": [
+        {
+          "claim": "Names today's featured article on en.wikipedia.org",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://en.wikipedia.org/wiki/Main_Page"
+        },
+        {
+          "claim": "The Time readout (planMs + runMs, trace.ts:154) equals the planner row plus the sum of browser step rows, within formatMs rounding",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "The idle chip names the providers",
+          "expected": "Live data: en.wikipedia.org via headless Chromium",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "news.ycombinator.com",
+    "en.wikipedia.org",
+    "openrouter.ai"
+  ],
+  "rate": {
+    "metric": "repeats with a failed hand check or an error",
+    "numerator": "repeats of r1, r2 or r3 with any hand check not passing, or a run error",
+    "denominator": "16 runs (r1 x10, r2 x3, r3 x3)",
+    "max": 0
+  },
+  "repeat_by_run": {
+    "r1": 10,
+    "r2": 3,
+    "r3": 3
+  },
+  "block_where": {
+    "news.ycombinator.com": "function",
+    "en.wikipedia.org": "function",
+    "openrouter.ai": "function"
+  },
+  "notes": "The cold-load chip reads 'Live data: allowed sites via headless Chromium' (liveData.ts:38 fallback). The idle chip check is frozen per run below. Trace check: the Time readout (trace.ts:154) is planMs + runMs, where runMs sums the stage, step_complete and result event ms (netlify/functions/execute.ts:88-90)."
+}

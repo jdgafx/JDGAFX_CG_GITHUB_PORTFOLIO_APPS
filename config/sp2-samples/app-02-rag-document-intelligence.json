@@ -1,0 +1,107 @@
+{
+  "app": "app-02-rag-document-intelligence",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Live Wikipedia or arXiv question returns cited answers whose markers match the passages shown, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "Source": "Wikipedia",
+        "Search Wikipedia": "Photosynthesis",
+        "Your question": "Where in the cell does photosynthesis happen, and what does it produce?",
+        "source_ref": "app-02-rag-document-intelligence/src/lib/howto.ts:11-12"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php (title Photosynthesis)",
+      "hand_checks": [
+        {
+          "claim": "the answer says photosynthesis takes place in chloroplasts, and its marker opens a passage containing the cited claim",
+          "expected": "chloroplasts",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
+        },
+        {
+          "claim": "the answer says photosynthesis produces oxygen, and its marker opens a passage that says oxygen is released as a byproduct of water splitting",
+          "expected": "oxygen",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
+        },
+        {
+          "claim": "every citation marker in the answer resolves to a shown passage that contains the cited claim",
+          "expected": "true",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "Source": "Wikipedia",
+        "Search Wikipedia": "Apollo 11",
+        "Your question": "When did Apollo 11 first land humans on the Moon?",
+        "source_ref": "app-02-rag-document-intelligence/src/components/WikipediaPicker.tsx:78 (field); the question was written for this sample"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php (title Apollo 11)",
+      "hand_checks": [
+        {
+          "claim": "the answer gives the landing date as July 20, and its marker opens a passage containing 'July 20 at 20:17 UTC'",
+          "expected": "July 20",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1371120273"
+        },
+        {
+          "claim": "any year the answer states matches the year in the cited passage '(July 16–24, 1969)'",
+          "expected": "1969",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1371120273"
+        },
+        {
+          "claim": "every citation marker in the answer resolves to a shown passage that contains the cited claim",
+          "expected": "true",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1371120273"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "Source": "arXiv",
+        "arXiv ID or link": "1706.03762",
+        "Your question": "What BLEU score does the Transformer reach on the WMT 2014 English-to-German translation task?",
+        "source_ref": "app-02-rag-document-intelligence/src/components/ArxivPicker.tsx:43 (value shown as placeholder); the question was written for this sample"
+      },
+      "live_source": "https://arxiv.org/pdf/1706.03762 (abstract page https://arxiv.org/abs/1706.03762)",
+      "hand_checks": [
+        {
+          "claim": "the answer states 28.4 BLEU, and its marker opens a passage containing '28.4 BLEU on the WMT 2014 English-to-German translation task'",
+          "expected": "28.4",
+          "verify_at": "https://arxiv.org/abs/1706.03762v7"
+        },
+        {
+          "claim": "the answer names the task as WMT 2014 English-to-German",
+          "expected": "WMT 2014 English-to-German",
+          "verify_at": "https://arxiv.org/abs/1706.03762v7"
+        },
+        {
+          "claim": "every citation marker in the answer resolves to a shown passage that contains the cited claim",
+          "expected": "true",
+          "verify_at": "https://arxiv.org/abs/1706.03762v7"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "en.wikipedia.org",
+    "arxiv.org",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "en.wikipedia.org": "browser",
+    "arxiv.org": "browser",
+    "openrouter.ai": "function"
+  },
+  "rate": {
+    "metric": "citation markers that do not match a shown passage",
+    "numerator": "markers whose passage does not support the sentence",
+    "denominator": "all markers across 3 runs",
+    "max": 0
+  }
+}

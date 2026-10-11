@@ -1,0 +1,101 @@
+{
+  "app": "app-09-ai-saas",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Every figure in a summary matches the npm data by hand, the figure check's verdicts match the hand check on the frozen sample, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "action": "click Try it (app-09-ai-saas/src/components/Dashboard.tsx:150, startTry); the run starts when the figures and release history are ready (app-09-ai-saas/src/lib/tryIt.ts:23)",
+        "names": ["react", "vite", "zod", "@anthropic-ai/sdk"],
+        "days": 365,
+        "source_ref": "app-09-ai-saas/src/lib/tryIt.ts:6 (TRY_IT names and days); app-09-ai-saas/src/lib/tryIt.ts:16-20 (startTry sets names and days, queues the run)"
+      },
+      "live_source": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package> (RUN_DATE = the run's UTC date, todayUtc() in app-09-ai-saas/src/lib/dates.ts:8-9, passed in at app-09-ai-saas/src/lib/useDownloads.ts:24; {RUN_DATE-371d} = RUN_DATE minus 371 days from requestRange, app-09-ai-saas/src/lib/npm.ts:42-44: max(days, HISTORY_DAYS 365) + LAG_ALLOWANCE_DAYS 7 - 1, so 371 for both the 365-day and 30-day windows, npm.ts:15, 17; RANGE_ENDPOINT npm.ts:10; scoped names encoded by rangeUrl, npm.ts:37-39); release history from https://registry.npmjs.org (app-09-ai-saas/netlify/functions/releases.ts:6); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "figure 1 (the 1st number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 1 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 1>"
+        },
+        {
+          "claim": "figure 2 (the 2nd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 2 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 2>"
+        },
+        {
+          "claim": "figure 3 (the 3rd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 3 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check. If the explanation has fewer than 3 figures, check all of them and record the count",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 3>"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "action": "reload the page first so days = DEFAULT_WINDOW 30 (Try it leaves days = 365, tryIt.ts:18); then open 'Ready-made comparisons', click 'Vite vs webpack vs esbuild' (app-09-ai-saas/src/components/PackagePicker.tsx:130), leave the window at its default, click 'Explain spikes' (app-09-ai-saas/src/components/InsightControls.tsx:19, :22)",
+        "preset_label": "Vite vs webpack vs esbuild",
+        "names": ["vite", "webpack", "esbuild"],
+        "days": 30,
+        "source_ref": "app-09-ai-saas/src/lib/presets.ts:9 (preset names); app-09-ai-saas/src/lib/presets.ts:19 (DEFAULT_WINDOW = 30); app-09-ai-saas/src/components/Dashboard.tsx:42 (days state starts at DEFAULT_WINDOW); preset click sets names only (Dashboard.tsx:165 onPick = setNames)"
+      },
+      "live_source": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package> (RUN_DATE = the run's UTC date, todayUtc() in app-09-ai-saas/src/lib/dates.ts:8-9, passed in at app-09-ai-saas/src/lib/useDownloads.ts:24; {RUN_DATE-371d} = RUN_DATE minus 371 days from requestRange, app-09-ai-saas/src/lib/npm.ts:42-44: max(days, HISTORY_DAYS 365) + LAG_ALLOWANCE_DAYS 7 - 1, so 371 for both the 365-day and 30-day windows, npm.ts:15, 17; RANGE_ENDPOINT npm.ts:10; scoped names encoded by rangeUrl, npm.ts:37-39); release history from https://registry.npmjs.org (app-09-ai-saas/netlify/functions/releases.ts:6); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "figure 1 (the 1st number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 1 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 1>"
+        },
+        {
+          "claim": "figure 2 (the 2nd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 2 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 2>"
+        },
+        {
+          "claim": "figure 3 (the 3rd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 3 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check. If the explanation has fewer than 3 figures, check all of them and record the count",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 3>"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "action": "reload the page first so days = DEFAULT_WINDOW 30 (Try it leaves days = 365, tryIt.ts:18); then open 'Ready-made comparisons', click 'Prisma vs Drizzle vs TypeORM' (app-09-ai-saas/src/components/PackagePicker.tsx:130), leave the window at its default, click 'Explain spikes' (app-09-ai-saas/src/components/InsightControls.tsx:19, :22)",
+        "preset_label": "Prisma vs Drizzle vs TypeORM",
+        "names": ["prisma", "drizzle-orm", "typeorm"],
+        "days": 30,
+        "source_ref": "app-09-ai-saas/src/lib/presets.ts:11 (preset names); app-09-ai-saas/src/lib/presets.ts:19 (DEFAULT_WINDOW = 30); app-09-ai-saas/src/components/Dashboard.tsx:42; preset click sets names only (Dashboard.tsx:165)"
+      },
+      "live_source": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package> (RUN_DATE = the run's UTC date, todayUtc() in app-09-ai-saas/src/lib/dates.ts:8-9, passed in at app-09-ai-saas/src/lib/useDownloads.ts:24; {RUN_DATE-371d} = RUN_DATE minus 371 days from requestRange, app-09-ai-saas/src/lib/npm.ts:42-44: max(days, HISTORY_DAYS 365) + LAG_ALLOWANCE_DAYS 7 - 1, so 371 for both the 365-day and 30-day windows, npm.ts:15, 17; RANGE_ENDPOINT npm.ts:10; scoped names encoded by rangeUrl, npm.ts:37-39); release history from https://registry.npmjs.org (app-09-ai-saas/netlify/functions/releases.ts:6); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "figure 1 (the 1st number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 1 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 1>"
+        },
+        {
+          "claim": "figure 2 (the 2nd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 2 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 2>"
+        },
+        {
+          "claim": "figure 3 (the 3rd number in the explanation in reading order, excluding dates and years) equals the captured range response: one day's value = downloads[day]; a window total = the sum over the window ending at the last published day; a percent rounded as written; and the app's verdict for figure 3 (flagged or not, app-09-ai-saas/src/lib/markFigures.ts:15) matches this check. If the explanation has fewer than 3 figures, check all of them and record the count",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.npmjs.org/downloads/range/{RUN_DATE-371d}:{RUN_DATE}/<package of figure 3>"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": ["api.npmjs.org", "registry.npmjs.org", "openrouter.ai"],
+  "block_where": {"api.npmjs.org": "browser", "registry.npmjs.org": "function", "openrouter.ai": "function"},
+  "rate": {
+    "metric": "figure-check disagreement",
+    "numerator": "figures where the app's figure check verdict differs from the hand check",
+    "denominator": "all figures checked across 3 runs",
+    "max": 0
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "app": "app-08-vision-ai",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Commons picks load and the pick error clears on a new image, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "action": "click Try it (app-08-vision-ai/src/components/HowTo.tsx:49); tryIt() searches Commons with the preset, loads the first result, and starts a describe run once the picture is shown (no 'Analyze image' press)",
+        "preset": "street",
+        "preset_label": "A busy street",
+        "query": "busy city street crowd",
+        "mode": "describe",
+        "source_ref": "app-08-vision-ai/src/lib/howto.ts:13 (TRY_PRESET = preset 'street'); app-08-vision-ai/src/lib/commons.ts:31 (query and label); app-08-vision-ai/src/App.tsx:90-100 (tryIt: searchCommons(TRY_PRESET.query), first image, describe mode); app-08-vision-ai/src/lib/useAnalysis.ts:60 (default mode 'describe')"
+      },
+      "live_source": "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2&origin=*&generator=search&gsrnamespace=6&gsrsearch=busy+city+street+crowd+filetype%3Abitmap&gsrlimit=24&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=1280&iiextmetadatafilter=ObjectName%7CArtist%7CLicenseShortName%7CLicenseUrl (built by buildSearchUrl, app-08-vision-ai/src/lib/commons.ts:58-73); thumbnails from upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47, 126-131); model call to https://openrouter.ai/api/v1/chat/completions (app-08-vision-ai/netlify/shared/provider.ts:5)",
+      "hand_checks": [
+        {
+          "claim": "the picked image loads, and its Commons file title is the one the picker shows for it",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "the analysis states what the picture shows (its scene and subjects) and that matches the Commons file page",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "click preset 'A busy street' (src/components/CommonsPicker.tsx:92), then block the image hosts upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47) as a network failure, which gives the commons.ts:229 message (an HTTP error status gives :232 instead); with both blocked, picking the second result shows the pick error (shown at CommonsPicker.tsx:188-190; state in app-08-vision-ai/src/lib/pickError.ts:4-12); with the block lifted, picking the third result clears it (pickError reset at CommonsPicker.tsx:58)",
+          "expected": "true",
+          "verify_at": "n/a (app state: the pick error message is gone after the third pick)"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "action": "click preset 'A chart' (CommonsPicker.tsx:92 runSearch), select the first image listed, choose mode 'Extract', press 'Analyze image' (ActionDock.tsx:16-19)",
+        "preset": "chart",
+        "preset_label": "A chart",
+        "query": "bar chart statistics",
+        "pick": "first image in the result list",
+        "mode": "extract",
+        "source_ref": "app-08-vision-ai/src/lib/commons.ts:30 (preset 'chart', query, label); app-08-vision-ai/src/components/CommonsPicker.tsx:92 (preset click runs the search) and :155 ('Select one to load it'); app-08-vision-ai/src/lib/modes.ts:8 (mode 'extract', label 'Extract')"
+      },
+      "live_source": "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2&origin=*&generator=search&gsrnamespace=6&gsrsearch=bar+chart+statistics+filetype%3Abitmap&gsrlimit=24&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=1280&iiextmetadatafilter=ObjectName%7CArtist%7CLicenseShortName%7CLicenseUrl (built by buildSearchUrl, app-08-vision-ai/src/lib/commons.ts:58-73); thumbnails from upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47, 126-131); model call to https://openrouter.ai/api/v1/chat/completions (app-08-vision-ai/netlify/shared/provider.ts:5)",
+      "hand_checks": [
+        {
+          "claim": "the picked image loads, and its Commons file title is the one the picker shows for it",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "the analysis states the text, numbers or table the chart shows, as laid out, and that matches the Commons file page",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "block the image hosts upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47) as a network failure, which gives the commons.ts:229 message (an HTTP error status gives :232 instead); with both blocked, picking the second result shows the pick error (shown at CommonsPicker.tsx:188-190; state in app-08-vision-ai/src/lib/pickError.ts:4-12); with the block lifted, picking the third result clears it (pickError reset at CommonsPicker.tsx:58)",
+          "expected": "true",
+          "verify_at": "n/a (app state: the pick error message is gone after the third pick)"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "action": "click preset 'A sign with text' (CommonsPicker.tsx:92 runSearch), select the first image listed, choose mode 'Question', type the question, press 'Analyze image' (ActionDock.tsx:16-19)",
+        "preset": "sign",
+        "preset_label": "A sign with text",
+        "query": "road sign",
+        "pick": "first image in the result list",
+        "mode": "qa",
+        "mode_label": "Question",
+        "question": "what does the sign say?",
+        "source_ref": "app-08-vision-ai/src/lib/commons.ts:32 (preset 'sign', query, label); app-08-vision-ai/src/components/CommonsPicker.tsx:92 and :155; app-08-vision-ai/src/lib/modes.ts:7 (mode 'qa', label 'Question'); app-08-vision-ai/src/components/AskPanel.tsx:23 (question example text, used as the typed question)"
+      },
+      "live_source": "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2&origin=*&generator=search&gsrnamespace=6&gsrsearch=road+sign+filetype%3Abitmap&gsrlimit=24&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=1280&iiextmetadatafilter=ObjectName%7CArtist%7CLicenseShortName%7CLicenseUrl (built by buildSearchUrl, app-08-vision-ai/src/lib/commons.ts:58-73); thumbnails from upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47, 126-131); model call to https://openrouter.ai/api/v1/chat/completions (app-08-vision-ai/netlify/shared/provider.ts:5)",
+      "hand_checks": [
+        {
+          "claim": "the picked image loads, and its Commons file title is the one the picker shows for it",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "the answer to 'what does the sign say?' gives the words on the sign, and they match the picture",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
+        },
+        {
+          "claim": "block the image hosts upload.wikimedia.org and thumb.wikimedia.org (commons.ts:47) as a network failure, which gives the commons.ts:229 message (an HTTP error status gives :232 instead); with both blocked, picking the second result shows the pick error (shown at CommonsPicker.tsx:188-190; state in app-08-vision-ai/src/lib/pickError.ts:4-12); with the block lifted, picking the third result clears it (pickError reset at CommonsPicker.tsx:58)",
+          "expected": "true",
+          "verify_at": "n/a (app state: the pick error message is gone after the third pick)"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": ["commons.wikimedia.org", "upload.wikimedia.org", "thumb.wikimedia.org", "openrouter.ai"],
+  "block_where": {"commons.wikimedia.org": "browser", "upload.wikimedia.org": "browser", "thumb.wikimedia.org": "browser", "openrouter.ai": "function"},
+  "rate": null
+}

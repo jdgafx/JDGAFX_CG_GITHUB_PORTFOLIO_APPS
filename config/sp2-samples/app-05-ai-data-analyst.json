@@ -1,0 +1,101 @@
+{
+  "app": "app-05-ai-data-analyst",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Live USGS or Open-Meteo question returns the value the source gives (checked by hand), and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "Dataset": "Earthquakes, past 7 days (id quakes-week)",
+        "Your question": "Which region had the most earthquakes?",
+        "source_ref": "app-05-ai-data-analyst/src/lib/howto.ts:11"
+      },
+      "live_source": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.csv",
+      "hand_checks": [
+        {
+          "claim": "the region the answer names has the most rows in the CSV. Hand rule, independent of the app: region = the text after the last comma of each row's place (the place column; properties.place in the GeoJSON feed), trimmed, or the whole place text when there is no comma (e.g. 'Fiji region'). Only the two-letter codes CA and MX are then translated through PLACE_CODES in app-05-ai-data-analyst/src/lib/liveData/parse.ts:16-19 (CA to California, MX to Mexico), so rows ending in CA and rows ending in California are one region, and the same for MX and Mexico; the app's own output is not used to pick the region If ranks 1 and 2 tie, either name passes.",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.csv"
+        },
+        {
+          "claim": "the earthquake count the answer gives for that region equals the number of CSV rows with that region",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.csv"
+        },
+        {
+          "claim": "the second-ranked region the answer's chart or table shows, and its count, equal the CSV rows with that region If ranks 1 and 2 tie, either name passes.",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.csv"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "Dataset": "Earthquakes, past 30 days (id quakes-month)",
+        "Your question": "Which region had the most earthquakes?",
+        "source_ref": "app-05-ai-data-analyst/src/lib/liveData/catalog.ts:44"
+      },
+      "live_source": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv",
+      "hand_checks": [
+        {
+          "claim": "the region the answer names has the most rows in the CSV. Hand rule, independent of the app: region = the text after the last comma of each row's place (the place column; properties.place in the GeoJSON feed), trimmed, or the whole place text when there is no comma (e.g. 'Fiji region'). Only the two-letter codes CA and MX are then translated through PLACE_CODES in app-05-ai-data-analyst/src/lib/liveData/parse.ts:16-19 (CA to California, MX to Mexico), so rows ending in CA and rows ending in California are one region, and the same for MX and Mexico; the app's own output is not used to pick the region If ranks 1 and 2 tie, either name passes.",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv"
+        },
+        {
+          "claim": "the earthquake count the answer gives for that region equals the number of CSV rows with that region",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv"
+        },
+        {
+          "claim": "the second-ranked region the answer's chart or table shows, and its count, equal the CSV rows with that region If ranks 1 and 2 tie, either name passes.",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "Dataset": "Daily weather, last 12 whole months (id weather)",
+        "City": "New York (id new-york)",
+        "Your question": "Which month had the highest average max temperature?",
+        "source_ref": "app-05-ai-data-analyst/src/lib/liveData/catalog.ts:51 (dataset id; question written for this sample)"
+      },
+      "live_source": "https://archive-api.open-meteo.com/v1/archive?latitude=40.71&longitude=-74.01&start_date={RUN_DATE:start}&end_date={RUN_DATE:end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&format=csv (RUN_DATE = the UTC date the load runs, app-05-ai-data-analyst/src/lib/liveData/load.ts:93; {RUN_DATE:start} and {RUN_DATE:end} come from lastTwelveWholeMonths(RUN_DATE), catalog.ts:90-96; the URL is built by weatherUrl, catalog.ts:98-108)",
+      "hand_checks": [
+        {
+          "claim": "the month the answer names as highest average max equals the month with the highest mean of temperature_2m_max in this archive CSV If ranks 1 and 2 tie, either name passes.",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://archive-api.open-meteo.com/v1/archive?latitude=40.71&longitude=-74.01&start_date={RUN_DATE:start}&end_date={RUN_DATE:end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&format=csv"
+        },
+        {
+          "claim": "the average max the answer gives for that month matches the archive CSV mean to one decimal place",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://archive-api.open-meteo.com/v1/archive?latitude=40.71&longitude=-74.01&start_date={RUN_DATE:start}&end_date={RUN_DATE:end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&format=csv"
+        },
+        {
+          "claim": "the 12 whole months covered are the ones lastTwelveWholeMonths(RUN_DATE) gives in app-05-ai-data-analyst/src/lib/liveData/catalog.ts:90-96: start_date is the 1st of RUN_DATE's UTC month one year earlier, end_date is the last day of the month before RUN_DATE's UTC month, and the request matches the URL saved with the evidence (matches after URL-decoding)",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://archive-api.open-meteo.com/v1/archive?latitude=40.71&longitude=-74.01&start_date={RUN_DATE:start}&end_date={RUN_DATE:end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&format=csv"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "earthquake.usgs.gov",
+    "archive-api.open-meteo.com",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "earthquake.usgs.gov": "browser",
+    "archive-api.open-meteo.com": "browser",
+    "openrouter.ai": "function"
+  },
+  "rate": null,
+  "notes": "The r3 range is rolling, not frozen: lastTwelveWholeMonths(RUN_DATE) (catalog.ts:90-96) gives a new start_date and end_date on every run. A run must compute them from its own RUN_DATE and save the URL it used with its evidence."
+}

@@ -1,0 +1,99 @@
+{
+  "app": "app-07-content-pipeline",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Every citation in a generated piece links to a live source that says it, no 404 source, no auto-run on first load, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "action": "click Try it (app-07-content-pipeline/src/components/HowTo.tsx:48); tryIt() sets topic and type, then start(false, brief)",
+        "topic": "The Rust programming language and memory safety",
+        "type": "Technical Article",
+        "source_ref": "app-07-content-pipeline/src/components/Brief.tsx:5 (EXAMPLES[0], label 'Memory safety'); app-07-content-pipeline/src/App.tsx:22 (FIRST = EXAMPLES[0]) and App.tsx:131-135 (tryIt)"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&generator=search&gsrsearch=rust+programming+language+memory+safety&gsrnamespace=0&gsrlimit=5&prop=extracts&exintro=1&explaintext=1&exlimit=5&exchars=600 (app-07-content-pipeline/netlify/shared/sources.ts:44-60, terms from searchTerms at sources.ts:37); https://hn.algolia.com/api/v1/search?query=rust+memory+safety&tags=story&hitsPerPage=12&numericFilters=points%3E%3D20&removeWordsIfNoResults=allOptional&attributesToRetrieve=title%2Curl%2Cpoints%2Ccreated_at%2CobjectID (sources.ts:74-85, terms from hackerNewsTerms at sources.ts:69); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "every citation in reading order links to a live page that states its claim",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "the URL each citation links to, as rendered: https://en.wikipedia.org/wiki/<article title from the run>; for Hacker News, the story's own url, or https://news.ycombinator.com/item?id=<objectID from the run> only when the story has no url (app-07-content-pipeline/netlify/shared/sources.ts:176-178)"
+        },
+        {
+          "claim": "no source URL in the run returns HTTP 404 (every link in the piece and every source the pipeline fetched)",
+          "expected": "true",
+          "verify_at": "n/a (HTTP status of each source URL in the run, fetched by the verifier)"
+        },
+        {
+          "claim": "cold load of PREVIEW_URL/ with network capture: no pipeline-function or OpenRouter request before a click",
+          "expected": "true",
+          "verify_at": "HAR of the cold load"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "action": "click example 'A telescope' (app-07-content-pipeline/src/components/Brief.tsx:102-108), then 'Generate the piece' (Brief.tsx:92)",
+        "topic": "The James Webb Space Telescope",
+        "type": "Newsletter",
+        "source_ref": "app-07-content-pipeline/src/components/Brief.tsx:6"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&generator=search&gsrsearch=james+webb+space+telescope&gsrnamespace=0&gsrlimit=5&prop=extracts&exintro=1&explaintext=1&exlimit=5&exchars=600 (app-07-content-pipeline/netlify/shared/sources.ts:44-60); https://hn.algolia.com/api/v1/search?query=james+webb+space+telescope&tags=story&hitsPerPage=12&numericFilters=points%3E%3D20&removeWordsIfNoResults=allOptional&attributesToRetrieve=title%2Curl%2Cpoints%2Ccreated_at%2CobjectID (sources.ts:74-85); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "every citation in reading order links to a live page that states its claim",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "the URL each citation links to, as rendered: https://en.wikipedia.org/wiki/<article title from the run>; for Hacker News, the story's own url, or https://news.ycombinator.com/item?id=<objectID from the run> only when the story has no url (app-07-content-pipeline/netlify/shared/sources.ts:176-178)"
+        },
+        {
+          "claim": "no source URL in the run returns HTTP 404 (every link in the piece and every source the pipeline fetched)",
+          "expected": "true",
+          "verify_at": "n/a (HTTP status of each source URL in the run, fetched by the verifier)"
+        },
+        {
+          "claim": "cold load of PREVIEW_URL/ with network capture: no pipeline-function or OpenRouter request before a click",
+          "expected": "true",
+          "verify_at": "HAR of the cold load"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "action": "click example 'Apollo 11' (app-07-content-pipeline/src/components/Brief.tsx:102-108), then 'Generate the piece' (Brief.tsx:92)",
+        "topic": "The Apollo 11 Moon landing",
+        "type": "Social Thread",
+        "source_ref": "app-07-content-pipeline/src/components/Brief.tsx:7"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&generator=search&gsrsearch=apollo+11+moon+landing&gsrnamespace=0&gsrlimit=5&prop=extracts&exintro=1&explaintext=1&exlimit=5&exchars=600 (app-07-content-pipeline/netlify/shared/sources.ts:44-60); https://hn.algolia.com/api/v1/search?query=apollo+11+moon+landing&tags=story&hitsPerPage=12&numericFilters=points%3E%3D20&removeWordsIfNoResults=allOptional&attributesToRetrieve=title%2Curl%2Cpoints%2Ccreated_at%2CobjectID (sources.ts:74-85; Hacker News is searched for every type except 'Marketing Copy', sources.ts:189-190); model call to OpenRouter",
+      "hand_checks": [
+        {
+          "claim": "every citation in reading order links to a live page that states its claim",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "the URL each citation links to, as rendered: https://en.wikipedia.org/wiki/<article title from the run>; for Hacker News, the story's own url, or https://news.ycombinator.com/item?id=<objectID from the run> only when the story has no url (app-07-content-pipeline/netlify/shared/sources.ts:176-178)"
+        },
+        {
+          "claim": "no source URL in the run returns HTTP 404 (every link in the piece and every source the pipeline fetched)",
+          "expected": "true",
+          "verify_at": "n/a (HTTP status of each source URL in the run, fetched by the verifier)"
+        },
+        {
+          "claim": "cold load of PREVIEW_URL/ with network capture: no pipeline-function or OpenRouter request before a click",
+          "expected": "true",
+          "verify_at": "HAR of the cold load"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": ["en.wikipedia.org", "hn.algolia.com", "openrouter.ai"],
+  "block_where": {"en.wikipedia.org": "function", "hn.algolia.com": "function", "openrouter.ai": "function"},
+  "rate": {
+    "metric": "unsupported citations",
+    "numerator": "citations whose linked page does not state the cited claim or returns 404",
+    "denominator": "all citations across 3 runs",
+    "max": 0
+  }
+}

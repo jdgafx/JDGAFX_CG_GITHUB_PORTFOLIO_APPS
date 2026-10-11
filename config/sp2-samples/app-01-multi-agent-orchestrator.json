@@ -1,0 +1,101 @@
+{
+  "app": "app-01-multi-agent-orchestrator",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "The citation audit's verdict on each cited claim matches a hand verdict written into the evidence file before the run (3 claims per live run), and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "Research topic": "How does CRISPR gene editing work and where is it used?",
+        "source_ref": "app-01-multi-agent-orchestrator/src/lib/agents.ts:35"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
+      "hand_checks": [
+        {
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "Research topic": "What did the James Webb Space Telescope find in early galaxies?",
+        "source_ref": "app-01-multi-agent-orchestrator/src/lib/agents.ts:34"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
+      "hand_checks": [
+        {
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "Research topic": "Why are developers adopting Rust for systems programming?",
+        "source_ref": "app-01-multi-agent-orchestrator/src/lib/agents.ts:36"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
+      "hand_checks": [
+        {
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        },
+        {
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "expected": "WRITE_BEFORE_RUN",
+          "verify_at": "the cited source text in the run's captured sources response"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "en.wikipedia.org",
+    "hn.algolia.com",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "en.wikipedia.org": "function",
+    "hn.algolia.com": "function",
+    "openrouter.ai": "function"
+  },
+  "rate": {
+    "metric": "audit-hand disagreement",
+    "numerator": "claims whose audit verdict differs from the hand verdict",
+    "denominator": "9 claims (3 per run)",
+    "max": 0
+  }
+}

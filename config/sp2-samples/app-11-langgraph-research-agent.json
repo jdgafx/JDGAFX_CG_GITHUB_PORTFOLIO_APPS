@@ -1,0 +1,99 @@
+{
+  "app": "app-11-langgraph-research-agent",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "A live run cites every answer sentence, the served model is the newest Haiku, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "question": "Which was completed first, the Eiffel Tower or the Empire State Building, and how many years apart?",
+        "source_ref": "app-11-langgraph-research-agent/src/lib/constants.ts:27"
+      },
+      "live_source": "en.wikipedia.org (search and page reads)",
+      "hand_checks": [
+        {
+          "claim": "States the Eiffel Tower completion year (1889), the Empire State Building completion year (1931), and that the Empire State Building came 42 years later (Eiffel Tower page: https://en.wikipedia.org/w/index.php?oldid=1376706466)",
+          "expected": "1889; 1931; 42 years apart",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1377733296"
+        },
+        {
+          "claim": "The model the run shows equals the alias_target of ~anthropic/claude-haiku-latest in openrouter-models-<date>.json saved with the evidence",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Every answer sentence carries a citation",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "question": "In what year did Lisbon host a World Exposition, and what was its theme?",
+        "source_ref": "app-11-langgraph-research-agent/src/lib/constants.ts:17"
+      },
+      "live_source": "en.wikipedia.org (search and page reads)",
+      "hand_checks": [
+        {
+          "claim": "States the year Lisbon hosted Expo '98 (1998) and its theme. The lead wording is 'The Oceans, a Heritage for the Future'; the wording 'The Oceans: A Heritage for the Future' from the same revision also counts",
+          "expected": "1998; The Oceans, a Heritage for the Future",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1364007943"
+        },
+        {
+          "claim": "The model the run shows equals the alias_target of ~anthropic/claude-haiku-latest in openrouter-models-<date>.json saved with the evidence",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Every answer sentence carries a citation",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "question": "Who wrote the novel that the film Blade Runner is based on, and in what year was the novel first published?",
+        "source_ref": "app-11-langgraph-research-agent/src/lib/constants.ts:22"
+      },
+      "live_source": "en.wikipedia.org (search and page reads)",
+      "hand_checks": [
+        {
+          "claim": "Names the author Philip K. Dick and the first publication year (1968) of the novel 'Do Androids Dream of Electric Sheep?'",
+          "expected": "Philip K. Dick; 1968",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379571708"
+        },
+        {
+          "claim": "The model the run shows equals the alias_target of ~anthropic/claude-haiku-latest in openrouter-models-<date>.json saved with the evidence",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Every answer sentence carries a citation",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "en.wikipedia.org",
+    "openrouter.ai"
+  ],
+  "rate": {
+    "metric": "answer sentences without a citation",
+    "numerator": "answer sentences with no citation marker",
+    "denominator": "answer sentences across r1, r2 and r3, 3 repeats each",
+    "max": 0
+  },
+  "block_where": {
+    "en.wikipedia.org": "function",
+    "openrouter.ai": "function"
+  }
+}

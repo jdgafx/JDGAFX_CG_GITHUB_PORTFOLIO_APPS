@@ -1,0 +1,99 @@
+{
+  "app": "app-03-ai-code-review",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Live GitHub file review flags only claims the file can confirm: zero false claims on the frozen sample (file list and count fixed in `config/sp2-samples/app-03-ai-code-review.json` before any run), and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "Public GitHub file": "https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts",
+        "source_ref": "app-03-ai-code-review/src/constants.ts:86, app-03-ai-code-review/src/lib/tryit.ts:5"
+      },
+      "live_source": "https://api.github.com/repos/reduxjs/redux/contents/src/createStore.ts?ref=v5.0.1",
+      "hand_checks": [
+        {
+          "claim": "every review comment's cited line number exists in the file at this tag and shows the code the comment describes",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts"
+        },
+        {
+          "claim": "every identifier a review comment names appears in the file at this tag",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts"
+        },
+        {
+          "claim": "no review comment asserts behaviour that the file at the cited line does not show",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "Public GitHub file": "https://github.com/psf/requests/blob/v2.32.3/src/requests/auth.py",
+        "source_ref": "app-03-ai-code-review/src/constants.ts:78"
+      },
+      "live_source": "https://api.github.com/repos/psf/requests/contents/src/requests/auth.py?ref=v2.32.3",
+      "hand_checks": [
+        {
+          "claim": "every review comment's cited line number exists in the file at this tag and shows the code the comment describes",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/psf/requests/blob/v2.32.3/src/requests/auth.py"
+        },
+        {
+          "claim": "every identifier a review comment names appears in the file at this tag",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/psf/requests/blob/v2.32.3/src/requests/auth.py"
+        },
+        {
+          "claim": "no review comment asserts behaviour that the file at the cited line does not show",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/psf/requests/blob/v2.32.3/src/requests/auth.py"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "Public GitHub file": "https://github.com/gorilla/mux/blob/v1.8.1/mux.go",
+        "source_ref": "app-03-ai-code-review/src/constants.ts:82"
+      },
+      "live_source": "https://api.github.com/repos/gorilla/mux/contents/mux.go?ref=v1.8.1",
+      "hand_checks": [
+        {
+          "claim": "every review comment's cited line number exists in the file at this tag and shows the code the comment describes",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/gorilla/mux/blob/v1.8.1/mux.go"
+        },
+        {
+          "claim": "every identifier a review comment names appears in the file at this tag",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/gorilla/mux/blob/v1.8.1/mux.go"
+        },
+        {
+          "claim": "no review comment asserts behaviour that the file at the cited line does not show",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "https://github.com/gorilla/mux/blob/v1.8.1/mux.go"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "api.github.com",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "api.github.com": "browser",
+    "openrouter.ai": "function"
+  },
+  "rate": {
+    "metric": "false claims",
+    "numerator": "review comments a hand check of the file at that revision cannot confirm",
+    "denominator": "all review comments across the 3 runs",
+    "max": 0
+  }
+}

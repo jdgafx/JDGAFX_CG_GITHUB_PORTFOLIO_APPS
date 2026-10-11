@@ -1,0 +1,94 @@
+{
+  "app": "app-13-langgraph-map-reduce",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "A live Wikipedia summary completes inside the 30 s platform cut-off (run budget 23 s, `pipeline.ts:15`) with every chunk extracted, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "article": "Apollo 11",
+        "source_ref": "app-13-langgraph-map-reduce/src/lib/howto.ts:11"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Apollo+11&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
+      "hand_checks": [
+        {
+          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "missingItems is empty, the coverage badge is not 'Retry not completed' (coverage-text.ts:25), and every chunk cell has 'Key points extracted'",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "States that Apollo 11 landed on the Moon on July 20, 1969",
+          "expected": "July 20, 1969",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1371120273"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "article": "Photosynthesis",
+        "source_ref": "app-13-langgraph-map-reduce/src/lib/wikipedia.ts:12"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Photosynthesis&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
+      "hand_checks": [
+        {
+          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "missingItems is empty, the coverage badge is not 'Retry not completed' (coverage-text.ts:25), and every chunk cell has 'Key points extracted'",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "States that photosynthesis releases oxygen as a byproduct of water splitting",
+          "expected": "releases oxygen as a byproduct of water splitting",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "article": "Rubber duck",
+        "source_ref": "app-13-langgraph-map-reduce/src/lib/wikipedia.ts:12"
+      },
+      "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Rubber+duck&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
+      "hand_checks": [
+        {
+          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "missingItems is empty, the coverage badge is not 'Retry not completed' (coverage-text.ts:25), and every chunk cell has 'Key points extracted'",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "States that rubber ducks were invented in the late 19th century",
+          "expected": "late 19th century",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1377506449"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "en.wikipedia.org",
+    "openrouter.ai"
+  ],
+  "rate": null,
+  "block_where": {
+    "en.wikipedia.org": "browser",
+    "openrouter.ai": "function"
+  }
+}

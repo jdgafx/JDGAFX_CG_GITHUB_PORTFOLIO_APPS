@@ -1,0 +1,99 @@
+{
+  "app": "app-04-voice-ai-assistant",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "A typed or spoken question gets a live weather or Wikipedia answer with no \"Let me check\" text and no empty answer, and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "Your question": "What's the weather in Lisbon right now?",
+        "source_ref": "app-04-voice-ai-assistant/src/components/Examples.tsx:5"
+      },
+      "live_source": "https://geocoding-api.open-meteo.com/v1/search and https://api.open-meteo.com/v1/forecast",
+      "hand_checks": [
+        {
+          "claim": "the answer contains no 'Let me check' text and is not empty",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "the current temperature the answer gives for Lisbon equals the tool's temperature_2m reading at current.time (netlify/shared/tools.ts:192), exactly or rounded to a whole degree",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.open-meteo.com/v1/forecast?latitude=38.72509&longitude=-9.1498&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+        },
+        {
+          "claim": "the answer names the place as Lisbon",
+          "expected": "Lisbon",
+          "verify_at": "https://geocoding-api.open-meteo.com/v1/search?name=Lisbon&count=1&language=en&format=json"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "Your question": "Who was Ada Lovelace?",
+        "source_ref": "app-04-voice-ai-assistant/src/components/Examples.tsx:6"
+      },
+      "live_source": "https://en.wikipedia.org/w/rest.php/v1/search/page and https://en.wikipedia.org/api/rest_v1/page/summary/",
+      "hand_checks": [
+        {
+          "claim": "the answer contains no 'Let me check' text and is not empty",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "the answer describes Ada Lovelace as an English mathematician and writer",
+          "expected": "English mathematician and writer",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1376338287"
+        },
+        {
+          "claim": "the answer gives her birth year as 1815",
+          "expected": "1815",
+          "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1376338287"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "Your question": "Is it warmer in Tokyo or in Oslo today?",
+        "source_ref": "app-04-voice-ai-assistant/src/components/Examples.tsx:7"
+      },
+      "live_source": "https://geocoding-api.open-meteo.com/v1/search and https://api.open-meteo.com/v1/forecast (two lookups: Tokyo, Oslo)",
+      "hand_checks": [
+        {
+          "claim": "the answer contains no 'Let me check' text and is not empty",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "the Tokyo current temperature the answer gives equals the tool's temperature_2m reading for Tokyo at current.time (netlify/shared/tools.ts:192), exactly or rounded to a whole degree",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.open-meteo.com/v1/forecast?latitude=35.6895&longitude=139.69171&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+        },
+        {
+          "claim": "the city the answer calls warmer has the higher temperature_2m of the two tool readings (Tokyo at current.time, netlify/shared/tools.ts:192; the Tokyo reading is at the URL in the Tokyo check above)",
+          "expected": "READ_AT_RUN",
+          "verify_at": "https://api.open-meteo.com/v1/forecast?latitude=59.91273&longitude=10.74609&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "geocoding-api.open-meteo.com",
+    "api.open-meteo.com",
+    "en.wikipedia.org",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "geocoding-api.open-meteo.com": "function",
+    "api.open-meteo.com": "function",
+    "en.wikipedia.org": "function",
+    "openrouter.ai": "function"
+  },
+  "rate": null,
+  "notes": "hc[0] fails on current code by design: netlify/functions/ai.ts:28 tells the model to say 'Let me check ...' before a tool call. This is an app fix, not a sample change."
+}

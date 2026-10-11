@@ -1,0 +1,99 @@
+{
+  "app": "app-12-langgraph-approval-flow",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "done_sentence": "Live GitHub issues triage, the approval card fits 390 px, the public thread list shows no test fixtures (read-only check, section 8), and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "text": "microsoft/vscode#325240",
+        "source_ref": "app-12-langgraph-approval-flow/src/lib/howto.ts:16"
+      },
+      "live_source": "https://api.github.com/repos/microsoft/vscode/issues/325240",
+      "hand_checks": [
+        {
+          "claim": "Triage names the issue title from the captured api.github.com response, compared after trim",
+          "expected": "READ_AT_RUN",
+          "verify_at": "HAR of the run: browser GET https://api.github.com/repos/microsoft/vscode/issues/325240"
+        },
+        {
+          "claim": "At 390x844, card right edge <= 390 and documentElement.scrollWidth <= 390",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Production thread list shows no test fixtures: read-only read of the production Blobs keys under threads/ (store.list prefix, thread-index.ts:20), never through the app, whose GET endpoints can write (threads.ts:17): 0 rows with repo starting 'verifier-probe/' and no thread created by SP2 runs",
+          "expected": "true",
+          "verify_at": "Netlify Blobs API, store graphgate-checkpoints, keys threads/ (legacy key threads/index, thread-index.ts:24)"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "text": "react/react#37787",
+        "source_ref": "app-12-langgraph-approval-flow/src/constants.ts:7"
+      },
+      "live_source": "https://api.github.com/repos/react/react/issues/37787",
+      "hand_checks": [
+        {
+          "claim": "Triage names the issue title from the captured api.github.com response, compared after trim",
+          "expected": "READ_AT_RUN",
+          "verify_at": "HAR of the run: browser GET https://api.github.com/repos/react/react/issues/37787"
+        },
+        {
+          "claim": "At 390x844, card right edge <= 390 and documentElement.scrollWidth <= 390",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Production thread list shows no test fixtures: read-only read of the production Blobs keys under threads/ (store.list prefix, thread-index.ts:20), never through the app, whose GET endpoints can write (threads.ts:17): 0 rows with repo starting 'verifier-probe/' and no thread created by SP2 runs",
+          "expected": "true",
+          "verify_at": "Netlify Blobs API, store graphgate-checkpoints, keys threads/ (legacy key threads/index, thread-index.ts:24)"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "text": "denoland/deno#36969",
+        "source_ref": "app-12-langgraph-approval-flow/src/constants.ts:10"
+      },
+      "live_source": "https://api.github.com/repos/denoland/deno/issues/36969",
+      "hand_checks": [
+        {
+          "claim": "Triage names the issue title from the captured api.github.com response, compared after trim",
+          "expected": "READ_AT_RUN",
+          "verify_at": "HAR of the run: browser GET https://api.github.com/repos/denoland/deno/issues/36969"
+        },
+        {
+          "claim": "At 390x844, card right edge <= 390 and documentElement.scrollWidth <= 390",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/"
+        },
+        {
+          "claim": "Production thread list shows no test fixtures: read-only read of the production Blobs keys under threads/ (store.list prefix, thread-index.ts:20), never through the app, whose GET endpoints can write (threads.ts:17): 0 rows with repo starting 'verifier-probe/' and no thread created by SP2 runs",
+          "expected": "true",
+          "verify_at": "Netlify Blobs API, store graphgate-checkpoints, keys threads/ (legacy key threads/index, thread-index.ts:24)"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": [
+    "api.github.com",
+    "openrouter.ai"
+  ],
+  "block_where": {
+    "api.github.com": "browser",
+    "openrouter.ai": "function"
+  },
+  "rate": null,
+  "preconditions": [
+    "Runs only on a build that contains the deploy-preview store isolation (PR #28, fix(app-12) 97ffa56 or its successor); GET PREVIEW_URL/api/threads must return storage 'blobs-deploy' before any run.",
+    "Live GitHub triage needs the GITHUB_TOKEN env var (Chris decision 3)."
+  ],
+  "notes": "Live runs need the app-12 GitHub token (Chris decision 3). Fixtures = threads owned by verifier-probe or created by SP2 runs. The issue numbers in r2 and r3 were chosen for this sample (closed issues, read 2026-10-11). api.github.com is also called from the function for duplicate search (netlify/shared/github-search.ts:11), so the block must cover that call too."
+}

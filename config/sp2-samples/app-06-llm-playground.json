@@ -1,0 +1,102 @@
+{
+  "app": "app-06-llm-playground",
+  "version": 1,
+  "frozen": "2026-10-11",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
+  "preconditions": ["Runs only on a build that contains the deploy-preview store isolation (PR #27, fix(app-06) 458f34b or its successor); GET PREVIEW_URL/api/leaderboard must return storage 'blobs-deploy' before any vote. At the time of writing, 458f34b is on branch fix/app-06-preview-store and not on the checked-out branch."],
+  "production_check": "read-only: the production store's votes/ key count is 0 (baseline 2026-10-11: 0 votes, 7 keys), read through the Netlify Blobs API, never through the app",
+  "done_sentence": "Votes are stored one record each, the leaderboard matches them, no test votes remain in production (read-only check, section 8), and SP2 8 of 8",
+  "runs": [
+    {
+      "id": "r1",
+      "input": {
+        "prompt": "Write exactly three sentences about the ocean. The first must have exactly five words, the second exactly eight words, and the third exactly three words. Add nothing else.",
+        "system": "",
+        "temperature": null,
+        "mode": "blind",
+        "models": ["google/gemini-2.5-flash-lite", "anthropic/claude-sonnet-5"],
+        "source_ref": "app-06-llm-playground/src/App.tsx:96-104 (Try it: tryPrompt = SAMPLES[0].prompt, setMode('blind'), setSystem(''), setTemperature(null), models [picks.B, picks.C]); app-06-llm-playground/src/components/PromptCard.tsx:14-15 (prompt text); app-06-llm-playground/src/lib/run.ts:79-82 (DEFAULT_PICKS B and C). Panel A is fixed to MODEL = ~anthropic/claude-haiku-latest (app-06-llm-playground/netlify/shared/contract.ts:4) and is not a UI field"
+      },
+      "live_source": "POST https://openrouter.ai/api/v1/chat/completions (app-06-llm-playground/netlify/shared/openrouter.ts:58); model list GET https://openrouter.ai/api/v1/models (app-06-llm-playground/netlify/shared/catalogue.ts:37); votes are stored by the app's own function, not an external host",
+      "hand_checks": [
+        {
+          "claim": "after the tie vote on this run (VoteChoice 'tie', app-06-llm-playground/netlify/shared/contract.ts:144), the leaderboard ties rises by exactly 1 and allBad is unchanged (app-06-llm-playground/netlify/shared/arena.ts:214-215)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (fields ties, allBad)"
+        },
+        {
+          "claim": "the count of votes/ keys in the preview's deploy store equals the leaderboard ballots field (arena.ts:225)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (field ballots); key count through the Netlify Blobs API for the preview's deploy store, not through the app"
+        },
+        {
+          "claim": "each answered panel shows the served model id that the compare response returned for that panel",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "PREVIEW_URL (rendered panel labels); HAR of the compare request (servedModel field per panel)"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "input": {
+        "prompt": "I have 3 apples. I eat one, buy two dozen more, then give away a third of what I have. How many apples are left? Answer with just the number and one line of working.",
+        "system": "",
+        "temperature": null,
+        "mode": "blind",
+        "models": ["google/gemini-2.5-flash-lite", "anthropic/claude-sonnet-5"],
+        "source_ref": "app-06-llm-playground/src/components/PromptCard.tsx:19-20 (prompt text, set by clicking the sample chip at PromptCard.tsx:118); other fields at page defaults: app-06-llm-playground/src/App.tsx:31-35 (system '', temperature null, mode 'blind') and App.tsx:38 (picks = DEFAULT_PICKS, app-06-llm-playground/src/lib/run.ts:79-82)"
+      },
+      "live_source": "POST https://openrouter.ai/api/v1/chat/completions (app-06-llm-playground/netlify/shared/openrouter.ts:58); model list GET https://openrouter.ai/api/v1/models (app-06-llm-playground/netlify/shared/catalogue.ts:37); votes are stored by the app's own function, not an external host",
+      "hand_checks": [
+        {
+          "claim": "after the tie vote on this run (VoteChoice 'tie', app-06-llm-playground/netlify/shared/contract.ts:144), the leaderboard ties rises by exactly 1 and allBad is unchanged (app-06-llm-playground/netlify/shared/arena.ts:214-215)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (fields ties, allBad)"
+        },
+        {
+          "claim": "the count of votes/ keys in the preview's deploy store equals the leaderboard ballots field (arena.ts:225)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (field ballots); key count through the Netlify Blobs API for the preview's deploy store, not through the app"
+        },
+        {
+          "claim": "each answered panel shows the served model id that the compare response returned for that panel",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "PREVIEW_URL (rendered panel labels); HAR of the compare request (servedModel field per panel)"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "input": {
+        "prompt": "Name three countries whose capital city starts with the same letter as the country, and give the capitals. One line each, nothing else.",
+        "system": "",
+        "temperature": null,
+        "mode": "blind",
+        "models": ["google/gemini-2.5-flash-lite", "anthropic/claude-sonnet-5"],
+        "source_ref": "app-06-llm-playground/src/components/PromptCard.tsx:24-25 (prompt text, set by clicking the sample chip at PromptCard.tsx:118); other fields at page defaults: app-06-llm-playground/src/App.tsx:31-35 (system '', temperature null, mode 'blind') and App.tsx:38 (picks = DEFAULT_PICKS, app-06-llm-playground/src/lib/run.ts:79-82)"
+      },
+      "live_source": "POST https://openrouter.ai/api/v1/chat/completions (app-06-llm-playground/netlify/shared/openrouter.ts:58); model list GET https://openrouter.ai/api/v1/models (app-06-llm-playground/netlify/shared/catalogue.ts:37); votes are stored by the app's own function, not an external host",
+      "hand_checks": [
+        {
+          "claim": "after the tie vote on this run (VoteChoice 'tie', app-06-llm-playground/netlify/shared/contract.ts:144), the leaderboard ties rises by exactly 1 and allBad is unchanged (app-06-llm-playground/netlify/shared/arena.ts:214-215)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (fields ties, allBad)"
+        },
+        {
+          "claim": "the count of votes/ keys in the preview's deploy store equals the leaderboard ballots field (arena.ts:225)",
+          "expected": "true",
+          "verify_at": "PREVIEW_URL/api/leaderboard (field ballots); key count through the Netlify Blobs API for the preview's deploy store, not through the app"
+        },
+        {
+          "claim": "each answered panel shows the served model id that the compare response returned for that panel",
+          "expected": "HAND_CHECK_AT_RUN",
+          "verify_at": "PREVIEW_URL (rendered panel labels); HAR of the compare request (servedModel field per panel)"
+        }
+      ]
+    }
+  ],
+  "repeat": 3,
+  "block_hosts": ["openrouter.ai"],
+  "block_where": {"openrouter.ai": "function"},
+  "rate": null
+}
