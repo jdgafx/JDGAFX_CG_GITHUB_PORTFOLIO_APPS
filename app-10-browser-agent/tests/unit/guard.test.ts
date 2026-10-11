@@ -11,6 +11,9 @@ import {
 } from '../../netlify/shared/guard'
 
 const PROD = 'https://jdgafx-app-10-browser-agent.netlify.app'
+// A deploy preview of the same site, and a function URL on it. The production origin is allowed only by the list here.
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-10-browser-agent.netlify.app'
+const API = `${PREVIEW}/api/ai`
 
 beforeEach(() => {
   // Netlify sets these on real deploys. Blank them so the origin list is the same on every machine.
@@ -27,23 +30,49 @@ afterEach(() => {
 
 describe('originAllowed', () => {
   it('accepts a request with no Origin header, such as a server-to-server call', () => {
-    expect(originAllowed(null)).toBe(true)
+    expect(originAllowed(null, API)).toBe(true)
   })
 
   it('accepts the production site with or without a trailing slash', () => {
-    expect(originAllowed(PROD)).toBe(true)
-    expect(originAllowed(`${PROD}/`)).toBe(true)
+    expect(originAllowed(PROD, API)).toBe(true)
+    expect(originAllowed(`${PROD}/`, API)).toBe(true)
   })
 
   it('accepts the local dev origins', () => {
-    expect(originAllowed('http://localhost:5173')).toBe(true)
-    expect(originAllowed('http://localhost:8888')).toBe(true)
+    expect(originAllowed('http://localhost:5173', API)).toBe(true)
+    expect(originAllowed('http://localhost:8888', API)).toBe(true)
   })
 
   it('rejects any other site, including one that only starts with the production name', () => {
-    expect(originAllowed('https://evil.example')).toBe(false)
-    expect(originAllowed('https://jdgafx-app-10-browser-agent.netlify.app.evil.example')).toBe(false)
-    expect(originAllowed('null')).toBe(false)
+    expect(originAllowed('https://evil.example', API)).toBe(false)
+    expect(originAllowed('https://jdgafx-app-10-browser-agent.netlify.app.evil.example', API)).toBe(false)
+    expect(originAllowed('null', API)).toBe(false)
+  })
+})
+
+describe('originAllowed for the site calling itself', () => {
+  it('allows an Origin equal to the origin of the request URL, such as its own deploy preview', () => {
+    expect(originAllowed(PREVIEW, API)).toBe(true)
+    expect(originAllowed(`${PREVIEW}/`, API)).toBe(true)
+    expect(corsHeaders(PREVIEW, API)['Access-Control-Allow-Origin']).toBe(PREVIEW)
+  })
+
+  it('still allows the production origin from a preview request URL', () => {
+    expect(originAllowed(PROD, API)).toBe(true)
+  })
+
+  it('refuses a foreign site even when it calls a function on the same host', () => {
+    expect(originAllowed('https://evil.example', API)).toBe(false)
+    expect(corsHeaders('https://evil.example', API)).not.toHaveProperty('Access-Control-Allow-Origin')
+  })
+
+  it('compares the whole origin, so another scheme or port is refused', () => {
+    expect(originAllowed(PREVIEW.replace('https:', 'http:'), API)).toBe(false)
+    expect(originAllowed(`${PREVIEW}:8443`, API)).toBe(false)
+  })
+
+  it('refuses the same-origin match when the request URL cannot be read, and never throws', () => {
+    expect(originAllowed(PREVIEW, 'not a url')).toBe(false)
   })
 })
 
@@ -66,7 +95,7 @@ describe('allowedOrigins', () => {
 
 describe('corsHeaders', () => {
   it('echoes an allowed origin and never sends a wildcard', () => {
-    const headers = corsHeaders(PROD)
+    const headers = corsHeaders(PROD, API)
     expect(headers['Access-Control-Allow-Origin']).toBe(PROD)
     expect(headers.Vary).toBe('Origin')
     expect(headers['Access-Control-Allow-Methods']).toBe('POST, OPTIONS')
@@ -74,8 +103,8 @@ describe('corsHeaders', () => {
   })
 
   it('omits the allow-origin header for any other site or none', () => {
-    expect(corsHeaders('https://evil.example')).not.toHaveProperty('Access-Control-Allow-Origin')
-    expect(corsHeaders(null)).not.toHaveProperty('Access-Control-Allow-Origin')
+    expect(corsHeaders('https://evil.example', API)).not.toHaveProperty('Access-Control-Allow-Origin')
+    expect(corsHeaders(null, API)).not.toHaveProperty('Access-Control-Allow-Origin')
   })
 })
 

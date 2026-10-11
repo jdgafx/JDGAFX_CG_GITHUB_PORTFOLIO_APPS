@@ -21,21 +21,33 @@ export function allowedOrigins(): string[] {
     .filter(Boolean)
 }
 
+/** The origin of the URL the request was sent to, or null when that URL cannot be read. */
+function ownOrigin(requestUrl: string): string | null {
+  try {
+    return new URL(requestUrl).origin
+  } catch {
+    return null
+  }
+}
+
 // Requests without an Origin header are not browser cross-site traffic (curl, server-to-server),
 // so they pass without an echo header. The per-IP limit below is the guard that applies to them.
-export function originAllowed(origin: string | null): boolean {
+// The site calling its own function, such as a deploy preview, passes too: the Origin is the origin
+// of the request's own URL. Netlify's URL and DEPLOY_* variables are not reliable inside a function.
+export function originAllowed(origin: string | null, requestUrl: string): boolean {
   if (!origin) return true
-  return allowedOrigins().includes(origin.replace(/\/$/, ''))
+  const clean = origin.replace(/\/$/, '')
+  return clean === ownOrigin(requestUrl) || allowedOrigins().includes(clean)
 }
 
 /** Echoes the Origin only when it is allowed. A wildcard would let any site spend the budget. */
-export function corsHeaders(origin: string | null): Record<string, string> {
+export function corsHeaders(origin: string | null, requestUrl: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     Vary: 'Origin',
   }
-  if (origin && originAllowed(origin)) headers['Access-Control-Allow-Origin'] = origin
+  if (origin && originAllowed(origin, requestUrl)) headers['Access-Control-Allow-Origin'] = origin
   return headers
 }
 

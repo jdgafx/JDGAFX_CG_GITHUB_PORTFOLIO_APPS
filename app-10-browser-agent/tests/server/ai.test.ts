@@ -66,6 +66,7 @@ interface RequestOptions {
   origin?: string | null
   ip?: string
   raw?: string
+  url?: string
 }
 
 function planRequest(body: unknown, options: RequestOptions = {}): Request {
@@ -76,7 +77,7 @@ function planRequest(body: unknown, options: RequestOptions = {}): Request {
   const origin = options.origin === undefined ? ORIGIN : options.origin
   if (origin !== null) headers.origin = origin
   const method = options.method ?? 'POST'
-  return new Request('https://site.example/api/ai', {
+  return new Request(options.url ?? 'https://site.example/api/ai', {
     method,
     headers,
     body: method === 'GET' || method === 'OPTIONS' ? undefined : (options.raw ?? JSON.stringify(body)),
@@ -458,6 +459,24 @@ describe('planner function: provider failures', () => {
     expect((await bodyOf(response)).error).toBe('Something went wrong while planning this task. Please try again.')
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN)
     expect(console.error).toHaveBeenCalledWith('Planner handler failed:', 'Error')
+  })
+})
+
+describe('planner function: same-origin calls', () => {
+  const PREVIEW = 'https://deploy-preview-9--jdgafx-app-10-browser-agent.netlify.app'
+
+  it('allows a call from its own deploy preview and echoes that origin', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const response = await handler(planRequest({ task: 'Open google.com' }, { url: `${PREVIEW}/api/ai`, origin: PREVIEW }))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(PREVIEW)
+  })
+
+  it('still refuses a foreign origin when the call comes to the preview host', async () => {
+    const response = await handler(planRequest({ task: 'Open google.com' }, { url: `${PREVIEW}/api/ai`, origin: 'https://evil.example' }))
+    expect(response.status).toBe(403)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

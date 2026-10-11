@@ -89,6 +89,7 @@ interface RunOptions {
   origin?: string | null
   ip?: string
   raw?: string
+  url?: string
 }
 
 function runRequest(body: unknown, options: RunOptions = {}): Request {
@@ -99,7 +100,7 @@ function runRequest(body: unknown, options: RunOptions = {}): Request {
   const origin = options.origin === undefined ? ORIGIN : options.origin
   if (origin !== null) headers.origin = origin
   const method = options.method ?? 'POST'
-  return new Request('https://site.example/api/execute', {
+  return new Request(options.url ?? 'https://site.example/api/execute', {
     method,
     headers,
     body: method === 'GET' ? undefined : (options.raw ?? JSON.stringify(body)),
@@ -202,6 +203,25 @@ describe('execute function: refusals before any browser starts', () => {
     const limited = await handler(runRequest({}, { ip }))
     expect(limited.status).toBe(429)
     expect(await errorOf(limited)).toBe('Too many browser runs from this connection. Wait a minute and try again.')
+    expectNoSession()
+  })
+})
+
+describe('execute function: same-origin calls', () => {
+  const PREVIEW = 'https://deploy-preview-9--jdgafx-app-10-browser-agent.netlify.app'
+
+  it('allows a run from its own deploy preview and echoes that origin', async () => {
+    const response = await handler(runRequest({ steps: [NAVIGATE] }, { url: `${PREVIEW}/api/execute`, origin: PREVIEW }))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(PREVIEW)
+    // The run continues while its stream is read, so it is read to the end before the next test.
+    expect((await framesOf(response)).at(-1)?.type).toBe('done')
+  })
+
+  it('still refuses a foreign origin when the run comes to the preview host', async () => {
+    const response = await handler(runRequest({ steps: [EXTRACT] }, { url: `${PREVIEW}/api/execute`, origin: 'https://evil.example' }))
+    expect(response.status).toBe(403)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
     expectNoSession()
   })
 })

@@ -240,8 +240,8 @@ function eventStream(req: Request, headers: Record<string, string>, run: (send: 
 
 async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
-  const headers = corsHeaders(origin)
-  if (!originAllowed(origin)) return jsonResponse({ error: 'This page is not allowed to start browser runs.' }, 403, corsHeaders(null))
+  const headers = corsHeaders(origin, req.url)
+  if (!originAllowed(origin, req.url)) return jsonResponse({ error: 'This page is not allowed to start browser runs.' }, 403, corsHeaders(null, req.url))
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   if (req.method !== 'POST') return jsonResponse({ error: 'Use POST for this request.' }, 405, headers)
 
@@ -267,6 +267,6 @@ export default async (req: Request): Promise<Response> => {
     return await handle(req)
   } catch (error) {
     console.error('Browser handler failed:', error instanceof Error ? error.name : 'unknown error')
-    return jsonResponse({ error: 'Something went wrong while starting the browser run. Please try again.' }, 500, corsHeaders(req.headers.get('origin')))
+    return jsonResponse({ error: 'Something went wrong while starting the browser run. Please try again.' }, 500, corsHeaders(req.headers.get('origin'), req.url))
   }
 }

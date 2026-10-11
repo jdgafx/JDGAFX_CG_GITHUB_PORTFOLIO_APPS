@@ -254,8 +254,8 @@ function stepsOf(parsed: unknown): unknown {
 
 async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
-  const headers = corsHeaders(origin)
-  if (!originAllowed(origin)) return jsonResponse({ error: 'This page is not allowed to plan tasks.' }, 403, corsHeaders(null))
+  const headers = corsHeaders(origin, req.url)
+  if (!originAllowed(origin, req.url)) return jsonResponse({ error: 'This page is not allowed to plan tasks.' }, 403, corsHeaders(null, req.url))
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   if (req.method !== 'POST') return jsonResponse({ error: 'Use POST for this request.' }, 405, headers)
 
@@ -384,6 +384,6 @@ export default async (req: Request): Promise<Response> => {
     return await handle(req)
   } catch (error) {
     console.error('Planner handler failed:', error instanceof Error ? error.name : 'unknown error')
-    return jsonResponse({ error: 'Something went wrong while planning this task. Please try again.' }, 500, corsHeaders(req.headers.get('origin')))
+    return jsonResponse({ error: 'Something went wrong while planning this task. Please try again.' }, 500, corsHeaders(req.headers.get('origin'), req.url))
   }
 }
