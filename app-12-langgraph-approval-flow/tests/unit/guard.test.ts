@@ -11,6 +11,7 @@ import {
 import { EDIT_LABELS_MAX, NOTE_MAX_LENGTH } from '../../src/lib/limits'
 
 const LIVE = 'https://jdgafx-app-12-langgraph-approval-flow.netlify.app'
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-12-langgraph-approval-flow.netlify.app'
 
 afterEach(() => {
   delete process.env.ALLOWED_ORIGINS
@@ -44,6 +45,25 @@ describe('origins', () => {
   it('lets an allowed origin and a request without an origin through', () => {
     expect(checkRequest(new Request('https://x.test/api/threads', { headers: { origin: LIVE } }), 'GET')).toBeNull()
     expect(checkRequest(new Request('https://x.test/api/threads'), 'GET')).toBeNull()
+  })
+})
+
+describe('same-origin requests', () => {
+  it('allows a deploy preview calling its own functions, whose origin the list does not name', () => {
+    expect(checkRequest(new Request(`${PREVIEW}/api/start`, { method: 'POST', headers: { origin: PREVIEW } }), 'POST')).toBeNull()
+  })
+
+  it('still refuses a foreign origin on a deploy preview', () => {
+    const foreign = new Request(`${PREVIEW}/api/start`, { method: 'POST', headers: { origin: 'https://evil.example' } })
+    expect(checkRequest(foreign, 'POST')?.status).toBe(403)
+  })
+
+  it('still allows the production origin on its own functions', () => {
+    expect(checkRequest(new Request(`${LIVE}/api/start`, { method: 'POST', headers: { origin: LIVE } }), 'POST')).toBeNull()
+  })
+
+  it('keeps the no-origin behaviour: a request without an Origin header is not refused for origin', () => {
+    expect(checkRequest(new Request(`${PREVIEW}/api/start`, { method: 'POST' }), 'POST')).toBeNull()
   })
 })
 

@@ -40,10 +40,14 @@ export function fail(message: string, status: number, headers: Record<string, st
   return json({ success: false, error: message }, status, headers)
 }
 
-/** Refuses a request from an unknown origin (403) or with the wrong method (405). Null when it may proceed. */
+/**
+ * Refuses a request from an unknown origin (403) or with the wrong method (405). Null when it may proceed. The site
+ * a request was sent to is always its own origin, so a deploy preview may call its own functions. The list cannot
+ * name every preview URL, so that origin is checked against the request URL, not the list.
+ */
 export function checkRequest(req: Request, method: 'GET' | 'POST'): Response | null {
   const origin = req.headers.get('origin')
-  if (origin && !allowedOrigins().includes(origin)) return fail('Origin not allowed.', 403)
+  if (origin && origin !== new URL(req.url).origin && !allowedOrigins().includes(origin)) return fail('Origin not allowed.', 403)
   if (req.method !== method) return fail('Method not allowed.', 405, { Allow: method })
   return null
 }
