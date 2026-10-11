@@ -56,6 +56,8 @@ export function useAssistant() {
   const voiceRef = useRef<ReplyVoice | null>(null)
   const stoppedAtRef = useRef<number | null>(null)
   const startingRef = useRef(false)
+  // The typed question being sent. Set in the same tick as the click, before any render shows `busy`.
+  const sendingRef = useRef<AbortController | null>(null)
   const pendingQuestionRef = useRef<string | null>(null)
 
   // The reducer's latest state, for handlers that run after an await.
@@ -236,14 +238,17 @@ export function useAssistant() {
   // Typed path: the same ask-and-speak steps, without the speech to text step.
   const sendText = useCallback(
     (text: string) => {
+      if (sendingRef.current) return
       setNotice(null)
       begin('text', text)
       const controller = new AbortController()
       abortRef.current = controller
+      sendingRef.current = controller
       void ask(text, 0, controller)
         .catch(() => fail(UNEXPECTED))
         .finally(() => {
           if (abortRef.current === controller) abortRef.current = null
+          if (sendingRef.current === controller) sendingRef.current = null
         })
     },
     [ask, begin, fail],
@@ -252,6 +257,7 @@ export function useAssistant() {
   // One Stop: the stream, the model call behind it, the tools and the voice all end together.
   const stopRun = useCallback(() => {
     abortRef.current?.abort()
+    sendingRef.current = null
     voiceRef.current?.cancel()
     const unanswered = pendingQuestionRef.current
     if (unanswered && !runRef.current.streamDone) {

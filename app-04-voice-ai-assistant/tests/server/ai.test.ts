@@ -124,6 +124,29 @@ describe('ai function', () => {
     const done = events.find(e => e.type === 'done')
     expect(String(done?.result)).not.toContain('Let me check')
     expect(String(done?.result)).toContain("It's currently")
+    // The card and the voice are built from the deltas, so the text before the tool call must not be streamed either.
+    const streamed = events.filter(e => e.type === 'delta').map(e => e.text).join('')
+    expect(streamed).not.toContain('Let me check')
+    expect(streamed.trim()).toBe(String(done?.result))
+  })
+
+  // The r3-3 shape from the acceptance run: "I'll check both cities." came before the tool request and was shown and spoken.
+  it('streams no text delta before the tool step when the first call wrote text and then asked for a tool', async () => {
+    const preTool = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "I'll check both cities." } }] })}\n\n`
+    route([() => sseResponse([preTool, ...fixtureChunks('weather')]), () => sseResponse(fixtureChunks('answer'))])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'Is it warmer in Tokyo or in Oslo today?' } })))
+    const order = events.map(e => (e.type === 'step' ? (e.step as { name: string }).name : String(e.type)))
+    // The first delta of the run is the answer call's, after the tool step.
+    expect(order.indexOf('delta')).toBeGreaterThan(order.indexOf('tool call'))
+    expect(JSON.stringify(events.filter(e => e.type === 'delta'))).not.toContain('both cities')
+  })
+
+  it('still streams the text of a no-tool answer, as deltas before the model call step', async () => {
+    route([() => sseResponse(fixtureChunks('plain'))])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'How does a voice assistant work?' } })))
+    const deltas = events.filter(e => e.type === 'delta')
+    expect(deltas.length).toBeGreaterThan(0)
+    expect(deltas.map(e => e.text).join('').trim()).toBe(String(events.find(e => e.type === 'done')?.result))
   })
 
   it('sends a ping comment while the model has not answered yet', async () => {

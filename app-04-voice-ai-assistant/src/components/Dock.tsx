@@ -1,5 +1,4 @@
 import { Mic, Square } from 'lucide-react'
-import { useEffect, useRef } from 'react'
 
 interface DockProps {
   recording: boolean
@@ -12,13 +11,10 @@ interface DockProps {
 }
 
 // The action dock: Ask is the one filled button. While recording it becomes Stop recording; while a run is on,
-// one Stop ends the stream and the voice together and takes focus, without scrolling the page.
+// one Stop ends the stream and the voice together. Stop never takes focus by itself: a second quick Enter
+// after sending would land on it and cancel the question. It stays reachable with Tab.
 export default function Dock({ recording, busy, hasMic, canAsk, onFinishRecording, onRecord, onStop }: DockProps) {
-  const stopRef = useRef<HTMLButtonElement>(null)
   const running = busy && !recording
-  useEffect(() => {
-    if (running) stopRef.current?.focus({ preventScroll: true })
-  }, [running])
 
   return (
     <div className="ds-actions">
@@ -40,7 +36,7 @@ export default function Dock({ recording, busy, hasMic, canAsk, onFinishRecordin
         </button>
       )}
       {running ? (
-        <button type="button" className="ds-button" ref={stopRef} onClick={onStop} title="Ends the stream and the voice together. What had arrived stays on screen.">
+        <button type="button" className="ds-button" onClick={onStop} title="Ends the stream and the voice together. What had arrived stays on screen.">
           <Square size={16} aria-hidden="true" />
           Stop
         </button>

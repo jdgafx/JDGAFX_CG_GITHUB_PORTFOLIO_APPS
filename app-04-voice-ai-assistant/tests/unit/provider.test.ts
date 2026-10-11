@@ -137,6 +137,24 @@ describe('runModelCall', () => {
     expect(withPreTool.ok && withPreTool.text).toBe(plain.ok && plain.text)
   })
 
+  it('streams no text of the first call when it asked for a tool, and streams the answer call as today', async () => {
+    const preTool = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "I'll check both cities." } }] })}\n\n`
+    route([() => sseResponse([preTool, ...fixtureChunks('weather')]), () => sseResponse(fixtureChunks('answer'))])
+    const o = options()
+    const out = await runModelCall(PLACEHOLDER, TURNS, o, createRecorder())
+    expect(o.texts.join('')).not.toContain('check both cities')
+    expect(o.texts.join('').trim()).toBe(out.ok ? out.text : '')
+    expect(o.texts.length).toBeGreaterThan(0)
+  })
+
+  it('flushes the first call text as it was received, in order, when it asked for no tool', async () => {
+    route([() => sseResponse(fixtureChunks('plain'))])
+    const o = options()
+    const out = await runModelCall(PLACEHOLDER, TURNS, o, createRecorder())
+    expect(o.texts.length).toBeGreaterThan(1)
+    expect(o.texts.join('').trim()).toBe(out.ok ? out.text : '')
+  })
+
   it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
     const mock = route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
     const run = createRecorder()

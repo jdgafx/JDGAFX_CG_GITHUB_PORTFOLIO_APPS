@@ -117,12 +117,15 @@ const toolNames = (calls: ToolCall[]) => [...new Set(calls.map(call => call.func
 // The model call. When the model asks for tools, they run in parallel, each timed and recorded as its
 // own step before the answer, and the model is called once more to write the answer from their results.
 // That second call cannot ask for more tools. The trace gets 'model call', then one 'tool call' per tool
-// and 'model answer'. Without a tool request it is a single 'model call' step. Text of either call
-// goes to onText the moment it arrives.
+// and 'model answer'. Without a tool request it is a single 'model call' step. The answer's text goes
+// to onText the moment it arrives. The first call's text is held until the call ends: it is passed on
+// only when the model asked for no tool, because text written before a tool request is narration
+// ("I'll check both cities") that the card and the voice would otherwise show and speak.
 export async function runModelCall(apiKey: string, turns: Turn[], options: RunOptions, run: Recorder): Promise<ModelOutcome> {
   // The newest model is looked up while the model works, so the list adds to the run only when it is slower than the call.
   const newestP = newestModel()
-  const first = await askModel(apiKey, turns, options)
+  const heard: string[] = []
+  const first = await askModel(apiKey, turns, { ...options, onText: delta => heard.push(delta) })
   if (!first.ok) {
     run.add('model call', 'failed', first.detail)
     return { ok: false, httpStatus: first.httpStatus, message: first.message }
@@ -132,6 +135,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
 
   const calls = first.call.toolCalls.slice(0, MAX_TOOL_CALLS)
   if (calls.length === 0) {
+    heard.forEach(options.onText)
     const { detail, ...figures } = stepFor(first, firstRecord)
     run.add('model call', 'ok', detail, figures)
     return { ok: true, text: first.call.text, usage: sumUsage(first.usages), finishReason: first.call.finishReason, record: runRecord(firstRecord, [firstRecord]) }
@@ -156,19 +160,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
     { role: 'assistant', content: first.call.text || null, tool_calls: calls },
     ...calls.map((call, i): Turn => ({ role: 'tool', tool_call_id: call.id, content: results[i].content })),
   ]
-  // Text that came before the tool call stays; a space keeps the answer from running into it.
-  let joined = first.call.text === ''
-  const answerOptions: RunOptions = {
-    ...options,
-    onText: delta => {
-      if (!joined) {
-        joined = true
-        options.onText(' ')
-      }
-      options.onText(delta)
-    },
-  }
-  const answer = await askModel(apiKey, withResults, answerOptions, 'none')
+  const answer = await askModel(apiKey, withResults, options, 'none')
   if (!answer.ok) {
     run.add('model answer', 'failed', answer.detail)
     return { ok: false, httpStatus: answer.httpStatus, message: answer.message }
@@ -176,7 +168,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
   const answerRecord = recordFor(answer.call.model, newest)
   const { detail: answerDetail, ...answerFigures } = stepFor(answer, answerRecord)
   run.add('model answer', 'ok', answerDetail, answerFigures)
-  // The reply is the final answer call's text. Any text written before the tool call is not part of it.
+  // The reply is the final answer call's text. Any text written before the tool call is dropped, here and in the stream.
   const text = answer.call.text
   return {
     ok: true,
