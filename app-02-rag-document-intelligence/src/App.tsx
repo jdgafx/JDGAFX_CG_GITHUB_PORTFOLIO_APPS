@@ -261,7 +261,6 @@ export default function App() {
           onTry={tryIt}
           disabled={reading || running}
           hasResult={latest !== null}
-          error={loader.error}
         />
         <div className="ds-bench">
           <div className="ds-controls">

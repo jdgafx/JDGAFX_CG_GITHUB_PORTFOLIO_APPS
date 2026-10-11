@@ -11,12 +11,10 @@ interface HowToProps {
   disabled: boolean
   /** True while a result is on screen: the block folds away so the result stays first. */
   hasResult: boolean
-  /** A plain sentence when the example could not start. */
-  error?: string | null
 }
 
 /** The "How to use" block under the masthead: what the app does, the steps, and a Try it button for a real example. */
-export function HowTo({ what, steps, onTry, disabled, hasResult, error }: HowToProps) {
+export function HowTo({ what, steps, onTry, disabled, hasResult }: HowToProps) {
   // Open on the first visit; folded while a result shows. A choice made with the toggle wins.
   const [chosen, setChosen] = useState<boolean | null>(null)
   const open = chosen ?? !hasResult
@@ -50,11 +48,6 @@ export function HowTo({ what, steps, onTry, disabled, hasResult, error }: HowToP
             </button>
             <span className="howto__hint">Runs a real example on live data.</span>
           </div>
-          {error ? (
-            <p className="ds-notice ds-notice--error" role="alert">
-              {error}
-            </p>
-          ) : null}
         </div>
       )}
     </section>

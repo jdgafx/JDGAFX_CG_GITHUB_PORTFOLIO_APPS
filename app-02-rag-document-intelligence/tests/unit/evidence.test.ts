@@ -24,7 +24,7 @@ describe('parseAnswer', () => {
 
   it('reads a list in one bracket and leaves an answer with no markers as plain text', () => {
     const list = parseAnswer('Both agree [Chunk 1 and Chunk 2].', [1, 2])
-    expect(list.parts.find(p => p.kind === 'cite')).toEqual({ kind: 'cite', indices: [1, 2], sentence: 0 })
+    expect(list.parts.find(p => p.kind === 'cite')).toEqual({ kind: 'cite', indices: [1, 2], sentence: 0, clause: 'Both agree' })
     expect(parseAnswer('The document does not say.', []).parts).toEqual([
       { kind: 'text', text: 'The document does not say.', sentence: 0 },
     ])
@@ -71,9 +71,9 @@ describe('supportingSentence', () => {
 describe('sentencesCiting', () => {
   const parsed = parseAnswer('First claim [Chunk 1]. Second claim [Chunk 2]. Third claim [Chunk 1].', [1, 2, 7])
 
-  it('lists the sentences that cite the passage, in order', () => {
-    expect(sentencesCiting(parsed, 1)).toEqual(['First claim.', 'Third claim.'])
-    expect(sentencesCiting(parsed, 2)).toEqual(['Second claim.'])
+  it('lists the clauses that cite the passage, in order', () => {
+    expect(sentencesCiting(parsed, 1)).toEqual(['First claim', 'Third claim'])
+    expect(sentencesCiting(parsed, 2)).toEqual(['Second claim'])
   })
 
   it('uses the whole answer for a source the model listed without marking it', () => {
@@ -202,6 +202,24 @@ describe('splitSentences: PDF spacing inside numbers', () => {
       'The big model achieves a BLEU score of 41 . 0 , outperforming all.',
       'Next one follows.',
     ])
+  })
+})
+
+describe('a sentence with two cited clauses', () => {
+  const answer =
+    'The big model reached 41.0 BLEU on English-to-French [Chunk 1], and it beat the best earlier result by more than 2.0 BLEU [Chunk 3].'
+  const parsed = parseAnswer(answer, [1, 3])
+  const first = 'The big model reached 41.0 BLEU on English-to-French. It was trained on eight GPUs.'
+  const third = 'The big model reached 41.0 BLEU on English-to-French in one run. It beat the best earlier result by more than 2.0 BLEU.'
+
+  it('gives each marker only the clause it follows', () => {
+    expect(sentencesCiting(parsed, 1)).toEqual(['The big model reached 41.0 BLEU on English-to-French'])
+    expect(sentencesCiting(parsed, 3)).toEqual([', and it beat the best earlier result by more than 2.0 BLEU'])
+  })
+
+  it('marks each clause with its own passage sentence, not the one that shares the whole sentence', () => {
+    expect(supportingSentence(first, sentencesCiting(parsed, 1))?.sentence.text).toBe('The big model reached 41.0 BLEU on English-to-French.')
+    expect(supportingSentence(third, sentencesCiting(parsed, 3))?.sentence.text).toBe('It beat the best earlier result by more than 2.0 BLEU.')
   })
 })
 

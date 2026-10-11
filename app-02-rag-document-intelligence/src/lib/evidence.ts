@@ -1,7 +1,10 @@
 import { stems, tokens } from './bm25'
 
-/** A run of the answer: plain text, or a citation naming the passages (0-based indices) the model pointed at. */
-export type AnswerPart = { kind: 'text'; text: string; sentence: number } | { kind: 'cite'; indices: number[]; sentence: number }
+/**
+ * A run of the answer: plain text, or a citation naming the passages (0-based indices) the model pointed at. A citation's
+ * `clause` is the text it follows, back to the previous marker or the sentence start: the claim it supports.
+ */
+export type AnswerPart = { kind: 'text'; text: string; sentence: number } | { kind: 'cite'; indices: number[]; sentence: number; clause: string }
 
 export interface ParsedAnswer {
   parts: AnswerPart[]
@@ -27,6 +30,9 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
   const sentences: string[] = []
   let current = ''
   let sentence = 0
+  // The text since the last marker or sentence start, and the clause of the last marker in this sentence.
+  let clause = ''
+  let citedClause: string | null = null
 
   const close = () => {
     if (current.trim() !== '') {
@@ -34,6 +40,8 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
       sentence++
     }
     current = ''
+    clause = ''
+    citedClause = null
   }
   const addText = (text: string) => {
     let from = 0
@@ -41,6 +49,7 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
       const end = match.index + match[0].length
       const piece = text.slice(from, end)
       current += piece
+      clause += piece
       parts.push({ kind: 'text', text: piece, sentence })
       close()
       from = end
@@ -48,6 +57,7 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
     const rest = text.slice(from)
     if (rest !== '') {
       current += rest
+      clause += rest
       parts.push({ kind: 'text', text: rest, sentence })
     }
   }
@@ -66,7 +76,12 @@ export function parseAnswer(answer: string, valid: readonly number[]): ParsedAns
     }
     // A marker right after a closed sentence (only space since the full stop) belongs to that sentence.
     const trailing = current.trim() === '' && sentences.length > 0
-    parts.push({ kind: 'cite', indices, sentence: trailing ? sentences.length - 1 : sentence })
+    // Markers in a row ("[50][51]") share the clause of the first one; a marker after a closed sentence takes that sentence.
+    const own = clause.trim()
+    const claim: string = own !== '' ? own : (citedClause ?? sentences[sentences.length - 1] ?? '')
+    parts.push({ kind: 'cite', indices, sentence: trailing ? sentences.length - 1 : sentence, clause: claim })
+    citedClause = claim
+    clause = ''
   }
   addText(answer.slice(at))
   close()
@@ -169,14 +184,13 @@ export function supportingSentence(passage: string, answerSentences: readonly st
 }
 
 /**
- * The answer sentences that cite a passage, or the whole answer when the model listed the passage as a source
- * without marking it in the text.
+ * The clauses that cite a passage (the text each marker follows), or the whole answer's sentences when the model
+ * listed the passage as a source without marking it in the text.
  */
 export function sentencesCiting(parsed: ParsedAnswer, index: number): string[] {
-  const citing = new Set<number>()
-  for (const part of parsed.parts) if (part.kind === 'cite' && part.indices.includes(index)) citing.add(part.sentence)
-  const found = [...citing].sort((a, b) => a - b).flatMap(i => parsed.sentences[i] ?? [])
-  return found.length > 0 ? found : parsed.sentences
+  const citing = new Set<string>()
+  for (const part of parsed.parts) if (part.kind === 'cite' && part.indices.includes(index) && part.clause !== '') citing.add(part.clause)
+  return citing.size > 0 ? [...citing] : parsed.sentences
 }
 
 /** Longest stretch at the end of `a` that is also the start of `b`, at least `min` characters long, or 0. */
