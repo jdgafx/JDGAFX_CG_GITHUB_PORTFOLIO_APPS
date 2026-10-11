@@ -122,23 +122,23 @@ describe('the review is advisory', () => {
 })
 
 describe('the retry pass is held to a shorter call limit', () => {
-  it('gives first-pass extract calls 6 s and the retry pass extract calls 5 s', async () => {
-    expect(EXTRACT_CALL_TIMEOUT_MS).toBe(6_000)
-    expect(RETRY_CALL_TIMEOUT_MS).toBe(5_000)
+  it('gives first-pass extract calls 9 s and the retry pass extract calls 8 s', async () => {
+    expect(EXTRACT_CALL_TIMEOUT_MS).toBe(9_000)
+    expect(RETRY_CALL_TIMEOUT_MS).toBe(8_000)
 
     const { seen } = await run(THREE, { failExtract: { 2: 1 } })
 
     const second = seen.extractRequests.filter((r) => r.chunk === 2)
-    expect(second.map((r) => r.timeoutMs)).toEqual([6_000, 5_000])
-    expect(seen.extractRequests.filter((r) => r.chunk !== 2).every((r) => r.timeoutMs === 6_000)).toBe(true)
+    expect(second.map((r) => r.timeoutMs)).toEqual([9_000, 8_000])
+    expect(seen.extractRequests.filter((r) => r.chunk !== 2).every((r) => r.timeoutMs === 9_000)).toBe(true)
   })
 
-  it('holds the advisory review call to 5 s, and leaves the synthesis call to the 10 s default', async () => {
-    expect(CHECK_CALL_TIMEOUT_MS).toBe(5_000)
+  it('holds the advisory review call to 7 s, and leaves the synthesis call to the 12 s default', async () => {
+    expect(CHECK_CALL_TIMEOUT_MS).toBe(7_000)
 
     const { seen } = await run(THREE, {})
 
-    expect(seen.checkTimeouts).toEqual([5_000])
+    expect(seen.checkTimeouts).toEqual([7_000])
   })
 
   it('uses the singular in the loop label for one missing chunk and the plural for two', async () => {
@@ -173,7 +173,7 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
     expect(result).toMatchObject({ coverage: { missing: [] }, retries: 1, notice: null })
   })
 
-  it('skips the second synthesis with the time-limit notice when under 6 s remain after the retry', async () => {
+  it('skips the second synthesis with the time-limit notice when under 10 s remain after the retry', async () => {
     const budget = new RunBudget(60_000)
     let retryStarted = false
     vi.spyOn(budget, 'remaining').mockImplementation(() => (retryStarted ? 5_000 : 20_000))

@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import * as models from '../../netlify/shared/models'
-import { CHECK, EXTRACT, EXTRACT_CONCURRENCY, MIN_RETRY_BUDGET_MS, MODEL, RETRY_PAUSE_MS, SYNTH } from '../../netlify/shared/models'
+import {
+  CHECK,
+  CHECK_CALL_TIMEOUT_MS,
+  EXTRACT,
+  EXTRACT_CALL_TIMEOUT_MS,
+  EXTRACT_CONCURRENCY,
+  MIN_RESYNTH_BUDGET_MS,
+  MIN_RETRY_BUDGET_MS,
+  MODEL,
+  RETRY_CALL_TIMEOUT_MS,
+  RETRY_PAUSE_MS,
+  SYNTH,
+ } from '../../netlify/shared/models'
 import { CALL_TIMEOUT_MS } from '../../netlify/shared/openrouter'
 import { RUN_BUDGET_MS } from '../../netlify/shared/pipeline'
 
@@ -12,11 +24,17 @@ describe('role settings', () => {
     expect(Object.keys(models).sort()).not.toContain('SERVED_MODEL')
   })
 
-  it('differs between roles only by output cap, JSON mode and require_parameters, and every role turns reasoning off', () => {
-    const off = { enabled: false }
-    expect(EXTRACT).toEqual({ model: MODEL, maxTokens: 800, jsonMode: false, reasoning: off })
-    expect(CHECK).toEqual({ model: MODEL, maxTokens: 300, jsonMode: true, reasoning: off })
-    expect(SYNTH).toEqual({ model: MODEL, maxTokens: 1_500, jsonMode: true, reasoning: off, requireParameters: true })
+  it('differs between roles only by output cap, JSON mode and require_parameters, and no role sets a reasoning option', () => {
+    expect(EXTRACT).toEqual({ model: MODEL, maxTokens: 2_500, jsonMode: false })
+    expect(CHECK).toEqual({ model: MODEL, maxTokens: 2_000, jsonMode: true })
+    expect(SYNTH).toEqual({ model: MODEL, maxTokens: 3_500, jsonMode: true, requireParameters: true })
+    for (const role of [EXTRACT, CHECK, SYNTH]) expect(role).not.toHaveProperty('reasoning')
+  })
+
+  it('leaves each cap room for about 500 thinking tokens above the largest live answer', () => {
+    expect(EXTRACT.maxTokens).toBeGreaterThanOrEqual(495 + 500 + 1_000)
+    expect(SYNTH.maxTokens).toBeGreaterThanOrEqual(1_209 + 500 + 1_000)
+    expect(CHECK.maxTokens).toBeGreaterThanOrEqual(12 + 500 + 1_000)
   })
 
   it('gives every role a different output cap, which the scripted tests use to tell the roles apart', () => {
@@ -43,17 +61,19 @@ describe('time limits', () => {
     expect(RETRY_PAUSE_MS).toBe(500)
   })
 
-  it('gives the synthesis call 1500 output tokens, above the 875 to 1,082 it used live, with one of ten calls hitting 1200', () => {
-    expect(SYNTH.maxTokens).toBe(1_500)
-  })
-
-  it('times a model call out after 10 s, inside the run budget', () => {
-    expect(CALL_TIMEOUT_MS).toBe(10_000)
+  it('times a model call out after 12 s, inside the run budget', () => {
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
     expect(CALL_TIMEOUT_MS).toBeLessThan(RUN_BUDGET_MS)
   })
 
-  it('starts a retry only with at least 11 s of the budget left', () => {
-    expect(MIN_RETRY_BUDGET_MS).toBe(11_000)
+  it('starts a retry only with at least 17 s of the budget left: pause, a retry extract call, a second synthesis and check, and 1 s of margin', () => {
+    expect(MIN_RETRY_BUDGET_MS).toBe(17_000)
     expect(MIN_RETRY_BUDGET_MS).toBeLessThan(RUN_BUDGET_MS)
+    expect(MIN_RETRY_BUDGET_MS).toBeGreaterThanOrEqual(RETRY_PAUSE_MS + 5_500 + MIN_RESYNTH_BUDGET_MS + 1_000)
+  })
+
+  it('keeps every per-call limit under the run budget, and the first-pass extract limit under the synthesis limit', () => {
+    for (const limit of [EXTRACT_CALL_TIMEOUT_MS, RETRY_CALL_TIMEOUT_MS, CHECK_CALL_TIMEOUT_MS]) expect(limit).toBeLessThan(CALL_TIMEOUT_MS)
+    expect(EXTRACT_CALL_TIMEOUT_MS + CALL_TIMEOUT_MS + CHECK_CALL_TIMEOUT_MS).toBeGreaterThan(RUN_BUDGET_MS)
   })
 })

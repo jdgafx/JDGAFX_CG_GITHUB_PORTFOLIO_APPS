@@ -90,6 +90,37 @@ describe('kindForStatus', () => {
   })
 })
 
+describe('parseReply with reasoning', () => {
+  it('reads an empty text, not the reasoning, when a reply holds reasoning but no content', () => {
+    const reply = parseReply({
+      ...okBody,
+      choices: [{ message: { content: null, reasoning: '{"points": ["only thinking"]}' }, finish_reason: 'length' }],
+    })
+
+    expect(reply.text).toBe('')
+    expect(reply.finishReason).toBe('length')
+  })
+
+  it('reads only the text blocks of a content array, never a thinking block', () => {
+    const reply = parseReply({
+      ...okBody,
+      choices: [
+        {
+          message: {
+            content: [
+              { type: 'thinking', text: '{"points": ["from the thinking"]}' },
+              { type: 'text', text: '{"points": ["from the answer"]}' },
+            ],
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    })
+
+    expect(reply.text).toBe('{"points": ["from the answer"]}')
+  })
+})
+
 describe('chat', () => {
   it('sends the required body fields and the JSON-mode option, and no temperature, reasoning or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
@@ -137,29 +168,29 @@ describe('chat', () => {
     })
   })
 
-  it('sends the check call with JSON mode and reasoning off, and no temperature or provider option', async () => {
+  it('sends the check call with JSON mode and no reasoning override, temperature or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await chat({ ...CHECK, messages: [{ role: 'user', content: 'review' }] }, noAbort())
 
     const body = sentBody(fetchMock)
-    expect(body).toMatchObject({ model: MODEL, max_tokens: 300, reasoning: { enabled: false }, response_format: { type: 'json_object' } })
-    for (const key of ['temperature', 'provider']) expect(body).not.toHaveProperty(key)
+    expect(body).toMatchObject({ model: MODEL, max_tokens: CHECK.maxTokens, response_format: { type: 'json_object' } })
+    for (const key of ['temperature', 'provider', 'reasoning']) expect(body).not.toHaveProperty(key)
   })
 
-  it('sends the extract call with reasoning off and no temperature, JSON-mode or provider option', async () => {
+  it('sends the extract call with no reasoning override, temperature, JSON-mode or provider option', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await chat({ ...EXTRACT, messages: [{ role: 'user', content: 'chunk' }] }, noAbort())
 
     const body = sentBody(fetchMock)
-    expect(body).toMatchObject({ model: MODEL, max_tokens: 800, reasoning: { enabled: false } })
-    for (const key of ['temperature', 'provider', 'response_format']) expect(body).not.toHaveProperty(key)
+    expect(body).toMatchObject({ model: MODEL, max_tokens: EXTRACT.maxTokens })
+    for (const key of ['temperature', 'provider', 'response_format', 'reasoning']) expect(body).not.toHaveProperty(key)
   })
 
-  it('sends the synthesis request with reasoning off and require_parameters, and no temperature', async () => {
+  it('sends the synthesis request with require_parameters and no reasoning override or temperature', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -168,20 +199,50 @@ describe('chat', () => {
     const body = sentBody(fetchMock)
     expect(body).toMatchObject({
       model: MODEL,
-      reasoning: { enabled: false },
+      max_tokens: SYNTH.maxTokens,
       provider: { require_parameters: true },
       response_format: { type: 'json_object' },
     })
-    expect(body).not.toHaveProperty('temperature')
+    for (const key of ['temperature', 'reasoning']) expect(body).not.toHaveProperty(key)
   })
 
-  it('sends the reasoning option a role asks for', async () => {
+  it.each([
+    ['extract', EXTRACT],
+    ['check', CHECK],
+    ['synthesis', SYNTH],
+  ])('sends no request body with reasoning.enabled === false for the %s role', async (_name, role) => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await chat({ ...request, reasoning: { effort: 'low', exclude: true } }, noAbort())
+    await chat({ ...role, messages: [{ role: 'user', content: 'go' }] }, noAbort())
 
-    expect(sentBody(fetchMock)).toMatchObject({ reasoning: { effort: 'low', exclude: true } })
+    const reasoning = sentBody(fetchMock).reasoning as { enabled?: boolean } | undefined
+    expect(reasoning?.enabled).not.toBe(false)
+    expect(sentBody(fetchMock)).not.toHaveProperty('reasoning')
+  })
+
+  it('returns only the message content when the reply also carries reasoning fields', async () => {
+    const thinking = '{"points": ["from the thinking"]} Let me reason about the chunk.'
+    const body = {
+      ...okBody,
+      choices: [
+        {
+          message: {
+            content: '{"points": ["from the answer"]}',
+            reasoning: thinking,
+            reasoning_details: [{ type: 'reasoning.text', text: thinking }],
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { ...okBody.usage, completion_tokens_details: { reasoning_tokens: 480 } },
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
+
+    const reply = await chat(request, noAbort())
+
+    expect(reply.text).toBe('{"points": ["from the answer"]}')
+    expect(reply.text).not.toContain('thinking')
   })
 
   it('maps a 402 to a fatal rejection with the plain message and never shows the provider body', async () => {
@@ -244,7 +305,7 @@ describe('chat', () => {
     await vi.advanceTimersByTimeAsync(1)
     const error = (await pending) as ProviderError
 
-    expect(CALL_TIMEOUT_MS).toBe(10_000)
+    expect(CALL_TIMEOUT_MS).toBe(12_000)
     expect(error.kind).toBe('timeout')
     expect(error.fatal).toBe(false)
   })

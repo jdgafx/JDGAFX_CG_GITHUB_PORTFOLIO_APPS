@@ -4,8 +4,12 @@ import { ProviderError, RunBudgetError, type ProviderKind } from './errors'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-/** Each model call times out after this long. The run budget is the outer limit. */
-export const CALL_TIMEOUT_MS = 10_000
+/**
+ * Each model call times out after this long unless its role sets a shorter limit (the synthesis call uses this one).
+ * Synthesis was 4.1 s at the median and 7.0 s at the 95th percentile with thinking off, so about 6.6 s and 9.5 s with
+ * thinking: 12 s clears the 95th percentile. The run budget is the outer limit.
+ */
+export const CALL_TIMEOUT_MS = 12_000
 
 export interface ChatMessage {
   role: 'system' | 'user'
@@ -18,8 +22,6 @@ export interface ChatRequest {
   maxTokens: number
   /** Ask for a JSON object. Off for extract and check, whose replies are read tolerantly. */
   jsonMode: boolean
-  /** Sent as the reply's reasoning option, only when set. Haiku 5.5 reasons by default, so every role turns it off. */
-  reasoning?: Record<string, unknown>
   /** Route only to providers that accept every parameter in the request. Set for synthesis only. */
   requireParameters?: boolean
   /** Ends this call after this long instead of the default. Never sent to the provider. */
@@ -38,12 +40,22 @@ export interface ChatReply {
 /** The model call the graph nodes use. The signal ends the call when the run stops. */
 export type ChatFn = (request: ChatRequest, signal: AbortSignal) => Promise<ChatReply>
 
+/** A content block, for a provider that answers with blocks instead of one string. Only text blocks are output. */
+const contentPart = z.object({ type: z.string().optional(), text: z.string().nullish() })
+
+/** The output text of a message: the string, or the text blocks joined. Thinking blocks and reasoning fields are never output. */
+function contentText(content: string | z.infer<typeof contentPart>[] | null | undefined): string {
+  if (typeof content === 'string') return content
+  if (!content) return ''
+  return content.filter((part) => part.type === 'text' && part.text).map((part) => part.text).join('')
+}
+
 const replySchema = z.object({
   model: z.string().optional(),
   choices: z
     .array(
       z.object({
-        message: z.object({ content: z.string().nullish() }).nullish(),
+        message: z.object({ content: z.union([z.string(), z.array(contentPart)]).nullish() }).nullish(),
         finish_reason: z.string().nullish(),
       }),
     )
@@ -57,7 +69,7 @@ const replySchema = z.object({
     .nullish(),
 })
 
-/** Reads one chat-completions reply. Anything unreadable becomes an empty text, which callers treat as a miss. */
+/** Reads one chat-completions reply. Only message.content is read: reasoning fields beside it are ignored, so thinking is never parsed as output. Anything unreadable becomes an empty text, which callers treat as a miss. */
 export function parseReply(payload: unknown): ChatReply {
   const parsed = replySchema.safeParse(payload)
   if (!parsed.success) return { text: '', finishReason: null, servedModel: null, usage: null }
@@ -68,7 +80,7 @@ export function parseReply(payload: unknown): ChatReply {
   if (data.usage?.completion_tokens !== undefined) usage.completion_tokens = data.usage.completion_tokens
   if (data.usage?.total_tokens !== undefined) usage.total_tokens = data.usage.total_tokens
   return {
-    text: (choice?.message?.content ?? '').trim(),
+    text: contentText(choice?.message?.content).trim(),
     finishReason: choice?.finish_reason ?? null,
     servedModel: data.model ?? null,
     usage: Object.keys(usage).length > 0 ? usage : null,
@@ -84,7 +96,7 @@ export function kindForStatus(status: number): ProviderKind {
   return 'bad_request'
 }
 
-/** Usage accounting is always requested, so every reply carries its token counts. The other options are sent only when a role sets them. */
+/** Usage accounting is always requested, so every reply carries its token counts. The other options are sent only when a role sets them. No reasoning option is ever sent, so the model thinks by its default. */
 function requestBody(request: ChatRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: request.model,
@@ -92,7 +104,6 @@ function requestBody(request: ChatRequest): Record<string, unknown> {
     max_tokens: request.maxTokens,
     usage: { include: true },
   }
-  if (request.reasoning) body.reasoning = request.reasoning
   if (request.requireParameters) body.provider = { require_parameters: true }
   if (request.jsonMode) body.response_format = { type: 'json_object' }
   return body

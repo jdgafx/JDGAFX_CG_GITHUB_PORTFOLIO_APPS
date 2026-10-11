@@ -7,7 +7,7 @@ import { RUN_BUDGET_MS, runPipeline } from './pipeline'
 export interface HandlerOptions {
   /** Whole-run budget in milliseconds. Defaults to 23 s. */
   budgetMs?: number
-  /** Per model call timeout in milliseconds. Defaults to 10 s. */
+  /** Per model call timeout in milliseconds. Defaults to 12 s. */
   callTimeoutMs?: number
 }
 
