@@ -7,10 +7,12 @@ set -euo pipefail
 root=${PINNED_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 pattern='(anthropic/)?claude-(haiku|sonnet|opus|fable)-[0-9]'
 
-# Repo-relative catalogue files that list pinned ids on purpose.
-allowlist=(
-  'app-06-llm-playground/netlify/shared/curated.ts'
-  'app-06-llm-playground/src/lib/defaultPicks.ts'
+# Repo-relative files that list pinned ids on purpose, each with its reason. Hits in them are
+# printed as ALLOWED, never dropped silently.
+declare -A allowlist=(
+  ['app-06-llm-playground/netlify/shared/curated.ts']='model catalogue the arena visitor picks from; the arena compares named models by design'
+  ['app-06-llm-playground/src/lib/defaultPicks.ts']='panel B/C default picks, which must be curated catalogue ids (run.ts:78)'
+  ['app-06-llm-playground/src/lib/run.ts']='TEMPORARY: DEFAULT_PICKS (curated catalogue ids, run.ts:78-82) until they move to defaultPicks.ts in step 4; remove this entry then'
 )
 
 targets=()
@@ -35,13 +37,14 @@ while IFS= read -r hit; do
   [[ -n $hit ]] || continue
   file=${hit%%:*}; rest=${hit#*:}; line=${rest%%:*}; content=${rest#*:}
   rel=$(realpath -m --relative-to="$root" "$file")
-  allowed=0
-  for entry in "${allowlist[@]}"; do [[ $rel == "$entry" ]] && allowed=1; done
-  (( allowed == 0 )) || continue
   trimmed=$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g' <<<"$content")
   case "$trimmed" in
     //*|/\**|\**) continue ;;
   esac
+  if [[ -n ${allowlist[$rel]+x} ]]; then
+    echo "ALLOWED $rel:$line: $trimmed  (${allowlist[$rel]})"
+    continue
+  fi
   echo "PINNED $rel:$line: $trimmed"
   hits=$((hits + 1))
 done <<<"$matches"
