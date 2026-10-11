@@ -160,11 +160,48 @@ describe('planner function: a plan', () => {
     expect(sent.model).toBe(MODEL)
     expect(sent).not.toHaveProperty('tool_choice')
     expect(sent).not.toHaveProperty('temperature')
-    expect(sent.max_tokens).toBe(4096)
+    expect(sent.max_tokens).toBe(8192)
     expect(sent.usage).toEqual({ include: true })
     expect(sent.stream).toBe(false)
     expect(sent.messages[0].content).toContain(`Use only these hosts in url: ${ALLOWED_LIST}.`)
     expect(sent.messages[1]).toEqual({ role: 'user', content: 'Task: Open google.com and report the page title.' })
+  })
+
+  it('leaves thinking on: the request body never turns reasoning off', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    await handler(planRequest({ task: 'Open google.com and report the page title.' }))
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { reasoning?: { enabled?: unknown } }
+    expect(sent.reasoning?.enabled).not.toBe(false)
+    expect(sent).not.toHaveProperty('reasoning')
+  })
+
+  it('parses only the content of a reply that also carries reasoning fields', async () => {
+    const decoy = { steps: [{ action: 'navigate', target: 'Wikipedia', thought: 'Decoy from the reasoning.', url: 'https://en.wikipedia.org/' }, { action: 'extract', target: 'title', thought: 'Decoy.', value: 'x' }] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      model: SERVED,
+      choices: [{
+        message: {
+          content: JSON.stringify(PLAN),
+          reasoning: `Draft: ${JSON.stringify(decoy)}`,
+          reasoning_details: [{ type: 'reasoning.text', text: JSON.stringify(decoy) }],
+        },
+        finish_reason: 'stop',
+      }],
+      usage: USAGE,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com and report the page title.' })))
+    expect(body.result?.steps).toEqual(PLAN.steps)
+  })
+
+  it('never reads a plan out of the reasoning when the content is empty', async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+      model: SERVED,
+      choices: [{ message: { content: '', reasoning: JSON.stringify(PLAN) }, finish_reason: 'stop' }],
+      usage: USAGE,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const response = await handler(planRequest({ task: 'Open google.com and report the page title.' }))
+    expect(response.status).toBe(502)
+    expect((await bodyOf(response)).result).toBeUndefined()
   })
 
   it('reads a plan wrapped in a markdown fence, or in prose', async () => {
@@ -412,7 +449,7 @@ describe('planner function: provider failures', () => {
       .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
     const pending = handler(planRequest({ task: 'Open google.com' }))
-    await vi.advanceTimersByTimeAsync(4_500)
+    await vi.advanceTimersByTimeAsync(11_000)
     const response = await pending
     const body = await bodyOf(response)
     expect(response.status).toBe(200)
@@ -425,7 +462,7 @@ describe('planner function: provider failures', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchMock.mockImplementation(async () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const pending = handler(planRequest({ task: 'Open google.com' }))
-    await vi.advanceTimersByTimeAsync(8_500)
+    await vi.advanceTimersByTimeAsync(24_000)
     const response = await pending
     expect(response.status).toBe(504)
     expect((await bodyOf(response)).error).toBe('The AI provider did not answer in time')

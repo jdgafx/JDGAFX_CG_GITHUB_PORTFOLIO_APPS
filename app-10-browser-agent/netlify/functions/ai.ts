@@ -14,12 +14,12 @@ const PLAN_RATE_LIMIT = 20
 /** Room for a full task, even one written in four-byte letters, plus its JSON wrapper. */
 const MAX_BODY_BYTES = 8_192
 const MAX_ATTEMPTS = 2
-/** Netlify's synchronous function cap is 10 s. The first call and any retry share this budget. */
-const PLAN_BUDGET_MS = 8_500
-/** One planner call waits this long, about 1.5 times its healthy p95 (about 3 s). A call that hangs past it is retried once. */
-const CALL_LIMIT_MS = 4_500
-/** A retry needs this much budget left, or it would only time out. */
-const MIN_RETRY_MS = 2_000
+/** The function is cut off at 30 s. The first call and any retry share this budget, which leaves about 6 s for the rest of the request. */
+const PLAN_BUDGET_MS = 24_000
+/** One planner call waits this long, about 1.5 times its healthy p95 with thinking on (about 7 s: 3 s of JSON plus a few hundred reasoning tokens). A call that hangs past it is retried once. */
+const CALL_LIMIT_MS = 11_000
+/** A retry needs this much budget left, or it would only time out. A thinking call takes about 5 s at the median. */
+const MIN_RETRY_MS = 5_000
 /** Copy for a provider that timed out or failed on its side. */
 const TIMEOUT_COPY = 'The AI provider did not answer in time'
 /** The planner's reason for refusing a task is shown to the user, so it is capped. */
@@ -127,8 +127,7 @@ async function callOnce(apiKey: string, task: string, domains: string[], timeout
         body: JSON.stringify({
           model: MODEL,
           max_tokens: MAX_TOKENS,
-          // A reasoning model spends the completion budget on hidden reasoning and cuts the JSON short.
-          reasoning: { enabled: false },
+          // No reasoning override: the model thinks by default, and its thinking counts toward max_tokens.
           // Asks the provider to report tokens and cost, so the run summary can show them.
           usage: { include: true },
           stream: false,
