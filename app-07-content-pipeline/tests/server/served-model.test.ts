@@ -72,6 +72,14 @@ describe('the served model on a stage reply', () => {
     expect(await res.json()).toMatchObject({ model: null, modelCheck: 'not-reported' })
   })
 
+  it('sends no check for a failure that got no reply, so it does not count against the run', async () => {
+    stubProvider(() => listNaming(NEWEST), () => new Response('provider down', { status: 500 }))
+
+    const res = await handler(request(stageBody('research')))
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ model: null, newestModel: null, modelCheck: null })
+  })
+
   it('marks a reply from the newest model as a match and names that model', async () => {
     stubProvider(() => listNaming(NEWEST), () => completion(ARTICLE))
 

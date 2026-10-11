@@ -41,6 +41,9 @@ async function modelRecord(served: string | null, newestP: Promise<string | null
   return { model: served, newestModel: newest, modelCheck }
 }
 
+// A failure with no reply from the provider has no served model and no check, so it does not rank.
+const NO_REPLY_RECORD = { model: null, newestModel: null, modelCheck: null }
+
 // Every failure has a plain message, a retry hint and one failed trace row. A call that
 // reached the provider keeps its usage and model, because the provider still billed it.
 function failureFor(stage: StageId, startedAt: number, origin: string | null, newestP: Promise<string | null> = Promise.resolve(null)) {
@@ -48,7 +51,7 @@ function failureFor(stage: StageId, startedAt: number, origin: string | null, ne
     message: string,
     status: number,
     retryable: boolean,
-    attempt: { usage: Usage | null; model: string | null } = { usage: null, model: null },
+    attempt?: { usage: Usage | null; model: string | null },
     note?: string,
   ): Promise<Response> => {
     const ms = Date.now() - startedAt
@@ -57,10 +60,11 @@ function failureFor(stage: StageId, startedAt: number, origin: string | null, ne
       status: 'failed',
       ms,
       detail: note ? `${message} ${note}` : message,
-      tokens: attempt.usage?.total_tokens,
-      cost: attempt.usage?.cost,
+      tokens: attempt?.usage?.total_tokens,
+      cost: attempt?.usage?.cost,
     }]
-    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt.usage, ...(await modelRecord(attempt.model, newestP)) }, status, origin)
+    const record = attempt ? await modelRecord(attempt.model, newestP) : NO_REPLY_RECORD
+    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt?.usage ?? null, ...record }, status, origin)
   }
 }
 

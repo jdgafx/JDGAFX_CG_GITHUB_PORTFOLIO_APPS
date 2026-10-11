@@ -170,7 +170,7 @@ describe('provider failures', () => {
   it('maps a 401 to the key-or-credit message', async () => {
     providerWill(() => new Response('{}', { status: 401 }))
     const res = await handler(request(stageBody('research')))
-    expect(await res.json()).toEqual({ error: KEY_MESSAGE, retryable: false, trace: expect.any(Array), totalMs: expect.any(Number), usage: null, model: null, newestModel: null, modelCheck: 'not-reported' })
+    expect(await res.json()).toEqual({ error: KEY_MESSAGE, retryable: false, trace: expect.any(Array), totalMs: expect.any(Number), usage: null, model: null, newestModel: null, modelCheck: null })
   })
 
   it('maps a provider 500 to the slow message without showing the provider text', async () => {

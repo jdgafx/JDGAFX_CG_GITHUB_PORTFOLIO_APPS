@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { STAGE_IDS, type StageId, type StageOutputs } from '../../netlify/shared/contract'
 import type { ChangeNote } from '../../netlify/shared/changes'
 import { SLOW_SERVER_MESSAGE, runPipeline, type CallRecord } from '../../src/lib/api'
+import { summarize } from '../../src/lib/run'
 
 const LABEL = 'The AI provider answered with a safety label instead of text, so this stage was discarded.'
 const EMPTY = 'The AI provider returned no text for this stage.'
@@ -54,6 +55,8 @@ function stageOk(result: string): Response {
     trace: [{ name: 'Stage', status: 'ok', ms: 1200, detail: 'detail' }],
     usage: USAGE,
     model: MODEL,
+    newestModel: MODEL,
+    modelCheck: 'match',
     totalMs: 1200,
   })
 }
@@ -204,6 +207,22 @@ describe('runPipeline retries and failures', () => {
     const sent = serve([() => new Response('<html>gateway</html>', { status })])
     expect(await runPipeline(request(SOURCES_DONE), harness().callbacks)).toEqual({ kind: 'failed', stage: 'research', message })
     expect(sent).toHaveLength(1)
+  })
+
+  it('gives a failure that got no reply no check, so it does not rank', async () => {
+    serve([() => stageFailed(429, 'Rate limited, try again in a minute.', false)])
+    const h = harness()
+    await runPipeline(request(SOURCES_DONE), h.callbacks)
+    expect(h.calls.map(call => call.modelCheck)).toEqual([null])
+  })
+
+  it('stays "newest" when one stage times out, the visitor continues, and every reply matches', async () => {
+    serve([() => stageOk('research text'), () => stageFailed(504, SLOW, false), () => stageOk('outline text'), () => stageOk('draft text'), () => stageOk('edit text'), () => stageOk('polish text')])
+    const first = harness()
+    expect(await runPipeline(request(SOURCES_DONE), first.callbacks)).toEqual({ kind: 'failed', stage: 'outline', message: SLOW })
+    const resumed = harness()
+    expect(await runPipeline(request({ ...SOURCES_DONE, research: 'research text' }), resumed.callbacks)).toEqual({ kind: 'complete' })
+    expect(summarize([...first.calls, ...resumed.calls]).modelCheck).toBe('match')
   })
 
   it('keeps the usage and model of a billed failure on its trace line', async () => {

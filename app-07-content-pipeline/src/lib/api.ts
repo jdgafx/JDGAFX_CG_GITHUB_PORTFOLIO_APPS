@@ -91,9 +91,9 @@ function readRow(value: unknown): TraceRow | null {
   }
 }
 
-// The server's check. Without a usable one, a reply that named no model is not reported and any other is unchecked.
-function readCheck(value: unknown, served: string | null): ModelCheck {
-  return MODEL_CHECKS.find(check => check === value) ?? (served === null ? 'not-reported' : 'unchecked')
+// The server's check of a reply. Null when the body carries none, as for a failure with no reply, so it does not rank.
+function readCheck(value: unknown): ModelCheck | null {
+  return MODEL_CHECKS.find(check => check === value) ?? null
 }
 
 // Null when the body is not a JSON object. An abort or the watchdog ends the read with its own error.
@@ -165,7 +165,7 @@ async function postStage(
     usage: readUsage(body?.usage),
     model: served,
     newestModel: typeof body?.newestModel === 'string' ? body.newestModel : null,
-    modelCheck: body ? readCheck(body.modelCheck, served) : null,
+    modelCheck: readCheck(body?.modelCheck),
   }
 
   if (!response.ok) {
