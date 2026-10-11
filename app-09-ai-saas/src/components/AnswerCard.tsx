@@ -62,12 +62,12 @@ function Inline({ line, offset, spans, figures }: { line: string; offset: number
 }
 
 /** What the figure check came to: the counts the server worked out, or, for an older reply, the counts in its text. */
-function figureResult(step: TraceStep): { text: string; failed: boolean; rejected: string[]; titles: string[]; unchecked: string[]; spans: Span[] | null } {
+export function figureResult(step: TraceStep): { text: string; failed: boolean; rejected: string[]; titles: string[]; unchecked: string[]; spans: Span[] | null } {
   const failed = step.status === 'failed'
   if (step.check) {
     const { matched, checked, rejected, unchecked } = step.check
     return {
-      text: `${matched} of ${checked} figures match the evidence`,
+      text: `${matched} of ${checked + unchecked.length} figures match the evidence`,
       failed,
       rejected: rejected.map((r) => r.figure),
       titles: rejected.map((r) => r.quote),

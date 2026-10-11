@@ -1,14 +1,22 @@
-import type { PackageFigures, Summary } from './contract'
+import { halfWindow, type PackageFigures, type Summary } from './contract'
 import { contextOf, metricOf, metricsIn, SELECTION_WORDS, weekendMetric, wordsOfFigure, type Context, type Metric } from './attribution'
-import { checkEvidence } from './evidence'
+import { checkEvidence, spikePctOf, writtenDatesAndVersions } from './evidence'
 import { comparesWithPast, directionAgrees, figureOccurrences, matchesQuoted, weekendGap, type Quoted, type Range, type Unit } from './figures'
 
 /** The sentence check: every written percentage, count and multiple, read against the values the prompt listed. */
 
+export interface Span {
+  start: number
+  end: number
+}
+
 export interface FigureCheck {
   checked: number
   matched: number
+  /** Figures that do not match the value the text gives them: shown as not in the summary. */
   unmatched: string[]
+  /** Figures this check could not judge: a figure two metrics fit, a range, a "respectively" list, a plain number. Shown as unchecked. */
+  unchecked: string[]
   /** True when the request carried spike evidence, so dates and versions were checked too. */
   withEvidence?: boolean
 }
@@ -26,7 +34,7 @@ interface PoolValue {
 }
 
 /** Every number the prompt states, plus the derived ones it spells out, each with its metric and its owner. */
-function pool(s: Summary): PoolValue[] {
+export function pool(s: Summary): PoolValue[] {
   const values: PoolValue[] = [{ unit: 'count', value: s.packages.reduce((sum, p) => sum + p.total, 0), metric: 'total', trend: false }]
   for (const p of s.packages) {
     const own = { owner: p.name, trend: false }
@@ -50,7 +58,7 @@ function pool(s: Summary): PoolValue[] {
   for (const spike of s.spikes ?? []) {
     const own = { owner: spike.name, trend: false }
     values.push({ unit: 'count', value: spike.downloads, metric: 'spike_day', ...own }, { unit: 'count', value: spike.baseline, metric: 'baseline', ...own })
-    values.push({ unit: '%', value: spike.sizePct, metric: 'spike_pct', owner: spike.name, trend: true })
+    values.push({ unit: '%', value: spikePctOf(spike), metric: 'spike_pct', owner: spike.name, trend: true })
   }
   return values
 }
@@ -154,14 +162,15 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
   const values = pool(s)
   const names = s.packages.map((p) => p.name)
   const written = figureOccurrences(text)
-  const result: FigureCheck = { checked: 0, matched: 0, unmatched: [] }
+  const result: FigureCheck = { checked: 0, matched: 0, unmatched: [], unchecked: [] }
+  const handled: Span[] = []
   written.forEach((o) => {
     if (covered(o.index)) return
     const end = o.index + o.whole.length
+    handled.push({ start: o.index, end })
     const ctx = contextOf(text, o.index, end, names)
     if (ctx.respectively) {
-      result.checked += 1
-      result.unmatched.push(o.whole)
+      result.unchecked.push(o.whole)
       return
     }
     // The words that name a metric are the figure's own: after the delimiter before it, up to the one after it.
@@ -174,17 +183,22 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
       result.checked += 1
       // A range speaks of the packages named before it in its clause, else of those the clause names.
       const subjects = ctx.namedBefore.length > 0 ? new Set(ctx.namedBefore) : named(ctx)
-      if (rangeHolds(o.quoted.range, said, subjects, s.packages, o.quoted.sign)) result.matched += 1
-      else result.unmatched.push(o.whole)
+      if (rangeHolds(o.quoted.range, said, subjects, s.packages, o.quoted.sign)) {
+        result.checked += 1
+        result.matched += 1
+      } else result.unchecked.push(o.whole)
       return
     }
     if (o.quoted.unit === 'times' && comparesWithPast(text, end)) {
-      result.checked += 1
-      result.unmatched.push(o.whole)
+      result.unchecked.push(o.whole)
       return
     }
     const weekend = unit === '%' ? weekendMetric(text.slice(own.from, o.index), text.slice(end, own.to)) : null
     const verdict = judge(o.quoted, values, ctx, said, clauseMetrics.length > 1, weekend)
+    if (verdict.ambiguous) {
+      result.unchecked.push(o.whole)
+      return
+    }
     result.checked += 1
     if (verdict.matched) result.matched += 1
     else result.unmatched.push(verdict.wrongDirection ? `${o.whole} (direction does not match)` : o.whole)
@@ -194,20 +208,51 @@ export function checkFigures(text: string, s: Summary, covered: (index: number) 
   result.checked += evidence.checked
   result.matched += evidence.matched
   result.unmatched.push(...evidence.unmatched)
+  // Every other plain number is either the summary's window length, checked, or shown as unchecked: none is left out.
+  const elsewhere = (index: number) => covered(index) || handled.some((span) => index >= span.start && index < span.end)
+  const numbers = plainNumbers(text, s, elsewhere)
+  result.checked += numbers.matched
+  result.matched += numbers.matched
+  result.unchecked.push(...numbers.unchecked)
   if (s.spikes !== undefined) result.withEvidence = true
+  return result
+}
+
+/**
+ * The plain numbers in the text that no other check reads: not a dated or versioned figure, a year, or the number of a numbered
+ * list. A number of days that is the summary's window, its observed days or a half of the window is checked against those
+ * and counts as matched; any other is shown as unchecked, so no number in the answer is left out silently.
+ */
+function plainNumbers(text: string, s: Summary, elsewhere: (index: number) => boolean): { matched: number; unchecked: string[] } {
+  const skip: Span[] = [
+    ...writtenDatesAndVersions(text).map((w) => ({ start: w.index, end: w.index + w.text.length })),
+    ...[...text.matchAll(/^[ \t]*\d+(?=\.\s)/gm)].map((m) => ({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length })),
+  ]
+  const days = [s.windowDays, s.observedDays, halfWindow(s.windowDays)]
+  const result = { matched: 0, unchecked: [] as string[] }
+  for (const m of text.matchAll(/(?<![\w.,-])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)/g)) {
+    const at = m.index ?? 0
+    if (elsewhere(at) || skip.some((span) => at >= span.start && at < span.end)) continue
+    if (/^(?:19|20)\d{2}$/.test(m[0])) continue // a year
+    const isDays = /^[\s-]+days?\b/.test(text.slice(at + m[0].length, at + m[0].length + 12))
+    if (isDays && days.includes(Number(m[0]))) result.matched += 1
+    else result.unchecked.push(m[0])
+  }
   return result
 }
 
 /** The one-line result the run trace shows for a figure check. */
 export function describeFigureCheck(check: FigureCheck): string {
-  if (check.checked === 0) {
+  const total = check.checked + check.unchecked.length
+  if (total === 0) {
     return check.withEvidence
       ? 'No percentage, download-count, date or version figures in the answer to check'
       : 'No percentage or download-count figures in the answer to check'
   }
-  const noun = check.checked === 1 ? 'figure' : 'figures'
-  const verb = check.checked === 1 ? 'matches' : 'match'
-  const head = `${check.matched} of ${check.checked} ${noun} ${verb} the summary${check.withEvidence ? ' and spike evidence' : ''}`
-  if (check.unmatched.length === 0) return head
-  return `${head}. Not in the summary: ${check.unmatched.join(', ')}`
+  const noun = total === 1 ? 'figure' : 'figures'
+  const verb = total === 1 ? 'matches' : 'match'
+  const head = `${check.matched} of ${total} ${noun} ${verb} the summary${check.withEvidence ? ' and spike evidence' : ''}`
+  const counted = check.unchecked.length > 0 ? `${head}; ${check.unchecked.length} unchecked` : head
+  if (check.unmatched.length === 0) return counted
+  return `${counted}. Not in the summary: ${check.unmatched.join(', ')}`
 }

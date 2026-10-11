@@ -1,8 +1,8 @@
 import type { PackageFigures, Summary } from './contract'
 import { contextOf, mentionsIn, SELECTION_WORDS, segmentsOf, weekendMetric, wordsOfFigure } from './attribution'
-import { writtenDatesAndVersions, writtenIsKnown } from './evidence'
-import { checkFigures, rangeHolds } from './figureCheck'
-import { comparesWithPast, directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Unit } from './figures'
+import { spikePctOf, writtenDatesAndVersions, writtenIsKnown } from './evidence'
+import { checkFigures, pool, rangeHolds } from './figureCheck'
+import { comparesWithPast, directionAgrees, figureOccurrences, matchesCoarsely, matchesQuoted, weekendGap, type Quoted, type Unit } from './figures'
 import { resolvePackages, type Claim, type ClaimKind } from './claims'
 import { judgeSpikeCount, numberTokens, scanSpikeCounts } from './spikeCounts'
 
@@ -53,7 +53,7 @@ function expectedValues(claim: Claim, packages: PackageFigures[], s: Summary): {
     case 'spike_baseline':
       return { values: spikes.map((spike) => spike.baseline), trend: false }
     case 'spike_pct':
-      return { values: spikes.map((spike) => spike.sizePct), trend: true }
+      return { values: spikes.map((spike) => spikePctOf(spike)), trend: true }
     default:
       return null
   }
@@ -125,6 +125,9 @@ function allNamed(text: string, claim: Claim, at: number, names: string[]): bool
   return claim.p.every((name) => around.includes(name))
 }
 
+/** The metrics a spike day has: its downloads, its usual count and its percentage above usual. */
+const SPIKE_METRICS: string[] = ['spike_day', 'baseline', 'spike_pct']
+
 export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimCheck {
   const names = s.packages.map((pkg) => pkg.name)
   const result: ClaimCheck = { checked: 0, matched: 0, rejected: [], unchecked: [], ignored: 0, claims: claims.length, withEvidence: s.spikes !== undefined }
@@ -141,6 +144,10 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     else reject(figure, quote, start)
   }
 
+  /** Whether a spike-day value of the package (its downloads, its usual count, its percentage above usual) matches the figure, rounded as written. */
+  const spikeValueHolds = (name: string, unit: Unit, quoted: Quoted): boolean =>
+    pool(s).some((value) => value.owner === name && value.unit === unit && SPIKE_METRICS.includes(value.metric) && matchesQuoted(quoted, value.value, true) && (!value.trend || directionAgrees(quoted, value.value)))
+
   const spikeClaims: { start: number; end: number; index: number; text: string }[] = []
   for (const claim of claims) {
     const at = text.indexOf(claim.q)
@@ -150,6 +157,12 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
       continue
     }
     const resolved: Claim = { ...claim, p: packages as string[] }
+
+    if (claim.k === 'other') {
+      // A number that is none of the checkable kinds (a window length, a lag in days) is not judged.
+      leaveUnchecked(claim.q, at)
+      continue
+    }
 
     if (claim.k === 'spike_count') {
       // Counts are judged from the text itself, below. A claimed count that shape does not cover is shown as unchecked.
@@ -260,6 +273,8 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
     if (fits(expected.values, true)) verdict(true, figure.whole, claim.q, start)
     else if (expected.values.some((value) => matchesCoarsely(quoted, value))) leaveUnchecked(figure.whole, start)
     else if (unit === 'count' && fits(derivedCounts(s.packages), false)) leaveUnchecked(figure.whole, start)
+    // A spike day's own value, under a kind or date the claim gave it wrongly, is not judged: its kind is the model's guess.
+    else if (unit !== undefined && spikeValueHolds(resolved.p[0], unit, quoted)) leaveUnchecked(figure.whole, start)
     else verdict(false, figure.whole, claim.q, start)
   }
 
@@ -280,16 +295,17 @@ export function checkClaims(text: string, claims: Claim[], s: Summary): ClaimChe
   const rest = checkFigures(text, s, isCovered)
   result.checked += rest.matched
   result.matched += rest.matched
-  result.unchecked.push(...rest.unmatched)
+  result.unchecked.push(...rest.unchecked, ...rest.unmatched)
   return result
 }
 
-/** The one-line result the run trace shows for a claims check. */
+/** The one-line result the run trace shows for a claims check. The denominator counts the unchecked figures too. */
 export function describeClaimCheck(check: ClaimCheck): string {
-  if (check.checked === 0 && check.unchecked.length === 0) return 'No figures in the answer to check'
-  const noun = check.checked === 1 ? 'figure' : 'figures'
-  const verb = check.checked === 1 ? 'matches' : 'match'
-  const parts = [`${check.matched} of ${check.checked} ${noun} ${verb} the summary${check.withEvidence ? ' and spike evidence' : ''}`]
+  const total = check.checked + check.unchecked.length
+  if (total === 0) return 'No figures in the answer to check'
+  const noun = total === 1 ? 'figure' : 'figures'
+  const verb = total === 1 ? 'matches' : 'match'
+  const parts = [`${check.matched} of ${total} ${noun} ${verb} the summary${check.withEvidence ? ' and spike evidence' : ''}`]
   if (check.unchecked.length > 0) parts.push(`${check.unchecked.length} unchecked`)
   const head = parts.join('; ')
   return check.rejected.length === 0 ? head : `${head}. Not in the summary: ${check.rejected.map((r) => r.figure).join(', ')}`

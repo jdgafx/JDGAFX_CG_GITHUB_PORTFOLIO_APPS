@@ -120,10 +120,15 @@ function spikeLine(s: SpikeEvidence): string {
   return `${head}; stable releases in the ${RELEASE_LAG_DAYS} days up to that day: ${list}${s.moreReleases > 0 ? `, and ${s.moreReleases} more` : ''}`
 }
 
+/** The spike's percentage above its usual level, unrounded: the figure a written percentage is read against (sizePct is the same, rounded). */
+export function spikePctOf(s: SpikeEvidence): number {
+  return ((s.downloads - s.baseline) / s.baseline) * 100
+}
+
 /** The prompt section for the spike evidence. Empty when the request carries none. */
 export function spikePrompt(s: Summary): string {
   if (s.spikes === undefined) return ''
-  const rules = `Spike rules: explain the unusual days in a short paragraph that starts with "Spikes:" and comes after the numbered insights. Use only the spike lines above. A day, a version or a percentage may be written only if it appears there. Say a release came out "just before" a spike rather than that it caused it, because a release near a spike is a coincidence in time that the data cannot prove. Where a spike has no release listed, say no release was found nearby and do not guess a reason. Where release history is unavailable, say so. Do not write version numbers in a shortened form. Keep the whole answer under 400 words and the Spikes paragraph under 120 words: name the two or three largest spikes and any that follow a release, and give a count for the rest instead of listing them. Do not state a ratio between two changes or growth rates.`
+  const rules = `Spike rules: explain the unusual days in a short paragraph that starts with "Spikes:" and comes after the numbered insights. Use only the spike lines above. A day, a version or a percentage may be written only if it appears there. Say a release came out "just before" a spike rather than that it caused it, because a release near a spike is a coincidence in time that the data cannot prove. Where a spike has no release listed, say no release was found nearby and do not guess a reason. Say that release history is unavailable only for a spike line that says so. Do not write version numbers in a shortened form. Keep the whole answer under 400 words and the Spikes paragraph under 120 words: name the two or three largest spikes and any that follow a release, and give a count for the rest instead of listing them. Do not state a ratio between two changes or growth rates.`
   if (s.spikes.length === 0) {
     return `\nUnusual days: none. No day in the window ran far above the usual level for its weekday. Add one sentence starting with "Spikes:" saying so.\n`
   }

@@ -9,7 +9,7 @@
 
 export const CLAIMS_MARKER = '===CLAIMS==='
 
-export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'difference', 'spike_downloads', 'spike_baseline', 'spike_pct', 'spike_count', 'date', 'version'] as const
+export const CLAIM_KINDS = ['total', 'per_day', 'change_pct', 'share_pct', 'weekend_pct', 'multiple', 'difference', 'spike_downloads', 'spike_baseline', 'spike_pct', 'spike_count', 'date', 'version', 'other'] as const
 export type ClaimKind = (typeof CLAIM_KINDS)[number]
 
 export interface Claim {
@@ -33,7 +33,7 @@ export function claimsPrompt(): string {
 After the explanation, write a new line containing exactly ${CLAIMS_MARKER} and then a JSON array and nothing else (no code fence). Write one object for each number, percentage, multiple, date or version you wrote in the explanation:
 {"q": words copied exactly from the explanation that contain the figure, at most 8 words, "k": what the figure is, "p": an array of the package names from the list above it is about, "m": "total" or "per_day" (multiples and differences), "d": the spike's date as YYYY-MM-DD (spike kinds only; leave the key out otherwise)}
 For example: [{"q":"9.4 times","k":"multiple","p":["zod","@anthropic-ai/sdk"],"m":"total"},{"q":"40.1%","k":"share_pct","p":["zod"]}]
-"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the one the sentence is about and names first, then the other), difference (the gap between two packages' downloads: "p" has both, "m" says total or per_day), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), spike_count (how many unusual days: "p" is one package, or empty for all of them; say "with a release" or "no release" in the quote when the count is only of those), date, version.`
+"k" is one of: total (a package's total downloads, or the selection's when "p" is empty), per_day (downloads per day), change_pct (the change between the halves), share_pct (share of the selection), weekend_pct (the weekend level or its gap to weekdays), multiple (N times: "p" has two packages, the one the sentence is about and names first, then the other), difference (the gap between two packages' downloads: "p" has both, "m" says total or per_day), spike_downloads, spike_baseline, spike_pct (a spike's day count, usual count, or percentage above usual), spike_count (how many unusual days: "p" is one package, or empty for all of them; say "with a release" or "no release" in the quote when the count is only of those), date, version, other (a number that is none of these, such as a window length or a lag in days: it is shown as unchecked).`
 }
 
 /** Passes text through until the claims marker, holding back just enough to see a marker split across chunks. */
@@ -74,32 +74,41 @@ export function splitAnswer(full: string): { explanation: string; claimsRaw: str
   return { explanation: full.slice(0, at).trimEnd(), claimsRaw: full.slice(at + CLAIMS_MARKER.length).trim() }
 }
 
-/** Reads the claims array. A code fence around it is tolerated. Null when it is not valid JSON of the expected shape. */
-export function parseClaims(raw: string): Claim[] | null {
+/** One entry of the claims array, read on its own. Null when it is not valid JSON of the expected shape. */
+function readClaim(entry: string): Claim | null {
+  // A line break inside a quote is read as a space, and a comma left before the closing brace is dropped.
   let json: unknown
   try {
-    json = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
+    json = JSON.parse(entry.replace(/\s*\n\s*/g, ' ').replace(/,\s*\}$/, '}'))
   } catch {
     return null
   }
-  if (!Array.isArray(json) || json.length > MAX_CLAIMS) return null
-  const claims: Claim[] = []
-  for (const entry of json) {
-    if (typeof entry !== 'object' || entry === null) return null
-    const { q, k, p, m, d } = entry as Record<string, unknown>
-    if (typeof q !== 'string' || q === '' || !CLAIM_KINDS.includes(k as ClaimKind)) return null
-    // A single string is read as one entry; the checker splits it when it holds several names.
-    const said = typeof p === 'string' ? [p] : p
-    if (!Array.isArray(said) || !said.every((name) => typeof name === 'string') || said.length > 5) return null
-    claims.push({
-      q,
-      k: k as ClaimKind,
-      p: said as string[],
-      ...(m === 'total' || m === 'per_day' ? { m } : {}),
-      ...(typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? { d } : {}),
-    })
+  if (typeof json !== 'object' || json === null) return null
+  const { q, k, p, m, d } = json as Record<string, unknown>
+  if (typeof q !== 'string' || q === '' || !CLAIM_KINDS.includes(k as ClaimKind)) return null
+  // A missing or null list names no package. A single string is read as one entry; the checker splits it when it holds several names.
+  const said = p === undefined || p === null ? [] : typeof p === 'string' ? [p] : p
+  if (!Array.isArray(said) || !said.every((name) => typeof name === 'string') || said.length > 5) return null
+  return {
+    q,
+    k: k as ClaimKind,
+    p: said as string[],
+    ...(m === 'total' || m === 'per_day' ? { m } : {}),
+    ...(typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? { d } : {}),
   }
-  return claims
+}
+
+/**
+ * Reads the claims array one entry at a time, so one malformed entry drops only itself and the rest still count. A code
+ * fence around the array is tolerated. Null when no entry can be read.
+ */
+export function parseClaims(raw: string): Claim[] | null {
+  const body = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  if (/^\s*\[\s*\]\s*$/.test(body)) return []
+  const entries = body.match(/\{[^{}]*\}/g) ?? []
+  if (entries.length === 0 || entries.length > MAX_CLAIMS) return null
+  const claims = entries.flatMap((entry) => readClaim(entry) ?? [])
+  return claims.length > 0 ? claims : null
 }
 
 const words = (value: string): string[] => value.toLowerCase().split(/[^a-z0-9]+/).filter((part) => part !== '')

@@ -682,7 +682,7 @@ describe('netlify/functions/ai: structured claims', () => {
     expect(reply.frames.find((f) => f.stage === 'complete')?.result).toBe(EXPLANATION)
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures') as Step & { check?: Record<string, unknown> }
     // 9 times is claimed by nobody; vue's per-day ratio is 2.2 too, so the sentence check cannot match it: unchecked.
-    expect(check).toMatchObject({ status: 'ok', detail: '2 of 2 figures match the summary; 1 unchecked' })
+    expect(check).toMatchObject({ status: 'ok', detail: '2 of 3 figures match the summary; 1 unchecked' })
     expect(check.check).toMatchObject({ checked: 2, matched: 2, rejected: [], unchecked: ['9 times'] })
     const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { messages: { content: string }[]; max_tokens: number }
     expect(sent.messages[0].content).toContain('===CLAIMS===')
@@ -694,7 +694,7 @@ describe('netlify/functions/ai: structured claims', () => {
     stubFetch(async () => claimsReply(bad))
     const reply = await readReply(await handler(post({ summary: SUMMARY })))
     const check = stepsOf(reply.frames).find((s) => s.name === 'Check figures')
-    expect(check).toMatchObject({ status: 'failed', detail: '1 of 2 figures match the summary; 1 unchecked. Not in the summary: 62.5%' })
+    expect(check).toMatchObject({ status: 'failed', detail: '1 of 3 figures match the summary; 1 unchecked. Not in the summary: 62.5%' })
   })
 
   it('falls back to reading every figure from its sentence when the claims cannot be read, and says so', async () => {

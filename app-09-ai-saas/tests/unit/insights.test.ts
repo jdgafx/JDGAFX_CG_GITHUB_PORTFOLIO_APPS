@@ -51,12 +51,12 @@ describe('checkFigures', () => {
   it('matches every percentage and count that comes from the summary', () => {
     const text =
       'React averaged 32,583,774 downloads a day, 912.3 million in total, up 3.2%. Vue fell 4.1%. Svelte grew 12.8% and holds 9.4%. React weekends run at 54.1% of weekdays, 45.9% lower. Together 1.5 billion.'
-    expect(checkFigures(text, SUMMARY)).toEqual({ checked: 9, matched: 9, unmatched: [] })
+    expect(checkFigures(text, SUMMARY)).toMatchObject({ checked: 9, matched: 9, unmatched: [] })
   })
 
   it('reads scale words and suffixes against the figure own decimals', () => {
-    expect(checkFigures('Svelte has 138M, vue 410 million and about 0.4 billion.', SUMMARY)).toEqual({ checked: 3, matched: 3, unmatched: [] })
-    expect(checkFigures('React has 900 million and 1.2 billion between them, vue 411M.', SUMMARY)).toEqual({
+    expect(checkFigures('Svelte has 138M, vue 410 million and about 0.4 billion.', SUMMARY)).toMatchObject({ checked: 3, matched: 3, unmatched: [] })
+    expect(checkFigures('React has 900 million and 1.2 billion between them, vue 411M.', SUMMARY)).toMatchObject({
       checked: 3,
       matched: 0,
       unmatched: ['900 million', '1.2 billion', '411M'],
@@ -64,7 +64,7 @@ describe('checkFigures', () => {
   })
 
   it('needs a full-length count to be exact', () => {
-    expect(checkFigures('Vue sees 14,642,857 a day, not 14,642,858 or 14,000.', SUMMARY)).toEqual({
+    expect(checkFigures('Vue sees 14,642,857 a day, not 14,642,858 or 14,000.', SUMMARY)).toMatchObject({
       checked: 3,
       matched: 1,
       unmatched: ['14,642,858', '14,000'],
@@ -73,8 +73,8 @@ describe('checkFigures', () => {
 
   it('checks multiples between packages against the ratio of totals or per-day averages', () => {
     // react / vue: total 912,345,678 / 410,000,000 = 2.2252, per day 32,583,774 / 14,642,857 = 2.2252. react / svelte = 6.61 by total (vue / svelte is 2.97, so "3 times" would also match).
-    expect(checkFigures('React draws 2.2 times vue and 6.6x svelte.', SUMMARY)).toEqual({ checked: 2, matched: 2, unmatched: [] })
-    expect(checkFigures('React draws 4 times vue and 2.5x svelte, 9 times is not it.', SUMMARY)).toEqual({
+    expect(checkFigures('React draws 2.2 times vue and 6.6x svelte.', SUMMARY)).toMatchObject({ checked: 2, matched: 2, unmatched: [] })
+    expect(checkFigures('React draws 4 times vue and 2.5x svelte, 9 times is not it.', SUMMARY)).toMatchObject({
       checked: 3,
       matched: 0,
       unmatched: ['4 times', '2.5x', '9 times'],
@@ -82,7 +82,7 @@ describe('checkFigures', () => {
   })
 
   it('names each percentage that is not in the summary', () => {
-    expect(checkFigures('The top 12% of versions drive 7% of installs.', SUMMARY)).toEqual({
+    expect(checkFigures('The top 12% of versions drive 7% of installs.', SUMMARY)).toMatchObject({
       checked: 2,
       matched: 0,
       unmatched: ['12%', '7%'],
@@ -90,8 +90,8 @@ describe('checkFigures', () => {
   })
 
   it('reads the direction of a change from a rise or fall word before it', () => {
-    expect(checkFigures('React rose 3.2%, and vue fell 4.1%.', SUMMARY)).toEqual({ checked: 2, matched: 2, unmatched: [] })
-    expect(checkFigures('Vue rose 4.1% this month.', SUMMARY)).toEqual({
+    expect(checkFigures('React rose 3.2%, and vue fell 4.1%.', SUMMARY)).toMatchObject({ checked: 2, matched: 2, unmatched: [] })
+    expect(checkFigures('Vue rose 4.1% this month.', SUMMARY)).toMatchObject({
       checked: 1,
       matched: 0,
       unmatched: ['4.1% (direction does not match)'],
@@ -99,7 +99,7 @@ describe('checkFigures', () => {
   })
 
   it('reads a minus or plus sign attached to a change figure', () => {
-    expect(checkFigures('React moved -3.2%, and svelte +12.8%.', SUMMARY)).toEqual({
+    expect(checkFigures('React moved -3.2%, and svelte +12.8%.', SUMMARY)).toMatchObject({
       checked: 2,
       matched: 1,
       unmatched: ['3.2% (direction does not match)'],
@@ -107,38 +107,37 @@ describe('checkFigures', () => {
   })
 
   it('does not check the direction of a level such as a share or weekend ratio', () => {
-    expect(checkFigures('React fell to 62.5% of the selection.', SUMMARY)).toEqual({ checked: 1, matched: 1, unmatched: [] })
+    expect(checkFigures('React fell to 62.5% of the selection.', SUMMARY)).toMatchObject({ checked: 1, matched: 1, unmatched: [] })
   })
 
   it('reads direction only from the sentence the figure is in', () => {
-    expect(checkFigures('React rose sharply in the first half. Vue holds 28.1%.', SUMMARY)).toEqual({ checked: 1, matched: 1, unmatched: [] })
+    expect(checkFigures('React rose sharply in the first half. Vue holds 28.1%.', SUMMARY)).toMatchObject({ checked: 1, matched: 1, unmatched: [] })
   })
 
-  it('does not check days, dates, versions or small counts', () => {
-    expect(checkFigures('Over 30 days to 2026-10-07, 3 packages, React 19.2.0 and v18, 28 days of data, 1,2 rows.', SUMMARY)).toEqual({
-      checked: 0,
-      matched: 0,
-      unmatched: [],
-    })
+  it('does not check dates or versions; a number of days that is the window or its observed days is checked, the other small counts are unchecked', () => {
+    // 30 days is the window and 28 days the observed days of SUMMARY: checked. 3 and 1 are small counts no check reads (v18 is a version, 1,2 a list).
+    const check = checkFigures('Over 30 days to 2026-10-07, 3 packages, React 19.2.0 and v18, 28 days of data, 1,2 rows.', SUMMARY)
+    expect(check).toMatchObject({ checked: 2, matched: 2, unmatched: [] })
+    expect(check.unchecked).toEqual(['3', '1'])
   })
 
   it('has no change figure to match when the change could not be worked out', () => {
     const none = { ...SUMMARY, packages: [{ ...REACT, changePct: null }] }
-    expect(checkFigures('React is up 3.2%.', none)).toEqual({ checked: 1, matched: 0, unmatched: ['3.2%'] })
+    expect(checkFigures('React is up 3.2%.', none)).toMatchObject({ checked: 1, matched: 0, unmatched: ['3.2%'] })
   })
 })
 
 describe('describeFigureCheck', () => {
   it('gives the count and names the figures that do not match', () => {
-    expect(describeFigureCheck({ checked: 6, matched: 6, unmatched: [] })).toBe('6 of 6 figures match the summary')
-    expect(describeFigureCheck({ checked: 3, matched: 0, unmatched: ['250 million', '10%', '60%'] })).toBe(
+    expect(describeFigureCheck({ checked: 6, matched: 6, unmatched: [], unchecked: [] })).toBe('6 of 6 figures match the summary')
+    expect(describeFigureCheck({ checked: 3, matched: 0, unmatched: ['250 million', '10%', '60%'], unchecked: [] })).toBe(
       '0 of 3 figures match the summary. Not in the summary: 250 million, 10%, 60%',
     )
   })
 
   it('uses the singular for one figure and says when there is none', () => {
-    expect(describeFigureCheck({ checked: 1, matched: 1, unmatched: [] })).toBe('1 of 1 figure matches the summary')
-    expect(describeFigureCheck({ checked: 0, matched: 0, unmatched: [] })).toBe(
+    expect(describeFigureCheck({ checked: 1, matched: 1, unmatched: [], unchecked: [] })).toBe('1 of 1 figure matches the summary')
+    expect(describeFigureCheck({ checked: 0, matched: 0, unmatched: [], unchecked: [] })).toBe(
       'No percentage or download-count figures in the answer to check',
     )
   })

@@ -1,0 +1,372 @@
+{
+  "source": ".acceptance sp2 2026-10-11 r1-3 (saved browser exchange, real model output)",
+  "summary": {
+    "startDate": "2025-10-11",
+    "endDate": "2026-10-10",
+    "windowDays": 365,
+    "observedDays": 358,
+    "packages": [
+      {
+        "name": "react",
+        "total": 5765986637,
+        "avgPerDay": 16106108,
+        "changePct": 121.4,
+        "weekendPct": 55.6,
+        "sharePct": 29
+      },
+      {
+        "name": "vite",
+        "total": 5249471722,
+        "avgPerDay": 14663329,
+        "changePct": 190.6,
+        "weekendPct": 53.6,
+        "sharePct": 26.4
+      },
+      {
+        "name": "zod",
+        "total": 8002465027,
+        "avgPerDay": 22353254,
+        "changePct": 189.4,
+        "weekendPct": 54,
+        "sharePct": 40.3
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "total": 856505158,
+        "avgPerDay": 2392473,
+        "changePct": 453.9,
+        "weekendPct": 60.2,
+        "sharePct": 4.3
+      }
+    ],
+    "spikes": [
+      {
+        "name": "react",
+        "date": "2025-12-07",
+        "downloads": 5631112,
+        "baseline": 3440989,
+        "sizePct": 64,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2025-12-28",
+        "downloads": 4860776,
+        "baseline": 2531192,
+        "sizePct": 92,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-01-15",
+        "downloads": 13372696,
+        "baseline": 9546747,
+        "sizePct": 40,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-01-17",
+        "downloads": 6615301,
+        "baseline": 4110479,
+        "sizePct": 61,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-01-17",
+        "downloads": 7603929,
+        "baseline": 4704889,
+        "sizePct": 62,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-01-18",
+        "downloads": 6420272,
+        "baseline": 4028158,
+        "sizePct": 59,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-01-24",
+        "downloads": 6279781,
+        "baseline": 4257198,
+        "sizePct": 48,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-01-26",
+        "downloads": 765276,
+        "baseline": 537523,
+        "sizePct": 42,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-01-27",
+        "downloads": 878103,
+        "baseline": 594232,
+        "sizePct": 48,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-01-28",
+        "downloads": 877867,
+        "baseline": 590350,
+        "sizePct": 49,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-01-31",
+        "downloads": 504907,
+        "baseline": 269287,
+        "sizePct": 87,
+        "releases": [
+          {
+            "version": "0.72.1",
+            "date": "2026-01-30",
+            "kind": "patch"
+          },
+          {
+            "version": "0.72.0",
+            "date": "2026-01-29",
+            "kind": "minor"
+          }
+        ],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-01-31",
+        "downloads": 6705711,
+        "baseline": 4293822,
+        "sizePct": 56,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-02-02",
+        "downloads": 826156,
+        "baseline": 552489,
+        "sizePct": 50,
+        "releases": [
+          {
+            "version": "0.72.1",
+            "date": "2026-01-30",
+            "kind": "patch"
+          }
+        ],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-02-07",
+        "downloads": 596968,
+        "baseline": 279677,
+        "sizePct": 113,
+        "releases": [
+          {
+            "version": "0.74.0",
+            "date": "2026-02-07",
+            "kind": "minor"
+          },
+          {
+            "version": "0.73.0",
+            "date": "2026-02-05",
+            "kind": "minor"
+          }
+        ],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-02-21",
+        "downloads": 6458089,
+        "baseline": 3097594,
+        "sizePct": 108,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-02-23",
+        "downloads": 11467481,
+        "baseline": 7915927,
+        "sizePct": 45,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-03-14",
+        "downloads": 9237662,
+        "baseline": 6767383,
+        "sizePct": 37,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "react",
+        "date": "2026-03-25",
+        "downloads": 21034761,
+        "baseline": 14765057,
+        "sizePct": 42,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-03-26",
+        "downloads": 29696229,
+        "baseline": 16833135,
+        "sizePct": 76,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-04-10",
+        "downloads": 24359426,
+        "baseline": 17085504,
+        "sizePct": 43,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-04-13",
+        "downloads": 17129866,
+        "baseline": 12475339,
+        "sizePct": 37,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-04-17",
+        "downloads": 16699679,
+        "baseline": 12133007,
+        "sizePct": 38,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-04-20",
+        "downloads": 18195531,
+        "baseline": 12690847,
+        "sizePct": 43,
+        "releases": [
+          {
+            "version": "8.0.9",
+            "date": "2026-04-20",
+            "kind": "patch"
+          }
+        ],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "vite",
+        "date": "2026-04-27",
+        "downloads": 20266963,
+        "baseline": 13057896,
+        "sizePct": 55,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "@anthropic-ai/sdk",
+        "date": "2026-08-13",
+        "downloads": 5674790,
+        "baseline": 4069089,
+        "sizePct": 39,
+        "releases": [
+          {
+            "version": "0.117.1",
+            "date": "2026-08-13",
+            "kind": "patch"
+          }
+        ],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-09-27",
+        "downloads": 34815317,
+        "baseline": 24900643,
+        "sizePct": 40,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-09-28",
+        "downloads": 61763856,
+        "baseline": 43779181,
+        "sizePct": 41,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "zod",
+        "date": "2026-09-29",
+        "downloads": 63094459,
+        "baseline": 46157873,
+        "sizePct": 37,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      }
+    ],
+    "spikeCounts": {
+      "react": 9,
+      "vite": 7,
+      "zod": 6,
+      "@anthropic-ai/sdk": 7
+    }
+  },
+  "explanation": "1. Zod has the largest install volume: 8.0 billion downloads, about 40.3% of the selection's total, and 22.4 million per day on average. React follows with 5.8 billion (29%), Vite with 5.2 billion (26.4%), and the Anthropic SDK with 856.5 million (4.3%).\n\n2. The Anthropic SDK is growing fastest, with a change of +453.9% between the two halves of the window. Vite (+190.6%) and Zod (+189.4%) are close behind, while React is slowest at +121.4%. Downloads count installs, including CI and mirrors, so these figures measure install volume rather than user numbers.\n\n3. Weekend traffic is lower for every package. The Anthropic SDK holds up best at 60.2% of weekday levels, while Vite falls furthest at 53.6%. Zod and React sit between these at 54% and 55.6%, so weekday-heavy usage is typical across the selection.\n\n4. Spikes are concentrated in React, Vite, Zod, and the Anthropic SDK, with 9, 7, 6, and 7 unusual days found respectively. Most spike days occurred with no stable release in the three days before.\n\n5. Daily volume in Zod was the most volatile over the period, so capacity planning and CI cache assumptions should account for sudden surges rather than assuming a flat baseline.\n\nSpikes: The largest spikes are zod on 2026-09-29 at 63,094,459 downloads (+37% against the usual 46,157,873), zod on 2026-09-28 at 61,763,856 downloads (+41%), and zod on 2026-03-26 at 29,696,229 downloads (+76%). None of these had a stable release in the three days before, so no release was found nearby. The Anthropic SDK's spike on 2026-02-07 (596,968 downloads, +113%) followed the 0.74.0 minor release and the 0.73.0 minor release. The SDK's spike on 2026-08-13 (5,674,790 downloads, +39%) followed the 0.117.1 patch release on the same day. The remaining unusual days number 26 and are not listed."
+}

@@ -163,7 +163,7 @@ describe('checkClaims', () => {
     const check = checkClaims(text, [claim('40.1%', 'share_pct', ['zod'])], S)
     // 40.1 is claimed; 4.3 is matched by the sentence check; 12.3 is in no figure, so it is unchecked.
     expect(check).toMatchObject({ checked: 2, matched: 2, rejected: [], unchecked: ['12.3%'] })
-    expect(describeClaimCheck(check)).toBe('2 of 2 figures match the summary and spike evidence; 1 unchecked')
+    expect(describeClaimCheck(check)).toBe('2 of 3 figures match the summary and spike evidence; 1 unchecked')
   })
 
   it('does not let one claim cover a second figure in the same quote', () => {

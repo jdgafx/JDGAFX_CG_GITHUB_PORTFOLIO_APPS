@@ -1,0 +1,123 @@
+{
+  "source": ".acceptance sp2 2026-10-11 r3-2 (saved browser exchange, real model output)",
+  "summary": {
+    "startDate": "2026-09-11",
+    "endDate": "2026-10-10",
+    "windowDays": 30,
+    "observedDays": 28,
+    "packages": [
+      {
+        "name": "prisma",
+        "total": 80103066,
+        "avgPerDay": 2860824,
+        "changePct": 15.8,
+        "weekendPct": 59,
+        "sharePct": 37.1
+      },
+      {
+        "name": "drizzle-orm",
+        "total": 112088633,
+        "avgPerDay": 4003165,
+        "changePct": 22.7,
+        "weekendPct": 62.4,
+        "sharePct": 51.9
+      },
+      {
+        "name": "typeorm",
+        "total": 23594685,
+        "avgPerDay": 842667,
+        "changePct": 9.2,
+        "weekendPct": 34.8,
+        "sharePct": 10.9
+      }
+    ],
+    "spikes": [
+      {
+        "name": "drizzle-orm",
+        "date": "2026-09-26",
+        "downloads": 3055729,
+        "baseline": 1988229,
+        "sizePct": 54,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "typeorm",
+        "date": "2026-09-26",
+        "downloads": 438449,
+        "baseline": 280215,
+        "sizePct": 56,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "drizzle-orm",
+        "date": "2026-09-27",
+        "downloads": 2982974,
+        "baseline": 1978741,
+        "sizePct": 51,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "drizzle-orm",
+        "date": "2026-09-28",
+        "downloads": 4812017,
+        "baseline": 3159025,
+        "sizePct": 52,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "prisma",
+        "date": "2026-09-28",
+        "downloads": 3585132,
+        "baseline": 2682349,
+        "sizePct": 34,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "typeorm",
+        "date": "2026-09-28",
+        "downloads": 1182848,
+        "baseline": 881904,
+        "sizePct": 34,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "drizzle-orm",
+        "date": "2026-09-29",
+        "downloads": 4971534,
+        "baseline": 3418005,
+        "sizePct": 45,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      },
+      {
+        "name": "drizzle-orm",
+        "date": "2026-10-05",
+        "downloads": 4932561,
+        "baseline": 3202629,
+        "sizePct": 54,
+        "releases": [],
+        "moreReleases": 0,
+        "releasesKnown": true
+      }
+    ],
+    "spikeCounts": {
+      "prisma": 1,
+      "drizzle-orm": 5,
+      "typeorm": 2
+    }
+  },
+  "explanation": "1. Drizzle-orm is the clear leader and the fastest grower. It accounts for 51.9% of the selection's downloads, with 112,088,633 total and 4,003,165 per day on average, and its change of +22.7% is the highest of the three. Prisma sits at 37.1% of the selection, and TypeORM at 10.9%.\n\n2. Drizzle-orm is about 1.4 times as large as Prisma by total downloads, using the listed totals. TypeORM is the slowest grower at +9.2%, while Prisma grew +15.8%.\n\n3. Weekend traffic is a clear pattern. Prisma's weekend days run at 59% of weekday volume (41% lower), drizzle-orm at 62.4% (37.6% lower), and TypeORM at 34.8% (65.2% lower). TypeORM's weekday-heavy profile suggests its installs are more tied to work-week development and CI, though this is only a possibility.\n\n4. Drizzle-orm's volume is the most concentrated in unusual days. The detector found 5 unusual days for it, 2 for TypeORM, and 1 for Prisma, which makes drizzle-orm's recent growth worth watching for whether it is sustained or driven by bursts.\n\nSpikes: The largest spikes are drizzle-orm on 2026-09-28 (4,812,017 downloads against a usual 3,159,025, +52%), drizzle-orm on 2026-09-29 (4,971,534 downloads, +45%), and drizzle-orm on 2026-10-05 (4,932,561 downloads, +54%). Each of these has no stable release listed in the 3 days before, so no release was found nearby and no reason is assumed. A further 5 unusual days are found, including TypeORM and Prisma spikes on 2026-09-26 and 2026-09-28. The release history for the listed spikes is not available here, so no release is attributed to any spike."
+}

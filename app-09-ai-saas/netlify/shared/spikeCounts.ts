@@ -88,11 +88,17 @@ export function scanSpikeCounts(text: string, names: string[]): WrittenCount[] {
     const named = [...new Set(mentionsIn(text, names, seg.start, seg.end).map((x) => x.name))]
     let scope: WrittenCount['scope'] = null
     const plain = !NOT_PLAIN.test(sentence) && !PRONOUN_CLAUSE.test(clause)
-    if (plain) {
-      if (named.length === 1) scope = { package: named[0] }
-      // A clause that names nobody, in a sentence that names one package, is that package's or nobody's: unchecked.
-      else if (named.length === 0 && TOTAL_WORDS.test(sentence) && mentionsIn(text, names, sent.start, sent.end).length === 0) scope = { package: null }
-    }
+    if (plain && named.length === 1) scope = { package: named[0] }
+    // A total is said of the selection before the count ("In total, 16 ..."). Words after it ("across the three packages", "the
+    // other spikes") are about the rest of the sentence, so only the words before the count can make it a remainder or a part.
+    // A count in a sentence that names a package is that package's, or nobody's: unchecked.
+    else if (
+      !PRONOUN_CLAUSE.test(clause) &&
+      named.length === 0 &&
+      TOTAL_WORDS.test(sentence) &&
+      !NOT_PLAIN.test(text.slice(seg.start, at)) &&
+      mentionsIn(text, names, sent.start, sent.end).length === 0
+    ) scope = { package: null }
     found.push({ count, scope, qualifier: qualifierOf(m[0]), sentence })
   }
   for (const m of text.matchAll(STAND_OUT)) {
