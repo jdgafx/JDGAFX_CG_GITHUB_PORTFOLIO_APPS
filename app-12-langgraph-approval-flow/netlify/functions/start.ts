@@ -3,6 +3,7 @@ import { RunBudget } from '../shared/budget'
 import { checkRequest, clientKey, fail, rateLimit, readJsonBody, SERVER_ERROR } from '../shared/guard'
 import { issueFrom } from '../shared/issue-input'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
+import { newestModel } from '../shared/newest-model'
 import { startRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
 import { claimThread, releaseClaim } from '../shared/claim'
@@ -38,7 +39,7 @@ export default async (req: Request): Promise<Response> => {
     streaming = true
     return streamResponse(budget, (send, signal) =>
       startRun(
-        { store, storage: kind, chat, search: searchIssues, now: () => new Date() },
+        { store, storage: kind, chat, search: searchIssues, now: () => new Date(), newestModel },
         {
           issue: issue.value,
           threadId,

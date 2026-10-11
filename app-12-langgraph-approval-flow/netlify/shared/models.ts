@@ -1,14 +1,14 @@
 /**
- * The one model every node calls, and its list price. Chris named this version, so it is pinned here
- * and nowhere else: change MODEL to change every node. Price is USD per 1M tokens, from the OpenRouter
- * list checked 2026-10-09.
+ * The one model every node calls: OpenRouter's alias for the newest Haiku, so no version is pinned here.
+ * Each reply names the model that answered, and netlify/shared/newest-model.ts checks it against the list.
+ * Price is USD per 1M tokens, from the OpenRouter list checked 2026-10-09.
  *
  * Haiku 5.5 has no temperature parameter, and with provider.require_parameters a request that sends one
  * fails with 404 "No endpoints found". So no call sends a temperature. It reasons by default and the
  * reasoning spends the output cap before the answer (measured: 134 to 221 of 300 tokens), so every call
  * turns reasoning off.
  */
-export const MODEL = 'anthropic/claude-haiku-5.5'
+export const MODEL = '~anthropic/claude-haiku-latest'
 
 export const CLASSIFY_MAX_TOKENS = 400
 export const REPLY_MAX_TOKENS = 500

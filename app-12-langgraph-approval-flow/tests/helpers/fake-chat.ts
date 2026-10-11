@@ -15,6 +15,9 @@ export interface FakeChatOptions {
   judge?: string
 }
 
+/** The model the alias resolves to in these tests: what the provider names as served, and what the list names as newest. */
+export const NEWEST_HAIKU = 'anthropic/claude-haiku-5.5'
+
 /** A provider reply as the chat function returns it. Cost is not reported unless a test sets it. */
 export function providerResult(
   text: string,
@@ -36,13 +39,13 @@ export function fakeChat(options: FakeChatOptions = {}) {
   return vi.fn<ChatFn>(async (request: ChatRequest) => {
     const system = request.messages[0]?.content
     if (request.model === MODEL && system === CLASSIFY_PROMPT) {
-      return providerResult(classificationText(options.classification), request.model)
+      return providerResult(classificationText(options.classification), NEWEST_HAIKU)
     }
     if (request.model === MODEL && system === JUDGE_PROMPT) {
-      return providerResult(options.judge ?? '{"verdicts": []}', request.model)
+      return providerResult(options.judge ?? '{"verdicts": []}', NEWEST_HAIKU)
     }
     if (request.model === MODEL && system === REPLY_PROMPT) {
-      return providerResult(options.email ?? 'Thanks for the report. We have triaged this issue.', request.model)
+      return providerResult(options.email ?? 'Thanks for the report. We have triaged this issue.', NEWEST_HAIKU)
     }
     throw new Error(`fakeChat has no answer for model ${request.model}`)
   })

@@ -68,6 +68,8 @@ export function applyEvent(run: RunView, event: StreamEvent): RunView {
             status: event.status,
             ms: event.ms,
             model: event.model,
+            newestModel: event.newestModel,
+            modelCheck: event.modelCheck,
             usage: event.usage,
             cost: event.cost,
             costSource: event.costSource,

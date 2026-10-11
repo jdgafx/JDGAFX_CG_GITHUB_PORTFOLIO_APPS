@@ -1,4 +1,4 @@
-import type { DuplicateReport, NodeName, ReviewPayload, RunResult, TokenUsage, TraceStatus } from '../../src/types'
+import type { DuplicateReport, ModelCheck, NodeName, ReviewPayload, RunResult, TokenUsage, TraceStatus } from '../../src/types'
 
 /** The conditional edges out of decide. The graph and the browser both use these labels. */
 export type EdgeLabel = 'requiresHuman' | 'otherwise'
@@ -12,7 +12,9 @@ export type StreamEvent =
       node: NodeName
       ms: number
       status: TraceStatus
-      model?: string
+      model?: string | null
+      newestModel?: string | null
+      modelCheck?: ModelCheck
       usage?: TokenUsage
       cost?: number
       costSource?: 'usage' | 'estimated'

@@ -12,6 +12,7 @@ import { buildResult, threadViewOf } from './thread-view'
 import { describeError, getThreadEntry, hasWaitingMarker, titleFor, writeThread } from './thread-index'
 import { isClaimed } from './claim'
 import type { SearchFn } from './github-search'
+import type { NewestModelSource } from './newest-model'
 
 const GENERIC_RUN_FAILURE = 'The run stopped before it finished. The thread is marked failed.'
 
@@ -25,6 +26,8 @@ export interface RunDeps {
   now: () => Date
   /** The GitHub issue search for the duplicates step. Tests pass a fake; the functions pass the real one. */
   search?: SearchFn
+  /** The newest model the list names. Tests leave it out, so no list is read; the functions pass the live one. */
+  newestModel?: NewestModelSource
 }
 
 type GraphInput = Parameters<GraphInstance['stream']>[0]
@@ -33,8 +36,14 @@ type GraphInput = Parameters<GraphInstance['stream']>[0]
 const NO_MODEL: ChatFn = () => Promise.reject(new Error('This read does not call the model.'))
 
 /** The graph, with its checkpoints behind the store, bounded by `signal` and by the per-call limit. */
-function graphFor(deps: RunDeps, chat: ChatFn, signal?: AbortSignal, remainingMs: () => number = () => RUN_BUDGET_MS): GraphInstance {
-  return buildGraph({ chat, search: deps.search, now: deps.now, remainingMs, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
+function graphFor(
+  deps: RunDeps,
+  chat: ChatFn,
+  signal?: AbortSignal,
+  remainingMs: () => number = () => RUN_BUDGET_MS,
+  newest?: Promise<string | null>,
+): GraphInstance {
+  return buildGraph({ chat, search: deps.search, now: deps.now, remainingMs, newest, checkpointer: new GraphGateSaver(guardStore(deps.store, signal)) })
 }
 
 const SAVED = 'Finished steps are saved, so you can retry the thread.'
@@ -115,7 +124,8 @@ interface Attempt {
  * The caller always sends [DONE] after this returns.
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
-  const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs)
+  // The list is read once per run, started here so it runs alongside the first model call.
+  const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs, deps.newestModel?.())
   const began = Date.now()
   let firstNodeMs: number | null = null
   const mapper = new FrameMapper(attempt.threadId, (event) => {

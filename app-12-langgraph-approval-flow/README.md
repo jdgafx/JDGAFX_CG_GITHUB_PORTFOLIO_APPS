@@ -18,7 +18,7 @@ Before the rules decide, a `duplicates` step looks for earlier issues in the sam
 
 1. **Search (GitHub, server side).** The title's words are ranked rarest first (words that fill every software issue, such as "module" or "error", and the repo's own name go last or are left out). Two GitHub issue searches run in parallel over the repo's open and closed issues: a strict one on the two rarest words together, and a broad one on any of up to five words. Each returns up to 30 issues with their text. The issue itself and pull requests are dropped.
 2. **Rank (rules, no model).** Candidates are ranked by cosine similarity of rare-term weights. A term's weight is `ln(1 + N/df)`, with `df` counted over the issue and all candidates, so a word every result shares says little. A word in the title counts double. The issue body is read without its comments, links, `<details>` blocks and the machine-info sections of the issue templates (System Info, Logs and similar), so a reporter's graphics card does not make two issues look alike. The same issue and results always give the same order. The top five are shown. Only candidates with a score of at least 0.12 and two shared words are judged, at most three.
-3. **Judge (model).** One `anthropic/claude-haiku-5.5` call sees the issue and the judged candidates as JSON data, and returns for each one `duplicate`, `related` or `not`, a one-line reason, and one passage copied from each issue.
+3. **Judge (model).** One `~anthropic/claude-haiku-latest` call sees the issue and the judged candidates as JSON data, and returns for each one `duplicate`, `related` or `not`, a one-line reason, and one passage copied from each issue.
 
 **Quotes are checked.** A `duplicate` or `related` verdict stands only when both passages are found, word for word, in the texts the model was given (case, punctuation and spacing are ignored; a quote under twelve characters never counts). If a passage is missing, the verdict becomes "Not accepted", the model's claim is shown as unverified, and nothing else happens. The page shows both quotes and a line saying they were found.
 
@@ -77,7 +77,7 @@ The three answers: **Approve** keeps the proposed labels and priority. **Edit** 
 
 ## Models
 
-Every node calls one model, `anthropic/claude-haiku-5.5` on OpenRouter. Chris named this version, so it is pinned. The id lives in one constant, `MODEL` in `netlify/shared/models.ts`, with one price entry: $0.10 per 1M input tokens and $0.50 per 1M output tokens.
+Every node calls one model, `~anthropic/claude-haiku-latest` on OpenRouter, the alias for the newest Haiku. The app reads the newest id from OpenRouter's model list, shows the model each reply names, and flags a reply from any other model. The alias lives in one constant, `MODEL` in `netlify/shared/models.ts`, with one price entry: $0.10 per 1M input tokens and $0.50 per 1M output tokens.
 
 | Node | Output cap | Job |
 | --- | --- | --- |

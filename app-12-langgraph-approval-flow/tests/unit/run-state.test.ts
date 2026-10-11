@@ -25,6 +25,15 @@ describe('applyEvent', () => {
     ])
   })
 
+  it('carries the model check from a node_end frame into its trace row', () => {
+    const run = apply([
+      { type: 'node_end', node: 'reply', ms: 30, status: 'ok', model: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match', detail: 'Drafted.' },
+    ])
+    expect(run.trace).toEqual([
+      { node: 'reply', status: 'ok', ms: 30, model: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match', detail: 'Drafted.' },
+    ])
+  })
+
   it('records a labelled edge and pauses review with the proposal on an interrupt', () => {
     const run = apply([
       { type: 'edge', from: 'decide', to: 'review', label: 'requiresHuman' },

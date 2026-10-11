@@ -16,11 +16,11 @@ describe('estimateCost', () => {
 })
 
 describe('the one model', () => {
-  it('is Haiku 5.5, pinned in one constant that every node uses', () => {
-    expect(MODEL).toBe('anthropic/claude-haiku-5.5')
+  it('is the newest Haiku alias, in one constant that every node uses', () => {
+    expect(MODEL).toBe('~anthropic/claude-haiku-latest')
   })
 
   it('has the one list price, in USD per 1M tokens', () => {
-    expect(PRICES).toEqual({ 'anthropic/claude-haiku-5.5': { input: 0.1, output: 0.5 } })
+    expect(PRICES).toEqual({ '~anthropic/claude-haiku-latest': { input: 0.1, output: 0.5 } })
   })
 })

@@ -109,6 +109,8 @@ export class FrameMapper {
         ms: row.ms,
         status: row.status,
         model: row.model,
+        newestModel: row.newestModel,
+        modelCheck: row.modelCheck,
         usage: row.usage,
         cost: row.cost,
         costSource: row.costSource,

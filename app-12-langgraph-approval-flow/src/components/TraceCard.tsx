@@ -21,6 +21,25 @@ const STATE: Record<TraceRow['status'], { word: string; mod: string; dot: string
   pending: { word: 'Waiting', mod: 'ok', dot: 'ds-dot--paused' },
 }
 
+/**
+ * The served-model chip's text, the marker after it, and the chip's title. A mismatch is marked as a warning, and its
+ * title carries the full newest id, so the chip stays short. A row from before the check existed has no marker,
+ * so it reads as it always did.
+ */
+export function modelReadoutOf(row: TraceRow): { chip: string; marker: string | null; warn: boolean; title: string | undefined } {
+  const chip = row.model ? row.model.replace(/^anthropic\//, '') : 'not reported'
+  switch (row.modelCheck) {
+    case 'match':
+      return { chip, marker: '· newest', warn: false, title: row.model ?? undefined }
+    case 'mismatch':
+      return { chip, marker: '· not newest', warn: true, title: `newest: ${row.newestModel ?? 'unknown'}` }
+    case 'unchecked':
+      return { chip, marker: '· unchecked', warn: false, title: row.model ?? undefined }
+    default:
+      return { chip, marker: null, warn: false, title: row.model ?? undefined }
+  }
+}
+
 interface TraceCardProps {
   run: RunView
   current: NodeName | null
@@ -53,6 +72,7 @@ export function TraceCard({ run, current, phase }: TraceCardProps) {
             const state = STATE[row.status]
             const lane = lanes[index]
             const stopped = phase === 'stopped' && row.status === 'failed'
+            const model = modelReadoutOf(row)
             return (
               <li key={`${row.node}-${index}`} className={row.status === 'failed' ? 'ds-trace__step ds-trace__step--failed' : 'ds-trace__step'}>
                 <span className="ds-trace__index">{index + 1}</span>
@@ -70,9 +90,10 @@ export function TraceCard({ run, current, phase }: TraceCardProps) {
                   <span>{formatMs(row.ms)}</span>
                   {row.usage?.total_tokens !== undefined ? <span>{formatTokens(row.usage.total_tokens)} tok</span> : null}
                   {row.cost !== undefined ? <span>{formatCost(row.cost, row.costSource)}</span> : null}
-                  {row.model ? (
-                    <span className="ds-chip" title={row.model}>
-                      {row.model.replace(/^anthropic\//, '')}
+                  {row.model !== undefined ? (
+                    <span className="ds-chip" title={model.title}>
+                      {model.chip}
+                      {model.marker ? <span className={model.warn ? 'ds-trace__state--stopped' : undefined}>{model.marker}</span> : null}
                     </span>
                   ) : null}
                 </div>

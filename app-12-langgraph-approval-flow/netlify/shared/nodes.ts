@@ -1,6 +1,6 @@
 import { interrupt, type LangGraphRunnableConfig } from '@langchain/langgraph'
 import { EDIT_LABELS_MAX } from '../../src/lib/limits'
-import { PRIORITIES, type Classification, type HumanDecision, type NodeName, type Priority, type Reply, type TokenUsage, type TraceRow, type TraceStatus } from '../../src/types'
+import { PRIORITIES, type Classification, type HumanDecision, type ModelCheck, type NodeName, type Priority, type Reply, type TokenUsage, type TraceRow, type TraceStatus } from '../../src/types'
 import type { ReviewPayload } from '../../src/types'
 import { classifyMessage, CLASSIFY_PROMPT, readClassification, replyDataBlock, UNREADABLE_CLASSIFICATION } from './classify'
 import { isRecord } from './guard'
@@ -9,6 +9,7 @@ import { CLASSIFY_MAX_TOKENS, MODEL, REPLY_MAX_TOKENS, estimateCost } from './mo
 import { CALL_TIMEOUT_MS, ProviderError, type ChatFn, type ChatRequest, type ChatResult } from './openrouter'
 import { draftProblem } from './reply-guard'
 import type { GraphValues } from './state'
+import { servedCheck } from './newest-model'
 import { decideTriage, resolveTriage, type FinalTriage } from './triage'
 import type { SearchFn } from './github-search'
 
@@ -19,6 +20,8 @@ export interface NodeDeps {
   remainingMs: () => number
   /** Searches GitHub for duplicate candidates. Without it the duplicates step is skipped. */
   search?: SearchFn
+  /** The newest model the list names, looked up once per run and awaited after each call. Absent: the calls are 'unchecked'. */
+  newest?: Promise<string | null>
 }
 
 /** What a model call is expected to take at most when it is healthy: about the p95 measured on live calls. */
@@ -31,6 +34,9 @@ export interface CallRecord {
   result: ChatResult
   /** Why the call was made a second time, for the trace. Absent when the first attempt answered. */
   retriedAfter?: string
+  /** The newest model the list named for the requested alias, or null when it did not say. */
+  newestModel: string | null
+  modelCheck: ModelCheck
 }
 
 const NO_CANCEL = new AbortController().signal
@@ -162,7 +168,10 @@ export function traceRow(node: NodeName, startedAt: number, status: TraceStatus,
     detail: call?.retriedAfter ? `Retried once after ${call.retriedAfter}. ${detail}` : detail,
   }
   if (!call) return row
-  row.model = call.result.servedModel ?? call.requested
+  // The model the reply named. A reply that names none is null here, never the requested alias.
+  row.model = call.result.servedModel ?? null
+  row.newestModel = call.newestModel
+  row.modelCheck = call.modelCheck
   const usage = tokenUsageOf(call.result)
   if (usage) row.usage = usage
   const reported = call.result.usage.cost
@@ -190,6 +199,18 @@ function retryReason(err: unknown): string | null {
 }
 
 /**
+ * Adds the newest model the list named and whether this reply came from it. A mismatch is logged and shown in
+ * the trace. It never refuses the reply, so the run goes on.
+ */
+async function checked(deps: NodeDeps, call: Omit<CallRecord, 'newestModel' | 'modelCheck'>): Promise<CallRecord> {
+  const newestModel = (await deps.newest) ?? null
+  const served = call.result.servedModel ?? null
+  const modelCheck = servedCheck(newestModel, served)
+  if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${served}, newest ${newestModel}, requested ${call.requested}`)
+  return { ...call, newestModel, modelCheck }
+}
+
+/**
  * One model call. A call that hangs past its limit, or loses its connection, is made once more with the
  * same limit, when the budget has room for that call and for the model calls still to come. A rejected
  * key, a 4xx, and a budget stop are never retried. A second failure carries `retried`, so its message says so.
@@ -212,13 +233,13 @@ export async function runChat(
     ],
   }
   try {
-    return { requested: model, result: await deps.chat(request, signal) }
+    return await checked(deps, { requested: model, result: await deps.chat(request, signal) })
   } catch (err) {
     const reason = retryReason(err)
     const needed = CALL_TIMEOUT_MS + modelCallsAfter * EXPECTED_CALL_MS + RETRY_MARGIN_MS
     if (reason === null || signal.aborted || deps.remainingMs() < needed) throw err
     try {
-      return { requested: model, result: await deps.chat(request, signal), retriedAfter: reason }
+      return await checked(deps, { requested: model, result: await deps.chat(request, signal), retriedAfter: reason })
     } catch (second) {
       if (second instanceof ProviderError && second.kind === 'timeout') {
         throw new ProviderError(second.status, second.message, 'timeout', true)

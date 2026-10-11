@@ -81,7 +81,7 @@ describe('requestBody', () => {
     const body = requestBody(REQUEST)
     expect(body).not.toHaveProperty('temperature')
     expect(JSON.stringify(body)).not.toContain('temperature')
-    expect(body).toMatchObject({ model: 'anthropic/claude-haiku-5.5' })
+    expect(body).toMatchObject({ model: MODEL })
   })
 })
 

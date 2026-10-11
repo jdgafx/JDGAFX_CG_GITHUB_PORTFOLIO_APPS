@@ -175,12 +175,19 @@ export interface TokenUsage {
   total_tokens?: number
 }
 
+/** Whether a reply came from the newest model: a match, a mismatch, not checked, or not named by the reply. */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
 /** One finished node, as kept in the graph state and shown in the run trace. */
 export interface TraceRow {
   node: NodeName
   status: TraceStatus
   ms: number
-  model?: string
+  /** The model the reply named, or null when it named none. Absent for a step with no model call. */
+  model?: string | null
+  /** The newest model the list named for the requested alias, or null when the list did not say. */
+  newestModel?: string | null
+  modelCheck?: ModelCheck
   usage?: TokenUsage
   cost?: number
   costSource?: 'usage' | 'estimated'

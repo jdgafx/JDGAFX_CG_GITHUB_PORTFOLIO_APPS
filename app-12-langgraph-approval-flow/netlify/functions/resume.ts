@@ -12,6 +12,7 @@ import {
   threadIdFrom,
 } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
+import { newestModel } from '../shared/newest-model'
 import { claimThread, releaseClaim, THREAD_BUSY, type Claim } from '../shared/claim'
 import { inspectThread, resumeRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
@@ -47,7 +48,7 @@ export default async (req: Request): Promise<Response> => {
     if (!decision.ok) return fail(decision.message, 400)
 
     const { store, kind } = opened
-    const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date() }
+    const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date(), newestModel }
     // One run at a time per thread, across function instances. The loser is told so, and nothing runs twice.
     claim = await claimThread(guardStore(store, budget.signal), threadId)
     if (!claim) return fail(THREAD_BUSY, 409)

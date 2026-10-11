@@ -2,6 +2,7 @@ import { searchIssues } from '../shared/github-search'
 import { RunBudget } from '../shared/budget'
 import { checkRequest, clientKey, fail, isRecord, rateLimit, readJsonBody, SERVER_ERROR, threadIdFrom } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
+import { newestModel } from '../shared/newest-model'
 import { claimThread, releaseClaim, THREAD_BUSY, type Claim } from '../shared/claim'
 import { inspectThread, retryRun } from '../shared/run'
 import { streamResponse } from '../shared/sse'
@@ -38,7 +39,7 @@ export default async (req: Request): Promise<Response> => {
     if (!threadId) return fail('The thread id is not valid.', 400)
 
     const { store, kind } = opened
-    const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date() }
+    const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date(), newestModel }
     // One run at a time per thread, across function instances. A thread being resumed holds the claim too.
     claim = await claimThread(guardStore(store, budget.signal), threadId)
     if (!claim) return fail(THREAD_BUSY, 409)

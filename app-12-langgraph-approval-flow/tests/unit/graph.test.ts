@@ -7,7 +7,7 @@ import { REPLY_PROMPT } from '../../netlify/shared/nodes'
 import { requestBody } from '../../netlify/shared/openrouter'
 import { createMemoryStore, type KeyValueStore } from '../../netlify/shared/store'
 import type { IssueInput, TraceRow } from '../../src/types'
-import { fakeChat } from '../helpers/fake-chat'
+import { fakeChat, NEWEST_HAIKU } from '../helpers/fake-chat'
 import { BUG, CLASSIFIED_BUG, QUESTION, issue } from '../helpers/issues'
 
 const NOW = new Date('2026-10-09T12:00:00Z')
@@ -99,11 +99,11 @@ describe('graph: auto-triage path', () => {
 
     await start(graph, 'auto-2', QUESTION)
 
-    expect(chat.mock.calls.map(([request]) => request.model)).toEqual(['anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-5.5'])
+    expect(chat.mock.calls.map(([request]) => request.model)).toEqual([MODEL, MODEL])
     expect(chat.mock.calls[0][0]).toMatchObject({ maxTokens: 400, json: true })
     expect(chat.mock.calls[1][0]).toMatchObject({ maxTokens: 500 })
     const classify = (await stateOf(graph, 'auto-2')).trace.find((row: TraceRow) => row.node === 'classify')
-    expect(classify).toMatchObject({ model: MODEL, usage: { total_tokens: 120 } })
+    expect(classify).toMatchObject({ model: NEWEST_HAIKU, usage: { total_tokens: 120 } })
   })
 
   it('sends no temperature on either Haiku call, and routes both only to providers that accept every parameter', async () => {
@@ -249,7 +249,7 @@ describe('graph: pause for a maintainer', () => {
 
     expect(second.nodes).toEqual(['review', 'reply'])
     // The classify call is not repeated: the resumed run reads it from the checkpoint.
-    expect(secondChat.mock.calls.map(([request]) => request.model)).toEqual(['anthropic/claude-haiku-5.5'])
+    expect(secondChat.mock.calls.map(([request]) => request.model)).toEqual([MODEL])
     const values = await stateOf(reloaded.graph, 'fresh-1')
     expect(values.status).toBe('completed')
     expect(values.humanDecision).toMatchObject({ action: 'edit', priority: 'urgent' })

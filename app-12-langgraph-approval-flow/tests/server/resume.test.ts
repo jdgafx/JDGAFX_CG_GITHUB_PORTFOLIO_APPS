@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { providerFetch } from '../helpers/fake-openrouter'
+import { NEWEST_HAIKU } from '../helpers/fake-chat'
+import { callsExceptList, providerFetch } from '../helpers/fake-openrouter'
 import { getFrom, postJson, readFrames, typesOf, type Frame } from '../helpers/http'
 import { BUG, CLASSIFIED_BUG } from '../helpers/issues'
 
@@ -55,6 +56,7 @@ describe('POST /api/resume', () => {
       ['reply', 'ok'],
     ])
     expect(frames).toContainEqual({ type: 'edge', from: 'review', to: 'reply' })
+    expect(frames).toContainEqual(expect.objectContaining({ type: 'node_end', node: 'reply', model: NEWEST_HAIKU, modelCheck: 'match' }))
     expect(find(frames, 'result')?.result).toMatchObject({
       outcome: 'approved',
       path: 'human',
@@ -64,7 +66,7 @@ describe('POST /api/resume', () => {
       issue: { number: 202 },
     })
     // The classify call is not repeated after the pause: only the reply is drafted.
-    expect(fetchStub).toHaveBeenCalledTimes(1)
+    expect(callsExceptList(fetchStub)).toHaveLength(1)
   })
 
   it('edit applies the maintainer labels and priority', async () => {
