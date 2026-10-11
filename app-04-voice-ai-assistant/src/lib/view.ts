@@ -91,14 +91,14 @@ export function readingNote(step: Pick<TraceStep, 'detail' | 'reading'>): string
 }
 
 /** The served model as the answer chip shows it: its id or "not reported", and one short marker on how it compares with the newest model. The title carries the full ids. */
-export function modelChip(run: Pick<RunState, 'model' | 'modelCheck' | 'newestModel'>): { label: string; marker: string; warn: boolean; title: string } {
+export function modelChip(run: Pick<RunState, 'model' | 'modelCheck' | 'newestModel' | 'checkedModel'>): { label: string; marker: string; warn: boolean; title: string } {
   const label = run.model ? run.model.replace(/^anthropic\//, '') : 'not reported'
   const title = run.model ?? 'The reply named no model'
   switch (run.modelCheck) {
     case 'match':
       return { label, marker: '· newest', warn: false, title }
     case 'mismatch':
-      return { label, marker: '· not newest', warn: true, title: `${title}, newest: ${run.newestModel ?? ''}` }
+      return { label, marker: '· not newest', warn: true, title: `${run.checkedModel ?? ''}, newest: ${run.newestModel ?? ''}` }
     case 'unchecked':
       return { label, marker: '· unchecked', warn: false, title }
     default:

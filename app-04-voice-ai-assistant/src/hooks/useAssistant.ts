@@ -111,6 +111,7 @@ export function useAssistant() {
           model: done.model,
           modelCheck: done.modelCheck,
           newestModel: done.newestModel,
+          checkedModel: done.checkedModel,
           usage: done.usage,
           totalMs: serverMs + (done.totalMs ?? 0),
           now: now(),

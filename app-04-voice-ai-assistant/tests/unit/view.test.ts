@@ -29,9 +29,12 @@ describe('modelChip', () => {
     expect(modelChip({ ...served, modelCheck: 'match' })).toEqual({ label: 'claude-haiku-5.5', marker: '· newest', warn: false, title: served.model })
   })
 
-  it('shows a short warning marker, with the newest id in the title, when the reply came from another model', () => {
-    expect(modelChip({ model: 'anthropic/claude-haiku-4.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'mismatch' })).toEqual({
-      label: 'claude-haiku-4.5',
+  it('shows a short warning marker, with the mismatching call and the newest id in the title, when a call came from another model', () => {
+    // The chip shows the reply's model; the mismatch is the other call's, so the title names that call.
+    expect(
+      modelChip({ model: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', checkedModel: 'anthropic/claude-haiku-4.5', modelCheck: 'mismatch' }),
+    ).toEqual({
+      label: 'claude-haiku-5.5',
       marker: '· not newest',
       warn: true,
       title: 'anthropic/claude-haiku-4.5, newest: anthropic/claude-haiku-5.5',

@@ -109,6 +109,21 @@ describe('runModelCall', () => {
     expect(run.steps.find(s => s.name === 'model call')).toMatchObject({ servedModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' })
   })
 
+  // One call matches and another does not: the run is marked with the worst check, and the reply's model stays the answer's.
+  it('marks the run as a mismatch when the tool call came from another model, even though the answer matches', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const otherWeather = fixtureChunks('weather').map(chunk => chunk.replaceAll('anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-4.5'))
+    route([() => sseResponse(otherWeather), () => sseResponse(fixtureChunks('answer'))])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({
+      ok: true,
+      record: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'mismatch', checkedModel: 'anthropic/claude-haiku-4.5' },
+    })
+    expect(run.steps.find(s => s.name === 'model call')).toMatchObject({ servedModel: 'anthropic/claude-haiku-4.5', modelCheck: 'mismatch' })
+    expect(run.steps.find(s => s.name === 'model answer')).toMatchObject({ servedModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' })
+  })
+
   it('runs the tool the model asked for before the answer streams, then asks again with tool_choice none', async () => {
     const mock = route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(fixtureChunks('answer'))])
     const run = createRecorder()

@@ -91,8 +91,8 @@ function answerStream(
         } else {
           const cut = outcome.finishReason === 'length'
           run.add('parse and validate', 'ok', cut ? `${outcome.text.length} characters, cut off at the length limit` : `${outcome.text.length} characters`)
-          const { servedModel, newestModel, modelCheck } = outcome.record
-          send({ type: 'done', result: outcome.text, model: servedModel, newestModel, modelCheck, usage: outcome.usage, totalMs: run.elapsed() })
+          const { servedModel, newestModel, modelCheck, checkedModel } = outcome.record
+          send({ type: 'done', result: outcome.text, model: servedModel, newestModel, modelCheck, checkedModel, usage: outcome.usage, totalMs: run.elapsed() })
         }
       } catch (err) {
         console.error('ai: stream failed', err)

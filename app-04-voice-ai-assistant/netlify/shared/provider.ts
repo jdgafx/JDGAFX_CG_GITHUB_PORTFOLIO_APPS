@@ -1,7 +1,7 @@
 import { TOOL_DEFINITIONS, runTool } from './tools'
 import type { ModelRecord, Recorder } from './trace'
 import { MODEL, streamChat, type StreamOutcome, type ToolCall, type Turn, type Usage } from './stream'
-import { newestModel, servedCheck } from './newest-model'
+import { newestModel, servedCheck, type ServedCheck } from './newest-model'
 
 export { MODEL, type Turn, type Usage }
 
@@ -39,8 +39,14 @@ export interface RunOptions {
   onText: (delta: string) => void
 }
 
+/** The run's record: the reply-producing call's served model, with the worst check across all the run's model calls. */
+export interface RunModel extends ModelRecord {
+  /** The served model of the call behind `modelCheck`. A mismatch names it in the title. */
+  checkedModel: string | null
+}
+
 export type ModelOutcome =
-  | { ok: true; text: string; usage?: Usage; finishReason?: string; record: ModelRecord }
+  | { ok: true; text: string; usage?: Usage; finishReason?: string; record: RunModel }
   | { ok: false; httpStatus: number; message: string }
 
 type Okay = Extract<StreamOutcome, { ok: true }>
@@ -97,6 +103,15 @@ function recordFor(served: string | undefined, newest: string | null): ModelReco
   return { servedModel, newestModel: newest, modelCheck }
 }
 
+// How bad each check is for a run: a mismatch outranks a call that named no model, which outranks an unchecked one.
+const SEVERITY: Record<ServedCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
+// The run's record. Its served model is the reply-producing call's; its check is the worst across every call of the run.
+function runRecord(reply: ModelRecord, calls: ModelRecord[]): RunModel {
+  const worst = calls.reduce((a, b) => (SEVERITY[b.modelCheck] > SEVERITY[a.modelCheck] ? b : a))
+  return { servedModel: reply.servedModel, newestModel: reply.newestModel, modelCheck: worst.modelCheck, checkedModel: worst.servedModel }
+}
+
 const toolNames = (calls: ToolCall[]) => [...new Set(calls.map(call => call.function.name))].join(' and ')
 
 // The model call. When the model asks for tools, they run in parallel, each timed and recorded as its
@@ -119,7 +134,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
   if (calls.length === 0) {
     const { detail, ...figures } = stepFor(first, firstRecord)
     run.add('model call', 'ok', detail, figures)
-    return { ok: true, text: first.call.text, usage: sumUsage(first.usages), finishReason: first.call.finishReason, record: firstRecord }
+    return { ok: true, text: first.call.text, usage: sumUsage(first.usages), finishReason: first.call.finishReason, record: runRecord(firstRecord, [firstRecord]) }
   }
 
   const { detail, ...figures } = stepFor(first, firstRecord, `, asked for ${toolNames(calls)}`)
@@ -168,6 +183,6 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
     usage: sumUsage([...first.usages, ...answer.usages]),
     finishReason: answer.call.finishReason,
     // The run is recorded as the model that wrote the final reply, so an answer that names no model reads "not reported".
-    record: answerRecord,
+    record: runRecord(answerRecord, [firstRecord, answerRecord]),
   }
 }

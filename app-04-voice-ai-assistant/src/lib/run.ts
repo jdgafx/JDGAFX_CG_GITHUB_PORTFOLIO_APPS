@@ -32,6 +32,7 @@ export interface RunState {
   /** How the served model compares with the newest one. Set once the server finished the answer. */
   modelCheck?: ServedCheck
   newestModel?: string | null
+  checkedModel?: string | null
   usage?: Usage
   totalMs?: number
   error?: string
@@ -68,7 +69,7 @@ export type RunAction =
   | { type: 'voice-idle'; now: number }
   | { type: 'no-voice'; now: number }
   | { type: 'voice-failed'; message: string; now: number }
-  | { type: 'stream-done'; model?: string; modelCheck?: ServedCheck; newestModel?: string | null; usage?: Usage; totalMs?: number; now: number }
+  | { type: 'stream-done'; model?: string; modelCheck?: ServedCheck; newestModel?: string | null; checkedModel?: string | null; usage?: Usage; totalMs?: number; now: number }
   | { type: 'fail'; message: string; totalMs?: number }
   | { type: 'stop'; now: number }
   | { type: 'clear' }
@@ -158,7 +159,16 @@ export function runReducer(run: RunState, action: RunAction): RunState {
       return settle({ ...run, voice: 'failed', voiceNote: action.message, active: -1 }, action.now)
     case 'stream-done':
       return settle(
-        { ...run, streamDone: true, model: action.model, modelCheck: action.modelCheck, newestModel: action.newestModel, usage: action.usage, totalMs: action.totalMs },
+        {
+          ...run,
+          streamDone: true,
+          model: action.model,
+          modelCheck: action.modelCheck,
+          newestModel: action.newestModel,
+          checkedModel: action.checkedModel,
+          usage: action.usage,
+          totalMs: action.totalMs,
+        },
         action.now,
       )
     case 'fail':

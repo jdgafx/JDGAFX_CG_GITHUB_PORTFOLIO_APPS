@@ -39,6 +39,8 @@ export interface ChatDone {
   /** How the served model compares with the newest one, as the server checked it. */
   modelCheck?: ServedCheck
   newestModel?: string | null
+  /** The served model of the call behind `modelCheck`, named in the title on a mismatch. */
+  checkedModel?: string | null
   usage?: Usage
   totalMs?: number
 }
@@ -131,6 +133,7 @@ async function attempt(message: string, history: Message[], handlers: ChatHandle
             model: typeof event.model === 'string' ? event.model : undefined,
             modelCheck: typeof event.modelCheck === 'string' ? (event.modelCheck as ServedCheck) : undefined,
             newestModel: typeof event.newestModel === 'string' ? event.newestModel : undefined,
+            checkedModel: typeof event.checkedModel === 'string' ? event.checkedModel : undefined,
             usage: parseUsage(event.usage),
             totalMs: numberOrUndefined(event.totalMs),
           }
