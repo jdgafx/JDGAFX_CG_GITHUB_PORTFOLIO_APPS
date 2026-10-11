@@ -132,7 +132,7 @@ describe('ReportCard states', () => {
 
   it('puts the result heading where the focus hook looks for it', () => {
     const claims = settled()
-    const out = card('complete', { synthesizer: { ...agent, output: REPORT, status: 'complete' }, audit: { ...viewOf(claims), result: { claims, summary: summarize(claims), overLimit: 0, usage: {}, ms: 3200, model: 'anthropic/claude-haiku-5.5' } } })
+    const out = card('complete', { synthesizer: { ...agent, output: REPORT, status: 'complete' }, audit: { ...viewOf(claims), result: { claims, summary: summarize(claims), overLimit: 0, usage: {}, ms: 3200, model: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' } } } })
     expect(out).toContain('data-result-focus')
     expect(out).toContain('1 of 2 cited claims supported')
     expect(out).toContain('Audited by claude-haiku-5.5 in 3,200 ms')

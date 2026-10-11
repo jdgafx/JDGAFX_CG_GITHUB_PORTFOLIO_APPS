@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import handler from '../../netlify/functions/audit'
-import { FIXED_MODEL, PROVIDER_TIMEOUT, SITE, installHarness, refuse, request, stubFetch } from './helpers'
+import { FIXED_MODEL, PROVIDER_TIMEOUT, SERVED, SITE, installHarness, providerCalls, refuse, request, stubFetch, unnamedReply } from './helpers'
+
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-01-multi-agent-orchestrator.netlify.app'
 
 installHarness()
 
@@ -31,10 +33,7 @@ const body = (report = REPORT) => JSON.stringify({ report, sources: SOURCES })
 
 describe('audit function', () => {
   it('judges the cited sentences with one model call, verifies the quote, and decides a no-overlap sentence without the model', async () => {
-    const fetchMock = stubFetch(() => {
-      throw new Error('unused')
-    })
-    fetchMock.mockImplementation(async (_url, init) => {
+    const fetchMock = stubFetch(async (_url, init) => {
       const sent = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }>; temperature?: number }
       expect(sent.model).toBe(FIXED_MODEL)
       expect('temperature' in sent).toBe(false)
@@ -56,7 +55,7 @@ describe('audit function', () => {
       model: string
     }
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(providerCalls(fetchMock)).toHaveLength(1)
     expect(result.claims.map(claim => [claim.id, claim.verdict])).toEqual([
       [1, 'supported'],
       [2, 'partly'], // the model said supported, but 9 is in no source text
@@ -67,7 +66,14 @@ describe('audit function', () => {
     expect(result.claims[2]?.reason).toBe('It shares no content word with the source it cites.')
     expect(result.summary).toEqual({ total: 3, supported: 1, partly: 1, unsupported: 1, unchecked: 0 })
     expect(result.usage.total_tokens).toBe(380)
-    expect(result.model).toBe('anthropic/claude-haiku-5.5')
+    expect(result.model).toEqual({ servedModel: SERVED, newestModel: SERVED, modelCheck: 'match' })
+  })
+
+  it('shows a judgment whose reply named no model as not reported, never as the requested alias', async () => {
+    stubFetch(unnamedReply('{"results":[{"id":1,"verdict":"supported","source":1,"quote":"designed to conduct infrared astronomy","reason":"Stated."}]}'))
+    const res = await handler(request(body()))
+    const result = (await res.json()) as { model: unknown }
+    expect(result.model).toEqual({ servedModel: null, newestModel: SERVED, modelCheck: 'not-reported' })
   })
 
   it('shows a sentence the model skipped as not checked, and a made-up quote as partly supported', async () => {
@@ -116,6 +122,12 @@ describe('audit function', () => {
     const res = await handler(request(body('JWST is built for infrared astronomy [1].')))
     expect(res.status).toBe(502)
     expect(await res.json()).toEqual({ error: 'The audit model returned no usable verdicts. Try again.' })
+  })
+
+  it('serves a deploy preview whose Origin is the origin of its own URL', async () => {
+    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/.netlify/functions/audit` }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Missing report.' })
   })
 
   it('checks method, origin, body and rate limit before any model call', async () => {

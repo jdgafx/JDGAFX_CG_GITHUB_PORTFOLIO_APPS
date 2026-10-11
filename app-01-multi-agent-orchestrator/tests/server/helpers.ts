@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 
 export const SITE = 'https://site.example'
 export const ENDPOINT = `${SITE}/.netlify/functions/ai`
 export const KEY = 'test-only-placeholder'
 export const SERVED = 'anthropic/claude-haiku-5.5'
 export const FIXED_MODEL = '~anthropic/claude-haiku-latest'
+/** The list names the alias's newest target as SERVED, so replies that name SERVED are 'match'. */
+export const MODEL_LIST_BODY = { data: [{ id: FIXED_MODEL, name: 'Claude Haiku latest', alias_target: { slug: SERVED } }] }
 export const QUERY = 'In two sentences, compare SSE and WebSockets for streaming LLM output.'
 export const VALID_BODY = JSON.stringify({ query: QUERY })
 export const PROVIDER_REJECTED = 'The AI provider rejected the key or is out of credit.'
@@ -42,10 +45,10 @@ export function installHarness(): void {
 /** A request from a fresh client address, so the per-address rate limit never interferes. */
 export function request(
   body: string | undefined,
-  options: { method?: string; origin?: string; ip?: string; signal?: AbortSignal } = {},
+  options: { method?: string; origin?: string; ip?: string; signal?: AbortSignal; url?: string } = {},
 ): Request {
   requestCount += 1
-  return new Request(ENDPOINT, {
+  return new Request(options.url ?? ENDPOINT, {
     method: options.method ?? 'POST',
     body: options.method === 'GET' ? undefined : body,
     signal: options.signal,
@@ -135,6 +138,7 @@ export const GOOD_RETRIEVAL: Retrieval = { wikipedia: jsonReply(WIKIPEDIA_BODY),
 export function retrievalCall(url: string, retrieval: Retrieval, init?: RequestInit): Response | Promise<Response> | undefined {
   if (url.startsWith(WIKIPEDIA_HOST)) return retrieval.wikipedia(init)
   if (url.startsWith(HN_HOST)) return retrieval.hn(init)
+  if (url === MODEL_LIST_URL) return jsonReply(MODEL_LIST_BODY)()
   return undefined
 }
 
@@ -145,9 +149,12 @@ export function stubFetch(provider: (...args: Parameters<typeof fetch>) => Respo
   return fetchMock
 }
 
-/** The calls that went to the model provider, not to Wikipedia or Hacker News. */
+/** The calls that went to the model provider, not to Wikipedia, Hacker News or the model list. */
 export function providerCalls(fetchMock: ReturnType<typeof stubFetch>) {
-  return fetchMock.mock.calls.filter(call => !String(call[0]).startsWith(WIKIPEDIA_HOST) && !String(call[0]).startsWith(HN_HOST))
+  return fetchMock.mock.calls.filter(call => {
+    const url = String(call[0])
+    return !url.startsWith(WIKIPEDIA_HOST) && !url.startsWith(HN_HOST) && url !== MODEL_LIST_URL
+  })
 }
 
 /** Routes each provider call to the reply planned for its stage, judged from the system prompt sent. */
@@ -158,13 +165,13 @@ export function plan(replies: Record<Stage, () => Response>, retrieval = GOOD_RE
   }, retrieval)
 }
 
-export function reply(text: string, cost: number, prompt: number, completion: number): () => Response {
+export function reply(text: string, cost: number, prompt: number, completion: number, model = SERVED): () => Response {
   return () => {
     const body =
       [
-        { model: SERVED, choices: [{ delta: { content: text } }] },
+        { model, choices: [{ delta: { content: text } }] },
         {
-          model: SERVED,
+          model,
           choices: [{ delta: {}, finish_reason: 'stop' }],
           usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, cost },
         },
@@ -173,6 +180,17 @@ export function reply(text: string, cost: number, prompt: number, completion: nu
         .join('') + 'data: [DONE]\n\n'
     return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
   }
+}
+
+/** A reply whose frames name no model, so its served model is not reported. */
+export function unnamedReply(text: string): () => Response {
+  return () =>
+    new Response(
+      [{ choices: [{ delta: { content: text } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }]
+        .map(value => `data: ${JSON.stringify(value)}\n\n`)
+        .join('') + 'data: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
 }
 
 export function refuse(status: number, body: string): () => Response {

@@ -18,7 +18,10 @@ import {
   stalledBody,
   stubFetch,
   unfinishedReply,
+  unnamedReply,
 } from './helpers'
+
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-01-multi-agent-orchestrator.netlify.app'
 
 installHarness()
 
@@ -50,7 +53,7 @@ describe('ai function: success path', () => {
       type: 'agent_complete',
       agent: 'researcher',
       finish: 'stop',
-      servedModel: SERVED,
+      model: { servedModel: SERVED, newestModel: SERVED, modelCheck: 'match' },
       usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160, cost: 0.0001 },
     })
     expect(typeof events[4]?.ms).toBe('number')
@@ -62,7 +65,7 @@ describe('ai function: success path', () => {
       type: 'session_complete',
       agent: 'synthesizer',
       result: expect.stringMatching(/^SSE is one-way and simpler to proxy\. WebSockets are two-way and heavier\.\n\n### Sources\n/),
-      model: SERVED,
+      model: { servedModel: SERVED, newestModel: SERVED, modelCheck: 'match' },
       usage: { prompt_tokens: 750, completion_tokens: 180, total_tokens: 930, cost: expect.closeTo(0.00063, 10) },
     })
     expect(summary?.trace).toEqual([
@@ -179,6 +182,45 @@ describe('ai function: request handling', () => {
     const res = await handler(request(JSON.stringify({ query: 'a'.repeat(8000), pad: 'x'.repeat(2000) })))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Request body too large.' })
+  })
+
+  it('serves a deploy preview whose Origin is the origin of its own URL', async () => {
+    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/.netlify/functions/ai` }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Missing query.' })
+  })
+
+  it('shows a synthesizer reply that named no model as not reported, not the model of another stage', async () => {
+    plan({
+      researcher: reply('- SSE sends one-way events.', 0.0001, 120, 40),
+      analyst: reply('- One-way push fits LLM output.', 0.00008, 150, 30),
+      critic: reply('- Browser support is not discussed.', 0.00005, 180, 20),
+      synthesizer: unnamedReply('SSE is one-way and simpler to proxy.'),
+    })
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(events.find(event => event.type === 'agent_complete' && event.agent === 'synthesizer')).toMatchObject({
+      model: { servedModel: null, newestModel: SERVED, modelCheck: 'not-reported' },
+    })
+    expect(events.at(-1)).toMatchObject({ type: 'session_complete', model: { servedModel: null, modelCheck: 'not-reported' } })
+  })
+
+  it('shows and logs a served model that is not the newest, and still returns the reply', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const other = 'anthropic/claude-other-model'
+    plan({
+      researcher: reply('- SSE sends one-way events.', 0.0001, 120, 40),
+      analyst: reply('- One-way push fits LLM output.', 0.00008, 150, 30),
+      critic: reply('- Browser support is not discussed.', 0.00005, 180, 20),
+      synthesizer: reply('SSE is one-way and simpler to proxy.', 0.0004, 300, 90, other),
+    })
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(events.at(-1)).toMatchObject({
+      type: 'session_complete',
+      result: expect.stringContaining('SSE is one-way and simpler to proxy.'),
+      model: { servedModel: other, newestModel: SERVED, modelCheck: 'mismatch' },
+    })
+    expect(warn).toHaveBeenCalledWith(`model mismatch: served ${other}, newest ${SERVED}, requested ${FIXED_MODEL}`)
+    warn.mockRestore()
   })
 
   it('refuses an origin that is not allowed with a 403 JSON error', async () => {

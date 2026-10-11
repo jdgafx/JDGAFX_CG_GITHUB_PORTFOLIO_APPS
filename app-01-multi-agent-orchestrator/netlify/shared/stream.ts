@@ -229,7 +229,7 @@ function combineAttempts(attempts: StageResult[], retried: string | undefined): 
     ...(retried ? { retried } : {}),
     content: best.content,
     finish: best.finish,
-    servedModel: best.servedModel ?? attempts.map(attempt => attempt.servedModel).find(Boolean),
+    servedModel: best.servedModel,
     reasoningTokens: attempts.reduce((sum, attempt) => sum + attempt.reasoningTokens, 0),
     usage: sumUsage(attempts.map(attempt => attempt.usage)),
   }

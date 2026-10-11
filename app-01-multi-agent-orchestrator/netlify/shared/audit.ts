@@ -9,9 +9,10 @@ import {
   type ClaimDraft,
   type Judgment,
 } from '../../src/lib/audit'
-import type { AuditClaim, AuditResult, Source } from '../../src/types'
+import type { AuditClaim, AuditResult, ModelFacts, Source } from '../../src/types'
 import type { AgentConfig } from './agents'
 import { RequestError, readJsonBody } from './gate'
+import { modelFacts, newestModel } from './newest-model'
 import type { Provider } from './provider'
 import { MAX_SNIPPET_CHARS } from './retrieve'
 import { runStage } from './stream'
@@ -144,13 +145,14 @@ export async function runAudit(
 
   let judgments: Judgment[] = []
   let usage = {}
-  let model: string | undefined
+  let model: ModelFacts | undefined
   let retried: string | undefined
   if (toJudge.length > 0) {
+    const newestP = newestModel()
     const stage = await runStage(AUDIT_AGENT, auditMessage(toJudge, sources), provider, deadline, runSignal)
     judgments = parseJudgments(stage.content)
     usage = stage.usage
-    model = stage.servedModel
+    model = modelFacts(stage.servedModel, await newestP)
     retried = stage.retried
     if (judgments.length === 0) {
       throw new AuditUnavailableError(

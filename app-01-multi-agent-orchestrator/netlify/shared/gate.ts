@@ -66,13 +66,14 @@ function requestHost(req: Request): string {
  * A browser-side guard, not access control. It stops other sites' pages from using this
  * endpoint by accident. Any script can send an allowed Origin header, and a request with no
  * Origin header passes. Same-origin always passes, so deploy previews and custom domains
- * need no manual entry.
+ * need no manual entry. The origin of the request's own URL passes too, because the host headers
+ * can name another site (the production one) when the function runs behind a deploy preview.
  */
 export function isOriginAllowed(req: Request, origin: string | null): boolean {
   if (!origin) return true // non-browser client sends no Origin
   if (ALLOWED_ORIGINS.includes(origin)) return true
   try {
-    return new URL(origin).host === requestHost(req)
+    return new URL(origin).host === requestHost(req) || origin === new URL(req.url).origin
   } catch {
     return false
   }

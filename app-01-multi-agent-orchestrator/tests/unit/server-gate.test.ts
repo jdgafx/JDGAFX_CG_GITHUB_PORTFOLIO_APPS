@@ -1,15 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MAX_QUERY_CHARS } from '../../src/lib/agents'
 import { RequestError, clientKey, fail, rateLimit, readQuery, sseEvent } from '../../netlify/shared/gate'
+import { DEFAULT_SITE_URL } from '../../netlify/shared/provider'
 
 const SITE = 'https://site.example'
 const endpoint = `${SITE}/.netlify/functions/ai`
+const PREVIEW = 'https://deploy-preview-9--jdgafx-app-01-multi-agent-orchestrator.netlify.app'
 
 /** The gate reads its origin allowlist when it loads, so origin tests load it fresh. */
 async function loadOriginGate(allowed: string) {
   vi.resetModules()
   vi.stubEnv('ALLOWED_ORIGINS', allowed)
   return import('../../netlify/shared/gate')
+}
+
+/** The gate with ALLOWED_ORIGINS unset, so it uses its built-in list. */
+async function loadDefaultOriginGate() {
+  vi.resetModules()
+  const saved = process.env.ALLOWED_ORIGINS
+  delete process.env.ALLOWED_ORIGINS
+  try {
+    return await import('../../netlify/shared/gate')
+  } finally {
+    if (saved !== undefined) process.env.ALLOWED_ORIGINS = saved
+  }
 }
 
 /** The status and message of a rejected request, failing the test if it did not reject. */
@@ -50,6 +64,31 @@ describe('origin allowlist', () => {
     expect(gate.corsHeaders(req, 'https://allowed.example')['Access-Control-Allow-Origin']).toBe('https://allowed.example')
     expect(gate.corsHeaders(req, 'https://evil.example')['Access-Control-Allow-Origin']).toBeUndefined()
     expect(gate.corsHeaders(req, null).Vary).toBe('Origin')
+  })
+})
+
+describe('same-origin requests', () => {
+  // The host header clause sees the production host here, as a preview behind the proxy does, so only the own-URL clause can allow it.
+  const previewRequest = () => new Request(`${PREVIEW}/.netlify/functions/ai`, { method: 'POST', headers: { 'x-forwarded-host': 'site.example' } })
+
+  it('lets through an Origin equal to the origin of the request own URL', async () => {
+    const gate = await loadDefaultOriginGate()
+    expect(gate.isOriginAllowed(previewRequest(), PREVIEW)).toBe(true)
+  })
+
+  it('still refuses a foreign origin', async () => {
+    const gate = await loadDefaultOriginGate()
+    expect(gate.isOriginAllowed(previewRequest(), 'https://evil.example')).toBe(false)
+  })
+
+  it('keeps the production origin allowed', async () => {
+    const gate = await loadDefaultOriginGate()
+    expect(gate.isOriginAllowed(previewRequest(), DEFAULT_SITE_URL)).toBe(true)
+  })
+
+  it('lets a request with no Origin header through, as before', async () => {
+    const gate = await loadDefaultOriginGate()
+    expect(gate.isOriginAllowed(previewRequest(), null)).toBe(true)
   })
 })
 

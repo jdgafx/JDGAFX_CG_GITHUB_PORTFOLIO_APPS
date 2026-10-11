@@ -38,11 +38,22 @@ export interface TraceStep {
   cost?: number
 }
 
+/** 'match': the served model is the newest Haiku. 'mismatch': it is not. 'unchecked': the list does not name the newest. 'not-reported': the reply named no model. */
+export type ModelCheck = 'match' | 'mismatch' | 'unchecked' | 'not-reported'
+
+/** The model facts of one model call. servedModel is null when the reply named none; it is never the requested alias. */
+export interface ModelFacts {
+  servedModel: string | null
+  newestModel: string | null
+  modelCheck: ModelCheck
+}
+
 export interface RunSummary {
   result: string
   trace: TraceStep[]
   usage: StageUsage
-  model?: string
+  /** The model of the Synthesizer, whose reply is the report shown. */
+  model?: ModelFacts
   totalMs: number
 }
 
@@ -60,7 +71,7 @@ export interface AgentState {
   finish: string | null
   reasoningTokens: number
   usage?: StageUsage
-  servedModel?: string
+  model?: ModelFacts
   /** Why this stage was tried a second time, when it was. */
   retried?: string
   /** Set on the retriever only: what it found. An empty list means it found nothing. */
@@ -80,7 +91,7 @@ export type StreamEvent =
       detail: string
       finish: string | null
       reasoningTokens: number
-      servedModel?: string
+      model: ModelFacts
       usage: StageUsage
       /** Why the stage was tried a second time, when it was: 'timeout', 'connection' or 'reply'. */
       retried?: string
@@ -139,7 +150,8 @@ export interface AuditResult {
   summary: AuditSummary
   /** Cited sentences past the audit's limit; they are listed as not checked. */
   overLimit: number
-  model?: string
+  /** The model of the audit's one judgment call. Absent when no sentence needed the model. */
+  model?: ModelFacts
   usage: StageUsage
   ms: number
   /** Why the model call was tried a second time, when it was. */

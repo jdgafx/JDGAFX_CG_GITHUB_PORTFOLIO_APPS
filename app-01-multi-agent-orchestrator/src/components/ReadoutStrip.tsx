@@ -1,7 +1,7 @@
 import { formatCount, formatUsd, sumUsage } from '../lib/usage'
 import { milliseconds, shortModel } from '../lib/format'
 import type { AuditView } from '../lib/auditState'
-import type { RunSummary, StageUsage } from '../types'
+import type { ModelCheck, ModelFacts, RunSummary, StageUsage } from '../types'
 
 export type ReadoutState = 'idle' | 'running' | 'done'
 
@@ -11,9 +11,29 @@ interface ReadoutProps {
   /** True when the run ended before the server's total arrived, so the total is a sum of stage times. */
   totalIsStageSum: boolean
   usage: StageUsage
-  model?: string
+  model?: ModelFacts
   summary: RunSummary | null
   audit: AuditView
+}
+
+/** The one marker a served-model chip carries. A mismatch uses the warning badge; a reply that named no model carries none. */
+const MODEL_MARKER: Partial<Record<ModelCheck, { text: string; className: string }>> = {
+  match: { text: '· newest', className: 'ds-chip--muted' },
+  mismatch: { text: '· not newest', className: 'ds-badge ds-badge--warning' },
+  unchecked: { text: '· unchecked', className: 'ds-chip--muted' },
+}
+
+/** The served model, or "not reported", then its marker. The full ids stay in the title. */
+function ModelChip({ facts }: { facts: ModelFacts }) {
+  const { servedModel, newestModel, modelCheck } = facts
+  const marker = MODEL_MARKER[modelCheck]
+  const title = modelCheck === 'mismatch' ? `${servedModel}, newest: ${newestModel}` : (servedModel ?? undefined)
+  return (
+    <span className="ds-chip" title={title}>
+      {servedModel ? shortModel(servedModel) : 'not reported'}
+      {marker && <span className={marker.className}>{marker.text}</span>}
+    </span>
+  )
 }
 
 function Cell({ label, hint, children, mono = true }: { label: string; hint: string; children: React.ReactNode; mono?: boolean }) {
@@ -34,7 +54,8 @@ export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, su
   const auditUsage = audit.result?.usage
   const both = audit.phase === 'done' && auditUsage ? sumUsage([usage, auditUsage]) : usage
   const ms = totalMs === undefined ? undefined : totalMs + (audit.phase === 'done' ? (audit.result?.ms ?? 0) : 0)
-  const models = [...new Set([model, audit.result?.model].filter((id): id is string => Boolean(id)))]
+  const models = [model, audit.result?.model].filter((facts): facts is ModelFacts => facts !== undefined)
+  const shown = models.filter((facts, i) => models.findIndex(other => other.servedModel === facts.servedModel && other.modelCheck === facts.modelCheck) === i)
   const dash = '—'
   const tone = running ? ' ds-strip--live' : state === 'idle' ? ' ds-strip--pending' : ''
   const withAudit = audit.phase === 'done'
@@ -53,12 +74,10 @@ export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, su
           {state === 'idle' || running ? dash : formatUsd(both.cost)}
         </Cell>
         <Cell label="Model" hint="Named in the provider replies" mono={false}>
-          {models.length > 0 ? (
+          {shown.length > 0 ? (
             <span className="ds-chips">
-              {models.map(id => (
-                <span key={id} className="ds-chip" title={id}>
-                  {shortModel(id)}
-                </span>
+              {shown.map(facts => (
+                <ModelChip key={`${facts.servedModel}|${facts.modelCheck}`} facts={facts} />
               ))}
             </span>
           ) : state === 'idle' || running ? (

@@ -126,7 +126,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
   const result = audit.result
   const foot =
     audit.phase === 'done' && result
-      ? `Audited by ${result.model ? shortModel(result.model) : 'the model'} in ${milliseconds(result.ms)}${result.retried ? `, retried once after a ${result.retried === 'timeout' ? 'timeout' : result.retried === 'connection' ? 'dropped connection' : 'failed attempt'}` : ''}. The audit reads the extract of each source shown below, not the whole article.`
+      ? `Audited by ${result.model?.servedModel ? shortModel(result.model.servedModel) : 'the model'} in ${milliseconds(result.ms)}${result.retried ? `, retried once after a ${result.retried === 'timeout' ? 'timeout' : result.retried === 'connection' ? 'dropped connection' : 'failed attempt'}` : ''}. The audit reads the extract of each source shown below, not the whole article.`
       : 'The audit reads the extract of each source shown below, not the whole article.'
 
   return (

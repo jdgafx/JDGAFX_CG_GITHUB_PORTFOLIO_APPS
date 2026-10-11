@@ -106,10 +106,10 @@ export default function App() {
           return
         }
         case 'agent_complete': {
-          const { agent, ms, detail, finish, reasoningTokens, servedModel, usage, retried } = event
+          const { agent, ms, detail, finish, reasoningTokens, model, usage, retried } = event
           setAgents(prev => ({
             ...prev,
-            [agent]: { ...prev[agent], status: 'complete', ms, detail, finish, reasoningTokens, servedModel, usage, retried },
+            [agent]: { ...prev[agent], status: 'complete', ms, detail, finish, reasoningTokens, model, usage, retried },
           }))
           setAnnouncement(`${AGENT_META[agent].name} finished in ${ms.toLocaleString('en-US')} ms.`)
           return
@@ -249,7 +249,8 @@ export default function App() {
   const totalMs = summary?.totalMs ?? (isRunning ? elapsedMs : stageMsTotal > 0 ? stageMsTotal : undefined)
   const totalIsStageSum = !summary && !isRunning && stageMsTotal > 0
   const usage = summary ? summary.usage : sumUsage(startedRoles.map(role => agents[role].usage))
-  const model = summary ? summary.model : startedRoles.map(role => agents[role].servedModel).find(Boolean)
+  // The readout names the model of the Synthesizer, whose reply is the report shown. Never another stage's model.
+  const model = summary ? summary.model : agents.synthesizer.model
 
   const steps = buildSteps(agents, { phase: audit.view.phase, ms: audit.view.result?.ms })
   const traceRows = buildTraceRows(steps, agents, audit.view)

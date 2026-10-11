@@ -1,9 +1,10 @@
 import { isCutOff } from '../../src/lib/finish'
 import { stripBadCitations, withSources } from '../../src/lib/sources'
 import { sumUsage } from '../../src/lib/usage'
-import type { StageUsage, StreamEvent, TraceStep } from '../../src/types'
+import type { ModelFacts, StageUsage, StreamEvent, TraceStep } from '../../src/types'
 import { AGENTS, MIN_STAGE_MS, RUN_BUDGET_MS, keyLine, type AgentConfig, type AgentContext } from '../shared/agents'
 import { RequestError, clientKey, corsHeaders, fail, isOriginAllowed, rateLimit, readQuery, sseEvent } from '../shared/gate'
+import { newestModel, modelFacts } from '../shared/newest-model'
 import { getProvider, type Provider } from '../shared/provider'
 import { RETRIEVE_TIMEOUT_MS, retrieveSources } from '../shared/retrieve'
 import {
@@ -24,7 +25,6 @@ interface StageRecord {
   ms: number
   detail: string
   usage?: StageUsage
-  servedModel?: string
 }
 
 function failureMessage(err: unknown, name: string): string {
@@ -78,6 +78,8 @@ async function runPipeline(
   const deadline = runStart + RUN_BUDGET_MS
   const context: AgentContext = {}
   const records: StageRecord[] = []
+  /** The model of the Synthesizer, whose reply is the report the visitor is shown. */
+  let shownModel: ModelFacts | undefined
 
   send({ type: 'retrieve_start' })
   const found = await retrieveSources(query, {
@@ -95,6 +97,8 @@ async function runPipeline(
   }
   send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail })
 
+  // One list fetch per run, started before the first model call. It is awaited after each reply and never adds more than its own timeout.
+  const newestP = newestModel()
   for (const agent of AGENTS) {
     if (runSignal.aborted) return
     const started = Date.now()
@@ -119,7 +123,9 @@ async function runPipeline(
       const content = agent.role === 'synthesizer' ? withSources(cleaned, found.sources) : cleaned
       context[agent.role] = content
       const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
-      records.push({ name: agent.name, status, ms, detail, usage: stage.usage, servedModel: stage.servedModel })
+      const model = modelFacts(stage.servedModel, await newestP)
+      if (agent.role === 'synthesizer') shownModel = model
+      records.push({ name: agent.name, status, ms, detail, usage: stage.usage })
       send({ type: 'agent_chunk', agent: agent.role, content })
       send({
         type: 'agent_complete',
@@ -128,7 +134,7 @@ async function runPipeline(
         detail,
         finish: stage.finish,
         reasoningTokens: stage.reasoningTokens,
-        servedModel: stage.servedModel,
+        model,
         usage: stage.usage,
         ...(stage.retried ? { retried: stage.retried } : {}),
       })
@@ -148,7 +154,7 @@ async function runPipeline(
     result: context.synthesizer ?? '',
     trace: [retrieveRecord, ...records].map(toTraceStep),
     usage: sumUsage(called.map(record => record.usage)),
-    model: called.map(record => record.servedModel).find(Boolean),
+    model: shownModel,
     totalMs: Date.now() - runStart,
   })
 }
