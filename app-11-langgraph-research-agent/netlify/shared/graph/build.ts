@@ -2,7 +2,7 @@ import { END, MemorySaver, START, StateGraph, type LangGraphRunnableConfig } fro
 import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
 import type { NodeName } from '../events'
 import type { ChatFn } from '../openrouter'
-import { costFor, type PriceBook } from '../pricing'
+import { costFor, newestModel, type PriceBook } from '../pricing'
 import type { WikiTools } from '../wikipedia'
 import {
   agentStep,
@@ -52,7 +52,9 @@ export interface FailedChunk {
 export type CustomChunk = StartChunk | FailedChunk
 
 async function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult, priceBook: Promise<PriceBook | null>): Promise<TraceRow> {
-  const detail = result.call?.retried ? `${result.detail} The first call timed out or could not connect, so it was tried once more.` : result.detail
+  const retry = result.call?.retried ? ' The first call timed out or could not connect, so it was tried once more.' : ''
+  const unchecked = result.call && !result.call.checked ? ' The served model was not checked: the price list was unavailable.' : ''
+  const detail = `${result.detail}${retry}${unchecked}`
   const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail }
   if (result.route) row.next = result.route.label
   if (result.call) {
@@ -90,6 +92,7 @@ function routeAfter(state: ResearchValues): Target {
 export function buildGraph(deps: GraphDeps) {
   const origin = Date.now()
   const priceBook = deps.priceBook ?? Promise.resolve(null)
+  const newest = priceBook.then(newestModel)
 
   const wrap =
     (name: NodeName, run: (state: ResearchValues, ctx: NodeContext) => NodeResult | Promise<NodeResult>) =>
@@ -99,7 +102,7 @@ export function buildGraph(deps: GraphDeps) {
       write({ kind: 'start', node: name, visit, ms: Date.now() - origin } satisfies StartChunk)
       const began = Date.now()
       try {
-        const result = await run(state, deps)
+        const result = await run(state, { ...deps, newestModel: newest })
         const row = await rowFor(name, visit, Date.now() - began, result, priceBook)
         return { ...result.update, route: result.route ?? null, trace: [row] }
       } catch (err) {

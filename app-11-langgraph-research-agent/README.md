@@ -36,12 +36,12 @@ flowchart TD
 - A reply the critic cannot read goes to final as "not reviewed", and the answer says so.
 - **out of time** edges (agent to draft, critic to final) are taken when the time left is below what the next step needs. The node detail says how many seconds were left, for example "Time left 6 s: no more searches. Drafting with what has been read." A skipped review leaves the answer labelled "Unreviewed: the time limit ended the review."
 
-Every node requests one model, the OpenRouter alias `~anthropic/claude-haiku-latest`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. The trace shows the model OpenRouter answered with (the `model` field of each reply), never the alias. The app holds no price table: prices come from OpenRouter at run time (see Cost). Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
+Every node requests one model, the OpenRouter alias `~anthropic/claude-haiku-latest`, named once as `NODE_MODEL` in `netlify/shared/models.ts`. The trace shows the model OpenRouter answered with (the `model` field of each reply), never the alias. The app holds no price table: prices come from OpenRouter at run time (see Cost). A reply from any model other than the newest Haiku that OpenRouter's list resolves the alias to is refused: that step fails with a plain message, and nothing from that reply is priced or shown. An answer that cites none of the sources read is not shown either. Haiku 5.5 rejects a temperature, so no call sends one. Reasoning is off on every call.
 
 | Node | What it does | Reply cap | p50 / p95 (ms) |
 | --- | --- | --- | --- |
 | plan | Writes one to three short queries as JSON. | 400 tokens | 1,644 / 3,769 |
-| agent | Calls the Wikipedia tools. It must call a tool until it has read one page (`tool_choice: required`). | 800 tokens | 1,436 / 2,652 |
+| agent | Calls the Wikipedia tools (`tool_choice: auto`; the model decides when it has read enough). | 800 tokens | 1,436 / 2,652 |
 | draft | Writes cited prose from the numbered sources. | 1,200 tokens | 1,689 / 3,576 |
 | critic | Lists its checks, then returns a verdict and issues that quote the draft, as JSON. Accept is the default. | 400 tokens | 1,829 / 2,923 |
 

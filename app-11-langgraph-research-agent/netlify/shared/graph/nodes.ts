@@ -2,6 +2,7 @@ import { citedNumbers, cleanRevisedAnswer, sanitizeCitations, sourcesFor } from 
 import type { EndingView, NodeStatus } from '../events'
 import { PlainError } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
+import { servedMismatch } from '../pricing'
 import {
   isRetryable,
   type AssistantToolCall,
@@ -34,6 +35,8 @@ export interface NodeContext {
   deadline?: number
   /** The clock. Tests replace it. */
   now?: () => number
+  /** The newest Haiku the price list resolves the alias to. Null when the list could not be had. */
+  newestModel?: Promise<string | null>
 }
 
 /** A model call a node made, kept so the trace can show its model, tokens and cost. */
@@ -42,6 +45,8 @@ export interface NodeCall {
   reply: ChatReply
   /** True when the first attempt timed out and this reply came from the one retry. */
   retried: boolean
+  /** False when the price list could not say which model is the newest, so the served model is unchecked. */
+  checked: boolean
 }
 
 /** Milliseconds left in the run budget. */
@@ -52,6 +57,7 @@ export function timeLeft(ctx: NodeContext): number {
 const secondsLeft = (ctx: NodeContext) => `${Math.max(0, Math.floor(timeLeft(ctx) / 1000))} s`
 
 const OUT_OF_TIME = 'out of time'
+const UNCITED = 'The answer cites none of the sources it was given, so it was not shown.'
 const NEEDS = STEP_NEEDS_MS
 
 /** What a node returns. The wrapper in build.ts adds the trace row and the route key. */
@@ -66,8 +72,8 @@ export interface NodeResult {
 interface CallOptions {
   maxTokens: number
   messages: ChatMessage[]
-  /** Offer the tools. 'required' makes the model call one, so it cannot stop before it has read a page. */
-  tools?: 'auto' | 'required'
+  /** Offer the tools. The model chooses whether to call one (tool_choice auto). */
+  tools?: boolean
   json?: boolean
   /** The time that must be left for a retry to be worth it: this step again plus what must still follow. */
   retryNeedsMs: number
@@ -85,15 +91,23 @@ async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCa
   }
   if (options.tools) {
     request.tools = TOOL_DEFINITIONS
-    request.tool_choice = options.tools
+    request.tool_choice = 'auto'
   }
   if (options.json) request.response_format = { type: 'json_object' }
+  let retried = false
+  let reply: ChatReply
   try {
-    return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: false }
+    reply = await ctx.chat(request, ctx.signal)
   } catch (err) {
     if (!isRetryable(err) || timeLeft(ctx) < options.retryNeedsMs) throw err
-    return { model: NODE_MODEL, reply: await ctx.chat(request, ctx.signal), retried: true }
+    reply = await ctx.chat(request, ctx.signal)
+    retried = true
   }
+  // A reply from any model but the newest Haiku is refused here, so it is never priced or accepted as an answer.
+  const newest = (await ctx.newestModel) ?? null
+  const refused = newest === null ? null : servedMismatch(newest, reply.servedModel)
+  if (refused !== null) throw new PlainError(502, refused)
+  return { model: NODE_MODEL, reply, retried, checked: newest !== null }
 }
 
 function toAssistantCall(call: ToolCall): AssistantToolCall {
@@ -154,8 +168,7 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
     maxTokens: MAX_TOKENS.agent,
     retryNeedsMs: NEEDS.agent + NEEDS.draft,
     messages: [{ role: 'system', content: agentSystem(roundsLeft) }, ...state.messages, ...intro],
-    // A search result is not a source, so until one page is read the model must keep calling tools.
-    tools: state.evidence.length === 0 ? 'required' : 'auto',
+    tools: true,
   })
 
   const { text, toolCalls: requested } = call.reply
@@ -351,6 +364,8 @@ export function finalStep(state: ResearchValues): NodeResult {
       : { text: state.draftText, reviewRemoved: 0, factsRemoved: 0 }
   const answer = sanitizeCitations(cleaned.text, state.evidence)
   const sources = sourcesFor(answer, state.evidence)
+  // With sources read, an answer that cites none of them is not shown, whatever the critic said.
+  if (state.evidence.length > 0 && sources.length === 0) throw new PlainError(502, UNCITED)
   const unreviewed = state.critique !== null && !state.critique.reviewed
   // A year gap the sources do not bear out, left after the revisions or for lack of time, is said, not hidden.
   const gapIssues = yearGapIssues(state.question, answer, state.evidence)

@@ -158,8 +158,8 @@ describe('graph: the path taken', () => {
     expect(out.errors).toEqual([])
     // No call sends a temperature, which Haiku 5.5 rejects.
     expect(out.calls.every((call) => !('temperature' in call))).toBe(true)
-    // Until a page is read the agent must call a tool. Once one is read it may stop.
-    expect(out.calls.filter((call) => call.tools).map((call) => call.tool_choice)).toEqual(['required', 'auto'])
+    // The tools are offered on auto, never required: a forced call is served by an older Haiku on the alias.
+    expect(out.calls.filter((call) => call.tools).map((call) => call.tool_choice)).toEqual(['auto', 'auto'])
   })
 
   it('(b) the critic sends the draft back once, and the second draft gets the notes', async () => {
@@ -387,25 +387,18 @@ describe('graph: the path taken', () => {
     expect(out.result?.totals).toMatchObject({ cost: RUN_COST, tokens: 5 * 140, unpricedRows: 0 })
   })
 
-  it('(j2) a price follows the model named in the reply, not the one asked for', async () => {
+  it('(j2) a reply from an older model is refused, so it is never priced', async () => {
     const out = await run({ ...PRICED_RUN, servedModel: 'anthropic/claude-haiku-4.5' })
 
-    // 100 prompt tokens at $1 per 1M plus 40 completion tokens at $5 per 1M.
-    for (const end of modelRows(out.ends)) expect(end).toMatchObject({ servedModel: 'anthropic/claude-haiku-4.5', cost: 0.0003 })
-    expect(out.result?.models).toEqual(['anthropic/claude-haiku-4.5'])
+    expect(out.result).toBeNull()
+    expect(modelRows(out.ends).every((end) => end.cost === undefined)).toBe(true)
   })
 
-  it('(j3) a reply with no model field shows its tokens and no price', async () => {
+  it('(j3) a reply with no model field is refused, so it is never priced', async () => {
     const out = await run({ ...PRICED_RUN, servedModel: null })
 
-    for (const end of modelRows(out.ends)) {
-      expect(end.usage).toMatchObject({ total_tokens: 140 })
-      expect(end.cost).toBeUndefined()
-    }
-    expect(out.result?.models).toEqual([])
-    expect(out.result?.totals).toMatchObject({ tokens: 5 * 140, unpricedRows: 5 })
-    expect(out.result?.totals.cost).toBeUndefined()
-    expect(out.errors).toEqual([])
+    expect(out.result).toBeNull()
+    expect(out.errors).toEqual([expect.stringContaining('a model it did not name')])
   })
 
   it('(j4) a price list that could not be fetched leaves the tokens and no price, with no fallback', async () => {
@@ -483,3 +476,35 @@ describe('graph: the path taken', () => {
     expect(frames.some((frame) => frame.type === 'error')).toBe(false)
   })
 })
+
+describe('graph: the model that answers', () => {
+  const OLD_HAIKU = 'anthropic/claude-haiku-4.5'
+  const readTurn = { tools: [readPage('call_1', "Expo '98")] }
+
+  it('(f) a reply from an older Haiku is refused: no answer, no price on that step', async () => {
+    const out = await run({ agent: [readTurn], draft: [DRAFT_CITED], critic: [], servedModel: OLD_HAIKU })
+
+    expect(out.result).toBeNull()
+    expect(out.errors).toEqual([expect.stringContaining('The reply came from anthropic/claude-haiku-4.5, not anthropic/claude-haiku-5.5')])
+    expect(out.ends.some((frame) => frame.cost !== undefined)).toBe(false)
+  })
+
+  it('(h) with the price list unavailable, the trace says the served model was not checked', async () => {
+    const out = await run({ agent: [readTurn], draft: [DRAFT_CITED], critic: ['{"verdict": "accept", "issues": []}'] }, fakeWiki(), null)
+
+    expect(out.result).not.toBeNull()
+    expect(out.ends.find((frame) => frame.node === 'agent')?.detail).toContain('The served model was not checked')
+  })
+
+  it('(j) an answer that cites none of the sources it was given is not shown', async () => {
+    const out = await run({
+      agent: [readTurn, { text: 'Enough sources.' }],
+      draft: ['Lisbon hosted Expo 98 in 1998.'],
+      critic: ['{"verdict": "accept", "issues": []}'],
+    })
+
+    expect(out.result).toBeNull()
+    expect(out.errors).toEqual([expect.stringContaining('cites none of the sources')])
+  })
+})
+

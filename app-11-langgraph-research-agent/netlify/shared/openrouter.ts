@@ -62,7 +62,7 @@ export interface ChatRequest {
   messages: ChatMessage[]
   max_tokens: number
   tools?: ToolDefinition[]
-  tool_choice?: 'auto' | 'required'
+  tool_choice?: 'auto'
   response_format?: { type: 'json_object' }
 }
 

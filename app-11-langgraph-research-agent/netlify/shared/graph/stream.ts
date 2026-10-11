@@ -147,6 +147,8 @@ export function partialResult(values: ResearchValues, ms: number, message: strin
     const draft = values.revisions > 0 ? cleanRevisedAnswer(values.draftText, values.evidence, values.question).text : values.draftText
     const answer = sanitizeCitations(draft, values.evidence)
     const sources = sourcesFor(answer, values.evidence)
+    // A draft that cites none of the sources read is not shown, even as a partial answer.
+    if (values.evidence.length > 0 && sources.length === 0) return null
     const reviewed = values.draftReviewed && values.critique !== null
     const text = !reviewed
       ? values.revisions === 0

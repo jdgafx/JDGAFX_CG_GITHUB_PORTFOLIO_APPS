@@ -102,6 +102,9 @@ async function run(harness: Harness) {
   }
 }
 
+/** The trace note on a model call when the price list is unavailable, so the served model cannot be checked. */
+const UNCHECKED = ' The served model was not checked: the price list was unavailable.'
+
 describe('time-aware edges', () => {
   it('skips a tool round the time left cannot cover, with the reason on the edge and in the trace', async () => {
     // 4.9 s left at the first agent turn: a round needs 5 s (the tools and a draft), so the agent goes to the draft.
@@ -109,7 +112,7 @@ describe('time-aware edges', () => {
     expect(out.path).toEqual(['plan', 'agent', 'draft', 'critic', 'final'])
     expect(out.edges).toEqual(['draft (out of time)', 'final (accepted)'])
     expect(out.ends.find((end) => end.node === 'agent')?.detail).toBe(
-      'Time left 4 s: no more searches. Drafting with what has been read.',
+      `Time left 4 s: no more searches. Drafting with what has been read.${UNCHECKED}`,
     )
   })
 
@@ -179,10 +182,10 @@ describe('the critic verdict routes on its issues', () => {
       script: { critic: [revise(QUOTE, 'Cite the theme.'), '{"verdict": "accept", "issues": []}'] },
     })
     expect(out.edges).toEqual(['draft (no more searches)', 'revise (1 of 2)', 'final (accepted)'])
-    expect(out.ends.find((end) => end.node === 'critic')?.detail).toBe(`"${QUOTE}": Cite the theme.`)
+    expect(out.ends.find((end) => end.node === 'critic')?.detail).toBe(`"${QUOTE}": Cite the theme.${UNCHECKED}`)
   })
 
-  const NO_QUOTE = 'The critic asked for changes but quoted no problem from the draft, so the draft is accepted.'
+  const NO_QUOTE = `The critic asked for changes but quoted no problem from the draft, so the draft is accepted.${UNCHECKED}`
 
   it('accepts a revise verdict that names no issue, and says why', async () => {
     const out = await run({ script: { critic: ['{"verdict": "revise", "issues": []}'] } })

@@ -1,6 +1,6 @@
 import { isRecord } from './json'
 import { withLimit } from './limit'
-import { round12 } from './models'
+import { NODE_MODEL, round12 } from './models'
 import type { TokenUsage } from './openrouter'
 
 /** OpenRouter's public model list. It needs no key. Each entry has pricing.prompt and pricing.completion, USD per token, as strings. */
@@ -16,6 +16,8 @@ export const PRICE_LIST_TIMEOUT_MS = 3_000
 export interface ListPrice {
   inPerToken: number
   outPerToken: number
+  /** For an alias entry: the model the list says the alias resolves to today. */
+  aliasTarget?: string
 }
 
 /** The list keyed by model id. There is no built-in copy: when the list cannot be had, no price can be shown. */
@@ -39,7 +41,9 @@ export function parsePriceBook(json: unknown): PriceBook | null {
     if (!isRecord(entry) || typeof entry.id !== 'string' || !isRecord(entry.pricing)) continue
     const inPerToken = rate(entry.pricing.prompt)
     const outPerToken = rate(entry.pricing.completion)
-    if (inPerToken !== null && outPerToken !== null) book.set(entry.id, { inPerToken, outPerToken })
+    if (inPerToken === null || outPerToken === null) continue
+    const target = isRecord(entry.alias_target) && typeof entry.alias_target.slug === 'string' ? entry.alias_target.slug : undefined
+    book.set(entry.id, target === undefined ? { inPerToken, outPerToken } : { inPerToken, outPerToken, aliasTarget: target })
   }
   return book.size > 0 ? book : null
 }
@@ -80,6 +84,20 @@ export function createPriceBookSource(load: () => Promise<PriceBook | null> = fe
 
 /** The list for the running function instance. */
 export const livePriceBook: PriceBookSource = createPriceBookSource()
+
+/** The newest model the list says the app's alias resolves to, or null when the list does not say. */
+export function newestModel(book: PriceBook | null): string | null {
+  return book?.get(NODE_MODEL)?.aliasTarget ?? null
+}
+
+/**
+ * Why a reply is refused because it did not come from the newest model, or null when it did. A reply that
+ * names no model is refused too: it cannot be shown to be the newest model.
+ */
+export function servedMismatch(newest: string, served: string | null): string | null {
+  if (served === newest) return null
+  return `The reply came from ${served ?? 'a model it did not name'}, not ${newest}, the newest Haiku that OpenRouter resolves ${NODE_MODEL} to. The run stopped, so nothing from that reply is priced or shown.`
+}
 
 /**
  * The cost of one model call: its tokens times the list price of the model that answered. Null, never a
