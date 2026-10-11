@@ -41,7 +41,7 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
   const tone = running ? ' ds-strip--live' : summary ? '' : ' ds-strip--pending'
   /** A figure the provider did not report is a dash, never a big word. */
   const reported = (value: number | undefined, show: (n: number) => string) => (value === undefined ? none : show(value))
-  const chip = servedChip(summary?.model ?? null, summary?.newestModel ?? null, summary?.modelCheck ?? 'not-reported', summary?.servedModels ?? [])
+  const chip = summary ? servedChip(summary.model, summary.newestModel, summary.modelCheck, summary.servedModels) : null
   const unreported = (value: number | undefined, base: string) => (summary && value === undefined ? (sofar ? `${sofar}, not reported` : 'Not reported by the provider') : base)
 
   return (
@@ -57,11 +57,11 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
           {summary ? reported(usage?.cost, usd) : none}
         </Cell>
         <Cell label="Model" hint={summary && !summary.model ? 'Not reported by the provider' : 'Named in the provider reply'}>
-          {summary ? (
+          {chip ? (
             <span className="ds-chips">
               <span className="ds-chip" title={chip.title}>
                 {chip.text}
-                {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}> {chip.marker}</span>}
+                {chip.marker && <span className={chip.warn ? 'readout-warn' : undefined}> {chip.marker}</span>}
               </span>
             </span>
           ) : (

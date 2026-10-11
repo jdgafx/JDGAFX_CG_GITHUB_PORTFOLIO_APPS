@@ -47,7 +47,11 @@ describe('servedChip', () => {
     })
   })
 
-  it('shows "not reported" and nothing extra when no model was named', () => {
-    expect(servedChip(null, null, 'not-reported', [])).toEqual({ text: 'not reported', marker: null, warn: false, title: undefined })
+  it('shows "not reported" and nothing extra when a call named no model', () => {
+    expect(servedChip(null, null, 'not-reported', [{ pass: REVIEW, model: null }])).toEqual({ text: 'not reported', marker: null, warn: false, title: `${REVIEW}: not reported` })
+  })
+
+  it('gives no chip when no model call replied, so the cell shows a dash', () => {
+    expect(servedChip(null, null, 'not-reported', [])).toBeNull()
   })
 })

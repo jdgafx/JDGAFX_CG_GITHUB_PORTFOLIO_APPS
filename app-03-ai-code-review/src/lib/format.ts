@@ -19,9 +19,11 @@ const MARKERS: Record<ModelCheck, string | null> = { match: '· newest', mismatc
 
 /**
  * The served-model chip: the review pass's id as today, "not reported" when it named none, and one marker for the worst
- * check across the calls. The title lists each call's served id, and the newest id on a mismatch.
+ * check across the calls. The title lists each call's served id, and the newest id on a mismatch. Null when no model
+ * call replied at all, so the cell shows a dash rather than implying a reply.
  */
-export function servedChip(served: string | null, newest: string | null, check: ModelCheck, calls: ServedCall[]): ServedChip {
+export function servedChip(served: string | null, newest: string | null, check: ModelCheck, calls: ServedCall[]): ServedChip | null {
+  if (served === null && calls.length === 0) return null
   const text = served === null ? 'not reported' : shortModel(served)
   const listed = calls.map((call) => `${call.pass}: ${call.model ?? 'not reported'}`)
   if (check === 'mismatch') listed.push(`newest: ${newest}`)

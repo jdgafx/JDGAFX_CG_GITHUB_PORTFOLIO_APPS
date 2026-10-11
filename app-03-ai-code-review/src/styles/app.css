@@ -164,3 +164,6 @@
 .howto__try .ds-button { min-height: 44px; }
 .howto__error { color: var(--ds-danger); margin: 0; }
 @media (max-width: 999px) { .howto { padding: 12px 16px; gap: 8px; } .howto__steps { font-size: 13px; } }
+
+/* The "not newest" marker inside the no-wrap model chip: colour only, so the chip keeps its size on a 390 px screen. */
+.readout-warn { color: var(--ds-warning); }
