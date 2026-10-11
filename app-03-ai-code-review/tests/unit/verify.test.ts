@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { anchorLine, diffDoc, fileDoc } from '../../netlify/shared/anchor'
 import type { Candidate } from '../../netlify/shared/review'
-import { assemble, buildVerifyUser, combineReads, findEvidence, linesNamed, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
+import { assemble, buildVerifyUser, combineReads, findEvidence, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
 
 // gorilla/mux v1.8.1 mux.go lines 375 to 392, copied verbatim. Line 1 here is line 375 there.
 const WALK = [
@@ -39,7 +39,11 @@ const candidate = (over: Partial<Candidate> = {}): Candidate => ({
   ...over,
 })
 
-const verdict = (over: Partial<RawVerdict>): RawVerdict => ({ id: 1, verdict: 'keep', line: 12, evidence: 'ancestors = append(ancestors, t)', support: 'ancestors = append(ancestors, t)', reason: 'The append on this line reuses the caller slice.', ...over })
+/** A keep as the second pass answers it. Unless a test gives its own claim, the claim is `other`: its quote is the evidence, on the line named. */
+const verdict = (over: Partial<RawVerdict>): RawVerdict => {
+  const v = { id: 1, verdict: 'keep', line: 12, evidence: 'ancestors = append(ancestors, t)', support: 'ancestors = append(ancestors, t)', reason: 'The append on this line reuses the caller slice.', ...over }
+  return { ...v, claim: over.claim === undefined ? { kind: 'other', names: [], lines: [v.line ?? 12], quote: v.evidence } : over.claim }
+}
 
 describe('findEvidence', () => {
   it('finds code on the line, ignoring spacing and tabs', () => {
@@ -159,7 +163,8 @@ describe('a move keeps the comment on its subject', () => {
 
   it('refuses a second-pass move off that declaration', () => {
     const c = candidate({ line: 2, fromLine: 2, quote: 'path := req.URL.Path', message })
-    const s = settle(c, verdict({ verdict: 'move', line: 7, evidence: 'if p := cleanPath(path); p != path {', support: 'if p := cleanPath(path); p != path {' }), MUX)
+    const moved = 'if p := cleanPath(path); p != path {'
+    const s = settle(c, verdict({ verdict: 'move', line: 7, evidence: moved, support: moved, claim: { kind: 'shadows', names: ['path'], lines: [7], quote: moved } }), MUX)
     expect(s).toMatchObject({ verdict: 'unverified', line: 2 })
     expect(s.reason).toBe('Not confirmed: the second pass moved it to line 7, away from the line that declares path, which the comment is about.')
   })
@@ -186,16 +191,8 @@ describe('a move keeps the comment on its subject', () => {
   })
 })
 
-describe('linesNamed and the reason-line check', () => {
-  it('reads single lines, ranges and pairs', () => {
-    expect(linesNamed('Line 205 uses SHA-1')).toEqual([205])
-    expect(linesNamed('Lines 84-89 build a list, repeated at lines 305 and 306')).toEqual([84, 85, 86, 87, 88, 89, 305, 306])
-    expect(linesNamed('No numbers here')).toEqual([])
-    expect(linesNamed('The append at 386 and 395 may alias')).toEqual([386, 395])
-    expect(linesNamed('truncated at 16 hex characters on line 205 or at 3 ms')).toEqual([205])
-  })
-
-  // requests v2.32.3 auth.py lines 198 to 206 with the live message and reason of the comment that sat on line 200.
+describe('the claim must be about the line the comment sits on', () => {
+  // requests v2.32.3 auth.py lines 198 to 206 with the live message of the comment that sat on line 200.
   const AUTH = fileDoc([
     '        ncvalue = f"{self._thread_local.nonce_count:08x}"',
     '        s = str(self._thread_local.nonce_count).encode("utf-8")',
@@ -206,35 +203,32 @@ describe('linesNamed and the reason-line check', () => {
     '        cnonce = hashlib.sha1(s).hexdigest()[:16]',
   ])
   const sha = candidate({ line: 2, fromLine: 2, quote: 'self._thread_local.nonce_count', message: 'The cnonce is built from a SHA-1 hash of predictable values plus os.urandom, and SHA-1 is used here for a value that should be unpredictable.' })
-  const shaVerdict = (reason: string) => verdict({ line: 2, evidence: 's = str(self._thread_local.nonce_count).encode("utf-8")', support: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', reason })
+  const SHA_LINE = 'cnonce = hashlib.sha1(s).hexdigest()[:16]'
+  const shaVerdict = (claimLine: number) =>
+    verdict({ line: 2, evidence: 's = str(self._thread_local.nonce_count).encode("utf-8")', support: SHA_LINE, claim: { kind: 'other', names: [], lines: [claimLine], quote: claimLine === 7 ? SHA_LINE : 's = str(self._thread_local.nonce_count).encode("utf-8")' } })
 
-  it('does not confirm a comment whose reason points at the line that holds the code its message names (SHA-1: on 200, reason says 205)', () => {
-    const s = settle(sha, shaVerdict('cnonce at line 7 is a SHA-1 of mostly predictable values plus urandom, which is a real weakness.'), AUTH)
+  it('does not confirm a comment whose claim is about another line (SHA-1: the comment is on line 2, the claim is about line 7)', () => {
+    const s = settle(sha, shaVerdict(7), AUTH)
     expect(s).toMatchObject({ verdict: 'unverified', line: 2 })
-    expect(s.reason).toBe("Not confirmed: the second pass's reason points at line 7, but the comment sits on line 2.")
+    expect(s.reason).toBe("Not confirmed: the second pass's claim is about line 7, but the comment sits on line 2.")
   })
 
-  it('lets a reason cite other lines for context when it also names the comment line, or the comment sits where its code is', () => {
+  it('confirms it when the claim is about the line the comment sits on, whatever lines the reason mentions', () => {
+    expect(settle(sha, shaVerdict(2), AUTH).verdict).toBe('kept')
     expect(settle(candidate(), verdict({ reason: 'The inner err shadows the outer err from line 3, and the warning is accurate.' }), doc).verdict).toBe('kept')
-    expect(settle(sha, shaVerdict('Line 7 uses hashlib.sha1 for the nonce built on line 2.'), AUTH).verdict).toBe('kept')
   })
 
-  it('does not confirm a comment on a function signature whose reason points only at lines of its body (mux walk: 375 says 386 and 395)', () => {
-    const s = settle(
-      candidate({ line: 1, fromLine: 1, quote: '', message: 'Appending to ancestors inside the loop can alias the caller backing array.' }),
-      verdict({ line: 1, evidence: 'func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {', reason: 'The append at 12 and the truncation at 17 may write into a shared backing array.' }),
-      doc,
-    )
+  it('does not confirm a comment on a function signature whose claim is about lines of its body (mux walk: 375 says 386 and 395)', () => {
+    const signature = 'func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {'
+    const onSignature = candidate({ line: 1, fromLine: 1, quote: '', message: 'Appending to ancestors inside the loop can alias the caller backing array.' })
+    const s = settle(onSignature, verdict({ line: 1, evidence: signature, claim: { kind: 'other', names: [], lines: [12, 17], quote: 'ancestors = append(ancestors, t)' } }), doc)
     expect(s).toMatchObject({ verdict: 'unverified', line: 1 })
-    const named = settle(candidate({ line: 1, fromLine: 1, quote: '', message: 'm' }), verdict({ line: 1, evidence: 'func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {', reason: 'The append at line 12 may alias the slice.' }), doc)
-    expect(named.verdict).toBe('unverified')
-    const plain = settle(candidate({ line: 1, fromLine: 1, quote: '', message: 'm' }), verdict({ line: 1, evidence: 'func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {', reason: 'This function walks every route and is long.' }), doc)
-    expect(plain.verdict).toBe('kept')
+    expect(settle(onSignature, verdict({ line: 1, evidence: signature, claim: { kind: 'other', names: [], lines: [1], quote: signature } }), doc).verdict).toBe('kept')
   })
 
   it('confirms the SHA-1 comment when it sits on the sha1 line itself', () => {
     const onSha = candidate({ ...sha, line: 7, fromLine: 7 })
-    expect(settle(onSha, verdict({ line: 7, evidence: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', support: 'cnonce = hashlib.sha1(s).hexdigest()[:16]', reason: 'Line 7 uses SHA-1 for the nonce.' }), AUTH).verdict).toBe('kept')
+    expect(settle(onSha, verdict({ line: 7, evidence: SHA_LINE, support: SHA_LINE, claim: { kind: 'other', names: [], lines: [7], quote: SHA_LINE } }), AUTH).verdict).toBe('kept')
   })
 })
 

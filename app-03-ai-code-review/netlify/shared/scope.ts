@@ -15,7 +15,7 @@ const METHOD = /^\s*(?:(?:async|static|public|private|protected|get|set)\s+)*[A-
 const ARROW = /^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*(?::[^=]+)?=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+)?=>\s*\{?\s*$/
 const NOT_A_DECLARATION = /^\s*(?:if|for|while|switch|catch|else|return|try|do|with|elif|except)\b/
 
-const indentOf = (line: string): number => {
+export const indentOf = (line: string): number => {
   let n = 0
   for (const ch of line) {
     if (ch === ' ') n += 1
@@ -73,6 +73,14 @@ function scopeEnd(texts: readonly string[], start: number): number {
     end = n
   }
   return end
+}
+
+/** The whole function or class around `line` (first and last line, uncut), or null at top level. */
+export function scopeExtent(texts: readonly string[], line: number): [number, number] | null {
+  const s = enclosingScope(texts, line)
+  if (!s.enclosing) return null
+  const start = s.signature ?? s.from
+  return [start, Math.max(line, scopeEnd(texts, start))]
 }
 
 export interface Scope {

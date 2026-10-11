@@ -1,4 +1,4 @@
-import type { ReviewComment, TraceStep, Verdict } from '../types'
+import type { ClaimKind, ReviewComment, TraceStep, Verdict } from '../types'
 
 export const VERDICT_ORDER: Verdict[] = ['kept', 'moved', 'dropped', 'unverified']
 
@@ -17,13 +17,15 @@ export const VERDICT_WORD: Record<Verdict, { word: string; badge: string }> = {
  * The badge text for one comment. It says what was checked, never that the claim is proven: the quote and its evidence were
  * found in the code, and the second pass judged the claim.
  */
-export function verdictLabel(c: Pick<ReviewComment, 'verdict' | 'decidedBy' | 'fromLine' | 'where'>): string {
+export function verdictLabel(c: Pick<ReviewComment, 'verdict' | 'decidedBy' | 'fromLine' | 'where'> & { claimKind?: ClaimKind | null }): string {
   const by = c.decidedBy === 'verifier' ? 'the second pass' : 'the checks'
+  // A claim of kind `other` has no check of its own: only the code it quotes was found in the file.
+  const checked = c.claimKind === 'other' ? 'Quoted code found, the claim itself is not checked' : 'Evidence checked, nothing found against it'
   switch (c.verdict) {
     case 'kept':
-      return 'Evidence checked, nothing found against it'
+      return checked
     case 'moved':
-      return c.where ? 'Moved. Evidence checked, nothing found against it' : `Moved from line ${c.fromLine}. Evidence checked, nothing found against it`
+      return c.where ? `Moved. ${checked}` : `Moved from line ${c.fromLine}. ${checked}`
     case 'dropped':
       return `Dropped by ${by}`
     default:

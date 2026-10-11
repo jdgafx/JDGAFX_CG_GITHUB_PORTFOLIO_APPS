@@ -66,7 +66,7 @@ describe('unconfirmable: claims a single file cannot confirm', () => {
 
   it('lets a claim about the file\'s own code, or about a name (shadowing), through', () => {
     expect(unconfirmable('The unchecked type assertion rv.(map[string]string) panics if another value is stored under varsKey.', 'return rv.(map[string]string)', new Set(['http']))).toBeNull()
-    expect(unconfirmable('The local variable path shadows the imported path package and returns confusion.', 'path := req.URL.Path', new Set(['path']))).toBeNull()
+    expect(unconfirmable('The local variable path shadows the imported path package and returns confusion.', 'path := req.URL.Path', new Set(['path']), true)).toBeNull()
   })
 })
 
@@ -105,22 +105,17 @@ describe('contradictedByScope: a call the comment says is missing', () => {
   })
 })
 
-describe('noneWithoutSource: a None claim needs code that shows a None', () => {
-  const live = 'If self._f is still None after open() returns, iter(None) raises a confusing TypeError; the type ignore hides this.'
-
+describe('noneWithoutSource: a null-risk claim needs code that shows a None', () => {
   it('does not confirm the live click L191 claim backed by `self.open()` or `self._f = rv`', () => {
     for (const support of ['self.open()', 'self._f = rv']) {
-      expect(noneWithoutSource(live, support)).toBe('Not confirmed: the claim is that a value is None or null, but the code quoted for it does not show where a None comes from.')
+      expect(noneWithoutSource(support)).toBe('Not confirmed: the claim is that a value is None or null, but the code quoted for it does not show where a None comes from.')
     }
   })
 
   it('lets it through when the support shows a None, an Optional or a null', () => {
-    expect(noneWithoutSource(live, 'self._f: t.Optional[t.IO[t.Any]]')).toBeNull()
-    expect(noneWithoutSource('The value is null when the key is missing.', 'return null')).toBeNull()
-  })
-
-  it('ignores claims that are not about None', () => {
-    expect(noneWithoutSource('The loop allocates on every call.', 'make([]int, 0)')).toBeNull()
+    expect(noneWithoutSource('self._f: t.Optional[t.IO[t.Any]]')).toBeNull()
+    expect(noneWithoutSource('return null')).toBeNull()
+    expect(noneWithoutSource('found = None')).toBeNull()
   })
 })
 

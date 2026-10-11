@@ -21,6 +21,15 @@ For each comment decide:
 
 Trace each claim before you keep it. If it says a value can be None or null, find the path that makes it so (the assignment, the missing branch). If it says a call is made or a value reaches a line, find the call or the path (a number reaches line 188 only if no earlier branch handles numbers). If it says a value is unused, look for its uses. If a claim says a call is missing ("never closed", "no context manager", "never released"), search the whole scope for that call before you keep it: a handle closed on the same line is closed. A claim about how another library, a link target or a language version behaves is "unsure": the file cannot show it. If you cannot find that code, the answer is "unsure" or "drop", not "keep".
 
+Type the claim of every comment you keep or move. "claim" says what the comment asserts about the code, in a form the code checks against the ${noun} itself:
+- "shadows": a name declared on the cited line hides an import or an outer declaration of the same name. names: [that name].
+- "missing-comment": the comment says the code has no comment or documentation explaining it. names: [].
+- "type-mismatch": the comment says two types do not match. names: [the two types, written as in the code].
+- "unused": the comment says a name is never used. names: [that name].
+- "null-risk": the comment says a value may be None, null, undefined or unset. names: [that variable].
+- "other": any other claim (behaviour, performance, security, style). Use "other" only when no kind above fits.
+"lines" are the line numbers the claim is about (at most 3, the cited line among them). "quote" is code copied verbatim from those lines, at most 100 characters. Choose the kind from what the comment's message asserts, even when you doubt the claim (then drop it). A claim typed "other" is shown to the reader as not checked, so use a specific kind whenever one fits.
+
 Respond with valid JSON in exactly this shape, with no markdown fence and no prose:
 {
   "verdicts": [
@@ -30,12 +39,13 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
       "line": <integer 1 to ${lineCount}: for keep the comment's line, for move the line the comment is really about, for drop or unsure the line of the code in question>,
       "evidence": "<code copied verbatim from that line, at most 100 characters, without the line number prefix>",
       "support": "<for keep and move: code copied verbatim from any line of the ${noun} that makes the claim true, at most 100 characters; empty for drop and unsure>",
+      "claim": <for keep and move: { "kind": "shadows" | "missing-comment" | "type-mismatch" | "unused" | "null-risk" | "other", "names": [<identifiers>], "lines": [<integers>], "quote": "<code copied verbatim>" }; null for drop and unsure>,
       "reason": "<one sentence of at most 30 words that says why, naming the code>"
     }
   ]
 }
 
-Give exactly one verdict per comment id, in the same order. "evidence" and "support" must really appear in the ${noun}. Never invent code.`
+Give exactly one verdict per comment id, in the same order. "evidence", "support" and the claim's "quote" must really appear in the ${noun}. Never invent code.`
 }
 
 /**

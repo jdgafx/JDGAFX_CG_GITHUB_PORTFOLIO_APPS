@@ -1,10 +1,10 @@
-import type { Decider, ReviewComment, Verdict } from '../../src/types'
-import { importedNames, noneWithoutSource, unconfirmable } from './claims'
-import { guardedClaim, supportHandlesCondition } from './guards'
+import type { ClaimKind, Decider, ReviewComment, Verdict } from '../../src/types'
+import { importedNames, unconfirmable } from './claims'
 import { flowsIntoExternal, provenanceOf } from './provenance'
 import { seenLines } from './scope'
-import { ABOUT_A_NAME, codeNames, collapse, declaredNames, messageWords, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
+import { codeNames, collapse, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
+import { checkClaim, declares, readClaim, type TypedClaim } from './typed-claim'
 
 /** A moved comment may travel at most this far from where the checks left it. Further is not a correction. */
 export const MAX_MOVE = 25
@@ -23,6 +23,8 @@ export interface RawVerdict {
   /** Code that makes the claim true, quoted from anywhere in the file. */
   support: string
   reason: string
+  /** What the comment claims, typed so the code can check it against the file. Null when the reply gave none or gave a malformed one. */
+  claim: TypedClaim | null
 }
 
 /** The verdict list from a reply: an object with a verdicts array, or the bare array the model sometimes returns. */
@@ -54,6 +56,7 @@ export function readVerdicts(text: string): Map<number, RawVerdict> | null {
       evidence: typeof v.evidence === 'string' ? v.evidence.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
       support: typeof v.support === 'string' ? v.support.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
       reason: typeof v.reason === 'string' ? collapse(v.reason).slice(0, MAX_REASON_CHARS) : '',
+      claim: readClaim(v.claim),
     })
   }
   return byId
@@ -80,21 +83,6 @@ export function findEvidence(doc: Doc, evidence: string, near: number, window: n
 
 /** True when the evidence is in the code somewhere. Used for a drop, whose proof may be far from the comment. */
 const evidenceAnywhere = (doc: Doc, evidence: string): number | null => findEvidence(doc, evidence, 1, doc.texts.length)
-
-/** Every line number a reason names ("line 205", "lines 84-89", "the append at 386 and 395"), ranges expanded. */
-export function linesNamed(reason: string): number[] {
-  const named: number[] = []
-  const add = (from: number, to: number) => {
-    for (let n = from; n <= Math.min(to, from + 40); n += 1) named.push(n)
-  }
-  for (const m of reason.matchAll(/\blines?\s+(\d+)(?:\s*(?:-|\u2013|to|and|,)\s*(\d+))?/gi)) add(Number(m[1]), m[2] === undefined ? Number(m[1]) : Number(m[2]))
-  // "The append at 386 and 395": a bare number after at or on, unless it is a size or a duration.
-  for (const m of reason.matchAll(/\b(?:at|on)\s+(\d{1,5})(?:\s+and\s+(\d{1,5}))?(?!\d)(?!\s*(?:hex|char|byte|bit|ms\b|s\b|%|px|chars|characters|digits))/gi)) {
-    add(Number(m[1]), Number(m[1]))
-    if (m[2] !== undefined) add(Number(m[2]), Number(m[2]))
-  }
-  return named
-}
 
 /**
  * In a pull request the second pass cites positions in the numbered diff ("Line 9 declares ..."). A reader sees file lines,
@@ -137,10 +125,9 @@ export interface Settled {
   /** The code that makes the claim true, and the numbered line it was found on. */
   support: string | null
   supportAt: number | null
+  /** The kind of claim the second pass typed, for a kept or moved comment. `other` was confirmed by its quote alone. */
+  claimKind: ClaimKind | null
 }
-
-/** A line that opens a function, class or type: a comment about its body belongs on a line of the body. */
-const DECLARATION = /^\s*(?:func|def|async\s+def|function|class|type|interface|export)\b/
 
 const importCache = new WeakMap<Doc, Set<string>>()
 const importsOf = (doc: Doc): Set<string> => {
@@ -155,7 +142,7 @@ const ADMISSION = /\bunsupported by (?:the )?code\b|\bnot (?:directly )?(?:shown
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
 function unconfirmed(candidate: Candidate, reason: string): Settled {
-  return { line: candidate.line, verdict: 'unverified', decidedBy: 'none', reason, evidence: null, support: null, supportAt: null }
+  return { line: candidate.line, verdict: 'unverified', decidedBy: 'none', reason, evidence: null, support: null, supportAt: null, claimKind: null }
 }
 
 /**
@@ -170,6 +157,9 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
   const target = raw.line ?? candidate.line
 
   if (raw.verdict === 'keep' || raw.verdict === 'move') {
+    // A kept comment is held to its typed claim. A reply with none, or a malformed one, is not read as a plain claim.
+    const claim = raw.claim
+    if (claim === null) return unconfirmed(candidate, 'Not confirmed: the second pass did not give a typed claim for this comment.')
     // Both name the line the comment belongs on. Whether it counts as moved follows from where it ends up.
     if (target < 1 || target > lineCount || Math.abs(target - candidate.line) > MAX_MOVE) {
       return unconfirmed(candidate, `Not confirmed: the second pass named line ${target}, which is outside what a move may reach.`)
@@ -192,9 +182,8 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
       return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, which is in another file.`)
     }
     if (target !== candidate.line && target !== candidate.fromLine) {
-      const declared = ABOUT_A_NAME.test(candidate.message) ? declaredNames(doc.texts[candidate.line - 1]) : new Set<string>()
-      const subject = [...declared].find((name) => messageWords(candidate.message).has(name))
-      if (subject !== undefined && !declaredNames(doc.texts[target - 1]).has(subject)) {
+      const subject = claim.kind === 'shadows' ? claim.names[0] : undefined
+      if (subject !== undefined && declares(doc.texts[candidate.line - 1], subject) && !declares(doc.texts[target - 1], subject)) {
         return unconfirmed(candidate, `Not confirmed: the second pass moved it to line ${target}, away from the line that declares ${subject}, which the comment is about.`)
       }
       if (doc.sides && doc.sides[target - 1] !== doc.sides[candidate.line - 1]) {
@@ -211,27 +200,17 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     if (at === null || doc.why[at - 1] !== null) {
       return unconfirmed(candidate, `Not confirmed: the second pass quoted "${shown}", which is not on line ${target}.`)
     }
-    // The reason and the line must agree. The live SHA-1 comment sat on line 200 while its reason said "cnonce at line 205",
-    // and the live aliasing comment sat on the signature of walk while its reason said "the append at 386 and 395".
-    // A reason that names other lines and none near the comment is held against it when a named line holds the code the
-    // comment's message names and the comment's own line does not, or when the comment sits on a declaration line, which
-    // is where a comment about the body is most often misplaced. A reason may otherwise cite other lines for context.
-    const names = codeNames(candidate.message)
-    const holds = (n: number) => doc.why[n - 1] === null && names.some((name) => doc.texts[n - 1].includes(name))
-    const named = linesNamed(reason).filter((n) => n >= 1 && n <= lineCount && Math.abs(n - at) <= 25)
-    if (named.length > 0 && !named.some((n) => Math.abs(n - at) <= 1)) {
-      const declaration = DECLARATION.test(doc.texts[at - 1])
-      const pointedAt = named.find((n) => Math.abs(n - at) > 3 && Math.abs(n - at) <= 10 && holds(n) && !holds(at)) ?? (declaration ? named[0] : undefined)
-      if (pointedAt !== undefined) {
-        return unconfirmed(candidate, `Not confirmed: the second pass's reason points at line ${pointedAt}, but the comment sits on line ${at}.`)
-      }
-    }
+    // The claim is held to the file by its type, and its lines must be where the comment sits (the live SHA-1 comment sat on
+    // line 200 while its reason said "cnonce at line 205"; the live aliasing comment sat on the signature of walk).
+    const claimIssue = checkClaim(claim, doc, at, raw.support)
+    if (claimIssue !== null) return unconfirmed(candidate, claimIssue)
     // A claim about how another library behaves, where a link points or which version is supported cannot be confirmed from
     // this file: its support would have to be a definition of that name here, and an import has none.
-    const outside = unconfirmable(candidate.message, doc.texts[at - 1], importsOf(doc))
+    const about = claim.kind === 'shadows'
+    const outside = unconfirmable(candidate.message, doc.texts[at - 1], importsOf(doc), about)
     if (outside !== null) return unconfirmed(candidate, outside)
     // The reason is held to the same rule: a reason that names an imported function's behaviour caps the comment.
-    const reasonOutside = unconfirmable(reason, doc.texts[at - 1], importsOf(doc))
+    const reasonOutside = unconfirmable(reason, doc.texts[at - 1], importsOf(doc), about)
     if (reasonOutside !== null) return unconfirmed(candidate, reasonOutside)
     // A claim about the caller's object is only as good as where that object came from.
     const origin = provenanceOf(candidate.message, doc.texts, at, importsOf(doc))
@@ -239,9 +218,6 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // A consequence that happens inside an imported function the value is handed to cannot be confirmed from this file.
     const flow = flowsIntoExternal(candidate.message, doc.texts, at, importsOf(doc)) ?? flowsIntoExternal(reason, doc.texts, at, importsOf(doc))
     if (flow !== null) return unconfirmed(candidate, flow)
-    // A claim that a value may be unset is answered by a guard before the cited line.
-    const guarded = guardedClaim(candidate.message, doc.texts, at)
-    if (guarded !== null) return unconfirmed(candidate, guarded)
     // Two quotes, both in the file: the cited line, and the code that makes the claim true. A claim the second pass cannot
     // point at code for is not confirmed, however real the cited line is.
     const supportShown = clip(collapse(raw.support), 80)
@@ -251,10 +227,6 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     // A reason that admits the code does not show the claim is not a confirmation, whatever verdict came with it (live auth.py L114).
     const admitted = ADMISSION.exec(reason)
     if (admitted) return unconfirmed(candidate, `Not confirmed: the second pass's own reason says the code does not show it ("${admitted[0]}").`)
-    const selfRefuting = supportHandlesCondition(candidate.message, doc.texts[at - 1], raw.support)
-    if (selfRefuting !== null) return unconfirmed(candidate, selfRefuting)
-    const noSource = noneWithoutSource(candidate.message, raw.support)
-    if (noSource !== null) return unconfirmed(candidate, noSource)
     const supportAt = findEvidence(doc, raw.support, at, doc.texts.length)
     if (supportAt === null) {
       return unconfirmed(candidate, `Not confirmed: the second pass gave "${supportShown}" as the code that shows the claim, which is not in the code.`)
@@ -267,7 +239,7 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
         return unconfirmed(candidate, `Not confirmed: the code behind this ${candidate.severity === 'critical' ? 'error' : 'warning'} (line ${seen.has(at) ? supportAt : at}) is outside the code the reads were shown.`)
       }
     }
-    return { line: at, verdict: at === candidate.fromLine ? 'kept' : 'moved', decidedBy: 'verifier', reason, evidence: shown, support: supportShown, supportAt }
+    return { line: at, verdict: at === candidate.fromLine ? 'kept' : 'moved', decidedBy: 'verifier', reason, evidence: shown, support: supportShown, supportAt, claimKind: claim.kind }
   }
 
   if (raw.verdict === 'unsure') {
@@ -279,7 +251,7 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     if (at === null) {
       return unconfirmed(candidate, `Not confirmed: the second pass wanted to drop it and quoted "${shown}", which is not in the code.`)
     }
-    return { line: candidate.line, verdict: 'dropped', decidedBy: 'verifier', reason, evidence: shown, support: null, supportAt: null }
+    return { line: candidate.line, verdict: 'dropped', decidedBy: 'verifier', reason, evidence: shown, support: null, supportAt: null, claimKind: null }
   }
 
   return unconfirmed(candidate, 'The second pass gave a verdict this page does not recognise.')
@@ -346,7 +318,7 @@ export function assemble(
   ): ReviewComment => {
     const at = locate(s.line)
     const { id, fromLine, severity, message, suggestion } = base
-    return { id, fromLine, severity, message, suggestion, line: s.line, verdict: s.verdict, decidedBy: s.decidedBy, reason: inPullRequest ? translateLines(s.reason, locate) : s.reason, evidence: s.evidence, code: at.text, where: at.where, support: s.support, supportLine: s.supportAt === null ? null : inPullRequest ? (locate(s.supportAt).where?.line || null) : s.supportAt }
+    return { id, fromLine, severity, message, suggestion, line: s.line, verdict: s.verdict, decidedBy: s.decidedBy, reason: inPullRequest ? translateLines(s.reason, locate) : s.reason, evidence: s.evidence, code: at.text, where: at.where, support: s.support, claimKind: s.claimKind, supportLine: s.supportAt === null ? null : inPullRequest ? (locate(s.supportAt).where?.line || null) : s.supportAt }
   }
   const settled = candidates.map((c) => {
     const [first, adversary] = reads
@@ -355,7 +327,7 @@ export function assemble(
     return make(c, { ...s, reason: `${s.reason}${note}` })
   })
   const dropped = checkedDrops.map((d) =>
-    make(d, { line: d.line, verdict: 'dropped', decidedBy: 'check', reason: d.reason, evidence: null, support: null, supportAt: null }),
+    make(d, { line: d.line, verdict: 'dropped', decidedBy: 'check', reason: d.reason, evidence: null, support: null, supportAt: null, claimKind: null }),
   )
   return [...settled, ...dropped].sort((a, b) => a.id - b.id)
 }

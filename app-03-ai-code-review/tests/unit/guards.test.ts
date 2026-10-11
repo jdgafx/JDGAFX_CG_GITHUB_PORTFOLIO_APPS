@@ -22,57 +22,30 @@ const JSONP = [
   "    body = '/**/ typeof ' + callback + ' === \\'function\\' && ' + callback + '(' + body + ');';",
 ]
 const L348 = JSONP.length
-const MESSAGE = "If body is undefined the output becomes the literal string 'undefined'."
 
 describe('a guard answers a claim that a value may be unset', () => {
   it('finds the guard before the real res.jsonp line', () => {
-    const g = guardFor(MESSAGE, JSONP, L348)
+    const g = guardFor('body', JSONP, L348)
     expect(g?.line).toBe(9)
-    expect(guardedClaim(MESSAGE, JSONP, L348)).toMatch(/^Not confirmed: body is already guarded on line 9/)
+    expect(guardedClaim('body', JSONP, L348)).toMatch(/^Not confirmed: body is already guarded on line 9/)
   })
   it('treats the guard itself as self-refuting support', () => {
-    expect(supportHandlesCondition(MESSAGE, JSONP[L348 - 1], 'if (body === undefined) {')).toMatch(/is itself a guard for body/)
-    expect(supportHandlesCondition(MESSAGE, JSONP[L348 - 1], "body = ''")).toBeNull()
+    expect(supportHandlesCondition('body', 'if (body === undefined) {')).toMatch(/is itself a guard for body/)
+    expect(supportHandlesCondition('body', "body = ''")).toBeNull()
   })
   it('finds one-line fallbacks and early returns', () => {
-    expect(guardFor('opts may be undefined here', ['opts = opts || {}', 'x', 'use(opts)'], 3)?.line).toBe(1)
-    expect(guardFor('val may be None', ['def f(val):', '    if val is None:', '        return', '    use(val)'], 4)?.line).toBe(2)
-    expect(guardFor('val may be None', ['def f(val):', '    if not val:', '        raise ValueError', '    use(val)'], 4)?.line).toBe(2)
+    expect(guardFor('opts', ['opts = opts || {}', 'x', 'use(opts)'], 3)?.line).toBe(1)
+    expect(guardFor('val', ['def f(val):', '    if val is None:', '        return', '    use(val)'], 4)?.line).toBe(2)
+    expect(guardFor('val', ['def f(val):', '    if not val:', '        raise ValueError', '    use(val)'], 4)?.line).toBe(2)
   })
-  it('does not fire without a guard, on another variable, or on a claim that is not about an unset value', () => {
-    expect(guardFor(MESSAGE, JSONP.map((l) => l.replace('body === undefined', 'other === undefined')), L348)).toBeNull()
-    expect(guardFor(MESSAGE, ['    if (body === undefined) {', '      log()', '    }', '    use(body)'], 4)).toBeNull()
-    expect(guardFor('body is sent twice', JSONP, L348)).toBeNull()
-    expect(guardFor('val may be None', ['def f(val):', '    use(val)'], 2)).toBeNull()
+  it('does not fire without a guard or on another variable', () => {
+    expect(guardFor('body', JSONP.map((l) => l.replace('body === undefined', 'other === undefined')), L348)).toBeNull()
+    expect(guardFor('body', ['    if (body === undefined) {', '      log()', '    }', '    use(body)'], 4)).toBeNull()
+    expect(guardFor('callback', JSONP, L348)).toBeNull()
+    expect(guardFor('val', ['def f(val):', '    use(val)'], 2)).toBeNull()
   })
-})
-
-describe('only a claim that the value is unset is answered', () => {
-  it('leaves the live click utils.py L330 claim (bytes, not None) alone', () => {
-    const texts = ['    if not out:', '        return', '', '    file.write(out)  # type: ignore']
-    expect(guardFor('The type: ignore suppresses a real mismatch: out may be bytes here and writing bytes to a text stream raises TypeError.', texts, 4)).toBeNull()
-    expect(guardFor('out may be None here', texts, 4)?.line).toBe(1)
-  })
-})
-
-describe('a guard after the cited line answers a claim that the value flows on', () => {
-  // Express res.send, the live lines 142 and 184 (verify-03t re-check at 190041d).
-  const SEND = [
-    '    this.statusCode = chunk;',
-    '    chunk = statuses.message[chunk]',
-    '  }',
-    '',
-    '  // populate Content-Length',
-    '  var len',
-    '  if (chunk !== undefined) {',
-    '    len = Buffer.byteLength(chunk, encoding)',
-  ]
-  const CLAIM = 'statuses.message[chunk] yields undefined for an unknown status code and flows into Content-Length and end().'
-  it('finds the guard at L184 for the claim at L142', () => {
-    expect(guardFor(CLAIM, SEND, 2)?.line).toBe(7)
-    expect(guardedClaim(CLAIM, SEND, 2)).toMatch(/guarded later, on line 7/)
-  })
-  it('only looks ahead for a claim about where the value goes', () => {
-    expect(guardFor('chunk becomes undefined for an unknown status code.', SEND, 2)).toBeNull()
+  it('looks only before the cited line: a guard after it does not answer the claim', () => {
+    const send = ['    this.statusCode = chunk;', '    chunk = statuses.message[chunk]', '  }', '', '  var len', '  if (chunk !== undefined) {', '    len = Buffer.byteLength(chunk, encoding)']
+    expect(guardFor('chunk', send, 2)).toBeNull()
   })
 })

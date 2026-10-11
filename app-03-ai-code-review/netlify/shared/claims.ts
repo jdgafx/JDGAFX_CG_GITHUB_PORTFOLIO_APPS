@@ -1,15 +1,14 @@
 // Deterministic checks on what a comment claims, before the second pass is trusted about it. A claim about how another
 // library, a link target or a language version behaves cannot be confirmed from one file; a claim that something is never
 // closed is false when the scope closes it. Neither needs a model.
-import { ABOUT_A_NAME } from './anchor'
 import { enclosingScope } from './scope'
 
 /** Names this file imports or requires, from Python, JavaScript, TypeScript and Go import forms. Best effort. */
-export function importedNames(texts: readonly string[]): Set<string> {
+export function importedNames(texts: readonly string[], minLength = 3): Set<string> {
   const names = new Set<string>()
   const add = (raw: string) => {
     const word = raw.trim().split(/\s+as\s+/).pop()?.replace(/[(){}*]/g, '').trim() ?? ''
-    if (/^[A-Za-z_$][\w$]*$/.test(word) && word.length >= 3) names.add(word)
+    if (/^[A-Za-z_$][\w$]*$/.test(word) && word.length >= minLength) names.add(word)
   }
   let inGoImports = false
   // The whole file: Python imports inside a function (click's `from glob import glob`) and dynamic imports count too.
@@ -46,11 +45,11 @@ const VERSION_CLAIM = /\bPython\s*\d|\bNode(?:\.js)?\s*\d|\bGo\s*1\.\d|\bJava\s*
 /**
  * Why a claim cannot be confirmed from this file alone, or null. Three kinds: it describes how an imported or required name
  * behaves (the live express `send` treating `?` as a query), it is about where a link or URL points (the redux link to
- * `/reselect/`), or it rests on a language or library version. A message that is about a name itself (shadowing, renaming)
- * is not about behaviour.
+ * `/reselect/`), or it rests on a language or library version. A claim typed as being about a name itself (shadowing) is
+ * not about behaviour: `aboutAName` is true for it, and its own typed check answers it.
  */
-export function unconfirmable(message: string, citedCode: string, imports: ReadonlySet<string>): string | null {
-  if (ABOUT_A_NAME.test(message)) return null
+export function unconfirmable(message: string, citedCode: string, imports: ReadonlySet<string>, aboutAName = false): string | null {
+  if (aboutAName) return null
   for (const sentence of message.split(/(?<=[.;])\s+/)) {
     const structural = (name: string) => new RegExp(String.raw`(?<![\w$.])${name.replace(/\$/g, '\\$')}\.[\w$]+`).test(sentence)
     if (!BEHAVIOUR.test(sentence) && ![...imports].some((n) => !PLAIN_WORDS.has(n.toLowerCase()) && structural(n))) continue
@@ -99,15 +98,14 @@ export function contradictedByScope(message: string, suggestion: string, texts: 
   return null
 }
 
-const NONE_CLAIM = /\b(?:is|are|still|may be|can be|can remain|remains?|stays?|be)\s+(?:still\s+)?(?:None|null|undefined|nil)\b|\bNone\b.*\braises?\b|\bnull\b.*\b(?:throws?|raises?)\b/
 const NONE_SOURCE = /\b(?:None|null|undefined|nil|Optional|optional)\b|\?:|\bor None\b/
 
 /**
- * A claim that a value is None or null must be backed by code that shows where the None comes from: an assignment, a
- * return, an Optional type or default. Backing that never mentions one (the live click L191: support `self.open()` or
- * `self._f = rv`) shows nothing about None, so the claim is not confirmed.
+ * A claim typed as null-risk must be backed by code that shows where the None comes from: an assignment, a return, an
+ * Optional type or default. Backing that never mentions one (the live click L191: support `self.open()` or `self._f = rv`)
+ * shows nothing about None, so the claim is not confirmed. The test is on the code quoted from the file, not on prose.
  */
-export function noneWithoutSource(message: string, support: string): string | null {
-  if (!NONE_CLAIM.test(message) || NONE_SOURCE.test(support)) return null
+export function noneWithoutSource(support: string): string | null {
+  if (NONE_SOURCE.test(support)) return null
   return 'Not confirmed: the claim is that a value is None or null, but the code quoted for it does not show where a None comes from.'
 }

@@ -80,7 +80,7 @@ describe('a warning needs its code inside what the reads were shown', () => {
   const doc = fileDoc(code)
   const line = code.findIndex((l) => l.includes('x := RegexpCompileFunc')) + 1
   const candidate = (severity: Candidate['severity']): Candidate => ({ id: 1, line, fromLine: line, quote: '', severity, message: 'The compile hook is read on every call.', suggestion: 'Guard it.', moveNote: null, loweredFrom: null })
-  const verdict = (support: string): RawVerdict => ({ id: 1, verdict: 'keep', line, evidence: 'x := RegexpCompileFunc(p)', support, reason: 'It is read each call.' })
+  const verdict = (support: string): RawVerdict => ({ id: 1, verdict: 'keep', line, evidence: 'x := RegexpCompileFunc(p)', support, reason: 'It is read each call.', claim: { kind: 'other', names: [], lines: [line], quote: 'x := RegexpCompileFunc(p)' } })
 
   it('confirms an info comment whatever the distance, and a warning whose support is in the scope', () => {
     expect(settle(candidate('info'), verdict('var RegexpCompileFunc = regexp.Compile'), doc).verdict).toBe('kept')
@@ -99,7 +99,7 @@ describe('the reason is held to the same rule as the message', () => {
   it('caps a comment whose reason names how an imported function behaves (axios run 3: "after mergeConfig when it shares references")', () => {
     const doc = fileDoc(AXIOS)
     const candidate: Candidate = { id: 1, line: 2, fromLine: 2, quote: '', severity: 'info', message: 'The class has no constructor guard.', suggestion: 'Add one.', moveNote: null, loweredFrom: null }
-    const raw: RawVerdict = { id: 1, verdict: 'keep', line: 2, evidence: 'class Axios {', support: 'class Axios {', reason: 'The class shares references after mergeConfig returns, so a guard is needed.' }
+    const raw: RawVerdict = { id: 1, verdict: 'keep', line: 2, evidence: 'class Axios {', support: 'class Axios {', reason: 'The class shares references after mergeConfig returns, so a guard is needed.', claim: { kind: 'other', names: [], lines: [2], quote: 'class Axios {' } }
     expect(settle(candidate, raw, doc).reason).toBe('Not confirmed: the claim rests on how mergeConfig behaves, and mergeConfig is not defined in this file.')
   })
 })

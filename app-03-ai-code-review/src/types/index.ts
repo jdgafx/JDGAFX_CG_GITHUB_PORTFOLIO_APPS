@@ -7,6 +7,12 @@ export type Severity = 'critical' | 'warning' | 'info'
  */
 export type Verdict = 'kept' | 'moved' | 'dropped' | 'unverified'
 
+/**
+ * What the second pass says a comment claims, as a type the code can check against the file. `other` is a claim with no
+ * check of its own: it is confirmed by its quoted code alone.
+ */
+export type ClaimKind = 'shadows' | 'missing-comment' | 'type-mismatch' | 'unused' | 'null-risk' | 'other'
+
 /** Who settled the verdict: the second model pass, a deterministic check, or nobody (unverified). */
 export type Decider = 'verifier' | 'check' | 'none'
 
@@ -37,6 +43,8 @@ export interface ReviewComment {
   support: string | null
   /** The line of the file that code is on. */
   supportLine: number | null
+  /** The kind of claim the second pass typed for a kept or moved comment. `other` means only the quoted code was checked. */
+  claimKind?: ClaimKind | null
   /** The text of the line the comment sits on, as the reviewer saw it (a diff line starts with + or -). */
   code: string
   /** The file and line in the pull request, in pull request mode. */

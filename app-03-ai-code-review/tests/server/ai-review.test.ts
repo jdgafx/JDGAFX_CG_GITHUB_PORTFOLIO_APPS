@@ -57,7 +57,7 @@ describe('ai function: a verified review', () => {
   })
 
   it('moves a comment to the line the second pass names when the quoted code is on that line', async () => {
-    twoPasses([{ ...FIVE, line: 6, quote: '' }], [{ id: 1, verdict: 'move', line: 5, evidence: 'data = open(path).read()', support: 'data = open(path).read()', reason: 'The unclosed handle is on line 5, not the return on line 6.' }])
+    twoPasses([{ ...FIVE, line: 6, quote: '' }], [{ id: 1, verdict: 'move', line: 5, evidence: 'data = open(path).read()', support: 'data = open(path).read()', reason: 'The unclosed handle is on line 5, not the return on line 6.', claim: { kind: 'other', names: [], lines: [5], quote: 'data = open(path).read()' } }])
     const payload = await readPayload(await handler(post(HOURS_BODY)))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'moved', line: 5, fromLine: 6, decidedBy: 'verifier', code: '    data = open(path).read()' })
     expect(payload.trace[7].detail).toContain('1 moved')
@@ -170,6 +170,32 @@ describe('ai function: the adversarial read', () => {
       ['dropped', 'The handle is closed when read() returns.'],
       ['unverified', 'Cannot be confirmed from the code: Depends on how callers quote their input.'],
     ])
+  })
+})
+
+describe('ai function: the typed claim of a kept comment', () => {
+  const LINE = 'data = open(path).read()'
+  const typed = (claim: unknown) => [{ ...keep(1, 5, LINE), claim }]
+
+  it('shows a claim of kind other as quote-only, and a typed claim the file bears out by its kind', async () => {
+    twoPasses([FIVE], [keep(1, 5, LINE)])
+    const other = await readPayload(await handler(post(HOURS_BODY)))
+    expect(other.result?.comments[0]).toMatchObject({ verdict: 'kept', claimKind: 'other' })
+    twoPasses([FIVE], typed({ kind: 'unused', names: ['data'], lines: [5], quote: LINE }))
+    const unusedClaim = await readPayload(await handler(post(HOURS_BODY)))
+    expect(unusedClaim.result?.comments[0]).toMatchObject({ verdict: 'unverified', claimKind: null })
+    expect(unusedClaim.result?.comments[0].reason).toMatch(/data is used again on line 6/)
+  })
+
+  it('does not confirm a typed claim the file does not bear out, or a keep with no typed claim at all', async () => {
+    twoPasses([FIVE], typed({ kind: 'shadows', names: ['data'], lines: [5], quote: LINE }))
+    const shadows = await readPayload(await handler(post(HOURS_BODY)))
+    expect(shadows.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none', support: null })
+    expect(shadows.result?.comments[0].reason).toMatch(/no import and no outer declaration of data/)
+    twoPasses([FIVE], typed(undefined))
+    const none = await readPayload(await handler(post(HOURS_BODY)))
+    expect(none.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
+    expect(none.result?.comments[0].reason).toMatch(/did not give a typed claim/)
   })
 })
 

@@ -163,7 +163,7 @@ export const HOURS_BODY = { code: HOURS.join('\n'), language: 'python' }
 export const FIVE = { line: 5, quote: 'open(path)', severity: 'warning', message: 'The file handle from open(path) is never closed.', suggestion: 'Use a with block so the file is closed.', issue: true }
 
 export const verdictJson = (items: unknown[]): string => JSON.stringify(items)
-export const keep = (id: number, line: number, evidence: string, reason = 'The code does what the comment says.', support = evidence) => ({ id, verdict: 'keep', line, evidence, support, reason })
+export const keep = (id: number, line: number, evidence: string, reason = 'The code does what the comment says.', support = evidence) => ({ id, verdict: 'keep', line, evidence, support, reason, claim: { kind: 'other', names: [], lines: [line], quote: evidence } })
 
 /** The adversarial read's answer when it finds nothing against any comment the first read kept or moved. */
 export function standsFor(verdicts: unknown[]): unknown[] {

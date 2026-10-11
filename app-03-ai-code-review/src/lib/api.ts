@@ -57,6 +57,7 @@ function isComment(value: unknown): value is ReviewComment {
     (value.evidence === null || typeof value.evidence === 'string') &&
     (value.support === null || typeof value.support === 'string') &&
     (value.supportLine === null || isNumber(value.supportLine)) &&
+    (value.claimKind === undefined || value.claimKind === null || typeof value.claimKind === 'string') &&
     typeof value.code === 'string' &&
     isWhere(value.where)
   )
