@@ -13,11 +13,11 @@ describe('ai function: the time budget', () => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
     })
 
-  it('ends a hung first pass at its 17.4 s limit, and does not retry because pass 2 would then have no time', async () => {
+  it('ends a hung first pass at 16.4 s (what is left after the 0.7 s margin and a healthy pass 2), and does not retry because pass 2 would then have no time', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockImplementation(hang)
     const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(17_399)
+    await vi.advanceTimersByTimeAsync(16_399)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     const res = await pending
@@ -25,7 +25,7 @@ describe('ai function: the time budget', () => {
     expect(res.status).toBe(504)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     expect(payload.error).toBe('The AI provider did not answer in time.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 17.4 s (limit 17.4 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 16.4 s (limit 16.4 s)' })
     expect(payload.trace[3]).toMatchObject({ name: 'Pass 1: review retry', status: 'skipped' })
     expect(payload.trace[3].detail).toMatch(/^Not retried: /)
   })
@@ -35,24 +35,24 @@ describe('ai function: the time budget', () => {
     const stalled = new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
     fetchStub.mockResolvedValueOnce(stalled)
     const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(17_400)
+    await vi.advanceTimersByTimeAsync(16_400)
     expect((await pending).status).toBe(504)
   })
 
-  it('ends two hung reads at 14.1 s, retries each once while the budget allows, and then shows the comments as not confirmed', async () => {
+  it('ends two hung reads at 17.9 s, does not retry because too little is left for a healthy read, and shows the comments as not confirmed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     fetchStub.mockImplementation(hang)
     const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(14_100)
-    expect(fetchStub).toHaveBeenCalledTimes(5)
-    await vi.advanceTimersByTimeAsync(14_100)
+    await vi.advanceTimersByTimeAsync(17_849)
+    expect(fetchStub).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1)
     const res = await pending
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
-    expect(fetchStub).toHaveBeenCalledTimes(5)
+    expect(fetchStub).toHaveBeenCalledTimes(3)
     expect(stepSummary(payload).slice(5)).toEqual([
-      'Pass 2: verify (read 1):failed', 'Pass 2: verify (read 1) retry:failed', 'Pass 2: verify (read 2, adversary):failed', 'Pass 2: verify (read 2, adversary) retry:failed', 'Re-validate:ok',
+      'Pass 2: verify (read 1):failed', 'Pass 2: verify (read 1) retry:skipped', 'Pass 2: verify (read 2, adversary):failed', 'Pass 2: verify (read 2, adversary) retry:skipped', 'Re-validate:ok',
     ])
     expect(payload.result?.verified).toBe(false)
     expect(payload.result?.comments[0].verdict).toBe('unverified')

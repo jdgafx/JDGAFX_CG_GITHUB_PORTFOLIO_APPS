@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { chatBody, replyCutShort, replyText } from '../../netlify/shared/provider'
+import { MAX_OUTPUT_TOKENS, chatBody, replyCutShort, replyText } from '../../netlify/shared/provider'
 
 interface SentBody {
   model: string
   max_tokens: number
-  reasoning: { enabled: boolean }
+  reasoning?: { enabled?: boolean }
   usage: { include: boolean }
   provider: { require_parameters: boolean }
   response_format: { type: string }
@@ -12,13 +12,15 @@ interface SentBody {
 }
 
 describe('chatBody', () => {
-  it('sends the fixed model, a token cap, reasoning off and usage reporting', () => {
+  it('sends the fixed model, a token cap that leaves room to think, no reasoning override and usage reporting', () => {
     const body = JSON.parse(chatBody('system text', 'user text')) as SentBody
     expect(body.model).toBe('~anthropic/claude-haiku-latest')
     expect(body).not.toHaveProperty('temperature')
     expect(body.provider).toEqual({ require_parameters: true })
-    expect(body.max_tokens).toBe(4096)
-    expect(body.reasoning).toEqual({ enabled: false })
+    expect(body.max_tokens).toBe(MAX_OUTPUT_TOKENS)
+    expect(body.max_tokens).toBeGreaterThanOrEqual(4096 + 1500)
+    expect(body.reasoning?.enabled).not.toBe(false)
+    expect(body).not.toHaveProperty('reasoning')
     expect(body.usage).toEqual({ include: true })
     expect(body.response_format).toEqual({ type: 'json_object' })
     expect(body.messages).toEqual([

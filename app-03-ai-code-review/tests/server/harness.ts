@@ -43,7 +43,7 @@ export interface Payload {
 export interface SentBody {
   model: string
   max_tokens: number
-  reasoning: { enabled: boolean }
+  reasoning?: { enabled?: boolean }
   usage: { include: boolean }
   response_format: { type: string }
   messages: Array<{ role: string; content: string }>

@@ -40,8 +40,12 @@ describe('ai function: a verified review', () => {
     expect(fetchStub).toHaveBeenCalledTimes(3)
     for (const call of [0, 1, 2]) {
       const sent = sentBody(call)
-      expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', reasoning: { enabled: false }, usage: { include: true }, response_format: { type: 'json_object' } })
+      expect(sent).toMatchObject({ model: '~anthropic/claude-haiku-latest', usage: { include: true }, response_format: { type: 'json_object' } })
       expect(sent).not.toHaveProperty('temperature')
+      // Thinking stays on (Decision FS): no call turns reasoning off, and every cap leaves room for thinking plus the JSON.
+      expect(sent.reasoning?.enabled).not.toBe(false)
+      expect(sent).not.toHaveProperty('reasoning')
+      expect(sent.max_tokens).toBeGreaterThanOrEqual(4500)
       expect(fetchStub.mock.calls[call][0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     }
     expect(sentBody(0).messages[1].content).toContain('1\t| def divide(a, b):')
@@ -114,7 +118,7 @@ describe('ai function: a verified review', () => {
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
     expect(payload.result?.comments[0].reason).toBe('The second pass did not finish, so only the deterministic checks ran on this comment.')
     expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify (read 1):failed', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
-    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 14.1 s)')
+    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 17.9 s)')
   })
 
   it('retries a read whose reply is not a list of verdicts once, and then calls that read failed', async () => {

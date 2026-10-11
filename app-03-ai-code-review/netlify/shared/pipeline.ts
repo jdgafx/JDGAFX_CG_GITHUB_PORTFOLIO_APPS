@@ -17,7 +17,8 @@ export type Outcome =
   | { ok: true; result: ReviewResult; model: string | null }
   | { ok: false; error: string; status: number; headers?: Record<string, string> }
 
-const PASS2_MAX_TOKENS = 3000
+/** The old 3,000 for the verdicts and their typed claims, plus 2,000 for thinking, which counts toward the cap. */
+const PASS2_MAX_TOKENS = 5000
 /** The reviewer is asked for the budget; a few more are still checked, so the cut falls on the second pass, not on file order. */
 const OVERSHOOT = 5
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
@@ -126,8 +127,8 @@ export async function runPipeline(run: Run, input: ReviewInput, apiKey: string):
     'ok',
     buildAt,
     isPr
-      ? `Numbered ${noun(lineCount, 'diff line')} (${noun(built!.changed, 'changed line')}) from ${noun(input.files.length, 'file')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, reasoning off`
-      : `Numbered ${noun(lineCount, 'line')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, reasoning off`,
+      ? `Numbered ${noun(lineCount, 'diff line')} (${noun(built!.changed, 'changed line')}) from ${noun(input.files.length, 'file')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, thinking on`
+      : `Numbered ${noun(lineCount, 'line')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, thinking on`,
   )
   const locate = (line: number) => {
     if (!built) return { text: texts[line - 1] ?? '', where: null }

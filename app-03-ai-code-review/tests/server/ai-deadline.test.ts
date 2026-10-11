@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 
-// A provider that sends its headers and then stalls must end at the first pass's 17.4 second limit
+// A provider that sends its headers and then stalls must end at the first pass's 16.4 second limit
 // with the existing timeout message, even though the stubbed fetch ignores the abort signal.
 const BODY = { code: 'def divide(a, b):\n    return a / b', language: 'python' }
 
@@ -34,12 +34,12 @@ describe('ai function deadline', () => {
     })
 
     const pending = handler(request)
-    await vi.advanceTimersByTimeAsync(17_400)
+    await vi.advanceTimersByTimeAsync(16_400)
     const res = await pending
 
     expect(res.status).toBe(504)
     const payload = (await res.json()) as { error: string; trace: Array<{ name: string; status: string; detail: string }> }
     expect(payload.error).toBe('The AI provider did not answer in time.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 17.4 s (limit 17.4 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 16.4 s (limit 16.4 s)' })
   })
 })

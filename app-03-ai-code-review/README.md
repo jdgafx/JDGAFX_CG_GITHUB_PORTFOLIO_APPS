@@ -11,7 +11,7 @@ Live site: https://jdgafx-app-03-ai-code-review.netlify.app
 The pipeline for one run, in order. The trace shows each stage with its status, start, time and detail.
 
 1. **Check request**: rate limit, key present, body at most 256 KiB, then either `code` (non-blank, at most 50,000 characters, plus a short `language`) or a pull request (`mode: "pr"` and its files).
-2. **Build prompt**: numbers every line. A file is numbered as it is. A pull request becomes one numbered diff: a header line per file, the hunk headers, and every added (`+`), removed (`-`) and context line. The comment budget is one per 15 lines (file) or per 15 changed lines (pull request), at least 5, at most 15. Output cap 4,096 tokens, reasoning off.
+2. **Build prompt**: numbers every line. A file is numbered as it is. A pull request becomes one numbered diff: a header line per file, the hunk headers, and every added (`+`), removed (`-`) and context line. The comment budget is one per 15 lines (file) or per 15 changed lines (pull request), at least 5, at most 15. Output cap 6,000 tokens (the 4,096 for the JSON plus room for thinking, which is on and counts toward the cap).
 3. **Pass 1: review**: one chat completion that writes the comments as JSON: line, the exact quoted code, severity, message, suggestion and an `issue` flag.
 4. **Parse reply**: reads the JSON. A code fence, prose around it, or a bare array of comments is tolerated.
 5. **Checks** (no model): every comment ends up kept for pass 2 or dropped with a reason.
@@ -55,15 +55,19 @@ A file over 50,000 characters, a binary or empty file and a folder are refused w
 
 One function invocation must finish inside the platform's cut-off, so the two model calls share one 25 s deadline (`netlify/shared/budget.ts`, tested in `tests/unit/budget.test.ts`). Healthy latencies were measured live on the alias `~anthropic/claude-haiku-latest`, which resolved to the newest Haiku then, over 39 complete runs (about 120 model calls) on 2026-10-09:
 
-| Call | p50 | p95 | Per-call limit (1.5 x p95) |
+Thinking is on, so these are estimates, not measurements: the 2026-10-09 figures (pass 1 p50 9.3 s, p95 11.6 s; a pass 2 read p50 6.3 s, p95 9.4 s; both together p50 17.6 s, p95 24.3 s) were taken with thinking off. Pass 1 emits about 2,000 tokens in 9.3 s and a read about 1,000 in 6.3 s, about 3 ms a token, so about 500 thinking tokens add about 1.5 s to a p50 and up to 800 add about 2.5 s to a p95. Re-measure live and replace them.
+
+| Call | p50 (estimate) | p95 (estimate) | Per-call limit (1.5 x p95) |
 |---|---|---|---|
-| Pass 1: review | 9.3 s | 11.6 s | 17.4 s |
-| Pass 2: each of the two reads (side by side) | 6.3 s | 9.4 s | 14.1 s |
-| Both passes together | 17.6 s | 24.3 s (a 1,179-line file; typical files 15 to 21 s) | 25 s (the run) |
+| Pass 1: review | 11.0 s | 14.1 s | 21.15 s, held to 16.4 s while a healthy pass 2 and the 0.7 s margin must still fit |
+| Pass 2: each of the two reads (side by side) | 7.9 s | 11.9 s | 17.85 s |
+| Both passes together | about 19 s | about 26 s | 25 s (the run) |
+
+The run deadline stays 25 s. A typical run fits; a run whose two passes both land near their p95 does not, and then its pass 2 is cut to what is left and its comments are shown as not confirmed (the review still returns).
 
 - A call that passes its limit is a provider hang. It is retried once, after a timeout or a lost connection only, and only when what is left of the run could hold a healthy call (and, for pass 1, a healthy pass 2). The trace shows "Retried once after ...", or "Not retried: N s left". 4xx, 429 and 5xx are never retried.
 - An empty reply, a reply cut at the token cap and a reply that is not readable JSON (a pass 1 review, or a pass 2 list of verdicts) are also retried once when the budget allows.
-- After a full-length pass 1 hang (17.4 s) there is not enough left for a retry plus pass 2, so the run answers 504 with its trace.
+- After a full-length pass 1 hang (16.4 s) there is not enough left for a retry plus pass 2, so the run answers 504 with its trace.
 - The two reads of pass 2 run at the same time and each has its own limit and its own single retry. If a read fails or hangs, the run still answers with the first-pass comments marked not confirmed.
 - The browser retries once when the connection drops within 12 s, or when a reply ends before its JSON does (the earlier verifier saw one such call as `ERR_ABORTED` with an empty trace). It never retries a timeout or an HTTP answer, and a failed run without a server trace shows a trace row that says what the browser saw.
 - The browser gives up after 45 s.
@@ -72,7 +76,7 @@ One function invocation must finish inside the platform's cut-off, so the two mo
 
 - **Browser**: React and Vite in `src/`. `lib/api.ts` posts `{ code, language }` or `{ mode: "pr", files }` to `/api/ai` and checks the shape of the reply once. `lib/github.ts` and `lib/pullrequest.ts` parse links and read GitHub replies. `lib/verdicts.ts` holds the counting and wording of verdicts. Model prose is rendered through `lib/markdown.ts` as elements, never as raw markers or HTML.
 - **Server**: the Netlify Function `netlify/functions/ai.ts` (request checks, rate limit, responses). The pipeline sits in `netlify/shared/`: `pipeline.ts` (stages, retry), `budget.ts`, `model.ts` (one call with its own limit), `review.ts` (prompts, parsing, checks), `anchor.ts` (where a comment sits), `verify.ts` (second-pass prompt, verdicts, re-validation), `diff.ts` (patch parsing, file selection), `trace.ts`, `provider.ts`, `deadline.ts`.
-- **Provider**: OpenRouter chat completions. The model is one constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The page shows the model OpenRouter answered with, never the alias, and checks it against the newest Haiku that OpenRouter's public model list gives for the alias (`newest-model.ts`): match, not newest, unchecked, or not reported. No temperature is sent; reasoning is off. The client cannot choose the model.
+- **Provider**: OpenRouter chat completions. The model is one constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The page shows the model OpenRouter answered with, never the alias, and checks it against the newest Haiku that OpenRouter's public model list gives for the alias (`newest-model.ts`): match, not newest, unchecked, or not reported. No temperature is sent and no reasoning override: the model thinks as it does by default, and every call's token cap leaves room for that (6,000 for the review, 5,000 for each pass 2 read). The client cannot choose the model.
 - **Key**: `OPENROUTER_API_KEY` is read only on the server.
 - **Request checks**: POST only (405); the Origin must be on the allowlist (403); the body must be JSON (400) and at most 256 KiB (413); 20 requests a minute per address (429).
 - **Errors**: every failure returns `{ success: false, error }` in plain language with the trace of the stages that ran. Provider bodies, keys and stack traces never reach the browser.

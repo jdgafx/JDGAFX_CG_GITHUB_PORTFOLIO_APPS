@@ -120,7 +120,7 @@ describe('ai function: provider failures in pass 1', () => {
     expect(res.status).toBe(429)
     expect(res.headers.get('retry-after')).toBe('60')
     expect(payload.error).toBe('Rate limited, try again in a minute.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'Rate limited (HTTP 429) (limit 17.4 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'Rate limited (HTTP 429) (limit 16.4 s)' })
     expect(stepSummary(payload).slice(3)).toEqual(['Parse reply:skipped', 'Checks:skipped', 'Pass 2: verify (read 1):skipped', 'Pass 2: verify (read 2, adversary):skipped', 'Re-validate:skipped'])
   })
 
