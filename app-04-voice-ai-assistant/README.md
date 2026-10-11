@@ -62,7 +62,7 @@ The trace shows each step's status (Done, Failed or Skipped), its time, its toke
 - The browser (React and Vite) posts audio to `/api/transcribe` and text to `/api/ai`.
 - Each path is a Netlify Function in `netlify/functions/`. The functions hold the keys, so the browser never sees one.
 - `transcribe.ts` calls Deepgram with the fixed model `nova-3`. Its key is `DEEPGRAM_API_KEY`.
-- `ai.ts` calls OpenRouter with one fixed model, Claude Haiku 5.5 (`anthropic/claude-haiku-5.5`), pinned. Its key is `OPENROUTER_API_KEY`. That model supports tool calling on OpenRouter, which was checked against OpenRouter's live model list and with real calls.
+- `ai.ts` calls OpenRouter with the alias `~anthropic/claude-haiku-latest`, which OpenRouter resolves to the newest Claude Haiku. Its key is `OPENROUTER_API_KEY`. That model supports tool calling on OpenRouter, which was checked against OpenRouter's live model list and with real calls.
 - `tools.ts` holds the two tools. Neither needs a key.
 - **Fixed model rule:** the chat model is one constant in `netlify/shared/provider.ts`. There is no model picker. The browser cannot choose a model, and any model name it sends is ignored. The reply reports the model OpenRouter served.
 - `netlify/shared/` holds the shared server code. `http.ts` has the origin allow-list, the method check, the rate limit, the body limits, and the plain error copy. `provider.ts` has the model call, its retry and the tool round, `stream.ts` the streamed OpenRouter request and its three clocks, `sse.ts` the event parser shared with the browser. `tools.ts` has the tool definitions and the two lookups. `trace.ts` times each step.
@@ -118,7 +118,7 @@ https://jdgafx-app-04-voice-ai-assistant.netlify.app
 - Read-aloud uses the voices the browser has installed. With no voice, the reply shows as text only, with a note.
 - The reading time in a weather answer is the time of the Open-Meteo slot the server read; the source link can show a slightly different run (see Weather reading time).
 - Cost is what OpenRouter reports. Speech-to-text cost is not shown.
-- The served model is what OpenRouter reports for the pinned model. It should match the request.
+- The served model is what OpenRouter reports. The answer chip shows it and marks whether it is the newest Haiku, read from `alias_target` in OpenRouter's public model list; a reply from any other model is marked "not newest" and logged.
 - A provider 5xx shows the same wording as a timeout, "did not answer in time".
 - Provider error bodies are written to the function log, which may contain account detail. The browser never receives them.
 - The functions keep no records. The rate limiter holds client addresses in memory for one window only. Deepgram and OpenRouter handle the clips and text under their own terms.
