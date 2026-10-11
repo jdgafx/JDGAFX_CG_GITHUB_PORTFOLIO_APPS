@@ -59,7 +59,7 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
         <Cell label="Model" hint={summary && !summary.model ? 'Not reported by the provider' : 'Named in the provider reply'}>
           {chip ? (
             <span className="ds-chips">
-              <span className="ds-chip" title={chip.title}>
+              <span className="ds-chip ds-chip--wrap" title={chip.title}>
                 {chip.text}
                 {chip.marker && <span className={chip.warn ? 'readout-warn' : undefined}> {chip.marker}</span>}
               </span>
