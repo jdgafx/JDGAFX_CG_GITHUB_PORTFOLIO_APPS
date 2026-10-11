@@ -20,7 +20,7 @@ describe('the served model chip in the readout', () => {
   it('shows the served id and "newest" when the list names it the newest model', () => {
     const html = readout(runWith(SERVED, 'match', SERVED))
     expect(html).toContain('claude-haiku-5.5 · newest')
-    expect(html).toContain(`title="${SERVED}"`)
+    expect(html).toContain(`class="ds-chip ds-chip--wrap" title="${SERVED}"`)
   })
 
   it('marks a served id that is not the newest, and puts the newest id in the title', () => {

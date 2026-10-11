@@ -104,13 +104,13 @@ export default function ReadoutStrip({ running, run }: ReadoutStripProps) {
             <span className="ds-chips"><span className="ds-chip ds-chip--live">planning</span></span>
           ) : run?.model ? (
             <span className="ds-chips">
-              <span className="ds-chip" title={mismatchTitle(run) ?? run.model}>
+              <span className="ds-chip ds-chip--wrap" title={mismatchTitle(run) ?? run.model}>
                 {shortModel(run.model)}{checkMarker(run.modelCheck)}
               </span>
             </span>
           ) : run?.modelCheck === 'mismatch' ? (
             <span className="ds-chips">
-              <span className="ds-chip" title={mismatchTitle(run)}>
+              <span className="ds-chip ds-chip--wrap" title={mismatchTitle(run)}>
                 not reported{checkMarker(run.modelCheck)}
               </span>
             </span>
