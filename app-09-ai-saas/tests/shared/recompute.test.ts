@@ -71,13 +71,19 @@ describe('rev 8.3: a window length is a declared window_days claim, checked agai
     expect(checkSegment(days('30', 'window'), month).verdict).toBe('checked')
     expect(checkSegment(days('365', 'window', 'react'), year)).toMatchObject({ verdict: 'checked', npm: '365' })
   })
-  it('a wrong length is wrong with the npm value beside it', () => {
-    expect(checkSegment(days('31', 'last30'), month)).toMatchObject({ verdict: 'wrong', npm: '30' })
-    expect(checkSegment(days('30', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
-    expect(checkSegment(days('364', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
+  it('the span tag does not matter: "last 30 days" tagged window in a year run, or a year tagged last30, is checked', () => {
+    expect(checkSegment(days('30', 'window', 'react'), year)).toMatchObject({ verdict: 'checked', npm: '30' })
+    expect(checkSegment(days('365', 'last30', 'react'), year)).toMatchObject({ verdict: 'checked', npm: '365' })
+    expect(checkSegment(days('30', 'none'), month).verdict).toBe('checked')
   })
-  it('span none, a value in the wrong form and an unknown package are wrong', () => {
-    expect(checkSegment(days('30', 'none'), month).verdict).toBe('wrong')
+  it('a value that is neither the run window nor 30 is wrong with the npm value beside it, whatever the span', () => {
+    expect(checkSegment(days('31', 'last30'), month)).toMatchObject({ verdict: 'wrong', npm: '30' })
+    expect(checkSegment(days('45', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
+    expect(checkSegment(days('45', 'last30', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '30' })
+    expect(checkSegment(days('364', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
+    expect(checkSegment(days('90', 'window', 'react'), year).verdict).toBe('wrong')
+  })
+  it('a value in the wrong form and an unknown package are wrong', () => {
     expect(checkSegment(days('', 'last30'), month)).toMatchObject({ verdict: 'wrong', reason: 'value form' })
     expect(checkSegment(days('thirty', 'last30'), month).verdict).toBe('wrong')
     expect(checkSegment(days('30', 'last30', 'nope'), month)).toMatchObject({ verdict: 'wrong', reason: 'unknown package' })

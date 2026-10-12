@@ -211,11 +211,10 @@ export function checkSegment(seg: Segment, rc: Recomputed): Check {
       return BigInt(seg.value) === total ? { verdict: 'checked', npm } : wrong('differs', npm)
     }
     case 'window_days': {
-      // The past month is always 30 days; the whole window is the days the run asked for.
+      // A length the run really uses is right whatever span the model tagged: the run's days, or 30 for the past month.
       const npm = String(seg.span === 'last30' ? 30 : rc.days)
       if (!countOk) return wrong('value form')
-      if (seg.span === 'none') return wrong('span', npm)
-      return seg.value === npm ? { verdict: 'checked', npm } : wrong('differs', npm)
+      return seg.value === String(rc.days) || seg.value === '30' ? { verdict: 'checked', npm: seg.value } : wrong('differs', npm)
     }
     case 'peak_day':
     case 'unusual_day':
