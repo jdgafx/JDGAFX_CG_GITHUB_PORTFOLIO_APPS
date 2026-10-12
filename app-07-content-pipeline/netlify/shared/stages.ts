@@ -36,9 +36,19 @@ const STAGE_WORD_BUDGETS: Record<ModelStageId, number> = {
 // passed on half written.
 const TOKENS_PER_BUDGET_WORD = 5
 
-// Thinking is on, and its tokens count toward max_tokens. Haiku spends a few hundred to about 500 on
-// these tasks, so each ceiling gets 1,500 on top for thinking, which the word budget does not cover.
-const THINKING_TOKENS = 1_500
+// Thinking is on, and its tokens count toward max_tokens. Over 76 live Haiku 5.5 calls the most one stage
+// spent on thinking was about research 1,100, outline 750, draft 900, edit 2,000 and polish 1,600 tokens
+// (the exact figures where the call log has them, else completion tokens minus the answer). Each stage gets
+// 2.5 times its most, rounded up to 100, on top of the answer's share, which the word budget does not cover.
+// Eight of 83 calls, all Edit or Polish, were cut off, some with every token spent on thinking and no answer,
+// so the Edit and Polish maxima are a floor.
+const THINKING_TOKENS: Record<ModelStageId, number> = {
+  research: 2_800,
+  outline: 1_900,
+  draft: 2_300,
+  edit: 5_100,
+  polish: 4_100,
+}
 
 // Edit and Polish also write their change notes (up to five short lines), which need room of their own.
 const NOTES_TOKENS = 220
@@ -47,16 +57,18 @@ const NOTES_TOKENS = 220
 export const NOTE_STAGES: ReadonlySet<ModelStageId> = new Set(['edit', 'polish'])
 
 export function stageMaxTokens(stage: ModelStageId): number {
-  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD + (NOTE_STAGES.has(stage) ? NOTES_TOKENS : 0) + THINKING_TOKENS
+  return STAGE_WORD_BUDGETS[stage] * TOKENS_PER_BUDGET_WORD + (NOTE_STAGES.has(stage) ? NOTES_TOKENS : 0) + THINKING_TOKENS[stage]
 }
 
 // How long one model call may take before the function gives up on it. Measured over 32 live runs
 // on Haiku 5.5 with thinking off, healthy calls had a p95 of research 3.6 s, outline 4.1 s, draft 4.2 s,
-// edit 3.6 s, polish 4.0 s (limits were 1.5 times that: 6, 8, 10, 7, 9 s). Thinking adds up to about
-// 500 tokens before the answer, about 7 s at the 70 tokens a second those runs imply, so each limit
-// is the old one plus 8 s: 14, 16, 18, 15 and 17 s. One limit fits inside the request budget, which
+// edit 3.6 s, polish 4.0 s (limits were 1.5 times that: 6, 8, 10, 7, 9 s). With thinking on, 16 logged calls
+// fit 0.93 s + 3.97 ms per generated token (thinking included): the slowest healthy calls took edit 10.8 s
+// and polish 12.3 s, so the limits are the old ones plus 8 s: 14, 16, 18, 15 and 17 s. A call that uses its
+// whole ceiling (see THINKING_TOKENS) fits its limit for research, outline and draft, but not for edit and
+// polish: their limits hold about 3,500 and 4,000 tokens. One limit fits inside the request budget, which
 // keeps a stage request under the function cut-off; a second full limit does not, so a call that hangs
-// is retried only when it failed early (see retryFits). Re-measure live and tighten if p95 allows.
+// is retried only when it failed early (see retryFits).
 const STAGE_TIMEOUTS_MS: Record<ModelStageId, number> = {
   research: 14_000,
   outline: 16_000,

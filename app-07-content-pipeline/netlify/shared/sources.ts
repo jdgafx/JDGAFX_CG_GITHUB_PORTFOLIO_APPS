@@ -1,13 +1,15 @@
 // Live public sources for a topic: Wikipedia articles and Hacker News stories. The URL builders
 // and parsers are pure; gatherSources is the only function that touches the network.
 import { withDeadline } from './deadline'
-import { isHttpUrl, type Source, type SourcePack } from './sourcepack'
+import type { Source, SourcePack } from './sourcepack'
 
 export const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php'
 export const HACKER_NEWS_API = 'https://hn.algolia.com/api/v1/search'
 
 // The Sources lookups run in parallel under this one cap, so the stage stays well inside the limit.
 export const SOURCES_TIMEOUT_MS = 5_000
+// The page check of every source that was found also runs in parallel, under its own cap.
+export const PAGE_CHECK_TIMEOUT_MS = 3_000
 
 const USER_AGENT = 'ContentForge/1.0 (https://jdgafx-app-07-content-pipeline.netlify.app)'
 // A lookup answer larger than this is refused; real answers are a few kilobytes.
@@ -162,6 +164,8 @@ export function isRelevantTitle(title: string, terms: string[]): boolean {
   return topicHits(title, terms) >= Math.max(1, Math.min(3, Math.ceil(terms.length / 2)))
 }
 
+// A Hacker News source is the discussion page: it always shows the story's title, which is all the writing may
+// claim from it. The story's own link is not cited, because a story outlives the page it points to.
 export function parseHackerNews(json: unknown, terms: string[]): Candidate[] {
   const hits = asRecord(json)?.hits
   if (!Array.isArray(hits)) return []
@@ -173,14 +177,15 @@ export function parseHackerNews(json: unknown, terms: string[]): Candidate[] {
     const points = record?.points
     if (!title || typeof points !== 'number' || points < MIN_POINTS || !isRelevantTitle(title, terms)) continue
 
-    const link = typeof record?.url === 'string' && isHttpUrl(record.url) ? record.url : null
     const id = typeof record?.objectID === 'string' && /^\d+$/.test(record.objectID) ? record.objectID : null
-    const url = link ?? (id ? `${HN_HOMEPAGE}${id}` : null)
-    if (!url || seen.has(url)) continue
-    seen.add(url)
+    if (!id) continue
+    // The same article submitted twice is one source.
+    const key = typeof record?.url === 'string' && record.url ? record.url : `${HN_HOMEPAGE}${id}`
+    if (seen.has(key)) continue
+    seen.add(key)
 
     const created = typeof record?.created_at === 'string' ? /^\d{4}-\d{2}-\d{2}/.exec(record.created_at)?.[0] : undefined
-    stories.push({ kind: 'hackernews', title, url, summary: '', points, ...(created ? { date: created } : {}) })
+    stories.push({ kind: 'hackernews', title, url: `${HN_HOMEPAGE}${id}`, summary: '', points, ...(created ? { date: created } : {}) })
   }
   return stories.sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).slice(0, MAX_HACKER_NEWS)
 }
@@ -220,6 +225,24 @@ async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
   return JSON.parse(await readCapped(response)) as unknown
 }
 
+// Why a page could not be cited: the status it answered with, or that it did not answer at all.
+type PageCheck = { ok: true } | { ok: false; reason: string; answered: boolean }
+
+// A source is cited only if its page was fetched and answered 2xx. The body is not read, only the status.
+async function checkPage(url: string, parent: AbortSignal, timeoutMs: number): Promise<PageCheck> {
+  try {
+    const status = await withDeadline(timeoutMs, parent, async signal => {
+      const response = await fetch(url, { signal, redirect: 'error', headers: { 'User-Agent': USER_AGENT, 'Accept': 'text/html' } })
+      await response.body?.cancel().catch(() => undefined)
+      return response.status
+    })
+    return status >= 200 && status < 300 ? { ok: true } : { ok: false, reason: `its page answered HTTP ${status}`, answered: true }
+  } catch (err) {
+    const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
+    return { ok: false, reason: timedOut ? 'its page did not answer in time' : 'its page could not be reached', answered: false }
+  }
+}
+
 interface Lookup {
   items: Candidate[]
   note?: string
@@ -256,7 +279,9 @@ export class SourcesUnavailableError extends Error {
  * Looks the topic up on Wikipedia and (for most content types) Hacker News, in parallel, under one
  * deadline that carries the total time cap. A lookup that fails adds a note, and the pack holds
  * whatever the other lookup found. A lookup that answers with no match leaves an empty pack that says
- * so. Only when a lookup failed and no source is left does it throw SourcesUnavailableError.
+ * so. Every source found is then fetched once, and only a page that answered 2xx is kept: the others are
+ * left out with a note, never cited. Only when a lookup or a page check failed to get an answer and no
+ * source is left does it throw SourcesUnavailableError.
  */
 export async function gatherSources(
   topic: string,
@@ -272,9 +297,17 @@ export async function gatherSources(
       ? lookup('Hacker News', parent, timeoutMs, async signal => parseHackerNews(await fetchJson(hackerNewsUrl(hnTerms), signal), hnTerms))
       : Promise.resolve<Lookup>({ items: [], note: 'Hacker News is not searched for marketing copy.', failed: false }),
   ])
-  const found = [...wikipedia.items, ...hackerNews.items]
-  const notes = [wikipedia.note, hackerNews.note].filter((note): note is string => Boolean(note))
-  if (found.length === 0 && (wikipedia.failed || hackerNews.failed)) throw new SourcesUnavailableError(notes)
+  const candidates = [...wikipedia.items, ...hackerNews.items]
+  const checks = await Promise.all(candidates.map(item => checkPage(item.url, parent, PAGE_CHECK_TIMEOUT_MS)))
+  const found = candidates.filter((_, i) => checks[i]?.ok)
+  const dropped = candidates.flatMap((item, i) => {
+    const check = checks[i]
+    return check && !check.ok ? [{ note: `"${item.title}" was left out: ${check.reason}.`, answered: check.answered }] : []
+  })
+  const notes = [wikipedia.note, hackerNews.note, ...dropped.map(drop => drop.note)].filter((note): note is string => Boolean(note))
+  // A page that answered with an error is a dead link, not a failed lookup. One that did not answer at all is.
+  const failed = wikipedia.failed || hackerNews.failed || dropped.some(drop => !drop.answered)
+  if (found.length === 0 && failed) throw new SourcesUnavailableError(notes)
   return {
     sources: found.map((item, i) => ({ ...item, n: i + 1 })),
     notes,

@@ -13,6 +13,8 @@ export interface CallRecord {
   newestModel: string | null
   // Null when the server sent no answer, so no model call is known to have run.
   modelCheck: ModelCheck | null
+  // Earlier attempts of this call (it hung or never connected, then ran again) whose usage never arrived.
+  lostAttempts?: number
 }
 
 export type PipelineOutcome =
@@ -161,8 +163,9 @@ async function postStage(
   }
   const serverRow = readRow(body?.trace)
   const served = typeof body?.model === 'string' ? body.model : null
-  const attempt: Pick<CallRecord, 'usage' | 'model' | 'newestModel' | 'modelCheck'> = {
+  const attempt: Pick<CallRecord, 'usage' | 'model' | 'newestModel' | 'modelCheck' | 'lostAttempts'> = {
     usage: readUsage(body?.usage),
+    lostAttempts: typeof body?.lostAttempts === 'number' && body.lostAttempts > 0 ? Math.floor(body.lostAttempts) : undefined,
     model: served,
     newestModel: typeof body?.newestModel === 'string' ? body.newestModel : null,
     modelCheck: readCheck(body?.modelCheck),
@@ -202,12 +205,24 @@ async function runStage(req: RunRequest, stage: StageId, callbacks: PipelineCall
   const label = STAGE_LABELS[stage]
   for (let attempt = 0; ; attempt += 1) {
     const name = attempt === 0 ? label : `${label} (retry)`
+    const sentAt = Date.now()
+    // A request already stopped is never sent, so only a stop after this point can leave a billed call behind.
+    const mayBeBilled = stage !== 'sources' && !req.signal.aborted
     try {
       const { content, notes, record } = await postStage(req, stage, name)
       callbacks.onCall(record)
       return { content, notes }
     } catch (err) {
-      if (isAbort(err) || req.signal.aborted) throw err
+      if (isAbort(err) || req.signal.aborted) {
+        // The model may have answered, and been billed, after the stop. Its usage never reaches the page.
+        if (mayBeBilled) {
+          callbacks.onCall({
+            stage, usage: null, model: null, newestModel: null, modelCheck: null,
+            row: { name, status: 'failed', ms: Date.now() - sentAt, detail: 'Stopped while the model was answering. The call may still be billed.' },
+          })
+        }
+        throw err
+      }
       if (!(err instanceof StageFailure)) throw err
       callbacks.onCall(err.record)
       if (!err.retryable || attempt >= RETRY_LIMIT) throw err

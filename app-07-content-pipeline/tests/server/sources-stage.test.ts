@@ -24,18 +24,25 @@ describe('Sources stage', () => {
     ],
   }
 
-  // Answers the two lookups by host. Anything else fails the test.
-  function lookupsWill(wikipedia: () => Response | Promise<Response>, hackerNews: () => Response | Promise<Response>): string[] {
+  // Answers the two lookups by host, and each page check with `page` (a live page unless a test says otherwise).
+  // Anything else fails the test. Returns every url asked for; `lookups` filters out the page checks.
+  function lookupsWill(
+    wikipedia: () => Response | Promise<Response>,
+    hackerNews: () => Response | Promise<Response>,
+    page: (url: string) => Response | Promise<Response> = () => new Response('<html></html>', { status: 200 }),
+  ): string[] {
     const urls: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       urls.push(url)
       if (url.startsWith('https://en.wikipedia.org/w/api.php?')) return wikipedia()
       if (url.startsWith('https://hn.algolia.com/api/v1/search?')) return hackerNews()
+      if (url.startsWith('https://en.wikipedia.org/wiki/') || url.startsWith('https://news.ycombinator.com/item?id=')) return page(url)
       throw new Error(`Unexpected request to ${url}`)
     }))
     return urls
   }
+  const lookups = (urls: string[]) => urls.filter(url => url.includes('/w/api.php?') || url.includes('hn.algolia.com'))
 
   const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 })
 
@@ -55,7 +62,7 @@ describe('Sources stage', () => {
       'Summary: Software testing includes unit tests: small checks of whether software satisfies expectations, found by running it on real inputs.',
       '',
       '[3] Hacker News: Multiple assertions are fine in a unit test',
-      'URL: https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/',
+      'URL: https://news.ycombinator.com/item?id=33478000',
       'Points: 319',
       'Date: 2022-11-05',
     ].join('\n'))
@@ -64,15 +71,27 @@ describe('Sources stage', () => {
     expect(body.trace[0]).not.toHaveProperty('tokens')
     expect(body.usage).toBeNull()
     expect(body.model).toBeNull()
-    expect(urls).toHaveLength(2)
+    expect(lookups(urls)).toHaveLength(2)
+    // Each cited page was fetched once.
+    expect(urls.filter(url => !lookups(urls).includes(url)).sort()).toEqual([
+      'https://en.wikipedia.org/wiki/Software_testing', 'https://en.wikipedia.org/wiki/Unit_testing', 'https://news.ycombinator.com/item?id=33478000',
+    ])
     expect(urls.some(url => url.includes('openrouter'))).toBe(false)
+  })
+
+  it('leaves out a source whose page answers 404, names it in the trace and the pack, and never cites it', async () => {
+    lookupsWill(() => ok(WIKI_BODY), () => ok(HN_BODY), url => new Response('Not found', { status: url.includes('Software_testing') ? 404 : 200 }))
+    const body = (await (await handler(request(stageBody('sources')))).json()) as StageBody
+    expect(body.result).not.toContain('Software_testing')
+    expect(body.result).toContain('Note: "Software testing" was left out: its page answered HTTP 404.')
+    expect(body.trace[0]).toMatchObject({ status: 'ok', detail: '2 sources: 1 Wikipedia, 1 Hacker News. "Software testing" was left out: its page answered HTTP 404.' })
   })
 
   it('does not search Hacker News for marketing copy and says so', async () => {
     const urls = lookupsWill(() => ok(WIKI_BODY), () => ok(HN_BODY))
     const res = await handler(request(stageBody('sources', {}, { contentType: 'Marketing Copy' })))
     const body = (await res.json()) as StageBody
-    expect(urls).toHaveLength(1)
+    expect(lookups(urls)).toHaveLength(1)
     expect(body.trace[0]).toMatchObject({ detail: '2 sources: 2 Wikipedia, 0 Hacker News. Hacker News is not searched for marketing copy.' })
     expect(body.result).toContain('Note: Hacker News is not searched for marketing copy.')
   })
@@ -123,7 +142,7 @@ describe('Sources stage', () => {
     expect(body.error).toBe('No live source could be reached. Wikipedia was unavailable. Hacker News was unavailable. Try again.')
     expect(body.trace[0]).toMatchObject({ name: 'Sources', status: 'failed' })
     expect(body.model).toBeNull()
-    expect(urls).toHaveLength(2)
+    expect(lookups(urls)).toHaveLength(2)
     expect(urls.some(url => url.includes('openrouter'))).toBe(false)
   })
 

@@ -44,14 +44,24 @@ async function modelRecord(served: string | null, newestP: Promise<string | null
 // A failure with no reply from the provider has no served model and no check, so it does not rank.
 const NO_REPLY_RECORD = { model: null, newestModel: null, modelCheck: null }
 
+// A request the provider refused with a 4xx was never run, so it cost nothing: that is a known zero, not a
+// call whose usage went unreported.
+const NOT_BILLED: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }
+
+// Earlier attempts of this request (a call that hung or never connected) whose usage never arrived. The
+// browser adds them to the run's calls that were not reported, so a retry cannot hide a billed attempt.
+function lostAttempts(retried: string | null): { lostAttempts?: number } {
+  return retried ? { lostAttempts: 1 } : {}
+}
+
 // Every failure has a plain message, a retry hint and one failed trace row. A call that
 // reached the provider keeps its usage and model, because the provider still billed it.
-function failureFor(stage: StageId, startedAt: number, origin: string | null, newestP: Promise<string | null> = Promise.resolve(null)) {
+function failureFor(stage: StageId, startedAt: number, origin: string | null, newestP: Promise<string | null> = Promise.resolve(null), retriedNote: () => string | null = () => null) {
   return async (
     message: string,
     status: number,
     retryable: boolean,
-    attempt?: { usage: Usage | null; model: string | null },
+    attempt?: { usage: Usage | null; model: string | null; noReply?: boolean },
     note?: string,
   ): Promise<Response> => {
     const ms = Date.now() - startedAt
@@ -63,8 +73,8 @@ function failureFor(stage: StageId, startedAt: number, origin: string | null, ne
       tokens: attempt?.usage?.total_tokens,
       cost: attempt?.usage?.cost,
     }]
-    const record = attempt ? await modelRecord(attempt.model, newestP) : NO_REPLY_RECORD
-    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt?.usage ?? null, ...record }, status, origin)
+    const record = attempt && !attempt.noReply ? await modelRecord(attempt.model, newestP) : NO_REPLY_RECORD
+    return json({ error: message, retryable, trace, totalMs: ms, usage: attempt?.usage ?? null, ...record, ...lostAttempts(retriedNote()) }, status, origin)
   }
 }
 
@@ -179,7 +189,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
   let retried: string | null = null
   // Started with the model call and awaited once the reply, or the failure, is known.
   const newestP = newestModel()
-  const fail = failureFor(stage, startedAt, origin, newestP)
+  const fail = failureFor(stage, startedAt, origin, newestP, () => retried)
 
   try {
     let reply: ChatReply
@@ -222,7 +232,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
       tokens: reply.usage?.total_tokens,
       cost: reply.usage?.cost,
     }
-    return json({ result: content, ...(split ? { notes } : {}), trace: [row], usage: reply.usage, ...(await modelRecord(attempt.model, newestP)), totalMs: ms }, 200, origin)
+    return json({ result: content, ...(split ? { notes } : {}), trace: [row], usage: reply.usage, ...(await modelRecord(attempt.model, newestP)), ...lostAttempts(retried), totalMs: ms }, 200, origin)
   } catch (err) {
     if (req.signal.aborted) {
       return fail('The run was stopped before this stage finished.', 503, false)
@@ -232,7 +242,9 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
     }
     if (err instanceof ProviderStatusError) {
       const { message, httpStatus } = providerOutcome(err.status)
-      return fail(message, httpStatus, false)
+      // A 4xx (a bad key, no credit, a rate limit) was refused before it ran. A 5xx may have been billed.
+      const refused = err.status < 500 ? { usage: NOT_BILLED, model: null, noReply: true } : undefined
+      return fail(message, httpStatus, false, refused, retried ?? undefined)
     }
     console.error(`${stage} stage failed: ${err instanceof Error ? err.name : 'unknown error'}`)
     return fail('Could not get a usable answer from the AI provider. Try again.', 502, false, undefined, retried ?? undefined)

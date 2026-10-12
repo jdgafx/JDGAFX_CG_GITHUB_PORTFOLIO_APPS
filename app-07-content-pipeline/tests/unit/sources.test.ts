@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  clipExtract, gatherSources, hackerNewsTerms, hackerNewsUrl, isPersonLead, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
+  SourcesUnavailableError, clipExtract, gatherSources, hackerNewsTerms, hackerNewsUrl, isPersonLead, isRelevantTitle, parseHackerNews, parseWikipedia, searchTerms, searchesHackerNews,
   topicHits, wikipediaPageUrl, wikipediaUrl,
 } from '../../netlify/shared/sources'
 
@@ -219,18 +219,21 @@ describe('parseHackerNews', () => {
     ])
   })
 
-  it('returns the story date and link, and falls back to the discussion page when a story has no link', () => {
+  it('cites the discussion page of every story, never the page the story points to', () => {
     const stories = parseHackerNews(HN_RESPONSE, terms)
     expect(stories[0]).toEqual({
-      kind: 'hackernews', title: 'Rust memory safety in Chrome', url: 'https://www.chromium.org/rust', summary: '', points: 242, date: '2020-08-19',
+      kind: 'hackernews', title: 'Rust memory safety in Chrome', url: 'https://news.ycombinator.com/item?id=24200000', summary: '', points: 242, date: '2020-08-19',
     })
     expect(stories[1]?.url).toBe('https://news.ycombinator.com/item?id=33743000')
     expect(stories[1]?.date).toBe('2022-11-25')
+    expect(stories.map(story => story.url).every(url => url.startsWith('https://news.ycombinator.com/item?id='))).toBe(true)
   })
 
-  it('never uses a link that is not http(s)', () => {
+  it('uses the discussion page whatever the story link is, and drops a story with no numeric id', () => {
     const story = parseHackerNews(HN_RESPONSE, terms).find(item => item.title === 'Rust memory unsafe link')
     expect(story?.url).toBe('https://news.ycombinator.com/item?id=3')
+    const noId = { hits: [{ title: 'Rust memory safety news', url: 'https://example.test/a', points: 50, objectID: 'abc' }] }
+    expect(parseHackerNews(noId, terms)).toEqual([])
   })
 
   it('returns nothing for an answer without hits', () => {
@@ -282,5 +285,58 @@ describe('the Hacker News lookup for a topic with filler words', () => {
     }))
     const pack = await gatherSources('The Rust programming language and memory safety', 'Technical Article', new AbortController().signal)
     expect(pack.sources.filter(source => source.kind === 'hackernews').map(source => source.title)).toEqual(['Memory safety bugs in C'])
+  })
+})
+
+describe('gatherSources: a source is cited only if its page answered 2xx', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const TOPIC = 'The Rust programming language and memory safety'
+  const story = (objectID: string, title: string) => ({ title, url: `https://dead.example/${objectID}`, points: 120, created_at: '2026-02-03T10:00:00Z', objectID })
+
+  // Answers the two lookups with the fixtures and every page check with `page(url)`. Returns the pages asked for.
+  function stubWeb(page: (url: string) => Response | Promise<Response>): string[] {
+    const pages: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith('https://en.wikipedia.org/w/api.php?')) return new Response(JSON.stringify(WIKIPEDIA_RESPONSE), { status: 200 })
+      if (url.startsWith('https://hn.algolia.com/api/v1/search?')) {
+        return new Response(JSON.stringify({ hits: [story('1001', 'Rust memory safety explained'), story('1002', 'Rust memory safety in Chrome')] }), { status: 200 })
+      }
+      pages.push(url)
+      return page(url)
+    }))
+    return pages
+  }
+
+  it('fetches the page of every source it found, and only those', async () => {
+    const pages = stubWeb(() => new Response('<html></html>', { status: 200 }))
+    const pack = await gatherSources(TOPIC, 'Technical Article', new AbortController().signal)
+    expect(pack.sources.map(source => source.url)).toEqual(pages)
+    expect(pages).toContain('https://news.ycombinator.com/item?id=1001')
+    expect(pages.some(url => url.includes('dead.example'))).toBe(false)
+    expect(pack.notes).toEqual([])
+  })
+
+  it('leaves out a source whose page answers 404, says so in a note, and renumbers the rest', async () => {
+    stubWeb(url => new Response('Not found', { status: url.endsWith('id=1001') ? 404 : 200 }))
+    const pack = await gatherSources(TOPIC, 'Technical Article', new AbortController().signal)
+    expect(pack.sources.map(source => source.title)).not.toContain('Rust memory safety explained')
+    expect(pack.sources.map(source => source.n)).toEqual(pack.sources.map((_, i) => i + 1))
+    expect(pack.sources.some(source => source.title === 'Rust memory safety in Chrome')).toBe(true)
+    expect(pack.notes).toEqual(['"Rust memory safety explained" was left out: its page answered HTTP 404.'])
+  })
+
+  it('leaves out a page that does not answer in time, and fails the stage when no source is left', async () => {
+    stubWeb(() => { throw new DOMException('The operation timed out.', 'TimeoutError') })
+    await expect(gatherSources(TOPIC, 'Technical Article', new AbortController().signal)).rejects.toBeInstanceOf(SourcesUnavailableError)
+  })
+
+  it('returns an empty pack with the notes, not a failure, when every page answered with an error', async () => {
+    stubWeb(() => new Response('gone', { status: 404 }))
+    const pack = await gatherSources(TOPIC, 'Technical Article', new AbortController().signal)
+    expect(pack.sources).toEqual([])
+    expect(pack.notes.length).toBeGreaterThan(0)
+    expect(pack.notes.every(note => note.includes('was left out: its page answered HTTP 404'))).toBe(true)
   })
 })

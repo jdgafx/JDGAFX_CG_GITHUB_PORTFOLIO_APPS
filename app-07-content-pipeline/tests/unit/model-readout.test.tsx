@@ -97,3 +97,49 @@ describe('served-model readout for a run', () => {
     expect(html).not.toContain('·')
   })
 })
+
+describe('the run totals when a call did not report', () => {
+  const lost = (stage: StageId): CallRecord => ({
+    stage,
+    row: { name: STAGE_LABELS[stage], status: 'failed', ms: 4_700, detail: 'Connection lost before the stage finished.' },
+    usage: null,
+    model: null,
+    newestModel: null,
+    modelCheck: null,
+  })
+  const readoutText = (phase: 'done' | 'failed', calls: CallRecord[]) =>
+    renderToStaticMarkup(<Readout phase={phase} totals={summarize(calls)} runningStage={null} startedAt={0} />).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+
+  it('reads "at least" with the number of calls not reported, for tokens and cost, when the run failed', () => {
+    const text = readoutText('failed', [call('research', NEWEST, 'match'), call('outline', NEWEST, 'match'), lost('draft')])
+    expect(text).toContain('at least 2,400 (1 call not reported)')
+    expect(text).toContain('at least $0.00040 (1 call not reported)')
+  })
+
+  it('counts every call that is missing', () => {
+    const text = readoutText('failed', [call('research', NEWEST, 'match'), lost('outline'), lost('draft')])
+    expect(text).toContain('at least $0.00020 (2 calls not reported)')
+  })
+
+  it('reads "not reported" when no call reported anything', () => {
+    const text = readoutText('failed', [lost('research')])
+    expect(text).toContain('Tokens not reported')
+    expect(text).toContain('Cost (USD) not reported')
+    expect(text).not.toContain('at least')
+  })
+
+  it('shows a complete total plainly, and the lost attempt of a retried call on its trace line', () => {
+    expect(readoutText('done', [call('research', NEWEST, 'match')])).not.toContain('at least')
+    const retried = { ...call('research', NEWEST, 'match'), lostAttempts: 1 }
+    expect(readoutText('done', [retried])).toContain('at least $0.00020 (1 call not reported)')
+    const trace = renderToStaticMarkup(<RunTrace lines={buildTrace([retried], {}, null)} />)
+    expect(trace).toContain('an earlier attempt (1 call not reported)')
+  })
+
+  it('shows a known zero from a refused request as $0, not as not reported', () => {
+    const refused = { ...call('research', null, null, 'failed'), usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }, row: { name: 'Research', status: 'failed' as const, ms: 45, detail: 'rejected', tokens: 0, cost: 0 } }
+    const text = readoutText('failed', [refused])
+    expect(text).toContain('Cost (USD) $0.00000')
+    expect(text).not.toContain('at least')
+  })
+})

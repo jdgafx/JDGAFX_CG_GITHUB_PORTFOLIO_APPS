@@ -31,13 +31,13 @@ describe('happy path', () => {
     await handler(request(stageBody('research', {}, { model: 'openai/gpt-4o' })))
     expect(sent[0].url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(sent[0].body.model).toBe('~anthropic/claude-haiku-latest')
-    expect(sent[0].body.max_tokens).toBe(1900)
+    expect(sent[0].body.max_tokens).toBe(3200)
     expect(sent[0].body.usage).toEqual({ include: true })
     expect(sent[0].body.stream).toBe(false)
     expect(sent[0].init?.headers).toMatchObject({ Authorization: `Bearer ${PLACEHOLDER}` })
   })
 
-  it.each([['research', 1900], ['outline', 2000], ['draft', 2300], ['edit', 2520], ['polish', 2520]])('limits %s to %i tokens (edit and polish add room for their change notes)', async (stage, tokens) => {
+  it.each([['research', 3200], ['outline', 2400], ['draft', 3100], ['edit', 6120], ['polish', 5120]])('limits %s to %i tokens (edit and polish add room for their change notes)', async (stage, tokens) => {
     const sent = providerWill(() => completion(ARTICLE))
     await handler(request(stageBody(stage, { research: NOTES, outline: '- P', draft: ARTICLE, edit: ARTICLE })))
     expect(sent[0].body.max_tokens).toBe(tokens)
@@ -170,7 +170,7 @@ describe('provider failures', () => {
   it('maps a 401 to the key-or-credit message', async () => {
     providerWill(() => new Response('{}', { status: 401 }))
     const res = await handler(request(stageBody('research')))
-    expect(await res.json()).toEqual({ error: KEY_MESSAGE, retryable: false, trace: expect.any(Array), totalMs: expect.any(Number), usage: null, model: null, newestModel: null, modelCheck: null })
+    expect(await res.json()).toEqual({ error: KEY_MESSAGE, retryable: false, trace: expect.any(Array), totalMs: expect.any(Number), usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }, model: null, newestModel: null, modelCheck: null })
   })
 
   it('maps a provider 500 to the slow message without showing the provider text', async () => {
@@ -270,6 +270,21 @@ describe('provider failures', () => {
     expect(body.error).toBe('Could not get a usable answer from the AI provider. Try again.')
     expect(body.trace?.[0].detail).toBe(`${body.error} Retried once after a connection failure.`)
     expect(sent).toHaveLength(2)
+  })
+
+  it.each([[400], [401], [402], [403], [429]])('reports a known zero usage and cost when the provider refuses with HTTP %i, so its row shows a zero cost', async status => {
+    providerWill(() => new Response('{}', { status }))
+    const body = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(body.usage).toEqual({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 })
+    expect(body.trace?.[0]).toMatchObject({ status: 'failed', tokens: 0, cost: 0 })
+    expect(body).not.toHaveProperty('lostAttempts')
+  })
+
+  it.each([[500], [503]])('leaves usage unknown when the provider answers HTTP %i', async status => {
+    providerWill(() => new Response('{}', { status }))
+    const body = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(body.usage).toBeNull()
+    expect(body.trace?.[0]).not.toHaveProperty('tokens')
   })
 
   it.each([[400], [401], [402], [403], [429], [500], [503]])('makes exactly one call when the provider answers HTTP %i', async status => {
@@ -436,5 +451,56 @@ describe('usage and trace', () => {
 describe('contract', () => {
   it('serves the function at /api/ai', () => {
     expect(config.path).toBe('/api/ai')
+  })
+})
+
+describe('billed usage is kept on every failed reply', () => {
+  it.each([
+    ['cut off', () => completion(ARTICLE, { choices: [{ message: { content: ARTICLE }, finish_reason: 'length' }] })],
+    ['empty', () => completion('   ')],
+    ['refused as a safety label', () => completion('User Safety: safe')],
+  ])('carries the usage and cost of a %s reply in the body and the row', async (_name, reply) => {
+    providerWill(reply)
+    const body = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(body.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002 })
+    expect(body.trace?.[0]).toMatchObject({ status: 'failed', tokens: 1200, cost: 0.0002 })
+  })
+
+  it('reports the lost first attempt on a call that connected the second time', async () => {
+    let calls = 0
+    providerWill(() => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return completion(ARTICLE)
+    })
+    const body = (await (await handler(request(stageBody('research')))).json()) as StageBody & Record<string, unknown>
+    expect(body.usage?.total_tokens).toBe(1200)
+    expect(body.lostAttempts).toBe(1)
+  })
+
+  it('reports the lost first attempt when the second one fails too, and a refusal after the retry is still $0', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    providerWill(() => { throw new TypeError('fetch failed') })
+    const failed = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(failed.usage).toBeNull()
+    expect(failed.lostAttempts).toBe(1)
+
+    let calls = 0
+    providerWill(() => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return new Response('{}', { status: 401 })
+    })
+    const refused = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(refused.usage).toEqual({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 })
+    expect(refused.lostAttempts).toBe(1)
+  })
+
+  it('reports the lost first attempt when a hung call is retried and the retry hangs too', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    providerWill(() => { throw new DOMException('The operation timed out.', 'TimeoutError') })
+    const body = (await (await handler(request(stageBody('research')))).json()) as ErrorBody & Record<string, unknown>
+    expect(body.usage).toBeNull()
+    expect(body.lostAttempts).toBe(1)
   })
 })

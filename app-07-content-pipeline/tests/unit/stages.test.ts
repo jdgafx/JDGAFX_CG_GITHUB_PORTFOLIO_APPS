@@ -102,8 +102,8 @@ describe('stageTimeoutMs and retryFits', () => {
 })
 
 describe('stageMaxTokens', () => {
-  it('is five tokens per budget word plus 1,500 for thinking, so a stage that runs on is cut off and refused', () => {
-    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([1900, 2000, 2300, 2520, 2520])
+  it('is five tokens per budget word (plus 220 for change notes) plus 2.5 times the most thinking a stage was measured to use', () => {
+    expect(['research', 'outline', 'draft', 'edit', 'polish'].map(stage => stageMaxTokens(stage as never))).toEqual([3200, 2400, 3100, 6120, 5120])
   })
 })
 

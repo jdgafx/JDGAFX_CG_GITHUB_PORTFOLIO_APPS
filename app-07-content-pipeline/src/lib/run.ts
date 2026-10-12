@@ -17,6 +17,8 @@ export interface TraceLine {
   model?: string
   newestModel?: string
   modelCheck?: ModelCheck
+  // Earlier attempts of this call whose usage never arrived.
+  lostAttempts?: number
   // Bar length, as a percentage of the slowest call in the run.
   share: number
 }
@@ -36,6 +38,7 @@ interface Row {
   model?: string
   newestModel?: string
   modelCheck?: ModelCheck
+  lostAttempts?: number
 }
 
 // One line per call, then one "skipped" line per stage that never produced a call or output.
@@ -47,6 +50,7 @@ export function buildTrace(calls: CallRecord[], outputs: StageOutputs, end: RunE
     model: call.model ?? undefined,
     newestModel: call.newestModel ?? undefined,
     modelCheck: call.modelCheck ?? undefined,
+    lostAttempts: call.lostAttempts,
   }))
 
   if (end) {
@@ -99,6 +103,11 @@ export interface RunTotals {
   modelCalls: number
   ms: number
   usageCalls: number
+  // Model calls whose token usage never arrived, lost attempts of a retried call included. A total with any
+  // of these is "at least" what it shows.
+  unreportedCalls: number
+  // Model calls with no cost, which is every unreported call plus the replies that carried tokens but no cost.
+  uncostedCalls: number
   promptTokens: number | null
   completionTokens: number | null
   totalTokens: number | null
@@ -114,13 +123,16 @@ export interface RunTotals {
 }
 
 // Totals across every call, including failed calls the provider billed. A figure is
-// null when no call reported it, never zero.
+// null when no call reported it, never zero. A call whose usage is unknown (a timeout, a lost connection,
+// a stop) adds nothing to a figure and is counted in unreportedCalls instead, so the total reads as partial.
 export function summarize(calls: CallRecord[]): RunTotals {
   const reported = calls.flatMap(call => (call.usage ? [call.usage] : []))
   const costed = reported.filter(usage => usage.cost !== undefined)
   const sum = (pick: (usage: Usage) => number): number | null =>
     reported.length > 0 ? reported.reduce((total, usage) => total + pick(usage), 0) : null
   const writing = calls.filter(call => call.stage !== 'sources')
+  const lost = writing.reduce((total, call) => total + (call.lostAttempts ?? 0), 0)
+  const unreportedCalls = writing.filter(call => !call.usage).length + lost
   const reply: CallRecord | undefined = [...writing].reverse().find(call => call.row.status === 'ok') ?? writing[writing.length - 1]
 
   return {
@@ -128,6 +140,8 @@ export function summarize(calls: CallRecord[]): RunTotals {
     modelCalls: writing.length,
     ms: calls.reduce((total, call) => total + call.row.ms, 0),
     usageCalls: reported.length,
+    unreportedCalls,
+    uncostedCalls: unreportedCalls + writing.filter(call => call.usage && call.usage.cost === undefined).length,
     promptTokens: sum(usage => usage.prompt_tokens),
     completionTokens: sum(usage => usage.completion_tokens),
     totalTokens: sum(usage => usage.total_tokens),
@@ -170,6 +184,11 @@ export function formatMs(ms: number): string {
 
 export function formatCount(count: number): string {
   return count.toLocaleString('en-US')
+}
+
+// What a partial total says about the calls missing from it.
+export function notReportedNote(calls: number): string {
+  return `(${calls} ${calls === 1 ? 'call' : 'calls'} not reported)`
 }
 
 export function formatUsd(amount: number): string {

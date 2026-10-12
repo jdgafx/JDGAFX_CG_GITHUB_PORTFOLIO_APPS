@@ -255,7 +255,32 @@ describe('runPipeline retries and failures', () => {
     const pending = runPipeline(request(SOURCES_DONE, controller.signal), h.callbacks)
     controller.abort()
     expect(await pending).toEqual({ kind: 'stopped', stage: 'research' })
+    // The model may have answered, and been billed, after the stop: its row says so, and the total is partial.
+    expect(h.calls).toHaveLength(1)
+    expect(h.calls[0]).toMatchObject({ stage: 'research', usage: null, row: { name: 'Research', status: 'failed' } })
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 1, totalTokens: null })
+  })
+
+  it('records no call for a stop that came before the request was sent', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const h = harness()
+    expect(await runPipeline(request(SOURCES_DONE, controller.signal), h.callbacks)).toEqual({ kind: 'stopped', stage: 'research' })
     expect(h.calls).toHaveLength(0)
+  })
+
+  it('keeps the billed calls in the totals when a later stop leaves one call not reported', async () => {
+    const controller = new AbortController()
+    serve([
+      () => stageOk('research text'),
+      sent => new Promise<Response>((_resolve, reject) => {
+        sent.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+        setTimeout(() => controller.abort(), 5)
+      }),
+    ])
+    const h = harness()
+    expect(await runPipeline(request(SOURCES_DONE, controller.signal), h.callbacks)).toEqual({ kind: 'stopped', stage: 'outline' })
+    expect(summarize(h.calls)).toMatchObject({ modelCalls: 2, unreportedCalls: 1, totalTokens: 1_200, cost: 0.0002 })
   })
 })
 
@@ -299,5 +324,58 @@ describe('change notes and the watchdog', () => {
     const h = harness()
     expect(await runPipeline({ ...request({}, controller.signal), watchdogMs: 5_000 }, h.callbacks)).toEqual({ kind: 'stopped', stage: 'sources' })
     expect(h.calls).toHaveLength(0)
+  })
+})
+
+describe('billed usage reaches the totals on every failure path', () => {
+  const failedBody = (message: string, extra: Record<string, unknown>) => stageFailed(502, message, true, extra)
+
+  it('keeps the usage of a cut-off, empty or refused reply in its row and the totals', async () => {
+    const billed = { usage: USAGE, model: MODEL, newestModel: MODEL, modelCheck: 'match', trace: [{ name: 'Stage', status: 'failed', ms: 800, detail: CUT_OFF, tokens: 1200, cost: 0.0002 }] }
+    serve([() => stageOk('r'), () => failedBody(CUT_OFF, billed), () => failedBody(EMPTY, billed)])
+    const h = harness()
+    expect(await runPipeline(request(SOURCES_DONE), h.callbacks)).toMatchObject({ kind: 'failed', stage: 'outline', message: EMPTY })
+    // Research finished; Outline was cut off, then came back empty on its one retry: both attempts were billed.
+    expect(h.calls.map(call => call.row.name)).toEqual(['Research', 'Outline', 'Outline (retry)'])
+    expect(h.calls.slice(1).map(call => call.row.tokens)).toEqual([1200, 1200])
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 0, uncostedCalls: 0, totalTokens: 3_600 })
+  })
+
+  it('counts a lost connection as not reported, with the earlier billed calls kept', async () => {
+    serve([() => stageOk('r'), () => { throw new TypeError('network down') }])
+    const h = harness()
+    expect(await runPipeline(request(SOURCES_DONE), h.callbacks)).toEqual({ kind: 'failed', stage: 'outline', message: NETWORK })
+    expect(h.calls[1]).toMatchObject({ usage: null, row: { status: 'failed', detail: 'Connection lost before the stage finished.' } })
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 1, uncostedCalls: 1, totalTokens: 1_200, cost: 0.0002 })
+  })
+
+  it('counts a call the watchdog ended as not reported', async () => {
+    serve([() => stageOk('r'), init => new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)))])
+    const h = harness()
+    expect(await runPipeline({ ...request(SOURCES_DONE), watchdogMs: 30 }, h.callbacks)).toEqual({ kind: 'failed', stage: 'outline', message: SLOW_SERVER_MESSAGE })
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 1, totalTokens: 1_200 })
+  })
+
+  it('counts a server timeout answer that carries no usage as not reported', async () => {
+    serve([() => stageOk('r'), () => stageFailed(504, SLOW, false)])
+    const h = harness()
+    await runPipeline(request(SOURCES_DONE), h.callbacks)
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 1, totalTokens: 1_200 })
+  })
+
+  it('reads the zero usage of a request the provider refused as a known $0', async () => {
+    const zero = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }
+    serve([() => stageFailed(502, KEY, false, { usage: zero, trace: [{ name: 'Stage', status: 'failed', ms: 45, detail: KEY, tokens: 0, cost: 0 }] })])
+    const h = harness()
+    await runPipeline(request(SOURCES_DONE), h.callbacks)
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 0, uncostedCalls: 0, totalTokens: 0, cost: 0 })
+  })
+
+  it('carries the lost attempts the server reports on a retried call, on success and on failure', async () => {
+    serve([() => json(200, { result: 'r', trace: [{ name: 'Stage', status: 'ok', ms: 1200, detail: 'd' }], usage: USAGE, model: MODEL, lostAttempts: 1 }), () => stageFailed(504, SLOW, false, { lostAttempts: 1 })])
+    const h = harness()
+    await runPipeline(request(SOURCES_DONE), h.callbacks)
+    expect(h.calls.map(call => call.lostAttempts)).toEqual([1, 1])
+    expect(summarize(h.calls)).toMatchObject({ unreportedCalls: 3, totalTokens: 1_200 })
   })
 })

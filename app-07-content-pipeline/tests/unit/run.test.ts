@@ -105,6 +105,40 @@ describe('summarize', () => {
   })
 })
 
+describe('summarize: usage that never arrived makes the total partial', () => {
+  const NOT_BILLED: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }
+
+  it('counts a call with no usage as not reported while the billed calls stay in the totals', () => {
+    const totals = summarize([record('research', 900, FIRST), record('outline', 700, SECOND), record('draft', 4_700, null, 'failed', null, null)])
+    expect(totals).toMatchObject({ modelCalls: 3, unreportedCalls: 1, uncostedCalls: 1, totalTokens: 1_800 })
+    expect(totals.cost).toBeCloseTo(0.0003, 10)
+  })
+
+  it('counts an attempt of a retried call that was lost, next to the attempt that answered', () => {
+    const retried = { ...record('research', 900, FIRST), lostAttempts: 1 }
+    expect(summarize([retried])).toMatchObject({ modelCalls: 1, unreportedCalls: 1, uncostedCalls: 1, totalTokens: 1_200 })
+  })
+
+  it('counts a reply with tokens but no cost as missing from the cost only', () => {
+    const totals = summarize([record('research', 900, { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 })])
+    expect(totals).toMatchObject({ unreportedCalls: 0, uncostedCalls: 1 })
+  })
+
+  it('treats a call the provider refused with a 4xx as a known zero, not as not reported', () => {
+    const totals = summarize([record('research', 900, FIRST), record('outline', 50, NOT_BILLED, 'failed', null, null)])
+    expect(totals).toMatchObject({ unreportedCalls: 0, uncostedCalls: 0, totalTokens: 1_200, cost: 0.0002 })
+  })
+
+  it('is complete when every model call reported, and leaves the Sources lookup out', () => {
+    expect(summarize([record('sources', 400, null, 'ok', null), record('research', 900, FIRST)])).toMatchObject({ unreportedCalls: 0, uncostedCalls: 0 })
+  })
+
+  it('carries the lost attempts onto the trace line', () => {
+    const [line] = buildTrace([{ ...record('research', 900, FIRST), lostAttempts: 1 }], {}, null)
+    expect(line?.lostAttempts).toBe(1)
+  })
+})
+
 describe('model checks across a run', () => {
   const OTHER = 'anthropic/claude-haiku-5.4'
 
