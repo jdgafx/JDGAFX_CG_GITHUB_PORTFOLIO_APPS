@@ -114,6 +114,14 @@ export function validate(state: ReadState): Problem | null {
       truncated: true,
     }
   }
+  // A stream that closes with text but never names a finish reason was cut off (a dropped connection), so the text is not a complete answer.
+  if (state.finishReason === null && state.text.trim()) {
+    return {
+      detail: 'The stream ended without a finish reason, so the answer may be cut off',
+      message: STREAM_ERROR_MESSAGE,
+      truncated: true,
+    }
+  }
   if (state.finishReason === 'content_filter') {
     return { detail: 'The provider filtered this output', message: NO_ANALYSIS_MESSAGE, truncated: false }
   }

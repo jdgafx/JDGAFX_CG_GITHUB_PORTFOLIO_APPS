@@ -123,6 +123,14 @@ describe('validate', () => {
     })
   })
 
+  it('rejects text from a stream that ended with no finish reason: it was cut off, not finished', () => {
+    expect(validate(stateWith({ text: 'The sign says', finishReason: null }))).toEqual({
+      detail: 'The stream ended without a finish reason, so the answer may be cut off',
+      message: 'The AI provider stopped the analysis partway through. Please retry.',
+      truncated: true,
+    })
+  })
+
   it('rejects a content-filtered reply and a blank reply', () => {
     expect(validate(stateWith({ text: 'x', finishReason: 'content_filter' }))).toEqual({
       detail: 'The provider filtered this output',

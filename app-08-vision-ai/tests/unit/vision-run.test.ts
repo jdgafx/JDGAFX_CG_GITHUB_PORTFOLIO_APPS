@@ -195,6 +195,29 @@ describe('streamVisionRun content and token checks', () => {
     })
   })
 
+  it('never completes a stream that closes with text but no finish reason', async () => {
+    stubFetch(async () =>
+      sseReply([
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: 'The sign says' } }] },
+        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
+      ]),
+    )
+
+    const frames = await framesOf(streamVisionRun(makeRun()))
+
+    expect(frames.some(frame => frame.stage === 'complete')).toBe(false)
+    expect(frames.some(frame => 'result' in frame)).toBe(false)
+    expect(frames.at(-2)).toMatchObject({
+      stage: 'step',
+      step: { name: 'Parse and validate', status: 'failed', detail: 'The stream ended without a finish reason, so the answer may be cut off' },
+    })
+    expect(frames.at(-1)).toMatchObject({
+      stage: 'failed',
+      error: 'The AI provider stopped the analysis partway through. Please retry.',
+      truncated: true,
+    })
+  })
+
   it('fails a blank reply with the no-analysis message', async () => {
     stubFetch(async () => sseReply([{ model: 'anthropic/claude-haiku-5.5', choices: [{ delta: {}, finish_reason: 'stop' }] }]))
 
