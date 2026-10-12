@@ -38,7 +38,7 @@ export async function runPanel(input: PanelInput): Promise<PanelResult> {
   )
   const base = { slot: input.slot, requestedModel: input.model, latencyMs: result.latencyMs }
   if (!result.ok) {
-    return { ...failed(input.slot, input.model, result.error, result.latencyMs), retried: result.retried }
+    return { ...failed(input.slot, input.model, result.error, result.latencyMs), retried: result.retried, notReported: result.lost }
   }
   const served = strOrNull(result.data.model)
   const { text, finishReason } = replyOf(result.data)
@@ -51,10 +51,13 @@ export async function runPanel(input: PanelInput): Promise<PanelResult> {
       : 'The model returned no text'
   // Panel A's reply is checked against the newest model. Visitor-picked panels B and C are not.
   const record = input.newest ? checkRecord(await input.newest, served, input.model) : NOT_CHECKED
-  return { ...base, servedModel: served, ok, error, text, finishReason, usage, cost, retried: result.retried, ...record }
+  // A try that was lost counts, and so does a reply that carried no usage at all.
+  const notReported = result.lost + (usage.total_tokens === null && cost === null ? 1 : 0)
+  return { ...base, servedModel: served, ok, error, text, finishReason, usage, cost, retried: result.retried, notReported, ...record }
 }
 
 export function panelStep(panel: PanelResult): TraceStep {
+  const lost = panel.notReported ?? 0
   const output =
     panel.usage.completion_tokens === null ? 'output tokens not reported' : `${panel.usage.completion_tokens} output tokens`
   return {
@@ -63,7 +66,8 @@ export function panelStep(panel: PanelResult): TraceStep {
     ms: panel.latencyMs,
     detail:
       (panel.ok ? `Served by ${panel.servedModel ?? 'a model not reported'}, ${output}` : (panel.error ?? 'Failed')) +
-      (panel.retried ? '. Retried once after the first try timed out' : ''),
+      (panel.retried ? '. Retried once after the first try timed out' : '') +
+      (lost > 0 ? `. Usage not reported for ${lost} ${lost === 1 ? 'call' : 'calls'}` : ''),
     tokens: panel.usage.total_tokens,
     cost: panel.cost,
   }
@@ -86,5 +90,6 @@ function failed(slot: Slot, model: string, error: string, latencyMs: number | nu
 }
 
 export function failedPanel(slot: Slot, model: string): PanelResult {
-  return failed(slot, model, 'The panel stopped unexpectedly', null)
+  // The panel threw, so whether its call was billed is unknown.
+  return { ...failed(slot, model, 'The panel stopped unexpectedly', null), notReported: 1 }
 }

@@ -41,7 +41,9 @@ export type JudgeView =
   | { state: 'running' }
   | { state: 'skipped'; reason: string }
   | { state: 'done'; verdict: JudgeVerdict }
-  | { state: 'failed'; step: TraceStep; model: string | null }
+  // usage, cost: what the judge's reply was billed, when it replied without a usable verdict. notReported is 1 when
+  // the call may have been billed with nothing reported (a stop, a lost connection).
+  | { state: 'failed'; step: TraceStep; model: string | null; usage?: Usage; cost?: Cost | null; notReported?: number }
 
 export interface RunView {
   status: RunStatus
@@ -215,34 +217,68 @@ function judgeViewStep(judge: JudgeView): ViewStep {
 export interface RunTotals {
   runMs: number | null
   answering: number
+  // Every billed call: the panels, answering or not, and the judge.
   promptTokens: number | null
   outputTokens: number | null
   totalTokens: number | null
+  // Panels and judge together; null when no call reported a cost.
+  totalCost: Cost | null
+  // The panels' share of the figures above, and the judge's share.
+  panelTokens: number | null
   panelCost: Cost | null
-  costedPanels: number
+  judgeTokens: number | null
+  judgeCost: Cost | null
+  // Calls that reported a cost, of the calls that returned any usage or cost.
+  costedCalls: number
+  billedCalls: number
+  // Calls that may have been billed with no usage. The figures above are then a lower bound.
+  notReported: number
   judgeModel: string
 }
 
-// Totals cover the answering panels only, which is what the spec's cost sum allows.
+interface Billed {
+  usage: Usage
+  cost: Cost | null
+}
+
+// The judge's billed usage, wherever the view keeps it: on its verdict, or on its failure.
+function judgeBilled(judge: JudgeView): { billed: Billed | null; notReported: number } {
+  if (judge.state === 'done') return { billed: judge.verdict, notReported: judge.verdict.notReported ?? 0 }
+  if (judge.state === 'failed') {
+    return { billed: judge.usage ? { usage: judge.usage, cost: judge.cost ?? null } : null, notReported: judge.notReported ?? 0 }
+  }
+  return { billed: null, notReported: 0 }
+}
+
+function sumCosts(costs: Array<Cost | null>): Cost | null {
+  const reported = costs.filter((c): c is Cost => c !== null)
+  if (reported.length === 0) return null
+  return { usd: reported.reduce((sum, c) => sum + c.usd, 0), source: reported.some(c => c.source === 'estimated') ? 'estimated' : 'usage' }
+}
+
+// Totals cover every call that was billed: all three panels (a cut-off or empty one still cost money), and the judge
+// whether or not it gave a verdict. A call with no reported usage is counted in notReported, not left out silently.
 export function runTotals(run: RunView): RunTotals {
   const compare = run.compare
-  const answering = compare ? compare.panels.filter(p => p.ok) : []
-  const costs = answering.map(p => p.cost).filter((c): c is Cost => c !== null)
+  const panels: Billed[] = compare ? compare.panels : []
+  const judge = judgeBilled(run.judge)
+  const judged: Billed[] = judge.billed ? [judge.billed] : []
+  const calls = [...panels, ...judged]
   const judgeDone = run.judge.state !== 'running'
   return {
     runMs: compare && judgeDone ? compare.totalMs + (judgeMs(run.judge) ?? 0) : null,
-    answering: answering.length,
-    promptTokens: sumOf(answering, u => u.prompt_tokens),
-    outputTokens: sumOf(answering, u => u.completion_tokens),
-    totalTokens: sumOf(answering, u => u.total_tokens),
-    panelCost:
-      costs.length === 0
-        ? null
-        : {
-            usd: costs.reduce((sum, c) => sum + c.usd, 0),
-            source: costs.some(c => c.source === 'estimated') ? 'estimated' : 'usage',
-          },
-    costedPanels: costs.length,
+    answering: compare ? compare.panels.filter(p => p.ok).length : 0,
+    promptTokens: sumOf(calls, u => u.prompt_tokens),
+    outputTokens: sumOf(calls, u => u.completion_tokens),
+    totalTokens: sumOf(calls, u => u.total_tokens),
+    totalCost: sumCosts(calls.map(c => c.cost)),
+    panelTokens: sumOf(panels, u => u.total_tokens),
+    panelCost: sumCosts(panels.map(c => c.cost)),
+    judgeTokens: sumOf(judged, u => u.total_tokens),
+    judgeCost: judge.billed?.cost ?? null,
+    costedCalls: calls.filter(c => c.cost !== null).length,
+    billedCalls: calls.filter(c => c.cost !== null || c.usage.total_tokens !== null).length,
+    notReported: (compare ? compare.panels.reduce((sum, p) => sum + (p.notReported ?? 0), 0) : 0) + judge.notReported,
     judgeModel: judgeModelLabel(run.judge),
   }
 }
@@ -260,7 +296,7 @@ function judgeModelLabel(judge: JudgeView): string {
   return 'not run'
 }
 
-function sumOf(panels: PanelResult[], field: (usage: Usage) => number | null): number | null {
-  const values = panels.map(p => field(p.usage)).filter((v): v is number => v !== null)
+function sumOf(calls: Billed[], field: (usage: Usage) => number | null): number | null {
+  const values = calls.map(c => field(c.usage)).filter((v): v is number => v !== null)
   return values.length === 0 ? null : values.reduce((sum, v) => sum + v, 0)
 }

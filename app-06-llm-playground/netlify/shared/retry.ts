@@ -11,7 +11,9 @@ export const MIN_RETRY_MS = 5_000
 
 type ChatBody = Parameters<typeof chat>[1]
 
-export type RetriedChat = ChatResult & { retried: boolean }
+// lost: tries whose usage is unknown (timed out or lost their connection), the first one and the second one alike.
+// The result is the last try, so the first try's loss is counted here and nowhere else.
+export type RetriedChat = ChatResult & { retried: boolean; lost: number }
 
 interface RetryLimits {
   /** What is left of the request budget for this call, first try and second together. */
@@ -19,6 +21,10 @@ interface RetryLimits {
   /** Cap on the first try. Slower models can be given a longer one. */
   attemptMs?: number
   signal?: AbortSignal
+}
+
+function unknownUsage(result: ChatResult): number {
+  return !result.ok && result.unreported === true ? 1 : 0
 }
 
 /**
@@ -31,10 +37,11 @@ export async function chatWithRetry(key: string, body: ChatBody, limits: RetryLi
   const budget = Math.max(0, limits.budgetMs)
   const first = Math.min(limits.attemptMs ?? ATTEMPT_MS, budget)
   const one = await chat(key, body, { timeoutMs: first, signal: limits.signal })
-  if (one.ok || !one.retryable || limits.signal?.aborted) return { ...one, retried: false }
+  const lostFirst = unknownUsage(one)
+  if (one.ok || !one.retryable || limits.signal?.aborted) return { ...one, retried: false, lost: lostFirst }
   const left = budget - (Date.now() - started)
-  if (left < MIN_RETRY_MS) return { ...one, retried: false }
+  if (left < MIN_RETRY_MS) return { ...one, retried: false, lost: lostFirst }
   const two = await chat(key, body, { timeoutMs: left, signal: limits.signal })
   // The reported latency covers both tries: it is what the visitor waited.
-  return { ...two, latencyMs: Date.now() - started, retried: true }
+  return { ...two, latencyMs: Date.now() - started, retried: true, lost: lostFirst + unknownUsage(two) }
 }

@@ -36,6 +36,28 @@ describe('chatWithRetry', () => {
     expect(stub).toHaveBeenCalledTimes(2)
   })
 
+  it('counts the lost first try, so a retry does not hide a call that may have been billed', async () => {
+    let calls = 0
+    stubFetch(async () => {
+      calls += 1
+      if (calls === 1) throw timeout()
+      return reply('vendor/x', 'READY')
+    })
+    expect(await chatWithRetry('k', BODY, { budgetMs: 20_000 })).toMatchObject({ ok: true, retried: true, lost: 1 })
+  })
+
+  it('counts both tries when both are lost, and none for a refusal or an answered call', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    stubFetch(async () => {
+      throw timeout()
+    })
+    expect(await chatWithRetry('k', BODY, { budgetMs: 20_000 })).toMatchObject({ ok: false, retried: true, lost: 2 })
+    stubFetch(async () => new Response('{}', { status: 402 }))
+    expect(await chatWithRetry('k', BODY, { budgetMs: 20_000 })).toMatchObject({ ok: false, lost: 0 })
+    stubFetch(async () => reply('vendor/x', 'READY'))
+    expect(await chatWithRetry('k', BODY, { budgetMs: 20_000 })).toMatchObject({ ok: true, lost: 0 })
+  })
+
   it.each([400, 401, 402, 429, 500, 503])('never retries a %i from the provider', async status => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const stub = stubFetch(async () => new Response('{}', { status }))
@@ -126,6 +148,6 @@ describe('panel wiring', () => {
     expect([b.before, b.at12, b.at16]).toEqual([1, 1, 2])
     const { panelStep } = await import('../../netlify/shared/panel')
     expect(b.result.retried).toBe(true)
-    expect(panelStep(b.result).detail).toBe('The AI provider did not answer in time. Retried once after the first try timed out')
+    expect(panelStep(b.result).detail).toBe('The AI provider did not answer in time. Retried once after the first try timed out. Usage not reported for 2 calls')
   })
 })

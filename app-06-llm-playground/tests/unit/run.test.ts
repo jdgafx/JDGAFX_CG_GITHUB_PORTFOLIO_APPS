@@ -168,16 +168,22 @@ describe('runTotals', () => {
     panel('C', { ok: false, error: 'x', usage: usage(null, null), latencyMs: null }),
   ]
 
-  it('adds up the answering panels and the judge time', () => {
+  it('adds up every billed call, the panels and the judge, and the judge time', () => {
     const run: RunView = { ...OPEN, status: 'done', compare: compareOf(panels, emptySummary), judge: { state: 'done', verdict }, error: null }
     expect(runTotals(run)).toEqual({
       runMs: 1300,
       answering: 2,
-      promptTokens: 30,
-      outputTokens: 8,
-      totalTokens: 38,
+      promptTokens: 90,
+      outputTokens: 28,
+      totalTokens: 118,
+      totalCost: { usd: 0.0004, source: 'usage' },
+      panelTokens: 38,
       panelCost: { usd: 0.0004, source: 'usage' },
-      costedPanels: 1,
+      judgeTokens: 80,
+      judgeCost: null,
+      costedCalls: 1,
+      billedCalls: 3,
+      notReported: 0,
       judgeModel: 'judge/x',
     })
   })
@@ -199,7 +205,9 @@ describe('runTotals', () => {
       answering: 0,
       promptTokens: null,
       panelCost: null,
-      costedPanels: 0,
+      costedCalls: 0,
+      billedCalls: 0,
+      notReported: 0,
       judgeModel: 'not run',
     })
   })

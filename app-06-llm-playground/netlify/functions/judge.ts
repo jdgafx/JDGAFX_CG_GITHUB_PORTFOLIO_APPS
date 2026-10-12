@@ -1,4 +1,4 @@
-import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type JudgeResponse, type ModelCheck } from '../shared/contract'
+import { JUDGE_BODY_MAX_BYTES, JUDGE_MAX_TOKENS, MODEL, type Cost, type JudgeResponse, type ModelCheck, type Usage } from '../shared/contract'
 import { gate, json, readJson, remainingMs, SERVER_ERROR } from '../shared/guard'
 import { usageFrom } from '../shared/measure'
 import { checkRecord, NOT_CHECKED, newestModel } from '../shared/newest-model'
@@ -41,16 +41,18 @@ export default async (req: Request): Promise<Response> => {
       { budgetMs: Math.min(JUDGE_TIMEOUT_MS, remainingMs(started)), attemptMs: JUDGE_ATTEMPT_MS, signal: req.signal },
     )
     // A judge failure is a normal result for the page, so it returns 200 with ok: false.
-    if (!result.ok) return json(failure(result.error, null, result.latencyMs), 200, guard.headers)
+    if (!result.ok) return json(failure(result.error, null, result.latencyMs, NOT_CHECKED, { notReported: result.lost }), 200, guard.headers)
 
     const served = strOrNull(result.data.model)
     const record = checkRecord(await newestP, served, MODEL)
     const { text } = replyOf(result.data)
-    if (text.trim() === '') return json(failure('The judge returned no text', served, result.latencyMs, record), 200, guard.headers)
-    const verdict = parseVerdict(text, answers.map(answer => answer.slot))
-    if (!verdict.ok) return json(failure(verdict.reason, served, result.latencyMs, record), 200, guard.headers)
-
+    // The reply was billed whether or not it holds a verdict, so its usage rides on the failure too.
     const { usage, cost } = usageFrom(result.data, served, null)
+    const billed = { usage, cost, notReported: result.lost + (usage.total_tokens === null && cost === null ? 1 : 0) }
+    if (text.trim() === '') return json(failure('The judge returned no text', served, result.latencyMs, record, billed), 200, guard.headers)
+    const verdict = parseVerdict(text, answers.map(answer => answer.slot))
+    if (!verdict.ok) return json(failure(verdict.reason, served, result.latencyMs, record, billed), 200, guard.headers)
+
     const picked = verdict.bestOverall === 'tie' ? 'a tie' : `Panel ${verdict.bestOverall}`
     const response: JudgeResponse = {
       ok: true,
@@ -61,6 +63,7 @@ export default async (req: Request): Promise<Response> => {
       caveat: verdict.caveat,
       usage,
       cost,
+      notReported: billed.notReported,
       ...record,
       trace: [
         {
@@ -80,13 +83,26 @@ export default async (req: Request): Promise<Response> => {
   }
 }
 
-function failure(reason: string, model: string | null, latencyMs: number, record: { newestModel: string | null; modelCheck: ModelCheck | null } = NOT_CHECKED): JudgeResponse {
+interface Billed {
+  usage?: Usage
+  cost?: Cost | null
+  notReported: number
+}
+
+function failure(
+  reason: string,
+  model: string | null,
+  latencyMs: number,
+  record: { newestModel: string | null; modelCheck: ModelCheck | null },
+  billed: Billed,
+): JudgeResponse {
   return {
     ok: false,
     reason,
     model,
     latencyMs,
+    ...billed,
     ...record,
-    trace: [{ name: 'Judge', status: 'failed', ms: latencyMs, detail: reason, tokens: null, cost: null }],
+    trace: [{ name: 'Judge', status: 'failed', ms: latencyMs, detail: reason, tokens: billed.usage?.total_tokens ?? null, cost: billed.cost ?? null }],
   }
 }

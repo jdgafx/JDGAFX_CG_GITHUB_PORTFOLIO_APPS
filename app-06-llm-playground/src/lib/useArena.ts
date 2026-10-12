@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SLOTS, type CatalogueResponse, type CompareRequest, type LeaderboardResponse, type VoteChoice } from '../../netlify/shared/contract'
+import { SLOTS, type CatalogueResponse, type CompareRequest, type JudgeResponse, type LeaderboardResponse, type VoteChoice } from '../../netlify/shared/contract'
 import { ApiError, fetchLeaderboard, isAbortError, runCompare, runJudge, runVote } from './api'
-import { failedJudgeStep, startedRun, type Mode, type RunView } from './run'
+import { failedJudgeStep, startedRun, type JudgeView, type Mode, type RunView } from './run'
 
 export type BoardState =
   | { state: 'loading' }
@@ -14,6 +14,18 @@ export interface RunInput {
   system: string
   temperature: number | null
   models: [string, string]
+}
+
+export function judgeView(verdict: JudgeResponse): JudgeView {
+  if (verdict.ok) return { state: 'done', verdict }
+  return { state: 'failed', step: verdict.trace[0], model: verdict.model, usage: verdict.usage, cost: verdict.cost, notReported: verdict.notReported }
+}
+
+// A judge call the browser lost track of (stopped, or the connection dropped) may have been billed. A reply with
+// an error status means the server refused it before any call was made.
+export function failedJudge(reason: string, err: unknown): JudgeView {
+  const refused = err instanceof ApiError && err.status !== null
+  return { state: 'failed', step: failedJudgeStep(reason), model: null, notReported: refused ? 0 : 1 }
 }
 
 function messageFor(err: unknown): string {
@@ -74,13 +86,13 @@ export function useArena(catalogue: CatalogueResponse | null) {
           .then(verdict =>
             update(gen, prev => ({
               ...prev,
-              judge: verdict.ok ? { state: 'done', verdict } : { state: 'failed', step: verdict.trace[0], model: verdict.model },
+              judge: judgeView(verdict),
             })),
           )
           .catch((err: unknown) =>
             update(gen, prev => ({
               ...prev,
-              judge: { state: 'failed', step: failedJudgeStep(isAbortError(err) ? 'Stopped before the judge answered.' : messageFor(err)), model: null },
+              judge: failedJudge(isAbortError(err) ? 'Stopped before the judge answered.' : messageFor(err), err),
             })),
           )
         return
@@ -102,7 +114,7 @@ export function useArena(catalogue: CatalogueResponse | null) {
       update(gen, prev => ({
         ...prev,
         status: 'done',
-        judge: verdict.ok ? { state: 'done', verdict } : { state: 'failed', step: verdict.trace[0], model: verdict.model },
+        judge: judgeView(verdict),
       }))
     } catch (err) {
       const stopped = isAbortError(err)
@@ -113,7 +125,7 @@ export function useArena(catalogue: CatalogueResponse | null) {
         return {
           ...prev,
           status: stopped ? 'stopped' : 'done',
-          judge: { state: 'failed', step: failedJudgeStep(stopped ? 'Stopped before the judge answered.' : messageFor(err)), model: null },
+          judge: failedJudge(stopped ? 'Stopped before the judge answered.' : messageFor(err), err),
         }
       })
     }

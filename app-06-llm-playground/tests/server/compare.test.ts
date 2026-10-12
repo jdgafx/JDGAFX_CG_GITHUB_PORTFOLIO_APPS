@@ -190,7 +190,7 @@ describe('compare function', () => {
     // A timeout is retried once (panel C asks twice); a 429 is never retried.
     expect(body.panels[2]).toMatchObject({ ok: false, error: NO_ANSWER, retried: true })
     expect(body.panels[1].retried).toBe(false)
-    expect(body.trace[2].detail).toBe(`${NO_ANSWER}. Retried once after the first try timed out`)
+    expect(body.trace[2].detail).toBe(`${NO_ANSWER}. Retried once after the first try timed out. Usage not reported for 2 calls`)
     expect(chatCalls(stub)).toHaveLength(4)
   })
 

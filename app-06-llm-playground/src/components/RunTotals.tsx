@@ -32,15 +32,27 @@ function LiveClock() {
 
 const NONE = '—'
 
-function answeringLabel(totals: RunTotals): string {
-  if (totals.answering === 0) return 'No panel answered'
-  return `${totals.answering} answering ${totals.answering === 1 ? 'panel' : 'panels'}`
+// A lower bound is said so: calls that may have been billed with no usage are not in the figure.
+function lowerBound(text: string, totals: RunTotals): string {
+  return totals.notReported > 0 ? `at least ${text}` : text
+}
+
+function notReportedNote(totals: RunTotals): string {
+  return `${totals.notReported} ${totals.notReported === 1 ? 'call' : 'calls'} not reported`
+}
+
+// The judge's share is named apart from the panels', so the total is never read as panels only.
+function tokensHint(totals: RunTotals): string {
+  const base = totals.judgeTokens === null ? 'Panels, judge not reported' : `Panels and judge (judge ${formatCount(totals.judgeTokens)})`
+  return totals.notReported > 0 ? `${base}; ${notReportedNote(totals)}` : base
 }
 
 function costHint(totals: RunTotals): string {
-  if (totals.answering === 0) return 'No panel answered'
-  const base = `${totals.costedPanels} of ${totals.answering} reported cost`
-  return totals.panelCost?.source === 'estimated' ? `${base}, part estimated` : base
+  if (totals.billedCalls === 0) return totals.notReported > 0 ? notReportedNote(totals) : 'No call reported usage'
+  const judge = totals.judgeCost === null ? '' : ` (judge ${formatUsd(totals.judgeCost.usd)})`
+  const base = `${totals.costedCalls} of ${totals.billedCalls} calls reported cost${judge}`
+  const estimated = totals.totalCost?.source === 'estimated' ? `${base}, part estimated` : base
+  return totals.notReported > 0 ? `${estimated}; ${notReportedNote(totals)}` : estimated
 }
 
 // The run's figures: a clock while it runs, the totals once the models are known, dashes before a run.
@@ -60,11 +72,11 @@ export function RunTotalsStrip({ run }: { run: RunView | null }) {
         <Cell label="Time" hint={running ? 'Running now' : hidden ? 'Panels answered' : 'Panels plus judge'}>
           {running ? <LiveClock /> : hidden && run?.blind ? formatMs(run.blind.totalMs) : totals ? formatMs(totals.runMs) : NONE}
         </Cell>
-        <Cell label="Tokens" hint={totals ? answeringLabel(totals) : 'Answering panels'} mono={totals !== null || !hidden}>
-          {totals ? formatCount(totals.totalTokens) : waiting}
+        <Cell label="Tokens" hint={totals ? tokensHint(totals) : 'Panels and judge'} mono={totals !== null || !hidden}>
+          {totals ? (totals.totalTokens === null ? 'not reported' : lowerBound(formatCount(totals.totalTokens), totals)) : waiting}
         </Cell>
         <Cell label="Cost (USD)" hint={totals ? costHint(totals) : 'Reported or estimated'} mono={totals !== null || !hidden}>
-          {totals ? (totals.panelCost ? formatUsd(totals.panelCost.usd) : 'not reported') : waiting}
+          {totals ? (totals.totalCost ? lowerBound(formatUsd(totals.totalCost.usd), totals) : 'not reported') : waiting}
         </Cell>
         <Cell label="Models" hint={hidden ? 'Hidden until you vote' : 'Served by the provider'} mono={false}>
           {models.length > 0 ? (

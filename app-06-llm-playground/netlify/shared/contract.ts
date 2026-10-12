@@ -94,6 +94,9 @@ export interface PanelResult {
   cost: Cost | null
   // True when the first attempt timed out or lost its connection and a second one was made.
   retried?: boolean
+  // Calls of this panel that may have been billed but returned no usage: a try that timed out or lost its connection,
+  // or a reply with no usage block. The run totals are then a lower bound.
+  notReported?: number
   // Panel A only: the newest model the list names for the alias, and the check of the reply. Null for panels B and C
   // (visitor-picked ids are not checked) and for a panel with no reply.
   newestModel?: string | null
@@ -212,6 +215,8 @@ export interface JudgeVerdict {
   caveat: string
   usage: Usage
   cost: Cost | null
+  // Judge calls that may have been billed but returned no usage (a first try that timed out, or a reply with no usage block).
+  notReported?: number
   trace: TraceStep[]
   // The newest model the list names for the alias, and the check of the judge's reply.
   newestModel?: string | null
@@ -223,6 +228,10 @@ interface JudgeFailure {
   reason: string
   model: string | null
   latencyMs: number
+  // What the judge's reply was billed, when it replied but gave no usable verdict. Absent when no reply came back.
+  usage?: Usage
+  cost?: Cost | null
+  notReported?: number
   trace: TraceStep[]
   // Set once the judge replied; null when no reply came back.
   newestModel?: string | null

@@ -38,6 +38,7 @@ describe('judge function', () => {
       caveat: 'One prompt, one sample.',
       usage: { prompt_tokens: 300, completion_tokens: 60, reasoning_tokens: null, total_tokens: 360 },
       cost: { usd: 0.000045, source: 'usage' },
+      notReported: 0,
       newestModel: null,
       modelCheck: 'unchecked',
       trace: [

@@ -26,9 +26,11 @@ interface ChatLimits {
 
 // retryable: the failure was a timeout or a lost connection, which a second try can fix. A refusal
 // (401, 402, 429, 5xx), an unreadable reply and a stop are never retried.
+// unreported: the call may have been billed but no usage came back (a timeout, a lost connection, an unreadable body,
+// a stop). A refusal by status carries none and is not counted.
 export type ChatResult =
   | { ok: true; data: Record<string, unknown>; latencyMs: number }
-  | { ok: false; error: string; latencyMs: number; retryable?: boolean }
+  | { ok: false; error: string; latencyMs: number; retryable?: boolean; unreported?: boolean }
 
 // The key exists only as a Netlify environment variable. Never log or return it.
 export function providerKey(): string | null {
@@ -50,7 +52,7 @@ function providerFailure(status: number): string {
 // answers late: the stop wins over the reply.
 export async function chat(key: string, body: ChatRequest, limits: ChatLimits): Promise<ChatResult> {
   const started = Date.now()
-  const stopped = (): ChatResult => ({ ok: false, error: STOPPED, latencyMs: Date.now() - started })
+  const stopped = (): ChatResult => ({ ok: false, error: STOPPED, latencyMs: Date.now() - started, unreported: true })
   try {
     // The deadline covers the body read as well as the headers: a reply that stalls midway still ends at the limit.
     const outcome = await withDeadline(Math.max(0, limits.timeoutMs), limits.signal, async signal => {
@@ -69,16 +71,16 @@ export async function chat(key: string, body: ChatRequest, limits: ChatLimits): 
       return { ok: false, error: providerFailure(outcome.status), latencyMs: Date.now() - started }
     }
     const data = outcome.data
-    if (!isRecord(data)) return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started }
+    if (!isRecord(data)) return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started, unreported: true }
     return { ok: true, data, latencyMs: Date.now() - started }
   } catch (err) {
     if (limits.signal?.aborted) return stopped()
     const name = errorName(err)
     if (name === 'TimeoutError' || name === 'AbortError') {
-      return { ok: false, error: NO_ANSWER, latencyMs: Date.now() - started, retryable: true }
+      return { ok: false, error: NO_ANSWER, latencyMs: Date.now() - started, retryable: true, unreported: true }
     }
     console.error(`Provider call failed for ${body.model}: ${name}`)
-    return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started, retryable: true }
+    return { ok: false, error: UNREADABLE, latencyMs: Date.now() - started, retryable: true, unreported: true }
   }
 }
 

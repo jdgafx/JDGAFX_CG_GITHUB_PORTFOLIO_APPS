@@ -162,6 +162,7 @@ describe('failedPanel', () => {
       latencyMs: null,
       usage: { prompt_tokens: null, completion_tokens: null, reasoning_tokens: null, total_tokens: null },
       cost: null,
+      notReported: 1,
       newestModel: null,
       modelCheck: null,
     })
