@@ -113,12 +113,12 @@ function scriptedChat(script: Script) {
 }
 
 /** `priceBook` is the list the run prices from. Null stands for a list that could not be fetched. */
-async function run(script: Script, wiki: WikiTools = fakeWiki(), priceBook: PriceBook | null = fixturePriceBook()) {
+async function run(script: Script, wiki: WikiTools = fakeWiki(), priceBook: PriceBook | null = fixturePriceBook(), now?: () => number) {
   const model = scriptedChat(script)
   const frames: Frame[] = []
   await runResearch(
     QUESTION,
-    { chat: model.chat, wiki, signal: new AbortController().signal, priceBook: Promise.resolve(priceBook) },
+    { chat: model.chat, wiki, signal: new AbortController().signal, priceBook: Promise.resolve(priceBook), now },
     (frame) => frames.push(frame),
   )
   return {
@@ -161,6 +161,24 @@ describe('graph: the path taken', () => {
     expect(out.calls.every((call) => !('temperature' in call))).toBe(true)
     // The tools are offered on auto, never required: a forced call is served by an older Haiku on the alias.
     expect(out.calls.filter((call) => call.tools).map((call) => call.tool_choice)).toEqual(['auto', 'auto'])
+  })
+
+  it("every model call carries today's date from the clock, and only the search-writing calls say when to add a year", async () => {
+    const script = (): Script => ({
+      agent: [{ tools: [readPage('call_1', "Expo '98")] }, { text: 'Enough sources.' }],
+      draft: [DRAFT_CITED],
+      critic: ['{"verdict": "accept", "notes": "Every claim matches source [1]."}'],
+    })
+    const systemsOf = (calls: ChatRequest[]) => calls.map((call) => ({ role: roleOf(call), system: call.messages[0].content ?? '' }))
+    const first = systemsOf((await run(script(), fakeWiki(), fixturePriceBook(), () => Date.UTC(2026, 9, 12, 9, 30))).calls)
+    const second = systemsOf((await run(script(), fakeWiki(), fixturePriceBook(), () => Date.UTC(2027, 0, 3, 23, 59))).calls)
+
+    expect(first.map((call) => call.role)).toEqual(['plan', 'agent', 'agent', 'draft', 'critic'])
+    expect(first.every((call) => call.system.endsWith("Today's date is 2026-10-12."))).toBe(true)
+    expect(second.every((call) => call.system.endsWith("Today's date is 2027-01-03."))).toBe(true)
+    expect(second.some((call) => call.system.includes('2026-10-12'))).toBe(false)
+    const rule = 'only when the question names that year'
+    expect(first.filter((call) => call.system.includes(rule)).map((call) => call.role)).toEqual(['plan', 'agent', 'agent'])
   })
 
   it('(b) the critic sends the draft back once, and the second draft gets the notes', async () => {

@@ -24,6 +24,7 @@ import {
   draftUserText,
   introText,
   PLAN_SYSTEM,
+  todayLine,
 } from './prompts'
 import { MAX_REVISIONS, MAX_TOOL_ROUNDS, type FailedLookup, type ResearchValues, type Route } from './state'
 import { MAX_CALLS_PER_REPLY, numberSources, runToolCall, TOOL_DEFINITIONS, type ToolOutcome } from './tools'
@@ -99,9 +100,10 @@ interface CallOptions {
  * left still covers this step again and the steps that must follow. A run-budget stop is never retried.
  */
 async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCall> {
+  const today = todayLine(new Date((ctx.now ?? Date.now)()).toISOString().slice(0, 10))
   const request: ChatRequest = {
     model: NODE_MODEL,
-    messages: options.messages,
+    messages: options.messages.map((message) => (message.role === 'system' ? { ...message, content: `${message.content} ${today}` } : message)),
     max_tokens: options.maxTokens,
   }
   if (options.tools) {
