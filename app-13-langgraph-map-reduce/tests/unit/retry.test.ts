@@ -97,11 +97,11 @@ async function run(source: string, script: Script, budget: RunBudget = new RunBu
 const edgeLabels = (frames: Frame[]): string[] => frames.flatMap((f) => (f.type === 'edge' ? [f.label] : []))
 
 describe('the review is advisory', () => {
-  it('keeps chunks the summary cites covered, starts no retry and carries the flags as a note', async () => {
+  it('keeps chunks the summary cites covered, starts no retry and adds the flagged points to the summary', async () => {
     const { result, seen, frames } = await run(THREE, { flags: ['2.2', '3.2'] })
 
     expect(result).toMatchObject({
-      coverage: { covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] },
+      coverage: { covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '2.2', '3.1', '3.2'], uncitedPoints: ['1.2'], unchecked: [] },
       reviewFlags: ['2.2', '3.2'],
       review: 'done',
       retries: 0,
@@ -115,7 +115,8 @@ describe('the review is advisory', () => {
   it('lets the review flag an unused point of a chunk the summary does not cite, and still ignores a flag on a cited point', async () => {
     const { result } = await run(THREE, { flags: ['2.1', '1.1'], cite: [1, 3], failExtract: {} })
 
-    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [], citedPoints: ['1.1', '3.1'], uncitedPoints: ['1.2', '2.1', '2.2', '3.2'], unchecked: [] })
+    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
+    // Chunk 2 stays missing: its point 2.1 was added by the review, and a chunk is covered only when the writer cites it.
     expect(result?.reviewFlags).toEqual(['2.1'])
   })
 

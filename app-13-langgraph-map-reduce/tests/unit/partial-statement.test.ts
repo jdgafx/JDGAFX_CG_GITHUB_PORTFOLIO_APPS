@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { citedPointIds, computeCoverage, pointIdsOf } from '../../netlify/shared/coverage'
+import { addCentralPoints, CENTRAL_HEADING, citedPointIds, computeCoverage, pointIdsOf } from '../../netlify/shared/coverage'
 import { mergeFindings } from '../../netlify/shared/merge'
 import { parseSummary } from '../../netlify/shared/parse'
 import { attributeMessages, checkMessages } from '../../netlify/shared/prompts'
@@ -30,7 +30,7 @@ describe('a sentence that gives only part of a key point does not state it (SP2 
     expect(user).toContain('4. Oxygenic photosynthesis, used by plants, algae, and cyanobacteria, releases oxygen and is the most common type.')
     expect(user).toContain(WATER_SPLITTING)
     expect(system).toMatch(/only when it says the key point's main claim in full/)
-    expect(system).toMatch(/including the cause, mechanism or result the point gives/)
+    expect(system).toMatch(/including the cause, mechanism, result, date or number the point gives/)
     expect(system).toMatch(/only part of the main claim.*does not state it/)
   })
 
@@ -61,5 +61,39 @@ describe('a sentence that gives only part of a key point does not state it (SP2 
 
     const shown = unusedPoints({ coverage, keyPoints: m.byChunk.map((c) => ({ chunk: c.chunkId, points: c.points })), reviewFlags: ['1.2'] })
     expect(shown.find((p) => p.id === '1.2')).toEqual({ id: '1.2', text: R2A.chunks[0]!.points[1], flagged: true })
+  })
+})
+
+/** Proof run a2 (Apollo 11): the summary says the Eagle landed and never says "July 20"; the first fix still credited point 1.5. */
+const A2 = JSON.parse(readFileSync('tests/fixtures/a2-apollo-sentences.json', 'utf8')) as { sentences: string[]; chunk1: string[] }
+
+describe('a date or number a key point gives has to be in the sentence (proof run a2)', () => {
+  it('tells the attribution call so, with the a2 sentences and point 1.5 in front of it', () => {
+    const points = A2.chunk1.map((text, i) => ({ id: `1.${i + 1}`, text }))
+    const [system, user] = attributeMessages(A2.sentences, 1, points).map((m) => m.content)
+
+    expect(user).toContain('2. Armstrong and Aldrin landed the Eagle in the Sea of Tranquility while Collins orbited in Columbia.')
+    expect(user).toContain('[1.5] Armstrong and Aldrin landed the LM Eagle in the Sea of Tranquility on July 20 at 20:17 UTC')
+    expect(user).not.toContain('July 20,')
+    expect(system).toMatch(/a sentence that leaves out the date, number or cause a point gives does not state it/)
+  })
+})
+
+describe('a central point the writer left out is added to the summary as its own text, with no model call', () => {
+  const m = merged()
+  const parsed = parseSummary(JSON.stringify(R2A.summary), CHUNK_IDS) as Summary
+
+  it('adds point 1.2 under its own heading, cited to its id and chunk, and leaves the writer\'s sections alone', () => {
+    const added = addCentralPoints(parsed, m, ['1.2'])
+
+    expect(added.sections.slice(0, -1)).toEqual(parsed.sections)
+    expect(added.sections.at(-1)).toEqual({ heading: CENTRAL_HEADING, points: [{ text: R2A.chunks[0]!.points[1], points: ['1.2'], chunks: [1] }] })
+    expect(added.sections.at(-1)!.points[0]!.text).toContain('releases oxygen as a byproduct of water splitting')
+    expect(citedPointIds(added, pointIdsOf(m)).has('1.2')).toBe(true)
+  })
+
+  it('adds nothing when the review flagged nothing, and ignores an id that is no point', () => {
+    expect(addCentralPoints(parsed, m, [])).toBe(parsed)
+    expect(addCentralPoints(parsed, m, ['9.9'])).toBe(parsed)
   })
 })

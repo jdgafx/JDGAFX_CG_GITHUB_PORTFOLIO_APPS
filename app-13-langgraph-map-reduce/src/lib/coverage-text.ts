@@ -48,7 +48,7 @@ export function reviewLine(result: Pick<RunResult, 'review' | 'reviewFlags'>): s
     case 'done':
       return result.reviewFlags.length === 0
         ? 'The review model found none of these central to the document\'s main subject.'
-        : `The review model thinks ${result.reviewFlags.length === 1 ? 'point' : 'points'} ${joinIds(result.reviewFlags)} may be central to the document's main subject. They are marked below.`
+        : `The review model found ${result.reviewFlags.length === 1 ? 'point' : 'points'} ${joinIds(result.reviewFlags)} central to the document's main subject, so ${result.reviewFlags.length === 1 ? 'its text is' : 'their texts are'} added to the summary under "Also central in the text".`
   }
 }
 

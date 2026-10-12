@@ -28,8 +28,9 @@ const ATTRIBUTE_SYSTEM =
   'You check which key points a summary states. You get the numbered sentences of a summary and the key points ' +
   'of one chunk of the document, each with an id in brackets. For each sentence that states one or more of these ' +
   'key points, list their ids. A sentence states a key point only when it says the key point\'s main claim in full, ' +
-  'including the cause, mechanism or result the point gives; leaving out a minor detail, such as an example or a name in ' +
-  'passing, is fine. A sentence that gives only part of the main claim, or only touches the same topic, does not state it. ' +
+  'including the cause, mechanism, result, date or number the point gives: a sentence that leaves out the date, number or ' +
+  'cause a point gives does not state it. Leaving out a minor detail, such as an example or a name in passing, is fine. ' +
+  'A sentence that gives only part of the main claim, or only touches the same topic, does not state it. ' +
   'Reply with a JSON object only: ' +
   '{"states": [{"sentence": 3, "points": ["2.1", "2.4"]}]}. Leave out sentences that state none of them, and use only the ids given.'
 

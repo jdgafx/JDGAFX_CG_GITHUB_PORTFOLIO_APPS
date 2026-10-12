@@ -1,0 +1,29 @@
+{
+ "source": "app-13 hc3 fix proof run a2 (Apollo 11): the writer's sentences and chunk 1's extracted points. No sentence gives the landing date \"July 20\", yet the check with the first fix credited point 1.5.",
+ "sentences": [
+  "Apollo 11 (July 16\u201324, 1969) was the American mission that first landed humans on the Moon.",
+  "Armstrong and Aldrin landed the Eagle in the Sea of Tranquility while Collins orbited in Columbia.",
+  "Armstrong walked on the Moon about six hours after landing, with Aldrin following nineteen minutes later.",
+  "The crew splashed down in the Pacific Ocean on July 24 after returning to lunar orbit.",
+  "Armstrong's moonwalk was broadcast live to an estimated 600 million viewers.",
+  "The Soviet Union could not match the Saturn V, and its probe Luna 15 crashed on the Moon July 21.",
+  "The Soviet Union launched Sputnik 1 on October 4, 1957, sparking fears about Soviet capabilities.",
+  "Eisenhower responded to Sputnik by creating NASA and initiating Project Mercury.",
+  "Kennedy told Congress on May 25, 1961, that the nation should land a man on the Moon before the decade ends.",
+  "Kennedy chose a challenge beyond existing rocket capabilities so both countries would start from an equal position.",
+  "Kennedy proposed a joint Moon landing to Khrushchev in June 1961, but Khrushchev declined.",
+  "In his September 12, 1962 Rice University speech, Kennedy repeated the refrain 'We choose to go to the Moon.'",
+  "MIT mathematician Norbert Wiener dubbed the Moon program a 'moondoggle' amid widespread opposition.",
+  "NASA head James Webb announced in July 1962 that lunar orbit rendezvous would be used for Apollo.",
+  "The lunar module's descent stage landed on the Moon, and its ascent stage returned astronauts to lunar orbit.",
+  "The Apollo 1 fire on January 27, 1967 killed three astronauts and abruptly halted the program.",
+  "Apollo 7 through 10 tested the spacecraft in Earth and lunar orbit before Apollo 11 was ready."
+ ],
+ "chunk1": [
+  "Apollo 11 (July 16\u201324, 1969) was the American spaceflight that first landed humans on the Moon and the fifth crewed Apollo mission.",
+  "Commander Neil Armstrong, Command Module Pilot Michael Collins, and Lunar Module Pilot Buzz Aldrin each were on their second and final spaceflight.",
+  "The Saturn V launched Apollo 11 from Kennedy Space Center, Florida, on July 16 at 13:32 UTC.",
+  "The command module housed the three astronauts and was the only part that returned to Earth; the service module supplied propulsion, power, oxygen, and water.",
+  "Armstrong and Aldrin landed the LM Eagle in the Sea of Tranquility on July 20 at 20:17 UTC while Collins remained in lunar orbit aboard Columbia."
+ ]
+}

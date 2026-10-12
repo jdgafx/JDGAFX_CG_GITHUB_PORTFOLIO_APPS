@@ -208,11 +208,11 @@ describe('graph path and state', () => {
     ])
   })
 
-  it('(d) the review model flags an unused key point: the flag is a note only, with no retry and no change to coverage', async () => {
+  it('(d) the review model flags an unused key point: its text is added to the summary and counted as used, with no retry and no change to the chunk coverage', async () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ flagFirstCheck: ['3.2', '3.1'] }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1', '3.2'], uncitedPoints: ['1.2', '2.2'], unchecked: [] })
     // 3.1 is cited, so the review is not allowed to flag it.
     expect(run.final?.reviewFlags).toEqual(['3.2'])
     expect(run.final?.review).toBe('done')

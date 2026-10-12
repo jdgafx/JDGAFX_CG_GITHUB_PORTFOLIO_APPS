@@ -176,7 +176,7 @@ describe('request 2 writes the summary from the hand-off, as production runs it'
       findingCount: 3,
       entities: ['Party 1', 'Party 2', 'Party 3'],
       retryOutcome: 'none',
-      coverage: { covered: [1, 2, 3], missing: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] },
+      coverage: { covered: [1, 2, 3], missing: [], citedPoints: ['1.1', '1.2', '2.1', '3.1'], uncitedPoints: ['2.2', '3.2'], unchecked: [] },
       reviewFlags: ['1.2'],
       review: 'done',
     })

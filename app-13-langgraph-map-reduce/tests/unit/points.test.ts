@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { RunBudget } from '../../netlify/shared/budget'
 import { ProviderError } from '../../netlify/shared/errors'
-import { citedPointIds, computeCoverage, pointIdsOf } from '../../netlify/shared/coverage'
+import { CENTRAL_HEADING, citedPointIds, computeCoverage, pointIdsOf } from '../../netlify/shared/coverage'
 import { mergeFindings } from '../../netlify/shared/merge'
 import { ATTRIBUTE_CALL_TIMEOUT_MS, CHECK_BUDGET_MARGIN_MS, CHECK_CALL_TIMEOUT_MS, MIN_ATTRIBUTE_BUDGET_MS, MIN_CHECK_BUDGET_MS, MODEL } from '../../netlify/shared/models'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
@@ -210,7 +210,8 @@ describe('point ids flow from the extract calls to the coverage the page shows',
     expect(lastMessage(first)).toContain('[1.2] Rubber ducks were invented in the late 19th century')
     expect(lastMessage(first)).not.toContain('[2.1]')
     expect(result.coverage.citedPoints).toContain('1.5')
-    expect(result.coverage.uncitedPoints).toContain('1.2')
+    // The review (scripted to flag 1.2) found it central, so its text was added to the summary and it counts as used.
+    expect(result.coverage.citedPoints).toContain('1.2')
     expect(result.coverage.citedPoints.length + result.coverage.uncitedPoints.length).toBe(37)
     expect(result.coverage.unchecked).toEqual([])
     // Each sentence carries the ids found for it.
@@ -249,7 +250,7 @@ describe('point ids flow from the extract calls to the coverage the page shows',
     expect(result.coverage.citedPoints).not.toContain('9.9')
   })
 
-  it('sends the review only the uncited ids, shows what it flags among them, and never edits the summary', async () => {
+  it('sends the review only the uncited ids, adds what it flags among them to the summary as that point\'s own text, and edits nothing else', async () => {
     const seen: ChatRequest[] = []
     // 1.5 is stated and 9.9 does not exist: both are ignored. 1.2 is not stated and is flagged.
     const { results } = await run(r3aChat(['1.2', '1.5', '9.9'], seen))
@@ -258,14 +259,17 @@ describe('point ids flow from the extract calls to the coverage the page shows',
 
     expect(review).toHaveLength(1)
     const prompt = lastMessage(review[0]!)
-    for (const id of result.coverage.uncitedPoints) expect(prompt).toContain(`[${id}]`)
-    for (const id of result.coverage.citedPoints) expect(prompt).not.toContain(`[${id}]`)
+    // The review saw every point no sentence states (the ones still unused and the one it flagged), and no point a sentence states.
+    for (const id of [...result.coverage.uncitedPoints, '1.2']) expect(prompt).toContain(`[${id}]`)
+    for (const id of result.coverage.citedPoints.filter((c) => c !== '1.2')) expect(prompt).not.toContain(`[${id}]`)
     expect(result.review).toBe('done')
     expect(result.reviewFlags).toEqual(['1.2'])
-    expect(unusedPoints(result).find((p) => p.id === '1.2')).toMatchObject({ flagged: true, text: expect.stringContaining('late 19th century') })
-    expect(unusedPoints(result).filter((p) => p.flagged)).toHaveLength(1)
+    expect(result.coverage.citedPoints).toContain('1.2')
+    expect(unusedPoints(result).map((p) => p.id)).not.toContain('1.2')
     expect(reviewLine(result)).toContain('1.2')
-    expect(result.summary.sections.map((s) => s.points.map((p) => p.text))).toEqual(R3A.summary.sections.map((s) => s.points.map((p) => p.text)))
+    // The writer's sections are untouched; one section is added with the flagged point's own text, cited to its id and chunk.
+    expect(result.summary.sections.slice(0, -1).map((s) => s.points.map((p) => p.text))).toEqual(R3A.summary.sections.map((s) => s.points.map((p) => p.text)))
+    expect(result.summary.sections.at(-1)).toEqual({ heading: CENTRAL_HEADING, points: [{ text: R3A.chunks[0]?.points[1], points: ['1.2'], chunks: [1] }] })
   })
 
   it('makes no review call when every point is stated', async () => {
@@ -359,15 +363,17 @@ describe('the page claims what the points show', () => {
   }
 
 
-  it('leads with the per-point count, lists the unused points under their own heading, and marks the one the review flags', async () => {
+  it('leads with the per-point count, lists the unused points under their own heading, and shows the one the review flags as a sentence of the summary', async () => {
     const { results } = await run(r3aChat(['1.2']))
     const text = render(results[0]!)
     const headline = pointsHeadline(results[0]!.coverage).text
 
     expect(text).toContain(headline)
     expect(text).toContain(`Key points not used in the summary (${results[0]!.coverage.uncitedPoints.length})`)
-    expect(text).toContain('Rubber ducks were invented in the late 19th century')
-    expect(text).toContain('May be central')
+    // The flagged point is a sentence of the summary under its own heading, not an entry of the unused list.
+    expect(text).toContain(`${CENTRAL_HEADING} Rubber ducks were invented in the late 19th century`)
+    expect(results[0]!.coverage.uncitedPoints).not.toContain('1.2')
+    expect(text).not.toContain('May be central')
     // Every chunk is cited, so the chunk count is true, but it is no longer the headline and it never says "covered".
     expect(text).toContain('7 of 7 chunks cited')
     expect(text).not.toContain('chunks covered')
@@ -395,7 +401,7 @@ describe('the page claims what the points show', () => {
   it('words the review line for each state', () => {
     expect(reviewLine({ review: 'not-needed', reviewFlags: [] })).toBeNull()
     expect(reviewLine({ review: 'done', reviewFlags: [] })).toMatch(/none of these central/)
-    expect(reviewLine({ review: 'done', reviewFlags: ['1.2', '3.1'] })).toMatch(/points 1\.2 and 3\.1 may be central/)
+    expect(reviewLine({ review: 'done', reviewFlags: ['1.2', '3.1'] })).toMatch(/points 1\.2 and 3\.1 central to the document's main subject, so their texts are added to the summary/)
     expect(reviewLine({ review: 'unavailable', reviewFlags: [] })).toMatch(/None of these were checked/)
   })
 })

@@ -5,7 +5,7 @@ import { CHUNK_TARGET, splitText } from './chunk'
 import { attribute } from './attribute'
 import { callFields, CUT_OFF_MESSAGE, isCutOff, traceRow } from './rows'
 import { writeSummary } from './writer'
-import { citedChunks, citedPointIds, computeCoverage, pointIdsOf } from './coverage'
+import { addCentralPoints, citedChunks, citedPointIds, computeCoverage, pointIdsOf } from './coverage'
 import { ProviderError, RunFailure, plainMessage } from './errors'
 import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
@@ -276,7 +276,8 @@ export function makeNodes(deps: NodeDeps) {
    * sentences state (attribute.ts); a key point is used only when a sentence states it, and the writer's own chunk
    * citations decide nothing about points. Then coverage is computed from those ids: a chunk is covered when it has
    * points and the writer cites it, as before. Then one review call gets only the unused points and says which are central
-   * to the document's main subject. The review is advisory: it never edits the summary, changes coverage or starts a retry.
+   * to the document's main subject, and each of those is added to the summary as a sentence of its own (the point's extracted
+   * text, no model call), so a central fact the writer dropped is stated. The review never starts a retry.
    * It is not called when every point is used, and it is skipped, never started, when too little of the run budget is left,
    * because a budget that expires inside the call would discard a finished summary. The retry counter moves here, so the
    * router only reads the decision this node writes. Every pass also leaves its outcome as the draft, which a failed
@@ -289,7 +290,6 @@ export function makeNodes(deps: NodeDeps) {
     const summary = state.summary
     if (!merged || !summary) throw new RunFailure('There is no summary to check.')
     const chunkIds = state.chunks.map((c) => c.id)
-    const cited = citedChunks(summary, chunkIds)
     const withPoints = new Set(merged.byChunk.map((c) => c.chunkId))
     const pointIds = pointIdsOf(merged)
 
@@ -333,7 +333,7 @@ export function makeNodes(deps: NodeDeps) {
         } else {
           review = 'done'
           flagged = important
-          done = traceRow('check', 'ok', ms, `Reviewed ${unused.length} unused key points: ${important.length} central to the main subject`, fields)
+          done = traceRow('check', 'ok', ms, `Reviewed ${unused.length} unused key points: ${important.length} central to the main subject${important.length > 0 ? ', added to the summary' : ''}`, fields)
         }
       } catch (err) {
         // The review is a second opinion. A failure here never discards a finished summary. Its call was made and no reply
@@ -349,9 +349,11 @@ export function makeNodes(deps: NodeDeps) {
       }
     }
 
-    // The review is advisory: coverage comes from key points and citations alone, and flags only add a note.
-    const secondCoverage = computeCoverage({ chunkIds, withPoints, cited, pointIds, citedPoints, unchecked: attribution.unchecked })
+    // The central points are added before coverage is computed, so the key point counts and the kept draft are of the summary the page shows.
+    // The chunk view stays the writer's: a chunk is covered when the writer cites it, so a restated point does not stop a chunk retry.
     const secondFlags = [...new Set(flagged)]
+    const stated = addCentralPoints(checked, merged, secondFlags)
+    const secondCoverage = computeCoverage({ chunkIds, withPoints, cited: citedChunks(checked, chunkIds), pointIds, citedPoints: citedPointIds(stated, pointIds), unchecked: attribution.unchecked })
 
     // After a retry the second summary replaces the first only if it covers more chunks. Never return less than
     // the run already had: on a tie or a loss the first-pass summary, coverage and flags are kept.
@@ -360,7 +362,7 @@ export function makeNodes(deps: NodeDeps) {
     const coverage = keepFirst ? first.coverage : secondCoverage
     const reviewFlags = keepFirst ? first.reviewFlags : secondFlags
     const reviewState = keepFirst ? first.review : review
-    const keptSummary = keepFirst ? first.summary : checked
+    const keptSummary = keepFirst ? first.summary : stated
     let keptNotice: string | null = null
     if (keepFirst) {
       const total = chunkIds.length
