@@ -60,6 +60,13 @@ const STOPPED_MESSAGE = 'Stopped because another call in this run failed.'
 /** The notice on a summary whose coverage retry was left out because little of the run budget remained. */
 export const RETRY_SKIPPED_NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
 
+/**
+ * A reply that stopped at the token cap is cut off. Its text may still parse, but the tail is lost, so no node
+ * reads it: an extract counts the chunk as not extracted, and synthesis ends the run.
+ */
+const CUT_OFF_MESSAGE = 'The AI ran out of reply length, so the reply was cut off.'
+const isCutOff = (reply: ChatReply): boolean => reply.finishReason === 'length'
+
 const chunkWord = (n: number): string => (n === 1 ? 'chunk' : 'chunks')
 const chunkCount = (n: number): string => `${n} ${chunkWord(n)}`
 
@@ -170,11 +177,11 @@ export function makeNodes(deps: NodeDeps) {
 
     const finish = async (reply: ChatReply, callMs: number): Promise<Attempt> => {
       const fields = await callFields(EXTRACT.model, reply, models)
-      const parsed = parseExtraction(reply.text)
+      const parsed = isCutOff(reply) ? null : parseExtraction(reply.text)
       if (!parsed || parsed.points.length === 0) {
         const row = traceRow('extract', 'failed', callMs, label, {
           chunk: chunk.id,
-          message: 'The model reply had no key points.',
+          message: isCutOff(reply) ? CUT_OFF_MESSAGE : 'The model reply had no key points.',
           ...fields,
         })
         emit({ type: 'node_end', ...row })
@@ -263,14 +270,9 @@ export function makeNodes(deps: NodeDeps) {
     const reply = await chat({ ...SYNTH, messages: synthesizeMessages(merged, chunkIds, missed) }, budget.signal)
     const ms = Date.now() - startedAt
     const fields = await callFields(SYNTH.model, reply, models)
+    if (isCutOff(reply)) throw new RunFailure(`${CUT_OFF_MESSAGE} Run the text again.`)
     const summary = parseSummary(reply.text, chunkIds)
-    if (!summary) {
-      throw new RunFailure(
-        reply.finishReason === 'length'
-          ? 'The summary was cut short. Run the text again.'
-          : 'The summary could not be read. Run the text again.',
-      )
-    }
+    if (!summary) throw new RunFailure('The summary could not be read. Run the text again.')
     const points = summary.sections.reduce((n, s) => n + s.points.length, 0)
     const note = missed.length > 0 ? `, retry asks for chunk ${missed.join(', ')}` : ''
     const done = traceRow('synthesize', 'ok', ms, `${summary.sections.length} sections, ${points} points${note}`, fields)
@@ -302,9 +304,10 @@ export function makeNodes(deps: NodeDeps) {
       const reply = await chat({ ...CHECK, timeoutMs: checkCallTimeout, messages: checkMessages(summary, merged) }, budget.signal)
       const ms = Date.now() - startedAt
       const fields = await callFields(CHECK.model, reply, models)
-      const omitted = parseOmitted(reply.text, chunkIds)
+      const omitted = isCutOff(reply) ? null : parseOmitted(reply.text, chunkIds)
       if (omitted === null) {
-        done = traceRow('check', 'failed', ms, 'Review reply was not readable. Coverage uses chunk citations only.', fields)
+        const why = isCutOff(reply) ? 'cut off' : 'not readable'
+        done = traceRow('check', 'failed', ms, `Review reply was ${why}. Coverage uses chunk citations only.`, fields)
       } else {
         flagged = omitted
         done = traceRow('check', 'ok', ms, `Review flagged ${chunkCount(omitted.length)} as thin in the summary`, fields)
