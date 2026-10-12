@@ -1,0 +1,74 @@
+/* app-09 InsightHub. Tokens and shared components come first; this file holds only what this app adds. */
+
+/* How to use */
+.howto__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.howto__title { font-size: 18px; font-weight: 650; }
+.howto__body { display: grid; gap: 12px; margin-top: 12px; }
+.howto__steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.howto__try { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.howto__try .ds-button { min-width: 120px; }
+
+/* Masthead chip: it may wrap on a narrow screen instead of being clipped */
+.live-chip { margin: 0; width: fit-content; }
+.readout__chip { font-size: 15px; }
+
+/* Controls */
+.add-input { flex: 1 1 160px; width: auto; min-width: 0; }
+.chip-remove {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: -4px; padding: 0;
+  font: inherit; font-size: 15px; line-height: 1; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: 999px; cursor: pointer;
+}
+.chip-remove:hover:not(:disabled) { color: var(--ds-text); background: var(--ds-surface); }
+.chip-remove:disabled { opacity: 0.45; cursor: not-allowed; }
+.ds-controls .ds-seg { width: fit-content; max-width: 100%; }
+
+/* Explanation region */
+.explanation__title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
+.explanation__package { display: grid; gap: 8px; min-width: 0; }
+.explanation__text { font-size: 18px; line-height: 1.7; overflow-wrap: anywhere; }
+.ds-lead__text > .ds-state { font-size: 15px; }
+.claim { padding: 0 4px; font-family: var(--ds-mono); font-size: 0.93em; font-style: normal; color: var(--ds-text); background: var(--ds-surface-2); border-radius: 4px; }
+.claim::after { margin-left: 4px; font-family: var(--ds-font); font-weight: 800; }
+.claim--checked { background: var(--ds-success-soft); box-shadow: inset 0 -2px 0 var(--ds-success); }
+.claim--checked::after { content: "\2713"; color: var(--ds-success); }
+.claim--wrong { background: var(--ds-danger-soft); box-shadow: inset 0 -2px 0 var(--ds-danger); text-decoration: line-through; text-decoration-color: var(--ds-danger); }
+.claim--wrong::after { content: "!"; color: var(--ds-danger); text-decoration: none; display: inline-block; }
+.claim--unchecked { background: var(--ds-warning-soft); box-shadow: inset 0 -2px 0 var(--ds-warning); }
+.claim--unchecked::after { content: "?"; color: var(--ds-warning); }
+.claim--neutral { background: var(--ds-surface-2); box-shadow: inset 0 -1px 0 var(--ds-border-strong); }
+.claim-label { font-size: 13px; color: var(--ds-text-muted); }
+.claim-note { font-size: 13px; font-weight: 650; color: var(--ds-danger); }
+.date-mark { font-family: var(--ds-mono); }
+.ds-lead .ds-state { box-shadow: none; }
+
+/* Tables */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ds-border); }
+.data-table th { font-weight: 650; color: var(--ds-text-muted); white-space: nowrap; }
+.data-table td.ds-num { font-family: var(--ds-mono); white-space: nowrap; }
+.figure-check { display: grid; gap: 12px; }
+.figure-check__summary { font-size: 15px; font-weight: 650; }
+.unusual { display: grid; gap: 12px; }
+
+/* Metrics */
+.metrics { display: grid; gap: 16px; }
+.metrics__combined { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; }
+.metrics__combined strong { font-family: var(--ds-mono); font-size: 22px; font-weight: 600; }
+.metrics__swatch { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 3px; vertical-align: -1px; }
+.metrics__package .ds-card__title { font-size: 18px; font-weight: 650; }
+
+/* Charts: hand-written SVG; the shapes and not only the colours tell the marks apart */
+.charts { display: grid; gap: 12px; }
+.chart-nodata { fill: var(--ds-border); opacity: 0.7; }
+.chart-release { stroke: var(--ds-text-muted); stroke-width: 2; }
+.chart-gap { stroke: var(--ds-text); stroke-width: 2; }
+.chart-dot { stroke: var(--ds-surface); stroke-width: 1.5; }
+.chart-dot--drop { fill-opacity: 0.35; stroke-width: 2; }
+
+/* Results column */
+.ds-run__stage, .ds-run__result, .ds-run__readout { min-width: 0; }
+.notices:empty { display: none; }
+.metrics__swatch.ds-c-s1 { background: var(--ds-accent); }
+.metrics__swatch.ds-c-s2 { background: var(--ds-series-2); }
+.metrics__swatch.ds-c-s3 { background: var(--ds-series-3); }
+.metrics__swatch.ds-c-s4 { background: var(--ds-series-4); }
