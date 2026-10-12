@@ -112,7 +112,7 @@ export function parseExtraction(text: string): Extraction | null {
 
 const importantShape = z.object({ important: z.unknown().optional() })
 
-/** Ids the review model says matter to the document's main subject, kept only if they are in `validIds` (the unused points). Null when the reply holds no JSON object. */
+/** Ids the review model says matter to the document's main subject, kept only if they are in `validIds` (every key point; the caller keeps the unused ones). Null when the reply holds no JSON object. */
 export function parseImportant(text: string, validIds: string[]): string[] | null {
   const parsed = importantShape.safeParse(jsonObject(text))
   if (!parsed.success) return null

@@ -125,15 +125,15 @@ describe('the prompts', () => {
     for (const p of merged.byChunk[0]!.points) expect(user).not.toContain(`[${p.id}]`)
   })
 
-  it('gives the review model only the points no sentence states, and no citations', () => {
+  it('gives the review model the summary and every key point, and no citations', () => {
     const merged = r3aMerged()
     const summary = r3aChecked()
-    const used = new Set(citedPointIds(summary, pointIdsOf(merged)))
-    const unused = merged.byChunk.flatMap((c) => c.points).filter((p) => !used.has(p.id))
-    const [, user] = checkMessages(summary, unused).map((m) => m.content)
+    const points = merged.byChunk.flatMap((c) => c.points)
+    const [system, user] = checkMessages(summary, points).map((m) => m.content)
 
-    for (const p of unused) expect(user).toContain(`[${p.id}] ${p.text}`)
-    for (const id of used) expect(user).not.toContain(`[${id}]`)
+    for (const p of points) expect(user).toContain(`[${p.id}] ${p.text}`)
+    // Which points the summary leaves out is the attribution's judgement, so the review is told not to make it.
+    expect(system).toContain('not on whether the summary states it')
     expect(user).toContain(summary.overview)
     expect(user).not.toMatch(/\[chunk/)
   })
@@ -250,7 +250,7 @@ describe('point ids flow from the extract calls to the coverage the page shows',
     expect(result.coverage.citedPoints).not.toContain('9.9')
   })
 
-  it('sends the review only the uncited ids, adds what it flags among them to the summary as that point\'s own text, and edits nothing else', async () => {
+  it('sends the review every point, adds what it flags among the unused ones to the summary as that point\'s own text, and edits nothing else', async () => {
     const seen: ChatRequest[] = []
     // 1.5 is stated and 9.9 does not exist: both are ignored. 1.2 is not stated and is flagged.
     const { results } = await run(r3aChat(['1.2', '1.5', '9.9'], seen))
@@ -259,9 +259,8 @@ describe('point ids flow from the extract calls to the coverage the page shows',
 
     expect(review).toHaveLength(1)
     const prompt = lastMessage(review[0]!)
-    // The review saw every point no sentence states (the ones still unused and the one it flagged), and no point a sentence states.
-    for (const id of [...result.coverage.uncitedPoints, '1.2']) expect(prompt).toContain(`[${id}]`)
-    for (const id of result.coverage.citedPoints.filter((c) => c !== '1.2')) expect(prompt).not.toContain(`[${id}]`)
+    // The review saw all 37 points, the ones a sentence states included; its flag on the stated 1.5 is ignored.
+    for (const id of [...result.coverage.uncitedPoints, ...result.coverage.citedPoints]) expect(prompt).toContain(`[${id}]`)
     expect(result.review).toBe('done')
     expect(result.reviewFlags).toEqual(['1.2'])
     expect(result.coverage.citedPoints).toContain('1.2')
@@ -272,12 +271,14 @@ describe('point ids flow from the extract calls to the coverage the page shows',
     expect(result.summary.sections.at(-1)).toEqual({ heading: CENTRAL_HEADING, points: [{ text: R3A.chunks[0]?.points[1], points: ['1.2'], chunks: [1] }] })
   })
 
-  it('makes no review call when every point is stated', async () => {
+  it('uses no review result when every point is stated (the review started with the check, before that was known)', async () => {
     const seen: ChatRequest[] = []
-    const { results } = await run(r3aChat([], seen, allStated))
+    const { results } = await run(r3aChat(['1.2'], seen, allStated))
 
-    expect(calls(seen, 'check')).toHaveLength(0)
+    expect(calls(seen, 'check')).toHaveLength(1)
     expect(results[0]?.review).toBe('not-needed')
+    expect(results[0]?.reviewFlags).toEqual([])
+    expect(results[0]?.summary.sections.map((s) => s.heading)).not.toContain(CENTRAL_HEADING)
     expect(pointsHeadline(results[0]!.coverage)).toEqual({ text: '37 of 37 key points used', allUsed: true })
     expect(unusedPoints(results[0]!)).toEqual([])
   })

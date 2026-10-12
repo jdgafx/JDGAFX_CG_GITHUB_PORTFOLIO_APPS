@@ -275,10 +275,11 @@ export function makeNodes(deps: NodeDeps) {
    * Coverage, in three steps. First one attribution call per chunk, together, judges which key points the finished
    * sentences state (attribute.ts); a key point is used only when a sentence states it, and the writer's own chunk
    * citations decide nothing about points. Then coverage is computed from those ids: a chunk is covered when it has
-   * points and the writer cites it, as before. Then one review call gets only the unused points and says which are central
-   * to the document's main subject, and each of those is added to the summary as a sentence of its own (the point's extracted
-   * text, no model call), so a central fact the writer dropped is stated. The review never starts a retry.
-   * It is not called when every point is used, and it is skipped, never started, when too little of the run budget is left,
+   * points and the writer cites it, as before. One review call, started together with the attribution calls, gets every
+   * point and says which are central to the document's main subject; the central points no sentence states are added to the
+   * summary, each as a sentence of its own (the point's extracted text, no model call), so a central fact the writer dropped is
+   * stated. The review never starts a retry. Its result is not used when every point is used, and it is skipped, never started,
+   * when too little of the run budget is left,
    * because a budget that expires inside the call would discard a finished summary. The retry counter moves here, so the
    * router only reads the decision this node writes. Every pass also leaves its outcome as the draft, which a failed
    * retry returns.
@@ -294,7 +295,46 @@ export function makeNodes(deps: NodeDeps) {
     const pointIds = pointIdsOf(merged)
 
     const checkFields = async (reply: ChatReply): Promise<Partial<TraceRow>> => callFields(ATTRIBUTE.model, reply, models)
-    const attribution = await attribute({ chat, limiter, budget, timeoutMs: attributeCallTimeout, fields: checkFields, emit }, summary, merged)
+    const allPoints = merged.byChunk.flatMap((c) => c.points)
+
+    /**
+     * The review, on every key point and on its own: it judges which points are central to the main subject, and the points the
+     * attribution leaves unused are picked from those afterwards. It starts with the attribution calls, not after them, so it
+     * no longer waits for the longest of them and its call, which the budget cuts short, is not what a slow synthesis uses up.
+     * `row` is null when the review was not started for lack of time.
+     */
+    const startedAt = Date.now()
+    const reviewOnce = async (): Promise<{ review: ReviewState; important: string[]; row: TraceRow | null; fields: Partial<TraceRow> }> => {
+      if (budget.remaining() < MIN_CHECK_BUDGET_MS) return { review: 'skipped', important: [], row: null, fields: {} }
+      // The call ends before the budget does, so the budget cannot expire inside it.
+      const timeoutMs = Math.min(checkCallTimeout, budget.remaining() - CHECK_BUDGET_MARGIN_MS)
+      try {
+        const reply = await chat({ ...CHECK, timeoutMs, messages: checkMessages(summary, allPoints) }, budget.signal)
+        const ms = Date.now() - startedAt
+        const fields = await callFields(CHECK.model, reply, models)
+        const important = isCutOff(reply) ? null : parseImportant(reply.text, allPoints.map((p) => p.id))
+        if (important === null) {
+          const row = traceRow('check', 'failed', ms, `Review reply was ${isCutOff(reply) ? 'cut off' : 'not readable'}. The unused key points are listed without it.`, fields)
+          return { review: 'unavailable', important: [], row, fields }
+        }
+        const row = traceRow('check', 'ok', ms, `Reviewed ${allPoints.length} key points: ${important.length} central to the main subject`, fields)
+        return { review: 'done', important, row, fields }
+      } catch (err) {
+        // The review is a second opinion. A failure here never discards a finished summary. Its call was made and no reply
+        // came, so the row names the model and carries no usage, which the totals count as not reported.
+        const message = plainMessage(err, budget.expired())
+        const lost = traceRow('check', 'failed', Date.now() - startedAt, `Review unavailable: ${message} The unused key points are listed without it.`, { model: CHECK.model, message })
+        if (!(err instanceof ProviderError) || budget.expired()) {
+          emit({ type: 'node_end', ...lost })
+          throw err
+        }
+        return { review: 'unavailable', important: [], row: lost, fields: {} }
+      }
+    }
+    const [attribution, reviewed] = await Promise.all([
+      attribute({ chat, limiter, budget, timeoutMs: attributeCallTimeout, fields: checkFields, emit }, summary, merged),
+      reviewOnce(),
+    ])
     // The sentences keep the ids the check found for them, so the page can show which key points a sentence states.
     let index = 0
     const checked: Summary = {
@@ -305,48 +345,26 @@ export function makeNodes(deps: NodeDeps) {
       })),
     }
     const citedPoints = citedPointIds(checked, pointIds)
-    const unused = merged.byChunk.flatMap((c) => c.points).filter((p) => !citedPoints.has(p.id))
+    const unused = allPoints.filter((p) => !citedPoints.has(p.id))
+    const unusedIds = new Set(unused.map((p) => p.id))
 
+    // Only a central point that no sentence states is added to the summary.
     let flagged: string[] = []
     let review: ReviewState
     let done: TraceRow
-    const startedAt = Date.now()
     if (unused.length === 0) {
       review = 'not-needed'
-      done = traceRow('check', 'ok', 0, 'The summary uses every key point, so there was nothing to review')
-    } else if (budget.remaining() < MIN_CHECK_BUDGET_MS) {
+      done = traceRow('check', 'ok', 0, 'The summary uses every key point, so there was nothing to review', reviewed.fields)
+    } else if (reviewed.row === null) {
       review = 'skipped'
       done = traceRow('check', 'failed', 0, `Review skipped: too little of the time limit was left. ${unused.length} key points are not used.`)
     } else {
-      // The call ends before the budget does, so the budget cannot expire inside it.
-      const timeoutMs = Math.min(checkCallTimeout, budget.remaining() - CHECK_BUDGET_MARGIN_MS)
-      try {
-        const reply = await chat({ ...CHECK, timeoutMs, messages: checkMessages(summary, unused) }, budget.signal)
-        const ms = Date.now() - startedAt
-        const fields = await callFields(CHECK.model, reply, models)
-        const important = isCutOff(reply)
-          ? null
-          : parseImportant(reply.text, unused.map((p) => p.id))
-        if (important === null) {
-          review = 'unavailable'
-          done = traceRow('check', 'failed', ms, `Review reply was ${isCutOff(reply) ? 'cut off' : 'not readable'}. The unused key points are listed without it.`, fields)
-        } else {
-          review = 'done'
-          flagged = important
-          done = traceRow('check', 'ok', ms, `Reviewed ${unused.length} unused key points: ${important.length} central to the main subject${important.length > 0 ? ', added to the summary' : ''}`, fields)
-        }
-      } catch (err) {
-        // The review is a second opinion. A failure here never discards a finished summary. Its call was made and no reply
-        // came, so the row names the model and carries no usage, which the totals count as not reported.
-        const message = plainMessage(err, budget.expired())
-        const lost = traceRow('check', 'failed', Date.now() - startedAt, `Review unavailable: ${message} The unused key points are listed without it.`, { model: CHECK.model, message })
-        if (!(err instanceof ProviderError) || budget.expired()) {
-          emit({ type: 'node_end', ...lost })
-          throw err
-        }
-        review = 'unavailable'
-        done = lost
-      }
+      review = reviewed.review
+      flagged = reviewed.important.filter((id) => unusedIds.has(id))
+      done =
+        review === 'done'
+          ? { ...reviewed.row, detail: `Reviewed ${allPoints.length} key points: ${reviewed.important.length} central to the main subject, ${flagged.length} of them not stated by the summary${flagged.length > 0 ? ', added to it' : ''}` }
+          : reviewed.row
     }
 
     // The central points are added before coverage is computed, so the key point counts and the kept draft are of the summary the page shows.

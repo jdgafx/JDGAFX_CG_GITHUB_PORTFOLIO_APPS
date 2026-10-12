@@ -35,11 +35,11 @@ const ATTRIBUTE_SYSTEM =
   '{"states": [{"sentence": 3, "points": ["2.1", "2.4"]}]}. Leave out sentences that state none of them, and use only the ids given.'
 
 const CHECK_SYSTEM =
-  'You review a summary of a document. Below the summary are key points extracted from the document that the ' +
-  'summary does not state, each with an id in brackets. Decide which of them state something central to the ' +
-  'document\'s main subject, so that a reader of the summary would miss a core fact without them. Details, ' +
-  'examples and side topics are not central. Reply with a JSON object only: {"important": ["ids of the central ' +
-  'key points"]}. Reply {"important": []} when none is central.'
+  'You review a summary of a document. Below the summary are all the key points extracted from the document, each with an ' +
+  'id in brackets. Decide which of them state something central to the document\'s main subject, so that a reader would miss ' +
+  'a core fact without them. Judge each key point on its own, not on whether the summary states it: that is checked ' +
+  'separately. Details, examples and side topics are not central. Reply with a JSON object only: {"important": ["ids of ' +
+  'the central key points"]}. Reply {"important": []} when none is central.'
 
 const idLines = (points: KeyPoint[]): string => points.map((p) => `[${p.id}] ${p.text}`).join('\n')
 
@@ -76,14 +76,14 @@ export function summaryText(summary: Summary): string {
   return lines.join('\n')
 }
 
-/** The review sees the summary and only the key points it does not use, so it can judge nothing else. */
-export function checkMessages(summary: Summary, unused: KeyPoint[]): ChatMessage[] {
-  const lines = idLines(unused)
+/** The review sees the summary, for the main subject, and every key point. Which of them the summary leaves out is the attribution's judgement, not its own. */
+export function checkMessages(summary: Summary, points: KeyPoint[]): ChatMessage[] {
+  const lines = idLines(points)
   return [
     { role: 'system', content: CHECK_SYSTEM },
     {
       role: 'user',
-      content: `Summary:\n${summaryText(summary)}\n\nKey points the summary does not state:\n${lines}\n\nReply with the JSON object only, no other text.`,
+      content: `Summary:\n${summaryText(summary)}\n\nKey points of the document:\n${lines}\n\nReply with the JSON object only, no other text.`,
     },
   ]
 }
