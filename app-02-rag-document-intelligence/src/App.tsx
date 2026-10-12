@@ -267,7 +267,7 @@ export default function App() {
         : latest.state === 'stopped'
           ? 'stopped'
           : 'done'
-  useResultFocus(phase)
+  useResultFocus(phase, { replay: replay.info !== null })
 
   const lastTurn = turns[turns.length - 1]
   const notFound = phase === 'done' && lastTurn !== undefined && lastTurn.sourceChunks.length === 0
