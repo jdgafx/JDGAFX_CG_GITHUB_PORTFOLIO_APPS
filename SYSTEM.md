@@ -34,7 +34,7 @@ Count: **nine** apps merged through the gate (02, 03, 04, 05, 06, 08, 10, 11, 12
 - **Newest model:** the `alias_target` of `~anthropic/claude-haiku-latest` (or `-sonnet-latest`) in OpenRouter's public list, saved as a dated copy (`openrouter-models-<date>.json`) in each run's evidence folder. A run without the copy is not evidence.
 - **Served bundle matches the build:** the JS and CSS asset names in the deployed `index.html` equal those in the local `dist/index.html` from the same commit.
 - **Above the fold:** visible in the first screen at 1440x900 (desktop) and 390x844 (phone).
-- **Platform cut-off:** budgets stay under 30 s (the figure in `c-incidents.md`, one app-13 observation; some code says 26 s). Netlify's docs say 60 s for synchronous and streaming functions (docs.netlify.com/build/functions/configuration, retrieved 2026-10-12); no captured cut is on file. A probe will settle it; until then no budget changes.
+- **Platform cut-off:** 30 s, measured 2026-10-12 (GD.4 probe, `.acceptance/dw/es/cutoff-probe-2026-10-12/`): a sync function waiting 35-65 s is cut at 30.3-30.9 s (504 'Inactivity Timeout' or 502); a streaming function is cut at 30.8-31.0 s with status 200 and no error, the stream just ends (silent). Netlify's documented 60 s does not apply to these sites. Each app's run budget must sit under 30 s, and a stream that ends without its own end marker must be treated as a failure.
 
 ## 3. Shared mechanisms (what each app re-implements)
 
