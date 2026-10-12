@@ -11,7 +11,8 @@ import { HowTo } from './components/HowTo'
 import { HOWTO_STEPS, HOWTO_WHAT } from './lib/howto'
 import { liveIndicator } from './lib/liveData'
 import { namesFor } from './lib/names'
-import { parseSourcePack } from '../netlify/shared/sourcepack'
+import { bodyOf, parseSourcePack } from '../netlify/shared/sourcepack'
+import { checkPiece, citedCount, type PieceCheck } from './lib/check'
 import Piece from './components/Piece'
 import Pipeline from './components/Pipeline'
 import Readout from './components/Readout'
@@ -53,10 +54,12 @@ export default function App() {
   const [startedAt, setStartedAt] = useState(0)
   const [sourcesAt, setSourcesAt] = useState<number | null>(null)
   const [copyNote, setCopyNote] = useState('')
+  const [check, setCheck] = useState<PieceCheck | null>(null)
   const runKeyRef = useRef('')
   const outputsRef = useRef<StageOutputs>({})
   const notesRef = useRef<Partial<Record<ChangeStage, ChangeNote[]>>>({})
   const abortRef = useRef<AbortController | null>(null)
+  const checkAbortRef = useRef<AbortController | null>(null)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const phase: Phase = running ? 'running' : outcome ? (outcome.kind === 'complete' ? 'done' : outcome.kind) : 'idle'
@@ -65,8 +68,30 @@ export default function App() {
   // Abort an in-flight run and clear the copy note timer when the view goes away.
   useEffect(() => () => {
     abortRef.current?.abort()
+    checkAbortRef.current?.abort()
     if (noteTimer.current) clearTimeout(noteTimer.current)
   }, [])
+
+  // The citation check of the finished piece is its own request. It never changes the run's outcome: when it
+  // cannot run, the piece stays and its cited sentences are marked not checked. Its model calls join the run's totals.
+  async function checkFinished(polished: string, sources: string) {
+    const body = bodyOf(polished)
+    if (citedCount(body) === 0) return
+    const controller = new AbortController()
+    checkAbortRef.current = controller
+    setCheck({ key: body, status: 'checking', claims: [] })
+    let outcome: Awaited<ReturnType<typeof checkPiece>>
+    try {
+      outcome = await checkPiece(body, sources, controller.signal)
+    } catch {
+      outcome = { check: { status: 'failed', claims: [], message: 'Something went wrong.' }, records: [] }
+    }
+    // A newer run or a closed page ends this check without a trace.
+    if (!outcome || controller.signal.aborted) return
+    checkAbortRef.current = null
+    setCheck({ key: body, ...outcome.check })
+    if (outcome.records.length > 0) setCalls(previous => [...previous, ...outcome.records])
+  }
 
   async function start(resume: boolean, brief?: { topic: string; type: ContentType }) {
     const trimmed = (brief?.topic ?? topic).trim()
@@ -84,6 +109,10 @@ export default function App() {
       setCalls([])
       setSourcesAt(null)
     }
+
+    checkAbortRef.current?.abort()
+    checkAbortRef.current = null
+    setCheck(null)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -125,6 +154,8 @@ export default function App() {
       setRunning(false)
     }
     setOutcome(result)
+    const polished = outputsRef.current.polish
+    if (result.kind === 'complete' && polished) await checkFinished(polished, outputsRef.current.sources ?? '')
   }
 
   // Try it: the first example brief, run end to end on live sources and the model.
@@ -223,6 +254,7 @@ export default function App() {
               runningStage={runningStage}
               outcome={running ? null : outcome}
               hasCalls={calls.length > 0}
+              check={check}
               copyNote={copyNote}
               onCopy={copy}
               onContinue={() => void start(true)}

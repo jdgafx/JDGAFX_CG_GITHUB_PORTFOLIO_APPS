@@ -141,3 +141,13 @@ button.ds-chain__button:hover { background: var(--ds-surface-2); }
   .howto__what, .howto__steps, .howto .ds-notice { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
 }
+
+/* The citation check: every cited sentence carries a badge after it. A sentence that is not confirmed is also
+   tinted and underlined, and says why on its own line. The badge uses the shared ds-badge classes. */
+.cite-badge { gap: 4px; padding: 0 8px; font-size: 12px; line-height: 1.55; vertical-align: 2px; }
+.cite-mark { flex: none; }
+.cite[data-cite="not_confirmed"] { background: color-mix(in srgb, var(--ds-danger) 9%, transparent); text-decoration: underline wavy var(--ds-danger) 1px; text-underline-offset: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.cite[data-cite="not_checked"] { text-decoration: underline dotted var(--ds-text-muted) 1px; text-underline-offset: 4px; }
+.cite[data-cite="checking"] { text-decoration: underline dashed var(--ds-accent) 1px; text-underline-offset: 4px; }
+.cite-note { display: block; margin: 2px 0 6px; font-size: 14px; line-height: 1.45; color: var(--ds-text-muted); max-width: 62ch; }
+.cite-line { margin: 0; }

@@ -22,6 +22,7 @@ function pieceHtml(pack: SourcePack): string {
       runningStage={null}
       outcome={{ kind: 'complete' }}
       hasCalls
+      check={null}
       copyNote=""
       onCopy={() => undefined}
       onContinue={() => undefined}

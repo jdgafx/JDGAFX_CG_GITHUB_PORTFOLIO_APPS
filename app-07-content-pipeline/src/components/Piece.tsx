@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { STAGE_LABELS, wordCount, type StageId, type StageOutputs } from '../../netlify/shared/contract'
 import { RELATED_HEADING, bodyOf, citableSources, listedSources, parseSourcePack, relatedMeta, relatedSources, type Source } from '../../netlify/shared/sourcepack'
 import { CHANGE_STAGES, compareStage, readabilityTrend, type ChangeStage } from '../lib/compare'
+import { extractClaims, summarizeViews } from '../../netlify/shared/citecheck'
+import { markFor, type PieceCheck } from '../lib/check'
 import type { ChangeNote } from '../../netlify/shared/changes'
 import type { PipelineOutcome } from '../lib/api'
 import DiffView from './DiffView'
@@ -108,6 +110,20 @@ function NoteList({ notes, stage }: { notes: ChangeNote[]; stage: ChangeStage })
   )
 }
 
+// One line on what the check found, under the piece. Only the polished piece is checked.
+function CheckLine({ check, final, total, confirmed, notConfirmed, notChecked }: { check: PieceCheck | null; final: boolean; total: number; confirmed: number; notConfirmed: number; notChecked: number }) {
+  if (total === 0) return null
+  let text: string
+  if (!final) text = 'Cited sentences are checked against the text of their sources once the piece is polished. Until then they are marked not checked.'
+  else if (!check || check.status === 'checking') text = `Checking ${plural(total, 'cited sentence')} against the text of their sources.`
+  else if (check.status === 'failed') text = `The citation check could not run${check.message ? `: ${check.message}` : '.'} The cited sentences are marked not checked.`
+  else {
+    const rest = [notConfirmed > 0 ? `${notConfirmed} not confirmed` : '', notChecked > 0 ? `${notChecked} not checked` : ''].filter(Boolean)
+    text = `Citation check: ${confirmed} of ${plural(total, 'cited sentence')} confirmed by the text of its source${rest.length > 0 ? `, ${rest.join(', ')}` : ''}. A sentence that is not confirmed may still be true; the source text this app held does not state it.`
+  }
+  return <p className="ds-help cite-line" role="status" data-cite-line={check?.status ?? 'idle'}>{text}</p>
+}
+
 interface PieceProps {
   topic: string
   outputs: StageOutputs
@@ -116,13 +132,14 @@ interface PieceProps {
   runningStage: StageId | null
   outcome: PipelineOutcome | null
   hasCalls: boolean
+  check: PieceCheck | null
   copyNote: string
   onCopy: (label: string, text: string) => void
   onContinue: () => void
 }
 
 /** The piece is the page's lead: the final text, or the tracked changes that got it there. */
-export default function Piece({ topic, outputs, notes, running, runningStage, outcome, hasCalls, copyNote, onCopy, onContinue }: PieceProps) {
+export default function Piece({ topic, outputs, notes, running, runningStage, outcome, hasCalls, check, copyNote, onCopy, onContinue }: PieceProps) {
   const [view, setView] = useState<View>('final')
   const [changeStage, setChangeStage] = useState<ChangeStage>('polish')
   const best = bestStage(outputs)
@@ -158,6 +175,11 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
   const related = best === 'polish' ? relatedSources(pack) : []
   const noSources = best === 'polish' && citableSources(pack).sources.length === 0
   const complete = outcome?.kind === 'complete'
+  // A verdict is used only for the polished text it was made on.
+  const current = best === 'polish' && check?.key === body ? check : null
+  const marks = (id: number, sentence: string) => markFor(current, id, sentence)
+  const views = extractClaims(body).map(claim => marks(claim.id, claim.text).view)
+  const tally = summarizeViews(views)
   const comparison = compareStage(changeStage, outputs, notes)
   const changeOptions = CHANGE_STAGES.map(stage => ({ value: stage, label: FROM_LABEL[stage], disabled: compareStage(stage, outputs, notes) === null }))
   const activeView: View = view === 'changes' && changeOptions.some(o => !o.disabled) ? 'changes' : 'final'
@@ -204,7 +226,8 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
         <div role="tabpanel" id="view-panel" aria-labelledby={`view-${activeView}`} className="ds-stack">
           {activeView === 'final' ? (
             <>
-              <Prose text={body} className="prose prose--lead" names={names} />
+              <Prose text={body} className="prose prose--lead" names={names} marks={marks} />
+              <CheckLine check={current} final={best === 'polish'} total={tally.total} confirmed={tally.confirmed} notConfirmed={tally.notConfirmed} notChecked={tally.notChecked} />
               {noSources && <p className="ds-help">No article was found to cite for this topic, so the facts above come from the model and are unchecked.</p>}
               {listed.sources.length > 0 && (
                 <>

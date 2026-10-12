@@ -1,12 +1,12 @@
 import type { ChangeNote } from '../../netlify/shared/changes'
 import {
-  MODEL_CHECKS, STAGE_IDS, STAGE_LABELS, type ContentType, type ModelCheck, type StageId, type StageOutputs, type TraceRow, type Usage,
+  MODEL_CHECKS, STAGE_IDS, STAGE_LABELS, type CallStage, type ContentType, type ModelCheck, type StageId, type StageOutputs, type TraceRow, type Usage,
 } from '../../netlify/shared/contract'
 
 // One call to the server, with the usage and model the provider reported for it, and the server's
 // check of that model against the newest Haiku.
 export interface CallRecord {
-  stage: StageId
+  stage: CallStage
   row: TraceRow
   usage: Usage | null
   model: string | null
@@ -66,7 +66,7 @@ function friendlyHttpError(status: number): string {
   return 'The request could not be completed. Please retry.'
 }
 
-function readUsage(value: unknown): Usage | null {
+export function readUsage(value: unknown): Usage | null {
   if (!value || typeof value !== 'object') return null
   const usage = value as Record<string, unknown>
   if (typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number' || typeof usage.total_tokens !== 'number') {
@@ -94,7 +94,7 @@ function readRow(value: unknown): TraceRow | null {
 }
 
 // The server's check of a reply. Null when the body carries none, as for a failure with no reply, so it does not rank.
-function readCheck(value: unknown): ModelCheck | null {
+export function readCheck(value: unknown): ModelCheck | null {
   return MODEL_CHECKS.find(check => check === value) ?? null
 }
 

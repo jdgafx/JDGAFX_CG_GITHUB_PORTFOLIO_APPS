@@ -5,6 +5,8 @@
 export const STAGE_IDS = ['sources', 'research', 'outline', 'draft', 'edit', 'polish'] as const
 export type StageId = (typeof STAGE_IDS)[number]
 export type ModelStageId = Exclude<StageId, 'sources'>
+// A logged call belongs to a pipeline stage, or to the citation check that runs after the last stage.
+export type CallStage = StageId | 'check'
 
 export const STAGE_LABELS: Record<StageId, string> = {
   sources: 'Sources',

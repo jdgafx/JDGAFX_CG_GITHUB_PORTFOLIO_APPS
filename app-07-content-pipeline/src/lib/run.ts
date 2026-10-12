@@ -1,4 +1,4 @@
-import { STAGE_IDS, STAGE_LABELS, wordCount, type ModelCheck, type StageId, type StageOutputs, type Usage } from '../../netlify/shared/contract'
+import { STAGE_IDS, STAGE_LABELS, wordCount, type CallStage, type ModelCheck, type StageId, type StageOutputs, type Usage } from '../../netlify/shared/contract'
 import { parseSourcePack } from '../../netlify/shared/sourcepack'
 import type { CallRecord } from './api'
 
@@ -7,7 +7,7 @@ export type TraceStatus = 'ok' | 'failed' | 'skipped' | 'running'
 export interface TraceLine {
   key: string
   index: number
-  stage: StageId
+  stage: CallStage
   name: string
   status: TraceStatus
   ms: number
@@ -28,7 +28,7 @@ export type RunEnd = { kind: 'stopped' | 'failed'; stage: StageId } | null
 
 interface Row {
   key: string
-  stage: StageId
+  stage: CallStage
   name: string
   status: TraceStatus
   ms: number
@@ -133,7 +133,9 @@ export function summarize(calls: CallRecord[]): RunTotals {
   const writing = calls.filter(call => call.stage !== 'sources')
   const lost = writing.reduce((total, call) => total + (call.lostAttempts ?? 0), 0)
   const unreportedCalls = writing.filter(call => !call.usage).length + lost
-  const reply: CallRecord | undefined = [...writing].reverse().find(call => call.row.status === 'ok') ?? writing[writing.length - 1]
+  // The reply the page shows is a writing step's; the citation check after it does not replace it.
+  const steps = writing.filter(call => call.stage !== 'check')
+  const reply: CallRecord | undefined = [...steps].reverse().find(call => call.row.status === 'ok') ?? steps[steps.length - 1]
 
   return {
     calls: calls.length,
