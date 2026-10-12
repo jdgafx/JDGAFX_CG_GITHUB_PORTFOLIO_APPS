@@ -89,8 +89,7 @@ function answerStream(
           run.add('parse and validate', 'failed', 'The reply had no text')
           send({ type: 'error', error: 'The assistant returned an empty response. Try again.', totalMs: run.elapsed() })
         } else {
-          const cut = outcome.finishReason === 'length'
-          run.add('parse and validate', 'ok', cut ? `${outcome.text.length} characters, cut off at the length limit` : `${outcome.text.length} characters`)
+          run.add('parse and validate', 'ok', `${outcome.text.length} characters`)
           const { servedModel, newestModel, modelCheck, checkedModel } = outcome.record
           send({ type: 'done', result: outcome.text, model: servedModel, newestModel, modelCheck, checkedModel, usage: outcome.usage, totalMs: run.elapsed() })
         }

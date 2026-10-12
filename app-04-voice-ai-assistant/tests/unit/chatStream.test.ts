@@ -76,6 +76,22 @@ describe('chat (browser side, streaming)', () => {
     expect(text).toEqual(['Partial. '])
   })
 
+  it('never returns the text of a cut-off answer as a reply: the server error is thrown and no done is read', async () => {
+    const cut = 'The AI ran out of reply length before it finished the answer. Try a shorter question.'
+    stubFetch(async () =>
+      sseResponse([ev({ type: 'delta', text: 'It handles fre' }), ev({ type: 'error', error: cut, totalMs: 4000 }), 'data: [DONE]\n\n']),
+    )
+    const { h, text } = handlers()
+    const outcome = await chat('q', [], h).then(
+      done => ({ done }),
+      (error: unknown) => ({ error }),
+    )
+    expect(outcome).not.toHaveProperty('done')
+    expect((outcome as { error: RunError }).error).toBeInstanceOf(RunError)
+    expect((outcome as { error: RunError }).error.message).toBe(cut)
+    expect(text).toEqual(['It handles fre'])
+  })
+
   it('reports a stream that ends without done as stopped early', async () => {
     stubFetch(async () => sseResponse([ev({ type: 'delta', text: 'Half an ans' }), 'data: [DONE]\n\n']))
     const err = await chat('q', [], handlers().h).catch((e: unknown) => e)

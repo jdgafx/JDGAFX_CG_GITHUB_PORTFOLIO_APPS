@@ -218,6 +218,78 @@ describe('ai function', () => {
     expect(events.some(e => e.type === 'delta')).toBe(false)
   })
 
+  // A reply that stopped at the token cap (thinking plus answer used max_tokens) or that ended with no finish reason at all is cut off.
+  describe('a cut-off reply', () => {
+    const LENGTH_MESSAGE = 'The AI ran out of reply length before it finished the answer. Try a shorter question.'
+    const NO_FINISH_MESSAGE = 'The AI reply stopped before it was finished. Try again.'
+    const chunk = (delta: Record<string, unknown>, finish?: string) =>
+      `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta, ...(finish ? { finish_reason: finish } : {}) }] })}\n\n`
+    const ended = 'data: [DONE]\n\n'
+    const cutText = (finish?: string) => [chunk({ content: 'The station opened in 1987. It handles fre' }), chunk({ content: '' }, finish), ended]
+    const withFinish = (chunks: string[], from: string, to: string) => chunks.map(c => c.replace(`"finish_reason":"${from}"`, `"finish_reason":"${to}"`))
+    const errorOf = (events: Array<Record<string, unknown>>) => events.find(e => e.type === 'error')?.error
+    const stepStatus = (events: Array<Record<string, unknown>>, name: string) =>
+      events.find(e => e.type === 'step' && (e.step as { name: string }).name === name)?.step as { status: string } | undefined
+
+    it('ends a no-tool reply that stopped at the length limit with the error event, no text and no done', async () => {
+      const mock = route([() => sseResponse(cutText('length'))])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'tell me about the station' } })))
+      expect(errorOf(events)).toBe(LENGTH_MESSAGE)
+      expect(events.some(e => e.type === 'delta' || e.type === 'done')).toBe(false)
+      expect(stepStatus(events, 'model call')?.status).toBe('failed')
+      expect(events.some(e => e.type === 'step' && (e.step as { name: string }).name === 'parse and validate')).toBe(false)
+      expect(chatCallsOf(mock)).toHaveLength(1)
+    })
+
+    it('ends a stream that carries no finish reason with the error event, no text and no done', async () => {
+      const mock = route([() => sseResponse([chunk({ content: 'The station opened in 1987. It handles fre' }), ended])])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'tell me about the station' } })))
+      expect(errorOf(events)).toBe(NO_FINISH_MESSAGE)
+      expect(events.some(e => e.type === 'delta' || e.type === 'done')).toBe(false)
+      expect(chatCallsOf(mock)).toHaveLength(1)
+    })
+
+    it('runs no tool when the tool request itself was cut off, so half-written arguments are never used', async () => {
+      const mock = route([() => sseResponse(withFinish(fixtureChunks('weather'), 'tool_calls', 'length'))])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'weather in Lisbon?' } })))
+      expect(errorOf(events)).toBe(LENGTH_MESSAGE)
+      expect(events.some(e => e.type === 'delta' || e.type === 'done')).toBe(false)
+      expect(events.some(e => e.type === 'step' && (e.step as { name: string }).name === 'tool call')).toBe(false)
+      expect(mock.mock.calls.some(call => String(call[0]).includes('open-meteo') || String(call[0]).includes('geocoding'))).toBe(false)
+      expect(chatCallsOf(mock)).toHaveLength(1)
+    })
+
+    it('ends with the error event, not done, when the answer written from tool results was cut off', async () => {
+      route([() => sseResponse(fixtureChunks('weather')), () => sseResponse(withFinish(fixtureChunks('answer'), 'stop', 'length'))])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'weather in Lisbon?' } })))
+      expect(errorOf(events)).toBe(LENGTH_MESSAGE)
+      expect(events.some(e => e.type === 'done')).toBe(false)
+      expect(events.at(-1)).toMatchObject({ type: 'error' })
+      expect(stepStatus(events, 'model answer')?.status).toBe('failed')
+    })
+
+    it('still asks again once when the reply is empty and cut off, and answers from the retry', async () => {
+      const mock = route([() => sseResponse([chunk({ content: '' }, 'length'), ended]), () => sseResponse(fixtureChunks('plain'))])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+      expect(events.at(-1)).toMatchObject({ type: 'done', model: 'anthropic/claude-haiku-5.5' })
+      expect(chatCallsOf(mock)).toHaveLength(2)
+    })
+
+    it('names the length limit, not a timeout, when both attempts used the whole reply on thinking', async () => {
+      const mock = route([() => sseResponse([chunk({ content: '' }, 'length'), ended])])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+      expect(errorOf(events)).toBe(LENGTH_MESSAGE)
+      expect(events.some(e => e.type === 'done')).toBe(false)
+      expect(chatCallsOf(mock)).toHaveLength(2)
+    })
+
+    it('keeps a complete reply that finished normally', async () => {
+      route([() => sseResponse(cutText('stop'))])
+      const events = await readEvents(await handler(request(URL_AI, { json: { message: 'tell me about the station' } })))
+      expect(events.at(-1)).toMatchObject({ type: 'done', result: 'The station opened in 1987. It handles fre' })
+    })
+  })
+
   it('answers a preflight from an allowed origin with 204', async () => {
     const mock = stubFetch(never)
     const res = await handler(request(URL_AI, { method: 'OPTIONS' }))

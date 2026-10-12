@@ -76,6 +76,21 @@ describe('createReplyVoice', () => {
     expect(actions.length).toBe(before)
   })
 
+  it('speaks no more once the run fails on a cut-off answer, not even a tail that ends like a sentence', () => {
+    vi.useFakeTimers()
+    const { voice, state, synth } = setup()
+    voice.push('The station opened in 1987. It handles freight.')
+    expect((synth as FakeSynth).spoken.map(u => u.text)).toEqual(['The station opened in 1987.'])
+    // The server's error event: the hook cancels the voice and fails the run. The tail would otherwise settle and be spoken.
+    voice.cancel()
+    vi.advanceTimersByTime(1000)
+    voice.finish()
+    expect((synth as FakeSynth).spoken.map(u => u.text)).toEqual(['The station opened in 1987.'])
+    const failed = runReducer(state(), { type: 'fail', message: 'The AI ran out of reply length before it finished the answer. Try a shorter question.' })
+    expect(failed).toMatchObject({ outcome: 'failed', error: 'The AI ran out of reply length before it finished the answer. Try a shorter question.' })
+    expect(failed.steps.some(step => step.name === 'speak reply')).toBe(false)
+  })
+
   it('shows the text and reports no voice once when the browser has none', () => {
     const { voice, state, actions } = setup(null)
     voice.push('Hello there. How are you')

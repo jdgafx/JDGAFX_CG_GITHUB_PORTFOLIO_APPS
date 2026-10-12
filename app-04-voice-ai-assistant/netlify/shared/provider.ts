@@ -52,6 +52,21 @@ export type ModelOutcome =
   | { ok: false; httpStatus: number; message: string }
 
 type Okay = Extract<StreamOutcome, { ok: true }>
+type CutOff = { message: string; detail: string }
+
+// A reply that stopped at the token cap (thinking plus the answer used max_tokens), or whose stream ended
+// with no finish reason at all, is cut off: its text may be a half sentence and its tool arguments half
+// a JSON object. It is never used as a finished reply.
+function cutOff(call: Okay): CutOff | null {
+  if (call.finishReason === 'length') {
+    return { message: 'The AI ran out of reply length before it finished the answer. Try a shorter question.', detail: 'Cut off at the length limit' }
+  }
+  if (call.finishReason === undefined) {
+    return { message: 'The AI reply stopped before it was finished. Try again.', detail: 'The stream ended with no finish reason' }
+  }
+  return null
+}
+
 type Asked =
   | { ok: true; call: Okay; usages: Array<Usage | undefined>; attempts: number; firstFailure?: string }
   | { ok: false; httpStatus: number; message: string; detail: string }
@@ -63,6 +78,7 @@ async function askModel(apiKey: string, turns: Turn[], options: RunOptions, tool
   const usages: Array<Usage | undefined> = []
   let attempts = 0
   let firstFailure: string | undefined
+  let lastCut: CutOff | null = null
   while (attempts < 2) {
     const remaining = options.deadlineAt - Date.now()
     if (remaining <= 0 || (attempts > 0 && remaining < MIN_RETRY_MS)) break
@@ -83,10 +99,18 @@ async function askModel(apiKey: string, turns: Turn[], options: RunOptions, tool
       continue
     }
     usages.push(outcome.usage)
+    lastCut = cutOff(outcome)
+    if (lastCut) {
+      // Only a reply with nothing in it is asked for again, as for any empty reply. Heard text is never repeated.
+      if (outcome.text || outcome.toolCalls.length > 0) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail }
+      firstFailure = 'the reply was empty and cut off'
+      continue
+    }
     // A tool request has no text, so it is an answer for this purpose, not an empty reply.
     if (outcome.text || outcome.toolCalls.length > 0) return { ok: true, call: outcome, usages, attempts, firstFailure }
     firstFailure = 'the reply was empty'
   }
+  if (lastCut) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail }
   return { ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.', detail: 'No time left in the run budget' }
 }
 
