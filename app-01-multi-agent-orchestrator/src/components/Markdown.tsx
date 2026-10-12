@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, Fragment, useContext, type ReactNode } from 'react'
 import { sentencePieces } from '../lib/audit'
 import { parseBlocks, type Block } from '../lib/blocks'
 import { parseInline } from '../lib/markdown'
@@ -112,14 +112,21 @@ function Claim({ claim, text }: { claim: AuditClaim; text: string }) {
   )
 }
 
+/** True when the audit has a claim in this block. */
+function hasClaim(value: ClaimsValue | null, block: number): boolean {
+  if (!value) return false
+  for (const key of value.byPlace.keys()) if (key.startsWith(`${block}:`)) return true
+  return false
+}
+
 /** A block's text cut into sentences, each shown as a claim when the audit has one for that place. */
-function Sentences({ text, block }: { text: string; block: number }) {
+function Sentences({ text, block, unit = 0 }: { text: string; block: number; unit?: number }) {
   const value = useContext(ClaimsContext)
   if (!value) return <InlineText text={text} />
   return (
     <>
       {sentencePieces(text).map((piece, i) => {
-        const claim = value.byPlace.get(`${block}:${i}`)
+        const claim = value.byPlace.get(`${block}:${unit}:${i}`)
         return claim ? (
           <span key={i}>
             <Claim claim={claim} text={piece} />{' '}
@@ -134,12 +141,14 @@ function Sentences({ text, block }: { text: string; block: number }) {
 
 function BlockView({ block, index }: { block: Block; index: number }) {
   const keep = namesOf(useContext(SourcesContext))
+  const value = useContext(ClaimsContext)
   switch (block.kind) {
     case 'heading': {
       const Tag = block.level === 1 ? 'h3' : block.level === 2 ? 'h4' : 'h5'
       return (
         <Tag>
-          <InlineText text={sentenceCase(block.text, keep)} />
+          {/* A cited heading is a claim like any other sentence, so it shows its verdict; an uncited one keeps its sentence case. */}
+          {hasClaim(value, index) ? <Sentences text={block.text} block={index} /> : <InlineText text={sentenceCase(block.text, keep)} />}
         </Tag>
       )
     }
@@ -152,7 +161,14 @@ function BlockView({ block, index }: { block: Block; index: number }) {
     case 'code':
       return (
         <pre>
-          <code>{block.lines.join('\n')}</code>
+          <code>
+            {block.lines.map((line, u) => (
+              <Fragment key={u}>
+                {u > 0 ? '\n' : ''}
+                <Sentences text={line} block={index} unit={u} />
+              </Fragment>
+            ))}
+          </code>
         </pre>
       )
     case 'table':
@@ -163,7 +179,7 @@ function BlockView({ block, index }: { block: Block; index: number }) {
               <tr>
                 {block.header.map((cell, i) => (
                   <th key={i}>
-                    <InlineText text={cell} />
+                    <Sentences text={cell} block={index} unit={i} />
                   </th>
                 ))}
               </tr>
@@ -173,7 +189,7 @@ function BlockView({ block, index }: { block: Block; index: number }) {
                 <tr key={r}>
                   {row.map((cell, c) => (
                     <td key={c}>
-                      <InlineText text={cell} />
+                      <Sentences text={cell} block={index} unit={block.header.length + block.rows.slice(0, r).reduce((sum, earlier) => sum + earlier.length, 0) + c} />
                     </td>
                   ))}
                 </tr>
@@ -236,7 +252,7 @@ interface MarkdownProps {
 
 export function Markdown({ text, sources = [], audit }: MarkdownProps) {
   const claims: ClaimsValue | null = audit
-    ? { byPlace: new Map(audit.claims.map(claim => [`${claim.block}:${claim.piece}`, claim])), selected: audit.selected, onSelect: audit.onSelect }
+    ? { byPlace: new Map(audit.claims.map(claim => [`${claim.block}:${claim.unit ?? 0}:${claim.piece}`, claim])), selected: audit.selected, onSelect: audit.onSelect }
     : null
   return (
     <SourcesContext.Provider value={sources}>

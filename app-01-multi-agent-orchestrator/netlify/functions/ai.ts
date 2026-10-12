@@ -155,7 +155,7 @@ async function runPipeline(
     } else {
       context[agent.role] = ''
       records.push({ name: agent.name, status: 'failed', ms, detail: outcome.message, usage: outcome.usage })
-      send({ type: 'agent_error', agent: agent.role, ms, error: outcome.message })
+      send({ type: 'agent_error', agent: agent.role, ms, error: outcome.message, ...(outcome.usage ? { usage: outcome.usage } : {}) })
       if (outcome.cutOff) {
         // A cut-off reply ends the run: no later stage reads it, and no report is written from it.
         const detail = `Not started: ${agent.name} was cut off.`

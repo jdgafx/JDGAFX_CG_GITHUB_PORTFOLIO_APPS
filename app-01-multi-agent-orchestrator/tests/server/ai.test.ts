@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import handler from '../../netlify/functions/ai'
 import {
   installHarness,
-  lengthReply,
   FIXED_MODEL,
   KEY,
   PROVIDER_REJECTED,
@@ -415,75 +414,3 @@ describe('ai function: budget and cut-off replies', () => {
   })
 
 })
-
-const LENGTH_MESSAGE = (name: string) => `${name} ran out of reply length before it finished, so the run was stopped. Try again.`
-
-describe('ai function: a reply cut off by length ends the run', () => {
-  it.each([
-    ['researcher', ['analyst', 'critic', 'synthesizer'], 'Researcher'],
-    ['analyst', ['critic', 'synthesizer'], 'Analyst'],
-    ['critic', ['synthesizer'], 'Critic'],
-  ] as const)('stops after the %s, never passes its cut text on, and calls no later stage', async (cutRole, skipped, name) => {
-    const replies = {
-      researcher: reply('- SSE sends one-way events.', 0.0001, 120, 40),
-      analyst: reply('- One-way push fits LLM output.', 0.00008, 150, 30),
-      critic: reply('- Browser support is not discussed.', 0.00005, 180, 20),
-      synthesizer: reply('SSE is one-way and simpler to proxy. [1]', 0.0004, 300, 90),
-    }
-    replies[cutRole] = lengthReply('- A complete-looking line [1].')
-    const fetchMock = plan(replies)
-
-    const events = await frames(await handler(request(VALID_BODY)))
-
-    expect(errorsOf(events)).toEqual([LENGTH_MESSAGE(name)])
-    // Both attempts were cut off; the cut text was never sent as a chunk or a completed stage.
-    expect(events.filter(event => event.agent === cutRole).map(event => event.type)).toEqual(['agent_start', 'agent_error'])
-    expect(events.filter(event => event.type === 'agent_skipped').map(event => event.agent)).toEqual(skipped)
-    expect(events.at(-1)).toMatchObject({ type: 'session_complete', result: '' })
-    const prior = ['researcher', 'analyst', 'critic'].indexOf(cutRole)
-    expect(providerCalls(fetchMock)).toHaveLength(prior + 2)
-    // No later stage was given the cut text.
-    for (const call of providerCalls(fetchMock)) expect(String(call[1]?.body)).not.toContain('A complete-looking line')
-  })
-
-  it('writes no report when the synthesizer is cut off, even though its text parses', async () => {
-    plan({
-      researcher: reply('- SSE sends one-way events.', 0.0001, 120, 40),
-      analyst: reply('- One-way push fits LLM output.', 0.00008, 150, 30),
-      critic: reply('- Browser support is not discussed.', 0.00005, 180, 20),
-      synthesizer: lengthReply('SSE is one-way [1]. WebSockets are'),
-    })
-    const events = await frames(await handler(request(VALID_BODY)))
-    expect(errorsOf(events)).toEqual([LENGTH_MESSAGE('Synthesizer')])
-    expect(events.some(event => event.type === 'agent_chunk' && event.agent === 'synthesizer')).toBe(false)
-    expect(events.at(-1)).toMatchObject({ type: 'session_complete', result: '', trace: expect.arrayContaining([expect.objectContaining({ name: 'Synthesizer', status: 'failed' })]) })
-  })
-
-  it('reports an empty reply that ended on length as a length error, not as "no text"', async () => {
-    plan({
-      researcher: lengthReply(''),
-      analyst: reply('- B.', 0.1, 10, 10),
-      critic: reply('- C.', 0.1, 10, 10),
-      synthesizer: reply('D [1].', 0.1, 10, 10),
-    })
-    const events = await frames(await handler(request(VALID_BODY)))
-    expect(errorsOf(events)).toEqual([LENGTH_MESSAGE('Researcher')])
-  })
-
-  it('uses a retry that finishes, even when the cut-off first attempt had more text', async () => {
-    let attempt = 0
-    plan({
-      researcher: () => {
-        attempt += 1
-        return attempt === 1 ? lengthReply('- A much longer first attempt that was cut off before it ended, with many words in it.')() : reply('- Short.', 0.1, 10, 10)()
-      },
-      analyst: reply('- B.', 0.1, 10, 10),
-      critic: reply('- C.', 0.1, 10, 10),
-      synthesizer: reply('D [1].', 0.1, 10, 10),
-    })
-    const events = await frames(await handler(request(VALID_BODY)))
-    expect(errorsOf(events)).toEqual([])
-    expect(events.find(event => event.type === 'agent_chunk' && event.agent === 'researcher')).toMatchObject({ content: '- Short.' })
-  })
-})
-

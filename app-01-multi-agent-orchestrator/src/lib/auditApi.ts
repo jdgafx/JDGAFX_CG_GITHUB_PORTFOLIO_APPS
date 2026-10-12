@@ -1,16 +1,47 @@
-import type { AuditResult, Source } from '../types'
+import type { AuditResult, Source, StageUsage } from '../types'
 import { isAbortError, serverMessage } from './api'
 
 const AUDIT_URL = '/.netlify/functions/audit'
 /** The server's audit budget is 26 s; the browser waits a wide margin past it, body read included. */
 export const AUDIT_TIMEOUT_MS = 45_000
 
-/** A failure whose message was written for the visitor. */
+/**
+ * A failure whose message was written for the visitor. `usage` is what the provider billed for the failed audit:
+ * absent when the server made no model call, empty when it made one and the provider named no figures.
+ */
 export class AuditError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    options?: ErrorOptions & { usage?: StageUsage; usageGaps?: number },
+  ) {
     super(message, options)
     this.name = 'AuditError'
+    if (options?.usage) this.usage = options.usage
+    if (options?.usageGaps) this.usageGaps = options.usageGaps
   }
+
+  usage?: StageUsage
+  /** How many of the failed audit's calls reported no usage, so `usage` is a floor. */
+  usageGaps?: number
+}
+
+/** The usage a failure body carries, or undefined when it carries none. */
+function usageOf(body: string): { usage: StageUsage; usageGaps: number } | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (parsed && typeof parsed === 'object' && 'usage' in parsed && parsed.usage && typeof parsed.usage === 'object') {
+      const usage: StageUsage = {}
+      for (const field of ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const) {
+        const value = (parsed.usage as Record<string, unknown>)[field]
+        if (typeof value === 'number' && Number.isFinite(value)) usage[field] = value
+      }
+      const gaps = (parsed as { usageGaps?: unknown }).usageGaps
+      return { usage, usageGaps: typeof gaps === 'number' && gaps > 0 ? gaps : 0 }
+    }
+  } catch {
+    /* not JSON: no usage */
+  }
+  return undefined
 }
 
 const UNREACHABLE = 'Could not reach the server for the audit. Check your connection and try again.'
@@ -69,7 +100,8 @@ export async function requestAudit(
     })
     const text = await response.text()
     if (!response.ok) {
-      throw new AuditError(serverMessage(text) ?? (response.status === 429 ? 'Rate limited, try again in a minute.' : 'The audit could not run. Try again.'))
+      const billed = usageOf(text)
+      throw new AuditError(serverMessage(text) ?? (response.status === 429 ? 'Rate limited, try again in a minute.' : 'The audit could not run. Try again.'), billed ?? undefined)
     }
     let parsed: unknown
     try {

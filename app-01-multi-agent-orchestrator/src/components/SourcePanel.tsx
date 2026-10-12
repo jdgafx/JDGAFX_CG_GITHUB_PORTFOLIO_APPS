@@ -40,6 +40,41 @@ function Extract({ source, claim }: { source: Source; claim: AuditClaim }) {
   )
 }
 
+const ANSWER_WORDS: Record<string, string> = { yes: 'yes', no: 'no', not_applicable: 'not applicable' }
+
+/** What the model answered for a claim and what the span check did with the passages it quoted, so a verdict can be diagnosed. */
+function HowChecked({ claim }: { claim: AuditClaim }) {
+  const judged = claim.judged
+  if (!judged) return null
+  const { spans, answers } = judged
+  const quoted = spans.asked.length + spans.malformed
+  return (
+    <details className="ds-disclosure panel__how">
+      <summary>How this was checked</summary>
+      {answers && (
+        <ul className="ds-hint">
+          <li>Source supports it: {ANSWER_WORDS[answers.sourceSupports]}</li>
+          <li>Same subject as the claim: {ANSWER_WORDS[answers.subjectMatches]}</li>
+          <li>Same cause or link: {ANSWER_WORDS[answers.causeMatches]}</li>
+          <li>Every part covered: {ANSWER_WORDS[answers.allPartsCovered]}</li>
+        </ul>
+      )}
+      {judged.kind === 'source_claim' && answers?.sourceSupports !== 'no' && (
+        <p className="ds-hint">{`Span check: the model quoted ${quoted} ${quoted === 1 ? 'passage' : 'passages'}, ${spans.found} found in the source, ${spans.missed} not found${spans.joined > 0 ? `, ${spans.joined} joining separate passages` : ''}.`}</p>
+      )}
+      {spans.asked.length > 0 && (
+        <ul className="ds-hint">
+          {spans.asked.map((span, i) => (
+            <li key={i}>
+              [{span.source}] <q>{span.text}</q>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  )
+}
+
 /** The source behind one claim: the verdict and why, the pre-pass, and each cited extract with the quote marked. */
 export const SourcePanel = forwardRef<HTMLDivElement, SourcePanelProps>(function SourcePanel({ claim, sources }, ref) {
   const cited = claim.cites
@@ -62,6 +97,7 @@ export const SourcePanel = forwardRef<HTMLDivElement, SourcePanelProps>(function
           <strong>Not covered by the source:</strong> {claim.uncovered}
         </p>
       )}
+      {claim.verdict === 'research' && <p className="ds-help">This sentence is about the research itself, so it is shown as about the research, not checked against a source.</p>}
       {claim.verdict === 'unsupported' && cited.length > 0 && (
         <p className="ds-notice ds-notice--error">No sentence of the cited {cited.length === 1 ? 'source' : 'sources'} backs this claim. The extract{cited.length === 1 ? '' : 's'} below {cited.length === 1 ? 'is' : 'are'} what the audit read.</p>
       )}
@@ -74,6 +110,7 @@ export const SourcePanel = forwardRef<HTMLDivElement, SourcePanelProps>(function
       ) : (
         cited.map(source => <Extract key={source.n} source={source} claim={claim} />)
       )}
+      {claim.judged && <HowChecked claim={claim} />}
       <dl className="ds-kv panel__pre" aria-label="Pre-check, computed without the model">
         {preLines(claim).map(line => (
           <div key={line.label} className="panel__pre-row" data-ok={line.ok}>

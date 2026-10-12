@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { reportBody } from '../lib/audit'
 import type { AuditView } from '../lib/auditState'
 import type { RunPhase } from '../lib/pipeline'
-import { wasTruncated } from '../lib/agents'
 import { milliseconds, shortModel } from '../lib/format'
 import type { AgentState, Source } from '../types'
 import { AuditSummary } from './AuditSummary'
@@ -136,7 +135,6 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>
             Final report
           </h2>
-          {wasTruncated(synthesizer) && <span className="ds-badge ds-badge--warning">Cut off</span>}
         </div>
         <AuditSummary view={audit} onRetry={onRetryAudit} />
         <div className="audit__body" data-open={claim ? 'true' : undefined}>

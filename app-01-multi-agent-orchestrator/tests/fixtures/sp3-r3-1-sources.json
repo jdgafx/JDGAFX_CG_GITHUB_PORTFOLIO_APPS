@@ -1,0 +1,39 @@
+[
+  {
+    "title": "Rust (programming language)",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Rust_%28programming_language%29",
+    "snippet": "Rust is a general-purpose programming language that emphasizes performance, type safety, concurrency, and memory safety. Rust supports multiple programming paradigms. It was influenced by ideas from functional programming, including immutability, higher-order functions, algebraic data types, and pattern matching. It also supports object-oriented programming via structs, enums, traits, and methods. Rust enforces memory safety (i.e., that all references point to valid memory) without aâ€¦",
+    "n": 1
+  },
+  {
+    "title": "List of programming languages by type",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/List_of_programming_languages_by_type",
+    "snippet": "The notable programming languages listed here are grouped by their notable language attribute. As a language can have multiple attributes, the same language can appear in multiple groupings.",
+    "n": 2
+  },
+  {
+    "title": "Hello, world",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Hello%2C_world",
+    "snippet": "A \"Hello, world\" program is usually a simple computer program that outputs a message similar to \"Hello, world\". The text may be printed out or displayed on a screen (often a console). A small piece of code in most general-purpose programming languages, this program is used to illustrate a language's basic syntax. Such a program is often the first written by a student of a new programming language, but it can also be used as a sanity check to ensure that the computer software intended to compileâ€¦",
+    "n": 3
+  },
+  {
+    "title": "Rust: Systems Programming for Everyone",
+    "site": "Hacker News",
+    "url": "https://news.ycombinator.com/item?id=12325123",
+    "snippet": "Hacker News story \"Rust: Systems Programming for Everyone\", linking to infoq.com. 126 points, 66 comments, Aug 2016.",
+    "note": "126 points, 66 comments, Aug 2016",
+    "n": 4
+  },
+  {
+    "title": "Shopify Embraces Rust for Systems Programming",
+    "site": "Hacker News",
+    "url": "https://news.ycombinator.com/item?id=33988144",
+    "snippet": "Hacker News story \"Shopify Embraces Rust for Systems Programming\", linking to shopify.engineering. 64 points, 3 comments, Dec 2022.",
+    "note": "64 points, 3 comments, Dec 2022",
+    "n": 5
+  }
+]

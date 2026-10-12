@@ -1,5 +1,5 @@
 import { extractClaims, preCheck, reportBody, summarize } from './audit'
-import type { AuditClaim, AuditResult, AuditSummary, Source } from '../types'
+import type { AuditClaim, AuditResult, AuditSummary, Source, StageUsage } from '../types'
 
 /**
  * idle: no report yet. none: the report has no cited sentence, or there is no report. running: the request is out.
@@ -13,11 +13,15 @@ export interface AuditView {
   summary: AuditSummary
   result?: AuditResult
   error?: string
+  /** What the provider billed for a failed audit; absent when no call was made, empty when none of it was reported. */
+  usage?: StageUsage
+  /** How many of the failed audit's calls reported no usage, so `usage` is a floor. */
+  usageGaps?: number
   /** Why there is nothing to check, when phase is 'none'. */
   note?: string
 }
 
-const EMPTY_SUMMARY: AuditSummary = { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0 }
+const EMPTY_SUMMARY: AuditSummary = { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0, research: 0 }
 
 /** An audit still waiting once the run has ended will never start, so the trace and graph say it was not run. */
 export function settleAudit(view: AuditView, runEnded: boolean, runStopped = false): AuditView {
@@ -42,11 +46,11 @@ export function pendingClaims(report: string, sources: Source[]): AuditClaim[] {
 }
 
 /** When the audit does not finish, the sentences stay listed as not checked, with the deterministic pre-pass still shown. */
-export function giveUp(view: AuditView, phase: 'failed' | 'stopped', error?: string): AuditView {
+export function giveUp(view: AuditView, phase: 'failed' | 'stopped', error?: string, usage?: StageUsage, usageGaps?: number): AuditView {
   const claims = view.claims.map<AuditClaim>(claim => ({
     ...claim,
     verdict: 'unchecked',
     reason: phase === 'stopped' ? 'You stopped the audit before this sentence was judged.' : 'The audit did not finish, so this sentence was not judged.',
   }))
-  return { phase, claims, summary: summarize(claims), ...(error ? { error } : {}) }
+  return { phase, claims, summary: summarize(claims), ...(error ? { error } : {}), ...(usage ? { usage } : {}), ...(usageGaps ? { usageGaps } : {}) }
 }

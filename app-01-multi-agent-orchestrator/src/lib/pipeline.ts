@@ -1,5 +1,5 @@
 import type { AgentRole, AgentState } from '../types'
-import { AGENT_ORDER, MODEL_ORDER, hasUsefulOutput, wasTruncated } from './agents'
+import { AGENT_ORDER, MODEL_ORDER, hasUsefulOutput } from './agents'
 import { formatUsd } from './usage'
 
 export type RunPhase = 'ready' | 'running' | 'complete' | 'partial' | 'stopped' | 'failed'
@@ -38,7 +38,8 @@ export function traceDetail(agent: AgentState): string {
 
 /** The figures on the right of a finished trace line: the sources found, or the tokens and cost. */
 export function traceMeta(agent: AgentState): string[] {
-  if (agent.status !== 'complete') return []
+  // A model stage that failed was still billed for the reply it got: its row shows that, or "not reported" when no usage arrived.
+  if (agent.status !== 'complete' && !(agent.status === 'error' && agent.id !== 'retriever')) return []
   if (agent.id === 'retriever') {
     const count = agent.sources?.length ?? 0
     return [`${count} ${count === 1 ? 'source' : 'sources'}`]
@@ -82,8 +83,7 @@ export function derivePhase(agents: AgentMap, isRunning: boolean, wasStopped: bo
   if (isRunning) return 'running'
   if (AGENT_ORDER.every(role => agents[role].status === 'idle')) return 'ready'
   if (wasStopped) return 'stopped'
-  if (MODEL_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]) && !wasTruncated(agents[role])))
-    return 'complete'
+  if (MODEL_ORDER.every(role => agents[role].status === 'complete' && hasUsefulOutput(agents[role]))) return 'complete'
   if (MODEL_ORDER.some(role => agents[role].output.trim().length > 0)) return 'partial'
   return 'failed'
 }

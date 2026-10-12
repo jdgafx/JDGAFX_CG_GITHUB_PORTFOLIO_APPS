@@ -67,11 +67,25 @@ function Cell({ label, hint, children, mono = true }: { label: string; hint: str
   )
 }
 
+/** The run's figures plus the audit's known figures. A figure the run did not report stays unreported. */
+function addKnown(run: StageUsage, audit: StageUsage): StageUsage {
+  const total: StageUsage = {}
+  for (const field of ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const) {
+    const base = run[field]
+    if (base !== undefined) total[field] = base + (audit[field] ?? 0)
+  }
+  return total
+}
+
 /** The run's figures, plus the audit's once it has run. A figure the provider did not send shows as "not reported". */
 export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, calls, summary, audit }: ReadoutProps) {
   const running = state === 'running'
-  const auditUsage = audit.result?.usage
-  const both = audit.phase === 'done' && auditUsage ? sumUsage([usage, auditUsage]) : usage
+  // A failed audit that reached the provider was billed too: its usage counts, and an unreported figure leaves the total not reported.
+  const auditUsage = audit.phase === 'done' ? audit.result?.usage : audit.phase === 'failed' ? audit.usage : undefined
+  // Calls that reported nothing make the total a floor: the figures that exist are added up and shown as "at least".
+  const gaps = audit.phase === 'done' ? (audit.result?.usageGaps ?? 0) : audit.phase === 'failed' ? (audit.usageGaps ?? 0) : 0
+  const both = auditUsage ? (gaps > 0 ? addKnown(usage, auditUsage) : sumUsage([usage, auditUsage])) : usage
+  const floor = (text: string) => (gaps > 0 && both.total_tokens !== undefined ? `at least ${text}` : text)
   const ms = totalMs === undefined ? undefined : totalMs + (audit.phase === 'done' ? (audit.result?.ms ?? 0) : 0)
   const replies = [model, audit.result?.model].filter((facts): facts is ModelFacts => facts !== undefined)
   const shown = replies.filter((facts, i) => replies.findIndex(other => other.servedModel === facts.servedModel) === i)
@@ -88,10 +102,10 @@ export function ReadoutStrip({ state, totalMs, totalIsStageSum, usage, model, ca
           {ms === undefined ? dash : milliseconds(ms)}
         </Cell>
         <Cell label="Tokens" hint={running ? 'Filled in when the run ends' : usage.prompt_tokens !== undefined && usage.completion_tokens !== undefined ? `${formatCount(both.prompt_tokens)} in, ${formatCount(both.completion_tokens)} out` : 'All model calls'}>
-          {state === 'idle' || running ? dash : formatCount(both.total_tokens)}
+          {state === 'idle' || running ? dash : floor(formatCount(both.total_tokens))}
         </Cell>
-        <Cell label="Cost (USD)" hint={running ? 'Filled in when the run ends' : both.cost === undefined && state !== 'idle' ? 'The provider sent no cost' : 'Reported by the provider'}>
-          {state === 'idle' || running ? dash : formatUsd(both.cost)}
+        <Cell label="Cost (USD)" hint={running ? 'Filled in when the run ends' : gaps > 0 ? `${gaps} audit ${gaps === 1 ? 'call' : 'calls'} reported nothing` : both.cost === undefined && state !== 'idle' ? 'The provider sent no cost' : 'Reported by the provider'}>
+          {state === 'idle' || running ? dash : both.cost === undefined ? formatUsd(both.cost) : floor(formatUsd(both.cost))}
         </Cell>
         <Cell label="Model" hint="Named in the provider replies" mono={false}>
           {shown.length > 0 ? (

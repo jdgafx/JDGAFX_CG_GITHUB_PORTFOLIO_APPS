@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXAMPLE_QUERIES, createAgents, hasUsefulOutput, slugifyQuery, statusView, wasTruncated } from '../../src/lib/agents'
+import { EXAMPLE_QUERIES, createAgents, hasUsefulOutput, slugifyQuery, statusView } from '../../src/lib/agents'
 
 describe('slugifyQuery', () => {
   it('makes a lowercase, dash-separated name from the first 40 characters', () => {
@@ -35,8 +35,8 @@ describe('statusView', () => {
     expect(statusView({ ...base, status: 'stopped' }).dot).toBe('ds-dot app-dot--warning')
   })
 
-  it('says Cut off for a finished stage whose reply stopped early', () => {
-    expect(statusView({ ...base, status: 'complete', finish: 'length' })).toEqual({ word: 'Cut off', dot: 'ds-dot app-dot--warning' })
+  it('has no "Cut off" status: the server ends the run on a cut-off reply, so a complete stage is always Finished', () => {
+    expect(statusView({ ...base, status: 'complete', finish: 'length' }).word).toBe('Finished')
     expect(statusView({ ...base, status: 'error', finish: 'length' }).word).toBe('Failed')
   })
 })
@@ -47,15 +47,6 @@ describe('stage output checks', () => {
   it('counts output as useful from 40 trimmed characters', () => {
     expect(hasUsefulOutput({ ...base, output: 'a'.repeat(39) })).toBe(false)
     expect(hasUsefulOutput({ ...base, output: `  ${'a'.repeat(40)}  ` })).toBe(true)
-  })
-
-  it('marks a stage cut off for length, timeout, error or interrupted finishes only', () => {
-    expect(wasTruncated({ ...base, finish: 'length' })).toBe(true)
-    expect(wasTruncated({ ...base, finish: 'timeout' })).toBe(true)
-    expect(wasTruncated({ ...base, finish: 'error' })).toBe(true)
-    expect(wasTruncated({ ...base, finish: 'interrupted' })).toBe(true)
-    expect(wasTruncated({ ...base, finish: 'stop' })).toBe(false)
-    expect(wasTruncated({ ...base, finish: null })).toBe(false)
   })
 })
 

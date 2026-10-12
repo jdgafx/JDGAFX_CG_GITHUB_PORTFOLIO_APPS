@@ -1,10 +1,10 @@
-/** Finish reasons that mean a reply stopped before it was complete. */
-const CUT_OFF = new Set(['length', 'timeout', 'error', 'interrupted'])
+/** The only finish reasons that mean a reply ran to its end. Anything else (length, a filter, a tool call, a new reason, none) is not a finished reply. */
+const FINISHED = new Set(['stop', 'end_turn'])
 
 /**
- * True when a reply was cut off rather than finished. The server uses it to decide on a retry,
- * and the page uses it to label the stage, so both sides agree.
+ * True unless the reply finished. The server uses it to decide on a retry and to refuse to use the text:
+ * a reply that was cut off, filtered or interrupted is never parsed, shown or passed on.
  */
 export function isCutOff(finish: string | null): boolean {
-  return finish !== null && CUT_OFF.has(finish)
+  return finish === null || !FINISHED.has(finish)
 }

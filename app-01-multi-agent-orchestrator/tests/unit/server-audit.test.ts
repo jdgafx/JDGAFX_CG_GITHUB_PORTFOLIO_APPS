@@ -9,30 +9,58 @@ function post(body: unknown): Request {
 
 const SOURCE = { n: 1, title: 'T', site: 'Wikipedia', snippet: 'Text of the source.' }
 
+const C = { kind: 'source_claim', source_supports: 'yes', subject_matches: 'yes', cause_matches: 'not_applicable', all_parts_covered: 'yes' }
+const J = { kind: 'source_claim', sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes' }
+
 describe('parseJudgments', () => {
-  it('reads the typed entries, in any order, and ignores a duplicate id', () => {
-    const text =
-      '{"results":[{"id":2,"verdict":"partly","spans":[{"source":1,"text":"q two"}],"uncovered":"the date","reason":"r"},{"id":1,"verdict":"supported","spans":[{"source":2,"text":"q one"},{"source":2,"text":"q one b"}]},{"id":1,"verdict":"unsupported"}]}'
+  it('reads the typed criteria and spans, in any order, and ignores a duplicate id', () => {
+    const text = JSON.stringify({
+      results: [
+        { id: 2, ...C, all_parts_covered: 'no', spans: [{ source: 1, text: 'q two' }], uncovered: 'the date', reason: 'r' },
+        { id: 1, ...C, cause_matches: 'yes', spans: [{ source: 2, text: 'q one' }, { source: 2, text: 'q one b' }] },
+        { id: 1, ...C, source_supports: 'no' },
+      ],
+    })
     expect(parseJudgments(text)).toEqual([
-      { id: 2, verdict: 'partly', spans: [{ source: 1, text: 'q two' }], uncovered: 'the date', reason: 'r' },
-      { id: 1, verdict: 'supported', spans: [{ source: 2, text: 'q one' }, { source: 2, text: 'q one b' }] },
+      { id: 2, ...J, allPartsCovered: 'no', spans: [{ source: 1, text: 'q two' }], uncovered: 'the date', reason: 'r' },
+      { id: 1, ...J, causeMatches: 'yes', spans: [{ source: 2, text: 'q one' }, { source: 2, text: 'q one b' }] },
     ])
   })
 
-  it('reads a reply wrapped in a code fence, drops unknown verdicts and malformed spans, and reads non-JSON as nothing', () => {
-    const fenced = '```json\n{"results":[{"id":1,"verdict":"supported","spans":[{"source":1,"text":"a b c"},{"source":"x","text":"d"},"e"]},{"id":2,"verdict":"great"}]}\n```'
-    expect(parseJudgments(fenced)).toEqual([{ id: 1, verdict: 'supported', spans: [{ source: 1, text: 'a b c' }] }])
+  it('ignores a verdict field the model sends, and drops an entry with a missing or invalid criterion', () => {
+    const text = JSON.stringify({
+      results: [
+        { id: 1, ...C, verdict: 'unsupported' },
+        { id: 2, ...C, subject_matches: 'maybe' },
+        { id: 3, source_supports: 'yes', subject_matches: 'yes', all_parts_covered: 'yes' },
+        { id: 4, ...C, cause_matches: 'n/a' },
+      ],
+    })
+    expect(parseJudgments(text)).toEqual([{ id: 1, ...J }])
+  })
+
+  it('counts a malformed span instead of hiding it', () => {
+    const fenced = '```json\n' + JSON.stringify({ results: [{ id: 1, ...C, spans: [{ source: 1, text: 'a b c' }, { source: 'x', text: 'd' }, 'e', { source: 2 }] }] }) + '\n```'
+    expect(parseJudgments(fenced)).toEqual([{ id: 1, ...J, spans: [{ source: 1, text: 'a b c' }], badSpans: 3 }])
+  })
+
+  it('reads kind about_research without the four answers, and drops an entry with no valid kind', () => {
+    const text = JSON.stringify({ results: [{ id: 1, kind: 'about_research', reason: 'About the evidence.' }, { id: 2, ...C, kind: 'maybe' }, { id: 3, source_supports: 'yes', subject_matches: 'yes', cause_matches: 'yes', all_parts_covered: 'yes' }] })
+    expect(parseJudgments(text)).toEqual([{ id: 1, kind: 'about_research', sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes', reason: 'About the evidence.' }])
+  })
+
+  it('reads non-JSON as nothing', () => {
     expect(parseJudgments('I cannot help with that.')).toEqual([])
   })
 
   it('reads nothing from a reply that stops mid-list: a cut-off list is never partly used', () => {
-    const cut = '{"results":[{"id":1,"verdict":"supported","spans":[{"source":1,"text":"a b c"}]},{"id":2,"verdict":"unsupported","reason":"no'
+    const cut = JSON.stringify({ results: [{ id: 1, ...C }] }).slice(0, -5)
     expect(parseJudgments(cut)).toEqual([])
   })
 })
 
 describe('auditMessage', () => {
-  it('lists the sources by number and the claims by id, each with the sentence before it as read-only context', () => {
+  it('lists the sources by number and the claims by id, each with the sentence before it in the same block as read-only context', () => {
     const claims = extractClaims('Webb saw galaxies [1]. It is large [2].\n\nIt has a mirror [2].')
     const message = auditMessage(claims, [
       { n: 1, title: 'JWST', site: 'Wikipedia', url: '', snippet: 'Webb text.' },
@@ -43,7 +71,7 @@ describe('auditMessage', () => {
         'Claims (judge each claim only; its Context is the sentence before it in the report, shown so words such as "These" can be understood, and is never judged):\n' +
         '1. Webb saw galaxies [1].\n' +
         '2. It is large [2].\n   Context: Webb saw galaxies.\n' +
-        '3. It has a mirror [2].\n   Context: It is large.',
+        '3. It has a mirror [2].',
     )
   })
 })
@@ -91,10 +119,17 @@ describe('audit prompt', () => {
     expect(prompt).toContain('Example of a scope shift')
   })
 
-  it('asks for typed output: a verdict, the exact source spans, and the part of the claim the source does not cover', () => {
+  it('asks for typed criteria and no verdict: the exact source spans, and the part of the claim the source does not cover', () => {
     const prompt = AUDIT_AGENT.systemPrompt
     expect(prompt).toContain('"spans"')
     expect(prompt).toContain('"uncovered"')
+    expect(prompt).toContain('about_research')
+    for (const field of ['source_supports', 'subject_matches', 'cause_matches', 'all_parts_covered']) expect(prompt).toContain(field)
+    expect(prompt).not.toContain('"verdict"')
+    // Each question is answered once: a different cause is cause_matches only, never a reason for source_supports to say no.
+    const supports = prompt.slice(prompt.indexOf('"source_supports":'), prompt.indexOf('"subject_matches"'))
+    expect(supports).toContain('answered under cause_matches only')
+    expect(supports).not.toMatch(/reversed order, direction, cause/)
     expect(prompt).toContain('Context')
     expect(prompt).not.toContain('conflict')
   })

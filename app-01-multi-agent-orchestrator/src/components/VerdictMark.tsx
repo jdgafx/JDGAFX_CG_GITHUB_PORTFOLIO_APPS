@@ -22,6 +22,8 @@ function Shape({ verdict }: { verdict: Verdict }) {
           <circle cx="8" cy="8" r="1.6" stroke="none" />
         </>
       )
+    case 'research':
+      return <path d="M3 5h10M3 8h10M3 11h6" fill="none" strokeWidth="1.8" strokeLinecap="round" />
     case 'unchecked':
       return <path d="M4 8h8" fill="none" strokeWidth="2.2" strokeLinecap="round" />
     case 'checking':

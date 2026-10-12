@@ -38,10 +38,11 @@ async function handle(req: Request): Promise<Response> {
       headers: { ...headersOut, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
     })
   } catch (err) {
-    if (err instanceof AuditUnavailableError) return fail(err.message, 502, headersOut)
-    if (err instanceof UpstreamError) return fail(friendlyUpstreamMessage(err.status), 502, headersOut)
+    // A failure after a model call carries `usage`: what the provider billed, or {} when it named nothing. No `usage` means no call was made.
+    if (err instanceof AuditUnavailableError) return fail(err.message, 502, headersOut, { usage: err.usage ?? {}, ...(err.usageGaps > 0 ? { usageGaps: err.usageGaps } : {}) })
+    if (err instanceof UpstreamError) return fail(friendlyUpstreamMessage(err.status), 502, headersOut, { usage: {}, usageGaps: 1 })
     if (err instanceof RunCancelledError || req.signal.aborted) return fail('The audit was cancelled.', 499, headersOut)
-    if (err instanceof DOMException && err.name === 'TimeoutError') return fail('The audit took too long. Try again.', 504, headersOut)
+    if (err instanceof DOMException && err.name === 'TimeoutError') return fail('The audit took too long. Try again.', 504, headersOut, { usage: {}, usageGaps: 1 })
     throw err
   }
 }

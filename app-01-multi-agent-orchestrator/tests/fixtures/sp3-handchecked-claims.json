@@ -1,0 +1,197 @@
+[
+ {
+  "run": "r1-1",
+  "id": 1,
+  "text": "CRISPR gene editing modifies genomes and is based on a simplified version of the bacterial CRISPR-Cas9 antiviral defense system [1].",
+  "hand": "supported",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "CRISPR gene editing (; pronounced like \"crisper\"; an abbreviation for \"clustered regularly interspaced short palindromic repeats\") is a genetic engineering technique in molecular biology by which the genomes of living organisms may be modified."
+   },
+   {
+    "source": 1,
+    "text": "It is based on a simplified version of the bacterial CRISPR-Cas9 antiviral defense system."
+   }
+  ]
+ },
+ {
+  "run": "r1-1",
+  "id": 2,
+  "text": "The Cas9 nuclease is paired with a synthetic guide RNA (gRNA) and delivered into a cell, where it can cut the genome at a desired location [1].",
+  "hand": "supported",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "By delivering the Cas9 nuclease complexed with a synthetic guide RNA (gRNA) into a cell, the cell's genome can be cut at a desired location"
+   }
+  ]
+ },
+ {
+  "run": "r1-1",
+  "id": 3,
+  "text": "Using these programmable molecules, which create double-strand breaks, researchers can insert, delete, modify, or replace DNA at site-specific locations [3].",
+  "hand": "partly",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "no",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 3,
+    "text": "Programmable molecules called restriction endonucleases, also known as gene editors or molecular scissors, are used to create double-strand breaks"
+   },
+   {
+    "source": 3,
+    "text": "DNA is inserted, deleted, modified or replaced in the genome of a living organism."
+   },
+   {
+    "source": 3,
+    "text": "genome editing targets the insertions to site-specific locations."
+   }
+  ]
+ },
+ {
+  "run": "r2-1",
+  "id": 1,
+  "text": "JWST is built for infrared astronomy, which lets it observe objects too old, distant, or faint for Hubble, including the first stars and the formation of the first galaxies [1].",
+  "hand": "partly",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "no",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy."
+   },
+   {
+    "source": 1,
+    "text": "allowing it to view objects too old, distant, or faint for the Hubble Space Telescope."
+   },
+   {
+    "source": 1,
+    "text": "such as observation of the first stars and the formation of the first galaxies"
+   }
+  ]
+ },
+ {
+  "run": "r2-1",
+  "id": 2,
+  "text": "A NASA blog post from May 2024 reports on the most distant known galaxy [4].",
+  "hand": "partly",
+  "roundThreeAudit": "partly",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "no"
+  },
+  "spans": [
+   {
+    "source": 4,
+    "text": "James Webb Space Telescope Finds Most Distant Known Galaxy\", linking to blogs.nasa.gov. 148 points, 55 comments, May 2024."
+   }
+  ]
+ },
+ {
+  "run": "r2-1",
+  "id": 3,
+  "text": "A Sky & Telescope piece from January 2023 argues that JWST is finding too many early galaxies [5].",
+  "hand": "partly",
+  "roundThreeAudit": "partly",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "no"
+  },
+  "spans": [
+   {
+    "source": 5,
+    "text": "Hacker News story \"The James Webb Space Telescope is finding too many early galaxies\", linking to skyandtelescope.org. 764 points, 526 comments, Jan 2023."
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "id": 1,
+  "text": "Rust emphasizes performance, type safety, concurrency, and memory safety [1].",
+  "hand": "supported",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "Rust is a general-purpose programming language that emphasizes performance, type safety, concurrency, and memory safety."
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "id": 2,
+  "text": "Its compiler enforces memory safety so that all references point to valid memory [1].",
+  "hand": "partly",
+  "roundThreeAudit": "partly",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "no"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "Rust enforces memory safety (i.e., that all references point to valid memory)"
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "id": 3,
+  "text": "Rust supports multiple paradigms and draws on functional ideas, including immutability, higher-order functions, algebraic data types, and pattern matching [1].",
+  "hand": "supported",
+  "roundThreeAudit": "supported",
+  "criteria": {
+   "source_supports": "yes",
+   "subject_matches": "yes",
+   "cause_matches": "not_applicable",
+   "all_parts_covered": "yes"
+  },
+  "spans": [
+   {
+    "source": 1,
+    "text": "Rust supports multiple programming paradigms."
+   },
+   {
+    "source": 1,
+    "text": "It was influenced by ideas from functional programming, including immutability, higher-order functions, algebraic data types, and pattern matching."
+   }
+  ]
+ }
+]

@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react'
-import { AGENT_META, MODEL_ORDER, statusView, wasTruncated } from '../lib/agents'
+import { AGENT_META, MODEL_ORDER, statusView } from '../lib/agents'
 import type { AgentRole, AgentState } from '../types'
 import { Markdown } from './Markdown'
 import { SourceList } from './SourceList'
@@ -80,10 +80,7 @@ export function StageOutputs({ agents, active, onSelect }: StageOutputsProps) {
                 <SourceList sources={sources} />
               </>
             ) : hasText ? (
-              <>
-                <Markdown text={current.output} sources={sources} />
-                {wasTruncated(current) && <p className="app-note">This stage was cut off before {AGENT_META[current.id].name} finished.</p>}
-              </>
+              <Markdown text={current.output} sources={sources} />
             ) : (
               <EmptyState agent={current} />
             )}

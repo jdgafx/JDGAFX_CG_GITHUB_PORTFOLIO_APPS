@@ -16,7 +16,6 @@ import {
   MODEL_ORDER,
   createAgents,
   hasUsefulOutput,
-  wasTruncated,
 } from './lib/agents'
 import { isAbortError, runErrorMessage, startResearch } from './lib/api'
 import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
@@ -127,7 +126,7 @@ export default function App() {
             setAgents(prev => failInFlight(prev, error))
             return
           }
-          setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], status: 'error', error, detail: error, ms } }))
+          setAgents(prev => ({ ...prev, [agent]: { ...prev[agent], status: 'error', error, detail: error, ms, ...(event.usage ? { usage: event.usage } : {}) } }))
           setAnnouncement(`${AGENT_META[agent].name} failed. ${error}`)
           return
         }
@@ -262,16 +261,10 @@ export default function App() {
   const names = (roles: AgentRole[]) => roles.map(role => AGENT_META[role].name).join(', ')
   const notices: string[] = []
   if (!isRunning && wasStopped) notices.push('You stopped the run. Finished stages are kept below and can be exported.')
-  const cut = AGENT_ORDER.filter(role => wasTruncated(agents[role]))
-  if (!isRunning && cut.length > 0) notices.push(`Cut off before finishing: ${names(cut)}. Those sections may end mid-thought.`)
   const incomplete = MODEL_ORDER.filter(role => agents[role].status === 'complete' && !hasUsefulOutput(agents[role]))
   if (!isRunning && incomplete.length > 0) notices.push(`No usable output from: ${names(incomplete)}. The report is incomplete.`)
   const notRun = AGENT_ORDER.filter(role => agents[role].status === 'skipped')
   if (!isRunning && notRun.length > 0) notices.push(`Not run: ${names(notRun)}. The run ended before reaching them.`)
-  // Thinking is on, so reasoning tokens are normal. They are worth a note only when a stage was cut off and spent some of its budget on them.
-  if (!isRunning && cut.some(role => agents[role].reasoningTokens > 0)) {
-    notices.push('A cut-off stage spent part of its budget on internal reasoning, which left less room for the visible answer.')
-  }
   const showNotices = notices.length > 0 && !noticesHidden
   const exportState: ExportState = isRunning ? 'running' : !hasAnyOutput ? 'empty' : phase === 'complete' ? 'complete' : 'partial'
 

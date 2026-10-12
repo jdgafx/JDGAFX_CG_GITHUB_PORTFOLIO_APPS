@@ -1,23 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import * as audit from '../../src/lib/audit'
 import {
-  type Judgment,
   citesOf,
   decidedWithoutModel,
+  settleClaim,
   extractClaims,
-  findSpan,
   namesIn,
   numbersIn,
   preCheck,
   reportBody,
   sentencePieces,
-  settleClaim,
   summarize,
   summaryDetail,
   summaryLine,
 } from '../../src/lib/audit'
 import type { AuditClaim, Source } from '../../src/types'
-import { readFileSync } from 'node:fs'
+import { fixture } from '../fixtures/load'
 
 const JWST =
   'The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy. Its 6.5 meter primary mirror lets it see objects too old and distant for Hubble. It launched on 25 December 2021.'
@@ -153,7 +151,7 @@ describe('preCheck', () => {
     const pre = preCheck(text, [4], [hn])
     expect(pre.missingNames).toEqual([])
     const draft = { id: 1, block: 0, piece: 0, text, cites: [4] }
-    const claim = settleClaim(draft, pre, [hn], { id: 1, verdict: 'supported', spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }], reason: 'Headline states it.' })
+    const claim = settleClaim(draft, pre, [hn], { id: 1, sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes', spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }], reason: 'Headline states it.' })
     expect(claim.verdict).toBe('supported')
   })
 
@@ -192,181 +190,6 @@ describe('preCheck', () => {
 })
 
 
-/** The real SP2 round 2 (r2-1) and round 1 (r1-1) reports and the source text the app received, saved from the acceptance run. */
-const fixture = (name: string): string => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')
-const R2_SOURCES = JSON.parse(fixture('sp2-r2-1-sources.json')) as Source[]
-const R1_SOURCES = JSON.parse(fixture('sp2-r1-1-sources.json')) as Source[]
-const R2_CLAIMS = extractClaims(reportBody(fixture('sp2-r2-1-report.md')))
-const R1_CLAIMS = extractClaims(reportBody(fixture('sp2-r1-1-report.md')))
-const settleFor = (claims: ReturnType<typeof extractClaims>, sources: Source[], id: number, judgment: Omit<Judgment, 'id'>) => {
-  const draft = claims.find(claim => claim.id === id)
-  if (!draft) throw new Error(`no claim ${id}`)
-  return settleClaim(draft, preCheck(draft.text, draft.cites, sources), sources, { id, ...judgment })
-}
-
-describe('findSpan', () => {
-  const text = 'Its 6.5 meter primary mirror lets it see objects too old and distant for Hubble.'
-
-  it('finds the span despite spacing and curly quotes, and returns its place in the original text', () => {
-    const span = findSpan(text, 'Its 6.5  meter\nprimary mirror')
-    expect(text.slice(span?.start, span?.end)).toBe('Its 6.5 meter primary mirror')
-    expect(findSpan('He said “it works well” today.', 'said "it works well"')).not.toBeNull()
-  })
-
-  it('is exact otherwise: case, wording and dashes must match', () => {
-    expect(findSpan(text, 'ITS 6.5 meter primary mirror')).toBeNull()
-    expect(findSpan(text, 'a 9 meter primary mirror lets it see')).toBeNull()
-    expect(findSpan('A well-known, long-lived result here.', 'well–known, long-lived result')).toBeNull()
-  })
-
-  it('ignores an ellipsis the model put at either end, and refuses a span too short to mean anything', () => {
-    const span = findSpan(text, 'objects too old and distant…')
-    expect(text.slice(span?.start, span?.end)).toBe('objects too old and distant')
-    expect(findSpan(text, 'primary mirror')).toBeNull()
-    expect(findSpan(text, 'the')).toBeNull()
-  })
-})
-
-describe('settleClaim: the typed verdict plus the verbatim span check, nothing else', () => {
-  it('keeps supported for r2 claim 2 ("record-distant galaxy") when the span is in the source: no superlative table', () => {
-    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, {
-      verdict: 'supported',
-      spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }],
-      reason: 'Headline states the most distant known galaxy.',
-    })
-    expect(R2_CLAIMS[1]?.text).toContain('record-distant galaxy')
-    expect(claim.verdict).toBe('supported')
-    expect(claim.quotes).toHaveLength(1)
-    expect(claim.quotes?.[0]).toMatchObject({ n: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' })
-    expect(R2_SOURCES[3]?.snippet.slice(claim.quotes?.[0]?.start, claim.quotes?.[0]?.end)).toBe('James Webb Space Telescope Finds Most Distant Known Galaxy')
-  })
-
-  it('keeps supported for r2 claim 3 even when the model says "implied, not stated": the reason text never changes the verdict', () => {
-    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 3, {
-      verdict: 'supported',
-      spans: [{ source: 5, text: 'The James Webb Space Telescope is finding too many early galaxies' }],
-      uncovered: "the word 'expected'",
-      reason: "'expected' wording is implied, not stated",
-    })
-    expect(R2_CLAIMS[2]?.text).toContain('more early galaxies than expected')
-    expect(claim.verdict).toBe('supported')
-    expect(claim.reason).toBe("'expected' wording is implied, not stated")
-  })
-
-  it('makes a supported verdict whose span is not in the source "unverified" (r2 claim 2 and 3)', () => {
-    const c2 = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 4, text: 'JWST found the record-distant galaxy of May 2024' }], reason: 'Stated.' })
-    expect(c2.verdict).toBe('unverified')
-    expect(c2.quotes ?? []).toEqual([])
-    expect(c2.reason).toContain('not found in the source')
-    const c3 = settleFor(R2_CLAIMS, R2_SOURCES, 3, { verdict: 'supported', spans: [{ source: 5, text: 'JWST is finding more early galaxies than expected' }], reason: 'Stated.' })
-    expect(c3.verdict).toBe('unverified')
-  })
-
-  it('makes a supported verdict with one verbatim span and one invented span "unverified", and one with no span too', () => {
-    const real = { source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }
-    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [real, { source: 4, text: 'a span the source never contains' }] }).verdict).toBe('unverified')
-    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [] }).verdict).toBe('unverified')
-  })
-
-  it('accepts a span only from a source the claim cites', () => {
-    const wrong = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 5, text: 'The James Webb Space Telescope is finding too many early galaxies' }] })
-    expect(wrong.verdict).toBe('unverified')
-  })
-
-  it('finds a span whose source number the model got wrong, when another cited source holds it', () => {
-    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 1, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }] })
-    expect(claim.verdict).toBe('supported')
-    expect(claim.quotes?.[0]?.n).toBe(4)
-  })
-
-  it('keeps partly for r1 claim 2 and shows the part of the claim the source does not cover', () => {
-    const claim = settleFor(R1_CLAIMS, R1_SOURCES, 2, {
-      verdict: 'partly',
-      spans: [{ source: 3, text: R1_SOURCES[2]?.snippet.slice(0, 60) ?? '' }],
-      uncovered: 'that these scissors are Cas9 specifically',
-      reason: 'Source describes genome editors in general.',
-    })
-    expect(claim.verdict).toBe('partly')
-    expect(claim.uncovered).toBe('that these scissors are Cas9 specifically')
-    expect(claim.quotes).toHaveLength(1)
-  })
-
-  it('never turns a model "unsupported" into something better, and ignores spans it gave', () => {
-    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'unsupported', spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }], reason: 'Not stated.' })
-    expect(claim.verdict).toBe('unsupported')
-    expect(claim.quotes ?? []).toEqual([])
-  })
-
-  it('marks a sentence with no judgment as not checked', () => {
-    const draft = R2_CLAIMS[0]
-    if (!draft) throw new Error('no claim')
-    expect(settleClaim(draft, preCheck(draft.text, draft.cites, R2_SOURCES), R2_SOURCES, undefined)).toMatchObject({ verdict: 'unchecked' })
-  })
-})
-
-describe('no prose or word-list rule is left in the verdict', () => {
-  const good = [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }]
-  const reasons = [
-    'it does not say this is a recurring theme across accounts generally',
-    'The source does not mention the cause.',
-    'Source extrapolates beyond the series.',
-    "'expected' wording is implied, not stated",
-    'A mild extension of the source; the claim goes beyond the source.',
-    'Not all of the claim is stated.',
-    'Date stated.',
-  ]
-
-  it.each(reasons)('a supported verdict with verbatim spans stays supported whatever the reason says: %s', reason => {
-    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: good, reason, uncovered: reason }).verdict).toBe('supported')
-  })
-
-  it.each([
-    ['highest, first, only and record words the source never uses', 'It is the highest, the first and the only record telescope ever built [1].'],
-    ['a number and a name the source never mentions', 'Dr Zorblax measured 4,242 galaxies on 3 March 1999 [1].'],
-  ])('the claim text never changes the verdict: %s', (_name, text) => {
-    const source: Source = R2_SOURCES[0] as Source
-    const draft = { id: 1, block: 0, piece: 0, text, cites: [1] }
-    const span = { source: 1, text: 'designed to conduct infrared astronomy' }
-    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'supported', spans: [span] }).verdict).toBe('supported')
-    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', spans: [span] }).verdict).toBe('partly')
-    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'unsupported' }).verdict).toBe('unsupported')
-  })
-
-  it('exports no reason-reading or superlative-table function, and its source holds none', () => {
-    expect('admitsGap' in audit).toBe(false)
-    expect('unstatedSuperlatives' in audit).toBe(false)
-    const code = readFileSync(new URL('../../src/lib/audit.ts', import.meta.url), 'utf8')
-    for (const name of ['admitsGap', 'SUPERLATIVES', 'unstatedSuperlatives', 'conflict']) expect(code).not.toContain(name)
-  })
-
-  it('lets the model judge a sentence that shares no content word with its source; code only refuses a source that is not in the list', () => {
-    const draft = { id: 1, block: 0, piece: 0, text: 'Bananas are rich in potassium [1].', cites: [1] }
-    expect(decidedWithoutModel(draft, preCheck(draft.text, [1], SOURCES))).toBeNull()
-    const missing = { ...draft, text: 'Bananas are rich in potassium [9].', cites: [9] }
-    expect(decidedWithoutModel(missing, preCheck(missing.text, [9], SOURCES))).toBe('It cites a source that is not in the list.')
-  })
-})
-
-describe('the preceding sentence as context', () => {
-  it('gives r1 claim 2 ("These programmable ...") the Cas9 sentence before it, so "These" can be resolved', () => {
-    const claim = R1_CLAIMS.find(candidate => candidate.id === 2)
-    expect(claim?.text).toMatch(/^These programmable/)
-    expect(claim?.context).toBe('The Cas9 nuclease paired with a synthetic guide RNA can cut the genome at a chosen location when delivered into a cell.')
-  })
-
-  it('takes the last sentence of the previous text block when the claim opens its block, and none for the first sentence of the report', () => {
-    const claims = extractClaims('First fact is here [1].\n\nSecond block opens here [2]. Then more [3].')
-    expect(claims[0]?.context).toBeUndefined()
-    expect(claims[1]?.context).toBe('First fact is here.')
-    expect(claims[2]?.context).toBe('Second block opens here.')
-  })
-
-  it('does not take a heading as context', () => {
-    const claims = extractClaims('Intro sentence here.\n\n## A Heading\n\nA fact after it [1].')
-    expect(claims[0]?.context).toBe('Intro sentence here.')
-  })
-})
-
 describe('names in plural form', () => {
   it('accepts "Suns" when the source says "the Sun"', () => {
     const source: Source = { n: 2, title: 'Black hole', site: 'Wikipedia', url: '', snippet: 'Masses of millions to billions of times the mass of the Sun. Almost every large galaxy has one at its center.' }
@@ -395,10 +218,10 @@ describe('summary', () => {
   })
 
   it('counts every verdict, shows unverified as its own count, and words the headline', () => {
-    const summary = summarize([claim(1, 'supported'), claim(2, 'supported'), claim(3, 'partly'), claim(4, 'unsupported'), claim(5, 'unchecked'), claim(6, 'unverified')])
-    expect(summary).toEqual({ total: 6, supported: 2, partly: 1, unsupported: 1, unchecked: 1, unverified: 1 })
-    expect(summaryLine(summary)).toBe('2 of 6 cited claims supported')
-    expect(summaryDetail(summary)).toBe('1 partly supported, 1 not supported, 1 unverified, 1 not checked')
+    const summary = summarize([claim(1, 'supported'), claim(2, 'supported'), claim(3, 'partly'), claim(4, 'unsupported'), claim(5, 'unchecked'), claim(6, 'unverified'), claim(7, 'research')])
+    expect(summary).toEqual({ total: 7, supported: 2, partly: 1, unsupported: 1, unchecked: 1, unverified: 1, research: 1 })
+    expect(summaryLine(summary)).toBe('2 of 7 cited claims supported')
+    expect(summaryDetail(summary)).toBe('1 partly supported, 1 not supported, 1 unverified, 1 about the research, 1 not checked')
   })
 
   it('handles one claim and none', () => {

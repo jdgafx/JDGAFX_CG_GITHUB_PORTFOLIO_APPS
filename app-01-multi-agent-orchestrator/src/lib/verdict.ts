@@ -12,9 +12,10 @@ export const VERDICT_VIEW: Record<Verdict, VerdictView> = {
   partly: { word: 'Partly supported', short: 'Partly' },
   unsupported: { word: 'Not supported', short: 'Not supported' },
   unverified: { word: 'Unverified', short: 'Unverified' },
+  research: { word: 'About the research', short: 'About research' },
   unchecked: { word: 'Not checked', short: 'Not checked' },
   checking: { word: 'Checking', short: 'Checking' },
 }
 
 /** The order the summary bar and legend use, best first. */
-export const VERDICT_ORDER: Array<Exclude<Verdict, 'checking'>> = ['supported', 'partly', 'unsupported', 'unverified', 'unchecked']
+export const VERDICT_ORDER: Array<Exclude<Verdict, 'checking'>> = ['supported', 'partly', 'unsupported', 'unverified', 'research', 'unchecked']

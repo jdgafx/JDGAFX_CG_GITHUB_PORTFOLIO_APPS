@@ -1,5 +1,5 @@
-import type { AuditClaim, AuditQuote, AuditSummary, PreCheck, Source, Verdict } from '../types'
-import { parseBlocks } from './blocks'
+import type { AuditClaim, AuditJudged, AuditQuote, AuditSummary, PreCheck, Source, Verdict } from '../types'
+import { parseBlocks, type Block } from './blocks'
 import { SOURCES_HEADING } from './sources'
 
 /** Pure audit logic, imported by the server (which judges) and the browser (which shows the claims at once). */
@@ -58,30 +58,52 @@ export interface ClaimDraft {
   id: number
   block: number
   piece: number
+  /** Which text unit of the block holds the sentence (see AuditClaim.unit). */
+  unit?: number
   text: string
   cites: number[]
-  /** The sentence before this one in the report, as plain words. Read-only context for words such as "These"; it is never judged. */
+  /** The sentence before this one in its own text unit in the report, as plain words. Read-only context for words such as "These"; it is never judged. */
   context?: string
 }
 
-const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
+/**
+ * The pieces of text a block holds, each read as running prose: one for a paragraph, list item, quote or heading,
+ * a cell each for a table (header first, then row by row), a line each for code. A rule or blank line holds none.
+ */
+export function textUnits(block: Block): string[] {
+  switch (block.kind) {
+    case 'table':
+      return [...block.header, ...block.rows.flat()]
+    case 'code':
+      return block.lines
+    case 'paragraph':
+    case 'bullet':
+    case 'numbered':
+    case 'quote':
+    case 'heading':
+      return [block.text]
+    default:
+      return []
+  }
+}
 
 /**
- * Every sentence of the report body that carries a [n] marker, in reading order. The ids are
- * positions in that order, so the server and the browser agree on them without exchanging claims.
+ * Every sentence of the report body that carries a [n] marker, wherever it sits (paragraph, list, quote, heading,
+ * table cell or code line), in reading order. The ids are positions in that order, so the server and the browser agree
+ * on them without exchanging claims. The context of a sentence is the one before it in the same text unit.
  */
 export function extractClaims(body: string): ClaimDraft[] {
   const claims: ClaimDraft[] = []
-  let previous: string | undefined
   parseBlocks(body).forEach((block, b) => {
-    if (!LIST_BLOCKS.has(block.kind) || !('text' in block)) return
-    sentencePieces(block.text).forEach((piece, p) => {
-      const cites = citesOf(piece)
-      if (cites.length > 0) {
-        claims.push({ id: claims.length + 1, block: b, piece: p, text: piece.trim(), cites, ...(previous ? { context: previous } : {}) })
-      }
-      const words = readable(piece)
-      if (words) previous = words
+    textUnits(block).forEach((unitText, unit) => {
+      let previous: string | undefined
+      sentencePieces(unitText).forEach((piece, p) => {
+        if (citesOf(piece).length > 0) {
+          claims.push({ id: claims.length + 1, block: b, unit, piece: p, text: piece.trim(), cites: citesOf(piece), ...(previous ? { context: previous } : {}) })
+        }
+        const words = readable(piece)
+        if (words) previous = words
+      })
     })
   })
   return claims
@@ -260,15 +282,16 @@ interface Folded {
   at: number[]
 }
 
-/** One space for any run of whitespace and straight quotes for curly ones. Nothing else changes: case, wording and dashes stay. */
+/** Lower case, one space for any whitespace, straight quotes and one hyphen for any dash, so a copied span still matches. Wording is untouched. */
 function fold(text: string): Folded {
   let out = ''
   const at: number[] = []
   for (let i = 0; i < text.length; i += 1) {
-    let ch = text[i] ?? ''
+    let ch = (text[i] ?? '').toLowerCase()
     if (/\s/.test(ch)) ch = ' '
     else if (/[‘’]/.test(ch)) ch = "'"
     else if (/[“”]/.test(ch)) ch = '"'
+    else if (/[‐-―−]/.test(ch)) ch = '-'
     if (ch === ' ' && (out === '' || out.endsWith(' '))) continue
     out += ch
     at.push(i)
@@ -276,24 +299,33 @@ function fold(text: string): Folded {
   return { text: out, at }
 }
 
-const MIN_SPAN_CHARS = 15
 const MIN_SPAN_WORDS = 3
+const ELLIPSIS = /\s*(?:…|\.\.\.)\s*/
 
 /**
- * Finds a span the model quoted, character for character, in a source text. Only whitespace and curly quotes are
- * normalised, and an ellipsis the model put at either end is ignored. Returns the span in the original text, or
- * null. A span too short to mean anything is refused. This is the only check code makes on what the model quoted.
+ * Finds a span the model quoted in a source text: the same words, ignoring case, spacing, quote marks and dash
+ * variants. An ellipsis at either end is dropped. An ellipsis inside the span splits it into passages, and every
+ * passage must be found, so the result has one range per passage (in the original text), or null. Each passage
+ * needs three words at least, so a stray word cannot verify anything. This is the only check code makes on what
+ * the model quoted.
  */
-export function findSpan(text: string, span: string): { start: number; end: number } | null {
+export function findSpan(text: string, span: string): Array<{ start: number; end: number }> | null {
   const bare = span.replace(/(?:…|\.\.\.)+\s*$/, '').replace(/^\s*(?:…|\.\.\.)+/, '')
-  const wanted = fold(bare).text.trim()
-  if (wanted.length < MIN_SPAN_CHARS || wanted.split(' ').length < MIN_SPAN_WORDS) return null
+  const parts = bare
+    .split(ELLIPSIS)
+    .map(part => fold(part).text.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return null
   const folded = fold(text)
-  const found = folded.text.indexOf(wanted)
-  if (found === -1) return null
-  const start = folded.at[found] ?? 0
-  const end = (folded.at[found + wanted.length - 1] ?? start) + 1
-  return { start, end }
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const wanted of parts) {
+    if (wanted.split(' ').length < MIN_SPAN_WORDS) return null
+    const found = folded.text.indexOf(wanted)
+    if (found === -1) return null
+    const start = folded.at[found] ?? 0
+    ranges.push({ start, end: (folded.at[found + wanted.length - 1] ?? start) + 1 })
+  }
+  return ranges
 }
 
 // ---- The verdict ----------------------------------------------------------------------------------------
@@ -304,61 +336,112 @@ export interface JudgedSpan {
   text: string
 }
 
-/** What the model said about one claim, before the server checks it. */
+/**
+ * What the model said about one claim: four typed answers and the passages it relied on. It never sends a verdict;
+ * the verdict is derived from the answers and the span check (deriveVerdict).
+ */
 export interface Judgment {
   id: number
-  verdict: 'supported' | 'partly' | 'unsupported'
+  /** 'about_research' when the sentence is about the research or the sources themselves, not a statement a source could back. The model types it; code never reads the sentence. Default: source_claim. */
+  kind?: 'source_claim' | 'about_research'
+  /** 'no' when the cited sources do not state the claim, or state something incompatible with it. */
+  sourceSupports: 'yes' | 'no'
+  /** 'yes' only when the source says it about the same subject the claim names, once referents are resolved. */
+  subjectMatches: 'yes' | 'no'
+  /** 'not_applicable' when the claim gives no cause, reason, purpose or order. */
+  causeMatches: 'yes' | 'no' | 'not_applicable'
+  allPartsCovered: 'yes' | 'no'
   spans?: JudgedSpan[]
+  /** How many entries of the spans list were malformed. Each counts as a span that was not found. */
+  badSpans?: number
   /** The part of the claim the source does not cover. Shown, never read by code. */
   uncovered?: string
   /** The model's reason. Shown, never read by code. */
   reason?: string
 }
 
+/** What the span check found: spans found as one passage, spans not found (or malformed), and spans found only as two or more passages. */
+export interface SpanCheck {
+  found: number
+  missed: number
+  joined: number
+}
+
+/**
+ * The verdict, from the typed answers and the span check, and nothing else.
+ * No support is "unsupported". Every answer passing and every span one found passage is "supported"; every answer
+ * passing but the spans missing, not found or joined is "unverified". Any answer failing is "partly".
+ */
+export function deriveVerdict(
+  answers: Pick<Judgment, 'sourceSupports' | 'subjectMatches' | 'causeMatches' | 'allPartsCovered'>,
+  spans: SpanCheck,
+): Verdict {
+  if (answers.sourceSupports === 'no') return 'unsupported'
+  const passes = answers.subjectMatches === 'yes' && answers.causeMatches !== 'no' && answers.allPartsCovered === 'yes'
+  if (!passes) return 'partly'
+  return spans.found > 0 && spans.missed === 0 && spans.joined === 0 ? 'supported' : 'unverified'
+}
+
 const clean = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
 
-/** Every span that appears verbatim in a source the claim cites, and how many do not. */
-function checkSpans(draft: ClaimDraft, sources: Source[], spans: JudgedSpan[]): { quotes: AuditQuote[]; missed: number } {
+/** Every passage of every span that appears in a source the claim cites, and the tally of what was found. */
+function checkSpans(draft: ClaimDraft, sources: Source[], spans: JudgedSpan[], bad: number): { quotes: AuditQuote[]; check: SpanCheck } {
   const quotes: AuditQuote[] = []
-  let missed = 0
+  const check: SpanCheck = { found: 0, missed: bad, joined: 0 }
   for (const span of spans) {
     const order = [span.source, ...draft.cites].filter(n => draft.cites.includes(n))
-    let found: AuditQuote | undefined
+    let found: AuditQuote[] | undefined
     for (const n of new Set(order)) {
       const source = sources.find(candidate => candidate.n === n)
       const at = source ? findSpan(source.snippet, span.text) : null
       if (source && at) {
-        found = { n, start: at.start, end: at.end, text: source.snippet.slice(at.start, at.end) }
+        found = at.map(range => ({ n, start: range.start, end: range.end, text: source.snippet.slice(range.start, range.end) }))
         break
       }
     }
-    if (!found) missed += 1
-    else if (!quotes.some(quote => quote.n === found.n && quote.start === found.start && quote.end === found.end)) quotes.push(found)
+    if (!found) check.missed += 1
+    else {
+      check.found += 1
+      if (found.length > 1) check.joined += 1
+      for (const quote of found) if (!quotes.some(have => have.n === quote.n && have.start === quote.start && have.end === quote.end)) quotes.push(quote)
+    }
   }
-  return { quotes, missed }
+  return { quotes, check }
 }
 
 /**
- * Turns the model's judgment into the verdict the page shows. The model's typed verdict stands. The one thing code
- * checks is whether the text the model quoted is in a cited source, word for word: a "supported" verdict whose
- * quotes are missing or not found there is "unverified". Code never reads the reason or the claim to change a
- * verdict. No judgment at all is "unchecked", never a guess.
+ * Turns the model's typed answers into the verdict the page shows: deriveVerdict on the answers and the span check.
+ * Code never reads the reason, the uncovered text or the claim to change a verdict. No judgment at all is
+ * "unchecked", never a guess.
  */
 export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[], judgment: Judgment | undefined): AuditClaim {
-  const base = { id: draft.id, block: draft.block, piece: draft.piece, text: draft.text, cites: draft.cites, pre }
+  const base = { id: draft.id, block: draft.block, piece: draft.piece, ...(draft.unit ? { unit: draft.unit } : {}), text: draft.text, cites: draft.cites, pre }
   if (!judgment) return { ...base, verdict: 'unchecked', reason: 'The model gave no verdict for this sentence.' }
 
   const asked = judgment.spans ?? []
-  const { quotes, missed } = judgment.verdict === 'unsupported' ? { quotes: [], missed: 0 } : checkSpans(draft, sources, asked)
-  let verdict: Verdict = judgment.verdict
+  const kind = judgment.kind ?? 'source_claim'
+  if (kind === 'about_research') {
+    return { ...base, verdict: 'research', reason: clean(judgment.reason) || 'About the research, not a statement a source could back.', judged: { kind, spans: { asked, found: 0, missed: 0, joined: 0, malformed: 0 } } }
+  }
+  const { quotes, check } = judgment.sourceSupports === 'no' ? { quotes: [], check: { found: 0, missed: 0, joined: 0 } } : checkSpans(draft, sources, asked, judgment.badSpans ?? 0)
+  const verdict = deriveVerdict(judgment, check)
   let note = ''
-  if (verdict === 'supported' && (quotes.length === 0 || missed > 0)) {
-    verdict = 'unverified'
-    note = asked.length === 0 ? 'No text was quoted from the source, so support is not confirmed.' : 'The quoted text was not found in the source, so support is not confirmed.'
+  if (verdict === 'unverified') {
+    note =
+      asked.length === 0 && check.missed === 0
+        ? 'No text was quoted from the source, so support is not confirmed.'
+        : check.missed === 0
+          ? 'A quoted span joins separate passages of the source, so support is not confirmed.'
+          : 'The quoted text was not found in the source, so support is not confirmed.'
   }
   const uncovered = verdict === 'partly' || verdict === 'unsupported' ? clean(judgment.uncovered) : ''
   const reason = [clean(judgment.reason), note].filter(Boolean).join(' ')
-  return { ...base, verdict, reason: reason || 'No reason given.', ...(quotes.length > 0 && verdict !== 'unverified' ? { quotes } : {}), ...(uncovered ? { uncovered } : {}) }
+  const judged: AuditJudged = {
+    kind,
+    answers: { sourceSupports: judgment.sourceSupports, subjectMatches: judgment.subjectMatches, causeMatches: judgment.causeMatches, allPartsCovered: judgment.allPartsCovered },
+    spans: { asked, found: check.found, missed: check.missed, joined: check.joined, malformed: judgment.badSpans ?? 0 },
+  }
+  return { ...base, judged, verdict, reason: reason || 'No reason given.', ...(quotes.length > 0 && (verdict === 'supported' || verdict === 'partly') ? { quotes } : {}), ...(uncovered ? { uncovered } : {}) }
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {
@@ -370,6 +453,7 @@ export function summarize(claims: AuditClaim[]): AuditSummary {
     unsupported: count('unsupported'),
     unchecked: count('unchecked'),
     unverified: count('unverified'),
+    research: count('research'),
   }
 }
 
@@ -386,6 +470,7 @@ export function summaryDetail(summary: AuditSummary): string {
     summary.partly > 0 ? `${summary.partly} partly supported` : '',
     summary.unsupported > 0 ? `${summary.unsupported} not supported` : '',
     summary.unverified > 0 ? `${summary.unverified} unverified` : '',
+    summary.research > 0 ? `${summary.research} about the research` : '',
     summary.unchecked > 0 ? `${summary.unchecked} not checked` : '',
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : 'Every cited claim is backed by a quote from its source'

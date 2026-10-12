@@ -1,5 +1,5 @@
 import type { AgentRole, AgentState } from '../types'
-import { AGENT_META, AGENT_ORDER, foundNoSources, statusView, wasTruncated } from './agents'
+import { AGENT_META, AGENT_ORDER, foundNoSources, statusView } from './agents'
 import type { AuditPhase } from './auditState'
 
 /** Every box in the graph: the five pipeline steps, then the audit of the finished report. */
@@ -69,7 +69,7 @@ function agentMark(agent: AgentState): Mark {
     case 'working':
       return 'active'
     case 'complete':
-      return wasTruncated(agent) || foundNoSources(agent) ? 'warn' : 'ok'
+      return foundNoSources(agent) ? 'warn' : 'ok'
     case 'error':
       return 'failed'
     case 'skipped':

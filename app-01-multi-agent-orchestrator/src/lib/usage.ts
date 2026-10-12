@@ -25,6 +25,19 @@ export function sumUsage(stages: Array<StageUsage | undefined>): StageUsage {
   return total
 }
 
+/**
+ * Adds up what the calls reported, field by field, and counts the calls that left a figure out. When `gaps` is above 0 the
+ * sums are a floor: at least that much was billed. Unlike sumUsage, a missing figure does not hide the figures that exist.
+ */
+export function sumKnown(calls: Array<StageUsage | undefined>): { usage: StageUsage; gaps: number } {
+  const usage: StageUsage = {}
+  for (const field of FIELDS) {
+    const known = calls.flatMap(call => (call?.[field] === undefined ? [] : [call[field]]))
+    if (known.length > 0) usage[field] = known.reduce((sum, value) => sum + value, 0)
+  }
+  return { usage, gaps: calls.filter(call => FIELDS.some(field => call?.[field] === undefined)).length }
+}
+
 export function formatCount(value: number | undefined): string {
   return value === undefined ? 'not reported' : value.toLocaleString('en-US')
 }

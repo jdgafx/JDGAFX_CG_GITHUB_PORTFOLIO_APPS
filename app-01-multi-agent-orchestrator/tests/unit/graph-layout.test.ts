@@ -52,10 +52,10 @@ describe('steps', () => {
     expect(takenEdges(buildSteps(agents, { phase: 'running' }))[4]).toBe(true)
   })
 
-  it('draws a cut-off stage as a warning with the word "Cut off"', () => {
+  it('draws a finished stage as ok whatever finish it carries: a cut-off reply never reaches the page as a finished stage', () => {
     const agents = createAgents()
     agents.critic = { ...agents.critic, status: 'complete', finish: 'length' }
-    expect(buildSteps(agents, { phase: 'idle' })[3]).toMatchObject({ mark: 'warn', word: 'Cut off' })
+    expect(buildSteps(agents, { phase: 'idle' })[3]).toMatchObject({ mark: 'ok', word: 'Finished' })
   })
 })
 

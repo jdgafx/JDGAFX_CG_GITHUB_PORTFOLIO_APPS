@@ -92,8 +92,8 @@ export function corsHeaders(req: Request, origin: string | null): Record<string,
 }
 
 /** Every error response is JSON with one plain-language `error` field. */
-export function fail(message: string, status: number, headers: Record<string, string>): Response {
-  return new Response(JSON.stringify({ error: message }), {
+export function fail(message: string, status: number, headers: Record<string, string>, extra: Record<string, unknown> = {}): Response {
+  return new Response(JSON.stringify({ error: message, ...extra }), {
     status,
     headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' },
   })

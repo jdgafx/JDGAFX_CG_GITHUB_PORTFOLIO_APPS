@@ -17,6 +17,20 @@ describe('retryLine', () => {
   })
 })
 
+describe('a failed model stage still shows what it was billed', () => {
+  const failed = { ...createAgents().analyst, status: 'error' as const, error: 'Analyst ran out of reply length before it finished, so the run was stopped. Try again.' }
+
+  it('shows the tokens and cost the provider billed for the cut-off reply', () => {
+    expect(traceMeta({ ...failed, usage: { completion_tokens: 4000, cost: 0.001 } })).toEqual(['4,000 output tokens', '$0.001000'])
+  })
+
+  it('shows "not reported" when no usage arrived, and nothing for the retriever or a stage never called', () => {
+    expect(traceMeta({ ...failed, usage: {} })).toEqual(['output tokens not reported', 'cost not reported'])
+    expect(traceMeta({ ...createAgents().retriever, status: 'error' as const })).toEqual([])
+    expect(traceMeta({ ...failed, status: 'skipped' as const })).toEqual([])
+  })
+})
+
 describe('retriever status and trace', () => {
   it('shows "No sources" in the warning dot when Retrieve finished with an empty list', () => {
     const retriever = { ...createAgents().retriever, status: 'complete' as const, sources: [] }

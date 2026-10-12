@@ -5,7 +5,10 @@ import { AuditSummary } from '../../src/components/AuditSummary'
 import { Markdown } from '../../src/components/Markdown'
 import { ReportCard } from '../../src/components/ReportCard'
 import { SourcePanel } from '../../src/components/SourcePanel'
+import { ReadoutStrip } from '../../src/components/ReadoutStrip'
 import { createAgents } from '../../src/lib/agents'
+import { buildSteps } from '../../src/lib/graphLayout'
+import { buildTraceRows } from '../../src/lib/traceRows'
 import { settleClaim, summarize } from '../../src/lib/audit'
 import { IDLE_AUDIT, giveUp, pendingClaims, type AuditView } from '../../src/lib/auditState'
 import type { AuditClaim, Source } from '../../src/types'
@@ -14,6 +17,8 @@ const JWST = 'The James Webb Space Telescope (JWST) is a space telescope designe
 const SOURCES: Source[] = [{ n: 1, title: 'James Webb Space Telescope', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/James_Webb_Space_Telescope', snippet: JWST }]
 const REPORT = ['## Findings', 'JWST is designed for infrared astronomy [1]. This is not cited. It launched on 25 December 2021 [1].', '', '### Sources', '', '1. [JWST](https://x.test) - Wikipedia'].join('\n')
 
+const PASS = { sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes' } as const
+const NONE = { sourceSupports: 'no', subjectMatches: 'no', causeMatches: 'not_applicable', allPartsCovered: 'no' } as const
 const html = (element: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(element)
 
 function settled(): AuditClaim[] {
@@ -21,7 +26,7 @@ function settled(): AuditClaim[] {
   return pending.map((claim, i) =>
     settleClaim(claim, claim.pre, SOURCES, {
       id: claim.id,
-      verdict: i === 0 ? 'supported' : 'unsupported',
+      ...(i === 0 ? PASS : NONE),
       spans: i === 0 ? [{ source: 1, text: 'designed to conduct infrared astronomy' }] : [],
       reason: i === 0 ? 'Stated.' : 'Not stated.',
     }),
@@ -119,7 +124,7 @@ describe('unverified verdict', () => {
   const unverified = (): AuditClaim => {
     const [draft] = pendingClaims(REPORT, SOURCES)
     if (!draft) throw new Error('no claim')
-    return settleClaim(draft, draft.pre, SOURCES, { id: draft.id, verdict: 'supported', spans: [{ source: 1, text: 'a sentence that the source never contains' }], reason: 'Stated.' })
+    return settleClaim(draft, draft.pre, SOURCES, { id: draft.id, ...PASS, spans: [{ source: 1, text: 'a sentence that the source never contains' }], reason: 'Stated.' })
   }
 
   it('is named in the badge, the headline detail, the legend and the source panel, never as supported', () => {
@@ -138,7 +143,7 @@ describe('unverified verdict', () => {
   it('shows what the source does not cover for a partly supported claim', () => {
     const [draft] = pendingClaims(REPORT, SOURCES)
     if (!draft) throw new Error('no claim')
-    const claim = settleClaim(draft, draft.pre, SOURCES, { id: draft.id, verdict: 'partly', spans: [{ source: 1, text: 'designed to conduct infrared astronomy' }], uncovered: 'the word "launched"', reason: 'Close.' })
+    const claim = settleClaim(draft, draft.pre, SOURCES, { id: draft.id, ...PASS, allPartsCovered: 'no', spans: [{ source: 1, text: 'designed to conduct infrared astronomy' }], uncovered: 'the word "launched"', reason: 'Close.' })
     const panel = html(createElement(SourcePanel, { claim, sources: SOURCES }))
     expect(panel).toContain('Not covered by the source:')
     expect(panel).toContain('the word &quot;launched&quot;')
@@ -217,5 +222,93 @@ describe('report headings with casual Hacker News titles', () => {
     const wiki: Source = { n: 1, title: 'Black Death', site: 'Wikipedia', url: 'https://x.test', snippet: 'The Black Death was a plague pandemic in Europe.' }
     const hn: Source = { n: 2, title: 'Did the black death rampage across the world?', site: 'Hacker News', url: 'https://x.test', snippet: 'Hacker News story.' }
     expect(html(createElement(Markdown, { text: '## How Did the Black Death Spread Across Europe?', sources: [wiki, hn] }))).toContain('How did the Black Death spread across Europe?')
+  })
+})
+
+describe('a failed audit in the totals and the trace', () => {
+  const failedView = (usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number }, gaps?: number): AuditView => ({
+    ...giveUp(viewOf(pendingClaims(REPORT, SOURCES), 'running'), 'failed', 'The audit ran out of reply length before it finished. Try again.', usage, gaps),
+  })
+
+  it('keeps the usage on the failed view only when a call was made', () => {
+    expect(failedView({ total_tokens: 10, cost: 0.001 }).usage).toEqual({ total_tokens: 10, cost: 0.001 })
+    expect(failedView().usage).toBeUndefined()
+    expect(giveUp(viewOf(pendingClaims(REPORT, SOURCES), 'running'), 'stopped').usage).toBeUndefined()
+  })
+
+  it('adds the billed audit usage to the run totals', () => {
+    const run = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.01 }
+    const out = html(createElement(ReadoutStrip, { state: 'done', totalMs: 1000, totalIsStageSum: false, usage: run, model: undefined, calls: [], summary: null, audit: failedView({ prompt_tokens: 20, completion_tokens: 8000, total_tokens: 8020, cost: 0.002 }) }))
+    expect(out).toContain('8,170')
+    expect(out).toContain('$0.012000')
+  })
+
+  it('marks the total "at least" when a call of the failed audit reported nothing, with the count of such calls', () => {
+    const run = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.01 }
+    const out = html(createElement(ReadoutStrip, { state: 'done', totalMs: 1000, totalIsStageSum: false, usage: run, model: undefined, calls: [], summary: null, audit: failedView({ total_tokens: 20, cost: 0.002 }, 2) }))
+    expect(out).toContain('at least 170')
+    expect(out).toContain('at least $0.012000')
+    expect(out).toContain('2 audit calls reported nothing')
+  })
+
+  it('does the same for a finished audit with a failed part', () => {
+    const run = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.01 }
+    const result = { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0, research: 0 }, overLimit: 0, usage: { total_tokens: 20, cost: 0.002 }, usageGaps: 1, ms: 5 }
+    const out = html(createElement(ReadoutStrip, { state: 'done', totalMs: 1000, totalIsStageSum: false, usage: run, model: undefined, calls: [], summary: null, audit: { ...IDLE_AUDIT, phase: 'done', result } }))
+    expect(out).toContain('at least $0.012000')
+    expect(out).toContain('1 audit call reported nothing')
+  })
+
+  it('leaves the totals alone when the audit failed before any call', () => {
+    const run = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.01 }
+    const out = html(createElement(ReadoutStrip, { state: 'done', totalMs: 1000, totalIsStageSum: false, usage: run, model: undefined, calls: [], summary: null, audit: failedView() }))
+    expect(out).toContain('$0.010000')
+  })
+
+  it('shows the failed audit its tokens and cost in its trace row', () => {
+    const agents = createAgents()
+    const view = failedView({ completion_tokens: 8000, cost: 0.002 })
+    const row = buildTraceRows(buildSteps(agents, view), agents, view)[5]
+    expect(row?.meta).toEqual(['8,000 output tokens', '$0.002000'])
+    const none = failedView({}, 1)
+    expect(buildTraceRows(buildSteps(agents, none), agents, none)[5]?.meta).toEqual(['output tokens not reported', 'cost not reported', '1 call not reported'])
+    const partial = failedView({ completion_tokens: 2400, cost: 0.0014 }, 1)
+    expect(buildTraceRows(buildSteps(agents, partial), agents, partial)[5]?.meta).toEqual(['at least 2,400 output tokens', 'at least $0.001400', '1 call not reported'])
+  })
+})
+
+describe('about the research', () => {
+  const noop = () => undefined
+  const research = (): AuditClaim => {
+    const [draft] = pendingClaims(REPORT, SOURCES)
+    if (!draft) throw new Error('no claim')
+    return settleClaim(draft, draft.pre, SOURCES, { id: draft.id, ...NONE, kind: 'about_research', reason: 'About the evidence base.' })
+  }
+
+  it('is named in the badge, the panel and the headline, counted apart, never as supported or not supported', () => {
+    const claim = research()
+    expect(claim.verdict).toBe('research')
+    const panel = html(createElement(SourcePanel, { claim, sources: SOURCES }))
+    expect(panel).toContain('About the research')
+    expect(panel).toContain('about the research, not checked against a source')
+    expect(panel).not.toContain('No sentence of the cited source backs this claim')
+    const out = html(createElement(AuditSummary, { view: viewOf([claim]), onRetry: noop }))
+    expect(out).toContain('0 of 1 cited claim supported')
+    expect(out).toContain('1 about the research.')
+    expect(out).toContain('data-verdict="unsupported" data-zero="true"')
+    expect(out).toContain('data-verdict="supported" data-zero="true"')
+  })
+})
+
+describe('how a claim was checked', () => {
+  it('shows what the model quoted and what the span check found, so an unverified claim can be diagnosed', () => {
+    const [draft] = pendingClaims(REPORT, SOURCES)
+    if (!draft) throw new Error('no claim')
+    const claim = settleClaim(draft, draft.pre, SOURCES, { id: draft.id, ...PASS, spans: [{ source: 1, text: 'a sentence that the source never contains' }, { source: 1, text: 'designed to conduct infrared astronomy' }] })
+    const panel = html(createElement(SourcePanel, { claim, sources: SOURCES }))
+    expect(panel).toContain('How this was checked')
+    expect(panel).toContain('the model quoted 2 passages, 1 found in the source, 1 not found')
+    expect(panel).toContain('a sentence that the source never contains')
+    expect(panel).toContain('Source supports it: yes')
   })
 })

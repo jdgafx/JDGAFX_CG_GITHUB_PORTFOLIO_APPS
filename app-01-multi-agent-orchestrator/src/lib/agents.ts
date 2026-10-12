@@ -1,5 +1,4 @@
 import type { AgentRole, AgentState, AgentStatus, ModelRole } from '../types'
-import { isCutOff } from './finish'
 
 /** The retriever comes first. The four model stages follow in MODEL_ORDER. */
 export const AGENT_ORDER: AgentRole[] = ['retriever', 'researcher', 'analyst', 'critic', 'synthesizer']
@@ -67,11 +66,6 @@ export function hasUsefulOutput(agent: AgentState): boolean {
   return agent.output.trim().length >= MIN_USEFUL_CHARS
 }
 
-/** True when the stage was cut off mid-answer rather than finishing cleanly. */
-export function wasTruncated(agent: AgentState): boolean {
-  return isCutOff(agent.finish)
-}
-
 /** Filename-safe slug. Punctuation-only queries fall back to a usable name. */
 export function slugifyQuery(query: string): string {
   const slug = query
@@ -97,7 +91,6 @@ const STATUS_VIEW: Record<AgentStatus, StatusView> = {
   stopped: { word: 'Stopped', dot: 'ds-dot app-dot--warning' },
 }
 
-const CUT_OFF_VIEW: StatusView = { word: 'Cut off', dot: 'ds-dot app-dot--warning' }
 const NO_SOURCES_VIEW: StatusView = { word: 'No sources', dot: 'ds-dot app-dot--warning' }
 
 /** True when the retriever finished but found nothing, so the Researcher works without sources. */
@@ -108,7 +101,6 @@ export function foundNoSources(agent: AgentState): boolean {
 /** The word and dot for a stage in the graph, the report tabs and the trace. One table for all three. */
 export function statusView(agent: AgentState): StatusView {
   if (agent.status === 'complete') {
-    if (wasTruncated(agent)) return CUT_OFF_VIEW
     if (foundNoSources(agent)) return NO_SOURCES_VIEW
   }
   return STATUS_VIEW[agent.status]

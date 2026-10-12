@@ -4,7 +4,7 @@ import { isAbortError } from '../../src/lib/api'
 import type { AuditResult, Source } from '../../src/types'
 
 const SOURCES: Source[] = [{ n: 1, title: 'T', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/T', snippet: 'Some text of the source.', note: 'a note' }]
-const RESULT: AuditResult = { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0 }, overLimit: 0, usage: {}, ms: 5 }
+const RESULT: AuditResult = { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0, research: 0 }, overLimit: 0, usage: {}, ms: 5 }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -72,5 +72,25 @@ describe('requestAudit', () => {
     const run = requestAudit('x', SOURCES, controller.signal).catch((err: unknown) => err)
     controller.abort()
     expect(isAbortError(await run)).toBe(true)
+  })
+})
+
+describe('a failed audit carries its billed usage', () => {
+  const call = (body: string, status = 502) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status })))
+    return requestAudit('x', SOURCES).catch((err: unknown) => err as AuditError)
+  }
+
+  it('keeps the usage the server sent with the failure', async () => {
+    const err = await call('{"error":"The audit ran out of reply length before it finished. Try again.","usage":{"prompt_tokens":20,"completion_tokens":8000,"total_tokens":8020,"cost":0.002}}')
+    expect(err).toBeInstanceOf(AuditError)
+    expect(err.usage).toEqual({ prompt_tokens: 20, completion_tokens: 8000, total_tokens: 8020, cost: 0.002 })
+  })
+
+  it('keeps an empty usage as "a call was made, usage not reported", and has none when the server sent none', async () => {
+    const timedOut = await call('{"error":"The AI provider did not answer in time.","usage":{},"usageGaps":3}')
+    expect(timedOut.usage).toEqual({})
+    expect(timedOut.usageGaps).toBe(3)
+    expect((await call('{"error":"Missing sources."}', 400)).usage).toBeUndefined()
   })
 })

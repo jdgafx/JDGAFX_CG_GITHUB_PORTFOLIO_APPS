@@ -37,12 +37,17 @@ function auditDetail(view: AuditView): string {
 
 function auditMeta(view: AuditView): string[] {
   const result = view.result
-  if (view.phase !== 'done' || !result) return []
-  const tokens = result.usage.completion_tokens
+  // A failed audit that reached the provider shows what it was billed, or "not reported" when no figures came back.
+  const usage = view.phase === 'done' ? result?.usage : view.phase === 'failed' ? view.usage : undefined
+  if (!usage) return []
+  const gaps = view.phase === 'done' ? (result?.usageGaps ?? 0) : (view.usageGaps ?? 0)
+  const floor = (text: string) => (gaps > 0 ? `at least ${text}` : text)
+  const tokens = usage.completion_tokens
   return [
-    ...retryLine(result.retried),
-    tokens !== undefined ? `${tokens.toLocaleString('en-US')} output tokens` : 'output tokens not reported',
-    result.usage.cost !== undefined ? formatUsd(result.usage.cost) : 'cost not reported',
+    ...(view.phase === 'done' ? retryLine(result?.retried) : []),
+    tokens !== undefined ? floor(`${tokens.toLocaleString('en-US')} output tokens`) : 'output tokens not reported',
+    usage.cost !== undefined ? floor(formatUsd(usage.cost)) : 'cost not reported',
+    ...(gaps > 0 ? [`${gaps} ${gaps === 1 ? 'call' : 'calls'} not reported`] : []),
   ]
 }
 

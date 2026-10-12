@@ -31,7 +31,7 @@ export interface Source {
 
 export interface TraceStep {
   name: string
-  status: 'ok' | 'cut off' | 'failed' | 'skipped'
+  status: 'ok' | 'failed' | 'skipped'
   ms: number
   detail: string
   tokens?: number
@@ -101,11 +101,11 @@ export type StreamEvent =
       retried?: string
     }
   | { type: 'agent_skipped'; agent: ModelRole; detail: string }
-  | { type: 'agent_error'; agent: AgentRole | 'system'; ms?: number; error: string }
+  | { type: 'agent_error'; agent: AgentRole | 'system'; ms?: number; error: string; usage?: StageUsage }
   | ({ type: 'session_complete'; agent: 'synthesizer' } & RunSummary)
 
-/** The audit's verdict on one cited claim. 'unverified' means the model said supported but the text it quoted is not in the source. 'unchecked' means no verdict was reached. Neither is hidden. 'checking' exists only in the browser, while the request is out. */
-export type Verdict = 'supported' | 'partly' | 'unsupported' | 'unverified' | 'unchecked' | 'checking'
+/** The audit's verdict on one cited claim. 'research' means the model typed the sentence as about the research itself, so no source is asked to back it. 'unverified' means the model said supported but the text it quoted is not in the source. 'unchecked' means no verdict was reached. Neither is hidden. 'checking' exists only in the browser, while the request is out. */
+export type Verdict = 'supported' | 'partly' | 'unsupported' | 'unverified' | 'research' | 'unchecked' | 'checking'
 
 /** The deterministic pre-pass for one claim, computed against the text of the sources it cites. */
 export interface PreCheck {
@@ -128,6 +128,30 @@ export interface AuditQuote {
   text: string
 }
 
+/** What the span check did with the spans the model quoted for one claim. `missed` counts spans not found and malformed entries; `joined` counts spans found only as separate passages. */
+export interface SpanTrace {
+  asked: Array<{ source: number; text: string }>
+  found: number
+  missed: number
+  joined: number
+  malformed: number
+}
+
+/** The model's four typed answers about one claim. */
+export interface AuditAnswers {
+  sourceSupports: 'yes' | 'no'
+  subjectMatches: 'yes' | 'no'
+  causeMatches: 'yes' | 'no' | 'not_applicable'
+  allPartsCovered: 'yes' | 'no'
+}
+
+/** Everything the verdict was derived from, kept so a verifier can see why a claim got its verdict. */
+export interface AuditJudged {
+  kind: 'source_claim' | 'about_research'
+  answers?: AuditAnswers
+  spans: SpanTrace
+}
+
 /** One sentence of the report that carries [n] markers, with its verdict. block and piece say where it sits in the report. */
 export interface AuditClaim {
   id: number
@@ -135,6 +159,8 @@ export interface AuditClaim {
   piece: number
   text: string
   cites: number[]
+  /** Which text unit of the block holds the sentence: 0 for a paragraph, list item, quote or heading; the cell for a table; the line for code. */
+  unit?: number
   pre: PreCheck
   verdict: Verdict
   reason: string
@@ -142,6 +168,8 @@ export interface AuditClaim {
   quotes?: AuditQuote[]
   /** For a partly supported or unsupported claim, the part of it the source does not cover, as the model said. */
   uncovered?: string
+  /** How the verdict was reached. Absent when the model gave none. */
+  judged?: AuditJudged
 }
 
 export interface AuditSummary {
@@ -151,6 +179,8 @@ export interface AuditSummary {
   unsupported: number
   unchecked: number
   unverified: number
+  /** Sentences the model typed as about the research itself. */
+  research: number
 }
 
 export interface AuditResult {
@@ -165,5 +195,18 @@ export interface AuditResult {
   usage: StageUsage
   ms: number
   /** Why the model call was tried a second time, when it was. */
+  retried?: string
+  /** One record per model call: which claims it judged, how it ended, and what it was billed. */
+  callTrace?: AuditCallTrace[]
+  /** How many calls reported no usage. When above 0, `usage` is what the other calls reported: at least that much was billed. */
+  usageGaps?: number
+}
+
+export interface AuditCallTrace {
+  claims: number[]
+  /** The finish reason of the reply used, or 'rejected' when the call failed before a reply. */
+  finish: string | null
+  reasoningTokens: number
+  usage: StageUsage
   retried?: string
 }

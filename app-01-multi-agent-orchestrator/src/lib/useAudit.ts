@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Source } from '../types'
 import { summarize } from './audit'
 import { isAbortError } from './api'
-import { auditErrorMessage, requestAudit } from './auditApi'
+import { AuditError, auditErrorMessage, requestAudit } from './auditApi'
 import { IDLE_AUDIT, giveUp, pendingClaims, type AuditView } from './auditState'
 
 /** The audit of a finished report: starts on request, can be stopped, retried or reset. */
@@ -41,7 +41,7 @@ export function useAudit() {
         set({ phase: 'done', claims: result.claims, summary: result.summary, result })
       } catch (err) {
         if (isAbortError(err) || controller.signal.aborted) return
-        set(giveUp(pending, 'failed', auditErrorMessage(err)))
+        set(giveUp(pending, 'failed', auditErrorMessage(err), err instanceof AuditError ? err.usage : undefined, err instanceof AuditError ? err.usageGaps : undefined))
       } finally {
         if (abortRef.current === controller) abortRef.current = null
       }
