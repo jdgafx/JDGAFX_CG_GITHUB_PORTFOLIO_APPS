@@ -54,17 +54,24 @@ export function ReadoutStrip({ running, pending, liveTrace, latest, sent, total 
   const partial = !running && (latest?.state === 'failed' || latest?.state === 'stopped')
   const sofar = partial ? (latest?.state === 'failed' ? 'Before it failed' : 'Before it stopped') : null
 
+  // Calls that may have been billed but returned no usage make the figures a lower bound, never a complete total.
+  const missing = !running && !notCalled ? (usage?.not_reported ?? 0) : 0
+  const atLeast = (text: string) => (missing > 0 ? `at least ${text}` : text)
+  const missingNote = `${missing} ${missing === 1 ? 'call' : 'calls'} not reported`
+
   const tokens = running
     ? spentTokens > 0 ? count(spentTokens) : NONE
     : notCalled ? 'not called'
-    : usage ? (typeof usage.total_tokens === 'number' ? count(usage.total_tokens) : 'not reported')
+    : usage ? (typeof usage.total_tokens === 'number' ? atLeast(count(usage.total_tokens)) : 'not reported')
     : spentTokens > 0 ? count(spentTokens) : NONE
   const cost = running
     ? priced ? usd(spentCost) : NONE
     : notCalled ? 'not called'
-    : usage ? (typeof usage.cost === 'number' ? usd(usage.cost) : 'not reported')
+    : usage ? (typeof usage.cost === 'number' ? atLeast(usd(usage.cost)) : 'not reported')
     : priced ? usd(spentCost) : NONE
-  const costHint = usage?.cost_source === 'estimated' ? 'Estimated from list prices' : usage?.cost_source === 'reported' ? 'Reported by OpenRouter' : (sofar ?? 'Reported or estimated')
+  const costHint = missing > 0
+    ? missingNote
+    : usage?.cost_source === 'estimated' ? 'Estimated from list prices' : usage?.cost_source === 'reported' ? 'Reported by OpenRouter' : (sofar ?? 'Reported or estimated')
 
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
@@ -72,7 +79,7 @@ export function ReadoutStrip({ running, pending, liveTrace, latest, sent, total 
         <Cell label="Time" hint={running ? 'Running now' : notCalled ? 'Ranked in this browser' : (sofar ?? 'Whole question')}>
           {running ? <LiveClock /> : ended && report?.totalMs != null ? milliseconds(report.totalMs) : NONE}
         </Cell>
-        <Cell label="Tokens" hint={sofar ?? 'All model calls'}>
+        <Cell label="Tokens" hint={missing > 0 ? missingNote : (sofar ?? 'All model calls')}>
           {tokens}
         </Cell>
         <Cell label="Cost (USD)" hint={costHint}>

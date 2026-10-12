@@ -22,10 +22,19 @@ export interface StepJson {
   cost?: number | null
 }
 
+export interface UsageJson {
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  cost: number | null
+  cost_source: string | null
+  not_reported: number
+}
+
 export interface RunJson {
   result: { answer: string; source_chunk_indices: number[]; confidence: number }
   trace: StepJson[]
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number; cost_source: string }
+  usage: UsageJson
   servedModel: string | null
   newestModel: string | null
   modelCheck: string
@@ -40,6 +49,7 @@ export interface Frame {
   run?: RunJson
   error?: string
   trace?: StepJson[]
+  usage?: UsageJson | null
   totalMs?: number
 }
 

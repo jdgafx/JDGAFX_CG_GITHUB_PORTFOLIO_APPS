@@ -27,7 +27,12 @@ export interface RawUsage {
 
 export type AttemptOk = { ok: true; content: string; finishReason: string | null; model: string | null; usage: RawUsage }
 /** `retryable` is true only when the call timed out or never connected, and the browser had not gone away. */
-type Attempt = AttemptOk | { ok: false; status: number; message: string; retryable?: boolean }
+type Attempt = AttemptOk | AttemptFailed
+/**
+ * `unreported` is true when the call may have been billed but no usage came back (a timeout, a failed connection, or
+ * a body that could not be read). A provider rejection with an error status carries none and is not counted.
+ */
+export type AttemptFailed = { ok: false; status: number; message: string; retryable?: boolean; unreported?: boolean }
 
 // Upstream error bodies carry account identifiers. The function log keeps them;
 // the browser gets one plain sentence per status.
@@ -116,8 +121,8 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
     console.error('OpenRouter request failed:', err instanceof Error ? err.name : 'non-error')
     const retryable = signal?.aborted !== true
     return isTimeout(err)
-      ? { ok: false, status: 504, message: TIMEOUT_MESSAGE, retryable }
-      : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.', retryable }
+      ? { ok: false, status: 504, message: TIMEOUT_MESSAGE, retryable, unreported: true }
+      : { ok: false, status: 502, message: 'Could not reach the AI provider. Try again shortly.', retryable, unreported: true }
   }
 
   if (!fetched.ok) {
@@ -127,7 +132,7 @@ export async function callModel(apiKey: string, messages: ChatMessage[], deadlin
   }
 
   const reply = readReply(fetched.raw)
-  if (!reply) return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.' }
+  if (!reply) return { ok: false, status: 502, message: 'The AI provider returned an unreadable response.', unreported: true }
   return { ok: true, content: reply.content, finishReason: reply.finishReason, model: reply.model, usage: reply.usage }
 }
 

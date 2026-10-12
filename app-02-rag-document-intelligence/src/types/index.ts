@@ -39,6 +39,8 @@ export interface Usage {
   total_tokens: number | null
   cost: number | null
   cost_source: 'reported' | 'estimated' | null
+  /** Calls that may have been billed but returned no usage. The totals are then a lower bound. */
+  not_reported: number
 }
 
 /** Whether the served model is the newest one the alias resolves to. Same values as netlify/shared/newest-model.ts. */

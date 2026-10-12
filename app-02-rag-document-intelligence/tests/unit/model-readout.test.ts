@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ReadoutStrip } from '../../src/components/ReadoutStrip'
 import { modelMarker, modelTitle } from '../../src/lib/format'
-import type { LatestRun, ModelCheck, RunReport } from '../../src/types'
+import { usageFromTrace } from '../../src/lib/api'
+import type { LatestRun, ModelCheck, RunReport, Usage } from '../../src/types'
 
 const SERVED = 'anthropic/claude-haiku-5-5'
 const NEWER = 'anthropic/claude-haiku-6.0'
@@ -79,5 +80,49 @@ describe('the served-model chip in the run readout', () => {
     const html = strip(null)
     expect(html).not.toContain('not reported')
     expect(html).toContain('—')
+  })
+})
+
+describe('the run totals when a call was billed but not reported', () => {
+  const usage = (over: Partial<Usage>): Usage => ({
+    prompt_tokens: 120,
+    completion_tokens: 30,
+    total_tokens: 150,
+    cost: 0.00012,
+    cost_source: 'reported',
+    not_reported: 0,
+    ...over,
+  })
+  const failed = (u: Usage | null): LatestRun => ({ report: { ...report(null, null, 'not-reported'), usage: u }, state: 'failed' })
+
+  it('shows the spent figures when a run fails, as a complete total', () => {
+    const html = strip(failed(usage({})))
+    expect(html).toContain('150')
+    expect(html).toContain('$0.000120')
+    expect(html).toContain('Reported by OpenRouter')
+    expect(html).not.toContain('at least')
+  })
+
+  it('shows a lower bound with the count of calls not reported, never the reported hint', () => {
+    const html = strip(failed(usage({ not_reported: 1 })))
+    expect(html).toContain('at least 150')
+    expect(html).toContain('at least $0.000120')
+    expect(html).toContain('1 call not reported')
+    expect(html).not.toContain('Reported by OpenRouter')
+  })
+
+  it('shows not reported, with the count, when no call returned usage', () => {
+    const html = strip(failed(usage({ total_tokens: null, cost: null, cost_source: null, not_reported: 2 })))
+    expect(html).toContain('not reported')
+    expect(html).toContain('2 calls not reported')
+  })
+
+  it('builds the totals of a stopped run from its rows, counting the call still waiting', () => {
+    const rows = [
+      { name: 'Call model', status: 'failed' as const, ms: 900, detail: 'cut off', tokens: 150, cost: 0.00012 },
+      { name: 'Retry model call', status: 'failed' as const, ms: 100, detail: 'timed out', tokens: null, cost: null },
+    ]
+    expect(usageFromTrace(rows, true)).toMatchObject({ total_tokens: 150, cost: 0.00012, not_reported: 2 })
+    expect(usageFromTrace([{ name: 'Build prompt', status: 'ok', ms: 1, detail: '' }], false)).toBeNull()
   })
 })

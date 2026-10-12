@@ -1,5 +1,5 @@
 import { newestModel, servedCheck, worstCheck, type ModelCheck } from './newest-model'
-import { callModel, estimateCost, MODEL, TIMEOUT_MESSAGE, type AttemptOk, type ChatMessage } from './provider'
+import { callModel, estimateCost, MODEL, TIMEOUT_MESSAGE, type AttemptFailed, type AttemptOk, type ChatMessage } from './provider'
 
 /** 'passage' or 'passages', by count. */
 function noun(count: number): string {
@@ -31,13 +31,15 @@ export interface TraceStep {
   cost?: number | null
 }
 
-interface Usage {
+export interface Usage {
   prompt_tokens: number | null
   completion_tokens: number | null
   total_tokens: number | null
   cost: number | null
   /** 'reported' came from the provider; 'estimated' was computed from catalogue pricing. */
   cost_source: 'reported' | 'estimated' | null
+  /** Calls that may have been billed but returned no usage (a timeout or a failed connection). The totals are then a lower bound. */
+  not_reported: number
 }
 
 export interface RunPayload {
@@ -56,7 +58,7 @@ export interface RunPayload {
 
 export type RunOutcome =
   | ({ ok: true } & RunPayload)
-  | { ok: false; status: number; error: string; trace: TraceStep[]; totalMs: number }
+  | { ok: false; status: number; error: string; trace: TraceStep[]; usage: Usage; totalMs: number }
 
 /** Told when each step starts and when it finishes, so the browser can show progress. */
 interface RunEvents {
@@ -182,14 +184,17 @@ function estimateCallCost(reply: AttemptOk, deadline: number): Promise<number | 
  * Totals across every attempt, since each attempt was billed. A reported cost is used as it is. Otherwise each call is
  * priced at its own served model, and the estimate is null when any call cannot be priced.
  */
-async function buildUsage(replies: AttemptOk[], deadline: number): Promise<Usage> {
+async function buildUsage(replies: AttemptOk[], notReported: number, deadline: number): Promise<Usage> {
+  if (replies.length === 0) {
+    return { prompt_tokens: null, completion_tokens: null, total_tokens: null, cost: null, cost_source: null, not_reported: notReported }
+  }
   const usages = replies.map(reply => reply.usage)
   const prompt = sumOrNull(usages.map(u => u.prompt_tokens))
   const completion = sumOrNull(usages.map(u => u.completion_tokens))
   const total = sumOrNull(usages.map(u => u.total_tokens))
   const reported = sumOrNull(usages.map(u => u.cost))
   if (reported !== null) {
-    return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total, cost: reported, cost_source: 'reported' }
+    return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total, cost: reported, cost_source: 'reported', not_reported: notReported }
   }
   const estimates: Array<number | null> = []
   for (const reply of replies) estimates.push(await estimateCallCost(reply, deadline))
@@ -200,6 +205,7 @@ async function buildUsage(replies: AttemptOk[], deadline: number): Promise<Usage
     total_tokens: total,
     cost: estimated,
     cost_source: estimated === null ? null : 'estimated',
+    not_reported: notReported,
   }
 }
 
@@ -209,6 +215,11 @@ function servedBy(attempt: AttemptOk): string {
 
 function costOf(attempt: AttemptOk): Pick<TraceStep, 'tokens' | 'cost'> {
   return { tokens: attempt.usage.total_tokens, cost: attempt.usage.cost }
+}
+
+/** A failed call's row: null marks "called, usage not reported". A call that was never made (a rejection by status) has no figures. */
+function failedCostOf(failure: AttemptFailed): Pick<TraceStep, 'tokens' | 'cost'> {
+  return failure.unreported === true ? { tokens: null, cost: null } : {}
 }
 
 /**
@@ -230,9 +241,16 @@ export async function runAnswer(
     trace.push(step)
     events.step(step)
   }
-  const fail = (status: number, error: string, skipped: string[]): RunOutcome => {
+  // Every call that returned a reply, so each one's served model is checked and priced.
+  const replies: AttemptOk[] = []
+  // Calls that failed without a usage block. They may have been billed.
+  let notReported = 0
+  const deadline = started + UPSTREAM_TIMEOUT_MS
+  // A failed run still reports what was spent before it failed: every call that answered, counted once.
+  const fail = async (status: number, error: string, skipped: string[]): Promise<RunOutcome> => {
     for (const name of skipped) record(name, Date.now(), 'skipped', 'Not run because an earlier step failed.')
-    return { ok: false, status, error, trace, totalMs: Date.now() - started }
+    const usage = await buildUsage(replies, notReported, deadline)
+    return { ok: false, status, error, trace, usage, totalMs: Date.now() - started }
   }
 
   events.start(STEP_ACCEPT)
@@ -247,7 +265,6 @@ export async function runAnswer(
   const characters = messages.reduce((total, m) => total + m.content.length, 0)
   record(STEP_BUILD, built, 'ok', `System prompt and ${input.chunks.length} ${noun(input.chunks.length)}, ${characters} characters in total.`)
 
-  const deadline = started + UPSTREAM_TIMEOUT_MS
   const callLimit = () => Math.min(deadline, Date.now() + CALL_LIMIT_MS)
   // One list read per run, started before the first call. It never rejects and is awaited only after the answer.
   const newestP = newestModel()
@@ -255,8 +272,6 @@ export async function runAnswer(
   const called = Date.now()
   const first = await callModel(apiKey, messages, callLimit(), signal)
 
-  // Every call that returned a reply, so each one's served model is checked and priced.
-  const replies: AttemptOk[] = []
   let attempt: AttemptOk | null = null
   // Why a second call is made, or null when the first one is used as it is.
   let reason: string | null = null
@@ -267,17 +282,19 @@ export async function runAnswer(
       record(STEP_CALL, called, 'ok', servedBy(first), costOf(first))
     } else if (deadline - Date.now() < RETRY_MIN_MS) {
       record(STEP_CALL, called, 'failed', 'Output was empty or cut off, and there was no time to ask again.', costOf(first))
-      return fail(504, TIMEOUT_MESSAGE, [STEP_PARSE])
+      return await fail(504, TIMEOUT_MESSAGE, [STEP_PARSE])
     } else {
       reason = 'the first reply was empty or cut off'
       record(STEP_CALL, called, 'failed', 'Output was empty or cut off. Asking the model again.', costOf(first))
     }
   } else if (first.retryable && deadline - Date.now() >= RETRY_MIN_MS) {
     reason = 'the first call timed out or did not connect'
-    record(STEP_CALL, called, 'failed', `${first.message} Asking the model once more.`)
+    if (first.unreported === true) notReported += 1
+    record(STEP_CALL, called, 'failed', `${first.message} Asking the model once more.`, failedCostOf(first))
   } else {
-    record(STEP_CALL, called, 'failed', first.message)
-    return fail(first.status, first.message, [STEP_PARSE])
+    if (first.unreported === true) notReported += 1
+    record(STEP_CALL, called, 'failed', first.message, failedCostOf(first))
+    return await fail(first.status, first.message, [STEP_PARSE])
   }
 
   if (reason !== null) {
@@ -285,30 +302,31 @@ export async function runAnswer(
     const retried = Date.now()
     const second = await callModel(apiKey, messages, callLimit(), signal)
     if (!second.ok) {
-      record(STEP_RETRY, retried, 'failed', second.message)
-      return fail(second.status, second.message, [STEP_PARSE])
+      if (second.unreported === true) notReported += 1
+      record(STEP_RETRY, retried, 'failed', second.message, failedCostOf(second))
+      return await fail(second.status, second.message, [STEP_PARSE])
     }
     replies.push(second)
     // The last attempt gets the same check as the first: a reply stopped at the token cap is never parsed, even when its JSON closes.
     if (second.finishReason === 'length') {
       record(STEP_RETRY, retried, 'failed', 'The retried reply was cut off at the output limit.', costOf(second))
-      return fail(502, CUT_OFF_REPLY, [STEP_PARSE])
+      return await fail(502, CUT_OFF_REPLY, [STEP_PARSE])
     }
     attempt = second
     record(STEP_RETRY, retried, 'ok', `Retried once because ${reason}. ${servedBy(second)}`, costOf(second))
   }
-  if (attempt === null) return fail(502, EMPTY_REPLY, [STEP_PARSE])
+  if (attempt === null) return await fail(502, EMPTY_REPLY, [STEP_PARSE])
 
   events.start(STEP_PARSE)
   const parsing = Date.now()
   const parsed = parseAnswer(attempt.content, input.chunkIndices)
   if (!parsed.ok) {
     record(STEP_PARSE, parsing, 'failed', parsed.message)
-    return fail(502, parsed.message, [])
+    return await fail(502, parsed.message, [])
   }
   // Only the call that wrote the shown answer names its model. Another call's model is never used in its place.
   const servedModel = attempt.model
-  const usage = await buildUsage(replies, deadline)
+  const usage = await buildUsage(replies, notReported, deadline)
   const newest = await newestP
   const checks = replies.map(reply => ({ served: reply.model, check: servedCheck(newest, reply.model) }))
   for (const { served, check } of checks) {

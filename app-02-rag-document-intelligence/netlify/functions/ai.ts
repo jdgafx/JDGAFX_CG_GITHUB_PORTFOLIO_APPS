@@ -1,4 +1,4 @@
-import { runAnswer, type AnswerInput, type RunPayload, type TraceStep } from '../shared/answer'
+import { runAnswer, type AnswerInput, type RunPayload, type TraceStep, type Usage } from '../shared/answer'
 import {
   clientKey,
   originAllowed,
@@ -18,7 +18,7 @@ type StreamFrame =
   | { type: 'start'; name: string }
   | { type: 'step'; step: TraceStep }
   | { type: 'result'; run: RunPayload }
-  | { type: 'error'; error: string; trace: TraceStep[]; totalMs: number }
+  | { type: 'error'; error: string; trace: TraceStep[]; usage: Usage | null; totalMs: number }
 
 /** The five fields the client reads from a finished run. */
 function runBody(run: RunPayload): RunPayload {
@@ -65,10 +65,10 @@ function streamRun(
         )
         send(outcome.ok
           ? { type: 'result', run: runBody(outcome) }
-          : { type: 'error', error: outcome.error, trace: outcome.trace, totalMs: outcome.totalMs })
+          : { type: 'error', error: outcome.error, trace: outcome.trace, usage: outcome.usage, totalMs: outcome.totalMs })
       } catch (err) {
         console.error('DocMind run failed:', err)
-        send({ type: 'error', error: FAILED_MESSAGE, trace: [], totalMs: Date.now() - started })
+        send({ type: 'error', error: FAILED_MESSAGE, trace: [], usage: null, totalMs: Date.now() - started })
       }
       write('data: [DONE]\n\n')
       try {

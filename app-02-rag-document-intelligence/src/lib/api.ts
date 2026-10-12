@@ -48,7 +48,7 @@ interface ServerRun {
 
 type StreamEnd =
   | { kind: 'result'; run: ServerRun }
-  | { kind: 'error'; message: string; trace: TraceStep[]; totalMs: number | null }
+  | { kind: 'error'; message: string; trace: TraceStep[]; usage: Usage | null; totalMs: number | null }
 
 function fallbackMessage(status: number): string {
   if (status === 429) return 'Rate limited, try again in a minute.'
@@ -58,8 +58,28 @@ function fallbackMessage(status: number): string {
   return 'The document assistant could not answer that question. Please try again.'
 }
 
-function runWith(trace: TraceStep[], totalMs: number | null): RunReport {
-  return { trace, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs }
+function runWith(trace: TraceStep[], totalMs: number | null, usage: Usage | null = null): RunReport {
+  return { trace, usage, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs }
+}
+
+/**
+ * Totals for a run that ended without a server report (stopped, stalled, unreadable stream), from the call rows
+ * that did arrive. A row with null tokens is a call whose usage was not reported; `inFlight` is a call still waiting
+ * for its reply when the run ended. Null when no model call was made.
+ */
+export function usageFromTrace(trace: TraceStep[], inFlight: boolean): Usage | null {
+  const calls = trace.filter(step => step.tokens !== undefined)
+  if (calls.length === 0 && !inFlight) return null
+  const tokens = calls.flatMap(step => (typeof step.tokens === 'number' ? [step.tokens] : []))
+  const costs = calls.flatMap(step => (typeof step.cost === 'number' ? [step.cost] : []))
+  return {
+    prompt_tokens: null,
+    completion_tokens: null,
+    total_tokens: tokens.length > 0 ? tokens.reduce((a, b) => a + b, 0) : null,
+    cost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
+    cost_source: null,
+    not_reported: calls.filter(step => step.tokens === null).length + (inFlight ? 1 : 0),
+  }
 }
 
 function failedStep(name: string, detail: string): TraceStep {
@@ -74,6 +94,12 @@ function isStep(value: unknown): value is TraceStep {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return typeof v['name'] === 'string' && typeof v['status'] === 'string' && typeof v['detail'] === 'string'
+}
+
+function isUsage(value: unknown): value is Usage {
+  if (typeof value !== 'object' || value === null) return false
+  const u = value as Record<string, unknown>
+  return 'total_tokens' in u && 'cost' in u && typeof u['not_reported'] === 'number'
 }
 
 function isServerRun(data: unknown): data is ServerRun {
@@ -110,7 +136,7 @@ async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents, o
       if (!line) continue
       const raw = line.slice(6)
       if (raw === '[DONE]') continue
-      const { type, name, step, run, error, trace, totalMs } = JSON.parse(raw) as Record<string, unknown>
+      const { type, name, step, run, error, trace, usage, totalMs } = JSON.parse(raw) as Record<string, unknown>
       if (type === 'start' && typeof name === 'string') {
         events.onStart(name)
       } else if (type === 'step' && isStep(step)) {
@@ -122,6 +148,7 @@ async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents, o
           kind: 'error',
           message: error,
           trace: Array.isArray(trace) ? trace.filter(isStep) : [],
+          usage: isUsage(usage) ? usage : null,
           totalMs: typeof totalMs === 'number' ? totalMs : null,
         }
       } else {
@@ -238,7 +265,7 @@ export async function askQuestion(
       )
     }
     if (end?.kind === 'error') {
-      throw new AskError(end.message, runWith([retrievalStep, ...end.trace], end.totalMs))
+      throw new AskError(end.message, runWith([retrievalStep, ...end.trace], end.totalMs, end.usage))
     }
     if (end?.kind !== 'result') {
       throw new AskError(

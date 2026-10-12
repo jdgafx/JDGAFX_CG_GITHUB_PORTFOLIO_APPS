@@ -109,6 +109,7 @@ describe('callModel', () => {
       status: 504,
       message: 'The AI provider did not answer in time.',
       retryable: true,
+      unreported: true,
     })
   })
 
@@ -119,6 +120,7 @@ describe('callModel', () => {
       status: 502,
       message: 'Could not reach the AI provider. Try again shortly.',
       retryable: true,
+      unreported: true,
     })
   })
 
@@ -160,6 +162,7 @@ describe('callModel', () => {
       ok: false,
       status: 502,
       message: 'The AI provider returned an unreadable response.',
+      unreported: true,
     })
   })
 
@@ -177,6 +180,7 @@ describe('callModel', () => {
       status: 504,
       message: 'The AI provider did not answer in time.',
       retryable: true,
+      unreported: true,
     })
   })
 })

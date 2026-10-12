@@ -74,6 +74,7 @@ export function RunTrace({ running, pending, liveTrace, latest }: RunTraceProps)
                   <span>{live ? 'in progress' : step.status === 'skipped' ? 'not run' : step.ms === null ? 'not timed' : milliseconds(step.ms)}</span>
                   {typeof step.tokens === 'number' && <span>{`${step.tokens.toLocaleString('en-US')} tok`}</span>}
                   {typeof step.cost === 'number' && <span>{usd(step.cost)}</span>}
+                  {step.tokens === null && step.cost === null && <span>usage not reported</span>}
                 </div>
                 {lane[i] && (
                   <div className="ds-trace__lane" aria-hidden="true">

@@ -10,7 +10,7 @@ import { RunTrace } from './components/RunTrace'
 import { SiteFooter } from './components/SiteFooter'
 import { citeKey } from './components/AnswerBody'
 import { useDocumentLoader } from './hooks/useDocumentLoader'
-import { askQuestion, AskError } from './lib/api'
+import { askQuestion, AskError, usageFromTrace } from './lib/api'
 import type { Retrieval } from './lib/bm25'
 import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE, TRY_QUESTION } from './lib/howto'
 import { liveData } from './lib/liveData'
@@ -99,6 +99,8 @@ export default function App() {
       const isCurrent = () => requestId === requestIdRef.current
       // Steps as they arrive, so a stopped run still shows what it did.
       const steps: TraceStep[] = []
+      // True from the start of a model call until its row arrives. A run that ends inside one has a call with no usage.
+      let inCall = false
 
       setQuestion('')
       setAskError(null)
@@ -112,9 +114,11 @@ export default function App() {
       try {
         const outcome = await askQuestion(text, target.chunks, target.title, controller.signal, {
           onStart: name => {
+            inCall = name === 'Call model' || name === 'Retry model call'
             if (isCurrent()) setPending(name)
           },
           onStep: step => {
+            inCall = false
             steps.push(step)
             if (isCurrent()) {
               setLiveTrace([...steps])
@@ -145,13 +149,14 @@ export default function App() {
       } catch (err) {
         if (!isCurrent()) return
         if (controller.signal.aborted) {
-          setLatest({ report: { trace: steps, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'stopped' })
+          setLatest({ report: { trace: steps, usage: usageFromTrace(steps, inCall), servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'stopped' })
         } else if (err instanceof AskError) {
           setAskError(err.message)
-          setLatest({ report: err.run, state: 'failed' })
+          // A stall or an unreadable stream carries no server report, so the spent figures come from the rows that arrived.
+          setLatest({ report: { ...err.run, usage: err.run.usage ?? usageFromTrace(steps, inCall) }, state: 'failed' })
         } else {
           setAskError('Something went wrong while answering. Please try again.')
-          setLatest({ report: { trace: steps, usage: null, servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'failed' })
+          setLatest({ report: { trace: steps, usage: usageFromTrace(steps, inCall), servedModel: null, newestModel: null, modelCheck: 'not-reported', mismatchedModel: null, totalMs: null }, state: 'failed' })
         }
       } finally {
         if (isCurrent()) {
