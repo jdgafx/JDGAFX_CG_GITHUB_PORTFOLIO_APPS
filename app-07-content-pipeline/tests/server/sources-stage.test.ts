@@ -65,7 +65,6 @@ describe('Sources stage', () => {
       'URL: https://news.ycombinator.com/item?id=33478000',
       'Points: 319',
       'Date: 2022-11-05',
-      'Text: one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up',
     ].join('\n'))
     expect(body.trace).toHaveLength(1)
     expect(body.trace[0]).toMatchObject({ name: 'Sources', status: 'ok', detail: '3 sources: 2 Wikipedia, 1 Hacker News.' })
@@ -215,17 +214,20 @@ describe('Polish ends with the Sources list', () => {
   const EDIT = words(100)
   const PIECE = `${words(70)} Individual units of source code are tested [1]. Multiple assertions are fine [3]. Invented claim [9]. Code looks like items[0]. Bananas ripen quickly [1].`
 
-  it('appends the list built from the lookup, keeps citations a source backs and drops invented or unbacked ones', async () => {
+  it('appends the list built from the lookup, keeps citations a Wikipedia source backs, drops invented or unbacked ones and every one on a Hacker News story, which is listed instead', async () => {
     providerWill(() => completion(PIECE))
     const res = await handler(request(stageBody('polish', { edit: EDIT })))
     const { result } = (await res.json()) as StageBody
     expect(result).toBe([
-      `${words(70)} Individual units of source code are tested [1]. Multiple assertions are fine [3]. Invented claim. Code looks like items[0]. Bananas ripen quickly.`,
+      `${words(70)} Individual units of source code are tested [1]. Multiple assertions are fine. Invented claim. Code looks like items[0]. Bananas ripen quickly.`,
       '',
       '### Sources',
       '',
       '- [1] [Unit testing](https://en.wikipedia.org/wiki/Unit_testing), Wikipedia',
-      '- [3] [Multiple assertions are fine in a unit test](https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/), Hacker News, 319 points, 2022-11-05',
+      '',
+      '### Related on Hacker News',
+      '',
+      '- [Multiple assertions are fine in a unit test](https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/), 319 points, 2022-11-05',
     ].join('\n'))
   })
 
@@ -233,7 +235,15 @@ describe('Polish ends with the Sources list', () => {
     providerWill(() => completion(`${words(70)} Writing tests first is a way of developing software [2].`))
     const res = await handler(request(stageBody('polish', { edit: EDIT }, { contentType: 'Social Thread' })))
     const { result } = (await res.json()) as StageBody
-    expect(result.endsWith('**Sources**\n\n- [2] [en.wikipedia.org/wiki/Test-driven\\_development](https://en.wikipedia.org/wiki/Test-driven_development)')).toBe(true)
+    expect(result.endsWith([
+      '**Sources**',
+      '',
+      '- [2] [en.wikipedia.org/wiki/Test-driven\\_development](https://en.wikipedia.org/wiki/Test-driven_development)',
+      '',
+      '**Related on Hacker News**',
+      '',
+      '- [Multiple assertions are fine in a unit test](https://stackoverflow.blog/2022/11/03/multiple-assertions-per-test-are-fine/), 319 points, 2022-11-05',
+    ].join('\n'))).toBe(true)
   })
 
   it('says the piece has no sources when the lookup found none', async () => {
@@ -241,7 +251,31 @@ describe('Polish ends with the Sources list', () => {
     const none = 'No live sources were found for this topic.\n\nNote: Wikipedia returned no matching results.'
     const res = await handler(request(stageBody('polish', { edit: EDIT, sources: none })))
     const { result } = (await res.json()) as StageBody
-    expect(result).toBe(`${words(70)} text.\n\n*No sources: the live lookups found nothing for this topic, so the facts above come from the model and are unchecked.*`)
+    expect(result).toBe(`${words(70)} text.\n\n*No sources: the live lookups found no article to cite for this topic, so the facts above come from the model and are unchecked.*`)
+  })
+
+  it('lists a Hacker News story under Related and never offers it to the model as a source to cite', async () => {
+    const sent = providerWill(() => completion(`${words(70)} Multiple assertions are fine [3].`))
+    const res = await handler(request(stageBody('polish', { edit: EDIT })))
+    const { result } = (await res.json()) as StageBody
+    const messages = sent[0].body.messages as Array<{ content: string }>
+    expect(messages.map(message => message.content).join('\n')).not.toContain('Multiple assertions are fine in a unit test')
+    expect(messages[0].content).toContain('Keep every [n] citation')
+    expect(result).not.toMatch(/\[3\]/)
+    expect(result).toContain('### Related on Hacker News')
+  })
+
+  it('writes without citations when only Hacker News stories were found', async () => {
+    const sent = providerWill(() => completion(`${words(70)} text [1].`))
+    const only = '[1] Hacker News: Multiple assertions are fine in a unit test\nURL: https://news.ycombinator.com/item?id=1\nPoints: 319'
+    const res = await handler(request(stageBody('polish', { edit: EDIT, sources: only })))
+    const { result } = (await res.json()) as StageBody
+    const system = (sent[0].body.messages as Array<{ content: string }>)[0].content
+    expect(system).toContain('No live sources were found')
+    expect(system).not.toContain('square brackets')
+    expect(result).toContain('*No sources: the live lookups found no article to cite')
+    expect(result).toContain('- [Multiple assertions are fine in a unit test](https://news.ycombinator.com/item?id=1), 319 points')
+    expect(result).not.toContain('[1]')
   })
 
   it('sends the model the citation rules only when sources exist', async () => {

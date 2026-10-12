@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { wordCount } from '../../netlify/shared/contract'
+import { formatSourcePack } from '../../netlify/shared/sourcepack'
 import {
   MAX_STAGE_TEXT_CHARS, STAGE_INPUTS, buildSystemPrompt, buildUserMessage, rejectOutput, retryFits, stageMaxTokens, stageTimeoutMs,
 } from '../../netlify/shared/stages'
@@ -110,19 +111,37 @@ describe('stageMaxTokens', () => {
 describe('buildUserMessage: sources', () => {
   it('hands the research stage the full source pack, extracts included', () => {
     expect(buildUserMessage('research', TOPIC, 'Blog Post', { sources: PACK })).toBe(
-      `## Sources\n${PACK}\n\nUsing the material above, research the Blog Post about: ${TOPIC}`,
+      `## Sources\n${PACK.split('\n\n[2]')[0]}\n\nUsing the material above, research the Blog Post about: ${TOPIC}`,
     )
   })
 
-  it('hands edit and polish only the numbered titles', () => {
+  it('hands edit and polish only the numbered titles of sources with text', () => {
     const edit = buildUserMessage('edit', TOPIC, 'Blog Post', { sources: PACK, outline: '- Point', draft: 'Draft [1].' })
-    expect(edit).toContain('## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)\n\n## Outline')
+    expect(edit).toContain('## Sources\n[1] Wikipedia: Unit testing\n\n## Outline')
     expect(edit).not.toContain('Summary:')
     expect(edit).not.toContain('https://')
-    const polish = buildUserMessage('polish', TOPIC, 'Blog Post', { sources: PACK, edit: 'Edited [2].' })
+    const polish = buildUserMessage('polish', TOPIC, 'Blog Post', { sources: PACK, edit: 'Edited [1].' })
     expect(polish).toBe(
-      `## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)\n\n## Edit\nEdited [2].\n\nUsing the material above, polish the Blog Post about: ${TOPIC}`,
+      `## Sources\n[1] Wikipedia: Unit testing\n\n## Edit\nEdited [1].\n\nUsing the material above, polish the Blog Post about: ${TOPIC}`,
     )
+  })
+
+  it('never shows a writing stage a headline-only source, in any stage', () => {
+    for (const stage of ['research', 'draft', 'edit', 'polish'] as const) {
+      const message = buildUserMessage(stage, TOPIC, 'Blog Post', { sources: PACK, research: 'r', outline: 'o', draft: 'd', edit: 'e' })
+      expect(message).not.toContain('Hacker News')
+      expect(message).not.toContain('Multiple assertions')
+      expect(message).not.toContain('stackoverflow')
+    }
+  })
+
+  it('shows the no-sources statement when only headline-only sources were found, in every stage', () => {
+    const only = ['[1] Hacker News: Multiple assertions are fine in a unit test', 'URL: https://news.ycombinator.com/item?id=1', 'Points: 319', '', 'Note: Wikipedia returned no matching results.'].join('\n')
+    for (const stage of ['research', 'edit', 'polish'] as const) {
+      const message = buildUserMessage(stage, TOPIC, 'Blog Post', { sources: only, outline: 'o', draft: 'd', edit: 'e' })
+      expect(message).toContain('## Sources\nNo live sources were found for this topic.\n\nNote: Wikipedia returned no matching results.')
+      expect(message).not.toContain('Multiple assertions')
+    }
   })
 
   it('shows the no-sources statement as it is, since there is nothing to index', () => {
@@ -131,9 +150,14 @@ describe('buildUserMessage: sources', () => {
   })
 
   it('clips a source pack at 3,600 characters', () => {
-    const message = buildUserMessage('draft', TOPIC, 'Blog Post', { sources: 'x'.repeat(4_000), research: 'r', outline: 'o' })
-    expect(message).toContain(`${'x'.repeat(3_600)}\n...[truncated]`)
-    expect(message).not.toContain('x'.repeat(3_601))
+    const sources = formatSourcePack({
+      sources: Array.from({ length: 8 }, (_, i) => ({ n: i + 1, kind: 'wikipedia' as const, title: `Topic ${i}`, url: `https://en.wikipedia.org/wiki/Topic_${i}`, summary: 'word '.repeat(120).trim() })),
+      notes: [],
+    })
+    expect(sources.length).toBeGreaterThan(3_600)
+    const section = buildUserMessage('draft', TOPIC, 'Blog Post', { sources, research: 'r', outline: 'o' }).split('\n\n## Research')[0] ?? ''
+    expect(section.endsWith('\n...[truncated]')).toBe(true)
+    expect(section.length).toBeLessThanOrEqual('## Sources\n'.length + 3_600 + '\n...[truncated]'.length)
   })
 })
 

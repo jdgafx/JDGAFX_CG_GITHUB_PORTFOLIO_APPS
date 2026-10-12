@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { STAGE_LABELS, wordCount, type StageId, type StageOutputs } from '../../netlify/shared/contract'
-import { bodyOf, listedSources, parseSourcePack, type Source } from '../../netlify/shared/sourcepack'
+import { RELATED_HEADING, bodyOf, citableSources, listedSources, parseSourcePack, relatedMeta, relatedSources, type Source } from '../../netlify/shared/sourcepack'
 import { CHANGE_STAGES, compareStage, readabilityTrend, type ChangeStage } from '../lib/compare'
 import type { ChangeNote } from '../../netlify/shared/changes'
 import type { PipelineOutcome } from '../lib/api'
@@ -47,6 +47,21 @@ function Cites({ sources, label }: { sources: Source[]; label: string }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+// Hacker News stories the run found: links to the discussion page, never cited in the text.
+function Related({ sources }: { sources: Source[] }) {
+  return (
+    <ul className="ds-cite" aria-label={RELATED_HEADING}>
+      {sources.map(source => (
+        <li key={source.n}>
+          <span className="ds-cite__n" aria-hidden="true">{'\u2022'}</span>
+          <a className="ds-cite__title" href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>
+          <span className="ds-cite__url">{relatedMeta(source)}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -140,7 +155,8 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
   const pack = parseSourcePack(outputs.sources ?? '')
   const names = namesFor(topic, pack)
   const listed = best === 'polish' ? listedSources(text, pack) : { sources: [], cited: true }
-  const noSources = best === 'polish' && pack.sources.length === 0
+  const related = best === 'polish' ? relatedSources(pack) : []
+  const noSources = best === 'polish' && citableSources(pack).sources.length === 0
   const complete = outcome?.kind === 'complete'
   const comparison = compareStage(changeStage, outputs, notes)
   const changeOptions = CHANGE_STAGES.map(stage => ({ value: stage, label: FROM_LABEL[stage], disabled: compareStage(stage, outputs, notes) === null }))
@@ -189,11 +205,17 @@ export default function Piece({ topic, outputs, notes, running, runningStage, ou
           {activeView === 'final' ? (
             <>
               <Prose text={body} className="prose prose--lead" names={names} />
-              {noSources && <p className="ds-help">No live source was found for this topic, so the facts above come from the model and are unchecked.</p>}
+              {noSources && <p className="ds-help">No article was found to cite for this topic, so the facts above come from the model and are unchecked.</p>}
               {listed.sources.length > 0 && (
                 <>
                   <p className="ds-label">{listed.cited ? 'Sources cited' : 'Sources consulted, not cited in the text'}</p>
                   <Cites sources={listed.sources} label="Sources" />
+                </>
+              )}
+              {related.length > 0 && (
+                <>
+                  <p className="ds-label">{RELATED_HEADING}</p>
+                  <Related sources={related} />
                 </>
               )}
             </>

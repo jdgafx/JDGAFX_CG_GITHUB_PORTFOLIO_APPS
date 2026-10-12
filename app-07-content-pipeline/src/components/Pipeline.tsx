@@ -16,7 +16,7 @@ const HANDOFF: Record<StageId, string> = {
 }
 
 const STAGE_HINTS: Record<StageId, string> = {
-  sources: 'Live Wikipedia articles and Hacker News stories, numbered for citation.',
+  sources: 'Live Wikipedia articles, numbered for citation, and Hacker News stories, which are listed after the piece and never cited.',
   research: 'Notes drawn from the numbered sources.',
   outline: 'Section headings with bullet points under each.',
   draft: 'The first full version, built from the research and outline.',

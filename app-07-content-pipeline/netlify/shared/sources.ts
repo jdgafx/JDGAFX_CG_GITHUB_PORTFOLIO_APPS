@@ -164,8 +164,8 @@ export function isRelevantTitle(title: string, terms: string[]): boolean {
   return topicHits(title, terms) >= Math.max(1, Math.min(3, Math.ceil(terms.length / 2)))
 }
 
-// A Hacker News source is the discussion page: it always shows the story's title, which is all the writing may
-// claim from it. The story's own link is not cited, because a story outlives the page it points to.
+// A Hacker News source is the discussion page: it always shows the story's title, which is all the Related list
+// shows of it. The story's own link is not used, because a story outlives the page it points to.
 export function parseHackerNews(json: unknown, terms: string[]): Candidate[] {
   const hits = asRecord(json)?.hits
   if (!Array.isArray(hits)) return []

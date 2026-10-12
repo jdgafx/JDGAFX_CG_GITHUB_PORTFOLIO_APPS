@@ -27,7 +27,7 @@ export default function Header({ badge, live }: HeaderProps) {
           <p className="ds-subtitle">A live source lookup and five AI steps turn a topic into a cited piece, and show every change on the way.</p>
         </div>
         <p className="ds-showcase">
-          <strong>What this showcases:</strong> a resumable six-step writing pipeline grounded in live Wikipedia and Hacker News sources, with tracked changes between Draft, Edit and Polish, each change explained and checked against the text.
+          <strong>What this showcases:</strong> a resumable six-step writing pipeline grounded in live Wikipedia articles, with related Hacker News stories listed beside them, and with tracked changes between Draft, Edit and Polish, each change explained and checked against the text.
         </p>
       </div>
     </header>

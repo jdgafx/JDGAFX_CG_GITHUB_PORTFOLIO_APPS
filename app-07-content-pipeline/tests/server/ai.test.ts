@@ -62,7 +62,9 @@ describe('happy path', () => {
     expect(messages[0].content).toContain('Current step: DRAFT.')
     expect(messages[0].content).toContain('roughly 160 words')
     expect(messages[0].content).toContain('put its number in square brackets')
-    expect(messages[1].content).toContain(`## Sources\n${SOURCES}`)
+    // The Hacker News story in SOURCES is never offered as a source to cite.
+    expect(messages[1].content).toContain(`## Sources\n${SOURCES.split('\n\n[3]')[0]}\n\n## Research`)
+    expect(messages[1].content).not.toContain('Multiple assertions')
     expect(messages[1].content).toContain(`## Research\n${NOTES}`)
     expect(messages[1].content).toContain('## Outline\n- Why tests pay off')
     expect(messages[1].content).toMatch(/draft the Blog Post about: Why unit tests matter for small teams$/)

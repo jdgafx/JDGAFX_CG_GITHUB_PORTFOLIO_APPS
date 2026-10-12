@@ -6,7 +6,7 @@ import {
 } from '../shared/stages'
 import { withDeadline } from '../shared/deadline'
 import { SourcesUnavailableError, gatherSources } from '../shared/sources'
-import { bodyOf, formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
+import { bodyOf, citableSources, formatSourcePack, parseSourcePack, withSources, KIND_LABELS, type SourcePack } from '../shared/sourcepack'
 import { notesDetail, splitChanges, verifyNotes, type ChangeNote } from '../shared/changes'
 import { clientKey, corsHeaders, originAllowed, rateLimited } from '../shared/access'
 
@@ -183,7 +183,7 @@ async function runModelStage(run: RunRequest & { stage: ModelStageId }, req: Req
   const { stage } = run
   const startedAt = Date.now()
   const sources = parseSourcePack(run.context.sources ?? '')
-  const system = buildSystemPrompt(stage, run.topic, run.contentType, sources.sources.length)
+  const system = buildSystemPrompt(stage, run.topic, run.contentType, citableSources(sources).sources.length)
   const user = buildUserMessage(stage, run.topic, run.contentType, run.context)
   const limitMs = stageTimeoutMs(stage)
   let retried: string | null = null

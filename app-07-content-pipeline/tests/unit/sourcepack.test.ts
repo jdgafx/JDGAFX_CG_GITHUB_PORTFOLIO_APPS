@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bodyOf, formatSourcePack, parseSourcePack, sourceIndex, withSources, type Source, type SourcePack } from '../../netlify/shared/sourcepack'
+import { bodyOf, citableSources, formatSourcePack, listedSources, parseSourcePack, sourceIndex, withSources, type Source, type SourcePack } from '../../netlify/shared/sourcepack'
 
 const WIKI: Source = {
   n: 1,
@@ -30,7 +30,6 @@ describe('formatSourcePack and parseSourcePack', () => {
       'URL: https://o-santi.github.io/blog/rust-is-not-about-memory-safety/',
       'Points: 57',
       'Date: 2024-06-02',
-      'Text: one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up',
       '',
       'Note: Hacker News returned no matching results.',
     ].join('\n'))
@@ -63,21 +62,32 @@ describe('formatSourcePack and parseSourcePack', () => {
   })
 
   it('lists only numbered titles in the index', () => {
-    expect(sourceIndex(PACK)).toBe('[1] Wikipedia: Rust (programming language)\n[2] Hacker News: Rust is not about memory safety (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)')
+    expect(sourceIndex(PACK)).toBe('[1] Wikipedia: Rust (programming language)\n[2] Hacker News: Rust is not about memory safety')
+  })
+
+  it('keeps only the sources that have text as the ones a writer may cite', () => {
+    expect(citableSources(PACK)).toEqual({ sources: [WIKI], notes: PACK.notes })
   })
 })
 
+// A source that has text, for tests of how a claim is matched to a source.
+const article = (title: string, n = 1, url = 'https://example.test/article'): Source => ({ n, kind: 'wikipedia', title, url, summary: 'It.' })
+
 describe('withSources', () => {
   const BODY = 'Rust is a general-purpose language [1]. Some argue it is not really about memory safety [2].'
+  const CLEAN = 'Rust is a general-purpose language [1]. Some argue it is not really about memory safety.'
 
-  it('ends a blog post with a Sources list of the sources it cites, titles linked', () => {
+  it('ends a blog post with a Sources list of the sources it cites, titles linked, and a Related list of the headline-only stories', () => {
     expect(withSources(BODY, PACK, 'Blog Post')).toBe([
-      BODY,
+      CLEAN,
       '',
       '### Sources',
       '',
       '- [1] [Rust (programming language)](https://en.wikipedia.org/wiki/Rust_%28programming_language%29), Wikipedia',
-      '- [2] [Rust is not about memory safety](https://o-santi.github.io/blog/rust-is-not-about-memory-safety/), Hacker News, 57 points, 2024-06-02',
+      '',
+      '### Related on Hacker News',
+      '',
+      '- [Rust is not about memory safety](https://o-santi.github.io/blog/rust-is-not-about-memory-safety/), 57 points, 2024-06-02',
     ].join('\n'))
   })
 
@@ -91,7 +101,7 @@ describe('withSources', () => {
     const text = withSources('No markers here.', PACK, 'Newsletter')
     expect(text).toContain('### Sources consulted (not cited in the text)')
     expect(text).toContain('- [1] ')
-    expect(text).toContain('- [2] ')
+    expect(text).not.toContain('- [2] ')
   })
 
   it('removes a marker that points at no source, with the space before it', () => {
@@ -122,7 +132,7 @@ describe('withSources', () => {
 
   describe('a marker stays unless there is clearly no connection', () => {
     const ASM: SourcePack = {
-      sources: [{ n: 3, kind: 'hackernews', title: 'From Asm.js to WebAssembly', url: 'https://brendaneich.com/2015/06/from-asm-js-to-webassembly/', summary: '', points: 120, date: '2015-06-17' }],
+      sources: [article('From Asm.js to WebAssembly', 3, 'https://brendaneich.com/2015/06/from-asm-js-to-webassembly/')],
       notes: [],
     }
     const keeps = (text: string, pack: SourcePack, marker = '[1]') => withSources(text, pack, 'Blog Post').startsWith(text) && text.includes(marker)
@@ -139,34 +149,23 @@ describe('withSources', () => {
     })
 
     it('keeps a marker on a name such as C# or C++, which are shorter than three letters', () => {
-      const csharp: SourcePack = { sources: [{ ...HN, n: 1, title: "A comparison of Rust's borrow checker to the one in C#" }], notes: [] }
+      const csharp: SourcePack = { sources: [article("A comparison of Rust's borrow checker to the one in C#")], notes: [] }
       expect(keeps("A widely discussed post contrasts Rust's borrowing model with the reference-safety rules in C# [1].", csharp)).toBe(true)
-      expect(keeps('Pointers are manual in C++ and managed in Java [1].', { sources: [{ ...HN, n: 1, title: 'Why C++ pointers hurt' }], notes: [] })).toBe(true)
-    })
-
-    it('matches the year of a Hacker News story, which is in its date and not in its title', () => {
-      const four: SourcePack = { sources: [{ ...HN, n: 2, title: 'Four limitations of Rust\'s borrow checker', date: '2024-12-22' }], notes: [] }
-      expect(keeps('A December 2024 analysis lays out the shortcomings of the model [2].', four, '[2]')).toBe(true)
-      expect(withSources('A March 2019 analysis lays out the shortcomings of the model [2].', four, 'Blog Post').startsWith('A March 2019 analysis lays out the shortcomings of the model.')).toBe(true)
-    })
-
-    it('matches the words in a Hacker News link when the headline does not name the subject', () => {
-      const tribute: SourcePack = { sources: [{ ...HN, n: 4, title: 'A moonlit tribute to a moon landing icon', url: 'https://blog.google/products/maps/margaret-hamilton-apollo-11-tribute/' }], notes: [] }
-      expect(keeps("Margaret Hamilton, an Apollo-era figure, has been honored for her work [4].", tribute, '[4]')).toBe(true)
+      expect(keeps('Pointers are manual in C++ and managed in Java [1].', { sources: [article('Why C++ pointers hurt')], notes: [] })).toBe(true)
     })
 
     it('matches a word inside a longer one, such as "painting" in "repainting"', () => {
-      const paint: SourcePack = { sources: [{ ...HN, n: 5, title: 'Painting the Eiffel Tower' }], notes: [] }
+      const paint: SourcePack = { sources: [article('Painting the Eiffel Tower', 5)], notes: [] }
       expect(keeps('Its repainting has drawn attention in its own right [5].', paint, '[5]')).toBe(true)
     })
 
     it('matches endings of the same word, such as tests and testing', () => {
-      const pack: SourcePack = { sources: [{ ...HN, n: 1, title: 'Unit testing at scale' }], notes: [] }
+      const pack: SourcePack = { sources: [article('Unit testing at scale')], notes: [] }
       expect(keeps('Small teams that write tests ship calmer [1].', pack)).toBe(true)
     })
 
     it('does not match on a short word by accident', () => {
-      const pack: SourcePack = { sources: [{ ...HN, n: 1, title: 'The LHC and CERN' }], notes: [] }
+      const pack: SourcePack = { sources: [article('The LHC and CERN')], notes: [] }
       expect(withSources('Lunch was served at noon [1].', pack, 'Blog Post').startsWith('Lunch was served at noon.')).toBe(true)
     })
   })
@@ -223,11 +222,15 @@ describe('withSources', () => {
       '**Sources**',
       '',
       '- [1] [en.wikipedia.org/wiki/Rust\\_(programming\\_language)](https://en.wikipedia.org/wiki/Rust_%28programming_language%29)',
+      '',
+      '**Related on Hacker News**',
+      '',
+      '- [Rust is not about memory safety](https://o-santi.github.io/blog/rust-is-not-about-memory-safety/), 57 points, 2024-06-02',
     ].join('\n'))
   })
 
   it('cuts a very long short link with an ellipsis', () => {
-    const pack: SourcePack = { sources: [{ ...HN, n: 1, url: `https://example.test/${'a'.repeat(80)}` }], notes: [] }
+    const pack: SourcePack = { sources: [article('A title', 1, `https://example.test/${'a'.repeat(80)}`)], notes: [] }
     expect(withSources('Claim [1].', pack, 'Social Thread')).toContain(`[example.test/${'a'.repeat(42)}\u2026](`)
   })
 
@@ -238,8 +241,52 @@ describe('withSources', () => {
 
   it('labels a piece with no sources instead of listing any', () => {
     expect(withSources('Text [1] here.', { sources: [], notes: [] }, 'Blog Post')).toBe(
-      'Text here.\n\n*No sources: the live lookups found nothing for this topic, so the facts above come from the model and are unchecked.*',
+      'Text here.\n\n*No sources: the live lookups found no article to cite for this topic, so the facts above come from the model and are unchecked.*',
     )
+  })
+
+  describe('a headline-only source (Hacker News) is never cited, only listed', () => {
+    it('removes a marker that points at it, by its type and whatever the sentence says', () => {
+      const out = withSources('Rust is not about memory safety, a post argues [2]. A general-purpose language [1][2].', PACK, 'Blog Post')
+      expect(bodyOf(out)).toBe('Rust is not about memory safety, a post argues. A general-purpose language [1].')
+    })
+
+    it('never moves a marker onto it, even when its headline fits the sentence best', () => {
+      const out = withSources('Rust is not about memory safety [1].', PACK, 'Blog Post')
+      expect(bodyOf(out)).not.toContain('[2]')
+      expect(out).not.toContain('- [2]')
+    })
+
+    it('lists it as Related on Hacker News with the exact title linked, and not as a cited source', () => {
+      const out = withSources('A general-purpose language [1].', PACK, 'Blog Post')
+      expect(out).toContain('### Related on Hacker News\n\n- [Rust is not about memory safety](https://o-santi.github.io/blog/rust-is-not-about-memory-safety/), 57 points, 2024-06-02')
+      expect(listedSources(out, PACK)).toEqual({ sources: [WIKI], cited: true })
+    })
+
+    it('uses the same list in a social thread, under a bold heading', () => {
+      expect(withSources('1/ A general-purpose language [1].', PACK, 'Social Thread')).toContain('**Related on Hacker News**\n\n- [Rust is not about memory safety](')
+    })
+
+    it('says no article was found to cite and still lists the stories when only headlines were found', () => {
+      const only: SourcePack = { sources: [HN], notes: [] }
+      const out = withSources('Claims [2]. More claims.', only, 'Blog Post')
+      expect(out).toBe([
+        'Claims. More claims.',
+        '',
+        '*No sources: the live lookups found no article to cite for this topic, so the facts above come from the model and are unchecked.*',
+        '',
+        '### Related on Hacker News',
+        '',
+        '- [Rust is not about memory safety](https://o-santi.github.io/blog/rust-is-not-about-memory-safety/), 57 points, 2024-06-02',
+      ].join('\n'))
+      expect(bodyOf(out)).toBe('Claims. More claims.')
+    })
+
+    it('escapes a title so it cannot break the link', () => {
+      const out = withSources('Claim [1].', { sources: [WIKI, { ...HN, title: '[2] A *bold* [claim]' }], notes: [] }, 'Blog Post')
+      expect(out).toContain('- [\\[2\\] A \\*bold\\* \\[claim\\]](')
+      expect(listedSources(out, PACK).sources).toEqual([WIKI])
+    })
   })
 })
 
@@ -268,9 +315,9 @@ describe('relative best-match: a marker moves to the source that fits its senten
     expect(bodyOf(out)).toBe('The telescope was launched [1].')
   })
 
-  it('never moves a Hacker News marker, whose headline gives too few words to compare', () => {
-    const out = withSources('Webb telescope images drew debate from Kourou launched [3].', SPACE, 'Blog Post')
-    expect(bodyOf(out)).toContain('[3]')
+  it('removes a marker on a headline-only story instead of keeping or moving it', () => {
+    const out = withSources('Webb telescope images drew debate [3].', SPACE, 'Blog Post')
+    expect(bodyOf(out)).toBe('Webb telescope images drew debate.')
   })
 
   it('does not move a marker onto a source that is already in its own run', () => {
@@ -289,6 +336,7 @@ describe('bodyOf', () => {
     const cases: Array<[SourcePack, string]> = [[PACK, 'Blog Post'], [PACK, 'Social Thread'], [{ sources: [], notes: [] }, 'Blog Post']]
     for (const [pack, type] of cases) {
       expect(bodyOf(withSources('Rust is a language [1].', pack, type))).toBe(pack.sources.length > 0 ? 'Rust is a language [1].' : 'Rust is a language.')
+      expect(bodyOf(withSources('Rust is a language.', pack, type))).toBe('Rust is a language.')
     }
   })
 

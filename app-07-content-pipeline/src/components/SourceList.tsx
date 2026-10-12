@@ -2,14 +2,14 @@ import { KIND_LABELS, parseSourcePack, type Source } from '../../netlify/shared/
 
 function metaFor(source: Source): string {
   if (source.kind === 'wikipedia') return 'Article introduction'
-  return [source.points === undefined ? '' : `${source.points.toLocaleString('en-US')} points`, source.date ?? ''].filter(Boolean).join(' · ')
+  return [source.points === undefined ? '' : `${source.points.toLocaleString('en-US')} points`, source.date ?? '', 'listed after the piece, not cited'].filter(Boolean).join(' · ')
 }
 
 function hostOf(url: string): string {
   return new URL(url).host.replace(/^www\./, '')
 }
 
-// The Sources stage output as numbered cards. The numbers are the ones the writing stages cite.
+// The Sources stage output as numbered cards. The numbers are the ones the writing stages cite, for the sources with text.
 export default function SourceList({ text }: { text: string }) {
   const { sources, notes } = parseSourcePack(text)
 

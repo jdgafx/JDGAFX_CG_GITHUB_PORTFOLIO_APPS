@@ -40,8 +40,23 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
-// What a source with no extract (a Hacker News story) gives a writer: the headline, nothing under it.
-const HEADLINE_ONLY = 'one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up'
+// A source with no extract (a Hacker News story) gives a headline and nothing under it, so it is never
+// offered to a writer to cite: only these sources are, and the rest are listed after the piece.
+export function citableSources(pack: SourcePack): SourcePack {
+  return { ...pack, sources: pack.sources.filter(source => source.summary !== '') }
+}
+
+// The sources that are only listed: those a writer is never offered.
+export function relatedSources(pack: SourcePack): Source[] {
+  return pack.sources.filter(source => source.summary === '')
+}
+
+// "N points" and the date, whichever the source has.
+export function relatedMeta(source: Source): string {
+  return [source.points === undefined ? '' : `${source.points} points`, source.date ?? ''].filter(Boolean).join(', ')
+}
+
+export const RELATED_HEADING = 'Related on Hacker News'
 
 export function formatSourcePack(pack: SourcePack): string {
   const blocks = pack.sources.map(source => [
@@ -49,7 +64,7 @@ export function formatSourcePack(pack: SourcePack): string {
     `URL: ${source.url}`,
     source.points === undefined ? '' : `Points: ${source.points}`,
     source.date ? `Date: ${source.date}` : '',
-    source.summary ? `Summary: ${oneLine(source.summary)}` : `Text: ${HEADLINE_ONLY}`,
+    source.summary ? `Summary: ${oneLine(source.summary)}` : '',
   ].filter(Boolean).join('\n'))
   const notes = pack.notes.map(note => `Note: ${oneLine(note)}`).join('\n')
   return [pack.sources.length === 0 ? NO_SOURCES_LINE : '', ...blocks, notes].filter(Boolean).join('\n\n')
@@ -86,7 +101,7 @@ export function parseSourcePack(text: string): SourcePack {
 // Number and title only, for the stages that must keep citations valid but do not need the extracts.
 export function sourceIndex(pack: SourcePack): string {
   return pack.sources
-    .map(source => `[${source.n}] ${KIND_LABELS[source.kind]}: ${oneLine(source.title)}${source.summary ? '' : ` (${HEADLINE_ONLY})`}`)
+    .map(source => `[${source.n}] ${KIND_LABELS[source.kind]}: ${oneLine(source.title)}`)
     .join('\n')
 }
 
@@ -111,7 +126,7 @@ function stripSourcesSection(text: string): string {
 export function bodyOf(piece: string): string {
   const cut = piece.search(/\n\n(?:### Sources(?: consulted \(not cited in the text\))?|\*\*Sources(?: consulted \(not cited in the text\))?\*\*)\n\n- \[\d+\]/)
   if (cut >= 0) return piece.slice(0, cut)
-  const none = piece.indexOf('\n\n*No sources: the live lookups found nothing')
+  const none = piece.indexOf('\n\n*No sources: ')
   return none >= 0 ? piece.slice(0, none) : piece
 }
 
@@ -168,20 +183,9 @@ function sentenceBefore(text: string, index: number): string {
   return head.slice(cut + 1)
 }
 
-// The words in a story's link ("margaret-hamilton-apollo-11-tribute") say what it is about when
-// its headline does not name the subject.
-function linkWords(url: string): string {
-  try {
-    return decodeURIComponent(new URL(url).pathname).replace(/[/_-]+/g, ' ')
-  } catch {
-    return ''
-  }
-}
-
-// The tokens a source can back a claim with: title, extract and (for Hacker News) year and link words.
+// The tokens a source can back a claim with: its title and its extract.
 function sourceTokens(source: Source): string[] {
-  const own = `${source.title} ${source.summary} ${source.date ?? ''}`
-  return claimTokens(source.kind === 'hackernews' ? `${own} ${linkWords(source.url)}` : own)
+  return claimTokens(`${source.title} ${source.summary}`)
 }
 
 // How well each source matches a sentence. A sentence token that relates to several sources is shared
@@ -231,36 +235,46 @@ function listEntry(source: Source, contentType: string): string {
   return `- [${source.n}] [${escapeMarkdown(source.title)}](${source.url}), ${meta}`
 }
 
+function relatedList(pack: SourcePack, contentType: string): string {
+  const related = relatedSources(pack)
+  if (related.length === 0) return ''
+  const entries = related.map(source => [`- [${escapeMarkdown(source.title)}](${source.url})`, relatedMeta(source)].filter(Boolean).join(', '))
+  return `\n\n${contentType === 'Social Thread' ? `**${RELATED_HEADING}**` : `### ${RELATED_HEADING}`}\n\n${entries.join('\n')}`
+}
+
 /**
  * Ends the finished piece with its Sources list. Markers that point at no real source are removed,
  * and so is a marker whose sentence shares no word at all with its source (the sentence stays, uncited).
- * The list is built from the lookup, never from model text. With no sources the piece says so.
+ * A source with no text (a Hacker News story) is never cited: a marker that points at one is removed, and
+ * the story is listed after the Sources list instead, as Related. The lists are built from the lookup,
+ * never from model text. With no source to cite the piece says so.
  */
 export function withSources(piece: string, pack: SourcePack, contentType: string): string {
   const body = stripSourcesSection(piece).trimEnd()
-  if (pack.sources.length === 0) {
+  const { sources } = citableSources(pack)
+  const related = relatedList(pack, contentType)
+  if (sources.length === 0) {
     const unmarked = body.replace(CITATION, '')
-    return `${unmarked}\n\n*No sources: the live lookups found nothing for this topic, so the facts above come from the model and are unchecked.*`
+    return `${unmarked}\n\n*No sources: the live lookups found no article to cite for this topic, so the facts above come from the model and are unchecked.*${related}`
   }
 
-  const bySource = new Map(pack.sources.map(source => [source.n, source]))
-  const tokensOf = new Map(pack.sources.map(source => [source.n, sourceTokens(source)]))
+  const bySource = new Map(sources.map(source => [source.n, source]))
+  const tokensOf = new Map(sources.map(source => [source.n, sourceTokens(source)]))
   const cited = new Set<number>()
   // A run such as "[1][2]" is judged marker by marker, and the markers that hold stay together.
   // Each marker is also compared with the sources outside its own run: when one of those matches the
-  // sentence clearly better, the marker moves to it. A Hacker News headline is never moved, because a
-  // headline gives too few words to compare with an article extract.
+  // sentence clearly better, the marker moves to it.
   const cleaned = body.replace(CITATION, (match, run: string, offset: number) => {
     const sentence = sentenceBefore(body, offset)
-    const scores = matchScores(sentence, pack.sources, tokensOf)
+    const scores = matchScores(sentence, sources, tokensOf)
     const inRun = new Set([...run.matchAll(/\[(\d+)\]/g)].map(([, digits]) => Number(digits)))
-    const rivals = pack.sources.filter(source => !inRun.has(source.n))
+    const rivals = sources.filter(source => !inRun.has(source.n))
     const kept: string[] = []
     for (const digits of inRun) {
-      const source = bySource.get(digits)
+      // A marker that points at no source with text is removed.
+      if (!bySource.has(digits)) continue
       const own = scores.get(digits) ?? 0
-      if (!source) continue
-      const rival = source.kind === 'hackernews' ? undefined : rivals.reduce<Source | undefined>(
+      const rival = rivals.reduce<Source | undefined>(
         (best, candidate) => ((scores.get(candidate.n) ?? 0) > (scores.get(best?.n ?? -1) ?? -1) ? candidate : best),
         undefined,
       )
@@ -273,8 +287,8 @@ export function withSources(piece: string, pack: SourcePack, contentType: string
     return kept.length > 0 ? `${match.startsWith(' ') ? ' ' : ''}${kept.join('')}` : ''
   })
 
-  const listed = pack.sources.filter(source => cited.size === 0 || cited.has(source.n))
+  const listed = sources.filter(source => cited.size === 0 || cited.has(source.n))
   const heading = cited.size === 0 ? 'Sources consulted (not cited in the text)' : 'Sources'
   const title = contentType === 'Social Thread' ? `**${heading}**` : `### ${heading}`
-  return `${cleaned}\n\n${title}\n\n${listed.map(source => listEntry(source, contentType)).join('\n')}`
+  return `${cleaned}\n\n${title}\n\n${listed.map(source => listEntry(source, contentType)).join('\n')}${related}`
 }
