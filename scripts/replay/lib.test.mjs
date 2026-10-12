@@ -108,3 +108,55 @@ test('a config drives the checks: another app with its own paths and fields is j
   refused(input({ ...body, items: [] }), /not as expected/)
   refused(input({ ...body, meta: { usd: 0.01 } }), /no model/)
 })
+
+const sse = { frame: { field: 'type', equals: 'result' }, take: 'last', path: 'run' }
+const streamConfig = { ...config, finishPath: '/api/ai', sse, expect: [{ path: '/api/ai', field: 'ok', equals: true }], reported: { model: { path: '/api/ai', field: 'model' }, modelRole: 'writer', costUsd: { path: '/api/ai', field: 'cost.usd' }, costScope: 'whole run' } }
+const frame = o => `data: ${JSON.stringify(o)}\n\n`
+const run = { ok: true, model: 'v/m', cost: { usd: 0.02 } }
+const streamInput = (chunks, headers = [['Content-Type', 'text/event-stream; charset=utf-8']], cfg = streamConfig) => ({
+  app: 'streamer', config: cfg, url: 'https://example.test/', recordedAt: 'x', t0: 1,
+  exchanges: [exchange('/api/ai', 10, null, { headers, chunks: chunks.map((text, i) => ({ t: 20 + i, text })), t_end: 20 + chunks.length })],
+})
+
+test('an event-stream reply is read through the sse rule: the last result frame, its run field', () => {
+  const stale = frame({ type: 'result', run: { ...run, model: 'old/m' } })
+  const chunks = [': keepalive\n\n', frame({ type: 'delta', text: 'he' }), 'event: x\ndata: {"type":"del', 'ta","text":"llo"}\n\n', stale, frame({ type: 'result', run }), 'data: [DONE]\n\n']
+  const rec = buildRecording(streamInput(chunks))
+  assert.deepEqual(rec.reported, { model: 'v/m', model_role: 'writer', cost_usd: 0.02, cost_scope: 'whole run' })
+  assert.equal(rec.exchanges[0].chunks.map(c => c.text).join(''), chunks.join(''))
+  assert.deepEqual(rec.exchanges[0].chunks.map(c => c.t), [19, 20, 21, 22, 23, 24, 25].slice(0, chunks.length))
+})
+
+test("take 'first' picks the first matching frame; no path keeps the whole frame", () => {
+  const chunks = [frame({ type: 'result', run: { ...run, model: 'first/m' } }), frame({ type: 'result', run })]
+  assert.equal(buildRecording(streamInput(chunks, undefined, { ...streamConfig, sse: { ...sse, take: 'first' } })).reported.model, 'first/m')
+  const whole = { ...streamConfig, sse: { frame: sse.frame }, expect: [{ path: '/api/ai', field: 'run.ok', equals: true }], reported: { ...streamConfig.reported, model: { path: '/api/ai', field: 'run.model' }, costUsd: { path: '/api/ai', field: 'run.cost.usd' } } }
+  assert.equal(buildRecording(streamInput(chunks, undefined, whole)).reported.model, 'v/m')
+})
+
+test('refuses an event stream with no matching frame, a malformed frame, a frame lacking the path, or no sse rule', () => {
+  const bad = (input, pattern) => refused(input, pattern)
+  bad(streamInput([frame({ type: 'delta', text: 'x' })]), /never sent a frame/)
+  bad(streamInput([]), /never sent a frame/)
+  bad(streamInput([frame({ type: 'result', run }), 'data: {"type":"result", oops\n\n']), /not JSON/)
+  bad(streamInput([frame({ type: 'result', run }), 'data: {"type":"result"']), /not JSON/)
+  bad(streamInput([frame({ type: 'result' })]), /no run/)
+  bad(streamInput([frame({ type: 'result', run })], undefined, config), /no sse rule/)
+  bad(streamInput([frame({ type: 'result', run: { ...run, ok: false } })]), /not as expected/)
+  bad(streamInput([frame({ type: 'result', run: { ok: true, model: 'v/m' } })]), /no cost/)
+})
+
+test('a non-stream reply is still parsed as JSON even when the app config has an sse rule, and a bad body is refused', () => {
+  const json200 = streamInput([JSON.stringify(run)], [['content-type', 'application/json']])
+  assert.equal(buildRecording(json200).reported.model, 'v/m')
+  refused(streamInput(['<html>'], [['content-type', 'application/json']]), /did not answer with JSON/)
+})
+
+test('sse config is validated', () => {
+  const write = sseValue => tempDir({ 'a.json': { ...config, sse: sseValue } })
+  configError(() => loadAppConfig('a', write({})), /sse.frame/)
+  configError(() => loadAppConfig('a', write({ frame: { field: 'type' } })), /sse.frame/)
+  configError(() => loadAppConfig('a', write({ frame: sse.frame, take: 'middle' })), /sse.take/)
+  configError(() => loadAppConfig('a', write({ frame: sse.frame, path: '' })), /sse.path/)
+  assert.deepEqual(loadAppConfig('a', write(sse)).sse, sse)
+})

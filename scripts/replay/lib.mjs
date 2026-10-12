@@ -14,7 +14,11 @@ const round = ms => Math.round(ms * 10) / 10
 // Per-app knowledge lives in apps/<app>.json, never in code: what the built-in example is, which reply ends it, what a
 // good run looks like and where its model and cost are reported. Fields:
 //   url, tryButton, finishPath, apiPrefix, settleMs (optional), expect (checks on the recorded reply bodies),
-//   reported { model, modelRole, costUsd, costScope } (read from the recorded bodies, never from the screen).
+//   reported { model, modelRole, costUsd, costScope } (read from the recorded bodies, never from the screen),
+//   sse (optional, for apps whose replies are text/event-stream): { frame: { field, equals }, take: 'last' | 'first', path }.
+//     The body that expect/reported read is chosen from the reply's parsed data: frames: the first or last (default last)
+//     frame whose dotted `field` equals `equals`, then the dotted `path` inside it (optional; whole frame if omitted).
+//     One rule for every event-stream reply of the app; JSON replies are parsed as before.
 export const APPS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'apps')
 const APP_NAME = /^[a-z0-9][a-z0-9-]*$/
 
@@ -48,6 +52,12 @@ export function loadAppConfig(app, dir = APPS_DIR) {
   if (c.settleMs !== undefined && !(Number.isInteger(c.settleMs) && c.settleMs >= 0 && c.settleMs <= 60_000)) throw bad('settleMs must be 0 to 60000')
   if (!Array.isArray(c.expect) || !c.expect.every(e => isSpec(e) && (e.equals !== undefined || e.minLength !== undefined || e.nonEmpty === true))) {
     throw bad('expect must list {path, field, equals | minLength | nonEmpty}')
+  }
+  if (c.sse !== undefined) {
+    const f = isObject(c.sse) ? c.sse.frame : undefined
+    if (!isObject(f) || typeof f.field !== 'string' || f.field === '' || f.equals === undefined) throw bad('sse.frame must be {field, equals}')
+    if (c.sse.take !== undefined && c.sse.take !== 'first' && c.sse.take !== 'last') throw bad("sse.take must be 'first' or 'last'")
+    if (c.sse.path !== undefined && (typeof c.sse.path !== 'string' || c.sse.path === '')) throw bad('sse.path must be a dotted field name')
   }
   const r = c.reported
   if (!isObject(r) || !isSpec(r.model) || !isSpec(r.costUsd) || typeof r.modelRole !== 'string' || typeof r.costScope !== 'string') {
@@ -84,6 +94,40 @@ function valuesAt(body, field) {
   return current
 }
 
+const isEventStream = headers => headers.find(([name]) => name.toLowerCase() === 'content-type')?.[1]?.trim().toLowerCase().startsWith('text/event-stream') === true
+
+// The JSON of every data: frame of an event stream, in order. Frames end at a blank line; several data: lines in one
+// frame join with a newline; comment and other fields (event:, id:, retry:) are ignored; a literal [DONE] is the
+// conventional end marker, not a frame. A frame whose data is not JSON refuses the run.
+function sseFrames(text, where) {
+  const frames = []
+  for (const block of text.split(/\r\n\r\n|\n\n|\r\r/)) {
+    const data = block.split(/\r\n|\n|\r/).filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, ''))
+    if (data.length === 0) continue
+    const raw = data.join('\n')
+    if (raw.trim() === '[DONE]') continue
+    try {
+      frames.push(JSON.parse(raw))
+    } catch {
+      throw new RefusedRun(`${where} sent an event-stream frame that is not JSON`)
+    }
+  }
+  return frames
+}
+
+// The body expect/reported read from an event-stream reply, chosen by the app's sse rule.
+function sseBody(text, sse, where) {
+  if (!sse) throw new RefusedRun(`${where} answered with an event stream but the app config has no sse rule`)
+  const frames = sseFrames(text, where)
+  const hits = frames.filter(f => valuesAt(f, sse.frame.field)[0] === sse.frame.equals)
+  if (hits.length === 0) throw new RefusedRun(`${where} never sent a frame with ${sse.frame.field} = ${JSON.stringify(sse.frame.equals)}`)
+  const frame = sse.take === 'first' ? hits[0] : hits[hits.length - 1]
+  if (sse.path === undefined) return frame
+  const value = valuesAt(frame, sse.path)[0]
+  if (value === undefined) throw new RefusedRun(`${where} chosen frame has no ${sse.path}`)
+  return value
+}
+
 function satisfies(value, e) {
   if (e.equals !== undefined && value !== e.equals) return false
   if (e.minLength !== undefined && !(Array.isArray(value) && value.length >= e.minLength)) return false
@@ -114,10 +158,14 @@ export function buildRecording({ app, config, url, recordedAt, t0, exchanges }) 
     if (!e.done) throw new RefusedRun(`${e.method} ${e.path} did not finish`)
     if (!Number.isInteger(e.status) || e.status < 200 || e.status > 299) throw new RefusedRun(`${e.method} ${e.path} answered ${e.status}`)
     const text = e.chunks.map(c => c.text).join('')
-    try {
-      bodies[e.path] = JSON.parse(text)
-    } catch {
-      throw new RefusedRun(`${e.method} ${e.path} did not answer with JSON`)
+    if (isEventStream(e.headers)) {
+      bodies[e.path] = sseBody(text, config.sse, `${e.method} ${e.path}`)
+    } else {
+      try {
+        bodies[e.path] = JSON.parse(text)
+      } catch {
+        throw new RefusedRun(`${e.method} ${e.path} did not answer with JSON`)
+      }
     }
     const contentType = e.headers.find(([name]) => name.toLowerCase() === 'content-type')?.[1]
     return {
