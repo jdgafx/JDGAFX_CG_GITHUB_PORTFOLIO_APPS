@@ -321,6 +321,42 @@ describe('ai function model replies that cannot be used', () => {
     expect(mock).toHaveBeenCalledTimes(1)
   })
 
+  it('answers 502 when a cut-off reply still parses as a whole plan, with no second model call', async () => {
+    // The verifier's capture: the last key was lost and the JSON closed itself as ...,"notice":null,"":null}.
+    const closedEarly = JSON.stringify({ ...PLAN, '': null })
+    const mock = stubProvider(modelReply(closedEarly, undefined, 'length'))
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(502)
+    const reply = await readReply(response)
+    expect(reply.error).toBe('The AI reply was cut off before the JSON finished. Try a narrower question.')
+    expect(reply.result).toBeUndefined()
+    expect(reply.trace?.find((step) => step.name === 'Read JSON reply')).toMatchObject({ status: 'failed' })
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers 502 when the repair turn is cut off but its JSON parses and passes the column check', async () => {
+    const mock = stubProvider(
+      modelReply(JSON.stringify({ ...PLAN, groupBy: 'category' })),
+      modelReply(JSON.stringify({ ...PLAN, '': null }), undefined, 'length'),
+    )
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(502)
+    const reply = await readReply(response)
+    expect(reply.error).toBe('The AI reply was cut off before the JSON finished. Try a narrower question.')
+    expect(reply.result).toBeUndefined()
+    expect(reply.trace?.at(-1)).toMatchObject({ name: 'Repair turn', status: 'failed' })
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('answers 502, not 422, when the repair turn is cut off with a parsed plan that is still wrong', async () => {
+    const wrong = JSON.stringify({ ...PLAN, groupBy: 'category' })
+    const mock = stubProvider(modelReply(wrong), modelReply(wrong, undefined, 'length'))
+    const response = await handler(request(BODY))
+    expect(response.status).toBe(502)
+    expect((await readReply(response)).error).toBe('The AI reply was cut off before the JSON finished. Try a narrower question.')
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
   it('answers 502 with a clear error when thinking used the whole token cap and no answer came', async () => {
     const mock = stubProvider(modelReply('', undefined, 'length'))
     const response = await handler(request(BODY))

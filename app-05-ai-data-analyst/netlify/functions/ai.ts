@@ -263,6 +263,12 @@ function cutOffMessage(reply: ModelReply): string {
   return reply.text ? CUT_OFF_MESSAGE : NO_ANSWER_MESSAGE
 }
 
+/** A reply stopped by the token cap is never read, even when its text happens to parse: the lost tail may hold keys. */
+function readReplyJson(reply: ModelReply): PlanRead {
+  if (reply.finish === 'length') return { ok: false, message: cutOffMessage(reply) }
+  return readPlanJson(reply.text)
+}
+
 function planSummary(plan: QueryPlan): string {
   return `${plan.chartType} chart: ${plan.aggregate.fn} of ${plan.aggregate.field} by ${plan.groupBy}.`
 }
@@ -342,11 +348,10 @@ async function repairPlan(
   log.usage.push(reply.usage)
   const costs = { tokens: reply.usage.total_tokens, cost: reply.usage.cost }
 
-  const read = readPlanJson(reply.text)
+  const read = readReplyJson(reply)
   if (!read.ok) {
-    const message = reply.finish === 'length' ? cutOffMessage(reply) : read.message
-    log.step('Repair turn', 'failed', repairAt, message, costs)
-    return { ok: false, status: 502, message }
+    log.step('Repair turn', 'failed', repairAt, read.message, costs)
+    return { ok: false, status: 502, message: read.message }
   }
   const check = validateQueryPlan(read.value, headers)
   if (!check.ok) {
@@ -397,12 +402,11 @@ async function analyse(
   })
 
   const readAt = Date.now()
-  const read = readPlanJson(reply.text)
+  const read = readReplyJson(reply)
   if (!read.ok) {
-    const message = reply.finish === 'length' ? cutOffMessage(reply) : read.message
-    log.step('Read JSON reply', 'failed', readAt, message)
+    log.step('Read JSON reply', 'failed', readAt, read.message)
     log.skip(AFTER_READ, 'Not reached: the reply was not a readable JSON object.')
-    return failed(log, 502, message, cors)
+    return failed(log, 502, read.message, cors)
   }
   log.step('Read JSON reply', 'ok', readAt, `Read a JSON object with ${read.fields} fields.`)
 
