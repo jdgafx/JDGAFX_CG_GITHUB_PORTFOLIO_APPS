@@ -35,7 +35,7 @@ describe('a sentence that gives only part of a key point does not state it (SP2 
   })
 
   // This passes before the prompt change too: it fixes what happens downstream once the check no longer credits 1.2.
-  it('lists 1.2 as not used, sends it to the review, and shows it flagged when the review finds it central', () => {
+  it('lists 1.2 as not used, sends it to the review, and lists it among the unused points', () => {
     const m = merged()
     const ids = pointIdsOf(m)
     const parsed = parseSummary(JSON.stringify(R2A.summary), CHUNK_IDS) as Summary
@@ -59,8 +59,8 @@ describe('a sentence that gives only part of a key point does not state it (SP2 
     const [, user] = checkMessages(checked, unused).map((x) => x.content)
     expect(user).toContain(WATER_SPLITTING)
 
-    const shown = unusedPoints({ coverage, keyPoints: m.byChunk.map((c) => ({ chunk: c.chunkId, points: c.points })), reviewFlags: ['1.2'] })
-    expect(shown.find((p) => p.id === '1.2')).toEqual({ id: '1.2', text: R2A.chunks[0]!.points[1], flagged: true })
+    const shown = unusedPoints({ coverage, keyPoints: m.byChunk.map((c) => ({ chunk: c.chunkId, points: c.points })) })
+    expect(shown.find((p) => p.id === '1.2')).toEqual({ id: '1.2', text: R2A.chunks[0]!.points[1] })
   })
 })
 

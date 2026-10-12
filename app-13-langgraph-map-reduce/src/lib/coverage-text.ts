@@ -22,11 +22,10 @@ export function pointsHeadline(coverage: Pick<Coverage, 'citedPoints' | 'uncited
   return { text: `${coverage.citedPoints.length} of ${total} key points used`, allUsed: total > 0 && coverage.uncitedPoints.length === 0 }
 }
 
-/** The key points the summary does not use, in document order, each with its text and whether the review thinks it matters. */
-export function unusedPoints(result: Pick<RunResult, 'coverage' | 'keyPoints' | 'reviewFlags'>): Array<{ id: string; text: string; flagged: boolean }> {
+/** The key points the summary does not use, in document order, each with its text. */
+export function unusedPoints(result: Pick<RunResult, 'coverage' | 'keyPoints'>): Array<{ id: string; text: string }> {
   const texts = new Map(result.keyPoints.flatMap((chunk) => chunk.points.map((point) => [point.id, point.text] as const)))
-  const flagged = new Set(result.reviewFlags)
-  return result.coverage.uncitedPoints.map((id) => ({ id, text: texts.get(id) ?? '', flagged: flagged.has(id) }))
+  return result.coverage.uncitedPoints.map((id) => ({ id, text: texts.get(id) ?? '' }))
 }
 
 /** The sentence that says some chunks' key points could not be checked against the summary, or null when all were. */

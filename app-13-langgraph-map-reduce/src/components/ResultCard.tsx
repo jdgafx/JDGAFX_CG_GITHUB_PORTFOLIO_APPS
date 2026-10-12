@@ -165,7 +165,6 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
                 {unused.map((p) => (
                   <li key={p.id}>
                     <span className="ds-hint">{p.id}</span> <Md text={p.text} />
-                    {p.flagged ? <span className="ds-badge ds-badge--warning">May be central</span> : null}
                   </li>
                 ))}
               </ul>
