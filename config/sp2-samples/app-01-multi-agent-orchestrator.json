@@ -1,7 +1,8 @@
 {
   "app": "app-01-multi-agent-orchestrator",
-  "version": 1,
-  "frozen": "2026-10-11",
+  "version": 2,
+  "frozen": "2026-10-12",
+  "revision": "v2 2026-10-12 (Chris, decision GD.1 = app-01 bar option 1): max 0 applies to CLEAR disagreements; a disagreement a second clean-context Opus judge rates BORDERLINE counts as agreement",
   "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
   "done_sentence": "The citation audit's verdict on each cited claim matches a hand verdict written into the evidence file before the run (3 claims per live run), and SP2 8 of 8",
   "runs": [
@@ -96,6 +97,8 @@
     "metric": "audit-hand disagreement",
     "numerator": "claims whose audit verdict differs from the hand verdict",
     "denominator": "9 claims (3 per run)",
-    "max": 0
+    "max": 0,
+    "max_applies_to": "CLEAR disagreements only",
+    "borderline_rule": "For each claim whose audit verdict differs from the hand verdict, a second clean-context Opus judge (not the verifier), shown both readings (the audit verdict with its reason and the hand verdict with its reason), the report sentence and the cited source text captured in the run, rates the disagreement CLEAR (one reading is plainly wrong on the source) or BORDERLINE (both readings are defensible on the source). A BORDERLINE disagreement counts as agreement; a CLEAR one counts toward max. The judge's ratings and reasons are saved with the evidence."
   }
 }
