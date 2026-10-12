@@ -33,6 +33,7 @@ export function AnswersSection({ run, picks, onVote, onRetry, canRetry }: Answer
 }
 
 function subtitle(run: RunView | null): string {
+  if (run?.status === 'voting' && run.replay) return 'Read all three. Voting is off in a replay, so the models are not shown.'
   if (run?.status === 'voting') return 'Read all three, then pick the best. The models are named when you vote.'
   if (run?.vote.state === 'counted') return 'Models revealed. Each panel shows the model that served it and what the call measured.'
   if (run?.mode === 'blind') return 'Blind mode shuffles the panels and hides the models until you vote.'

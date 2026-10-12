@@ -34,10 +34,10 @@ export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswe
                 <div className="arena-panel__id">
                   <h3 className="arena-panel__title" id={`${id}-title`}>Panel {answer.label}</h3>
                   <p className="arena-name arena-name--hidden">
-                    <span className="arena-name__model" aria-label="Model hidden until you vote">
+                    <span className="arena-name__model" aria-label={replay ? 'Model not shown in a replay' : 'Model hidden until you vote'}>
                       <span className="arena-mask" aria-hidden="true" />
                     </span>
-                    <span className="arena-name__meta">Hidden until you vote</span>
+                    <span className="arena-name__meta">{replay ? 'Not shown in a replay' : 'Hidden until you vote'}</span>
                   </p>
                 </div>
                 <span className="ds-badge">
@@ -70,7 +70,7 @@ export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswe
       </div>
       <div className="arena-votebar" role="group" aria-label="Other votes">
         <p className="arena-votebar__q">
-          {answered < blind.answers.length ? 'Not every panel answered. Pick among the rest, or' : 'No clear best?'}
+          {replay ? 'Voting is off in a replay.' : answered < blind.answers.length ? 'Not every panel answered. Pick among the rest, or' : 'No clear best?'}
         </p>
         <div className="ds-row">
           <button type="button" className="ds-button" disabled={sending || dead} onClick={() => onVote('tie')}>
@@ -80,9 +80,11 @@ export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswe
             All answers are bad
           </button>
         </div>
-        <p className="ds-help">
-          A tie draws every pair. "All answers are bad" is counted as a ballot but moves no rating. One vote per comparison.
-        </p>
+        {!replay && (
+          <p className="ds-help">
+            A tie draws every pair. "All answers are bad" is counted as a ballot but moves no rating. One vote per comparison.
+          </p>
+        )}
       </div>
       {replay && (
         <p className="ds-help" role="note">

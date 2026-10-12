@@ -64,7 +64,8 @@ export function RunTotalsStrip({ run }: { run: RunView | null }) {
   const pending = !run
   const tone = running ? ' ds-strip--live' : pending ? ' ds-strip--pending' : ''
   const models = [...new Set(run?.compare?.panels.flatMap(p => (p.ok && p.servedModel ? [p.servedModel] : [])) ?? [])]
-  const waiting = hidden ? 'After your vote' : NONE
+  const replay = hidden && run?.replay === true
+  const waiting = hidden ? (replay ? 'Not shown in a replay' : 'After your vote') : NONE
 
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
@@ -78,7 +79,7 @@ export function RunTotalsStrip({ run }: { run: RunView | null }) {
         <Cell label="Cost (USD)" hint={totals ? costHint(totals) : 'Reported or estimated'} mono={totals !== null || !hidden}>
           {totals ? (totals.totalCost ? lowerBound(formatUsd(totals.totalCost.usd), totals) : 'not reported') : waiting}
         </Cell>
-        <Cell label="Models" hint={hidden ? 'Hidden until you vote' : 'Served by the provider'} mono={false}>
+        <Cell label="Models" hint={replay ? 'Not shown in a replay' : hidden ? 'Hidden until you vote' : 'Served by the provider'} mono={false}>
           {models.length > 0 ? (
             <span className="ds-chips">
               {models.map(id => (

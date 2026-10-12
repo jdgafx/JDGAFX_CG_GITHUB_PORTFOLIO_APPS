@@ -23,8 +23,8 @@ export function JudgeCard({ judge, compare, held = false, replay = false }: Judg
       </div>
       {replay ? (
         <div className="ds-empty">
-          The judge's opinion and the models behind the panels are not shown in a replay. Votes are off here, and both stay hidden
-          until a vote. Choose Run it live to vote on your own run.
+          The judge's opinion and the models behind the panels are not shown in a replay. Votes are off here. Choose Run it live to
+          run your own and vote.
         </div>
       ) : held ? (
         <div className="ds-empty">

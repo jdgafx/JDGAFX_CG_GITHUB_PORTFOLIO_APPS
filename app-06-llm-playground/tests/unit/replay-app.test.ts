@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CatalogueResponse, CompareRequest } from '../../netlify/shared/contract'
 import { BlindAnswers } from '../../src/components/BlindAnswers'
 import { Header } from '../../src/components/Header'
+import { AnswersSection } from '../../src/components/AnswersSection'
+import { RunTotalsStrip } from '../../src/components/RunTotals'
 import { JudgeCard } from '../../src/components/JudgeCard'
 import { ReplayLabel } from '../../src/components/ReplayLabel'
 import { runCompare, runJudge } from '../../src/lib/api'
-import { DEFAULT_PICKS, startedRun } from '../../src/lib/run'
+import { DEFAULT_PICKS, startedRun, statusLine, traceSteps } from '../../src/lib/run'
 import { compareRequest } from '../../src/lib/useArena'
 import { recordsThisRun, replayDisabled, requestMatches, REPLAY_URL } from '../../src/lib/useReplay'
 import { installReplayShim } from '../../src/replay'
@@ -144,6 +146,35 @@ describe('judge panel and status pill in a replay', () => {
     expect(html).not.toContain('Your vote')
     const own = renderToStaticMarkup(Header({ catalogue: null, catalogueFailed: false, run: { ...run, replay: undefined }, live }))
     expect(own).toContain('Your vote')
+  })
+})
+
+describe('every vote-related text in a replay says votes are off', () => {
+  const blind = { ...COMPARE_BODY, answers: [{ label: 'A', ok: true, error: null, text: 'alpha', finishReason: 'stop' }] } as never
+  const base = { ...startedRun('blind', 'p'), status: 'voting' as const, blind, judge: { state: 'running' as const } }
+  const promises = /after your vote|until you vote|when you vote|appears after|Your vote|pick the best/i
+  const live = { state: 'idle' as const, label: 'x', title: 'x' }
+  const screens = (run: typeof base) => [
+    renderToStaticMarkup(AnswersSection({ run, picks: DEFAULT_PICKS, onVote: () => {}, onRetry: () => {}, canRetry: true })),
+    renderToStaticMarkup(RunTotalsStrip({ run })),
+    renderToStaticMarkup(JudgeCard({ judge: run.judge, compare: null, held: true, replay: run.replay === true })),
+    renderToStaticMarkup(Header({ catalogue: null, catalogueFailed: false, run, live })),
+    statusLine(run),
+    traceSteps(run).map(step => step.detail).join(' '),
+  ].join(' ')
+
+  it('never promises a vote, a reveal or the judge after a vote in a replay', () => {
+    const text = screens({ ...base, replay: true })
+    expect(text).not.toMatch(promises)
+    expect(text).toContain('Voting is off')
+    expect(text).toContain('Not shown in a replay')
+  })
+
+  it('keeps those words for a visitor\'s own blind run', () => {
+    const text = screens(base)
+    expect(text).toMatch(/after your vote/i)
+    expect(text).toMatch(/until you vote/i)
+    expect(text).toContain('Your vote')
   })
 })
 

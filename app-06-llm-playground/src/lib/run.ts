@@ -155,6 +155,7 @@ export function panelNote(note: string | undefined): string {
 export function statusLine(run: RunView | null): string {
   if (!run) return ''
   if (run.status === 'running') return run.compare ? 'Asking the judge for an opinion.' : 'Running the three panels.'
+  if (run.status === 'voting' && run.replay) return 'Replay of a recorded run. Voting is off, so the models are not shown.'
   if (run.status === 'voting') return 'Three answers are in. Pick the best one to reveal the models.'
   if (run.status === 'stopped') return 'Stopped.'
   if (run.status === 'error') return run.error ?? 'The comparison failed.'
@@ -181,7 +182,7 @@ export function traceSteps(run: RunView): ViewStep[] {
   // Before the vote the panel and judge steps would name the models, so only the compare call shows.
   if (run.blind && !run.compare) {
     return [
-      { name: 'Compare request', status: 'ok', ms: run.blind.totalMs, detail: 'Three answers returned. The steps appear after your vote.', tokens: null, cost: null },
+      { name: 'Compare request', status: 'ok', ms: run.blind.totalMs, detail: run.replay ? 'Three answers returned. The other steps are not shown in a replay.' : 'Three answers returned. The steps appear after your vote.', tokens: null, cost: null },
     ]
   }
   if (!run.compare) {
