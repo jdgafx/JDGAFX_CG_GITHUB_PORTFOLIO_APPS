@@ -1,27 +1,33 @@
 import type { LangGraphRunnableConfig } from '@langchain/langgraph'
-import type { Chunk, ChunkKeyPoints, Finding, Frame, Merged, NodeName, Outcome, RetryOutcome, TraceRow } from '../../src/types/frames'
+import type { Chunk, ChunkKeyPoints, Finding, Frame, Merged, Outcome, RetryOutcome, ReviewState, Summary, TraceRow } from '../../src/types/frames'
 import { pause, type Limiter, type RunBudget } from './budget'
 import { CHUNK_TARGET, splitText } from './chunk'
-import { citedChunks, computeCoverage } from './coverage'
-import { priceCall } from './cost'
+import { attribute } from './attribute'
+import { callFields, CUT_OFF_MESSAGE, isCutOff, traceRow } from './rows'
+import { writeSummary } from './writer'
+import { citedChunks, citedPointIds, computeCoverage, pointIdsOf } from './coverage'
 import { ProviderError, RunFailure, plainMessage } from './errors'
 import type { GraphStateType } from './graph-state'
 import { mergeFindings } from './merge'
 import {
+  ATTRIBUTE,
+  ATTRIBUTE_CALL_TIMEOUT_MS,
   CHECK,
+  CHECK_BUDGET_MARGIN_MS,
   CHECK_CALL_TIMEOUT_MS,
   EXTRACT_CALL_TIMEOUT_MS,
   EXTRACT,
   MAX_RETRIES,
+  MIN_CHECK_BUDGET_MS,
+  MIN_EXTRACT_RETRY_BUDGET_MS,
   MIN_RESYNTH_BUDGET_MS,
   MIN_RETRY_BUDGET_MS,
   RETRY_CALL_TIMEOUT_MS,
   RETRY_PAUSE_MS,
-  SYNTH,
+  SYNTH_CALL_TIMEOUT_MS,
 } from './models'
-import { newestModel, servedCheck } from './newest-model'
 import type { ChatFn, ChatReply } from './openrouter'
-import { parseExtraction, parseOmitted, parseSummary } from './parse'
+import { parseExtraction, parseImportant } from './parse'
 import type { ModelList } from './prices'
 import { checkMessages, extractMessages, synthesizeMessages } from './prompts'
 
@@ -37,8 +43,14 @@ export interface NodeDeps {
   extractCallTimeoutMs?: number
   /** Timeout for the retry pass's extract calls. Defaults to RETRY_CALL_TIMEOUT_MS. */
   retryCallTimeoutMs?: number
-  /** Timeout for the advisory review call. Defaults to CHECK_CALL_TIMEOUT_MS. */
+  /** Timeout for the advisory review call. Defaults to CHECK_CALL_TIMEOUT_MS, and is cut to fit what is left of the run budget. */
   checkCallTimeoutMs?: number
+  /** Timeout for each attribution call. Defaults to ATTRIBUTE_CALL_TIMEOUT_MS, and is cut to fit what is left of the run budget. */
+  attributeCallTimeoutMs?: number
+  /** Timeout for the synthesis call. Defaults to SYNTH_CALL_TIMEOUT_MS. */
+  synthCallTimeoutMs?: number
+  /** Request 1 only: reduce sends the chunks that gave no key points back through extract once, if the retry fits the budget. */
+  retryEmpty?: boolean
 }
 
 /** What a Send hands to extract: one chunk, the chunk count, and the pass (1 first, 2 for the retry). */
@@ -60,13 +72,6 @@ const STOPPED_MESSAGE = 'Stopped because another call in this run failed.'
 /** The notice on a summary whose coverage retry was left out because little of the run budget remained. */
 export const RETRY_SKIPPED_NOTICE = 'The coverage retry was skipped to stay inside the time limit.'
 
-/**
- * A reply that stopped at the token cap is cut off. Its text may still parse, but the tail is lost, so no node
- * reads it: an extract counts the chunk as not extracted, and synthesis ends the run.
- */
-const CUT_OFF_MESSAGE = 'The AI ran out of reply length, so the reply was cut off.'
-const isCutOff = (reply: ChatReply): boolean => reply.finishReason === 'length'
-
 const chunkWord = (n: number): string => (n === 1 ? 'chunk' : 'chunks')
 const chunkCount = (n: number): string => `${n} ${chunkWord(n)}`
 
@@ -77,40 +82,11 @@ function emitterFor(config: LangGraphRunnableConfig | undefined): Emit {
   }
 }
 
-function traceRow(
-  node: NodeName,
-  status: TraceRow['status'],
-  ms: number,
-  detail: string,
-  extra: Partial<TraceRow> = {},
-): TraceRow {
-  return { node, status, ms, detail, ...extra }
-}
-
-/**
- * Models, usage, price and model check of one call. The row keeps the requested id and the id that served it; the price
- * and the check are the served model's, never the requested alias's. A mismatch is shown and logged, never refused.
- */
-async function callFields(requested: string, reply: ChatReply, models: Promise<ModelList | null>): Promise<Partial<TraceRow>> {
-  const list = await models
-  const newest = newestModel(list)
-  const check = servedCheck(newest, reply.servedModel)
-  if (check === 'mismatch') console.warn(`model mismatch: served ${reply.servedModel}, newest ${newest}, requested ${requested}`)
-  return {
-    model: requested,
-    servedModel: reply.servedModel,
-    newestModel: newest,
-    modelCheck: check,
-    ...(reply.usage ? { usage: reply.usage } : {}),
-    ...priceCall(list?.prices ?? null, reply.servedModel, reply.usage),
-  }
-}
-
 function keyPointsOf(merged: Merged): ChunkKeyPoints[] {
   return merged.byChunk.map((c) => ({ chunk: c.chunkId, points: c.points }))
 }
 
-function noPointsMessage(trace: TraceRow[]): string {
+export function noPointsMessage(trace: TraceRow[]): string {
   const failed = trace.find((r) => r.node === 'extract' && r.status === 'failed' && r.message)
   return failed?.message ?? 'No chunk produced key points, so there is nothing to summarize.'
 }
@@ -135,6 +111,8 @@ export function makeNodes(deps: NodeDeps) {
   const extractCallTimeout = deps.extractCallTimeoutMs ?? EXTRACT_CALL_TIMEOUT_MS
   const retryCallTimeout = deps.retryCallTimeoutMs ?? RETRY_CALL_TIMEOUT_MS
   const checkCallTimeout = deps.checkCallTimeoutMs ?? CHECK_CALL_TIMEOUT_MS
+  const synthCallTimeout = deps.synthCallTimeoutMs ?? SYNTH_CALL_TIMEOUT_MS
+  const attributeCallTimeout = deps.attributeCallTimeoutMs ?? ATTRIBUTE_CALL_TIMEOUT_MS
 
   const split = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
     const emit = emitterFor(config)
@@ -165,10 +143,12 @@ export function makeNodes(deps: NodeDeps) {
     const { chunk, total, pass } = input
     const label = pass === 2 ? `chunk ${chunk.id} of ${total} (retry)` : `chunk ${chunk.id} of ${total}`
 
-    const fail = (err: unknown, spent: number): Attempt => {
+    // `made` is false when the pause or the queue ended before the call began: no call, nothing billed, nothing to report.
+    // A call that was made and got no reply names its model and carries no usage, which the totals count as not reported.
+    const fail = (err: unknown, spent: number, made = true): Attempt => {
       const row = traceRow('extract', 'failed', spent, label, {
         chunk: chunk.id,
-        model: EXTRACT.model,
+        ...(made ? { model: EXTRACT.model } : {}),
         message: extractFailureText(err, budget),
       })
       emit({ type: 'node_end', ...row })
@@ -215,7 +195,7 @@ export function makeNodes(deps: NodeDeps) {
       }, budget.signal)
     } catch (err) {
       // The pause or the queue ended before this chunk's call began.
-      attempt = fail(err, 0)
+      attempt = fail(err, 0, false)
     }
 
     if ('update' in attempt) return attempt.update
@@ -238,6 +218,18 @@ export function makeNodes(deps: NodeDeps) {
     )
     emit({ type: 'node_end', ...done })
     const update: Update = { merged, trace: [done] }
+
+    // Request 1 has no check step to ask for a retry, so reduce does: the chunks that gave no key points go back once.
+    if (deps.retryEmpty) {
+      const empty = state.chunks.filter((c) => !merged.byChunk.some((m) => m.chunkId === c.id))
+      const retry = state.retries === 0 && empty.length > 0 && budget.remaining() >= MIN_EXTRACT_RETRY_BUDGET_MS
+      update.decision = retry ? 'retry' : 'final'
+      if (retry) {
+        update.retries = 1
+        emit({ type: 'edge', from: 'reduce', to: 'extract', label: `retry ${chunkCount(empty.length)} that gave no key points` })
+      }
+      return update
+    }
 
     // After a retry, a second synthesis and check run only if they can add something and still fit.
     if (state.retries > 0) {
@@ -266,13 +258,12 @@ export function makeNodes(deps: NodeDeps) {
     const withPoints = new Set(merged.byChunk.map((c) => c.chunkId))
     const missed = state.coverage.missing.filter((id) => withPoints.has(id))
 
-    const startedAt = Date.now()
-    const reply = await chat({ ...SYNTH, messages: synthesizeMessages(merged, chunkIds, missed) }, budget.signal)
-    const ms = Date.now() - startedAt
-    const fields = await callFields(SYNTH.model, reply, models)
-    if (isCutOff(reply)) throw new RunFailure(`${CUT_OFF_MESSAGE} Run the text again.`)
-    const summary = parseSummary(reply.text, chunkIds)
-    if (!summary) throw new RunFailure('The summary could not be read. Run the text again.')
+    const { summary, ms, fields } = await writeSummary(
+      { chat, budget, models, timeoutMs: synthCallTimeout, emit },
+      synthesizeMessages(merged, chunkIds, missed),
+      chunkIds,
+      'Writing the cited summary',
+    )
     const points = summary.sections.reduce((n, s) => n + s.points.length, 0)
     const note = missed.length > 0 ? `, retry asks for chunk ${missed.join(', ')}` : ''
     const done = traceRow('synthesize', 'ok', ms, `${summary.sections.length} sections, ${points} points${note}`, fields)
@@ -281,11 +272,15 @@ export function makeNodes(deps: NodeDeps) {
   }
 
   /**
-   * Deterministic coverage, plus one review call that lists chunks the summary covers thinly. A chunk is
-   * covered when it has points and the summary cites it. The review's flags are advisory: they are kept as a
-   * note and never change coverage or start a retry. The retry counter moves here, so
-   * the router only reads the decision this node writes. Every pass also leaves its outcome as the draft,
-   * which a failed retry returns.
+   * Coverage, in three steps. First one attribution call per chunk, together, judges which key points the finished
+   * sentences state (attribute.ts); a key point is used only when a sentence states it, and the writer's own chunk
+   * citations decide nothing about points. Then coverage is computed from those ids: a chunk is covered when it has
+   * points and the writer cites it, as before. Then one review call gets only the unused points and says which are central
+   * to the document's main subject. The review is advisory: it never edits the summary, changes coverage or starts a retry.
+   * It is not called when every point is used, and it is skipped, never started, when too little of the run budget is left,
+   * because a budget that expires inside the call would discard a finished summary. The retry counter moves here, so the
+   * router only reads the decision this node writes. Every pass also leaves its outcome as the draft, which a failed
+   * retry returns.
    */
   const check = async (state: GraphStateType, config?: LangGraphRunnableConfig): Promise<Update> => {
     const emit = emitterFor(config)
@@ -296,36 +291,67 @@ export function makeNodes(deps: NodeDeps) {
     const chunkIds = state.chunks.map((c) => c.id)
     const cited = citedChunks(summary, chunkIds)
     const withPoints = new Set(merged.byChunk.map((c) => c.chunkId))
+    const pointIds = pointIdsOf(merged)
 
-    let flagged: number[] = []
+    const checkFields = async (reply: ChatReply): Promise<Partial<TraceRow>> => callFields(ATTRIBUTE.model, reply, models)
+    const attribution = await attribute({ chat, limiter, budget, timeoutMs: attributeCallTimeout, fields: checkFields, emit }, summary, merged)
+    // The sentences keep the ids the check found for them, so the page can show which key points a sentence states.
+    let index = 0
+    const checked: Summary = {
+      ...summary,
+      sections: summary.sections.map((section) => ({
+        ...section,
+        points: section.points.map((point) => ({ ...point, points: attribution.stated.get((index += 1)) ?? [] })),
+      })),
+    }
+    const citedPoints = citedPointIds(checked, pointIds)
+    const unused = merged.byChunk.flatMap((c) => c.points).filter((p) => !citedPoints.has(p.id))
+
+    let flagged: string[] = []
+    let review: ReviewState
     let done: TraceRow
     const startedAt = Date.now()
-    try {
-      const reply = await chat({ ...CHECK, timeoutMs: checkCallTimeout, messages: checkMessages(summary, merged) }, budget.signal)
-      const ms = Date.now() - startedAt
-      const fields = await callFields(CHECK.model, reply, models)
-      const omitted = isCutOff(reply) ? null : parseOmitted(reply.text, chunkIds)
-      if (omitted === null) {
-        const why = isCutOff(reply) ? 'cut off' : 'not readable'
-        done = traceRow('check', 'failed', ms, `Review reply was ${why}. Coverage uses chunk citations only.`, fields)
-      } else {
-        flagged = omitted
-        done = traceRow('check', 'ok', ms, `Review flagged ${chunkCount(omitted.length)} as thin in the summary`, fields)
+    if (unused.length === 0) {
+      review = 'not-needed'
+      done = traceRow('check', 'ok', 0, 'The summary uses every key point, so there was nothing to review')
+    } else if (budget.remaining() < MIN_CHECK_BUDGET_MS) {
+      review = 'skipped'
+      done = traceRow('check', 'failed', 0, `Review skipped: too little of the time limit was left. ${unused.length} key points are not used.`)
+    } else {
+      // The call ends before the budget does, so the budget cannot expire inside it.
+      const timeoutMs = Math.min(checkCallTimeout, budget.remaining() - CHECK_BUDGET_MARGIN_MS)
+      try {
+        const reply = await chat({ ...CHECK, timeoutMs, messages: checkMessages(summary, unused) }, budget.signal)
+        const ms = Date.now() - startedAt
+        const fields = await callFields(CHECK.model, reply, models)
+        const important = isCutOff(reply)
+          ? null
+          : parseImportant(reply.text, unused.map((p) => p.id))
+        if (important === null) {
+          review = 'unavailable'
+          done = traceRow('check', 'failed', ms, `Review reply was ${isCutOff(reply) ? 'cut off' : 'not readable'}. The unused key points are listed without it.`, fields)
+        } else {
+          review = 'done'
+          flagged = important
+          done = traceRow('check', 'ok', ms, `Reviewed ${unused.length} unused key points: ${important.length} central to the main subject`, fields)
+        }
+      } catch (err) {
+        // The review is a second opinion. A failure here never discards a finished summary. Its call was made and no reply
+        // came, so the row names the model and carries no usage, which the totals count as not reported.
+        const message = plainMessage(err, budget.expired())
+        const lost = traceRow('check', 'failed', Date.now() - startedAt, `Review unavailable: ${message} The unused key points are listed without it.`, { model: CHECK.model, message })
+        if (!(err instanceof ProviderError) || budget.expired()) {
+          emit({ type: 'node_end', ...lost })
+          throw err
+        }
+        review = 'unavailable'
+        done = lost
       }
-    } catch (err) {
-      // The review is a second opinion. A failure here never discards a finished summary.
-      if (!(err instanceof ProviderError) || budget.expired()) throw err
-      done = traceRow(
-        'check',
-        'failed',
-        Date.now() - startedAt,
-        `Review unavailable: ${err.message} Coverage uses chunk citations only.`,
-      )
     }
 
     // The review is advisory: coverage comes from key points and citations alone, and flags only add a note.
-    const secondCoverage = computeCoverage({ chunkIds, withPoints, cited })
-    const secondFlags = [...new Set(flagged)].filter((id) => secondCoverage.covered.includes(id)).sort((a, b) => a - b)
+    const secondCoverage = computeCoverage({ chunkIds, withPoints, cited, pointIds, citedPoints, unchecked: attribution.unchecked })
+    const secondFlags = [...new Set(flagged)]
 
     // After a retry the second summary replaces the first only if it covers more chunks. Never return less than
     // the run already had: on a tie or a loss the first-pass summary, coverage and flags are kept.
@@ -333,7 +359,8 @@ export function makeNodes(deps: NodeDeps) {
     const keepFirst = first !== null && secondCoverage.covered.length <= first.coverage.covered.length
     const coverage = keepFirst ? first.coverage : secondCoverage
     const reviewFlags = keepFirst ? first.reviewFlags : secondFlags
-    const keptSummary = keepFirst ? first.summary : summary
+    const reviewState = keepFirst ? first.review : review
+    const keptSummary = keepFirst ? first.summary : checked
     let keptNotice: string | null = null
     if (keepFirst) {
       const total = chunkIds.length
@@ -377,6 +404,7 @@ export function makeNodes(deps: NodeDeps) {
       findingCount: merged.findingCount,
       keyPoints: keyPointsOf(merged),
       reviewFlags,
+      review: reviewState,
       notice,
       retryOutcome,
     }
@@ -384,12 +412,13 @@ export function makeNodes(deps: NodeDeps) {
       summary: keptSummary,
       coverage,
       reviewFlags,
+      review: reviewState,
       notice,
       retryOutcome,
       decision: willRetry ? 'retry' : 'final',
       retries: willRetry ? state.retries + 1 : state.retries,
       draft,
-      trace: [done],
+      trace: [...attribution.rows, done],
     }
   }
 
@@ -401,10 +430,12 @@ export function makeNodes(deps: NodeDeps) {
     if (!merged || !state.summary) throw new RunFailure('There is no summary to return.')
     const total = state.chunks.length
     const missing = state.coverage.missing
+    const { citedPoints, uncitedPoints } = state.coverage
+    const points = `${citedPoints.length} of ${citedPoints.length + uncitedPoints.length} key points used`
     const detail =
       missing.length === 0
-        ? `${total} of ${chunkCount(total)} covered`
-        : `${state.coverage.covered.length} of ${chunkCount(total)} covered. Still missing: chunk ${missing.join(', ')}`
+        ? `${points}. ${total} of ${chunkCount(total)} cited`
+        : `${points}. ${state.coverage.covered.length} of ${chunkCount(total)} cited. Still missing: chunk ${missing.join(', ')}`
     const outcome: Outcome = {
       summary: state.summary,
       coverage: state.coverage,
@@ -414,6 +445,7 @@ export function makeNodes(deps: NodeDeps) {
       findingCount: merged.findingCount,
       keyPoints: keyPointsOf(merged),
       reviewFlags: state.reviewFlags,
+      review: state.review,
       notice: state.notice,
       retryOutcome: state.retryOutcome,
     }

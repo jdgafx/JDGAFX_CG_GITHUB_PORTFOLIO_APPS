@@ -5,6 +5,7 @@ import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openro
 import { runPipeline } from '../../netlify/shared/pipeline'
 import type { Frame, RunResult } from '../../src/types/frames'
 import { recordedModels } from '../helpers/prices'
+import { withAttribution } from '../helpers/attribute'
 import { isCheck, isExtract } from '../helpers/roles'
 
 const CUT = 'The AI ran out of reply length, so the reply was cut off.'
@@ -33,7 +34,7 @@ const synthReply = (ids: number[]): ChatReply =>
       sections: [{ heading: 'Terms', points: ids.map((id) => ({ text: `Rule ${id} holds.`, chunks: [id] })) }],
     }),
   )
-const noOmissions = (): ChatReply => reply(JSON.stringify({ omitted: [] }))
+const noOmissions = (): ChatReply => reply(JSON.stringify({ important: [] }))
 
 async function run(chat: ChatFn) {
   const frames: Frame[] = []
@@ -42,7 +43,7 @@ async function run(chat: ChatFn) {
     await runPipeline({
       text: THREE,
       budget,
-      chat,
+      chat: withAttribution(chat),
       models: Promise.resolve(recordedModels()),
       retryPauseMs: 0,
       extractConcurrency: 4,
@@ -128,16 +129,22 @@ describe('a reply cut off at the token cap is never used', () => {
   it('ignores the flags of a cut-off review and marks the review row failed', async () => {
     const chat: ChatFn = async (request) => {
       const user = lastMessage(request)
-      if (isExtract(request)) return extractReply(chunkOf(user))
-      if (isCheck(request)) return cut(reply(JSON.stringify({ omitted: [1] })))
+      // Two points per chunk, and the summary cites the first of each: the second is unused, so the review runs.
+      if (isExtract(request)) {
+        const id = chunkOf(user)
+        return reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`, `Chunk ${id} adds a detail.`], entities: [] }))
+      }
+      if (isCheck(request)) return cut(reply(JSON.stringify({ important: ['1.2'] })))
       return synthReply(citedIds(user))
     }
     const { errors, results, frames } = await run(chat)
     expect(errors).toEqual([])
     expect(results[0].reviewFlags).toEqual([])
-    expect(frames.find((f) => f.type === 'node_end' && f.node === 'check')).toMatchObject({
+    expect(results[0].review).toBe('unavailable')
+    // The check step ends with the review row, after one row per chunk's key point check.
+    expect(frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)).toMatchObject({
       status: 'failed',
-      detail: 'Review reply was cut off. Coverage uses chunk citations only.',
+      detail: 'Review reply was cut off. The unused key points are listed without it.',
     })
   })
 })

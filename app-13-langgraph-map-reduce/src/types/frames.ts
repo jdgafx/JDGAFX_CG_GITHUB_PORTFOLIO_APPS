@@ -22,15 +22,23 @@ export interface Finding {
   usage: Usage | null
 }
 
+/** One extracted key point. The id is "chunk.n" (1.2 is the second point of chunk 1). Code assigns it in the reduce step, never the model. */
+export interface KeyPoint {
+  id: string
+  text: string
+}
+
 /** Output of the deterministic reduce step: one entry per chunk, plus unique entities. */
 export interface Merged {
-  byChunk: Array<{ chunkId: number; points: string[]; entities: string[] }>
+  byChunk: Array<{ chunkId: number; points: KeyPoint[]; entities: string[] }>
   entities: string[]
   findingCount: number
 }
 
+/** One summary sentence. points are the key point ids it states, as the model cited them and code validated them. chunks are those points' chunks, derived by code. */
 export interface SummaryPoint {
   text: string
+  points: string[]
   chunks: number[]
 }
 
@@ -45,14 +53,20 @@ export interface Summary {
 }
 
 /**
- * covered and missing partition the chunk ids. A chunk is covered when it gave key points and the summary
- * cites it. noPoints lists the missing chunks that gave no key points, so the rest of missing are chunks
- * the summary does not cite.
+ * The headline is per key point: citedPoints and uncitedPoints partition every extracted point id, and a point is used
+ * only when the check finds a summary sentence that states it (one attribution call per chunk, after the writer).
+ * covered and missing are the secondary, per chunk view: they partition the chunk ids, and a chunk is covered when it gave
+ * key points and the writer cites it. noPoints lists the missing chunks that gave no key points, so the rest of missing
+ * are chunks the writer does not cite at all.
  */
 export interface Coverage {
   covered: number[]
   missing: number[]
   noPoints: number[]
+  citedPoints: string[]
+  uncitedPoints: string[]
+  /** Chunks whose key points could not be checked against the summary (their attribution call failed). Their points are in uncitedPoints, because nothing showed they are used. */
+  unchecked: number[]
 }
 
 export type TraceStatus = 'ok' | 'failed'
@@ -112,6 +126,8 @@ export interface RunMetrics {
   cheapCost: number | null
   cheapCalls: number
   synthesisCost: number | null
+  /** Calls that were made but whose reply never arrived (a timeout, a dropped connection, an abort), so their usage is not known. The totals leave them out and say so. */
+  unreportedCalls: number
 }
 
 /**
@@ -125,8 +141,15 @@ export type RetryOutcome = 'none' | 'used' | 'used-nothing-new' | 'kept-first' |
 /** The key points one chunk gave, after the reduce step merged them. Chunks that gave none are absent. */
 export interface ChunkKeyPoints {
   chunk: number
-  points: string[]
+  points: KeyPoint[]
 }
+
+/**
+ * What became of the review of the key points the summary does not use. done: the review answered. not-needed: the
+ * summary uses every point, so there was nothing to review. skipped: too little of the run budget was left. unavailable:
+ * the review call failed, was cut off, or answered in a form that could not be read.
+ */
+export type ReviewState = 'done' | 'not-needed' | 'skipped' | 'unavailable'
 
 /** What the graph's final node produces. */
 export interface Outcome {
@@ -138,8 +161,9 @@ export interface Outcome {
   findingCount: number
   /** What each chunk's extraction found, so the page can show the evidence behind a summary point. */
   keyPoints: ChunkKeyPoints[]
-  /** Chunks the review model thinks the summary covers thinly. Advisory: it never changes coverage or starts a retry. */
-  reviewFlags: number[]
+  /** Ids of unused key points the review model thinks matter to the document's main subject. Advisory: it never changes the summary, coverage or the retry. */
+  reviewFlags: string[]
+  review: ReviewState
   /** Set only when a retry pass did not finish: the first-pass summary is returned, with the reason. */
   notice: string | null
   retryOutcome: RetryOutcome
@@ -149,10 +173,21 @@ export interface RunResult extends Outcome {
   metrics: RunMetrics
 }
 
-/** Server-sent frames. The split's edge carries the chunk count. node_start.ms is the offset from run start; node_end.ms is the node's own duration. */
+/** The merged key points and a hash of the text they came from (a JSON string), and the server's seal over that string. */
+export interface Handoff {
+  text: string
+  seal: string
+}
+
+/**
+ * Server-sent frames. The split's edge carries the chunk count. node_start.ms is the offset from run start; node_end.ms is the node's own duration.
+ * Request 1 ends with a handoff frame instead of a result: the merged key points, signed by the server, which the browser posts
+ * back to request 2 unread. The page never sees it.
+ */
 export type Frame =
   | { type: 'node_start'; node: NodeName; ms: number; detail: string; chunk?: number }
   | ({ type: 'node_end' } & TraceRow)
   | { type: 'edge'; from: NodeName; to: NodeName; label: string; count?: number }
+  | { type: 'handoff'; handoff: Handoff }
   | { type: 'result'; result: RunResult }
   | { type: 'error'; message: string }

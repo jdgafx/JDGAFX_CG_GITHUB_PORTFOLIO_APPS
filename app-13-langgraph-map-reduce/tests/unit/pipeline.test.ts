@@ -3,6 +3,7 @@ import { RunBudget } from '../../netlify/shared/budget'
 import { BUDGET_MESSAGE, LONG_TEXT_HINT, ProviderError } from '../../netlify/shared/errors'
 import { MIN_RETRY_BUDGET_MS, MODEL, RETRY_PAUSE_MS } from '../../netlify/shared/models'
 import { recordedModels } from '../helpers/prices'
+import { withAttribution } from '../helpers/attribute'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { BUDGET_GRACE_MS, LONG_TEXT_CHARS, runPipeline } from '../../netlify/shared/pipeline'
@@ -46,7 +47,7 @@ const synthReply = (overview: string, ids: number[]): ChatReply =>
     MODEL,
   )
 
-const noOmissions = (): ChatReply => reply(JSON.stringify({ omitted: [] }), MODEL)
+const noOmissions = (): ChatReply => reply(JSON.stringify({ important: [] }), MODEL)
 
 /** Never answers on its own. It rejects with the run's reason as soon as the run stops. */
 function untilAborted(signal: AbortSignal): Promise<never> {
@@ -74,7 +75,7 @@ async function run(
     await runPipeline({
       text: source,
       budget,
-      chat,
+      chat: withAttribution(chat),
       models: Promise.resolve(recordedModels()),
       retryPauseMs: 0,
       extractConcurrency: limits.extractConcurrency,

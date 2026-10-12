@@ -1,5 +1,5 @@
 import { Annotation } from '@langchain/langgraph'
-import type { Chunk, Coverage, Finding, Merged, Outcome, RetryOutcome, Summary, TraceRow } from '../../src/types/frames'
+import type { Chunk, Coverage, Finding, Merged, Outcome, RetryOutcome, ReviewState, Summary, TraceRow } from '../../src/types/frames'
 
 /** A channel that keeps the latest value written. `init` builds a fresh default for each run. */
 const last = <T>(init: () => T) => Annotation<T>({ reducer: (_old, next) => next, default: init })
@@ -21,7 +21,7 @@ export const GraphState = Annotation.Root({
   }),
   merged: last<Merged | null>(() => null),
   summary: last<Summary | null>(() => null),
-  coverage: last<Coverage>(() => ({ covered: [], missing: [], noPoints: [] })),
+  coverage: last<Coverage>(() => ({ covered: [], missing: [], noPoints: [], citedPoints: [], uncitedPoints: [], unchecked: [] })),
   retries: last<number>(() => 0),
   /** Set by check: 'retry' sends the missing chunks back through extract, 'final' ends the run. */
   decision: last<'retry' | 'final'>(() => 'final'),
@@ -29,8 +29,10 @@ export const GraphState = Annotation.Root({
   notice: last<string | null>(() => null),
   /** Written by check (and by reduce when it skips the second synthesis). The final outcome carries it. */
   retryOutcome: last<RetryOutcome>(() => 'none'),
-  /** Chunks the review model flagged on the latest check. Advisory only. */
-  reviewFlags: last<number[]>(() => []),
+  /** Unused key point ids the review model flagged on the latest check. Advisory only. */
+  reviewFlags: last<string[]>(() => []),
+  /** What became of the latest review. */
+  review: last<ReviewState>(() => 'not-needed'),
   /** Named outcome, not final: LangGraph does not allow a state key and a node with the same name. */
   outcome: last<Outcome | null>(() => null),
   /** Written by every check: the outcome as it stands after that pass. A retry that fails returns it. */

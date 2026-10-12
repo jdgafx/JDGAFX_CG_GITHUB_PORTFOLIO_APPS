@@ -25,10 +25,19 @@ export interface RoleSettings {
 export const EXTRACT: RoleSettings = { model: MODEL, maxTokens: 2_500, jsonMode: false }
 /** Check asks for a JSON object: without it Haiku wrote a chunk-by-chunk review in prose and hit the cap. The reply is about 12 tokens, so the cap is almost all thinking room. A failure here never discards the summary. */
 export const CHECK: RoleSettings = { model: MODEL, maxTokens: 2_000, jsonMode: true }
-/** Live summaries used 875 to 1,209 tokens, plus about 500 of thinking. */
+/**
+ * Live summaries (SP2 8adcac0, r1-c to r3-c) used 2,523 to 3,383 completion tokens in all, of which 1,693 were thinking
+ * in the one call that reported it. The cap was 3,500, so the largest call used 97% of it, and the three slowest calls
+ * were the three largest. The cap is 4,200 so a longer answer is not cut off with finish_reason length (24% above the largest
+ * seen); it is also about what the synthesis timeout allows at the measured 283 tokens per second (SYNTH_CALL_TIMEOUT_MS).
+ * It is not a cap on thinking, and thinking is never limited here. The writer cites chunk numbers; a prompt that made it cite
+ * key point ids took 12.6 to 17.5 s, aborted at 16.0 s and 21.0 s, and once spent all 4,500 tokens thinking (the points-fix
+ * captures, app-13-points-fix-2026-10-12/synth-*.json and superseded-prompt-v1/), so which key points a sentence states is
+ * judged afterwards (ATTRIBUTE) in small calls that cannot run away.
+ */
 export const SYNTH: RoleSettings = {
   model: MODEL,
-  maxTokens: 3_500,
+  maxTokens: 4_200,
   jsonMode: true,
   requireParameters: true,
 }
@@ -62,7 +71,43 @@ export const RETRY_CALL_TIMEOUT_MS = 8_000
 export const EXTRACT_CALL_TIMEOUT_MS = 9_000
 /** The review call is advisory and is estimated at 3.6 s at the median and 4.5 s at the 95th percentile, so a slow one is cut off sooner than a call the summary depends on. */
 export const CHECK_CALL_TIMEOUT_MS = 7_000
+/**
+ * Synthesis timeout. SP2 8adcac0 measured synthesis at 9,167 to 11,972 ms over 8 preview runs (median 9,803 ms; the three
+ * slowest, 11,972, 11,927 and 11,770 ms, were within 0.23 s of the old 12,000 ms limit), at about 283 completion tokens per
+ * second with thinking on; the points-fix run r1-a took 10,359 ms. 15 s is 3 s past the slowest call seen. Synthesis runs in
+ * request 2 (split, extract and reduce are request 1), whose RUN_BUDGET_MS is 23 s, so a synthesis that takes the whole 15 s
+ * still leaves 8 s: the attribution calls (ATTRIBUTE_CALL_TIMEOUT_MS, 7 s, plus the 1 s margin) always have their time. In one
+ * request with extract (EXTRACT_PHASE_MAX_MS, 5.6 s) they would not: 5.6 + 15 + 6.4 = 27 s, and even a typical run,
+ * 5.6 + 10.4 + 5.4 + 3.3 = 24.7 s, would have no room for the review.
+ */
+export const SYNTH_CALL_TIMEOUT_MS = 15_000
+/** The longest extract phase in SP2 8adcac0: the slowest chunk, r3-c chunk 6, answered in 5,615 ms and all chunks run together. Request 1 is this long, plus the split. */
+export const EXTRACT_PHASE_MAX_MS = 5_615
+/**
+ * One attribution call per chunk, all together, after synthesis: each judges the finished sentences against at most 6 key
+ * points. Measured in the points-fix captures: the prototype ran 9 calls in 3,709 ms wall, the slowest 3,674 ms (590
+ * completion tokens, 519 of them thinking); in the full run r1-a the 9 calls took 1,243 to 5,388 ms. Thinking is on and
+ * unlimited; the cap leaves three times the largest answer seen. The limit is 7 s, 1.3 times the slowest call.
+ */
+export const ATTRIBUTE: RoleSettings = { model: MODEL, maxTokens: 1_800, jsonMode: true }
+export const ATTRIBUTE_CALL_TIMEOUT_MS = 7_000
+/** Attribution starts only with this much of the run budget left: the slowest call seen (5,388 ms) plus CHECK_BUDGET_MARGIN_MS. */
+export const MIN_ATTRIBUTE_BUDGET_MS = 6_400
+/**
+ * The review runs only when at least this much of the run budget is left: the slowest review seen was 3,416 ms (SP2
+ * 8adcac0, r1-d) plus CHECK_BUDGET_MARGIN_MS. With less, the review is skipped and the summary is returned without it.
+ */
+export const MIN_CHECK_BUDGET_MS = 4_500
+/** The review call is cut off this long before the run budget ends, so the budget never expires inside it and discards a finished summary. */
+export const CHECK_BUDGET_MARGIN_MS = 1_000
 /** The graph's own cycle: missing chunks are re-run at most this many times. */
 export const MAX_RETRIES = 1
 /** Pause before each retry call. The retry calls run together, so the pause is paid once. */
 export const RETRY_PAUSE_MS = 500
+
+/**
+ * Request 1 retries a chunk whose extract came back with nothing usable only when this much of its budget is left: the pause,
+ * the retry call's own limit (so even a hung call ends inside the budget) and 1 s of margin. Request 1's extract phase took
+ * 2,876 to 7,280 ms in the points-fix runs (slowest single call 5,615 ms in SP2), so 15.7 s or more were left after it.
+ */
+export const MIN_EXTRACT_RETRY_BUDGET_MS = RETRY_PAUSE_MS + RETRY_CALL_TIMEOUT_MS + 1_000

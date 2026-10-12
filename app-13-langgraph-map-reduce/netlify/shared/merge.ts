@@ -17,6 +17,8 @@ export function uniqueStrings(values: string[]): string[] {
 /**
  * The reduce step. Findings for one chunk are merged, which covers the retry pass re-running a
  * chunk, and entities are deduplicated across the whole document. Chunks are ordered by id.
+ * Each chunk's points are numbered here, after the merge, so a chunk the retry pass extracts later
+ * can never reuse an id: "1.2" is always the second point of chunk 1.
  */
 export function mergeFindings(findings: Finding[]): Merged {
   const ids = [...new Set(findings.map((f) => f.chunkId))].sort((a, b) => a - b)
@@ -24,7 +26,7 @@ export function mergeFindings(findings: Finding[]): Merged {
     const mine = findings.filter((f) => f.chunkId === chunkId)
     return {
       chunkId,
-      points: uniqueStrings(mine.flatMap((f) => f.points)),
+      points: uniqueStrings(mine.flatMap((f) => f.points)).map((text, i) => ({ id: `${chunkId}.${i + 1}`, text })),
       entities: uniqueStrings(mine.flatMap((f) => f.entities)),
     }
   })

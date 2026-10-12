@@ -1,7 +1,11 @@
 import type { Coverage, RunResult } from '../types/frames'
 
-/** "2", "2 and 6", "2, 6 and 9". */
 function joinNumbers(ids: number[]): string {
+  return joinIds(ids.map(String))
+}
+
+/** "2", "2 and 6", "2, 6 and 9". */
+function joinIds(ids: string[]): string {
   if (ids.length <= 1) return ids.join('')
   return `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`
 }
@@ -12,10 +16,40 @@ export function missingItems(coverage: Coverage): string[] {
   return coverage.missing.map((id) => `chunk ${id} (${noPoints.has(id) ? 'no key points found' : 'not cited in the summary'})`)
 }
 
-/** The muted note under the coverage line, or null when the review flagged nothing. It never changes the count. */
-export function reviewNote(flags: number[]): string | null {
-  if (flags.length === 0) return null
-  return `The review model thinks ${flags.length === 1 ? 'chunk' : 'chunks'} ${joinNumbers(flags)} may be thin in the summary.`
+/** The headline claim, per key point: "22 of 37 key points used". allUsed is true only when every extracted point is cited. */
+export function pointsHeadline(coverage: Pick<Coverage, 'citedPoints' | 'uncitedPoints'>): { text: string; allUsed: boolean } {
+  const total = coverage.citedPoints.length + coverage.uncitedPoints.length
+  return { text: `${coverage.citedPoints.length} of ${total} key points used`, allUsed: total > 0 && coverage.uncitedPoints.length === 0 }
+}
+
+/** The key points the summary does not use, in document order, each with its text and whether the review thinks it matters. */
+export function unusedPoints(result: Pick<RunResult, 'coverage' | 'keyPoints' | 'reviewFlags'>): Array<{ id: string; text: string; flagged: boolean }> {
+  const texts = new Map(result.keyPoints.flatMap((chunk) => chunk.points.map((point) => [point.id, point.text] as const)))
+  const flagged = new Set(result.reviewFlags)
+  return result.coverage.uncitedPoints.map((id) => ({ id, text: texts.get(id) ?? '', flagged: flagged.has(id) }))
+}
+
+/** The sentence that says some chunks' key points could not be checked against the summary, or null when all were. */
+export function uncheckedNote(coverage: Pick<Coverage, 'unchecked'>): string | null {
+  const ids = coverage.unchecked
+  if (ids.length === 0) return null
+  return `The key points of ${ids.length === 1 ? 'chunk' : 'chunks'} ${joinNumbers(ids)} could not be checked against the summary, so they are listed as not used.`
+}
+
+/** What the review made of the unused points, in words. Null when there is nothing to review. It never changes the count. */
+export function reviewLine(result: Pick<RunResult, 'review' | 'reviewFlags'>): string | null {
+  switch (result.review) {
+    case 'not-needed':
+      return null
+    case 'skipped':
+      return 'The review did not run, because too little of the time limit was left. None of these were checked.'
+    case 'unavailable':
+      return 'The review could not be completed. None of these were checked.'
+    case 'done':
+      return result.reviewFlags.length === 0
+        ? 'The review model found none of these central to the document\'s main subject.'
+        : `The review model thinks ${result.reviewFlags.length === 1 ? 'point' : 'points'} ${joinIds(result.reviewFlags)} may be central to the document's main subject. They are marked below.`
+  }
 }
 
 /** The badge beside the coverage count: what happened to the retry, in words and tone. */
@@ -30,7 +64,7 @@ export function coverageBadge(result: Pick<RunResult, 'retryOutcome'>): { tone: 
     case 'used-nothing-new':
       return { tone: 'ds-badge--warning', text: '1 retry used, nothing new' }
     case 'none':
-      return { tone: 'ds-badge--success', text: 'No retry needed' }
+      return { tone: 'ds-badge--success', text: 'No chunk retry needed' }
   }
 }
 

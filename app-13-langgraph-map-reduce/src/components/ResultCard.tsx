@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildCells, chunkTexts, pointRefs, retriedChunks, type PointRef } from '../lib/evidence'
-import { coverageBadge, missingItems, missingLead, reviewNote } from '../lib/coverage-text'
+import { coverageBadge, missingItems, missingLead, pointsHeadline, reviewLine, uncheckedNote, unusedPoints } from '../lib/coverage-text'
 import { formatCount } from '../lib/format'
 import { splitDisplay } from '../../netlify/shared/chunk'
 import type { Phase, RunView } from '../lib/view'
@@ -94,7 +94,9 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
       <SourcePanel selection={selection} point={point} cells={cells} texts={texts} keyPoints={result.keyPoints} onPoint={choosePoint} />
     </div>
   )
-  const note = reviewNote(result.reviewFlags)
+  const unused = unusedPoints(result)
+  const review = reviewLine(result)
+  const unchecked = uncheckedNote(result.coverage)
   const open = selection !== null
   const side = wide && open
   const shown = result.entities.slice(0, ENTITIES_SHOWN)
@@ -112,7 +114,6 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
         <h3 className="evidence__title">Coverage map</h3>
         <CoverageStrip cells={cells} lit={lit} chosen={chosen} max={Math.max(1, ...cells.map((c) => c.count))} onChoose={chooseChunk} />
         <p className="ds-help">Select a cell to see what that chunk gave the summary, or a point below to read its source. Escape closes.</p>
-        {note ? <p className="coverage-note">{note}</p> : null}
         {!wide && selection?.kind === 'chunk' ? panel : null}
       </section>
 
@@ -155,6 +156,21 @@ function Explorer({ result, analyzed, view }: { result: RunResult; analyzed: str
               </ul>
             </div>
           ))}
+          {unused.length > 0 ? (
+            <div className="summary-section" aria-label="Key points not used in the summary">
+              <h3 className="summary-section__title">Key points not used in the summary ({unused.length})</h3>
+              {unchecked ? <p className="coverage-note">{unchecked}</p> : null}
+              {review ? <p className="coverage-note">{review}</p> : null}
+              <ul className="source__list source__list--plain">
+                {unused.map((p) => (
+                  <li key={p.id}>
+                    <span className="ds-hint">{p.id}</span> <Md text={p.text} />
+                    {p.flagged ? <span className="ds-badge ds-badge--warning">May be central</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {result.entities.length > 0 ? (
             <div className="summary-section">
               <h3 className="summary-section__title">Entities across the document</h3>
@@ -213,6 +229,7 @@ export function ResultCard({ view, analyzed, onRetry }: Props) {
   const { covered, missing } = result.coverage
   const total = covered.length + missing.length
   const badge = coverageBadge(result)
+  const headline = pointsHeadline(result.coverage)
   return (
     <section className="ds-section ds-run__result" aria-label="Summary">
       <div className="ds-lead">
@@ -220,9 +237,12 @@ export function ResultCard({ view, analyzed, onRetry }: Props) {
           <h2 tabIndex={-1} data-result-focus className="ds-section__title">
             Summary
           </h2>
-          <span className={`ds-badge ${missing.length === 0 ? 'ds-badge--success' : 'ds-badge--warning'}`}>
+          <span className={`ds-badge ${headline.allUsed ? 'ds-badge--success' : 'ds-badge--warning'}`}>
             <span className="ds-dot" aria-hidden="true" />
-            {covered.length} of {formatCount(total, 'chunk')} covered
+            {headline.text}
+          </span>
+          <span className={`ds-badge ${missing.length === 0 ? 'ds-badge--success' : 'ds-badge--warning'}`}>
+            {covered.length} of {formatCount(total, 'chunk')} cited
           </span>
           <span className={`ds-badge ${badge.tone}`}>{badge.text}</span>
         </div>
@@ -240,7 +260,7 @@ export function ResultCard({ view, analyzed, onRetry }: Props) {
         ) : null}
         <Explorer key={view.startedAt} result={result} analyzed={analyzed} view={view} />
         <p className="ds-lead__foot">
-          A chunk counts as covered when it gave key points and the summary cites it. The review model only adds a note.
+          A key point counts as used when a separate check, one call per chunk, finds a summary sentence that states it. A chunk counts as cited when the writer cites it. The review model only adds a note and never edits the summary.
         </p>
       </div>
     </section>

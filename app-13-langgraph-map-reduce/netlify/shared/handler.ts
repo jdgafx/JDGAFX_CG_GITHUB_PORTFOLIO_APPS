@@ -1,15 +1,21 @@
 import { RunBudget } from './budget'
 import { SERVER_MESSAGE } from './errors'
 import { DONE_FRAME, encodeFrame } from './events'
-import { allowedOrigins, clientKey, corsHeaders, rateLimit, readJsonBody, requestOrigin, validateRunBody } from './guard'
+import { allowedOrigins, clientKey, corsHeaders, rateLimit, readJsonBody, requestOrigin, validateRunBody, validateSynthesizeBody, type Resume } from './guard'
+import type { Phase } from './graph'
 import { RUN_BUDGET_MS, runPipeline } from './pipeline'
 
 export interface HandlerOptions {
   /** Whole-run budget in milliseconds. Defaults to 23 s. */
   budgetMs?: number
-  /** Per model call timeout in milliseconds. Defaults to 12 s. */
+  /** Per model call timeout in milliseconds, for tests that script a slow provider. Each role has its own default and none exceeds this. */
   callTimeoutMs?: number
+  /** What POST /api/run does. The deployed function runs the extract phase only. The default, the whole run in one request, is for tests of single nodes: production never runs it. */
+  phase?: Exclude<Phase, 'synthesize'>
 }
+
+/** What a request body must hold, and what it hands the run. */
+type Parsed = { ok: true; text: string; resume?: Resume} | { ok: false; status: number; error: string }
 
 function json(body: unknown, status: number, headers: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
@@ -22,11 +28,23 @@ function fail(error: string, status: number, headers: Record<string, string>): R
   return json({ success: false, error }, status, headers)
 }
 
-/** POST /api/run. Validation failures are plain JSON 4xx responses. A started run streams SSE frames. */
+/**
+ * POST /api/run. Validation failures are plain JSON 4xx responses. A started run streams SSE frames: the whole run, or
+ * with phase extract request 1 of 2, which ends with the key points for the browser to post to /api/synthesize.
+ */
 export function createRunHandler(options: HandlerOptions = {}): (req: Request) => Promise<Response> {
+  return createHandler(options, options.phase ?? 'all', (body) => validateRunBody(body))
+}
+
+/** POST /api/synthesize: request 2 of 2. Its body is the text and the signed hand-off request 1 made, opened and checked field by field before any model call. */
+export function createSynthesizeHandler(options: HandlerOptions = {}): (req: Request) => Promise<Response> {
+  return createHandler(options, 'synthesize', validateSynthesizeBody)
+}
+
+function createHandler(options: HandlerOptions, phase: Phase, parse: (body: unknown, apiKey: string) => Parsed): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     try {
-      return await handleRun(req, options)
+      return await handleRun(req, options, phase, parse)
     } catch (err) {
       console.error('GraphSwarm: unexpected server error', err instanceof Error ? err.name : 'unknown')
       return fail(SERVER_MESSAGE, 500, {})
@@ -34,7 +52,7 @@ export function createRunHandler(options: HandlerOptions = {}): (req: Request) =
   }
 }
 
-async function handleRun(req: Request, options: HandlerOptions): Promise<Response> {
+async function handleRun(req: Request, options: HandlerOptions, phase: Phase, parse: (body: unknown, apiKey: string) => Parsed): Promise<Response> {
   // The origin the request was sent to is allowed too, so a deploy preview can call its own function.
   const self = requestOrigin(req.url)
   const allowed = [...allowedOrigins(process.env.ALLOWED_ORIGINS), ...(self ? [self] : [])]
@@ -52,17 +70,18 @@ async function handleRun(req: Request, options: HandlerOptions): Promise<Respons
     })
   }
 
-  if (!process.env.OPENROUTER_API_KEY) return fail('The analysis service is not configured.', 503, cors)
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) return fail('The analysis service is not configured.', 503, cors)
 
   const body = await readJsonBody(req)
   if (!body.ok) return fail(body.error, body.status, cors)
-  const checked = validateRunBody(body.value)
+  const checked = parse(body.value, apiKey)
   if (!checked.ok) return fail(checked.error, checked.status, cors)
-  return streamRun(checked.text, options, cors)
+  return streamRun(checked.text, options, cors, phase, checked.resume, apiKey)
 }
 
 /** Starts the run and returns its frames as they are produced. The stream always ends with [DONE]. */
-function streamRun(text: string, options: HandlerOptions, cors: Record<string, string>): Response {
+function streamRun(text: string, options: HandlerOptions, cors: Record<string, string>, phase: Phase, resume: Resume | undefined, sealKey: string): Response {
   const budget = new RunBudget(options.budgetMs ?? RUN_BUDGET_MS)
   const encoder = new TextEncoder()
   let open = true
@@ -73,6 +92,9 @@ function streamRun(text: string, options: HandlerOptions, cors: Record<string, s
       }
       runPipeline({
         text,
+        phase,
+        sealKey,
+        ...(resume ? { resume } : {}),
         budget,
         callTimeoutMs: options.callTimeoutMs,
         sink: (frame) => write(encodeFrame(frame)),

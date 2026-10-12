@@ -47,14 +47,25 @@ function servedTitle(served: string, rows: TraceRow[]): string {
 /** A cost with no price reads as what is missing, never as zero. */
 const costValue = (cost: number | null, pending = false): string => (cost === null ? (pending ? '—' : 'n/a') : formatCost(cost))
 
+/** "1 call not reported", "3 calls not reported": calls that were made but never answered, so the totals leave them out. */
+const unreportedText = (metrics: RunMetrics | null): string | null =>
+  metrics && metrics.unreportedCalls > 0 ? `${formatCount(metrics.unreportedCalls, 'call')} not reported` : null
+
 function totalValue(metrics: RunMetrics | null): string {
-  if (metrics?.totalCost != null) return formatCost(metrics.totalCost)
+  if (metrics?.totalCost != null) return metrics.unreportedCalls > 0 ? `at least ${formatCost(metrics.totalCost)}` : formatCost(metrics.totalCost)
+  if (metrics && metrics.unreportedCalls > 0 && metrics.priceNote === null) return 'Not reported'
   if (metrics?.priceNote === 'unavailable') return 'Price unavailable'
   return metrics?.priceNote === 'no-served-model' ? 'No price' : 'n/a'
 }
 
 /** Where the total comes from: OpenRouter's price for each served model, or why there is none. */
 function costHint(metrics: RunMetrics | null, rows: TraceRow[], otherwise: string): string {
+  const partial = unreportedText(metrics)
+  if (partial && metrics?.priceNote === null) return `(${partial}) ${costSource(metrics, rows, otherwise)}`
+  return costSource(metrics, rows, otherwise)
+}
+
+function costSource(metrics: RunMetrics | null, rows: TraceRow[], otherwise: string): string {
   if (metrics?.priceNote === 'unavailable') return "OpenRouter's price list could not be read"
   if (metrics?.priceNote === 'no-served-model') return 'Served model not reported, so no price'
   const used = priceUse(rows)
@@ -103,15 +114,15 @@ export function ReadoutStrip({ view }: { view: RunView }) {
         <Cell label="Time" hint={running ? 'Running now' : result ? 'Wall clock, whole run' : ended ? sofar : 'Shown while it runs'}>
           {running && view.startedAt !== null ? <LiveClock since={view.startedAt} /> : wall !== null ? formatMs(wall) : none}
         </Cell>
-        <Cell label="Tokens" hint={result ? 'Prompt plus completion, all calls' : show ? sofar : 'All model calls'}>
-          {show && metrics ? formatTokens(metrics.totalTokens) : none}
+        <Cell label="Tokens" hint={unreportedText(metrics) ?? (result ? 'Prompt plus completion, all calls' : show ? sofar : 'All model calls')}>
+          {show && metrics ? (metrics.unreportedCalls > 0 ? `at least ${formatTokens(metrics.totalTokens)}` : formatTokens(metrics.totalTokens)) : none}
         </Cell>
         <Cell label="Cost (USD)" hint={show ? costHint(metrics, rows, result ? 'No price for this run' : sofar) : "Tokens times OpenRouter's price"}>
           {show && metrics ? totalValue(metrics) : none}
         </Cell>
         <Cell
           label="Extract and check"
-          hint={show && metrics ? `${formatCount(metrics.cheapCalls, 'call')}, one per chunk plus the review` : 'One per chunk plus the review'}
+          hint={show && metrics ? `${formatCount(metrics.cheapCalls, 'call')}, an extract and a key point check per chunk, plus the review` : 'An extract and a key point check per chunk, plus the review'}
         >
           {show && metrics ? costValue(metrics.cheapCost) : none}
         </Cell>

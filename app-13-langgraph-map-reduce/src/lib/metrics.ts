@@ -18,6 +18,9 @@ export function worstModelCheck(rows: TraceRow[]): ModelCheck | null {
   return worst
 }
 
+/** A call that was made but never answered: its row names the model it asked, and no reply gave a usage block. A call that was never made has no model on its row. */
+export const isUnreported = (row: TraceRow): boolean => row.model !== undefined && row.priceState === undefined
+
 /** The sum of the costs of these calls, or null when there are none or any of them has no price. A missing price never counts as zero. */
 function costOf(calls: TraceRow[]): number | null {
   if (calls.length === 0 || calls.some((r) => r.cost === undefined)) return null
@@ -31,6 +34,7 @@ function costOf(calls: TraceRow[]): number | null {
  * A total exists only when every call it covers was priced, and the note says why one is missing.
  */
 export function metricsFor(rows: TraceRow[], totalMs: number): RunMetrics {
+  const unreported = rows.filter(isUnreported)
   const answered = rows.filter((r) => r.priceState !== undefined)
   const unpriced = answered.filter((r) => r.priceState !== 'priced')
   const cheap = answered.filter((r) => CHEAP_NODES.has(r.node))
@@ -43,5 +47,6 @@ export function metricsFor(rows: TraceRow[], totalMs: number): RunMetrics {
     cheapCost: costOf(cheap),
     cheapCalls: cheap.length,
     synthesisCost: costOf(answered.filter((r) => r.node === 'synthesize')),
+    unreportedCalls: unreported.length,
   }
 }

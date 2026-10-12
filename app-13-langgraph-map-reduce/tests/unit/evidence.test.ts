@@ -21,11 +21,11 @@ const SUMMARY: Summary = {
     {
       heading: 'Launch',
       points: [
-        { text: 'The Saturn V rocket lifted off from Florida.', chunks: [1, 2] },
-        { text: 'Armstrong walked on the Moon first.', chunks: [2] },
+        { text: 'The Saturn V rocket lifted off from Florida.', points: [], chunks: [1, 2] },
+        { text: 'Armstrong walked on the Moon first.', points: [], chunks: [2] },
       ],
     },
-    { heading: 'Return', points: [{ text: 'The crew splashed down in the Pacific.', chunks: [2, 4, 9] }] },
+    { heading: 'Return', points: [{ text: 'The crew splashed down in the Pacific.', points: [], chunks: [2, 4, 9] }] },
   ],
 }
 
@@ -53,7 +53,7 @@ describe('points and citations', () => {
   })
 
   it('builds one cell per chunk with its count, level, kind and retry mark', () => {
-    const cells = buildCells([1, 2, 3, 4], SUMMARY, { covered: [1, 2, 4], missing: [3], noPoints: [3] }, new Set([2]))
+    const cells = buildCells([1, 2, 3, 4], SUMMARY, { covered: [1, 2, 4], missing: [3], noPoints: [3], citedPoints: [], uncitedPoints: [], unchecked: [] }, new Set([2]))
     expect(cells.map((c) => [c.id, c.count, c.level, c.kind, c.retried])).toEqual([
       [1, 1, 2, 'covered', false],
       [2, 3, 4, 'covered', true],
@@ -63,7 +63,7 @@ describe('points and citations', () => {
   })
 
   it('tells a chunk with key points that nothing cites from one that gave none', () => {
-    const cells = buildCells([1, 2], SUMMARY, { covered: [1], missing: [2], noPoints: [] }, new Set())
+    const cells = buildCells([1, 2], SUMMARY, { covered: [1], missing: [2], noPoints: [], citedPoints: [], uncitedPoints: [], unchecked: [] }, new Set())
     expect(cells[1]).toMatchObject({ id: 2, kind: 'uncited' })
   })
 

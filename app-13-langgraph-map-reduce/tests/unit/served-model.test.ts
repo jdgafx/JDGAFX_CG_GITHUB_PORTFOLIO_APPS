@@ -4,7 +4,8 @@ import { buildGraph } from '../../netlify/shared/graph'
 import { MODEL } from '../../netlify/shared/models'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import { recordedModels, SERVED_MODEL } from '../helpers/prices'
-import { isCheck, isExtract } from '../helpers/roles'
+import { attributionText } from '../helpers/attribute'
+import { isAttribute, isCheck, isExtract } from '../helpers/roles'
 
 /** Three paragraphs of about 1,000 characters each: they make 3 chunks. */
 const paragraph = (n: number): string => Array.from({ length: 120 }, (_, i) => `term${n}w${i}`).join(' ') + '.'
@@ -15,9 +16,11 @@ function scripted(served: string | null): ChatFn {
   return async (request: ChatRequest): Promise<ChatReply> => {
     const user = request.messages[request.messages.length - 1]?.content ?? ''
     const text = isExtract(request)
-      ? JSON.stringify({ points: [`Chunk ${/^Chunk (\d+) of/.exec(user)?.[1]} sets the rule.`], entities: ['The Lessor'] })
-      : isCheck(request)
-        ? JSON.stringify({ omitted: [] })
+      ? JSON.stringify({ points: [`Chunk ${/^Chunk (\d+) of/.exec(user)?.[1]} sets the rule.`, 'Chunk adds a detail.'], entities: ['The Lessor'] })
+      : isAttribute(request)
+        ? attributionText(user)
+        : isCheck(request)
+          ? JSON.stringify({ important: [] })
         : JSON.stringify({
             overview: 'A lease.',
             sections: [{ heading: 'Terms', points: [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))].map((id) => ({ text: `Chunk ${id} rule.`, chunks: [id] })) }],

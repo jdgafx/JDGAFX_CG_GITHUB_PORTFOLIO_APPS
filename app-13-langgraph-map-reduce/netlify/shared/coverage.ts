@@ -1,4 +1,4 @@
-import type { Coverage, Summary } from '../../src/types/frames'
+import type { Coverage, Merged, Summary } from '../../src/types/frames'
 
 /** Chunk ids that the summary cites in at least one point. Ids outside the known set are ignored. */
 export function citedChunks(summary: Summary, chunkIds: number[]): Set<number> {
@@ -12,18 +12,43 @@ export function citedChunks(summary: Summary, chunkIds: number[]): Set<number> {
   return cited
 }
 
+/** Every extracted key point id, in chunk then point order. */
+export function pointIdsOf(merged: Merged): string[] {
+  return merged.byChunk.flatMap((chunk) => chunk.points.map((point) => point.id))
+}
+
+/** Key point ids that the summary cites in at least one sentence. Ids that are not extracted points are ignored, whatever the summary says. */
+export function citedPointIds(summary: Summary, pointIds: string[]): Set<string> {
+  const known = new Set(pointIds)
+  const cited = new Set<string>()
+  for (const section of summary.sections) {
+    for (const point of section.points) {
+      for (const id of point.points) if (known.has(id)) cited.add(id)
+    }
+  }
+  return cited
+}
+
 export interface CoverageInput {
   chunkIds: number[]
   /** Chunks whose extraction produced at least one key point. */
   withPoints: Set<number>
   /** Chunks the summary cites. */
   cited: Set<number>
+  /** Every extracted key point id, in order. */
+  pointIds: string[]
+  /** The key point ids a summary sentence states, as the check found. */
+  citedPoints: Set<string>
+  /** Chunks whose key points the check could not judge. */
+  unchecked: number[]
 }
 
 /**
- * A chunk is covered when extraction produced a key point for it and the summary cites it. That test is
- * deterministic: the review model's opinion is advisory and never counts here. Every other chunk is
- * missing, and noPoints says which of those gave no key points. covered and missing partition the ids.
+ * A key point is used when the summary cites its id, and nothing else counts: that is the headline. The chunk view is
+ * secondary: a chunk is covered when extraction produced a key point for it and the summary cites one of its points.
+ * Both tests are deterministic: the review model's opinion never counts here. Every other chunk is missing, and noPoints
+ * says which of those gave no key points. covered and missing partition the chunk ids; citedPoints and uncitedPoints
+ * partition the point ids.
  */
 export function computeCoverage(input: CoverageInput): Coverage {
   const covered: number[] = []
@@ -36,5 +61,12 @@ export function computeCoverage(input: CoverageInput): Coverage {
     } else if (input.cited.has(id)) covered.push(id)
     else missing.push(id)
   }
-  return { covered, missing, noPoints }
+  return {
+    covered,
+    missing,
+    noPoints,
+    citedPoints: input.pointIds.filter((id) => input.citedPoints.has(id)),
+    uncitedPoints: input.pointIds.filter((id) => !input.citedPoints.has(id)),
+    unchecked: [...input.unchecked].sort((a, b) => a - b),
+  }
 }

@@ -1,12 +1,12 @@
-import { CHECK, EXTRACT, SYNTH } from '../../netlify/shared/models'
+import { ATTRIBUTE, CHECK, EXTRACT, SYNTH } from '../../netlify/shared/models'
 
 /**
  * Every role calls the same model, so a scripted provider tells the roles apart by the output cap each
- * one sends (the models test pins that the three caps differ).
+ * one sends (the models test pins that the four caps differ).
  */
-export type Role = 'extract' | 'check' | 'synthesize'
+export type Role = 'extract' | 'check' | 'synthesize' | 'attribute'
 
-const CAPS: Record<Role, number> = { extract: EXTRACT.maxTokens, check: CHECK.maxTokens, synthesize: SYNTH.maxTokens }
+const CAPS: Record<Role, number> = { extract: EXTRACT.maxTokens, check: CHECK.maxTokens, synthesize: SYNTH.maxTokens, attribute: ATTRIBUTE.maxTokens }
 
 /** Works on a ChatRequest (maxTokens) and on a provider body (max_tokens). */
 export function roleOf(request: { maxTokens: number } | { max_tokens: number }): Role {
@@ -18,3 +18,4 @@ export function roleOf(request: { maxTokens: number } | { max_tokens: number }):
 
 export const isExtract = (request: { maxTokens: number }): boolean => roleOf(request) === 'extract'
 export const isCheck = (request: { maxTokens: number }): boolean => roleOf(request) === 'check'
+export const isAttribute = (request: { maxTokens: number }): boolean => roleOf(request) === 'attribute'

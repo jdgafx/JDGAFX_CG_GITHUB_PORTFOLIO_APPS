@@ -1,4 +1,4 @@
-import type { Chunk, Merged, Summary } from '../../src/types/frames'
+import type { Chunk, KeyPoint, Merged, Summary } from '../../src/types/frames'
 import type { ChatMessage } from './openrouter'
 
 /** Added to the extract and synthesis prompts: small models swap who does what to whom. */
@@ -13,6 +13,7 @@ const EXTRACT_SYSTEM =
   'terms that appear in the chunk. Use only what the chunk states.' +
   FAITHFULNESS
 
+/** The writer cites chunk numbers only. Which key points a sentence states is judged afterwards, chunk by chunk (ATTRIBUTE_SYSTEM). */
 const SYNTH_SYSTEM =
   'You write a structured summary of a document from key points extracted chunk by chunk. Reply with a JSON ' +
   'object only: {"overview": "one or two sentences", "sections": [{"heading": "short title", "points": ' +
@@ -22,13 +23,25 @@ const SYNTH_SYSTEM =
   'points given and add no facts.' +
   FAITHFULNESS
 
+/** One call per chunk, so each judges at most 6 key points against the finished sentences. */
+const ATTRIBUTE_SYSTEM =
+  'You check which key points a summary states. You get the numbered sentences of a summary and the key points ' +
+  'of one chunk of the document, each with an id in brackets. For each sentence that states one or more of these ' +
+  'key points, list their ids. A sentence states a key point only when it says the same fact; a sentence that ' +
+  'only touches the same topic does not. Reply with a JSON object only: {"states": [{"sentence": 3, "points": ' +
+  '["2.1", "2.4"]}]}. Leave out sentences that state none of them, and use only the ids given.'
+
 const CHECK_SYSTEM =
-  'You check whether a summary leaves out any key point it was built from. Reply with a JSON object only: ' +
-  '{"omitted": [chunk numbers whose key points the summary leaves out entirely]}. Reply {"omitted": []} when ' +
-  'every chunk listed is reflected in the summary.'
+  'You review a summary of a document. Below the summary are key points extracted from the document that the ' +
+  'summary does not state, each with an id in brackets. Decide which of them state something central to the ' +
+  'document\'s main subject, so that a reader of the summary would miss a core fact without them. Details, ' +
+  'examples and side topics are not central. Reply with a JSON object only: {"important": ["ids of the central ' +
+  'key points"]}. Reply {"important": []} when none is central.'
+
+const idLines = (points: KeyPoint[]): string => points.map((p) => `[${p.id}] ${p.text}`).join('\n')
 
 function keyPointLines(merged: Merged): string {
-  return merged.byChunk.map((c) => `[chunk ${c.chunkId}] ${c.points.join(' ')}`).join('\n')
+  return merged.byChunk.map((c) => `[chunk ${c.chunkId}] ${c.points.map((p) => p.text).join(' ')}`).join('\n')
 }
 
 export function extractMessages(chunk: Chunk, total: number): ChatMessage[] {
@@ -50,25 +63,35 @@ export function synthesizeMessages(merged: Merged, chunkIds: number[], missed: n
   ]
 }
 
-/** The summary as plain text, with each point's chunk citations, for the review model. */
+/** The summary as plain text, without its citations, for the review model. */
 export function summaryText(summary: Summary): string {
   const lines = [summary.overview]
   for (const section of summary.sections) {
     lines.push(`${section.heading}:`)
-    for (const point of section.points) {
-      const cite = point.chunks.length > 0 ? ` [chunk ${point.chunks.join(', ')}]` : ''
-      lines.push(`- ${point.text}${cite}`)
-    }
+    for (const point of section.points) lines.push(`- ${point.text}`)
   }
   return lines.join('\n')
 }
 
-export function checkMessages(summary: Summary, merged: Merged): ChatMessage[] {
+/** The review sees the summary and only the key points it does not use, so it can judge nothing else. */
+export function checkMessages(summary: Summary, unused: KeyPoint[]): ChatMessage[] {
+  const lines = idLines(unused)
   return [
     { role: 'system', content: CHECK_SYSTEM },
     {
       role: 'user',
-      content: `Summary:\n${summaryText(summary)}\n\nKey points by chunk:\n${keyPointLines(merged)}\n\nReply with the JSON object only, no other text.`,
+      content: `Summary:\n${summaryText(summary)}\n\nKey points the summary does not state:\n${lines}\n\nReply with the JSON object only, no other text.`,
+    },
+  ]
+}
+
+/** The finished summary's numbered sentences and one chunk's key points: the attribution call for that chunk. */
+export function attributeMessages(sentences: string[], chunkId: number, points: KeyPoint[]): ChatMessage[] {
+  return [
+    { role: 'system', content: ATTRIBUTE_SYSTEM },
+    {
+      role: 'user',
+      content: `Summary sentences:\n${sentences.map((text, i) => `${i + 1}. ${text}`).join('\n')}\n\nKey points of chunk ${chunkId}:\n${idLines(points)}\n\nReply with the JSON object only, no other text.`,
     },
   ]
 }

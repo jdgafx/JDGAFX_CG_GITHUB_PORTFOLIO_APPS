@@ -99,9 +99,9 @@ export function SourcePanel({ selection, point, cells, texts, keyPoints, onPoint
               <p className="ds-help">None. The extraction found nothing to keep.</p>
             ) : (
               <ul className="source__list source__list--plain">
-                {points.map((p, i) => (
-                  <li key={i}>
-                    <Md text={p} />
+                {points.map((p) => (
+                  <li key={p.id}>
+                    <span className="ds-hint">{p.id}</span> <Md text={p.text} />
                   </li>
                 ))}
               </ul>

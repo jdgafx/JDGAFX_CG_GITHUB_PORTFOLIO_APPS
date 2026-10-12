@@ -33,7 +33,14 @@ describe('mergeFindings (reduce)', () => {
     ])
 
     expect(merged.byChunk).toEqual([
-      { chunkId: 2, points: ['Deadline is 30 days.', 'Notice must be written.'], entities: ['Lessor'] },
+      {
+        chunkId: 2,
+        points: [
+          { id: '2.1', text: 'Deadline is 30 days.' },
+          { id: '2.2', text: 'Notice must be written.' },
+        ],
+        entities: ['Lessor'],
+      },
     ])
     expect(merged.findingCount).toBe(2)
   })

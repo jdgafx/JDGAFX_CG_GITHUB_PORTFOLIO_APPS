@@ -1,4 +1,9 @@
 import { EMPTY_MESSAGE, MAX_CHARS, MIN_CHARS, RANGE_MESSAGE } from '../../src/lib/limits'
+import type { Chunk, Finding, Merged } from '../../src/types/frames'
+import { splitText } from './chunk'
+import { HANDOFF_REFUSED, openHandoffFull } from './handoff'
+import { mergeFindings } from './merge'
+import { MAX_ENTITIES, MAX_ENTITY_CHARS, MAX_POINTS, MAX_POINT_CHARS } from './parse'
 
 const LIVE_ORIGIN = 'https://jdgafx-app-13-langgraph-map-reduce.netlify.app'
 const LOCAL_ORIGINS = ['http://localhost:8888', 'http://localhost:5173']
@@ -107,4 +112,76 @@ export function validateRunBody(body: unknown): TextResult {
   if (text.length < MIN_CHARS || text.length > MAX_CHARS) return { ok: false, status: 400, error: RANGE_MESSAGE }
   if (!text.trim()) return { ok: false, status: 400, error: EMPTY_MESSAGE }
   return { ok: true, text }
+}
+
+/** What request 2 starts from: the chunks the server splits itself, and the findings and merge it rebuilds from the signed key points. */
+export interface Resume {
+  chunks: Chunk[]
+  findings: Finding[]
+  merged: Merged
+  /** Chunks request 1 already asked a second time. Request 2 starts its retry counter spent when there are any. */
+  retried: number[]
+}
+
+export type SynthesizeBodyResult = { ok: true; text: string; resume: Resume } | { ok: false; status: number; error: string }
+
+const refuse = (): SynthesizeBodyResult => ({ ok: false, status: 400, error: HANDOFF_REFUSED })
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Field check for POST /api/synthesize: the text, as for /api/run, and the signed hand-off request 1 made. The browser is not
+ * trusted, so first the seal must be this server's and the hash in it must be the hash of this very text (handoff.ts), which
+ * keeps a client from inventing key points or pairing real ones with another text. Then nothing in the hand-off is taken as
+ * signed either, since a bug on the other side would sign it too: the chunks are the server's own split of the text, every
+ * chunk number must be one of them, once, in order, every point id must be the id its position gives ("2.3" is the third point
+ * of chunk 2), every point and entity must fit the limits an extraction reply is held to, and the findings are rebuilt from the
+ * point texts and merged again, and the result must equal what was sent. Entities and the finding count are never read from
+ * the body.
+ */
+export function validateSynthesizeBody(body: unknown, apiKey: string, now: number = Date.now()): SynthesizeBodyResult {
+  const checked = validateRunBody(body)
+  if (!checked.ok) return checked
+  const opened = openHandoffFull(apiKey, checked.text, (body as { handoff?: unknown }).handoff, now)
+  const resume = opened ? rebuild(checked.text, opened.merged, opened.retried) : null
+  return resume ? { ok: true, text: checked.text, resume } : refuse()
+}
+
+/** The chunks, findings and merge a signed hand-off stands for, rebuilt and checked field by field, or null when anything is off. */
+function rebuild(text: string, sent: unknown, sentRetried: unknown): Resume | null {
+  if (!isRecord(sent) || !Array.isArray(sent.byChunk)) return null
+  const chunks = splitText(text)
+  const known = new Set(chunks.map((c) => c.id))
+  if (!Array.isArray(sentRetried) || sentRetried.length > chunks.length || !sentRetried.every((id): id is number => typeof id === 'number' && known.has(id))) return null
+  if (sent.byChunk.length < 1 || sent.byChunk.length > chunks.length) return null
+
+  const findings: Finding[] = []
+  let previous = 0
+  for (const entry of sent.byChunk as unknown[]) {
+    if (!isRecord(entry)) return null
+    const chunkId = entry.chunkId
+    if (typeof chunkId !== 'number' || !Number.isInteger(chunkId) || !known.has(chunkId) || chunkId <= previous) return null
+    previous = chunkId
+    const points = entry.points
+    const entities = entry.entities
+    if (!Array.isArray(points) || points.length < 1 || points.length > MAX_POINTS) return null
+    if (!Array.isArray(entities) || entities.length > MAX_ENTITIES) return null
+    const texts: string[] = []
+    for (const [i, point] of (points as unknown[]).entries()) {
+      if (!isRecord(point) || typeof point.text !== 'string' || point.id !== `${chunkId}.${i + 1}`) return null
+      if (!point.text.trim() || point.text.length > MAX_POINT_CHARS) return null
+      texts.push(point.text)
+    }
+    const names = entities as unknown[]
+    if (!names.every((name): name is string => typeof name === 'string' && name.length <= MAX_ENTITY_CHARS)) return null
+    findings.push({ chunkId, points: texts, entities: names, model: null, usage: null })
+  }
+
+  const merged = mergeFindings(findings)
+  const same = merged.byChunk.every((chunk, i) => {
+    const claimed = (sent.byChunk as Array<{ points: Array<{ text: string }>; entities: string[] }>)[i]
+    return claimed !== undefined && chunk.points.length === claimed.points.length && chunk.points.every((p, j) => p.text === claimed.points[j]?.text) && chunk.entities.length === claimed.entities.length && chunk.entities.every((name, j) => name === claimed.entities[j])
+  })
+  if (merged.byChunk.length !== sent.byChunk.length || !same) return null
+  return { chunks, findings, merged, retried: sentRetried as number[] }
 }

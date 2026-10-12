@@ -51,8 +51,9 @@ describe('applyFrame', () => {
         type: 'result',
         result: {
           summary: { overview: 'o', sections: [] },
-          coverage: { covered: [1], missing: [], noPoints: [] },
+          coverage: { covered: [1], missing: [], noPoints: [], citedPoints: [], uncitedPoints: [], unchecked: [] },
           reviewFlags: [],
+          review: 'not-needed' as const,
           entities: [],
           retries: 0,
           chunkCount: 1,
@@ -68,6 +69,7 @@ describe('applyFrame', () => {
             cheapCost: null,
             cheapCalls: 0,
             synthesisCost: null,
+            unreportedCalls: 0,
           },
         },
       },
@@ -116,8 +118,9 @@ describe('the result frame keeps the streamed states', () => {
     type: 'result',
     result: {
       summary: { overview: 'o', sections: [] },
-      coverage: { covered: [1], missing: [], noPoints: [] },
+      coverage: { covered: [1], missing: [], noPoints: [], citedPoints: [], uncitedPoints: [], unchecked: [] },
       reviewFlags: [],
+      review: 'not-needed' as const,
       entities: [],
       retries: 1,
       chunkCount: 1,
@@ -125,7 +128,7 @@ describe('the result frame keeps the streamed states', () => {
       keyPoints: [],
       notice: 'The retry did not finish in time, so the summary is from the first pass.',
       retryOutcome: 'skipped',
-      metrics: { totalMs: 5, totalTokens: 10, totalCost: null, priceNote: null, cheapCost: null, cheapCalls: 0, synthesisCost: null },
+      metrics: { totalMs: 5, totalTokens: 10, totalCost: null, priceNote: null, cheapCost: null, cheapCalls: 0, synthesisCost: null, unreportedCalls: 0 },
     },
   }
   const running = { ...initialView(), phase: 'running' as const }

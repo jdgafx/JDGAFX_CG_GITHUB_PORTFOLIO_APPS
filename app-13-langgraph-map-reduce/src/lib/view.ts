@@ -106,6 +106,8 @@ function applyFrameToView(view: RunView, frame: Frame): RunView {
           live: `${row.detail} ${status === 'ok' ? 'finished' : 'did not finish'}`,
         }
       }
+      // One check row per chunk's key point check: they add rows, and the check stage ends with its own review row.
+      if (row.node === 'check' && row.chunk !== undefined) return { ...view, rows, live: `${row.detail} ${status === 'ok' ? 'checked' : 'could not be checked'}` }
       if (!STAGE_NAMES.has(row.node)) return { ...view, rows }
       return {
         ...view,
@@ -136,6 +138,9 @@ function applyFrameToView(view: RunView, frame: Frame): RunView {
       const branches = view.branches.map((b) => (b.status === 'running' ? { ...b, status: 'stopped' as Status } : b))
       return { ...view, phase: 'done', stages, branches, result: frame.result, live: 'Run complete' }
     }
+    case 'handoff':
+      // Request 1's hand-off is for the second request. The page reads nothing from it.
+      return view
     case 'error':
       return failView(view, frame.message)
   }

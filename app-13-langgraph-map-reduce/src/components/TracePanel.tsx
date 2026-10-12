@@ -1,4 +1,5 @@
 import { formatCost, formatMs, formatRate, formatTokens } from '../lib/format'
+import { isUnreported } from '../lib/metrics'
 import { laneFor } from '../lib/trace'
 import type { RunView, StageName } from '../lib/view'
 import type { TraceRow } from '../types/frames'
@@ -14,13 +15,17 @@ interface ActiveStep {
   detail: string
 }
 
+/** The check step has one row for each chunk's key point check, and a last row for the review. */
 function rowName(row: TraceRow): string {
-  return row.node === 'extract' ? `Extract ${row.detail}` : STAGE_TITLE[row.node]
+  if (row.node === 'extract') return `Extract ${row.detail}`
+  if (row.node === 'check' && row.chunk !== undefined) return `Check ${row.detail}`
+  return STAGE_TITLE[row.node]
 }
 
 function rowDetail(row: TraceRow): string {
   if (row.status === 'failed') return row.message ?? row.detail
-  return row.node === 'extract' ? 'Key points found' : row.detail
+  if (row.node === 'extract') return 'Key points found'
+  return row.node === 'check' && row.chunk !== undefined ? 'Key points checked against the summary' : row.detail
 }
 
 const tokenText = (row: TraceRow): string =>
@@ -30,7 +35,9 @@ const tokenText = (row: TraceRow): string =>
 function costText(row: TraceRow): string {
   if (row.cost !== undefined) return formatCost(row.cost)
   if (row.priceState === 'no-served-model') return 'no price'
-  return row.priceState === 'unavailable' ? 'price unavailable' : 'no cost'
+  if (row.priceState === 'unavailable') return 'price unavailable'
+  // A call that was made and never answered: no usage came back, so nothing is known about what it cost.
+  return isUnreported(row) ? 'not reported' : 'no cost'
 }
 
 /** Names where a priced cost comes from, on hover. */

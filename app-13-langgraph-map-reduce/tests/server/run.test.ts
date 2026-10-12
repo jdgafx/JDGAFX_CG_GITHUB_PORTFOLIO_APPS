@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import handler, { config } from '../../netlify/functions/run'
+import { config } from '../../netlify/functions/run'
 import { BUDGET_MESSAGE } from '../../netlify/shared/errors'
 import { createRunHandler } from '../../netlify/shared/handler'
 import { MODEL } from '../../netlify/shared/models'
 import { MODELS_URL, resetPriceCache } from '../../netlify/shared/prices'
 import { modelsResponse, SERVED_MODEL } from '../helpers/prices'
+import { attributionText } from '../helpers/attribute'
 import { roleOf, type Role } from '../helpers/roles'
 
 const KEY = 'test-only-placeholder'
@@ -50,9 +51,10 @@ function providerFetch(overrides: Partial<Record<Role, Behaviour>> = {}, network
     const user = body.messages[body.messages.length - 1]?.content ?? ''
     if (role === 'extract') {
       const id = Number(/^Chunk (\d+) of/.exec(user)?.[1])
-      return reply(JSON.stringify({ points: [`Chunk ${id} sets the rule.`], entities: ['The Lessor', `Party ${id}`] }), network.omitModel)
+      return reply(JSON.stringify({ points: [`Chunk ${id} sets the rule.`, `Chunk ${id} adds a detail.`], entities: ['The Lessor', `Party ${id}`] }), network.omitModel)
     }
-    if (role === 'check') return reply(JSON.stringify({ omitted: [] }), network.omitModel)
+    if (role === 'attribute') return reply(attributionText(user), network.omitModel)
+    if (role === 'check') return reply(JSON.stringify({ important: [] }), network.omitModel)
     const ids = [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
     const points = ids.map((id) => ({ text: `Chunk ${id} rule is kept.`, chunks: [id] }))
     return reply(JSON.stringify({ overview: 'A lease.', sections: [{ heading: 'Terms', points }] }), network.omitModel)
@@ -91,6 +93,9 @@ afterEach(() => {
   else process.env.OPENROUTER_API_KEY = previousKey
 })
 
+/** The whole run in one request, which is what the library handler does by default. The deployed function runs the extract phase only (split.test.ts). */
+const handler = createRunHandler()
+
 describe('POST /api/run', () => {
   it('is wired to the /api/run path', () => {
     expect(config.path).toBe('/api/run')
@@ -109,8 +114,9 @@ describe('POST /api/run', () => {
     expect(stub).toHaveBeenCalled()
 
     const nodeEnds = frames.filter((f) => f.type === 'node_end')
+    // The check step has one row per chunk's key point check, and the review row.
     expect(nodeEnds.map((f) => f.node).sort()).toEqual(
-      ['check', 'extract', 'extract', 'extract', 'final', 'reduce', 'split', 'synthesize'].sort(),
+      ['check', 'check', 'check', 'check', 'extract', 'extract', 'extract', 'final', 'reduce', 'split', 'synthesize'].sort(),
     )
     expect(nodeEnds.every((f) => f.status === 'ok')).toBe(true)
 
@@ -134,10 +140,10 @@ describe('POST /api/run', () => {
       entities: ['The Lessor', 'Party 1', 'Party 2', 'Party 3'],
     })
     const metrics = (result?.result as { metrics: Record<string, unknown> }).metrics
-    expect(metrics).toMatchObject({ totalTokens: 6000, cheapCalls: 4, priceNote: null })
-    expect(metrics.totalCost as number).toBeCloseTo(5 * 0.0002, 9)
+    expect(metrics).toMatchObject({ totalTokens: 9600, cheapCalls: 7, priceNote: null })
+    expect(metrics.totalCost as number).toBeCloseTo(8 * 0.0002, 9)
     expect(metrics.synthesisCost as number).toBeCloseTo(0.0002, 9)
-    expect(metrics.cheapCost as number).toBeCloseTo(4 * 0.0002, 9)
+    expect(metrics.cheapCost as number).toBeCloseTo(7 * 0.0002, 9)
   })
 
   it('fetches the public model list without a key and prices the run from it, once for the whole run', async () => {
@@ -157,13 +163,13 @@ describe('POST /api/run', () => {
     const { frames } = readStream(await (await handler(runRequest({ text: THREE_CHUNKS }))).text())
 
     const rows = frames.filter((f) => f.type === 'node_end' && f.model)
-    expect(rows.length).toBe(5)
+    expect(rows.length).toBe(8)
     for (const row of rows) {
       expect(row).toMatchObject({ servedModel: null, usage: { total_tokens: 1200 }, priceState: 'no-served-model' })
       expect(row).not.toHaveProperty('cost')
     }
     const result = frames.find((f) => f.type === 'result') as { result: { metrics: Record<string, unknown> } }
-    expect(result.result.metrics).toMatchObject({ totalTokens: 6000, totalCost: null, priceNote: 'no-served-model' })
+    expect(result.result.metrics).toMatchObject({ totalTokens: 9600, totalCost: null, priceNote: 'no-served-model' })
   })
 
   it('shows tokens and "price unavailable" with no fallback price when the model list cannot be fetched, and the run still finishes', async () => {
@@ -173,14 +179,14 @@ describe('POST /api/run', () => {
 
     expect(ended).toBe(true)
     const rows = frames.filter((f) => f.type === 'node_end' && f.model)
-    expect(rows.length).toBe(5)
+    expect(rows.length).toBe(8)
     for (const row of rows) {
       expect(row).toMatchObject({ servedModel: SERVED_MODEL, usage: { total_tokens: 1200 }, priceState: 'unavailable' })
       expect(row).not.toHaveProperty('cost')
     }
     const result = frames.find((f) => f.type === 'result') as { result: { coverage: unknown; metrics: Record<string, unknown> } }
     expect(result.result.coverage).toMatchObject({ covered: [1, 2, 3], missing: [] })
-    expect(result.result.metrics).toMatchObject({ totalTokens: 6000, totalCost: null, priceNote: 'unavailable' })
+    expect(result.result.metrics).toMatchObject({ totalTokens: 9600, totalCost: null, priceNote: 'unavailable' })
   })
 
   it('answers a GET with a plain 405 and makes no provider call', async () => {
@@ -262,8 +268,8 @@ describe('POST /api/run', () => {
     const { frames, ended } = readStream(await response.text())
 
     expect(frames.filter((f) => f.type === 'error')).toEqual([])
-    const result = frames.find((f) => f.type === 'result') as { result: { coverage: Record<string, number[]>; notice: string | null } }
-    expect(result.result.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
+    const result = frames.find((f) => f.type === 'result') as { result: { coverage: Record<string, number[] | string[]>; notice: string | null } }
+    expect(result.result.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2], citedPoints: ['1.1', '3.1'], uncitedPoints: ['1.2', '3.2'], unchecked: [] })
     expect(ended).toBe(true)
     expect(Date.now() - started).toBeLessThan(5_000)
   })

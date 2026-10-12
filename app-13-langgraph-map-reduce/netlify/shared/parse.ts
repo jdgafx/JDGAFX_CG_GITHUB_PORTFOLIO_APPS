@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import type { Summary, SummaryPoint, SummarySection } from '../../src/types/frames'
 
-const MAX_POINTS = 6
-const MAX_ENTITIES = 12
-const MAX_POINT_CHARS = 300
-const MAX_ENTITY_CHARS = 80
+/** Limits on what one extraction reply may hold. Request 2 holds the browser's hand-off to the same limits. */
+export const MAX_POINTS = 6
+export const MAX_ENTITIES = 12
+export const MAX_POINT_CHARS = 300
+export const MAX_ENTITY_CHARS = 80
 const MAX_SECTIONS = 6
 const MAX_HEADING_CHARS = 120
 const MAX_OVERVIEW_CHARS = 600
@@ -77,6 +78,21 @@ function chunkIds(value: unknown, validIds: number[]): number[] {
   return [...found].sort((a, b) => a - b)
 }
 
+/**
+ * Known key point ids only, unique, in the order given. A string is trimmed and must match an id exactly. A number counts
+ * by its text (1.2 is "1.2"), which is safe because a chunk gives at most 6 points, so no id ends in 0.
+ */
+function pointIds(value: unknown, validIds: string[]): string[] {
+  if (!Array.isArray(value)) return []
+  const valid = new Set(validIds)
+  const found = new Set<string>()
+  for (const item of value) {
+    const id = typeof item === 'number' ? String(item) : typeof item === 'string' ? item.trim() : ''
+    if (valid.has(id)) found.add(id)
+  }
+  return [...found]
+}
+
 export interface Extraction {
   points: string[]
   entities: string[]
@@ -94,13 +110,13 @@ export function parseExtraction(text: string): Extraction | null {
   }
 }
 
-const omittedShape = z.object({ omitted: z.unknown().optional() })
+const importantShape = z.object({ important: z.unknown().optional() })
 
-/** Chunk ids the review model says the summary leaves out. Null when the reply holds no JSON object. */
-export function parseOmitted(text: string, validIds: number[]): number[] | null {
-  const parsed = omittedShape.safeParse(jsonObject(text))
+/** Ids the review model says matter to the document's main subject, kept only if they are in `validIds` (the unused points). Null when the reply holds no JSON object. */
+export function parseImportant(text: string, validIds: string[]): string[] | null {
+  const parsed = importantShape.safeParse(jsonObject(text))
   if (!parsed.success) return null
-  return chunkIds(parsed.data.omitted, validIds)
+  return pointIds(parsed.data.important, validIds)
 }
 
 const summaryShape = z.object({ overview: z.unknown().optional(), sections: z.unknown().optional() })
@@ -108,8 +124,9 @@ const sectionShape = z.object({ heading: z.unknown().optional(), points: z.unkno
 const pointShape = z.object({ text: z.unknown().optional(), chunks: z.unknown().optional() })
 
 /**
- * The structured summary. Points without usable text are dropped, and so are sections left with
- * no points. Null when no section survives, which the caller reports as an unreadable summary.
+ * The structured summary. Each sentence keeps only the chunk numbers that exist. Its key points start empty: which ones a
+ * sentence states is judged afterwards (parseStated). Sentences without usable text are dropped, and so are sections
+ * left with no sentences. Null when no section survives, which the caller reports as an unreadable summary.
  */
 export function parseSummary(text: string, validIds: number[]): Summary | null {
   const parsed = summaryShape.safeParse(jsonObject(text))
@@ -123,11 +140,35 @@ export function parseSummary(text: string, validIds: number[]): Summary | null {
       const point = pointShape.safeParse(rawPoint)
       if (!point.success) continue
       const body = cleanText(point.data.text, MAX_POINT_CHARS)
-      if (body) points.push({ text: body, chunks: chunkIds(point.data.chunks, validIds) })
+      if (!body) continue
+      points.push({ text: body, points: [], chunks: chunkIds(point.data.chunks, validIds) })
     }
     const heading = cleanText(section.data.heading, MAX_HEADING_CHARS)
     if (heading && points.length > 0) sections.push({ heading, points })
   }
   if (sections.length === 0) return null
   return { overview: cleanText(parsed.data.overview, MAX_OVERVIEW_CHARS), sections }
+}
+
+const statedShape = z.object({ states: z.unknown().optional() })
+
+/**
+ * The attribution of one chunk: for each sentence number, the ids of the chunk's key points it states. Ids that are not
+ * in `validIds` (the chunk's own points) and sentence numbers outside 1..sentenceCount are dropped, so a forged id or a
+ * point of another chunk is never counted. Null when the reply holds no JSON object.
+ */
+export function parseStated(text: string, sentenceCount: number, validIds: string[]): Map<number, string[]> | null {
+  const parsed = statedShape.safeParse(jsonObject(text))
+  if (!parsed.success) return null
+  const stated = new Map<number, string[]>()
+  const entries: unknown[] = Array.isArray(parsed.data.states) ? parsed.data.states : []
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const { sentence, points } = entry as { sentence?: unknown; points?: unknown }
+    const n = typeof sentence === 'number' ? sentence : typeof sentence === 'string' && /^\d+$/.test(sentence.trim()) ? Number(sentence.trim()) : Number.NaN
+    if (!Number.isInteger(n) || n < 1 || n > sentenceCount) continue
+    const ids = pointIds(points, validIds)
+    if (ids.length > 0) stated.set(n, [...new Set([...(stated.get(n) ?? []), ...ids])])
+  }
+  return stated
 }

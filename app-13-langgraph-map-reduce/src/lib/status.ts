@@ -1,3 +1,4 @@
+import { pointsHeadline } from './coverage-text'
 import { formatTokens, formatCount } from './format'
 import { MAX_CHARS, MIN_CHARS } from './limits'
 import type { Phase, RunView, StageName, Status } from './view'
@@ -74,8 +75,8 @@ export function statusLine(view: RunView, length: number, valid: boolean): strin
     case 'running':
       return `Analyzing. ${runningStep(view) || view.lastStep}`.trim()
     case 'done': {
-      const { covered, missing } = view.result?.coverage ?? { covered: [], missing: [] }
-      return `Finished. ${covered.length} of ${formatCount(covered.length + missing.length, 'chunk')} covered.`
+      const coverage = view.result?.coverage
+      return `Finished. ${pointsHeadline(coverage ?? { citedPoints: [], uncitedPoints: [] }).text}.`
     }
     case 'error':
       return 'Failed. See the message above the readout, then try again.'
@@ -109,22 +110,28 @@ export function loopShort(view: RunView): string {
 
 /** The steps taken so far, in order, for the path line. Repeated extract rows collapse to "extract, 9 chunks". */
 export function pathSteps(view: RunView): Array<{ label: string; now: boolean }> {
-  const steps: Array<{ label: string; now: boolean; extracts: number }> = []
+  const steps: Array<{ label: string; now: boolean; extracts: number; checks: number }> = []
   for (const row of view.rows) {
     const last = steps[steps.length - 1]
     if (row.node === 'extract' && last && last.extracts > 0) {
       last.extracts += 1
       last.label = `extract, ${formatCount(last.extracts, 'chunk')}`
     } else if (row.node === 'extract') {
-      steps.push({ label: 'extract, 1 chunk', now: false, extracts: 1 })
-    } else steps.push({ label: row.node, now: false, extracts: 0 })
+      steps.push({ label: 'extract, 1 chunk', now: false, extracts: 1, checks: 0 })
+    } else if (row.node === 'check' && row.chunk !== undefined && last && last.checks > 0) {
+      // The key point checks, one per chunk, are one step in the path; the review row after them is "check".
+      last.checks += 1
+      last.label = `key point check, ${formatCount(last.checks, 'chunk')}`
+    } else if (row.node === 'check' && row.chunk !== undefined) {
+      steps.push({ label: 'key point check, 1 chunk', now: false, extracts: 0, checks: 1 })
+    } else steps.push({ label: row.node, now: false, extracts: 0, checks: 0 })
   }
   const running = (Object.keys(view.stages) as StageName[]).find((name) => view.stages[name] === 'running')
-  if (running) steps.push({ label: running, now: true, extracts: 0 })
+  if (running) steps.push({ label: running, now: true, extracts: 0, checks: 0 })
   else if (view.branches.some((b) => b.status === 'running')) {
     const last = steps[steps.length - 1]
     if (last && last.extracts > 0) last.now = true
-    else steps.push({ label: 'extract', now: true, extracts: 0 })
+    else steps.push({ label: 'extract', now: true, extracts: 0, checks: 0 })
   }
   return steps.map(({ label, now }) => ({ label, now }))
 }

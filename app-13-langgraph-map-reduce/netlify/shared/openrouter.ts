@@ -4,11 +4,7 @@ import { ProviderError, RunBudgetError, type ProviderKind } from './errors'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-/**
- * Each model call times out after this long unless its role sets a shorter limit (the synthesis call uses this one).
- * Synthesis was 4.1 s at the median and 7.0 s at the 95th percentile with thinking off, so about 6.6 s and 9.5 s with
- * thinking: 12 s clears the 95th percentile. The run budget is the outer limit.
- */
+/** A model call times out after this long unless its role sets its own limit. Every role does: see models.ts. The run budget is the outer limit. */
 export const CALL_TIMEOUT_MS = 12_000
 
 export interface ChatMessage {

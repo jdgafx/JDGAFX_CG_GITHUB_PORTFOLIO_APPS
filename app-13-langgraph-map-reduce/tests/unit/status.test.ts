@@ -70,11 +70,12 @@ describe('chunk counts that follow the number', () => {
     const finished: RunView = {
       ...initialView(),
       phase: 'done',
-      result: { coverage: { covered: [1], missing: [], noPoints: [] } } as unknown as RunView['result'],
+      result: { coverage: { citedPoints: ['1.1', '1.2'], uncitedPoints: [] } } as unknown as RunView['result'],
     }
-    expect(statusLine(finished, 0, true)).toBe('Finished. 1 of 1 chunk covered.')
-    expect(statusLine({ ...finished, result: { coverage: { covered: [1], missing: [2], noPoints: [] } } as unknown as RunView['result'] }, 0, true)).toBe(
-      'Finished. 1 of 2 chunks covered.',
+    expect(statusLine(finished, 0, true)).toBe('Finished. 2 of 2 key points used.')
+    // Every chunk can be cited and still leave key points out: the line counts points, never "covered".
+    expect(statusLine({ ...finished, result: { coverage: { citedPoints: ['1.1'], uncitedPoints: ['1.2', '2.1'] } } as unknown as RunView['result'] }, 0, true)).toBe(
+      'Finished. 1 of 3 key points used.',
     )
   })
 })

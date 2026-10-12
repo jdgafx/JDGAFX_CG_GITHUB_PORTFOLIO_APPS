@@ -4,6 +4,7 @@ import { ProviderError, type ProviderKind } from '../../netlify/shared/errors'
 import { buildGraph } from '../../netlify/shared/graph'
 import { MODEL } from '../../netlify/shared/models'
 import { recordedModels } from '../helpers/prices'
+import { withAttribution } from '../helpers/attribute'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
 import type { Frame, Outcome } from '../../src/types/frames'
@@ -20,7 +21,7 @@ interface Script {
   /** chunk id whose extract call fails with a fatal rejection */
   rejectChunk?: number
   /** chunk ids the review model flags on the first check only */
-  flagFirstCheck?: number[]
+  flagFirstCheck?: string[]
   /** the review model fails with this kind on every call: coverage falls back to chunk citations */
   reviewFailure?: ProviderKind
 }
@@ -57,8 +58,8 @@ function mockChat(script: Script = {}): ChatFn {
     if (isCheck(request)) {
       checks += 1
       if (script.reviewFailure) throw new ProviderError(script.reviewFailure)
-      const omitted = checks === 1 ? (script.flagFirstCheck ?? []) : []
-      return answer(JSON.stringify({ omitted }), MODEL)
+      const important = checks === 1 ? (script.flagFirstCheck ?? []) : []
+      return answer(JSON.stringify({ important }), MODEL)
     }
     // Synthesize cites every chunk that has key points, and only those.
     const ids = [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
@@ -79,7 +80,7 @@ interface RunOutput {
 /** Streams one run and records the node path (from updates), the custom frames and the final outcome. */
 async function runGraph(text: string, chat: ChatFn): Promise<RunOutput> {
   const budget = new RunBudget(60_000)
-  const graph = buildGraph({ chat, limiter: createLimiter(4), budget, models: Promise.resolve(recordedModels()), retryPauseMs: 0 })
+  const graph = buildGraph({ chat: withAttribution(chat), limiter: createLimiter(4), budget, models: Promise.resolve(recordedModels()), retryPauseMs: 0 })
   const out: RunOutput = { path: [], frames: [], final: null }
   try {
     const stream = await graph.stream(
@@ -115,7 +116,7 @@ describe('graph path and state', () => {
     )
     expect(run.path).toHaveLength(8)
 
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
     expect(run.final?.retries).toBe(0)
     expect(run.final?.chunkCount).toBe(3)
     expect(run.final?.findingCount).toBe(3)
@@ -135,8 +136,9 @@ describe('graph path and state', () => {
       'split: 1 chunk of about 1,200 characters',
       'reduce: Merged 1 finding into 1 chunk, 2 unique entities',
       expect.stringMatching(/^synthesize: /),
-      expect.stringMatching(/^check: /),
-      'final: 1 of 1 chunk covered',
+      'check: chunk 1 of 1',
+      expect.stringMatching(/^check: Reviewed/),
+      'final: 1 of 2 key points used. 1 of 1 chunk cited',
     ])
     expect(edges(run.frames)).toEqual(['split -> extract: fan out: 1 chunk', 'check -> final: coverage complete'])
   })
@@ -158,7 +160,7 @@ describe('graph path and state', () => {
       'check',
       'final',
     ])
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
     expect(run.final?.retries).toBe(1)
     // The timed-out chunk produced no first-pass finding, so the retry supplies the only one for it.
     expect(run.final?.findingCount).toBe(3)
@@ -190,13 +192,13 @@ describe('graph path and state', () => {
       'reduce',
       'final',
     ])
-    expect(run.final?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2], citedPoints: ['1.1', '3.1'], uncitedPoints: ['1.2', '3.2'], unchecked: [] })
     expect(run.final?.retries).toBe(1)
     expect(run.final?.findingCount).toBe(2)
     expect(run.final?.retryOutcome).toBe('used-nothing-new')
     expect(run.final?.keyPoints).toEqual([
-      { chunk: 1, points: ['Chunk 1 states its main rule.', 'Chunk 1 sets a deadline.'] },
-      { chunk: 3, points: ['Chunk 3 states its main rule.', 'Chunk 3 sets a deadline.'] },
+      { chunk: 1, points: [{ id: '1.1', text: 'Chunk 1 states its main rule.' }, { id: '1.2', text: 'Chunk 1 sets a deadline.' }] },
+      { chunk: 3, points: [{ id: '3.1', text: 'Chunk 3 states its main rule.' }, { id: '3.2', text: 'Chunk 3 sets a deadline.' }] },
     ])
     expect(run.final?.summary.sections.length).toBeGreaterThan(0)
     expect(edges(run.frames)).toEqual([
@@ -206,12 +208,14 @@ describe('graph path and state', () => {
     ])
   })
 
-  it('(d) the review model flags a cited chunk: the flag is a note only, with no retry and no change to coverage', async () => {
-    const run = await runGraph(THREE_CHUNKS, mockChat({ flagFirstCheck: [3] }))
+  it('(d) the review model flags an unused key point: the flag is a note only, with no retry and no change to coverage', async () => {
+    const run = await runGraph(THREE_CHUNKS, mockChat({ flagFirstCheck: ['3.2', '3.1'] }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
-    expect(run.final?.reviewFlags).toEqual([3])
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
+    // 3.1 is cited, so the review is not allowed to flag it.
+    expect(run.final?.reviewFlags).toEqual(['3.2'])
+    expect(run.final?.review).toBe('done')
     expect(run.final?.retries).toBe(0)
     expect(run.final?.findingCount).toBe(3)
     expect(edges(run.frames)).toEqual([
@@ -224,15 +228,15 @@ describe('graph path and state', () => {
     await expect(runGraph(THREE_CHUNKS, mockChat({ rejectChunk: 1 }))).rejects.toBeInstanceOf(ProviderError)
   })
 
-  it('(f) a review model that does not answer: the run still completes on chunk citations, with the check marked failed', async () => {
+  it('(f) a review model that does not answer: the run still completes and lists the unused points, with the check marked failed', async () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ reviewFailure: 'timeout' }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
-    const check = run.frames.find((f) => f.type === 'node_end' && f.node === 'check')
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
+    const check = run.frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)
     expect(check).toMatchObject({ status: 'failed' })
     expect(check && 'detail' in check ? check.detail : '').toBe(
-      'Review unavailable: The AI provider did not answer in time. Coverage uses chunk citations only.',
+      'Review unavailable: The AI provider did not answer in time. The unused key points are listed without it.',
     )
   })
 
@@ -240,7 +244,7 @@ describe('graph path and state', () => {
     const run = await runGraph(THREE_CHUNKS, mockChat({ reviewFailure: 'bad_request' }))
 
     expect(run.path).toHaveLength(8)
-    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [] })
+    expect(run.final?.coverage).toEqual({ covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] })
     expect(run.final?.summary.sections.length).toBeGreaterThan(0)
   })
 })

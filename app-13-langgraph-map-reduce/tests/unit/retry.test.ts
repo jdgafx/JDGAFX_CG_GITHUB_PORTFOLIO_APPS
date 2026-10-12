@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { RunBudget } from '../../netlify/shared/budget'
 import { ProviderError } from '../../netlify/shared/errors'
-import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, MODEL, RETRY_CALL_TIMEOUT_MS } from '../../netlify/shared/models'
+import { CHECK_CALL_TIMEOUT_MS, EXTRACT_CALL_TIMEOUT_MS, MODEL, RETRY_CALL_TIMEOUT_MS, SYNTH, SYNTH_CALL_TIMEOUT_MS } from '../../netlify/shared/models'
 import { recordedModels } from '../helpers/prices'
+import { withAttribution } from '../helpers/attribute'
 import { isCheck, isExtract } from '../helpers/roles'
 import type { ChatFn, ChatReply, ChatRequest } from '../../netlify/shared/openrouter'
-import { CUT_OFF_MESSAGE, KEPT_FIRST_PASS, runPipeline } from '../../netlify/shared/pipeline'
+import { KEPT_FIRST_PASS, runPipeline } from '../../netlify/shared/pipeline'
 import type { Frame, RunResult } from '../../src/types/frames'
 
 /** One paragraph of about 1,000 characters. Two cannot share a 1,200 character chunk, so N paragraphs make N chunks. */
@@ -23,8 +24,9 @@ const reply = (text: string, model: string): ChatReply => ({
 const lastMessage = (request: ChatRequest): string => request.messages[request.messages.length - 1]?.content ?? ''
 const chunkOf = (user: string): number => Number(/^Chunk (\d+) of/.exec(user)?.[1])
 const citedIds = (user: string): number[] => [...new Set([...user.matchAll(/\[chunk (\d+)\]/g)].map((m) => Number(m[1])))]
+/** Two points per chunk. The summary cites the first of each ("N.1"), so the second is unused and the review has something to judge. */
 const extractReply = (id: number): ChatReply =>
-  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`], entities: ['The Lessor'] }), MODEL)
+  reply(JSON.stringify({ points: [`Chunk ${id} states its rule.`, `Chunk ${id} adds a detail.`], entities: ['The Lessor'] }), MODEL)
 const synthReply = (ids: number[], overview = 'First pass summary.'): ChatReply =>
   reply(
     JSON.stringify({
@@ -33,13 +35,13 @@ const synthReply = (ids: number[], overview = 'First pass summary.'): ChatReply 
     }),
     MODEL,
   )
-const review = (omitted: number[]): ChatReply => reply(JSON.stringify({ omitted }), MODEL)
+const review = (important: string[]): ChatReply => reply(JSON.stringify({ important }), MODEL)
 
 interface Script {
   /** chunk id -> number of extract calls that time out before one succeeds */
   failExtract?: Record<number, number>
-  /** the review flags these chunks on every check */
-  flags?: number[]
+  /** the review flags these key point ids on every check */
+  flags?: string[]
   /** the summary cites only these chunks, whatever it is given */
   cite?: number[]
   /** the second synthesis call cites only these chunks (its overview reads 'Second pass summary.') */
@@ -53,6 +55,7 @@ interface Seen {
   synthCalls: number
   checkCalls: number
   checkTimeouts: Array<number | undefined>
+  synthTimeouts: Array<number | undefined>
 }
 
 function scripted(script: Script, seen: Seen): ChatFn {
@@ -72,6 +75,7 @@ function scripted(script: Script, seen: Seen): ChatFn {
       return review(script.flags ?? [])
     }
     seen.synthCalls += 1
+    seen.synthTimeouts.push(request.timeoutMs)
     if (script.failSecondSynthesis && seen.synthCalls > 1) throw new ProviderError('timeout')
     if (script.citeSecond && seen.synthCalls > 1) return synthReply(script.citeSecond, 'Second pass summary.')
     return synthReply(script.cite ?? citedIds(user))
@@ -79,10 +83,10 @@ function scripted(script: Script, seen: Seen): ChatFn {
 }
 
 async function run(source: string, script: Script, budget: RunBudget = new RunBudget(60_000)) {
-  const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
+  const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [], synthTimeouts: [] }
   const frames: Frame[] = []
   try {
-    await runPipeline({ text: source, budget, chat: scripted(script, seen), models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: source, budget, chat: withAttribution(scripted(script, seen)), models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
   } finally {
     budget.dispose()
   }
@@ -94,11 +98,12 @@ const edgeLabels = (frames: Frame[]): string[] => frames.flatMap((f) => (f.type 
 
 describe('the review is advisory', () => {
   it('keeps chunks the summary cites covered, starts no retry and carries the flags as a note', async () => {
-    const { result, seen, frames } = await run(THREE, { flags: [2, 3] })
+    const { result, seen, frames } = await run(THREE, { flags: ['2.2', '3.2'] })
 
     expect(result).toMatchObject({
-      coverage: { covered: [1, 2, 3], missing: [], noPoints: [] },
-      reviewFlags: [2, 3],
+      coverage: { covered: [1, 2, 3], missing: [], noPoints: [], citedPoints: ['1.1', '2.1', '3.1'], uncitedPoints: ['1.2', '2.2', '3.2'], unchecked: [] },
+      reviewFlags: ['2.2', '3.2'],
+      review: 'done',
       retries: 0,
       notice: null,
     })
@@ -107,17 +112,17 @@ describe('the review is advisory', () => {
     expect(edgeLabels(frames)).toContain('coverage complete')
   })
 
-  it('ignores a flag on a chunk that is already missing, so the note never repeats the alert', async () => {
-    const { result } = await run(THREE, { flags: [2], cite: [1, 3], failExtract: {} })
+  it('lets the review flag an unused point of a chunk the summary does not cite, and still ignores a flag on a cited point', async () => {
+    const { result } = await run(THREE, { flags: ['2.1', '1.1'], cite: [1, 3], failExtract: {} })
 
-    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [] })
-    expect(result?.reviewFlags).toEqual([])
+    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [], citedPoints: ['1.1', '3.1'], uncitedPoints: ['1.2', '2.1', '2.2', '3.2'], unchecked: [] })
+    expect(result?.reviewFlags).toEqual(['2.1'])
   })
 
   it('names a chunk the summary does not cite as missing for that reason, not as one without key points', async () => {
     const { result } = await run(THREE, { cite: [1, 2] })
 
-    expect(result?.coverage).toEqual({ covered: [1, 2], missing: [3], noPoints: [] })
+    expect(result?.coverage).toEqual({ covered: [1, 2], missing: [3], noPoints: [], citedPoints: ['1.1', '2.1'], uncitedPoints: ['1.2', '2.2', '3.1', '3.2'], unchecked: [] })
   })
 })
 
@@ -133,12 +138,13 @@ describe('the retry pass is held to a shorter call limit', () => {
     expect(seen.extractRequests.filter((r) => r.chunk !== 2).every((r) => r.timeoutMs === 9_000)).toBe(true)
   })
 
-  it('holds the advisory review call to 7 s, and leaves the synthesis call to the 12 s default', async () => {
+  it('holds the advisory review call to 7 s, and gives the synthesis call its own limit', async () => {
     expect(CHECK_CALL_TIMEOUT_MS).toBe(7_000)
 
     const { seen } = await run(THREE, {})
 
     expect(seen.checkTimeouts).toEqual([7_000])
+    expect(seen.synthTimeouts).toEqual([SYNTH_CALL_TIMEOUT_MS])
   })
 
   it('uses the singular in the loop label for one missing chunk and the plural for two', async () => {
@@ -177,14 +183,14 @@ describe('a retry that cannot help keeps the first-pass summary', () => {
     const budget = new RunBudget(60_000)
     let retryStarted = false
     vi.spyOn(budget, 'remaining').mockImplementation(() => (retryStarted ? 5_000 : 20_000))
-    const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [] }
+    const seen: Seen = { extractRequests: [], synthCalls: 0, checkCalls: 0, checkTimeouts: [], synthTimeouts: [] }
     const inner = scripted({ failExtract: { 2: 1 } }, seen)
     const chat: ChatFn = async (request, signal) => {
       if (request.timeoutMs !== undefined) retryStarted = true
       return inner(request, signal)
     }
     const frames: Frame[] = []
-    await runPipeline({ text: THREE, budget, chat, models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
+    await runPipeline({ text: THREE, budget, chat: withAttribution(chat), models: Promise.resolve(recordedModels()), retryPauseMs: 0, sink: (f) => frames.push(f) })
     budget.dispose()
 
     const result = frames.flatMap((f) => (f.type === 'result' ? [f.result] : []))[0]
@@ -216,7 +222,7 @@ describe('the retry never lowers coverage', () => {
     const { result, frames } = await run(THREE, { ...first, citeSecond: [2] })
 
     expect(result?.summary.overview).toBe('First pass summary.')
-    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2] })
+    expect(result?.coverage).toEqual({ covered: [1, 3], missing: [2], noPoints: [2], citedPoints: ['1.1', '3.1'], uncitedPoints: ['1.2', '3.2'], unchecked: [] })
     expect(result?.notice).toBe('The retry pass covered 1 of 3 chunks against 2 of 3 in the first pass, so the first-pass summary is kept.')
     const check = frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)
     expect(check).toMatchObject({ detail: expect.stringContaining('Kept the first-pass summary: it covers 2 of 3 chunks, the retry pass 1 of 3.') })
@@ -253,9 +259,9 @@ describe('the result says what happened to the retry', () => {
   })
 
   it('kept-first: the retry ran but the first-pass summary is returned, with the first pass flags only', async () => {
-    const { result, frames } = await run(THREE, { failExtract: { 2: 1 }, citeSecond: [2, 3], flags: [1] })
+    const { result, frames } = await run(THREE, { failExtract: { 2: 1 }, citeSecond: [2, 3], flags: ['1.2'] })
 
-    expect(result).toMatchObject({ retryOutcome: 'kept-first', retries: 1, reviewFlags: [1] })
+    expect(result).toMatchObject({ retryOutcome: 'kept-first', retries: 1, reviewFlags: ['1.2'] })
     const check = frames.filter((f) => f.type === 'node_end' && f.node === 'check').at(-1)
     expect(check).toMatchObject({
       detail: "Kept the first-pass summary: it covers 2 of 3 chunks, the retry pass 2 of 3. The retry pass's review flags were discarded with it.",
@@ -283,8 +289,9 @@ describe('a cut-off retry ends its steps honestly', () => {
     const types = frames.map((f) => (f.type === 'node_end' ? `end ${f.node} ${f.status}` : f.type === 'node_start' ? `start ${f.node}` : f.type))
     const tail = types.slice(types.lastIndexOf('start synthesize'))
     expect(tail).toEqual(['start synthesize', 'end synthesize failed', 'start final', 'end final ok', 'result'])
+    // The synthesis call was made and got no reply: its own row says why, names the model it asked, and carries no usage.
     expect(frames).toContainEqual(
-      expect.objectContaining({ type: 'node_end', node: 'synthesize', status: 'failed', detail: CUT_OFF_MESSAGE, message: CUT_OFF_MESSAGE }),
+      expect.objectContaining({ type: 'node_end', node: 'synthesize', status: 'failed', model: SYNTH.model, message: 'The AI provider did not answer in time.' }),
     )
     expect(frames).toContainEqual(expect.objectContaining({ type: 'node_end', node: 'final', status: 'ok', detail: KEPT_FIRST_PASS }))
     expect(result?.summary.overview).toBe('First pass summary.')

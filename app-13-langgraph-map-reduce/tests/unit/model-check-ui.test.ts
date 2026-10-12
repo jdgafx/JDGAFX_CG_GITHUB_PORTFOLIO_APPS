@@ -32,8 +32,9 @@ function call(node: TraceRow['node'], servedModel: string | null, modelCheck: Mo
 function finished(rows: TraceRow[]): RunView {
   const result = {
     summary: { overview: 'o', sections: [] },
-    coverage: { covered: [1], missing: [], noPoints: [] },
+    coverage: { covered: [1], missing: [], noPoints: [], citedPoints: [], uncitedPoints: [], unchecked: [] },
     reviewFlags: [],
+    review: 'not-needed' as const,
     entities: [],
     retries: 0,
     chunkCount: 1,
