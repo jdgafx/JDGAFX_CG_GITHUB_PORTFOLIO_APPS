@@ -4,3 +4,5 @@ export { formatAge, formatUsd, playbackSpeed, replayLabel, TARGET_REPLAY_MS } fr
 export type { ReplayLabel } from './label'
 export { installReplayShim } from './shim'
 export type { ReplayShim, ShimOptions } from './shim'
+export { isInView, isScrollKey, shouldBringIntoView, useResultFocus } from './useResultFocus'
+export type { RunPhase } from './useResultFocus'

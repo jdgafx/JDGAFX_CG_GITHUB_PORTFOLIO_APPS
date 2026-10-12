@@ -17,7 +17,7 @@ import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE, TRY_QUESTION } from './lib/howto'
 import { liveData } from './lib/liveData'
 import type { SourceRequest } from './lib/loadSource'
 import { useReplay } from './lib/useReplay'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus } from './replay'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
 const NO_MATCH_ANSWER =

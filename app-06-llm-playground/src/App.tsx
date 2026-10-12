@@ -5,7 +5,7 @@ import { liveIndicator } from './lib/liveData'
 import { HOWTO_STEPS, HOWTO_WHAT } from './lib/howto'
 import { useArena, type RunInput } from './lib/useArena'
 import { useReplay } from './lib/useReplay'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus } from './replay'
 import type { CatalogueResponse } from '../netlify/shared/contract'
 import { AnswersSection } from './components/AnswersSection'
 import { EvidenceCard } from './components/EvidenceCard'
@@ -67,6 +67,7 @@ export default function App() {
 
   // A finished, failed or stopped run brings its result into view on a narrow screen (and closes open lists as it starts).
   useResultFocus(phase, {
+    replay: run?.replay === true,
     onRunStart: narrow => {
       if (narrow) document.querySelectorAll<HTMLDetailsElement>('.ds-controls details[open]').forEach(d => (d.open = false))
     },

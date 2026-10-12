@@ -16,7 +16,7 @@ import { loadArticle } from './lib/wikipedia-api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { statusLine } from './lib/status'
 import { useReplay } from './lib/useReplay'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus } from './replay'
 import { applyFrame, endView, failView, initialView, stopView, type RunView } from './lib/view'
 import type { Frame } from './types/frames'
 
@@ -110,11 +110,12 @@ export default function App() {
   useEffect(() => () => controller.current?.abort(), [])
 
   // On a phone the result sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
-  useResultFocus(view.phase === 'error' ? 'failed' : view.phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1) })
+  useResultFocus(view.phase === 'error' ? 'failed' : view.phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1), replay: replaying })
 
-  async function analyze(source: string): Promise<void> {
+  async function analyze(source: string, replayRun = false): Promise<void> {
     if (busy.current || !isValid(source)) return
     busy.current = true
+    setReplaying(replayRun)
     const current = new AbortController()
     controller.current = current
     setAnalyzed(source)
@@ -164,7 +165,7 @@ export default function App() {
     idle: view.phase === 'idle',
     start: (source) => {
       setReplaying(true)
-      return analyze(source)
+      return analyze(source, true)
     },
     clear: () => {
       setReplaying(false)

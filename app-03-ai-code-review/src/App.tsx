@@ -22,8 +22,7 @@ import { initialSelection, lineHref, type PullRequest } from './lib/pullrequest'
 import { EXAMPLE_LINK, loadExample } from './lib/tryit'
 import { useEditorJump } from './lib/useEditorJump'
 import { useReplay } from './lib/useReplay'
-import type { Recording } from './replay'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus, type Recording } from './replay'
 import { countVerdicts, isShown } from './lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
 
@@ -128,7 +127,7 @@ export default function App() {
   const hrefOf = (c: ReviewComment): string | null => (result?.mode === 'pr' && pr && c.where ? lineHref(pr, c.where) : null)
 
   // On a phone the result sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
-  useResultFocus(phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1) })
+  useResultFocus(phase, { onRunStart: (narrow) => narrow && setCollapseKey((n) => n + 1), replay: replayed })
 
   // Drop the in-flight review and the pending copy reset when the component goes away.
   useEffect(

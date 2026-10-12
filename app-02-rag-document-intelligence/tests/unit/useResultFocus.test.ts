@@ -19,7 +19,7 @@ vi.mock('react', () => ({
   },
 }))
 
-import { isInView, isScrollKey, shouldBringIntoView, useResultFocus, type RunPhase } from '../../src/lib/useResultFocus'
+import { isInView, isScrollKey, shouldBringIntoView, useResultFocus, type RunPhase } from '../../src/replay'
 
 describe('shouldBringIntoView', () => {
   it('scrolls only on a narrow screen and only when the visitor did not scroll', () => {
