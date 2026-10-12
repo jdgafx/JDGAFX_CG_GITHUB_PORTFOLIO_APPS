@@ -22,7 +22,7 @@
           "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
         },
         {
-          "claim": "the answer says photosynthesis produces oxygen, and its marker opens a passage that states the cited claim (hand judgement)",
+          "claim": "the answer says photosynthesis produces oxygen, and its marker opens a passage whose marked sentence states the cited claim (hand judgement)",
           "expected": "oxygen",
           "verify_at": "https://en.wikipedia.org/w/index.php?oldid=1379238357"
         },
