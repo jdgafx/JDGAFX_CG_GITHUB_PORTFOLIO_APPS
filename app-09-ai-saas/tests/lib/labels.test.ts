@@ -7,8 +7,20 @@ import { stubFacts, stubWindow } from '../ui/stubCore'
 const claim = (kind: string, value: string, extra: Partial<Extract<Segment, { t: 'claim' }>> = {}): Segment =>
   ({ t: 'claim', kind, package: 'vite', span: 'window', day: '', value, ...extra }) as Segment
 const compare = (): Segment => ({ t: 'compare', package: 'vite', peer: 'zod', metric: 'window_total', relation: 'higher' })
+const unsetCompare = (): Segment => ({ t: 'compare', package: 'vite', peer: 'zod', metric: 'change_pct' })
 const ctx = { window: stubWindow('2026-10-12', 30), facts: [stubFacts('vite', 0), stubFacts('zod', 0)] }
 const rowFor = (j: Judged) => checkRows([{ name: 'vite', judged: [j] } satisfies Shown], [], ctx, {})[0]!
+
+describe('model value cell of the figure check (GA.6)', () => {
+  it('reads "computed by code" for a compare and a change_pct, whatever the filled field holds', () => {
+    expect(rowFor({ seg: compare(), verdict: 'checked', rendered: 'x', npmValue: 'x' }).modelValue).toBe('computed by code')
+    expect(rowFor({ seg: unsetCompare(), verdict: 'wrong', rendered: '(no comparison)', reason: 'tie', npmValue: 'equal' }).modelValue).toBe('computed by code')
+    expect(rowFor({ seg: claim('change_pct', '+18.10'), verdict: 'checked', rendered: '+18.1%', npmValue: '+18.1%' }).modelValue).toBe('computed by code')
+  })
+  it('still shows the model value of a copied figure', () => {
+    expect(rowFor({ seg: claim('window_total', '5'), verdict: 'wrong', rendered: '5', npmValue: '7,000', reason: 'differs' }).modelValue).toBe('5')
+  })
+})
 
 describe('npm value cell of the figure check', () => {
   it('shows the reason, never the model value, for a wrong claim that has no npm value', () => {

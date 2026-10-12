@@ -156,6 +156,19 @@ describe('Explanation: model clauses that run together', () => {
   })
 })
 
+describe('Explanation: a compare code could not fill, and a growth it could not compute (R2)', () => {
+  it('a wrong compare with no relation reads "(no comparison) (differs from npm)", a not-computable change "(no value) (differs from npm)"', () => {
+    const unset: Judged = { seg: { t: 'compare', package: 'd3', peer: 'd3', metric: 'window_total' }, verdict: 'wrong', rendered: '(no comparison)', reason: 'same package' }
+    const empty: Judged = { seg: claim('change_pct', 'd3', ''), verdict: 'wrong', rendered: '(no value)', reason: 'no basis' }
+    const region = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('x '), unset, text(' y '), empty] } }])
+    const marks = Array.from(region.querySelectorAll('mark.claim--wrong'))
+    expect(marks.map(m => m.textContent)).toEqual(['(no comparison)', '(no value)'])
+    expect(region.querySelectorAll('.claim-note')).toHaveLength(2)
+    expect(region.querySelector('p.explanation__text')!.textContent).toContain('(no comparison)')
+    expect(region.querySelector('p.explanation__text')!.textContent).toContain('(differs from npm)')
+  })
+})
+
 describe('Explanation: a refusal from the function', () => {
   it('shows the words of the refusal in place of the generic notice, per package and when every call failed', () => {
     const msg = 'Too many requests. Please wait a minute and try again.'

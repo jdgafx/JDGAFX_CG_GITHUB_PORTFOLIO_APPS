@@ -54,7 +54,7 @@ export const PARAGRAPH = {
   paragraph: [
     { t: 'text', s: 'react totals ' },
     { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
-    { t: 'compare', package: 'react', peer: 'vite', metric: 'change_pct', relation: 'lower' },
+    { t: 'compare', package: 'react', peer: 'vite', metric: 'change_pct' },
   ],
 }
 

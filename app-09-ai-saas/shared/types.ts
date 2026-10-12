@@ -14,7 +14,7 @@ export type FigureKind = 'day_value' | 'window_total' | 'peak_value' | 'peak_day
 export type Segment =
   | { t: 'text'; s: string }
   | { t: 'claim'; kind: FigureKind; package: string; span: 'window' | 'last30' | 'none'; day: string; value: string }
-  | { t: 'compare'; package: string; peer: string; metric: 'window_total' | 'last30_total' | 'change_pct' | 'peak_value'; relation: 'higher' | 'lower' };
+  | { t: 'compare'; package: string; peer: string; metric: 'window_total' | 'last30_total' | 'change_pct' | 'peak_value'; relation?: 'higher' | 'lower' };
 export type Verdict = 'checked' | 'wrong' | 'unchecked' | 'neutral';
 export interface ExplainRequest { target: string; names: string[]; window: RunWindow; facts: PackageFacts[];
   pastRows: Record<string, Array<[Day, number, 'no-data' | 'possible-gap' | null]>>; releaseState: Record<string, ReleaseState> }

@@ -139,7 +139,7 @@ export function recompute(rowsByName: Record<string, Rows>, runDate: Day, days: 
 const wrong = (reason: string, npm?: string): Check => (npm === undefined ? { verdict: 'wrong', reason } : { verdict: 'wrong', reason, npm })
 const abs = (x: bigint): bigint => (x < 0n ? -x : x)
 
-/** The model's two-decimal change as tenths, rounded half away from zero on the digits. */
+/** The two-decimal change value as tenths, rounded half away from zero on the digits. */
 function shownTenths(value: string): bigint | null {
   const m = PCT.exec(value)
   if (!m) return null
@@ -149,9 +149,9 @@ function shownTenths(value: string): bigint | null {
 const tenthsText = (t: bigint): string => `${t < 0n ? '-' : '+'}${abs(t) / 10n}.${abs(t) % 10n}`
 
 function checkChange(seg: Extract<Segment, { t: 'claim' }>, p: PackageRecomputed): Check {
+  if (!p.computable) return wrong('no basis')
   const shown = shownTenths(seg.value)
   if (shown === null) return wrong('value form')
-  if (!p.computable) return wrong('no basis')
   // exact change in tenths = 10 x changeNum / changeDen, rounded half away from zero
   const scaled = 10n * abs(p.changeNum)
   const q = (2n * scaled + p.changeDen) / (2n * p.changeDen)

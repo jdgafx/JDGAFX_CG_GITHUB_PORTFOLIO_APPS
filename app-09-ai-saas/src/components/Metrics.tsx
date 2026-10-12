@@ -1,13 +1,11 @@
+import { growthPercent } from '../../shared/aggregates'
 import { fixedDecimal, formatCount } from '../../shared/format'
 import type { PackageFacts, RunWindow } from '../../shared/types'
 
 /** Change in average per day with downloads, past month vs the month before, as a signed percent to one decimal. */
 export function changeText(facts: PackageFacts): string {
-  const g = facts.aggregates.growth
-  if (!g.computable || g.n1 === 0 || g.n0 === 0 || g.S0 === 0n) return 'n/a'
-  const num = (g.S1 * BigInt(g.n0) - g.S0 * BigInt(g.n1)) * 100n
-  const value = fixedDecimal(num, g.S0 * BigInt(g.n1), 1)
-  return `${value.startsWith('-') ? '' : '+'}${value}%`
+  const value = growthPercent(facts.aggregates.growth)
+  return value === null ? 'n/a' : `${value}%`
 }
 
 /** Per-package figures and the cross-package ones, all written by code from the aggregates. */

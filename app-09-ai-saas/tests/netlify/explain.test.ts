@@ -187,7 +187,7 @@ describe('POST /api/explain', () => {
       }
     })
     it('a package outside the request is invalid:bad-shape', async () => {
-      const content = JSON.stringify({ paragraph: [{ t: 'compare', package: 'react', peer: 'zod', metric: 'window_total', relation: 'higher' }] })
+      const content = JSON.stringify({ paragraph: [{ t: 'compare', package: 'react', peer: 'zod', metric: 'window_total' }] })
       expect((await reason(() => jsonResponse(chatBody({ content })))).out).toMatchObject({ ok: false, reason: 'invalid:bad-shape' })
     })
     it('carries the newest model and cost on an invalid answer too', async () => {

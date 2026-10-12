@@ -289,6 +289,35 @@ describe('useRun explain', () => {
     expect(s.api.run.outcomes.vite).toEqual({ status: 'withheld', reason: 'the paragraph was too long' })
   })
 
+  it('G1/G2: fills the code values after the shape check and before judging, and judges the filled paragraph', async () => {
+    const order: string[] = []
+    const seen: Array<{ paragraph: unknown; names: string[] }> = []
+    const base = makeStubCore()
+    const filled = [{ t: 'text', s: 'filled' }] as const
+    const judge = vi.fn((...args: Parameters<typeof base.judge>) => {
+      order.push('judge')
+      return base.judge(...args)
+    })
+    const s = await setup({
+      core: makeStubCore({
+        validateShape: () => (order.push('validateShape'), { ok: true }),
+        fillCode: (paragraph, facts) => {
+          order.push('fillCode')
+          seen.push({ paragraph, names: facts.map(f => f.name) })
+          return [...filled]
+        },
+        judge,
+      }),
+      postExplain: async () => reply(r1aReact),
+    })
+    await flush()
+    await act(async () => void s.api.explain())
+    await flush(8)
+    expect(order).toEqual(['validateShape', 'fillCode', 'judge'])
+    expect(seen).toEqual([{ paragraph: (reply(r1aReact) as { paragraph: unknown }).paragraph, names: ['react'] }])
+    expect(judge.mock.calls[0]![0]).toEqual([...filled])
+  })
+
   it('a failed release history is sent as releaseState failed and does not stop the run', async () => {
     const posts: ExplainRequest[] = []
     const s = await setup({

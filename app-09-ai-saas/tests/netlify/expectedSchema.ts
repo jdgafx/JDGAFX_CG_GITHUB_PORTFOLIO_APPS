@@ -24,15 +24,14 @@ export function expectedSchema(names: string[]): object {
             claim(['window_total', 'peak_value'], '^[1-9][0-9]*$', '^$'),
             claim(['day_value'], '^[0-9]+$', DATE),
             claim(['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
-            claim(['change_pct'], '^[+-][0-9]+[.][0-9]{2}$', '^$'),
+            claim(['change_pct'], '^$', '^$'),
             {
-              type: 'object', additionalProperties: false, required: ['t', 'package', 'peer', 'metric', 'relation'],
+              type: 'object', additionalProperties: false, required: ['t', 'package', 'peer', 'metric'],
               properties: {
                 t: { type: 'string', enum: ['compare'] },
                 package: { type: 'string', enum: names },
                 peer: { type: 'string', enum: names },
                 metric: { type: 'string', enum: ['window_total', 'last30_total', 'change_pct', 'peak_value'] },
-                relation: { type: 'string', enum: ['higher', 'lower'] },
               },
             },
           ],

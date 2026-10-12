@@ -64,6 +64,7 @@ export function makeStubCore(overrides: Partial<Core> = {}): Core {
           seg.t === 'claim' && !['peak_day', 'unusual_day', 'day'].includes(seg.kind) && /\d/.test(seg.value) ? [{ paragraph, segment }] : [],
         ),
       ),
+    fillCode: paragraph => paragraph,
     validateShape: () => ({ ok: true }),
     ...overrides,
   }

@@ -1,7 +1,8 @@
+import { growthPercent } from './aggregates'
 import { formatCount, formatDate, formatPct, isIsoDate } from './format'
 import { checkSegment, recompute } from './recompute'
 import type { Check } from './recompute'
-import type { FigureKind, Rows, RunWindow, Segment, Verdict, WindowDays } from './types'
+import type { FigureKind, PackageFacts, Rows, RunWindow, Segment, Verdict, WindowDays } from './types'
 
 export type ClaimSeg = Extract<Segment, { t: 'claim' }>
 export type CompareSeg = Extract<Segment, { t: 'compare' }>
@@ -35,6 +36,7 @@ export function renderClaim(seg: ClaimSeg): string {
 /** A compare as one clause written by code, with no digits. `windowName` is the run's window name. */
 export function renderCompare(seg: CompareSeg, windowName: string): string {
   const { package: p, peer: q, relation: rel } = seg
+  if (rel === undefined) return '(no comparison)'
   switch (seg.metric) {
     case 'window_total':
       return `${p}'s total for ${windowName} is ${rel} than ${q}'s`
@@ -45,6 +47,42 @@ export function renderCompare(seg: CompareSeg, windowName: string): string {
     case 'peak_value':
       return `${p}'s busiest day in ${windowName} was ${rel} than ${q}'s`
   }
+}
+
+/** One compare metric of one package from its facts, as a fraction n/d with d > 0; null when it is not computable. */
+function metricFrom(metric: CompareSeg['metric'], f: PackageFacts): { n: bigint; d: bigint } | null {
+  const a = f.aggregates
+  if (metric === 'window_total') return { n: a.windowTotal, d: 1n }
+  if (metric === 'last30_total') return { n: a.last30Total, d: 1n }
+  if (metric === 'peak_value') return { n: BigInt(a.peakValue), d: 1n }
+  // growth as the exact ratio A1/A0 = S1 n0 / (S0 n1); the order of two changes is the order of two ratios
+  return a.growth.computable ? { n: a.growth.S1 * BigInt(a.growth.n0), d: a.growth.S0 * BigInt(a.growth.n1) } : null
+}
+
+/**
+ * The code-filled fields (GA.6, G1 and G2), set from `facts` in the browser after validateShape and before judge().
+ * A change_pct `value` is the growth to one decimal with a trailing 0 (`+34.10`), empty when it is not computable;
+ * a compare `relation` is higher or lower, and left unset for a tie, a not-computable change, peer = package or an
+ * unknown package. The model's own value for either field is never read. Everything else passes through.
+ */
+export function fillCode(paragraph: Segment[], facts: PackageFacts[]): Segment[] {
+  const factsOf = (name: string): PackageFacts | undefined => facts.find((f) => f.name === name)
+  return paragraph.map((seg): Segment => {
+    if (seg.t === 'claim' && seg.kind === 'change_pct') {
+      const f = factsOf(seg.package)
+      const pct = f ? growthPercent(f.aggregates.growth) : null
+      return { ...seg, value: pct === null ? '' : `${pct}0` }
+    }
+    if (seg.t !== 'compare') return seg
+    const bare: CompareSeg = { t: 'compare', package: seg.package, peer: seg.peer, metric: seg.metric }
+    const a = factsOf(seg.package)
+    const b = factsOf(seg.peer)
+    const x = a && seg.package !== seg.peer ? metricFrom(seg.metric, a) : null
+    const y = b ? metricFrom(seg.metric, b) : null
+    if (!x || !y) return bare
+    const diff = x.n * y.d - y.n * x.d
+    return diff === 0n ? bare : { ...bare, relation: diff > 0n ? 'higher' : 'lower' }
+  })
 }
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -66,8 +104,7 @@ export function validateShape(input: unknown): ShapeResult {
       if (!KINDS.includes(seg['kind'] as FigureKind) || !['window', 'last30', 'none'].includes(seg['span'] as string)) return bad
       claims++
     } else if (seg['t'] === 'compare') {
-      if (!strings(seg, ['package', 'peer', 'metric', 'relation'])) return bad
-      if (!METRICS.includes(seg['metric'] as string) || !['higher', 'lower'].includes(seg['relation'] as string)) return bad
+      if (!strings(seg, ['package', 'peer', 'metric']) || !METRICS.includes(seg['metric'] as string)) return bad
       claims++
     } else return bad
   }

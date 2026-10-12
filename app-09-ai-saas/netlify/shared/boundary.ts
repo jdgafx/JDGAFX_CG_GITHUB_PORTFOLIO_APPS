@@ -190,8 +190,8 @@ export function parseParagraph(value: unknown, names: string[]): Segment[] | nul
       out.push({ t: 'text', s: seg.s })
     } else if (seg.t === 'claim' && typeof seg.kind === 'string' && KINDS.includes(seg.kind) && known(seg.package) && typeof seg.span === 'string' && SPANS.includes(seg.span) && typeof seg.day === 'string' && typeof seg.value === 'string') {
       out.push({ t: 'claim', kind: seg.kind as FigureKind, package: seg.package, span: seg.span as 'window' | 'last30' | 'none', day: seg.day, value: seg.value })
-    } else if (seg.t === 'compare' && known(seg.package) && known(seg.peer) && typeof seg.metric === 'string' && METRICS.includes(seg.metric) && (seg.relation === 'higher' || seg.relation === 'lower')) {
-      out.push({ t: 'compare', package: seg.package, peer: seg.peer, metric: seg.metric as 'window_total' | 'last30_total' | 'change_pct' | 'peak_value', relation: seg.relation })
+    } else if (seg.t === 'compare' && known(seg.package) && known(seg.peer) && typeof seg.metric === 'string' && METRICS.includes(seg.metric)) {
+      out.push({ t: 'compare', package: seg.package, peer: seg.peer, metric: seg.metric as 'window_total' | 'last30_total' | 'change_pct' | 'peak_value' })
     } else {
       return null
     }

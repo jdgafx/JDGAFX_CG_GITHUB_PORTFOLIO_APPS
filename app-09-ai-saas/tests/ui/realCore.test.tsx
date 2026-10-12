@@ -18,16 +18,30 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function runPreset() {
+/** Under GA.6 code fills growth and comparisons, so a wrong mark comes from a copied figure: these two are appended to each answer. */
+const WITH_COPY_SLIPS = (target: string) => (r: ExplainReply): ExplainReply =>
+  r.ok
+    ? {
+        ...r,
+        paragraph: [
+          ...r.paragraph,
+          { t: 'claim', kind: 'window_total', package: target, span: 'window', day: '', value: '1' },
+          { t: 'claim', kind: 'day_value', package: target, span: 'none', day: '2026-09-20', value: '' },
+        ],
+      }
+    : r
+
+async function runPreset(tweak: (target: string) => (r: ExplainReply) => ExplainReply = () => r => r) {
   const deps = {
     today: () => RUN_DATE,
     fetchRange: async (name: string) => ({ name, status: 'ok' as const, rows: NPM_ROWS[name]! }),
     fetchReleases: async (name: string) => ({ name, status: 'ok' as const, releases: RELEASES[name]! }),
-    postExplain: async (req: { target: string }): Promise<ExplainReply> => ({
-      ...explainFromCapture(CAPTURES[req.target]),
-      newestModel: 'anthropic/claude-haiku-5.5',
-      costUsd: 0.0016,
-    }),
+    postExplain: async (req: { target: string }): Promise<ExplainReply> =>
+      tweak(req.target)({
+        ...explainFromCapture(CAPTURES[req.target]),
+        newestModel: 'anthropic/claude-haiku-5.5',
+        costUsd: 0.0016,
+      }),
   }
   const { container } = mount(<App deps={deps} />)
   await flush()
@@ -85,10 +99,17 @@ describe('UI with the real core', () => {
     }
   })
 
-  it('a wrong figure keeps the npm value out of the region and in the mark title', async () => {
+  it('GA.6: on the live captures every growth and comparison code filled is checked, so none is wrong', async () => {
     const container = await runPreset()
+    expect(container.querySelectorAll('section.explanation mark.claim--wrong')).toHaveLength(0)
+    expect(container.querySelectorAll('section.explanation mark.claim--checked').length).toBeGreaterThan(0)
+  })
+
+  it('a wrong figure keeps the npm value out of the region and in the mark title', async () => {
+    const container = await runPreset(WITH_COPY_SLIPS)
     const wrong = container.querySelectorAll('section.explanation mark.claim--wrong')
-    expect(wrong.length).toBeGreaterThan(0)
+    expect(wrong).toHaveLength(6)
+    expect(Array.from(wrong).map(m => m.textContent)).toContain('(no value)')
     for (const mark of Array.from(wrong)) {
       // a figure that is wrong against npm carries npm's value in its title; a value in the wrong form carries the reason
       expect(mark.getAttribute('title')).toMatch(mark.textContent === '(no value)' ? /^Wrong: / : /^npm: /)
@@ -110,7 +131,7 @@ describe('UI with the real core', () => {
       fetchRange: async (name: string) => ({ name, status: 'ok' as const, rows: NPM_ROWS[name]! }),
       fetchReleases: async (name: string) => ({ name, status: 'ok' as const, releases: RELEASES[name]! }),
     }
-    // read the change the page itself shows for vite, then have the model state it to two decimals
+    // read the change the page itself shows for vite, then have the model write the claim with an empty value, which code fills (G1)
     const probe = mount(<App deps={base} />)
     await flush()
     await click(byText(probe.container, '.ds-choice', 'Vite vs webpack vs esbuild'))
@@ -129,7 +150,7 @@ describe('UI with the real core', () => {
       costUsd: 0.001,
       paragraph: [
         { t: 'text', s: 'The average per day moved ' },
-        { t: 'claim', kind: 'change_pct', package: 'vite', span: 'none', day: '', value: `${shown.slice(0, -1)}0` },
+        { t: 'claim', kind: 'change_pct', package: 'vite', span: 'none', day: '', value: '' },
         { t: 'text', s: ' against the month before.' },
       ],
     })

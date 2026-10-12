@@ -21,7 +21,21 @@ function requestFor(s: Scenario, target: string, state: ReleaseState = 'ok'): Ex
   }
 }
 
-describe('buildUserMessage equals the messages sent in the live runs', () => {
+/** The direction word for a package, from expected.json (computed by compute_expected.py, not by the code under test). */
+const word = (change1: string | null): string => (change1 === null ? 'not computable' : change1.startsWith('-') ? 'fell' : change1 === '+0.0' ? 'was flat' : 'rose')
+const CODE_SHOWS = '(code computes and shows the figure; write a change_pct claim with an empty value where it goes)'
+
+/**
+ * The goldens are the rev 6 messages sent live (Step 0r6); no script writes them. Rev 8 (GA.6) changes exactly the growth
+ * lines: the target's A1/A0 line becomes its direction word, and each peer's A1/A0 tail becomes the peer's direction word.
+ */
+function rev8(golden: string, s: Scenario, target: string): string {
+  return golden
+    .replace(/^daily averages \(days with downloads above zero\): A1=.*$/m, `growth: ${word(s.expected.packages[target]!.change1)} ${CODE_SHOWS}`)
+    .replace(/^(.+?): (window_total.*?); A1=\S+ A0=\S+$/gm, (_m, name: string, head: string) => `${name}: ${head}; growth ${word(s.expected.packages[name]!.change1)}`)
+}
+
+describe('buildUserMessage is the messages sent in the live runs, with only the rev 8 growth lines changed', () => {
   const cases: Array<[string, string, ReleaseState]> = [
     ['r1', 'r1', 'ok'],
     ['r2', 'r2', 'ok'],
@@ -31,8 +45,8 @@ describe('buildUserMessage equals the messages sent in the live runs', () => {
   for (const [golden, key, state] of cases) {
     const s = loadScenario('2026-10-12', key)
     for (const target of s.names)
-      it(`${golden} ${target}: byte-identical`, () => {
-        expect(buildUserMessage(requestFor(s, target, state))).toBe(loadGolden(`user-${golden}-${fname(target)}.txt`))
+      it(`${golden} ${target}: golden plus the growth lines`, () => {
+        expect(buildUserMessage(requestFor(s, target, state))).toBe(rev8(loadGolden(`user-${golden}-${fname(target)}.txt`), s, target))
       })
   }
 })
@@ -75,14 +89,34 @@ describe('content rules', () => {
     expect(rows).toEqual(e.top6)
     expect(rows).toHaveLength(6)
   })
-  it('A1 and A0 are shown to 4 decimals', () => {
-    expect(msg).toContain('daily averages (days with downloads above zero): A1=29367647.4643 (past month, n1=28); A0=24861690.1154 (month before, n0=26)')
-    expect(msg).toMatch(/A1=\d+\.\d{4} A0=\d+\.\d{4}/)
+  it('F3: the growth line gives a direction word and no digit, and no A1 or A0 line exists anywhere', () => {
+    const line = msg.split('\n').find((l) => l.startsWith('growth: '))!
+    expect(line).toBe(`growth: ${word(s.expected.packages['react']!.change1)} ${CODE_SHOWS}`)
+    expect(line).not.toMatch(/\d/)
+    expect(msg).not.toMatch(/A1|A0|daily averages/)
   })
-  it('the peers block lists every other package and not the target', () => {
+  it('the peers block lists every other package and not the target, each with a direction word and no digit', () => {
     const peers = msg.split('peer packages (exact code aggregates, for comparison only):\n')[1]!.split('\n')
     expect(peers.map((l) => l.split(':')[0])).toEqual(['vite', 'zod', '@anthropic-ai/sdk'])
-    expect(peers.every((l) => l.includes('window_total(window)=') && l.includes('A1='))).toBe(true)
+    for (const l of peers) {
+      const name = l.split(':')[0]!
+      expect(l.includes('window_total(window)=')).toBe(true)
+      expect(l.endsWith(`; growth ${word(s.expected.packages[name]!.change1)}`)).toBe(true)
+      expect(l.split('; growth')[1]).not.toMatch(/\d/)
+    }
+  })
+  it('F3: fell, was flat and rose, from the one-decimal figure (a fall that rounds to zero is flat)', () => {
+    const growthWord = (a: number, b: number): string => {
+      const rows = { t: series('2026-08-01', 72, (_i, day) => (day >= '2026-09-12' ? a : day >= '2026-08-13' ? b : 0)), o: series('2026-08-01', 72, () => 800) }
+      const window = computeWindow(rows, '2026-10-12', 30)
+      const facts = computeFacts(rows, window, {}, { t: 'ok', o: 'ok' })
+      const m = buildUserMessage({ target: 't', names: ['t', 'o'], window, facts, pastRows: { t: buildPastRows(rows.t, window, facts[0]!) }, releaseState: { t: 'ok', o: 'ok' } })
+      return m.split('\n').find((l) => l.startsWith('growth: '))!.split(' (')[0]!
+    }
+    expect(growthWord(9000, 10000)).toBe('growth: fell')
+    expect(growthWord(10000, 10000)).toBe('growth: was flat')
+    expect(growthWord(99_999, 100_000)).toBe('growth: was flat')
+    expect(growthWord(11000, 10000)).toBe('growth: rose')
   })
   it('only the earlier possible gaps are listed after the past month rows', () => {
     expect(msg).toContain('possible-gap days earlier in the window: 2026-06-03')
@@ -123,12 +157,12 @@ describe('content rules', () => {
     }
     const m = buildUserMessage(req)
     expect(m).toContain('growth: not computable (no downloads in the earlier period)')
-    expect(m).not.toContain('daily averages')
-    expect(m).toContain('other: window_total(window)=')
+    expect(m).not.toMatch(/daily averages|A1|A0|growth: (rose|fell|was flat)/)
+    expect(m).toMatch(/^other: window_total\(window\)=.*; growth was flat$/m)
     const m2 = buildUserMessage({ ...req, target: 'other' })
     expect(m2).toContain('young: ')
     expect(m2).toContain('growth not computable')
-    expect(m2).toContain('A1=')
+    expect(m2).toContain('growth: was flat (code computes')
   })
   it('says unusual days: none when there are none', () => {
     const m = buildUserMessage(requestFor(loadScenario('2026-10-12', 'r2'), 'vite'))
@@ -151,29 +185,33 @@ describe('buildPastRows', () => {
 })
 
 describe('SYSTEM_RULES', () => {
-  // Golden: the rev 6 text sent live, plus exactly the rev 7 replacements (spec N1, N2, N6).
-  const rev7 = (rev6: string, windowName: string): string =>
+  // Golden: the rev 6 text sent live, plus exactly the rev 7 replacements (spec N1, N2, N6) and the rev 8 ones (G1, G2, F3).
+  const rev8Rules = (rev6: string, windowName: string): string =>
     rev6
       .replace(
         '1. Code formats every claim for display; you only set the claim fields.\n',
         '1. Code formats every claim for display; you only set the claim fields. What code renders: counts with commas; dates as D Mon YYYY; change_pct with one decimal and its % sign, so never write "percent" after it; a compare as a whole clause naming both packages and the period.\n',
       )
       .replace(
-        'Round to one decimal, half away from zero, and give the sign (+12.3 or -4.1). ',
-        'Write it to two decimals with its sign (+12.34 or -4.10) and do no further rounding. ',
+        'Code has already computed the exact aggregates (totals, peaks, daily averages) and found the unusual days; trust them. Your job is the reasoning: state and explain growth, compare the packages, and explain the unusual days.',
+        'Code has already computed the exact aggregates (totals, peaks), growth and the comparisons, and found the unusual days; trust them. Your job is the words: explain the unusual days, name which packages to compare, and say what the input states about growth.',
       )
-      .replace('the signed one-decimal number for change_pct', 'the signed two-decimal number for change_pct')
+      .replace(
+        /^2\. Growth: .*$/m,
+        '2. Growth is a change_pct claim with an empty value; code shows the figure. Never write a growth figure. Say rose, fell or flat only as the input states it. If the input says growth is not computable, write no change_pct claim and say growth cannot be computed.',
+      )
+      .replace('the signed one-decimal number for change_pct', 'empty for change_pct (code fills it)')
       .replace(
         'else empty.\n',
         "else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.\n",
       )
       .replace(
         "5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind.\n",
-        `5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.\n`,
+        `5. Every comparison between packages is a compare claim {package, peer, metric}; code decides higher or lower and writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.\n`,
       )
-  it('is the live text plus the rev 7 replacements, for a year and a month window', () => {
-    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev7(loadGolden('system-rev6-r1-react.txt'), 'the past year'))
-    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev7(loadGolden('system-rev6-r2-vite.txt'), 'the past month'))
+  it('is the live text plus the rev 7 and rev 8 replacements, for a year and a month window', () => {
+    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev8Rules(loadGolden('system-rev6-r1-react.txt'), 'the past year'))
+    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'))
   })
   it('tells the model to write no total or peak claim for a zero, and to say so in words', () => {
     const rule = SYSTEM_RULES('the past year', 'react').split('\n').find((l) => l.startsWith('4. '))!
@@ -184,22 +222,37 @@ describe('SYSTEM_RULES', () => {
     const t = SYSTEM_RULES('the past year', 'react')
     expect(t).not.toContain('one decimal, half away')
     expect(t).not.toContain('signed one-decimal')
+    expect(t).not.toMatch(/two-decimal|two decimals|A1|A0|daily averages|relation/)
     expect(t).toContain('so never write "percent" after it')
     expect(t).toContain('Write one paragraph about react, at most 120 words')
+  })
+  it('G1 and F3: the intro, rule 2 and rule 4 say code shows the growth figure and the value is empty', () => {
+    const t = SYSTEM_RULES('the past year', 'react')
+    expect(t).toContain('Your job is the words: explain the unusual days, name which packages to compare, and say what the input states about growth.')
+    expect(t).toContain('Growth is a change_pct claim with an empty value; code shows the figure. Never write a growth figure.')
+    expect(t).not.toContain('do not say whether it rose or fell')
+    expect(t).toContain('empty for change_pct')
   })
 })
 
 describe('CLAIM_SCHEMA', () => {
-  it('is the schema accepted live (judge r6 pattern probe) with the two-decimal change_pct pattern', () => {
+  it('is the schema accepted live (judge r6 pattern probe) with the rev 7 total/peak pattern and the rev 8 change_pct and compare branches', () => {
     const names = ['react', 'vite', 'zod', '@anthropic-ai/sdk']
-    const live = loadGoldenJson<{ properties: { paragraph: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } }>('schema-r1p-react.json')
-    const branch = live.properties.paragraph.items.anyOf.find((b) => b.properties.kind?.enum.join() === 'change_pct')!
+    type Branch = { required: string[]; properties: { kind?: { enum: string[] }; value?: { pattern: string }; relation?: unknown } }
+    const live = loadGoldenJson<{ properties: { paragraph: { items: { anyOf: Branch[] } } } }>('schema-r1p-react.json')
+    const branches = live.properties.paragraph.items.anyOf
+    const branch = branches.find((b) => b.properties.kind?.enum.join() === 'change_pct')!
     expect(branch.properties.value!.pattern).toBe('^[+-][0-9]+[.][0-9]$')
-    branch.properties.value!.pattern = '^[+-][0-9]+[.][0-9]{2}$'
+    // Rev 8 (G1): the model writes no growth figure, so the value is empty.
+    branch.properties.value!.pattern = '^$'
     // Step 0.5: the model wrote 0 as a placeholder for a total and a peak, so those two kinds take a positive integer.
-    const totals = live.properties.paragraph.items.anyOf.find((b) => b.properties.kind?.enum.join() === 'window_total,peak_value')!
+    const totals = branches.find((b) => b.properties.kind?.enum.join() === 'window_total,peak_value')!
     expect(totals.properties.value!.pattern).toBe('^[0-9]+$')
     totals.properties.value!.pattern = '^[1-9][0-9]*$'
+    // Rev 8 (G2): code fills the relation, so a compare is {package, peer, metric}.
+    const compare = branches.find((b) => b.required.includes('relation'))!
+    compare.required = compare.required.filter((k) => k !== 'relation')
+    delete compare.properties.relation
     expect(CLAIM_SCHEMA(names)).toEqual(live)
   })
   it('the window_total and peak_value pattern refuses 0 and a leading zero, and keeps day_value open to 0', () => {

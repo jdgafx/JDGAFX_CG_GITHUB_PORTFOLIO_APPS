@@ -1,4 +1,4 @@
-import { addDays } from './format'
+import { addDays, fixedDecimal } from './format'
 import { computeUnusual } from './unusual'
 import type { Aggregates, Day, Growth, PackageFacts, Release, ReleaseState, Rows, RunWindow } from './types'
 
@@ -30,6 +30,17 @@ export function growthBasis(rows: Rows, past: [Day, Day], before: [Day, Day]): G
   const p = basis(past[0], past[1])
   const b = basis(before[0], before[1])
   return { S1: p.S, n1: p.n, S0: b.S, n0: b.n, computable: p.n > 0 && b.n > 0 && b.S > 0n }
+}
+
+/**
+ * The growth as one signed one-decimal figure (`+34.1`, `-4.2`, `+0.0`), or null when it is not computable. The
+ * one place that rounds it: the Metrics card, the figure code fills into a change_pct claim (`+34.10`) and the
+ * direction word the model is told all read it. Basis-agnostic: it only reads the Growth that growthBasis() built.
+ */
+export function growthPercent(g: Growth): string | null {
+  if (!g.computable) return null
+  const value = fixedDecimal((g.S1 * BigInt(g.n0) - g.S0 * BigInt(g.n1)) * 100n, g.S0 * BigInt(g.n1), 1)
+  return value.startsWith('-') ? value : `+${value}`
 }
 
 export function computeAggregates(rows: Rows, window: RunWindow): Aggregates {

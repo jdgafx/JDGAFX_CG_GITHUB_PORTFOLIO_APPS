@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { figureNumbers, judge, renderClaim, renderCompare, validateShape } from '../../shared/claims'
+import { computeFacts } from '../../shared/aggregates'
+import { figureNumbers, fillCode, judge, renderClaim, renderCompare, validateShape } from '../../shared/claims'
 import { computeWindow } from '../../shared/window'
-import type { FigureKind, Segment } from '../../shared/types'
+import type { FigureKind, PackageFacts, Segment } from '../../shared/types'
 import { loadScenario, series } from '../fixtures/load'
 
 type Claim = Extract<Segment, { t: 'claim' }>
@@ -15,7 +16,8 @@ const claim = (kind: FigureKind, pkg: string, value: string, over: Partial<Claim
   value,
   ...over,
 })
-const cmp = (pkg: string, peer: string, metric: Compare['metric'], relation: Compare['relation']): Compare => ({ t: 'compare', package: pkg, peer, metric, relation })
+const cmp = (pkg: string, peer: string, metric: Compare['metric'], relation?: Compare['relation']): Compare =>
+  relation === undefined ? { t: 'compare', package: pkg, peer, metric } : { t: 'compare', package: pkg, peer, metric, relation }
 const text = (s: string): Segment => ({ t: 'text', s })
 
 const r2 = loadScenario('2026-10-12', 'r2')
@@ -202,5 +204,123 @@ describe('N4: figure numbering', () => {
   })
   it('is empty without figures', () => {
     expect(figureNumbers([[text('only words')], []])).toEqual([])
+  })
+})
+
+describe('G1/G2 fillCode: code supplies the growth figure and the comparison relation', () => {
+  const factsOf = (s: typeof r1, w: ReturnType<typeof computeWindow>): PackageFacts[] =>
+    computeFacts(s.rows, w, s.releases, Object.fromEntries(s.names.map((n) => [n, 'ok' as const])))
+  const f1 = factsOf(r1, w1)
+  const r3 = loadScenario('2026-10-12', 'r3')
+  const w3 = computeWindow(r3.rows, '2026-10-12', r3.days)
+  const f3 = factsOf(r3, w3)
+  const filled = (segs: Segment[], f: PackageFacts[]) => fillCode(segs, f)
+
+  it('an empty change_pct value becomes the one-decimal figure with a trailing 0 (react +18.10, drizzle-orm +34.10)', () => {
+    expect(r1.expected.packages['react']!.change1).toBe('+18.1')
+    expect(r3.expected.packages['drizzle-orm']!.change1).toBe('+34.1')
+    const [a] = filled([claim('change_pct', 'react', '')], f1)
+    const [b] = filled([claim('change_pct', 'drizzle-orm', '')], f3)
+    expect(a).toMatchObject({ kind: 'change_pct', value: '+18.10' })
+    expect(b).toMatchObject({ kind: 'change_pct', value: '+34.10' })
+  })
+  it('the filled growth renders +18.1% and +34.1%, is checked, and is figure-numbered', () => {
+    const p = filled([text('Growth '), claim('change_pct', 'react', ''), text(' and the total '), claim('window_total', 'react', '5765986637', { span: 'window' })], f1)
+    const j = judge(p, r1.rows, w1, r1.days)
+    expect(j[1]).toMatchObject({ verdict: 'checked', rendered: '+18.1%' })
+    expect(figureNumbers([p])[0]).toEqual({ paragraph: 0, segment: 1 })
+    const j3 = judge(filled([claim('change_pct', 'drizzle-orm', '')], f3), r3.rows, w3, r3.days)
+    expect(j3[0]).toMatchObject({ verdict: 'checked', rendered: '+34.1%' })
+  })
+  it('the model value is never read: a stray value is overwritten', () => {
+    expect(filled([claim('change_pct', 'react', '+99.99')], f1)[0]).toMatchObject({ value: '+18.10' })
+  })
+  it('a negative growth fills -x.x0, a flat one +0.00, and a negative that rounds to zero +0.00', () => {
+    const grow = (a: number, b: number) => {
+      const rows = { a: series('2026-08-01', 72, (_i, day) => (day >= '2026-09-12' ? a : day >= '2026-08-13' ? b : 0)) }
+      const w = computeWindow(rows, '2026-10-12', 30)
+      const f = computeFacts(rows, w, {}, { a: 'ok' })
+      const [seg] = fillCode([claim('change_pct', 'a', '')], f)
+      return { seg, judged: judge([seg!], rows, w, 30)[0]! }
+    }
+    const down = grow(9000, 10000)
+    expect(down.seg).toMatchObject({ value: '-10.00' })
+    expect(down.judged).toMatchObject({ verdict: 'checked', rendered: '-10.0%' })
+    expect(grow(10000, 10000).seg).toMatchObject({ value: '+0.00' })
+    const tiny = grow(9999, 10000) // -0.01 percent
+    expect(tiny.seg).toMatchObject({ value: '+0.00' })
+    expect(tiny.judged).toMatchObject({ verdict: 'checked', rendered: '+0.0%' })
+  })
+  it('a not-computable change leaves the value empty: "(no value)", wrong, no basis', () => {
+    const rows = { a: series('2026-09-17', 25, () => 500), b: series('2026-08-01', 72, () => 500) }
+    const w = computeWindow(rows, '2026-10-12', 30)
+    const f = computeFacts(rows, w, {}, { a: 'ok', b: 'ok' })
+    const p = fillCode([claim('change_pct', 'a', '+5.00')], f)
+    expect(p[0]).toMatchObject({ value: '' })
+    expect(judge(p, rows, w, 30)[0]).toMatchObject({ verdict: 'wrong', reason: 'no basis', rendered: '(no value)' })
+  })
+  it('a compare gets the right relation from facts, whatever the model sent', () => {
+    const [a] = filled([cmp('esbuild', 'vite', 'window_total')], factsOf(r2, w2))
+    expect(a).toMatchObject({ t: 'compare', relation: 'higher' })
+    const [b] = filled([{ ...cmp('esbuild', 'vite', 'window_total'), relation: 'lower' }], factsOf(r2, w2))
+    expect(b).toMatchObject({ relation: 'higher' })
+    expect(filled([cmp('zod', 'vite', 'change_pct')], f1)[0]).toMatchObject({ relation: 'higher' })
+    expect(filled([cmp('zod', 'react', 'peak_value')], f1)[0]).toMatchObject({ relation: 'higher' })
+    expect(filled([cmp('zod', 'react', 'last30_total')], f1)[0]).toMatchObject({ relation: 'higher' })
+  })
+  it('every filled compare is checked by the independent recompute (all pairs, all metrics)', () => {
+    for (const metric of ['window_total', 'last30_total', 'change_pct', 'peak_value'] as const)
+      for (const a of r1.names)
+        for (const b of r1.names) {
+          if (a === b) continue
+          const out = judge(filled([cmp(a, b, metric)], f1), r1.rows, w1, r1.days)[0]!
+          expect(out.verdict, `${a} ${b} ${metric}`).toBe('checked')
+        }
+  })
+  it('G3: facts that disagree with the rows are marked wrong by judge(); the same paragraph on true facts is checked', () => {
+    const paragraph: Segment[] = [claim('change_pct', 'react', ''), cmp('zod', 'react', 'window_total')]
+    const truth = judge(fillCode(paragraph, f1), r1.rows, w1, r1.days)
+    expect(truth.map((j) => j.verdict)).toEqual(['checked', 'checked'])
+    const crafted = f1.map((f) => {
+      if (f.name === 'react') return { ...f, aggregates: { ...f.aggregates, growth: { ...f.aggregates.growth, S1: f.aggregates.growth.S1 * 2n } } }
+      // zod's window total made smaller than react's, so the filled relation flips
+      if (f.name === 'zod') return { ...f, aggregates: { ...f.aggregates, windowTotal: 1n } }
+      return f
+    })
+    const out = judge(fillCode(paragraph, crafted), r1.rows, w1, r1.days)
+    expect(out[0]).toMatchObject({ verdict: 'wrong', reason: 'differs', npmValue: '+18.1%' })
+    expect(out[1]).toMatchObject({ verdict: 'wrong', reason: 'differs' })
+    expect(out[1]!.seg).toMatchObject({ relation: 'lower' })
+  })
+  it('a tie, peer = package and a not-computable change leave the relation unset: "(no comparison)", wrong', () => {
+    const rows = { a: series('2026-08-01', 72, () => 500), b: series('2026-08-01', 72, () => 500), y: series('2026-09-17', 25, () => 500) }
+    const w = computeWindow(rows, '2026-10-12', 30)
+    const f = computeFacts(rows, w, {}, { a: 'ok', b: 'ok', y: 'ok' })
+    for (const seg of [cmp('a', 'b', 'window_total', 'higher'), cmp('a', 'a', 'window_total', 'lower'), cmp('y', 'a', 'change_pct', 'higher')]) {
+      const [out] = fillCode([seg], f)
+      expect(out).not.toHaveProperty('relation')
+      expect(judge([out!], rows, w, 30)[0]).toMatchObject({ verdict: 'wrong', rendered: '(no comparison)' })
+    }
+  })
+  it('touches nothing else: text, other claims and a package with no facts pass through', () => {
+    const p: Segment[] = [text('x'), claim('window_total', 'react', '5', { span: 'window' }), claim('peak_day', 'react', '2026-10-01'), cmp('react', 'ghost', 'window_total')]
+    const out = filled(p, f1)
+    expect(out.slice(0, 3)).toEqual(p.slice(0, 3))
+    expect(out[3]).not.toHaveProperty('relation')
+  })
+  it('does not change the input', () => {
+    const seg = claim('change_pct', 'react', '')
+    filled([seg], f1)
+    expect(seg.value).toBe('')
+  })
+})
+
+describe('G2 rendering and shape of a compare with no relation', () => {
+  it('renders "(no comparison)" for every metric', () => {
+    for (const m of ['window_total', 'last30_total', 'change_pct', 'peak_value'] as const) expect(renderCompare(cmp('zod', 'react', m), 'the past year')).toBe('(no comparison)')
+  })
+  it('validateShape accepts a compare without relation and still rejects a bad one', () => {
+    expect(validateShape([cmp('zod', 'react', 'window_total')])).toEqual({ ok: true })
+    expect(validateShape([{ t: 'compare', package: 'zod', peer: 'react' }])).toEqual({ ok: false, reason: 'bad shape' })
   })
 })

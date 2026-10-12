@@ -36,7 +36,7 @@ export function formatDate(iso: Day): string {
 }
 
 /**
- * The model's change_pct value (`+34.07`, two decimals) shown to one decimal with its % sign,
+ * A change_pct value (code-filled `+34.10`, two decimals) shown to one decimal with its % sign,
  * rounded half away from zero on the digits. Null when the value is not in that form.
  */
 export function formatPct(value: string): string | null {

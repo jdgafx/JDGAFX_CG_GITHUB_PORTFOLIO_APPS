@@ -1,19 +1,20 @@
-import { addDays, fixedDecimal } from './format'
+import { growthPercent } from './aggregates'
+import { addDays } from './format'
 import { topUnusual } from './unusual'
-import type { Day, ExplainRequest, PackageFacts, Rows, RunWindow, UnusualRow } from './types'
+import type { Day, ExplainRequest, Growth, PackageFacts, Rows, RunWindow, UnusualRow } from './types'
 
 type PastFlag = 'no-data' | 'possible-gap' | null
 
-/** The rules sent as the system message (spec section 3, rev 7). */
+/** The rules sent as the system message (spec section 3, rev 8.2). */
 export function SYSTEM_RULES(windowName: string, target: string): string {
   return [
-    'You explain npm download data. Code has already computed the exact aggregates (totals, peaks, daily averages) and found the unusual days; trust them. Your job is the reasoning: state and explain growth, compare the packages, and explain the unusual days.',
+    'You explain npm download data. Code has already computed the exact aggregates (totals, peaks), growth and the comparisons, and found the unusual days; trust them. Your job is the words: explain the unusual days, name which packages to compare, and say what the input states about growth.',
     'Rules:',
     '1. Code formats every claim for display; you only set the claim fields. What code renders: counts with commas; dates as D Mon YYYY; change_pct with one decimal and its % sign, so never write "percent" after it; a compare as a whole clause naming both packages and the period.',
-    '2. Growth: change_pct = (A1/A0 - 1) x 100, where A1 and A0 are the given daily averages. Write it to two decimals with its sign (+12.34 or -4.10) and do no further rounding. If the input says growth is not computable, write no change_pct claim and say growth cannot be computed.',
+    '2. Growth is a change_pct claim with an empty value; code shows the figure. Never write a growth figure. Say rose, fell or flat only as the input states it. If the input says growth is not computable, write no change_pct claim and say growth cannot be computed.',
     `3. Every number and every date you write goes in a claim. Text segments contain no digits and no numbers written as words. Name periods in words only: ${windowName} for the whole window, the past month for the last 30 days, the month before for the 30 days before that. Never count days.`,
-    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, the signed two-decimal number for change_pct, YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.",
-    `5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.`,
+    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, empty for change_pct (code fills it), YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.",
+    `5. Every comparison between packages is a compare claim {package, peer, metric}; code decides higher or lower and writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.`,
     "6. One figure per claim: a date and its count are two claims (a date claim, then a day_value claim for that day). At most 8 claims in the paragraph, compare claims included. Cite a peer's figure at most once.",
     '7. Never write ratios, shares, times-larger, differences, combined totals, baselines, counts of days, version numbers or release ids.',
     '8. Rows marked no-data or possible-gap are missing npm data, not real drops. Do not call them unusual and do not quote their value.',
@@ -45,13 +46,12 @@ const claimBranch = (names: string[], kinds: string[], valuePattern: string, day
 const compareBranch = (names: string[]): object => ({
   type: 'object',
   additionalProperties: false,
-  required: ['t', 'package', 'peer', 'metric', 'relation'],
+  required: ['t', 'package', 'peer', 'metric'],
   properties: {
     t: { type: 'string', enum: ['compare'] },
     package: { type: 'string', enum: names },
     peer: { type: 'string', enum: names },
     metric: { type: 'string', enum: ['window_total', 'last30_total', 'change_pct', 'peak_value'] },
-    relation: { type: 'string', enum: ['higher', 'lower'] },
   },
 })
 
@@ -71,7 +71,7 @@ export function CLAIM_SCHEMA(names: string[]): object {
             claimBranch(names, ['window_total', 'peak_value'], '^[1-9][0-9]*$', '^$'),
             claimBranch(names, ['day_value'], '^[0-9]+$', DATE),
             claimBranch(names, ['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
-            claimBranch(names, ['change_pct'], '^[+-][0-9]+[.][0-9]{2}$', '^$'),
+            claimBranch(names, ['change_pct'], '^$', '^$'),
             compareBranch(names),
           ],
         },
@@ -90,10 +90,16 @@ const releaseText = (u: UnusualRow): string =>
         ? 'release same day'
         : `release ${u.release} day(s) before`
 
+/** What the input says about growth, in words and with no digit (F3): the sign of the one-decimal figure the browser shows. */
+function growthWord(g: Growth): string | null {
+  const pct = growthPercent(g)
+  return pct === null ? null : pct.startsWith('-') ? 'fell' : pct === '+0.0' ? 'was flat' : 'rose'
+}
+
 function growthLine(f: PackageFacts): string {
-  const g = f.aggregates.growth
-  if (!g.computable) return 'growth: not computable (no downloads in the earlier period)'
-  return `daily averages (days with downloads above zero): A1=${fixedDecimal(g.S1, BigInt(g.n1), 4)} (past month, n1=${g.n1}); A0=${fixedDecimal(g.S0, BigInt(g.n0), 4)} (month before, n0=${g.n0})`
+  const word = growthWord(f.aggregates.growth)
+  if (word === null) return 'growth: not computable (no downloads in the earlier period)'
+  return `growth: ${word} (code computes and shows the figure; write a change_pct claim with an empty value where it goes)`
 }
 
 /**
@@ -129,8 +135,8 @@ export function buildUserMessage(req: ExplainRequest): string {
     if (name === req.target) continue
     const q = req.facts.find((f) => f.name === name)
     if (!q) continue
-    const g = q.aggregates.growth
-    const growth = g.computable ? `A1=${fixedDecimal(g.S1, BigInt(g.n1), 4)} A0=${fixedDecimal(g.S0, BigInt(g.n0), 4)}` : 'growth not computable'
+    const word = growthWord(q.aggregates.growth)
+    const growth = word === null ? 'growth not computable' : `growth ${word}`
     lines.push(
       `${name}: window_total(window)=${q.aggregates.windowTotal}; window_total(last30)=${q.aggregates.last30Total}; peak ${q.aggregates.peakDay}=${q.aggregates.peakValue}; ${growth}`,
     )

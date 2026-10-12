@@ -44,6 +44,8 @@ export interface Core {
   buildPastRows(rows: Rows, window: RunWindow, facts: PackageFacts): Array<[Day, number, 'no-data' | 'possible-gap' | null]>
   /** Which claim marks carry a figure, in reading order, as positions in the paragraphs given. */
   figureNumbers(paragraphs: Segment[][]): Array<{ paragraph: number; segment: number }>
+  /** Fills each change_pct value and compare relation from the facts (GA.6); runs after validateShape and before judge. */
+  fillCode(paragraph: Segment[], facts: PackageFacts[]): Segment[]
   /** Shape limits. On failure the reason is a digit-free phrase, printed in the withheld notice. */
   validateShape(input: unknown): ShapeResult
 }
@@ -376,7 +378,7 @@ export function useRun(deps: RunDeps) {
                 } else {
                   const shape = d.core.validateShape(body.paragraph)
                   outcomes[target] = shape.ok
-                    ? { status: 'ok', judged: d.core.judge(body.paragraph, snap.rowsByName, snap.window!, nextDays) }
+                    ? { status: 'ok', judged: d.core.judge(d.core.fillCode(body.paragraph, snap.facts), snap.rowsByName, snap.window!, nextDays) }
                     : { status: 'withheld', reason: shape.reason }
                 }
               }

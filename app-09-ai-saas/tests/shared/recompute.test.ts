@@ -216,6 +216,11 @@ describe('N1: change_pct is judged on the displayed one-decimal figure', () => {
     const r = recompute({ a: rows }, '2026-10-12', 30)
     expect(checkSegment(claim('change_pct', 'a', '+5.00'), r)).toMatchObject({ verdict: 'wrong', reason: 'no basis' })
   })
+  it('R3: not computable with an empty value is no basis, not value form', () => {
+    const rows = series('2026-09-17', 25, () => 500)
+    const r = recompute({ a: rows }, '2026-10-12', 30)
+    expect(checkSegment(claim('change_pct', 'a', ''), r)).toMatchObject({ verdict: 'wrong', reason: 'no basis' })
+  })
 })
 
 describe('recompute works on its own on synthetic rows', () => {

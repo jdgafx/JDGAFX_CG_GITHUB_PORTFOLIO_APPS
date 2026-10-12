@@ -220,6 +220,8 @@ export function checkRows(shown: Shown[], figures: Figure[], ctx: LabelContext, 
       }
       const seg = j.seg
       const compare = seg.t === 'compare'
+      // Code fills a compare's relation and a growth's value (GA.6), so the table says so instead of showing them as the model's.
+      const modelValue = compare || seg.kind === 'change_pct' ? 'computed by code' : seg.value
       out.push({
         key: `${p}:${s}`,
         number: numberAt.get(`${p}:${s}`) ?? null,
@@ -227,8 +229,8 @@ export function checkRows(shown: Shown[], figures: Figure[], ctx: LabelContext, 
         kind: compare ? 'compare' : seg.kind,
         pkg: seg.package,
         where: compare ? seg.metric : seg.day || seg.span,
-        modelValue: compare ? seg.relation : seg.value,
-        npmValue: npmCell(j, compare ? seg.relation : seg.value),
+        modelValue,
+        npmValue: npmCell(j, modelValue),
         howTo: howToCheck(seg, ctx, rowsByName[seg.package]),
         verdict: j.verdict,
       })

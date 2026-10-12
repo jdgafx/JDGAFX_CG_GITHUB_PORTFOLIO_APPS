@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeAggregates, computeFacts, growthBasis } from '../../shared/aggregates'
+import { computeAggregates, computeFacts, growthBasis, growthPercent } from '../../shared/aggregates'
 import { computeWindow } from '../../shared/window'
 import type { ReleaseState } from '../../shared/types'
 import { DATES, SCENARIO_KEYS, loadScenario, series } from '../fixtures/load'
@@ -96,5 +96,32 @@ describe('computeFacts', () => {
     const facts = computeFacts(s.rows, w, s.releases, { ...okState(s.names), react: 'failed' })
     expect(facts[0]!.unusual.every((u) => u.release === 'unavailable' && u.version === undefined)).toBe(true)
     expect(facts[1]!.unusual.some((u) => u.release !== 'unavailable')).toBe(true)
+  })
+})
+
+describe('growthPercent: the one one-decimal growth figure', () => {
+  for (const date of DATES)
+    for (const key of SCENARIO_KEYS)
+      it(`${date} ${key}: equals expected.json change1, null when not computable`, () => {
+        const s = loadScenario(date, key)
+        const w = computeWindow(s.rows, date, s.days)
+        for (const f of computeFacts(s.rows, w, s.releases, okState(s.names))) {
+          const e = s.expected.packages[f.name]!
+          expect(growthPercent(f.aggregates.growth)).toBe(e.computable ? e.change1 : null)
+        }
+      })
+  const g = (S1: bigint, n1: number, S0: bigint, n0: number) => ({ S1, n1, S0, n0, computable: true })
+  it('signs: a rise is +, a fall is -, flat is +0.0, a fall that rounds to zero has no minus', () => {
+    expect(growthPercent(g(110n, 1, 100n, 1))).toBe('+10.0')
+    expect(growthPercent(g(90n, 1, 100n, 1))).toBe('-10.0')
+    expect(growthPercent(g(100n, 1, 100n, 1))).toBe('+0.0')
+    expect(growthPercent(g(99_999n, 1, 100_000n, 1))).toBe('+0.0')
+  })
+  it('rounds half away from zero', () => {
+    expect(growthPercent(g(11_005n, 1, 10_000n, 1))).toBe('+10.1')
+    expect(growthPercent(g(9_895n, 1, 10_000n, 1))).toBe('-1.1')
+  })
+  it('is null when the growth is not computable', () => {
+    expect(growthPercent({ S1: 5n, n1: 1, S0: 0n, n0: 0, computable: false })).toBeNull()
   })
 })

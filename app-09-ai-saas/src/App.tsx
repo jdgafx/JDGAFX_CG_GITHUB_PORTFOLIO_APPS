@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { figureNumbers, judge, validateShape } from '../shared/claims'
+import { figureNumbers, fillCode, judge, validateShape } from '../shared/claims'
 import { computeFacts } from '../shared/aggregates'
 import { buildPastRows } from '../shared/modelInput'
 import { topUnusual } from '../shared/unusual'
@@ -18,7 +18,7 @@ import UnusualTable from './components/UnusualTable'
 import { shownList } from './lib/labels'
 import { useRun, type Core, type RunDeps } from './lib/useRun'
 
-const CORE: Core = { computeWindow, computeFacts, judge, topUnusual, buildPastRows, figureNumbers, validateShape }
+const CORE: Core = { computeWindow, computeFacts, judge, topUnusual, buildPastRows, figureNumbers, fillCode, validateShape }
 
 /** `deps` lets a test supply its own fetches and clock; the page itself passes none. */
 export default function App({ deps }: { deps?: Partial<RunDeps> }) {

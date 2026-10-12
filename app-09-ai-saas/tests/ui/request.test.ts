@@ -3,12 +3,12 @@ import { computeFacts } from '../../shared/aggregates'
 import { buildPastRows, decodeRequest, encodeRequest } from '../../shared/modelInput'
 import { topUnusual } from '../../shared/unusual'
 import { computeWindow } from '../../shared/window'
-import { figureNumbers, judge, validateShape } from '../../shared/claims'
+import { figureNumbers, fillCode, judge, validateShape } from '../../shared/claims'
 import { MAX_BODY_BYTES, validateExplainRequest } from '../../netlify/shared/boundary'
 import { buildRequest, derive, type Core } from '../../src/lib/useRun'
 import { NPM_ROWS, RELEASES, RUN_DATE } from './helpers'
 
-const core: Core = { computeWindow, computeFacts, judge, topUnusual, buildPastRows, figureNumbers, validateShape }
+const core: Core = { computeWindow, computeFacts, judge, topUnusual, buildPastRows, figureNumbers, fillCode, validateShape }
 
 /** The browser's real request, through the shared encoder, the function's decoder and its boundary check. */
 function requestsFor(names: string[], days: 30 | 90 | 365) {
