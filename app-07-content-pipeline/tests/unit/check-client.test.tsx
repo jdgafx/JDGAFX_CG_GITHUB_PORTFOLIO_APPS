@@ -92,9 +92,11 @@ describe('the piece with its check', () => {
     expect(page).toContain('Checking 2 cited sentences')
   })
 
-  it('does not apply a check made on other text', () => {
+  it('does not apply a check made on other text, and says the sentences were not checked rather than being checked', () => {
     const page = html({ ...done, key: 'an older piece' })
     expect(page).not.toContain('data-cite="confirmed"')
+    expect(page).toContain('have not been checked against their sources')
+    expect(page).not.toContain('Checking 2')
     expect(page).toContain('data-cite="not_checked"')
   })
 
@@ -157,9 +159,28 @@ describe('checkPiece', () => {
     const slow = await checkPiece(BODY, '', new AbortController().signal)
     expect(slow?.check).toMatchObject({ status: 'failed', message: 'The citation check took too long.' })
     expect(slow?.records).toHaveLength(1)
+    expect(slow?.records[0]).toMatchObject({ usage: null })
     vi.stubGlobal('fetch', vi.fn(async () => json({ error: 'The request is too large.', unreported: 0 }, 413)))
     const large = await checkPiece(BODY, '', new AbortController().signal)
     expect(large?.records).toHaveLength(0)
+  })
+
+  it('counts a call that may have been billed when the platform answers with an error that has no count', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Bad Gateway</html>', { status: 502 })))
+    const outcome = await checkPiece(BODY, '', new AbortController().signal)
+    expect(outcome?.check.status).toBe('failed')
+    expect(outcome?.records.length).toBeGreaterThan(0)
+    expect(outcome?.records.every(record => record.usage === null)).toBe(true)
+  })
+
+  it('counts one possible call for each batch of three cited sentences when the whole request is lost', async () => {
+    const seven = Array.from({ length: 7 }, (_, i) => `Fact number ${i + 1} [1].`).join(' ')
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })))
+    const outcome = await checkPiece(seven, '', new AbortController().signal, 40)
+    expect(outcome?.records.map(record => record.row.name)).toEqual(['Citation check 1 of 3', 'Citation check 2 of 3', 'Citation check 3 of 3'])
+    expect(summarize(outcome?.records ?? []).unreportedCalls).toBe(3)
   })
 
   it('gives up after the watchdog and counts the call as unreported', async () => {

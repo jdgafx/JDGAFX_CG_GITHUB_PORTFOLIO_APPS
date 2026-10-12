@@ -115,7 +115,8 @@ function CheckLine({ check, final, total, confirmed, notConfirmed, notChecked }:
   if (total === 0) return null
   let text: string
   if (!final) text = 'Cited sentences are checked against the text of their sources once the piece is polished. Until then they are marked not checked.'
-  else if (!check || check.status === 'checking') text = `Checking ${plural(total, 'cited sentence')} against the text of their sources.`
+  else if (!check) text = 'The cited sentences have not been checked against their sources.'
+  else if (check.status === 'checking') text = `Checking ${plural(total, 'cited sentence')} against the text of their sources.`
   else if (check.status === 'failed') text = `The citation check could not run${check.message ? `: ${check.message}` : '.'} The cited sentences are marked not checked.`
   else {
     const rest = [notConfirmed > 0 ? `${notConfirmed} not confirmed` : '', notChecked > 0 ? `${notChecked} not checked` : ''].filter(Boolean)

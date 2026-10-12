@@ -1,4 +1,4 @@
-import { CHECK_WATCHDOG_MS, extractClaims, viewOf, type CheckedClaim, type CiteView, type Verdict } from '../../netlify/shared/citecheck'
+import { BATCH_CLAIMS, CHECK_WATCHDOG_MS, MAX_CLAIMS, extractClaims, viewOf, type CheckedClaim, type CiteView, type Verdict } from '../../netlify/shared/citecheck'
 import type { TraceRow } from '../../netlify/shared/contract'
 import { readCheck, readUsage, type CallRecord } from './api'
 
@@ -64,8 +64,16 @@ function readClaims(value: unknown): CheckedClaim[] | null {
   return claims
 }
 
-function unreportedRecord(ms: number, detail: string): CallRecord {
-  return { stage: 'check', usage: null, model: null, newestModel: null, modelCheck: null, row: { name: 'Citation check', status: 'failed', ms, detail } }
+/**
+ * When the whole request fails after it may have reached the model, every batch it could have made may have been billed
+ * with no usage reported back. One record per possible batch keeps the run's total a floor, never a silent undercount.
+ */
+function mayBeBilled(body: string, ms: number, detail: string): CallRecord[] {
+  const batches = Math.max(1, Math.ceil(Math.min(citedCount(body), MAX_CLAIMS) / BATCH_CLAIMS))
+  return Array.from({ length: batches }, (_, i): CallRecord => ({
+    stage: 'check', usage: null, model: null, newestModel: null, modelCheck: null,
+    row: { name: batches > 1 ? `Citation check ${i + 1} of ${batches}` : 'Citation check', status: 'failed', ms, detail },
+  }))
 }
 
 function readCalls(value: unknown): CallRecord[] {
@@ -121,8 +129,8 @@ export async function checkPiece(body: string, sources: string, signal: AbortSig
   } catch {
     if (signal.aborted) return null
     return watchdog.aborted
-      ? failed('The citation check did not answer in time.', [unreportedRecord(elapsed(), `No answer after ${watchdogMs / 1000} s. The calls may still be billed.`)])
-      : failed('The citation check could not be reached.', [unreportedRecord(elapsed(), 'Connection lost before the check finished.')])
+      ? failed('The citation check did not answer in time.', mayBeBilled(body, elapsed(), `No answer after ${watchdogMs / 1000} s. The call may still be billed.`))
+      : failed('The citation check could not be reached.', mayBeBilled(body, elapsed(), 'Connection lost before the check finished. The call may still be billed.'))
   }
 
   let parsed: unknown
@@ -131,14 +139,16 @@ export async function checkPiece(body: string, sources: string, signal: AbortSig
   } catch {
     if (signal.aborted) return null
     const timedOut = watchdog.aborted
-    return failed(timedOut ? 'The citation check did not answer in time.' : 'The citation check returned an unreadable answer.', [
-      unreportedRecord(elapsed(), timedOut ? `No answer after ${watchdogMs / 1000} s. The calls may still be billed.` : 'The response could not be read. The calls may still be billed.'),
-    ])
+    return failed(
+      timedOut ? 'The citation check did not answer in time.' : 'The citation check returned an unreadable answer.',
+      mayBeBilled(body, elapsed(), timedOut ? `No answer after ${watchdogMs / 1000} s. The call may still be billed.` : 'The response could not be read. The call may still be billed.'),
+    )
   }
   const reply = isRecord(parsed) ? parsed : {}
   if (!response.ok) {
-    const unreported = typeof reply.unreported === 'number' && reply.unreported > 0
-    return failed(typeof reply.error === 'string' ? reply.error.slice(0, 200) : 'The citation check could not run.', unreported ? [unreportedRecord(elapsed(), 'The check stopped. A call may still be billed.')] : [])
+    // Only an explicit zero says no call was made; an answer from the platform in front of the function says nothing.
+    const none = reply.unreported === 0
+    return failed(typeof reply.error === 'string' ? reply.error.slice(0, 200) : 'The citation check could not run.', none ? [] : mayBeBilled(body, elapsed(), 'The check stopped. A call may still be billed.'))
   }
   const claims = readClaims(reply.claims)
   const records = readCalls(reply.calls)
