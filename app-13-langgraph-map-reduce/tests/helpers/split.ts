@@ -1,10 +1,10 @@
 import { RunBudget } from '../../netlify/shared/budget'
-import { validateCompleteBody, validateSynthesizeBody } from '../../netlify/shared/guard'
+import { validateSynthesizeBody } from '../../netlify/shared/guard'
 import { openHandoff } from '../../netlify/shared/handoff'
 import type { ChatFn } from '../../netlify/shared/openrouter'
 import { runPipeline, type PipelineOptions } from '../../netlify/shared/pipeline'
 import { withTotals } from '../../src/lib/api'
-import type { Frame, Merged, RunResult, Summary, TraceRow } from '../../src/types/frames'
+import type { Frame, Merged, RunResult, TraceRow } from '../../src/types/frames'
 import { recordedModels } from './prices'
 
 /** The key the tests sign hand-offs with, in place of the provider key a deployed function derives its seal from. */
@@ -78,48 +78,4 @@ export class FixedBudget extends RunBudget {
   override remaining(): number {
     return this.left
   }
-}
-
-export interface CompletionRun {
-  frames: Frame[]
-  completion: Extract<Frame, { type: 'completion' }> | null
-  errors: string[]
-}
-
-/**
- * Request 3 as production runs it, after runSplit: the browser posts the signed hand-off request 1 made, the summary request 2
- * returned, the ids the review flagged and the chunks with no stated point to /api/complete, which opens and checks them
- * before any model call.
- */
-export async function runCompletion(
-  text: string,
-  chat: ChatFn,
-  run: SplitRun,
-  flagged: string[],
-  options: { budget?: RunBudget; summary?: Summary; chunks?: number[] } = {},
-): Promise<CompletionRun> {
-  const handoff = run.first.find((f) => f.type === 'handoff')
-  if (handoff?.type !== 'handoff') throw new Error('request 1 made no hand-off')
-  const summary = options.summary ?? run.results[0]?.summary
-  const checked = validateCompleteBody({ text, handoff: handoff.handoff, summary, flagged, chunks: options.chunks ?? [] }, SEAL_KEY)
-  if (!checked.ok) throw new Error(`The completion request was refused: ${checked.error}`)
-  const frames: Frame[] = []
-  const budget = options.budget ?? new RunBudget(60_000)
-  try {
-    await runPipeline({
-      text,
-      chat,
-      models: Promise.resolve(recordedModels()),
-      retryPauseMs: 0,
-      phase: 'complete',
-      resume: checked.resume,
-      completion: { summary: checked.summary, flagged: checked.flagged, chunks: checked.chunks },
-      budget,
-      sink: (f) => frames.push(f),
-    })
-  } finally {
-    budget.dispose()
-  }
-  const completion = frames.find((f): f is Extract<Frame, { type: 'completion' }> => f.type === 'completion') ?? null
-  return { frames, completion, errors: frames.flatMap((f) => (f.type === 'error' ? [f.message] : [])) }
 }
