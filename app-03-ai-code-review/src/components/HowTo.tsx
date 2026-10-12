@@ -61,7 +61,7 @@ export function HowTo({ busy, error, collapseKey, onTry }: HowToProps) {
           <button type="button" className="ds-button ds-button--primary" onClick={onTry} disabled={busy} aria-busy={busy}>
             Try it
           </button>
-          <span className="ds-help">Reviews Redux's createStore.ts from GitHub, live.</span>
+          <span className="ds-help">Reviews clsx's src/index.js from GitHub, live.</span>
         </div>
         {error && (
           <p className="ds-help howto__error" role="alert">

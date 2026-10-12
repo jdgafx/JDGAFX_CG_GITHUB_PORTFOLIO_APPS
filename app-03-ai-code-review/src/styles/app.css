@@ -167,3 +167,42 @@
 
 /* The "not newest" marker inside the no-wrap model chip: colour only, so the chip keeps its size on a 390 px screen. */
 .readout-warn { color: var(--ds-warning); }
+
+/* Review desk (Q6 design). Code sits in a well, lower than the panels. Every excerpt has a diff-style gutter: the line number, a rule,
+   then a mark for the line's state (! warning, x critical, + added, - removed). Only the mark and a tint carry the state; the code stays readable. */
+.editor, .ds-code { background: var(--cl-well); }
+.editor__gutter { background: color-mix(in srgb, var(--ds-surface) 55%, var(--cl-well)); }
+.editor__input { color: var(--ds-text); caret-color: var(--ds-accent); }
+.ds-code-wrap::after { background: linear-gradient(270deg, var(--cl-well), transparent); }
+.ds-code { border-color: var(--ds-border); }
+.ds-code__line::before { box-sizing: content-box; width: 32px; padding-right: 8px; border-right: 1px solid var(--ds-border); }
+.finding .ds-code__line { color: var(--ds-text); }
+.finding .ds-code__line[data-cited="true"] { background: color-mix(in srgb, var(--ds-text) 7%, transparent); }
+.finding .ds-code__line--add[data-cited], .finding .ds-code__line--add { background: var(--ds-success-soft); }
+.finding .ds-code__line--del[data-cited], .finding .ds-code__line--del { background: var(--ds-danger-soft); }
+.finding .ds-code__line--warn[data-cited], .finding .ds-code__line--warn { background: var(--ds-warning-soft); }
+.finding .ds-code__line--error[data-cited], .finding .ds-code__line--error { background: var(--ds-danger-soft); }
+.finding .ds-code__line--add::after { color: var(--ds-success); }
+.finding .ds-code__line--del::after, .finding .ds-code__line--error::after { color: var(--ds-danger); }
+.finding .ds-code__line--warn::after { color: var(--ds-warning); }
+.finding .ds-code__line--warn::before { color: var(--ds-warning); }
+.finding .ds-code__line--error::before, .finding .ds-code__line--del::before { color: var(--ds-danger); }
+.finding .ds-code__line--add::before { color: var(--ds-success); }
+.finding { background: var(--ds-surface); }
+.finding.is-active { background: var(--ds-surface-2); }
+
+/* Replay: the label says the review on screen is a recording, and offers the live run. */
+.replay-label { display: grid; gap: 4px; padding: 12px 16px; min-width: 0; background: var(--ds-surface); border: 1px solid var(--ds-accent-dim); border-radius: var(--ds-radius); }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; max-width: none; overflow-wrap: anywhere; }
+.replay-label__live { min-height: 44px; padding: 0 16px; }
+.replay-label .ds-help { margin: 0; }
+.replay-label { order: -5; }
+
+/* Wide screens: the masthead and the how-to use two columns, so the run starts higher on the page. */
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 8px 32px; align-items: end; }
+  .ds-header__inner .ds-showcase { grid-column: 2; grid-row: 1; }
+  .howto__body:not([hidden]) { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 32px; align-items: start; }
+  .howto__lead, .howto__steps { grid-column: 1; }
+  .howto__try, .howto__error { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+}

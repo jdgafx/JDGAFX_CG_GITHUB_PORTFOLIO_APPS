@@ -83,8 +83,8 @@ export const GITHUB_SUGGESTIONS: ReadonlyArray<{ link: string; blurb: string }> 
     blurb: 'The request router and URL matcher of a widely used Go web toolkit.',
   },
   {
-    link: 'https://github.com/reduxjs/redux/blob/v5.0.1/src/createStore.ts',
-    blurb: 'The store at the core of Redux, written in TypeScript.',
+    link: 'https://github.com/lukeed/clsx/blob/v2.1.1/src/index.js',
+    blurb: 'Builds a class-name string from strings, arrays and objects: a short JavaScript utility.',
   },
 ]
 

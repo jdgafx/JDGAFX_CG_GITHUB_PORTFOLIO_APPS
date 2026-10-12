@@ -8,26 +8,28 @@ import { ModeTabs, type Mode } from './components/ModeTabs'
 import { PrFiles } from './components/PrFiles'
 import { PrSource } from './components/PrSource'
 import { ReadoutStrip } from './components/ReadoutStrip'
+import { ReplayLabel } from './components/ReplayLabel'
 import { ResultCard } from './components/ResultCard'
 import { RunTrace } from './components/RunTrace'
-import { LINE_HEIGHT, SEVERITY_CONFIG, SEVERITY_ORDER, getFileExt } from './constants'
+import { SEVERITY_ORDER, getFileExt } from './constants'
 import { ReviewError, reviewCode, reviewErrorMessage, reviewPullRequest, type OnFirstPass } from './lib/api'
-import { count } from './lib/format'
+import { emptyBodyFor, reviewAsText, statusLineFor } from './lib/screentext'
 import { liveData } from './lib/livedata'
 import type { GitHubFile } from './lib/github'
 import { MAX_CODE_LENGTH } from './lib/limits'
 import { diffContext, fileContext, type ContextLine } from './lib/context'
 import { initialSelection, lineHref, type PullRequest } from './lib/pullrequest'
 import { EXAMPLE_LINK, loadExample } from './lib/tryit'
+import { useEditorJump } from './lib/useEditorJump'
+import { useReplay } from './lib/useReplay'
+import type { Recording } from './replay'
 import { useResultFocus } from './lib/useResultFocus'
-import { countVerdicts, isShown, VERDICT_WORD } from './lib/verdicts'
+import { countVerdicts, isShown } from './lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, RunSummary, Severity } from './types'
 
 const ALL_SEVERITIES_ON: Record<Severity, boolean> = { critical: true, warning: true, info: true }
 
-function bySeverityThenLine(a: ReviewComment, b: ReviewComment): number {
-  return SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.line - b.line
-}
+const bySeverityThenLine = (a: ReviewComment, b: ReviewComment): number => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.line - b.line
 
 const sortComments = (comments: ReviewComment[]) => [...comments].sort(bySeverityThenLine)
 
@@ -65,6 +67,8 @@ export default function App() {
   const [tryBusy, setTryBusy] = useState(false)
   const [tryError, setTryError] = useState<string | null>(null)
   const [fill, setFill] = useState<{ link: string } | null>(null)
+  /** The review on screen is a recording played back through the app's own client, not a live run. */
+  const [replayed, setReplayed] = useState(false)
   const tryAbortRef = useRef<AbortController | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -74,6 +78,11 @@ export default function App() {
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const running = phase === 'running'
+  const replay = useReplay({
+    idle: phase === 'idle' && code === '' && result === null && !tryBusy,
+    onStart: (recording) => void handleTryIt(recording),
+    onDiverge: () => handleDiverge(),
+  })
   const account = useMemo(() => (pr ? accountFiles(pr.files, selected) : null), [pr, selected])
   const lineCount = code.split('\n').length
   const isOverLimit = code.length > MAX_CODE_LENGTH
@@ -136,39 +145,16 @@ export default function App() {
     if (running) stopRef.current?.focus({ preventScroll: true })
   }, [running])
 
-  useEffect(() => {
-    if (highlightedLine === null) return
-    const el = textareaRef.current
-    if (!el) return
-    const centered = (highlightedLine - 1) * LINE_HEIGHT - el.clientHeight / 2 + LINE_HEIGHT / 2
-    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight)
-    const next = Math.min(Math.max(0, centered), maxScroll)
-    el.scrollTop = next
-    el.scrollLeft = 0
-    if (lineNumbersRef.current) lineNumbersRef.current.scrollTop = next
-  }, [highlightedLine])
+  useEditorJump({ textareaRef, lineNumbersRef, highlightedLine, jump, code })
 
-  // A jump from a comment lands in the editor: focus moves there with the caret at the start of that line.
-  useEffect(() => {
-    if (!jump) return
-    const el = textareaRef.current
-    if (!el) return
-    const start = code.split('\n').slice(0, jump.line - 1).reduce((n, l) => n + l.length + 1, 0)
-    el.closest('.editor-card')?.scrollIntoView({ block: 'center' })
-    el.focus({ preventScroll: true })
-    el.setSelectionRange(start, start)
-    // Placing the caret can scroll a long line sideways; the line must start at the left edge so its text is readable.
-    el.scrollLeft = 0
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new jump moves focus, not each keystroke
-  }, [jump])
-
-  const handleReview = useCallback(async (example?: { code: string; language: string }) => {
+  const handleReview = useCallback(async (example?: { code: string; language: string }, options: { replay?: boolean } = {}) => {
     if (!example && !canReview) return
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
 
     setPhase('running')
+    setReplayed(options.replay === true)
     setResult(null)
     setChecking(false)
     setSummary(null)
@@ -226,9 +212,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [handleReview])
 
-  /** Try it: fetch the example file from GitHub, put it in the editor, and review it through the same path as Review code. */
-  const handleTryIt = async () => {
-    if (running || tryBusy) return
+  /** Try it: fetch the example from GitHub, put it in the editor, review it as Review code does. With a recording: played back, only if it is of this file, and silent on failure. */
+  const handleTryIt = async (recording?: Recording, runLive = false) => {
+    if (!runLive && (running || tryBusy)) return
     tryAbortRef.current?.abort()
     const controller = new AbortController()
     tryAbortRef.current = controller
@@ -239,22 +225,47 @@ export default function App() {
       const loaded = await loadExample(controller.signal).catch(() => null)
       if (loaded === null || controller.signal.aborted) return
       if (!loaded.ok) {
+        if (recording) return
         setFetchFailed(true)
         setTryError(loaded.error)
         return
       }
+      if (recording && !replay.begin(loaded.value.file.text, loaded.value.language)) return
       handleFileLoaded(loaded.value.file, loaded.value.language)
       setFill({ link: EXAMPLE_LINK })
-      await handleReview({ code: loaded.value.file.text, language: loaded.value.language })
+      await handleReview({ code: loaded.value.file.text, language: loaded.value.language }, { replay: recording !== undefined })
     } finally {
-      if (tryAbortRef.current === controller) tryAbortRef.current = null
-      setTryBusy(false)
+      if (tryAbortRef.current === controller) {
+        tryAbortRef.current = null
+        setTryBusy(false)
+      }
     }
+  }
+
+  /** Run it live: the recording is put away and the same example is reviewed with real requests. */
+  const handleRunLive = () => {
+    replay.stop()
+    abortRef.current?.abort()
+    void handleTryIt(undefined, true)
+  }
+
+  /** The recording could not answer a call: nothing of it stays; the page goes back to the empty state. */
+  const handleDiverge = () => {
+    abortRef.current?.abort()
+    tryAbortRef.current?.abort()
+    abortRef.current = tryAbortRef.current = null
+    setTryBusy(false)
+    setCode('')
+    setSource(null)
+    setFill(null)
+    clearResults()
   }
 
   const handleCancel = () => {
     abortRef.current?.abort()
     abortRef.current = null
+    replay.stop()
+    setReplayed(false)
     setPhase('stopped')
     setError(null)
     // A stopped run keeps nothing: the first pass's unconfirmed comments go with it.
@@ -265,6 +276,7 @@ export default function App() {
 
   const clearResults = () => {
     setPhase('idle')
+    setReplayed(false)
     setResult(null)
     setChecking(false)
     setSummary(null)
@@ -347,16 +359,10 @@ export default function App() {
 
   const handleCopy = async () => {
     if (!result || checking) return
-    const shown = sortComments(shownComments)
-    const header = `CodeLens AI verified review - ${result.mode === 'pr' ? `pull request ${pr?.owner}/${pr?.repo}#${pr?.number}` : `${language}, ${result.lineCount} lines`}, ${shown.length} comment${shown.length === 1 ? '' : 's'} kept of ${result.comments.length} from the first pass`
-    const body = shown
-      .map((c) => {
-        const where = c.where ? `${c.where.file}:${c.where.line}` : `Line ${c.line}`
-        return `[${SEVERITY_CONFIG[c.severity].label.toUpperCase()}] ${where} (${VERDICT_WORD[c.verdict].word.toLowerCase()})\n  ${c.message}\n  Suggestion: ${c.suggestion}\n  Checked: ${c.reason}`
-      })
-      .join('\n\n')
+    const where = result.mode === 'pr' ? `pull request ${pr?.owner}/${pr?.repo}#${pr?.number}` : `${language}, ${result.lineCount} lines`
+    const text = reviewAsText(result, where, sortComments(shownComments))
     try {
-      await navigator.clipboard.writeText(`${header}\n\n${body}\n`)
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
@@ -378,20 +384,8 @@ export default function App() {
     </div>
   )
 
-  const statusLine = running
-    ? 'Reviewing. Stop cancels the browser request; the provider may still bill the calls already sent.'
-    : mode === 'file'
-      ? `${count(lineCount)} ${lineCount === 1 ? 'line' : 'lines'}, ${count(code.length)} of ${count(MAX_CODE_LENGTH)} characters. Ctrl or Cmd+Enter also runs the review.`
-      : account
-        ? `${count(account.filesIncluded)} of ${count(account.filesTotal)} files selected. Ctrl or Cmd+Enter also runs the review.`
-        : 'Load a pull request to choose its files.'
-
-  const emptyBody =
-    mode === 'file'
-      ? 'Load a file from GitHub or paste code, then select Review code. Each comment comes back kept, moved or dropped, with the reason.'
-      : account && account.filesIncluded > 0
-        ? `Review pull request reads the ${count(account.filesIncluded)} selected ${account.filesIncluded === 1 ? 'file' : 'files'} and returns each comment kept, moved or dropped, with the reason.`
-        : 'Load a public pull request and choose its files, then select Review pull request. Each comment comes back kept, moved or dropped, with the reason.'
+  const statusLine = statusLineFor(running, mode === 'file', lineCount, code.length, account?.filesIncluded ?? null, account?.filesTotal ?? 0)
+  const emptyBody = emptyBodyFor(mode === 'file', account?.filesIncluded ?? null)
 
   return (
     <div className="ds-app" data-run={phase}>
@@ -438,6 +432,7 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replayed && replay.recording && <ReplayLabel recording={replay.recording} loadedAt={replay.loadedAt} onRunLive={handleRunLive} />}
             <div className="ds-run__result">
               <ResultCard
                 phase={phase}

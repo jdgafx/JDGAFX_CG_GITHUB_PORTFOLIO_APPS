@@ -1,7 +1,7 @@
 import { GITHUB_SUGGESTIONS } from '../constants'
 import { fetchGitHubFile, languageForPath, parseGitHubRef, type GitHubFile, type Parsed } from './github'
 
-/** The file Try it reviews: Redux's createStore.ts at a release tag, mid-size and quick to review. Fetched live from GitHub. */
+/** The file Try it reviews: clsx's src/index.js at a release tag, a 43-line file whose comments the second pass can check against the file alone. Fetched live from GitHub. */
 export const EXAMPLE_LINK = GITHUB_SUGGESTIONS[2].link
 
 export interface Example {

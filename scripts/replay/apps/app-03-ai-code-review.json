@@ -1,0 +1,17 @@
+{
+  "url": "https://jdgafx-app-03-ai-code-review.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/ai",
+  "apiPrefix": "/api/",
+  "settleMs": 30000,
+  "expect": [
+    { "path": "/api/ai", "field": "success", "equals": true, "message": "the first pass did not succeed" },
+    { "path": "/api/ai", "field": "candidates", "minLength": 1, "message": "the first pass wrote no comments to check" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "model" },
+    "modelRole": "reviewed by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "first pass"
+  }
+}
