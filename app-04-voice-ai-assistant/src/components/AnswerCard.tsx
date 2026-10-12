@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { parseInline } from '../lib/markdown'
 import { answerText, type RunState } from '../lib/run'
 import { drawSentences, modelChip, readingNote } from '../lib/view'
-import { formatCount, formatMs, formatUsd } from '../lib/format'
+import { formatMs, usageBits } from '../lib/format'
 
 function Inline({ text }: { text: string }) {
   return (
@@ -81,12 +81,11 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
   }
 
   const ended = run.outcome === 'failed' || run.outcome === 'stopped'
-  const spent = run.usage
+  const spent = usageBits(run.usage)
   const chip = modelChip(run)
   const footBits = [
     run.totalMs !== undefined ? `Server time ${formatMs(run.totalMs)}` : null,
-    spent?.total_tokens !== undefined ? `${formatCount(spent.total_tokens)} tokens` : null,
-    spent?.cost !== undefined ? formatUsd(spent.cost) : null,
+    ...spent,
   ].filter(Boolean)
 
   return (
@@ -100,6 +99,7 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
           <p className="ds-state__body">
             {run.error} {text ? 'What arrived before the failure is kept below.' : run.steps.length > 0 ? 'The steps that ran are in the trace.' : ''}
           </p>
+          {text === '' && spent.length > 0 && <p className="ds-state__body">Spent before the failure: {spent.join(', ')}.</p>}
           <div className="ds-state__actions">
             <button type="button" className="ds-button" onClick={onRetry} disabled={!run.question}>
               Ask again

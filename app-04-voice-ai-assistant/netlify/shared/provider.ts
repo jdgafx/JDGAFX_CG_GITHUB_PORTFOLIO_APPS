@@ -19,17 +19,29 @@ const MAX_TOOL_CALLS = 3
 
 const USAGE_KEYS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
-// Totals every attempt, because a discarded attempt still cost tokens. A field stays
-// unreported if any attempt left it out, rather than being guessed.
+// Totals every call, because a discarded or failed call still cost tokens. A call with no usage block is
+// counted in `unreportedCalls`, never guessed, so a total with that count is "at least" what it shows.
+// A figure stays unreported if a call that did report usage left it out.
 export function sumUsage(parts: Array<Usage | undefined>): Usage | undefined {
+  const known = parts.filter((part): part is Usage => part !== undefined)
   const total: Usage = {}
-  for (const key of USAGE_KEYS) {
-    const values = parts.map(part => part?.[key])
-    if (values.every((value): value is number => typeof value === 'number')) {
-      total[key] = values.reduce((sum, value) => sum + value, 0)
+  if (known.length > 0) {
+    for (const key of USAGE_KEYS) {
+      const values = known.map(part => part[key])
+      if (values.every((value): value is number => typeof value === 'number')) {
+        total[key] = values.reduce((sum, value) => sum + value, 0)
+      }
     }
   }
+  const unreported = parts.length - known.length
+  if (unreported > 0) total.unreportedCalls = unreported
   return Object.keys(total).length > 0 ? total : undefined
+}
+
+// The figures a trace row carries for the calls behind it. `notReported` marks a row with a call that gave none.
+function figuresOf(usages: Array<Usage | undefined>): { tokens?: number; cost?: number; notReported?: true } {
+  const usage = sumUsage(usages)
+  return { tokens: usage?.total_tokens, cost: usage?.cost, ...(usage?.unreportedCalls ? { notReported: true as const } : {}) }
 }
 
 export interface RunOptions {
@@ -49,7 +61,8 @@ export interface RunModel extends ModelRecord {
 
 export type ModelOutcome =
   | { ok: true; text: string; usage?: Usage; finishReason?: string; record: RunModel }
-  | { ok: false; httpStatus: number; message: string }
+  // `usage` is what every call made so far was billed, also when the run failed.
+  | { ok: false; httpStatus: number; message: string; usage?: Usage }
 
 type Okay = Extract<StreamOutcome, { ok: true }>
 type CutOff = { message: string; detail: string }
@@ -69,7 +82,7 @@ function cutOff(call: Okay): CutOff | null {
 
 type Asked =
   | { ok: true; call: Okay; usages: Array<Usage | undefined>; attempts: number; firstFailure?: string }
-  | { ok: false; httpStatus: number; message: string; detail: string }
+  | { ok: false; httpStatus: number; message: string; detail: string; usages: Array<Usage | undefined> }
 
 // One question to the model, with one retry when nothing was heard from the provider (a hang or a
 // dropped connection) or the reply was empty. A retry never follows heard text, so nothing is spoken
@@ -93,16 +106,18 @@ async function askModel(apiKey: string, turns: Turn[], options: RunOptions, tool
       idleMs: IDLE_MS,
       onText: options.onText,
     })
+    // Every attempt is counted, failed or not; a call that reported no usage stays undefined and is counted as such.
+    // A request the provider refused outright was never billed, so it is not a call at all.
+    if (!(!outcome.ok && outcome.unbilled)) usages.push(outcome.usage)
     if (!outcome.ok) {
-      if (!outcome.retryable || attempts > 1) return outcome
+      if (!outcome.retryable || attempts > 1) return { ok: false, httpStatus: outcome.httpStatus, message: outcome.message, detail: outcome.detail, usages }
       firstFailure = outcome.detail.charAt(0).toLowerCase() + outcome.detail.slice(1)
       continue
     }
-    usages.push(outcome.usage)
     lastCut = cutOff(outcome)
     if (lastCut) {
       // Only a reply with nothing in it is asked for again, as for any empty reply. Heard text is never repeated.
-      if (outcome.text || outcome.toolCalls.length > 0) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail }
+      if (outcome.text || outcome.toolCalls.length > 0) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail, usages }
       firstFailure = 'the reply was empty and cut off'
       continue
     }
@@ -110,15 +125,14 @@ async function askModel(apiKey: string, turns: Turn[], options: RunOptions, tool
     if (outcome.text || outcome.toolCalls.length > 0) return { ok: true, call: outcome, usages, attempts, firstFailure }
     firstFailure = 'the reply was empty'
   }
-  if (lastCut) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail }
-  return { ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.', detail: 'No time left in the run budget' }
+  if (lastCut) return { ok: false, httpStatus: 502, message: lastCut.message, detail: lastCut.detail, usages }
+  return { ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.', detail: 'No time left in the run budget', usages }
 }
 
-function stepFor(asked: Extract<Asked, { ok: true }>, record: ModelRecord, note = ''): { detail: string; tokens?: number; cost?: number } & ModelRecord {
-  const usage = sumUsage(asked.usages)
+function stepFor(asked: Extract<Asked, { ok: true }>, record: ModelRecord, note = ''): { detail: string; tokens?: number; cost?: number; notReported?: true } & ModelRecord {
   const first = asked.call.firstTextMs !== undefined ? `, first words after ${Math.round(asked.call.firstTextMs).toLocaleString('en-US')} ms` : ''
   const retried = asked.attempts > 1 ? `, retried once (${asked.firstFailure ?? 'the first try failed'})` : ''
-  return { detail: `${record.servedModel ?? 'not reported'}${note}${first}${retried}`, tokens: usage?.total_tokens, cost: usage?.cost, ...record }
+  return { detail: `${record.servedModel ?? 'not reported'}${note}${first}${retried}`, ...figuresOf(asked.usages), ...record }
 }
 
 // What one model call says about itself, checked against the newest model. A mismatch is logged and shown, never refused.
@@ -153,8 +167,8 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
   const heard: string[] = []
   const first = await askModel(apiKey, turns, { ...options, onText: delta => heard.push(delta) })
   if (!first.ok) {
-    run.add('model call', 'failed', first.detail)
-    return { ok: false, httpStatus: first.httpStatus, message: first.message }
+    run.add('model call', 'failed', first.detail, figuresOf(first.usages))
+    return { ok: false, httpStatus: first.httpStatus, message: first.message, usage: sumUsage(first.usages) }
   }
   const newest = await newestP
   const firstRecord = recordFor(first.call.model, newest)
@@ -179,7 +193,7 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
       reading: result.reading,
     }),
   )
-  if (options.cancel?.aborted) return { ok: false, httpStatus: 499, message: 'Stopped.' }
+  if (options.cancel?.aborted) return { ok: false, httpStatus: 499, message: 'Stopped.', usage: sumUsage(first.usages) }
 
   const withResults: Turn[] = [
     ...turns,
@@ -188,8 +202,8 @@ export async function runModelCall(apiKey: string, turns: Turn[], options: RunOp
   ]
   const answer = await askModel(apiKey, withResults, options, 'none')
   if (!answer.ok) {
-    run.add('model answer', 'failed', answer.detail)
-    return { ok: false, httpStatus: answer.httpStatus, message: answer.message }
+    run.add('model answer', 'failed', answer.detail, figuresOf(answer.usages))
+    return { ok: false, httpStatus: answer.httpStatus, message: answer.message, usage: sumUsage([...first.usages, ...answer.usages]) }
   }
   const answerRecord = recordFor(answer.call.model, newest)
   const { detail: answerDetail, ...answerFigures } = stepFor(answer, answerRecord)

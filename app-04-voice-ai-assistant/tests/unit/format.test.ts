@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount, formatCountdown, formatMs, formatUsd } from '../../src/lib/format'
+import { formatCount, formatCountdown, formatMs, formatUsd, usageBits } from '../../src/lib/format'
 
 describe('formatMs', () => {
   it('rounds to whole milliseconds with a thousands separator', () => {
@@ -45,5 +45,21 @@ describe('formatCountdown', () => {
   it('never shows less than zero', () => {
     expect(formatCountdown(0)).toBe('0:00')
     expect(formatCountdown(-250)).toBe('0:00')
+  })
+})
+
+describe('usageBits', () => {
+  it('lists tokens and cost for a complete total', () => {
+    expect(usageBits({ total_tokens: 653, cost: 0.000102 })).toEqual(['653 tokens', '$0.000102'])
+  })
+
+  it('says "at least" and counts the calls not reported when the total is partial', () => {
+    expect(usageBits({ total_tokens: 653, cost: 0.000102, unreportedCalls: 1 })).toEqual(['at least 653 tokens', 'at least $0.000102 (1 call not reported)'])
+    expect(usageBits({ total_tokens: 40, cost: 0.00004, unreportedCalls: 2 })[1]).toBe('at least $0.000040 (2 calls not reported)')
+  })
+
+  it('says not reported, not zero, when no call reported anything', () => {
+    expect(usageBits({ unreportedCalls: 1 })).toEqual(['tokens and cost not reported (1 call)'])
+    expect(usageBits(undefined)).toEqual([])
   })
 })

@@ -7,6 +7,7 @@ import {
   readJsonBody,
   upstreamStatus,
 } from '../shared/http'
+import { TRANSCRIBE_BUDGET_MS } from '../shared/budget'
 import { withDeadline } from '../shared/deadline'
 import { createRecorder } from '../shared/trace'
 
@@ -17,10 +18,6 @@ const TOO_LONG = 'Recording is too long to process. Try a shorter one.'
 // A fixed server constant. The browser never chooses the speech-to-text model,
 // and no picker exposes it.
 const TRANSCRIBE_MODEL = 'nova-3'
-
-// Netlify caps a synchronous invocation at ~30s; bail a beat early so a slow
-// upstream turns into a clean error instead of a dead socket.
-const UPSTREAM_TIMEOUT_MS = 25_000
 
 // The cap applies to the decoded audio. Its base64 form is already about 6 MiB before
 // the JSON envelope is added, at the edge of Netlify's request body ceiling (about
@@ -194,7 +191,8 @@ export default async (req: Request): Promise<Response> => {
       | { kind: 'unreadable'; error: unknown }
     let heard: Heard
     try {
-      heard = await withDeadline<Heard>(UPSTREAM_TIMEOUT_MS, undefined, async signal => {
+      // Netlify caps a synchronous invocation at ~30s; the budget leaves a slow upstream room to become a clean error.
+      heard = await withDeadline<Heard>(TRANSCRIBE_BUDGET_MS, undefined, async signal => {
         const response = await fetch(`${DEEPGRAM_URL}?model=${TRANSCRIBE_MODEL}&smart_format=true`, {
           method: 'POST',
           headers: {

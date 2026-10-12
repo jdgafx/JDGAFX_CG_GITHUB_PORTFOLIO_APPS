@@ -387,4 +387,27 @@ describe('ai function', () => {
     expect(text).not.toContain('socket reset')
     expect(mock).not.toHaveBeenCalled()
   })
+  // C13 on the wire: the error event carries what the failed run spent, so the browser can show it.
+  it('sends the spent usage with the error event when a reply is cut off', async () => {
+    const usage = { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40, cost: 0.00004 }
+    const cut = `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { content: 'It is warm and' }, finish_reason: 'length' }], usage })}\n\ndata: [DONE]\n\n`
+    route([() => sseResponse([cut])])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+    expect(events.find(e => e.type === 'error')).toMatchObject({ type: 'error', usage: { total_tokens: 40, cost: 0.00004 } })
+  })
+
+  it('sends the spent usage with the error event when the reply has no text', async () => {
+    const usage = { prompt_tokens: 30, completion_tokens: 0, total_tokens: 30, cost: 0.00003 }
+    const blank = `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage })}\n\ndata: [DONE]\n\n`
+    route([() => sseResponse([blank]), () => sseResponse([blank])])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+    expect(events.find(e => e.type === 'error')).toMatchObject({ type: 'error', usage: { total_tokens: 60 } })
+  })
+
+  it('sends unreportedCalls with the error event when the call reported no usage', async () => {
+    route([() => jsonResponse({}, 500), () => sseResponse(fixtureChunks('plain'))])
+    const events = await readEvents(await handler(request(URL_AI, { json: { message: 'hi' } })))
+    // A 500 is not retried, so the run fails; the error event still says one call was not reported.
+    expect(events.find(e => e.type === 'error')).toMatchObject({ usage: { unreportedCalls: 1 } })
+  })
 })

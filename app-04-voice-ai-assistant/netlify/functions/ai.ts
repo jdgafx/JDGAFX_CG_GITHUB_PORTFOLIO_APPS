@@ -1,3 +1,4 @@
+import { PING_MS, RUN_BUDGET_MS } from '../shared/budget'
 import { corsHeaders, guardRequest, jsonError, readJsonBody } from '../shared/http'
 import { runModelCall, type Turn } from '../shared/provider'
 import { DONE_EVENT, PING, encodeEvent } from '../shared/sse'
@@ -12,10 +13,6 @@ const MAX_HISTORY_MESSAGES = 20
 // Room for the longest legitimate request: every kept message at full length, each
 // character at up to 4 UTF-8 bytes and 6 bytes when JSON escaped, plus the new message.
 const MAX_BODY_BYTES = (MAX_HISTORY_MESSAGES + 1) * MAX_MESSAGE_CHARS * 6 + 4096
-
-// Netlify caps a synchronous invocation at ~30s. The whole run, retry included,
-// shares this budget, so a slow upstream becomes a clean error instead of a dead socket.
-const RUN_BUDGET_MS = 25_000
 
 const SYSTEM_PROMPT =
   'You are VoxAI, a friendly and helpful voice assistant. Keep responses concise ' +
@@ -45,9 +42,6 @@ function parseHistory(history: unknown): ChatMessage[] | null {
   }
   return clean.slice(-MAX_HISTORY_MESSAGES)
 }
-
-// How often a comment line goes out while the model is thinking, so no proxy sees an idle connection.
-const PING_MS = 10_000
 
 type Run = ReturnType<typeof createRecorder>
 
@@ -84,10 +78,10 @@ function answerStream(
           { maxTokens: MAX_OUTPUT_TOKENS, deadlineAt, cancel: stop.signal, onText: text => send({ type: 'delta', text }) },
           run,
         )
-        if (!outcome.ok) send({ type: 'error', error: outcome.message, totalMs: run.elapsed() })
+        if (!outcome.ok) send({ type: 'error', error: outcome.message, usage: outcome.usage, totalMs: run.elapsed() })
         else if (!outcome.text) {
           run.add('parse and validate', 'failed', 'The reply had no text')
-          send({ type: 'error', error: 'The assistant returned an empty response. Try again.', totalMs: run.elapsed() })
+          send({ type: 'error', error: 'The assistant returned an empty response. Try again.', usage: outcome.usage, totalMs: run.elapsed() })
         } else {
           run.add('parse and validate', 'ok', `${outcome.text.length} characters`)
           const { servedModel, newestModel, modelCheck, checkedModel } = outcome.record

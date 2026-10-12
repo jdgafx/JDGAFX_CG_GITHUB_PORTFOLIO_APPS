@@ -22,6 +22,9 @@ export interface TraceStep extends Partial<ModelRecord> {
   detail: string
   tokens?: number
   cost?: number
+  // A model call in this row reported no usage (a timeout, a dropped connection, a stopped stream), so the
+  // figures above cover only the calls that did.
+  notReported?: boolean
   // A tool call, e.g. weather("Lisbon"), and the page or request its data came from.
   call?: string
   source?: string
@@ -44,6 +47,7 @@ export interface Reading {
 interface StepExtras extends Partial<ModelRecord> {
   tokens?: number
   cost?: number
+  notReported?: boolean
   call?: string
   source?: string
   reading?: Reading

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunError, type TraceStep } from '../../src/lib/api'
 import { FIRST_BYTE_MS, IDLE_MS, OVERALL_MS, chat, type ChatHandlers } from '../../src/lib/chatStream'
+import { PING_MS } from '../../netlify/shared/budget'
 import { encodeEvent } from '../../netlify/shared/sse'
 import { jsonResponse, silentResponse, sseResponse, stubFetch } from '../helpers'
 
@@ -177,10 +178,10 @@ describe('chat (browser side, streaming)', () => {
     const { h, text } = handlers()
     const pending = chat('q', [], h)
     await vi.advanceTimersByTimeAsync(1)
-    // A ping every 20 s keeps an otherwise silent stream alive past the 30 s idle limit.
-    for (let i = 0; i < 2; i++) {
+    // A ping at the server's own interval keeps an otherwise silent stream alive past the idle limit.
+    for (let t = 0; t <= IDLE_MS; t += PING_MS) {
       controllerRef?.enqueue(encoder.encode(': ping\n\n'))
-      await vi.advanceTimersByTimeAsync(20_000)
+      await vi.advanceTimersByTimeAsync(PING_MS)
     }
     controllerRef?.enqueue(encoder.encode(GOOD.join('')))
     controllerRef?.close()
@@ -197,9 +198,9 @@ describe('chat (browser side, streaming)', () => {
       return new Response(new ReadableStream<Uint8Array>({ start: c => void (controllerRef = c) }))
     })
     const pending = chat('q', [], handlers().h).catch((e: unknown) => e)
-    for (let t = 0; t < OVERALL_MS; t += 20_000) {
+    for (let t = 0; t < OVERALL_MS; t += PING_MS) {
       controllerRef?.enqueue(encoder.encode(': ping\n\n'))
-      await vi.advanceTimersByTimeAsync(20_000)
+      await vi.advanceTimersByTimeAsync(PING_MS)
     }
     expect(((await pending) as RunError).message).toContain('The reply took too long')
   })
@@ -219,5 +220,17 @@ describe('chat (browser side, streaming)', () => {
     expect((err as Error).name).toBe('AbortError')
     expect(calls).toBe(1)
     expect(retries).toEqual([])
+  })
+  it('keeps the usage the server sent with an error event on the thrown error', async () => {
+    stubFetch(async () =>
+      sseResponse([
+        ev({ type: 'error', error: 'The AI ran out of reply length before it finished the answer. Try a shorter question.', usage: { total_tokens: 40, cost: 0.00004, unreportedCalls: 1 }, totalMs: 800 }),
+        'data: [DONE]\n\n',
+      ]),
+    )
+    const err = (await chat('q', [], handlers().h).catch((e: unknown) => e)) as RunError
+    expect(err).toBeInstanceOf(RunError)
+    expect(err.usage).toMatchObject({ total_tokens: 40, cost: 0.00004, unreportedCalls: 1 })
+    expect(err.totalMs).toBe(800)
   })
 })

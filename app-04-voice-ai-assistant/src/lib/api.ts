@@ -1,5 +1,6 @@
 // Browser side of the two Netlify functions. Both answer with the steps that ran,
 // and a failure carries the same steps, so the run card can mark the step that failed.
+import { CLIENT_GRACE_MS, TRANSCRIBE_BUDGET_MS } from '../../netlify/shared/budget'
 import { UserFacingError } from './errors'
 
 export type StepStatus = 'ok' | 'failed' | 'skipped'
@@ -11,6 +12,8 @@ export interface TraceStep {
   detail: string
   tokens?: number
   cost?: number
+  // A model call in this row reported no usage, so the figures cover only the calls that did.
+  notReported?: boolean
   // A tool call such as weather("Lisbon"), and the page its data came from.
   call?: string
   source?: string
@@ -31,6 +34,8 @@ export interface Usage {
   completion_tokens?: number
   total_tokens?: number
   cost?: number
+  /** Calls of the run that never reported usage: the figures are "at least" what they show. */
+  unreportedCalls?: number
 }
 
 export interface Message {
@@ -63,18 +68,21 @@ interface TranscribeResult {
 export class RunError extends UserFacingError {
   readonly trace: TraceStep[]
   readonly totalMs?: number
+  /** What the run spent before it failed. */
+  readonly usage?: Usage
 
-  constructor(message: string, trace: TraceStep[] = [], totalMs?: number) {
+  constructor(message: string, trace: TraceStep[] = [], totalMs?: number, usage?: Usage) {
     super(message, 'RunError')
     this.trace = trace
     this.totalMs = totalMs
+    this.usage = usage
   }
 }
 
-// How long the browser waits for one function call. The server's own budget is 25
-// seconds, so a normal answer arrives first. The browser stops waiting at about the
-// platform's own limit rather than sitting on a hung connection.
-const CLIENT_TIMEOUT_MS = 30_000
+// How long the browser waits for one function call: the server's budget for it plus a grace, so the
+// server's own error arrives first. The browser stops waiting at about the platform's own limit
+// rather than sitting on a hung connection.
+export const CLIENT_TIMEOUT_MS = TRANSCRIBE_BUDGET_MS + CLIENT_GRACE_MS
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
 const TIMED_OUT = 'The server did not answer in time. Try again.'
 
@@ -149,6 +157,7 @@ export function parseTrace(raw: unknown): TraceStep[] {
       detail: s.detail,
       tokens: numberOrUndefined(s.tokens),
       cost: numberOrUndefined(s.cost),
+      notReported: s.notReported === true ? true : undefined,
       call: typeof s.call === 'string' ? s.call : undefined,
       source: typeof s.source === 'string' ? safeLink(s.source) : undefined,
       reading: parseReading(s.reading),
@@ -165,6 +174,7 @@ export function parseUsage(raw: unknown): Usage | undefined {
     completion_tokens: numberOrUndefined(u.completion_tokens),
     total_tokens: numberOrUndefined(u.total_tokens),
     cost: numberOrUndefined(u.cost),
+    unreportedCalls: typeof u.unreportedCalls === 'number' && u.unreportedCalls > 0 ? u.unreportedCalls : undefined,
   }
   return Object.values(usage).some(value => value !== undefined) ? usage : undefined
 }

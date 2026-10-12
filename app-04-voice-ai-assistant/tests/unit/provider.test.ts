@@ -245,3 +245,107 @@ describe('runModelCall', () => {
     expect(run.steps.map(s => `${s.name}:${s.status}`)).toEqual(['model call:ok', 'tool call:ok', 'model answer:failed'])
   })
 })
+
+// C13: every call OpenRouter answered with a usage block is counted, in its row and in the totals, whether
+// the run ends well or not. A call with no usage block is counted as not reported, never guessed.
+describe('runModelCall billed usage', () => {
+  const MODEL_NAME = 'anthropic/claude-haiku-5.5'
+  const chunk = (content: string, finish: string, usage?: Record<string, number>) =>
+    `data: ${JSON.stringify({ model: MODEL_NAME, choices: [{ index: 0, delta: { content }, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\ndata: [DONE]\n\n`
+  const BILLED = { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40, cost: 0.00004 }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps the usage of a reply cut off at the length limit, in the failed row and the totals', async () => {
+    route([() => sseResponse([chunk('It is warm and', 'length', BILLED)])])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: false, httpStatus: 502, usage: { total_tokens: 40, cost: 0.00004 } })
+    expect(out.ok ? undefined : out.usage?.unreportedCalls).toBeUndefined()
+    expect(run.steps[0]).toMatchObject({ name: 'model call', status: 'failed', tokens: 40, cost: 0.00004 })
+    expect(run.steps[0].notReported).toBeUndefined()
+  })
+
+  it('adds up both attempts when an empty reply is asked again and the second is empty too', async () => {
+    route([() => sseResponse([chunk('', 'stop', BILLED)]), () => sseResponse([chunk('', 'stop', BILLED)])])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out.ok).toBe(false)
+    expect(out.ok ? undefined : out.usage?.total_tokens).toBe(80)
+    expect(out.ok ? undefined : out.usage?.cost).toBeCloseTo(0.00008, 10)
+    expect(run.steps[0]).toMatchObject({ name: 'model call', status: 'failed', tokens: 80 })
+  })
+
+  it('keeps the first attempt when the retry then fails without a usage block', async () => {
+    route([() => sseResponse([chunk('', 'stop', BILLED)]), () => jsonResponse({}, 500)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    // A 5xx may have been billed, so it is counted as not reported.
+    expect(out).toMatchObject({ ok: false, usage: { total_tokens: 40, cost: 0.00004, unreportedCalls: 1 } })
+    expect(run.steps[0]).toMatchObject({ status: 'failed', tokens: 40, cost: 0.00004, notReported: true })
+  })
+
+  it('counts a refused request (HTTP 4xx) as $0, not as not reported', async () => {
+    route([() => jsonResponse({}, 429)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: false, httpStatus: 429 })
+    expect(out.ok ? undefined : out.usage).toBeUndefined()
+    expect(run.steps[0].notReported).toBeUndefined()
+  })
+
+  it('marks a call that timed out as not reported, with no figures', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    route([init => silentResponse(init?.signal)])
+    const run = createRecorder()
+    const pending = runModelCall(PLACEHOLDER, TURNS, options({ deadlineAt: Date.now() + 9_000 }), run)
+    await vi.advanceTimersByTimeAsync(9_000)
+    const out = await pending
+    expect(out).toMatchObject({ ok: false, httpStatus: 503, usage: { unreportedCalls: 1 } })
+    expect(out.ok ? undefined : out.usage?.total_tokens).toBeUndefined()
+    expect(run.steps[0]).toMatchObject({ status: 'failed', notReported: true })
+    expect(run.steps[0].tokens).toBeUndefined()
+  })
+
+  it('shows a successful run as partial when a hung first attempt was retried', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    route([init => silentResponse(init?.signal), () => sseResponse(fixtureChunks('plain'))])
+    const run = createRecorder()
+    const pending = runModelCall(PLACEHOLDER, TURNS, options(), run)
+    await vi.advanceTimersByTimeAsync(FIRST_BYTE_MS)
+    const out = await pending
+    expect(out).toMatchObject({ ok: true, usage: { total_tokens: 653, unreportedCalls: 1 } })
+    expect(run.steps[0]).toMatchObject({ status: 'ok', tokens: 653, notReported: true })
+  })
+
+  it('carries the first call usage when the answer call fails, and marks the answer row not reported', async () => {
+    route([() => sseResponse(fixtureChunks('weather')), () => jsonResponse({}, 500)])
+    const run = createRecorder()
+    const out = await runModelCall(PLACEHOLDER, TURNS, options(), run)
+    expect(out).toMatchObject({ ok: false, usage: { total_tokens: 605, unreportedCalls: 1 } })
+    expect(run.steps[0]).toMatchObject({ name: 'model call', status: 'ok', tokens: 605 })
+    expect(run.steps[0].notReported).toBeUndefined()
+    expect(run.steps[2]).toMatchObject({ name: 'model answer', status: 'failed', notReported: true })
+  })
+
+  it('keeps the first call usage when the visitor stops while the tool runs', async () => {
+    const stop = new AbortController()
+    stubFetch(async input => {
+      const url = String(input)
+      if (isModelList(url)) return jsonResponse(NEWEST_LIST)
+      if (isChatCall(url)) return sseResponse(fixtureChunks('weather'))
+      stop.abort()
+      if (url.includes('geocoding-api')) return jsonResponse(GEOCODE_LISBON)
+      return jsonResponse(FORECAST_LISBON)
+    })
+    const out = await runModelCall(PLACEHOLDER, TURNS, options({ cancel: stop.signal }), createRecorder())
+    expect(out).toMatchObject({ ok: false, httpStatus: 499, usage: { total_tokens: 605 } })
+  })
+})

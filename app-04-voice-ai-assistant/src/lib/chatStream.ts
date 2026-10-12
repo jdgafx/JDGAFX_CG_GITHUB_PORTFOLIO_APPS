@@ -1,8 +1,9 @@
 // The browser side of POST /api/ai, which answers as server-sent events: `step` for each trace step as
 // the server finishes it, `delta` for each piece of the answer, then `done` or `error`. Three clocks
 // watch the connection: nothing at all for FIRST_BYTE_MS (the request is tried once more), then no byte
-// for IDLE_MS (the server pings every 10 s, so silence means a dead connection), and OVERALL_MS for the
-// whole reply (the server's run budget is 25 s). The visitor's own Stop is not a stall: it passes through.
+// for IDLE_MS (the server pings every PING_MS, so silence means a dead connection), and OVERALL_MS for the
+// whole reply (the server's run budget plus a grace, so the server's own error arrives first). The visitor's own Stop is not a stall: it passes through.
+import { CLIENT_GRACE_MS, PING_MS, RUN_BUDGET_MS } from '../../netlify/shared/budget'
 import { createSseParser } from '../../netlify/shared/sse'
 import type { ServedCheck } from '../../netlify/shared/newest-model'
 import {
@@ -18,8 +19,8 @@ import {
 } from './api'
 
 export const FIRST_BYTE_MS = 12_000
-export const IDLE_MS = 30_000
-export const OVERALL_MS = 60_000
+export const IDLE_MS = PING_MS + CLIENT_GRACE_MS
+export const OVERALL_MS = RUN_BUDGET_MS + CLIENT_GRACE_MS
 
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
 export const STALLED = 'The connection stopped answering. What arrived is shown below. Ask again to retry.'
@@ -139,7 +140,7 @@ async function attempt(message: string, history: Message[], handlers: ChatHandle
           }
         } else if (event.type === 'error') {
           const message = typeof event.error === 'string' && event.error ? event.error : CUT_SHORT
-          failure = new RunError(message, [], numberOrUndefined(event.totalMs))
+          failure = new RunError(message, [], numberOrUndefined(event.totalMs), parseUsage(event.usage))
         }
       }
       if (fed.done) {

@@ -1,6 +1,6 @@
 import { ExternalLink, Wrench } from 'lucide-react'
 import type { StepStatus, TraceStep } from '../lib/api'
-import { formatCount, formatMs } from '../lib/format'
+import { formatCount, formatMs, formatUsd } from '../lib/format'
 import type { LiveStep } from '../lib/pipeline'
 import type { RunState } from '../lib/run'
 import { lanes, readingNote } from '../lib/view'
@@ -49,7 +49,9 @@ function Row({ step, index, lane, stopped }: { step: TraceStep; index: number; l
       </div>
       <span className="ds-trace__meta">
         <span>{formatMs(step.ms)}</span>
-        {step.tokens !== undefined && <span>{formatCount(step.tokens)} tokens</span>}
+        {step.tokens !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatCount(step.tokens)} tokens</span>}
+        {step.cost !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatUsd(step.cost)}</span>}
+        {step.notReported && <span>{step.tokens === undefined ? 'usage not reported' : 'plus a call not reported'}</span>}
       </span>
       <div className="ds-trace__lane" aria-hidden="true">
         <div className="ds-trace__bar" style={{ left: `${lane.left}%`, width: `${lane.width}%` }} />

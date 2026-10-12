@@ -7,6 +7,7 @@ import {
   type Message,
   type StepStatus,
   type TraceStep,
+  type Usage,
 } from '../lib/api'
 import { NoSpeechError, encodeForUpload, micErrorMessage } from '../lib/audio'
 import { chat } from '../lib/chatStream'
@@ -76,9 +77,9 @@ export function useAssistant() {
     return runCounter
   }, [])
 
-  const fail = useCallback((message: string, totalMs?: number) => {
+  const fail = useCallback((message: string, totalMs?: number, usage?: Usage) => {
     voiceRef.current?.cancel()
-    dispatch({ type: 'fail', message, totalMs })
+    dispatch({ type: 'fail', message, totalMs, usage })
   }, [])
 
   // The model turn: send the question with recent history; the answer streams in and is spoken as it goes.
@@ -125,7 +126,7 @@ export function useAssistant() {
         commitMessages(markUnsent(messagesRef.current, question.id, message))
         pendingQuestionRef.current = null
         if (!(err instanceof RunError)) dispatch({ type: 'step', step: step('model call', 'failed', 0, message), now: now() })
-        fail(message, err instanceof RunError && err.totalMs !== undefined ? serverMs + err.totalMs : undefined)
+        fail(message, err instanceof RunError && err.totalMs !== undefined ? serverMs + err.totalMs : undefined, err instanceof RunError ? err.usage : undefined)
       }
     },
     [commitMessages, fail],

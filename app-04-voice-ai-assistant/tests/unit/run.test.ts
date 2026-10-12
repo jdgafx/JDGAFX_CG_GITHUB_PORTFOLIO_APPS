@@ -113,4 +113,9 @@ describe('runReducer', () => {
   it('clears everything', () => {
     expect(play([START, { type: 'clear' }])).toBe(IDLE_RUN)
   })
+  it('keeps what a failed run spent', () => {
+    const usage = { total_tokens: 40, cost: 0.00004, unreportedCalls: 1 }
+    const run = play([START, { type: 'fail', message: 'cut off', totalMs: 900, usage }])
+    expect(run.usage).toEqual(usage)
+  })
 })

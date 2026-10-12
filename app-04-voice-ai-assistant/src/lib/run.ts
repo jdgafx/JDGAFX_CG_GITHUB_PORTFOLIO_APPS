@@ -70,7 +70,7 @@ export type RunAction =
   | { type: 'no-voice'; now: number }
   | { type: 'voice-failed'; message: string; now: number }
   | { type: 'stream-done'; model?: string; modelCheck?: ServedCheck; newestModel?: string | null; checkedModel?: string | null; usage?: Usage; totalMs?: number; now: number }
-  | { type: 'fail'; message: string; totalMs?: number }
+  | { type: 'fail'; message: string; totalMs?: number; usage?: Usage }
   | { type: 'stop'; now: number }
   | { type: 'clear' }
 
@@ -172,7 +172,7 @@ export function runReducer(run: RunState, action: RunAction): RunState {
         action.now,
       )
     case 'fail':
-      return { ...run, outcome: 'failed', stage: 'idle', error: action.message, totalMs: action.totalMs ?? run.totalMs, active: -1 }
+      return { ...run, outcome: 'failed', stage: 'idle', error: action.message, totalMs: action.totalMs ?? run.totalMs, usage: action.usage ?? run.usage, active: -1 }
     case 'clear':
       return IDLE_RUN
     case 'stop': {

@@ -63,7 +63,7 @@ describe('stalled bodies end at the limit with the existing timeout message', ()
     const run = createRecorder()
     const pending = runModelCall(PLACEHOLDER, [{ role: 'user', content: 'hi' }], { maxTokens: 64, deadlineAt: Date.now() + 5_000, onText: () => undefined }, run)
     await vi.advanceTimersByTimeAsync(5_000)
-    await expect(pending).resolves.toEqual({ ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.' })
+    await expect(pending).resolves.toEqual({ ok: false, httpStatus: 503, message: 'The AI provider did not answer in time.', usage: { unreportedCalls: 1 } })
   })
 
   it('a tool lookup whose body never finishes is reported as not answering in time', async () => {

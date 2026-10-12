@@ -12,6 +12,7 @@ import { labelShaped, unsuitableModel, GATE_CHARS } from './reply-guard'
 export const MODEL = '~anthropic/claude-haiku-latest'
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const PROVIDER = 'The AI provider'
+const UNBILLED_STATUSES = new Set([400, 401, 402, 403, 429])
 
 export interface ToolCall {
   id: string
@@ -30,6 +31,9 @@ export interface Usage {
   completion_tokens?: number
   total_tokens?: number
   cost?: number
+  // Set on a run's total only: how many of its calls never reported usage (a timeout, a dropped connection,
+  // a stopped stream). The figures then count the other calls, so the total is "at least" what they show.
+  unreportedCalls?: number
 }
 
 export interface StreamOptions {
@@ -62,12 +66,16 @@ export type StreamOutcome =
       detail: string
       // True when nothing was heard from the provider, so a second try cannot repeat anything.
       retryable: boolean
+      // What the provider billed for this call, when its usage block arrived before the call failed.
+      usage?: Usage
+      // The provider refused the request outright (HTTP 400, 401, 402, 403 or 429), so nothing was billed: $0, not "not reported".
+      unbilled?: boolean
     }
 
 type Failure = Extract<StreamOutcome, { ok: false }>
 
-function failure(httpStatus: number, message: string, detail: string, retryable = false): Failure {
-  return { ok: false, httpStatus, message, detail, retryable }
+function failure(httpStatus: number, message: string, detail: string, retryable = false, usage?: Usage): Failure {
+  return { ok: false, httpStatus, message, detail, retryable, usage }
 }
 
 // OpenRouter may also send `reasoning` and `reasoning_details` in a delta. They are never read
@@ -117,7 +125,7 @@ export async function streamChat(apiKey: string, turns: Turn[], options: StreamO
 
   const refused = (detail: string): Failure => {
     console.error(`ai: rejected a label-shaped reply from ${model ?? 'unknown'}`)
-    return failure(502, 'The model returned a label instead of a reply. Try again.', detail)
+    return failure(502, 'The model returned a label instead of a reply. Try again.', detail, false, usage)
   }
 
   // Text is held until it is long enough to tell it is not a safety label.
@@ -164,7 +172,10 @@ export async function streamChat(apiKey: string, turns: Turn[], options: StreamO
       const body = await raceAbort(response.text().catch(() => '<unreadable>'), control.signal)
       // Vendor error text can carry account or billing detail. Log it, never ship it.
       console.error(`ai: upstream ${response.status}: ${body}`)
-      return failure(upstreamStatus(response.status), providerFailure(PROVIDER, response.status), `HTTP ${response.status} from the AI provider`)
+      return {
+        ...failure(upstreamStatus(response.status), providerFailure(PROVIDER, response.status), `HTTP ${response.status} from the AI provider`),
+        ...(UNBILLED_STATUSES.has(response.status) ? { unbilled: true } : {}),
+      }
     }
     if (!response.body) return failure(502, `${PROVIDER} returned an unreadable response.`, 'The provider reply had no body')
 
@@ -189,7 +200,7 @@ export async function streamChat(apiKey: string, turns: Turn[], options: StreamO
         arm(options.idleMs, 'idle')
         if (chunk.error) {
           console.error('ai: provider error event', JSON.stringify(chunk.error).slice(0, 300))
-          return failure(502, `${PROVIDER} could not finish the reply.`, 'The provider sent an error event', !emitted && text === '')
+          return failure(502, `${PROVIDER} could not finish the reply.`, 'The provider sent an error event', !emitted && text === '', usage)
         }
         if (chunk.model) {
           model = chunk.model
@@ -228,14 +239,14 @@ export async function streamChat(apiKey: string, turns: Turn[], options: StreamO
       .map(call => ({ ...call, function: { ...call.function, arguments: call.function.arguments || '{}' } }))
     return { ok: true, text: text.trim(), toolCalls, usage, model, finishReason, firstTextMs }
   } catch (err) {
-    if (why === 'cancelled') return failure(499, 'Stopped.', 'Stopped by you')
+    if (why === 'cancelled') return failure(499, 'Stopped.', 'Stopped by you', false, usage)
     console.error('ai: upstream stream failed', why ?? err)
     // A hang or a drop before any data is safe to try again. After data, text may already be heard.
     const silent = !gotData
     if (why === 'first-byte' || why === 'idle' || why === 'deadline') {
-      return failure(503, `${PROVIDER} did not answer in time.`, why === 'first-byte' ? 'No data before the first-byte limit' : 'No reply before the time limit', silent)
+      return failure(503, `${PROVIDER} did not answer in time.`, why === 'first-byte' ? 'No data before the first-byte limit' : 'No reply before the time limit', silent, usage)
     }
-    return failure(503, `${PROVIDER} could not be reached. Try again in a moment.`, 'The request did not reach the AI provider', silent)
+    return failure(503, `${PROVIDER} could not be reached. Try again in a moment.`, 'The request did not reach the AI provider', silent, usage)
   } finally {
     clearTimeout(timer)
     options.cancel?.removeEventListener('abort', onCancel)

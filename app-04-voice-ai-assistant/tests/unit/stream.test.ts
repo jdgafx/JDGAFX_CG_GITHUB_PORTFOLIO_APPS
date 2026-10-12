@@ -166,4 +166,15 @@ describe('streamChat', () => {
     expect(out.ok && out.text).toBe('Safety is a big topic.')
     expect(o.texts.join('')).toBe('Safety is a big topic.')
   })
+
+  it('carries the usage of a reply refused after its last event, and none for a stall before any', async () => {
+    const usage = { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, cost: 0.00002 }
+    const event = `data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5', choices: [{ index: 0, delta: { content: 'User Safety: safe' } }], usage })}\n\n`
+    stubFetch(async () => sseResponse([event, 'data: [DONE]\n\n']))
+    expect(await streamChat(PLACEHOLDER, TURNS, options())).toMatchObject({ ok: false, httpStatus: 502, usage: { total_tokens: 25, cost: 0.00002 } })
+
+    stubFetch(async () => jsonResponse({}, 500))
+    const failed = await streamChat(PLACEHOLDER, TURNS, options())
+    expect(failed.ok ? undefined : failed.usage).toBeUndefined()
+  })
 })
