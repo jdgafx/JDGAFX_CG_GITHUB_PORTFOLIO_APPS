@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Page } from 'playwright-core'
+import { OPEN_PAGE_MS, STEP_GATE_MS } from '../../src/lib/budget'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep, ObservedPage, RunEvent, StepFrame } from '../../src/types'
 import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
@@ -12,11 +13,6 @@ export const config = { path: '/api/execute' }
 
 // Each run starts a browser inside the function, so the limit is tighter than the planner's.
 const RUN_RATE_LIMIT = 10
-/**
- * No new step starts after this much time since the browser was ready. A streamed function may run 60 s. The worst case
- * is a cold start (3 s), this limit, one last step (up to 15 s) and the close (up to 7 s), which stays under 60 s.
- */
-const MAX_EXECUTION_MS = 30_000
 /** Largest plan body: ten steps with every field at its limit, in ASCII. */
 const MAX_BODY_BYTES = 32_768
 
@@ -107,9 +103,12 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
     const browser: Browser = launched.browser
     if (isCancelled()) throw new ExecutionError('The run was stopped.')
     send({ type: 'browser', version: launched.version })
-    const context = await browser.newContext({ viewport: RUN_VIEWPORT, userAgent: userAgentFor(launched.version) })
-    await blockOtherSites(context, domains, (host) => { blockedHost = host })
-    const activePage = await withTimeout(context.newPage(), 7_000, 'The browser did not open a page in time.')
+    // The context, its site block and the page open under one limit (src/lib/budget.ts adds it to the run's worst case).
+    const activePage = await withTimeout((async () => {
+      const context = await browser.newContext({ viewport: RUN_VIEWPORT, userAgent: userAgentFor(launched.version) })
+      await blockOtherSites(context, domains, (host) => { blockedHost = host })
+      return context.newPage()
+    })(), OPEN_PAGE_MS, 'The browser did not open a page in time.')
     page = activePage
     const rec = new FrameRecorder(activePage)
     recorder = rec
@@ -122,7 +121,7 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
       inStep = true
       stepStarted = Date.now()
       if (isCancelled()) throw new ExecutionError('The run was stopped.')
-      if (Date.now() - stepsStartedAt > MAX_EXECUTION_MS) {
+      if (Date.now() - stepsStartedAt > STEP_GATE_MS) {
         throw new ExecutionError('The run reached its time limit before every step finished.')
       }
       send({ type: 'step_start', index, name: stepLabel(step) })

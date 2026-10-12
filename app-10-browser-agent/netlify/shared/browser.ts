@@ -1,14 +1,13 @@
 import type { Locator, Page } from 'playwright-core'
+import { ACTION_MS, BODY_TEXT_MS, INPUT_READ_MS, NAVIGATE_MS, REGION_MS, TITLE_MS } from '../../src/lib/budget'
 import type { BotStep, ObservedPage } from '../../src/types'
 
+// The time limits live in src/lib/budget.ts, where the page's own waits are derived from them.
 /** Longest one browser action may take. A step that runs longer fails with a curated message. */
-const MAX_STEP_MS = 3_000
-/** Longest a page load may take. A page opened from a cold browser can need a few seconds. */
-const NAVIGATE_MS = 8_000
+const MAX_STEP_MS = ACTION_MS
 const MAX_EXCERPT = 4_000
 /** A region read returns the text of this many matching elements at most, and takes at most REGION_MS. */
 const MAX_REGION_ITEMS = 10
-const REGION_MS = 2_000
 
 /** A run failure whose message is curated copy the browser may show. */
 export class ExecutionError extends Error {}
@@ -71,8 +70,6 @@ async function readRegion(page: Page, selector: string): Promise<string> {
   }
 }
 
-/** Longest the whole page text may take to read. A heavy page needs more than a second to lay out. */
-const BODY_TEXT_MS = 3_000
 export const TEXT_TIMEOUT_COPY = 'The page text did not read in time.'
 
 /** The visible text of the whole page, cut to the excerpt size in the page itself, so a long page never crosses the wire. */
@@ -95,7 +92,7 @@ async function readBodyText(page: Page): Promise<string> {
  * `region` names the selector. Without one, or when nothing matches, the excerpt is the page text.
  */
 export async function pageSnapshot(page: Page, selector?: string): Promise<ObservedPage> {
-  const title = withTimeout(page.title(), MAX_STEP_MS, 'The page title did not load in time.').catch(() => '')
+  const title = withTimeout(page.title(), TITLE_MS, 'The page title did not load in time.').catch(() => '')
   const region = selector ? await readRegion(page, selector) : ''
   const text = region || await readBodyText(page)
   return {
@@ -154,7 +151,7 @@ export async function runStep(page: Page, step: BotStep): Promise<string> {
       const value = step.value ?? ''
       await acting(locator.fill(value), `${step.target} could not take the text.`)
       // Outcome check: the field must now hold exactly what the plan typed.
-      const shown = await locator.inputValue({ timeout: 1_000 }).catch(() => null)
+      const shown = await locator.inputValue({ timeout: INPUT_READ_MS }).catch(() => null)
       if (shown !== value) throw new ExecutionError(`${step.target} does not hold the text that was typed.`)
       return `Typed ${value.length} characters into ${step.target}.`
     }

@@ -1,4 +1,5 @@
 import type { BotStep, ModelCheck, PlanResponse, PlanSpend, RunEvent, TraceEntry, TraceStatus } from '../types'
+import { PLAN_CLIENT_WAIT_MS, RUN_CLIENT_WAIT_MS } from './budget'
 import { cleanFrame } from './replay'
 import { isAction, usageOf } from './shared'
 
@@ -9,9 +10,9 @@ const MAX_ERROR_CHARS = 300
 const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
 /** No byte from the run stream for this long means it has stalled. The server sends an event at least every few seconds. */
 export const IDLE_LIMIT_MS = 30_000
-/** The whole run stream. The server stops starting steps 30 s after the browser is ready and a streamed function ends at 60 s, so 70 s is a margin. */
-export const OVERALL_LIMIT_MS = 70_000
-/** Time allowed for a response to begin, for the planner and for the run. */
+/** The whole run stream: the server's worst case for a run plus a margin (src/lib/budget.ts), which stays under the platform's 60 s cut. */
+export const OVERALL_LIMIT_MS = RUN_CLIENT_WAIT_MS
+/** Time allowed for the run's response to begin. The first byte comes after the browser starts, which the server ends within 10 s. */
 export const START_LIMIT_MS = 30_000
 const STALLED_COPY = 'The browser run stopped sending updates. Run the plan again.'
 const TOO_LONG_COPY = 'The browser run took longer than expected and was ended. Run the plan again.'
@@ -136,7 +137,7 @@ async function postJson(path: string, body: unknown, signal: AbortSignal, startL
 }
 
 export async function planTask(task: string, signal: AbortSignal): Promise<PlanResponse> {
-  const response = await postJson('/api/ai', { task }, signal, 20_000)
+  const response = await postJson('/api/ai', { task }, signal, PLAN_CLIENT_WAIT_MS)
   if (!response.ok) throw await readFailure(response, 'plan')
 
   let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; unreportedCalls?: unknown; model?: unknown; newestModel?: unknown; modelCheck?: unknown; totalMs?: unknown }

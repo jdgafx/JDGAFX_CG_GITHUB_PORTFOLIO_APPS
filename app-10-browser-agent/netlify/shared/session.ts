@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import chromium from '@sparticuz/chromium'
 import { chromium as playwright, type Browser } from 'playwright-core'
+import { CLEANUP_MS, CLOSE_MS, LAUNCH_MS } from '../../src/lib/budget'
 import { ExecutionError, withTimeout } from './browser'
 
 /** Longest the browser may take to start. The first start after a cold function unpacks Chromium into /tmp. */
-export const LAUNCH_TIMEOUT_MS = 12_000
-/** Longest a page open or a browser close may take. */
-export const BROWSER_TIMEOUT_MS = 7_000
+export const LAUNCH_TIMEOUT_MS = LAUNCH_MS
 /** A run is refused, with a retryable message, when /tmp has less than this much room left after cleaning. */
 const MIN_TMP_FREE_MB = 150
 /** The profile and artifact folders Playwright makes in the temp folder (/tmp in a function) for every browser it starts. */
@@ -258,13 +257,27 @@ export interface Closed {
 export async function closeBrowser(launched: Launched): Promise<Closed> {
   let closed = true
   try {
-    await withTimeout(launched.browser.close(), BROWSER_TIMEOUT_MS, 'The browser did not close in time.')
+    await withTimeout(launched.browser.close(), CLOSE_MS, 'The browser did not close in time.')
   } catch {
     closed = false
   }
-  const reaped = await reapChromium(launched.executablePath)
-  const swept = await sweepLeftovers()
-  const diagnostics = await diagnose(launched.executablePath)
-  console.log('Run finished:', JSON.stringify({ ...diagnostics, ...reaped, swept, closed }))
+  // The cleanup is bounded too, so a stuck disk cannot hold the run past the time the page waits for.
+  const diagnostics = await withTimeout(cleanUp(launched.executablePath, closed), CLEANUP_MS, 'The cleanup did not finish in time.').catch((error: unknown) => {
+    console.error('Run cleanup:', error instanceof Error ? error.message : 'failed')
+    return UNKNOWN_DIAGNOSTICS
+  })
   return { closed, diagnostics }
+}
+
+/** What a run reports when its cleanup did not finish: nothing was measured. */
+const UNKNOWN_DIAGNOSTICS: Diagnostics = {
+  tmpFreeMb: null, playwrightDirs: 0, topTmp: [], chromiumProcesses: 0, strayProcesses: 0, chromiumRssMb: 0, functionRssMb: 0,
+}
+
+async function cleanUp(executablePath: string, closed: boolean): Promise<Diagnostics> {
+  const reaped = await reapChromium(executablePath)
+  const swept = await sweepLeftovers()
+  const diagnostics = await diagnose(executablePath)
+  console.log('Run finished:', JSON.stringify({ ...diagnostics, ...reaped, swept, closed }))
+  return diagnostics
 }

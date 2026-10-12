@@ -1,4 +1,5 @@
 import type { CDPSession, Page } from 'playwright-core'
+import { CAPTURE_MS, DETACH_MS } from '../../src/lib/budget'
 import type { StepFrame } from '../../src/types'
 import { withTimeout } from './browser'
 
@@ -10,7 +11,6 @@ export const FRAME_MAX_BYTES = 70_000
 export const RUN_FRAME_MAX_BYTES = 450_000
 /** JPEG quality tried in turn until a frame fits. */
 export const QUALITIES = [60, 42, 28, 18]
-const CAPTURE_MS = 4_000
 
 /** Why a step has no frame. Shown to the visitor, so it is plain copy. */
 export const NO_FRAME = {
@@ -98,6 +98,7 @@ export class FrameRecorder {
   }
 
   async close(): Promise<void> {
-    await this.session?.detach().catch(() => undefined)
+    // The detach is bounded, so a stuck session cannot hold the close row back.
+    if (this.session) await withTimeout(this.session.detach(), DETACH_MS, 'The picture session did not close in time.').catch(() => undefined)
   }
 }

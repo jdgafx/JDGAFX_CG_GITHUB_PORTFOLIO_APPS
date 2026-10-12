@@ -1,3 +1,4 @@
+import { PLAN_BUDGET_MS } from '../../src/lib/budget'
 import { withDeadline } from '../shared/deadline'
 import { MAX_TOKENS, MODEL, OPENROUTER_URL } from '../shared/provider'
 import { newestModel, servedCheck } from '../shared/newest-model'
@@ -14,8 +15,6 @@ const PLAN_RATE_LIMIT = 20
 /** Room for a full task, even one written in four-byte letters, plus its JSON wrapper. */
 const MAX_BODY_BYTES = 8_192
 const MAX_ATTEMPTS = 2
-/** The function is cut off at 30 s. The first call and any retry share this budget, which leaves about 6 s for the rest of the request. */
-const PLAN_BUDGET_MS = 24_000
 /** One planner call waits this long, about 1.5 times its healthy p95 with thinking on (about 7 s: 3 s of JSON plus a few hundred reasoning tokens). A call that hangs past it is retried once. */
 const CALL_LIMIT_MS = 11_000
 /** A retry needs this much budget left, or it would only time out. A thinking call takes about 5 s at the median. */
