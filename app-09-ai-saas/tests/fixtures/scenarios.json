@@ -1,0 +1,12 @@
+{
+  "dates": ["2026-10-11", "2026-10-12"],
+  "scenarios": {
+    "r1": { "names": ["react", "vite", "zod", "@anthropic-ai/sdk"], "days": 365 },
+    "r1d30": { "names": ["react", "vite", "zod", "@anthropic-ai/sdk"], "days": 30 },
+    "r1d90": { "names": ["react", "vite", "zod", "@anthropic-ai/sdk"], "days": 90 },
+    "r2": { "names": ["vite", "webpack", "esbuild"], "days": 30 },
+    "r3": { "names": ["prisma", "drizzle-orm", "typeorm"], "days": 30 },
+    "solo30": { "names": ["react"], "days": 30 },
+    "solo365": { "names": ["react"], "days": 365 }
+  }
+}

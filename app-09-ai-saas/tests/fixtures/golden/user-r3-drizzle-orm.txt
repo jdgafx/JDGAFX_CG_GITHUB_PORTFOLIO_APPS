@@ -1,0 +1,46 @@
+RUN_DATE 2026-10-12; last published day L 2026-10-10; window 2026-09-11..2026-10-10 (the past month); past month 2026-09-11..2026-10-10; month before 2026-08-12..2026-09-10
+no-data days in the window (every package 0, npm gap): 2026-09-15, 2026-10-06
+## drizzle-orm
+window_total(window)=112088633; window_total(last30)=112088633; peak 2026-10-08=5533018
+daily averages (days with downloads above zero): A1=4003165.4643 (past month, n1=28); A0=2985812.2692 (month before, n0=26)
+past month rows (day,downloads[,flag]):
+2026-09-11,3582203
+2026-09-12,2353327
+2026-09-13,2371850
+2026-09-14,3889020
+2026-09-15,0,no-data
+2026-09-16,3940225
+2026-09-17,3916755
+2026-09-18,3663633
+2026-09-19,2357611
+2026-09-20,2444167
+2026-09-21,3943450
+2026-09-22,4216847
+2026-09-23,4602647
+2026-09-24,4661403
+2026-09-25,4386272
+2026-09-26,3055729
+2026-09-27,2982974
+2026-09-28,4812017
+2026-09-29,4971534
+2026-09-30,5007336
+2026-10-01,5174124
+2026-10-02,4698390
+2026-10-03,3291420
+2026-10-04,3246210
+2026-10-05,4932561
+2026-10-06,0,no-data
+2026-10-07,5497799
+2026-10-08,5533018
+2026-10-09,5073859
+2026-10-10,3482252
+strongest unusual days in the window (day,downloads,same-weekday 8-week median,kind,release):
+2026-09-26,3055729,1988439,spike,no release within 2 days
+2026-09-27,2982974,1978789,spike,no release within 2 days
+2026-09-28,4812017,3159025,spike,no release within 2 days
+2026-10-01,5174124,3389854,spike,no release within 2 days
+2026-10-03,3291420,2185324,spike,no release within 2 days
+2026-10-05,4932561,3202629,spike,no release within 2 days
+peer packages (exact code aggregates, for comparison only):
+prisma: window_total(window)=80103066; window_total(last30)=80103066; peak 2026-10-08=3906850; A1=2860823.7857 A0=2446573.9615
+typeorm: window_total(window)=23594685; window_total(last30)=23594685; peak 2026-10-01=1248656; A1=842667.3214 A0=717151.3077

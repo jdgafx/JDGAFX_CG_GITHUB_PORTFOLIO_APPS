@@ -1,0 +1,48 @@
+RUN_DATE 2026-10-12; last published day L 2026-10-10; window 2025-10-11..2026-10-10 (the past year); past month 2026-09-11..2026-10-10; month before 2026-08-12..2026-09-10
+no-data days in the window (every package 0, npm gap): 2026-07-12, 2026-08-14, 2026-09-03, 2026-09-07, 2026-09-08, 2026-09-15, 2026-10-06
+## react
+window_total(window)=5765986637; window_total(last30)=822294129; peak 2026-10-01=38105740
+daily averages (days with downloads above zero): A1=29367647.4643 (past month, n1=28); A0=24861690.1154 (month before, n0=26)
+past month rows (day,downloads[,flag]):
+2026-09-11,28799254
+2026-09-12,17451798
+2026-09-13,18116954
+2026-09-14,32366213
+2026-09-15,0,no-data
+2026-09-16,31906111
+2026-09-17,30619248
+2026-09-18,29080404
+2026-09-19,19810626
+2026-09-20,20163928
+2026-09-21,31742252
+2026-09-22,32581348
+2026-09-23,33986584
+2026-09-24,34324639
+2026-09-25,31340287
+2026-09-26,19359340
+2026-09-27,19823159
+2026-09-28,36221968
+2026-09-29,36674300
+2026-09-30,36617950
+2026-10-01,38105740
+2026-10-02,33663009
+2026-10-03,21661485
+2026-10-04,21478058
+2026-10-05,35446968
+2026-10-06,0,no-data
+2026-10-07,35968597
+2026-10-08,37575226
+2026-10-09,35362451
+2026-10-10,22046232
+strongest unusual days in the window (day,downloads,same-weekday 8-week median,kind,release):
+2025-12-07,5631112,3441504.5,spike,release data unavailable
+2025-12-25,3835367,9639260,drop,release data unavailable
+2026-01-01,3745740,9228350,drop,release data unavailable
+2026-01-17,6615301,4110487.5,spike,release data unavailable
+2026-02-07,7479027,4297543,spike,release data unavailable
+2026-02-22,9818293,5956140.5,spike,release data unavailable
+possible-gap days earlier in the window: 2026-06-03
+peer packages (exact code aggregates, for comparison only):
+vite: window_total(window)=5249471722; window_total(last30)=844053932; peak 2026-10-01=39379494; A1=30144783.2857 A0=25323077.0000
+zod: window_total(window)=8002465027; window_total(last30)=1404814066; peak 2026-10-08=67807579; A1=50171930.9286 A0=39610774.8846
+@anthropic-ai/sdk: window_total(window)=856505158; window_total(last30)=191275152; peak 2026-10-08=9780976; A1=6831255.4286 A0=5382920.6923
