@@ -1,12 +1,15 @@
-import type {
-  CatalogueResponse,
-  CompareRequest,
-  CompareResult,
-  JudgeRequest,
-  JudgeResponse,
-  LeaderboardResponse,
-  VoteRequest,
-  VoteResponse,
+import {
+  clientLimitMs,
+  LEADERBOARD_BUDGET_MS,
+  VOTE_BUDGET_MS,
+  type CatalogueResponse,
+  type CompareRequest,
+  type CompareResult,
+  type JudgeRequest,
+  type JudgeResponse,
+  type LeaderboardResponse,
+  type VoteRequest,
+  type VoteResponse,
 } from '../../netlify/shared/contract'
 
 // A message that is safe to show: the server writes these in plain language. `status` is the HTTP
@@ -28,6 +31,9 @@ export function isAbortError(err: unknown): boolean {
 const COMPARE_CAP_MS = 60_000
 const JUDGE_CAP_MS = 45_000
 const QUICK_CAP_MS = 20_000
+// A vote and a leaderboard read end on the server's own budget, so the page waits that budget plus a margin, never less.
+export const VOTE_CAP_MS = clientLimitMs(VOTE_BUDGET_MS)
+export const LEADERBOARD_CAP_MS = clientLimitMs(LEADERBOARD_BUDGET_MS)
 
 function postJson(body: unknown, signal?: AbortSignal): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal }
@@ -85,7 +91,7 @@ export function fetchCatalogue(signal?: AbortSignal): Promise<CatalogueResponse>
 }
 
 export function fetchLeaderboard(signal?: AbortSignal): Promise<LeaderboardResponse> {
-  return request<LeaderboardResponse>('/api/leaderboard', { signal }, QUICK_CAP_MS)
+  return request<LeaderboardResponse>('/api/leaderboard', { signal }, LEADERBOARD_CAP_MS)
 }
 
 export function runCompare(body: CompareRequest, signal?: AbortSignal): Promise<CompareResult> {
@@ -97,5 +103,5 @@ export function runJudge(body: JudgeRequest, signal?: AbortSignal): Promise<Judg
 }
 
 export function runVote(body: VoteRequest, signal?: AbortSignal): Promise<VoteResponse> {
-  return request<VoteResponse>('/api/vote', postJson(body, signal), QUICK_CAP_MS)
+  return request<VoteResponse>('/api/vote', postJson(body, signal), VOTE_CAP_MS)
 }

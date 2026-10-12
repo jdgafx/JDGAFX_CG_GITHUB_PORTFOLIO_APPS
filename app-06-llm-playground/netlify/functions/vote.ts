@@ -1,5 +1,6 @@
 import { castBallot, dropRun, loadRun, planBallot, revealed } from '../shared/arena'
-import { type VoteResponse } from '../shared/contract'
+import { VOTE_BUDGET_MS, type VoteResponse } from '../shared/contract'
+import { budgetSignal } from '../shared/deadline'
 import { gate, json, readJson, SERVER_ERROR } from '../shared/guard'
 import { errorName } from '../shared/parse'
 import { activeStore, guardStore, storeTimeoutOf, STORE_SLOW } from '../shared/store'
@@ -15,6 +16,8 @@ const GONE = 'This comparison has expired, or it was already voted on. Run it ag
 export default async (req: Request): Promise<Response> => {
   const guard = gate(req, 'POST')
   if (!guard.ok) return guard.response
+  // One budget for the whole vote: its store calls run in turn, so the per-call limit alone would let them add up.
+  const budget = budgetSignal(VOTE_BUDGET_MS, req.signal)
   try {
     const body = await readJson(req, VOTE_BODY_MAX_BYTES)
     if (!body.ok) return json({ error: body.error }, 400, guard.headers)
@@ -23,7 +26,7 @@ export default async (req: Request): Promise<Response> => {
     const { runId, choice } = parsed.value
 
     const open = activeStore()
-    const store = guardStore(open.store, req.signal)
+    const store = guardStore(open.store, budget.signal)
     const found = await loadRun(store, runId)
     if (!found.ok) return json({ error: GONE }, 410, guard.headers)
     const plan = planBallot(found.run, choice)
@@ -51,6 +54,8 @@ export default async (req: Request): Promise<Response> => {
     if (storeTimeoutOf(err)) return json({ error: STORE_SLOW }, 503, guard.headers)
     console.error(`Vote failed: ${errorName(err)}`)
     return json({ error: SERVER_ERROR }, 500, guard.headers)
+  } finally {
+    budget.release()
   }
 }
 

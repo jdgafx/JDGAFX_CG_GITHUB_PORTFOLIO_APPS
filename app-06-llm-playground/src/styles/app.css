@@ -51,7 +51,7 @@
 
 /* The model's name leads once it is known; before the vote a mask holds its place. */
 .arena-name { display: grid; gap: 0; min-width: 0; }
-.arena-name__model { font-family: var(--ds-mono); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arena-name__model { font-family: var(--ds-mono); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; overflow-wrap: anywhere; }
 .arena-name__meta { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
 .arena-mask { display: block; width: 9ch; height: 1em; margin: 0.15em 0; border-radius: 3px; background: repeating-linear-gradient(135deg, var(--ds-border-strong) 0 4px, var(--ds-border) 4px 8px); }
 .arena-name--revealed .arena-name__model { animation: arena-reveal 520ms var(--ds-ease) both; }
@@ -97,7 +97,7 @@
 .arena-rank { font-family: var(--ds-mono); font-size: 36px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
 .arena-row:first-child .arena-rank { color: var(--ds-accent); }
 .arena-row__who { grid-area: who; display: grid; min-width: 0; }
-.arena-row__name { font-family: var(--ds-mono); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arena-row__name { font-family: var(--ds-mono); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .arena-row__vendor { font-size: 13px; color: var(--ds-text-muted); }
 .arena-row__rating { grid-area: rating; display: grid; justify-items: end; }
 .arena-rating { font-family: var(--ds-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -154,7 +154,7 @@
 .arena-answer code { font-size: 0.93em; padding: 1px 5px; background: var(--ds-surface-2); border-radius: 4px; }
 [data-result-focus]:focus-visible, [data-reveal-focus]:focus-visible { outline-offset: 4px; }
 
-.arena-id { display: inline-block; max-width: 22ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.arena-id { overflow-wrap: anywhere; }
 
 /* Live-data chip in the masthead: lit by a live model list and a loaded leaderboard. */
 .live-data { margin: 8px 0 0; width: fit-content; max-width: 100%; white-space: normal; }

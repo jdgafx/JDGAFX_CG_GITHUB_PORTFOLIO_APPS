@@ -52,3 +52,22 @@ export async function withDeadline<T>(
     parent?.removeEventListener('abort', onParent)
   }
 }
+
+/**
+ * A signal that aborts after `ms` or when `parent` aborts, for a request that makes several calls in turn. The timer
+ * is referenced, so the budget holds whatever the calls do. Call `release` when the request is done.
+ */
+export function budgetSignal(ms: number, parent?: AbortSignal): { signal: AbortSignal; release: () => void } {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new DOMException('The request ran out of time.', 'TimeoutError')), Math.max(0, ms))
+  const onParent = () => controller.abort(parent ? reasonOf(parent) : undefined)
+  if (parent?.aborted) onParent()
+  else parent?.addEventListener('abort', onParent, { once: true })
+  return {
+    signal: controller.signal,
+    release: () => {
+      clearTimeout(timer)
+      parent?.removeEventListener('abort', onParent)
+    },
+  }
+}

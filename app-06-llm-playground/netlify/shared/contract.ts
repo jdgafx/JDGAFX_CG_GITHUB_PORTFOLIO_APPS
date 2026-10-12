@@ -128,6 +128,13 @@ export const ELO_START = 1000
 export const ELO_K = 24
 // A blind run takes its vote within this long. After that the stored run is gone.
 export const RUN_TTL_MS = 30 * 60_000
+// How long the server may spend on one vote or one leaderboard read, store calls included. At this limit it stops
+// and answers with its own clear error. The browser waits this long plus CLIENT_MARGIN_MS for network and cold
+// start, and takes both numbers from here, so the two sides cannot drift apart.
+export const VOTE_BUDGET_MS = 15_000
+export const LEADERBOARD_BUDGET_MS = 15_000
+export const CLIENT_MARGIN_MS = 3_000
+export const clientLimitMs = (budgetMs: number): number => budgetMs + CLIENT_MARGIN_MS
 // Votes behind a rating: fewer than FEW_VOTES is "few votes", fewer than STEADY_VOTES is "provisional".
 export const FEW_VOTES = 5
 export const STEADY_VOTES = 20
