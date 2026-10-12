@@ -1,15 +1,43 @@
 import { defineConfig } from 'vitest/config'
 
-// Tests never reach a real provider: the key is blanked here, and the server smoke
-// tests set the placeholder they need explicitly and restore it afterwards.
+// Two projects: pure code and the Netlify functions run in node; React components,
+// src/ and the browser clients run in jsdom. Tests never reach a real provider:
+// the key is blanked here.
+const env = { OPENROUTER_API_KEY: '' }
+
 export default defineConfig({
-  // The Try it page test renders the real Dashboard, so tests may be .tsx.
   esbuild: { jsx: 'automatic' },
   test: {
-    environment: 'node',
-    include: ['tests/**/*.test.{ts,tsx}'],
-    env: {
-      OPENROUTER_API_KEY: '',
-    },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          env,
+          include: [
+            'tests/*.test.{ts,tsx}',
+            'tests/shared/**/*.test.{ts,tsx}',
+            'tests/netlify/**/*.test.{ts,tsx}',
+            'shared/**/*.test.{ts,tsx}',
+            'netlify/**/*.test.{ts,tsx}',
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'jsdom',
+          environment: 'jsdom',
+          env,
+          include: [
+            'tests/components/**/*.test.{ts,tsx}',
+            'tests/lib/**/*.test.{ts,tsx}',
+            'tests/ui/**/*.test.{ts,tsx}',
+            'src/**/*.test.{ts,tsx}',
+          ],
+        },
+      },
+    ],
   },
 })

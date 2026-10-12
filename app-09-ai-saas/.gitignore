@@ -1,5 +1,11 @@
+# Dependencies
+node_modules
+
 # Local Netlify folder
 .netlify
 
 # Build output
 dist
+
+# TypeScript incremental build info
+*.tsbuildinfo
