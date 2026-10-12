@@ -4,6 +4,7 @@ import { EvidencePanel } from './components/EvidencePanel'
 import { Header, type Badge } from './components/Header'
 import { HowTo } from './components/HowTo'
 import { QuestionSection } from './components/QuestionSection'
+import { ReplayLabel } from './components/ReplayLabel'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard, type Phase, type Selection } from './components/ResultCard'
 import { RunTrace } from './components/RunTrace'
@@ -14,6 +15,8 @@ import { askQuestion, AskError, usageFromTrace } from './lib/api'
 import type { Retrieval } from './lib/bm25'
 import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE, TRY_QUESTION } from './lib/howto'
 import { liveData } from './lib/liveData'
+import type { SourceRequest } from './lib/loadSource'
+import { useReplay } from './lib/useReplay'
 import { useResultFocus } from './lib/useResultFocus'
 import type { DocumentState, LatestRun, TraceStep, Turn } from './types'
 
@@ -87,6 +90,32 @@ export default function App() {
   const loader = useDocumentLoader(loadDocument, cancelRun)
   const reading = loader.loading
   const clearLoadError = loader.clearError
+  // A replay starts only on an empty page; a visitor who got there first keeps it.
+  const pageEmpty = useRef(true)
+  const beginReplay = useCallback(
+    (target: DocumentState) => {
+      loadDocument(target)
+      askRef.current(TRY_QUESTION, target)
+    },
+    [loadDocument],
+  )
+  const clearReplayRun = useCallback(() => {
+    cancelRun()
+    setDoc(null)
+    setLoadedAt(null)
+    clearConversation()
+    setQuestion('')
+  }, [cancelRun, clearConversation])
+  const replay = useReplay({ canStart: () => pageEmpty.current, begin: beginReplay, clear: clearReplayRun })
+  const stopReplay = replay.stop
+  // Any move by the visitor ends a replay: the page's own fetch is back before the next request leaves.
+  const load = useCallback(
+    (request: SourceRequest) => {
+      stopReplay()
+      loader.load(request)
+    },
+    [loader, stopReplay],
+  )
 
   const ask = useCallback(
     async (text: string, target: DocumentState | null = doc) => {
@@ -173,19 +202,31 @@ export default function App() {
     askRef.current = (text, target) => void ask(text, target)
   }, [ask])
 
-  const runQuestion = useCallback(() => void ask(question.trim()), [ask, question])
-  const retry = useCallback(() => void ask(lastQuestion.current), [ask])
+  useEffect(() => {
+    pageEmpty.current = doc === null && !reading && !running
+  }, [doc, reading, running])
+
+  const runQuestion = useCallback(() => {
+    stopReplay()
+    void ask(question.trim())
+  }, [ask, question, stopReplay])
+  const retry = useCallback(() => {
+    stopReplay()
+    void ask(lastQuestion.current)
+  }, [ask, stopReplay])
 
   /** Try it: fetches the example article live from Wikipedia, then asks the example question about it. */
   const tryIt = useCallback(() => {
+    stopReplay()
     afterLoad.current = loaded => askRef.current(TRY_QUESTION, loaded)
     loader.load({ kind: 'wikipedia', title: TRY_ARTICLE })
-  }, [loader])
+  }, [loader, stopReplay])
 
   // Stop only aborts. The request id is left alone, so the stopped state is kept.
   const stopRun = useCallback(() => {
     abortRef.current?.abort()
-  }, [])
+    stopReplay()
+  }, [stopReplay])
 
   /** Closing the panel returns focus to the citation that opened it. */
   const closeSource = useCallback(() => {
@@ -203,12 +244,13 @@ export default function App() {
       return
     }
     cancelRun()
+    stopReplay()
     setDoc(null)
     setLoadedAt(null)
     clearConversation()
     setQuestion('')
     clearLoadError()
-  }, [turns.length, cancelRun, clearConversation, clearLoadError])
+  }, [turns.length, cancelRun, stopReplay, clearConversation, clearLoadError])
 
   const phase: Phase = running
     ? 'running'
@@ -275,7 +317,7 @@ export default function App() {
               activity={loader.activity}
               error={loader.error}
               canRetry={loader.canRetry}
-              onLoad={loader.load}
+              onLoad={load}
               onRetry={loader.retry}
               onError={loader.fail}
               onReset={handleReset}
@@ -294,6 +336,7 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replay.info && <ReplayLabel info={replay.info} onRunLive={tryIt} disabled={reading || (running && !replay.info)} />}
             <ResultCard
               doc={doc}
               phase={phase}

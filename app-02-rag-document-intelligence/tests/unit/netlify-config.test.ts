@@ -18,8 +18,8 @@ describe('netlify.toml', () => {
     expect(api).toBeLessThan(all)
   })
 
-  it('lets the browser reach only the two public hosts it calls directly', () => {
+  it('lets the browser reach only the two public hosts it reads and the stored replay', () => {
     const connect = /connect-src ([^;]+);/.exec(toml)?.[1]
-    expect(connect).toBe("'self' https://en.wikipedia.org https://arxiv.org")
+    expect(connect).toBe("'self' https://en.wikipedia.org https://arxiv.org https://raw.githubusercontent.com")
   })
 })

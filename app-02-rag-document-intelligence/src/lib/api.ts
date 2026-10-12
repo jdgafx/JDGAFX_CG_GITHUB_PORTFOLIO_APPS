@@ -159,6 +159,12 @@ async function readStream(body: ReadableStream<Uint8Array>, events: AskEvents, o
   return end
 }
 
+/** The request body for a question: the ranked passages, labelled, in the order the author wrote them. */
+export function askBody(question: string, chunks: string[], documentTitle: string, ranked: Retrieval['ranked']): string {
+  const labeledChunks = [...ranked].sort((a, b) => a.index - b.index).map(r => `[Chunk ${r.index}]:\n${chunks[r.index] ?? ''}`)
+  return JSON.stringify({ question, chunks: labeledChunks, documentTitle })
+}
+
 /**
  * Ranks the passages in the browser, then asks the server to answer from them.
  * The browser times its own retrieval step. The server times the steps it runs.
@@ -190,9 +196,6 @@ export async function askQuestion(
     return { status: 'no-matches', run: runWith([retrievalStep, ...skipped], retrievalStep.ms), retrieval }
   }
 
-  // The model reads the passages in the order the author wrote them.
-  const labeledChunks = [...ranked].sort((a, b) => a.index - b.index).map(r => `[Chunk ${r.index}]:\n${chunks[r.index] ?? ''}`)
-
   const stop = new AbortController()
   let stalled: WatchdogReason | null = null
   const dog = startWatchdog(STALL_MS, CAP_MS, reason => {
@@ -217,7 +220,7 @@ export async function askQuestion(
       response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ question, chunks: labeledChunks, documentTitle }),
+        body: askBody(question, chunks, documentTitle, ranked),
         signal: guard,
       })
     } catch (err) {

@@ -1,0 +1,17 @@
+{
+  "url": "https://jdgafx-app-02-rag-document-intelligence.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/ai",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "expect": [
+    { "path": "/api/ai", "field": "result.answer", "nonEmpty": true, "message": "the model gave no answer" },
+    { "path": "/api/ai", "field": "result.source_chunk_indices", "minLength": 1, "message": "the answer cites no passage" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "servedModel" },
+    "modelRole": "answered by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "this question"
+  }
+}
