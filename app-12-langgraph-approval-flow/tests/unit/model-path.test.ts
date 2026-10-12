@@ -84,3 +84,17 @@ describe('a reply from another model', () => {
     warn.mockRestore()
   })
 })
+
+describe("today's date in the instructions", () => {
+  it('is read from the deps clock on every call, not kept from an earlier one', async () => {
+    const chat = replying({})
+    let clock = new Date('2026-10-12T09:30:00Z')
+    const live: NodeDeps = { chat, now: () => clock, remainingMs: () => 25_000 }
+    await runChat(live, MODEL, 100, PROMPT, new AbortController().signal, 0)
+    clock = new Date('2027-01-03T23:59:00Z')
+    await runChat(live, MODEL, 100, PROMPT, new AbortController().signal, 0)
+
+    const systems = vi.mocked(chat).mock.calls.map(([request]) => request.messages[0].content)
+    expect(systems).toEqual(["Judge the candidates. Today's date is 2026-10-12.", "Judge the candidates. Today's date is 2027-01-03."])
+  })
+})

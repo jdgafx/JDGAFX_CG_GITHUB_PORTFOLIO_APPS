@@ -210,7 +210,7 @@ describe('POST /api/start', () => {
       vi.fn((url: string, init: RequestInit) => {
         const system = typeof init.body === 'string' ? (JSON.parse(init.body) as { messages: Array<{ content: string }> }).messages[0]?.content : ''
         // The first reply call hangs and ignores its abort signal. Every other call answers.
-        if (system === REPLY_PROMPT && (replies += 1) === 1) return new Promise(() => {})
+        if (system?.startsWith(REPLY_PROMPT) && (replies += 1) === 1) return new Promise(() => {})
         return answering(url, init)
       }),
     )

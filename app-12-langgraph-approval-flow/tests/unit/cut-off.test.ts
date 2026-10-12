@@ -23,7 +23,7 @@ function cutAt(prompt: string, options: Parameters<typeof fakeChat>[0] = {}) {
   const base = chat.getMockImplementation()!
   chat.mockImplementation(async (request, signal) => {
     const result = await base(request, signal)
-    return request.messages[0].content === prompt ? { ...result, finishReason: 'length' } : result
+    return request.messages[0].content.startsWith(prompt) ? { ...result, finishReason: 'length' } : result
   })
   return chat
 }
@@ -65,7 +65,7 @@ describe('a reply cut off at the token cap is never used', () => {
   it('makes one call only: a cut-off reply is not retried', async () => {
     const chat = cutAt(CLASSIFY_PROMPT)
     await started(chat)
-    expect(chat.mock.calls.filter(([request]) => request.messages[0].content === CLASSIFY_PROMPT)).toHaveLength(1)
+    expect(chat.mock.calls.filter(([request]) => request.messages[0].content.startsWith(CLASSIFY_PROMPT))).toHaveLength(1)
   })
 
   it('still uses a reply that ends normally or names no finish reason', async () => {

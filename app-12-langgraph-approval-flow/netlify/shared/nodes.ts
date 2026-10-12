@@ -226,7 +226,7 @@ export async function runChat(
     maxTokens,
     json: prompt.json,
     messages: [
-      { role: 'system', content: prompt.system },
+      { role: 'system', content: `${prompt.system} Today's date is ${deps.now().toISOString().slice(0, 10)}.` },
       { role: 'user', content: prompt.user },
     ],
   }

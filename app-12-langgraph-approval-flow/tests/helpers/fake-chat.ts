@@ -38,13 +38,13 @@ export function classificationText(option: FakeChatOptions['classification']): s
 export function fakeChat(options: FakeChatOptions = {}) {
   return vi.fn<ChatFn>(async (request: ChatRequest) => {
     const system = request.messages[0]?.content
-    if (request.model === MODEL && system === CLASSIFY_PROMPT) {
+    if (request.model === MODEL && system?.startsWith(CLASSIFY_PROMPT)) {
       return providerResult(classificationText(options.classification), NEWEST_HAIKU)
     }
-    if (request.model === MODEL && system === JUDGE_PROMPT) {
+    if (request.model === MODEL && system?.startsWith(JUDGE_PROMPT)) {
       return providerResult(options.judge ?? '{"verdicts": []}', NEWEST_HAIKU)
     }
-    if (request.model === MODEL && system === REPLY_PROMPT) {
+    if (request.model === MODEL && system?.startsWith(REPLY_PROMPT)) {
       return providerResult(options.email ?? 'Thanks for the report. We have triaged this issue.', NEWEST_HAIKU)
     }
     throw new Error(`fakeChat has no answer for model ${request.model}`)

@@ -27,10 +27,10 @@ export function providerFetch(options: FakeProviderOptions = {}) {
     const system = body.messages[0]?.content ?? ''
     let content: string
     let cost: number | undefined
-    if (system === CLASSIFY_PROMPT) {
+    if (system?.startsWith(CLASSIFY_PROMPT)) {
       content = classificationText(options.classification)
       cost = 0.000001
-    } else if (system === REPLY_PROMPT) {
+    } else if (system?.startsWith(REPLY_PROMPT)) {
       content = options.email ?? 'Thanks for the report. We have triaged this issue.'
     } else {
       return new Response('{}', { status: 400 })

@@ -62,7 +62,7 @@ describe('the duplicates step', () => {
 
   it('judges only the top three, in one model call, with the issues sent as data', async () => {
     const { chat } = await run()
-    const calls = chat.mock.calls.filter(([request]) => request.messages[0].content === JUDGE_PROMPT)
+    const calls = chat.mock.calls.filter(([request]) => request.messages[0].content.startsWith(JUDGE_PROMPT))
     expect(calls).toHaveLength(1)
     const data = JSON.parse(calls[0][0].messages[1].content.split('\n')[2]) as { earlierIssues: Array<{ number: number }> }
     expect(data.earlierIssues.map((c) => c.number)).toEqual([334403, 334776, 332309])
@@ -70,7 +70,7 @@ describe('the duplicates step', () => {
 
   it('sizes the judge cap for thinking and sends no reasoning override on the classify or judge call', async () => {
     const { chat } = await run()
-    const [classify, judged] = [chat.mock.calls[0][0], chat.mock.calls.map(([request]) => request).find((request) => request.messages[0].content === JUDGE_PROMPT)]
+    const [classify, judged] = [chat.mock.calls[0][0], chat.mock.calls.map(([request]) => request).find((request) => request.messages[0].content.startsWith(JUDGE_PROMPT))]
     expect(judged).toBeDefined()
     expect(judged).toMatchObject({ maxTokens: 3_000, json: true })
     for (const request of [classify, judged as typeof classify]) {
@@ -112,7 +112,7 @@ describe('the duplicates step', () => {
     const chat = fakeChat({ classification: CLASSIFIED_BUG_LOW })
     const base = chat.getMockImplementation()!
     chat.mockImplementation(async (request, signal) => {
-      if (request.messages[0].content === JUDGE_PROMPT) throw new ProviderError(502, 'The AI provider sent a reply that could not be read.')
+      if (request.messages[0].content.startsWith(JUDGE_PROMPT)) throw new ProviderError(502, 'The AI provider sent a reply that could not be read.')
       return base(request, signal)
     })
     const { report, first } = await run({ chat })
@@ -129,7 +129,7 @@ describe('the duplicates step', () => {
     const { report } = await run({ search, chat, remainingMs: () => 14_999 })
     expect(report).toMatchObject({ status: 'skipped', candidates: [] })
     expect(search).not.toHaveBeenCalled()
-    expect(chat.mock.calls.some(([request]) => request.messages[0].content === JUDGE_PROMPT)).toBe(false)
+    expect(chat.mock.calls.some(([request]) => request.messages[0].content.startsWith(JUDGE_PROMPT))).toBe(false)
   })
 
   it('asks the model nothing when no candidate shares enough rare words', async () => {
@@ -138,7 +138,7 @@ describe('the duplicates step', () => {
     const { report } = await run({ search: searchReturning(lone), chat })
     expect(report?.status).toBe('none')
     expect(report?.candidates).toHaveLength(1)
-    expect(chat.mock.calls.some(([request]) => request.messages[0].content === JUDGE_PROMPT)).toBe(false)
+    expect(chat.mock.calls.some(([request]) => request.messages[0].content.startsWith(JUDGE_PROMPT))).toBe(false)
   })
 })
 
@@ -153,7 +153,7 @@ describe('approving a proposal to close as a duplicate', () => {
   it('keeps the action on approve and tells the reply model the original, with no link and no "closed"', async () => {
     const { values, chat } = await approved('This issue duplicates #334403. Please follow #334403 for updates.')
     expect(values.humanDecision).toEqual({ action: 'approve' })
-    const facts = chat.mock.calls.filter(([request]) => request.messages[0].content === REPLY_PROMPT).at(-1)![0].messages[1].content
+    const facts = chat.mock.calls.filter(([request]) => request.messages[0].content.startsWith(REPLY_PROMPT)).at(-1)![0].messages[1].content
     expect(facts).toContain('a maintainer approved treating this issue as a duplicate of #334403 in the same repository')
     expect(facts).toContain('Write "#334403" as plain text, not a link.')
     expect(facts).toContain('Do not say anything was closed.')
