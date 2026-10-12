@@ -4,7 +4,7 @@ import { EvidencePanel } from './components/EvidencePanel'
 import { Header, type Badge } from './components/Header'
 import { HowTo } from './components/HowTo'
 import { QuestionSection } from './components/QuestionSection'
-import { ReplayLabel } from './components/ReplayLabel'
+import { LiveLabel, ReplayLabel } from './components/ReplayLabel'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard, type Phase, type Selection } from './components/ResultCard'
 import { RunTrace } from './components/RunTrace'
@@ -92,14 +92,18 @@ export default function App() {
   const clearLoadError = loader.clearError
   // A replay starts only on an empty page; a visitor who got there first keeps it.
   const pageEmpty = useRef(true)
+  // True from the moment a replay starts until the visitor brings their own document: the run stays first on a narrow screen.
+  const [replayed, setReplayed] = useState(false)
   const beginReplay = useCallback(
     (target: DocumentState) => {
+      setReplayed(true)
       loadDocument(target)
       askRef.current(TRY_QUESTION, target)
     },
     [loadDocument],
   )
   const clearReplayRun = useCallback(() => {
+    setReplayed(false)
     cancelRun()
     setDoc(null)
     setLoadedAt(null)
@@ -112,6 +116,7 @@ export default function App() {
   const load = useCallback(
     (request: SourceRequest) => {
       stopReplay()
+      setReplayed(false)
       loader.load(request)
     },
     [loader, stopReplay],
@@ -245,6 +250,7 @@ export default function App() {
     }
     cancelRun()
     stopReplay()
+    setReplayed(false)
     setDoc(null)
     setLoadedAt(null)
     clearConversation()
@@ -306,10 +312,10 @@ export default function App() {
           what={HOWTO_WHAT}
           steps={HOWTO_STEPS}
           onTry={tryIt}
-          disabled={reading || running}
-          hasResult={latest !== null}
+          disabled={(reading || running) && !replay.info}
+          hasResult={latest !== null || replayed}
         />
-        <div className="ds-bench">
+        <div className="ds-bench" data-replayed={replayed ? '' : undefined}>
           <div className="ds-controls">
             <DocumentSection
               doc={doc}
@@ -336,7 +342,8 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            {replay.info && <ReplayLabel info={replay.info} onRunLive={tryIt} disabled={reading || (running && !replay.info)} />}
+            {replay.info && <ReplayLabel info={replay.info} onRunLive={tryIt} disabled={reading} />}
+            {!replay.info && phase === 'done' && latest?.state === 'answered' && !notFound && <LiveLabel report={latest.report} />}
             <ResultCard
               doc={doc}
               phase={phase}
