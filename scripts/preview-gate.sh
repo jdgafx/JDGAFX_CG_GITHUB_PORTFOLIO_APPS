@@ -61,10 +61,21 @@ if ev.get("verdict") != "PASS":
     sys.exit(f"verdict is {ev.get('verdict')!r}, not PASS")
 if not str(ev.get("preview_url", "")).startswith("https://"):
     sys.exit("preview_url is not an https:// URL")
-checklist = ev.get("checklist") if isinstance(ev.get("checklist"), dict) else {}
-for item in "12345678":
-    if checklist.get(item) != "PASS":
-        sys.exit(f"checklist item {item} is {checklist.get(item)!r}, not PASS")
+if ev.get("standard") == "GJ":
+    # Decision GJ: the pre-written checks plus no blocker, instead of the 8-item checklist.
+    checks = ev.get("checks") if isinstance(ev.get("checks"), dict) else {}
+    if not checks:
+        sys.exit("GJ evidence has no checks")
+    for name, verdict in checks.items():
+        if verdict != "PASS":
+            sys.exit(f"check {name} is {verdict!r}, not PASS")
+    if ev.get("blockers") != []:
+        sys.exit("GJ evidence must list blockers as an empty list")
+else:
+    checklist = ev.get("checklist") if isinstance(ev.get("checklist"), dict) else {}
+    for item in "12345678":
+        if checklist.get(item) != "PASS":
+            sys.exit(f"checklist item {item} is {checklist.get(item)!r}, not PASS")
 PY
   # The pushed app tree must be the one the evidence verified (catches unverified merges).
   if ! git diff --quiet "$2" "$new" -- "$1"; then

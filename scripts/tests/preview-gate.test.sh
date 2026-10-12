@@ -161,6 +161,23 @@ evidence app-09-theta "$Z" PASS PASS "$(hash_of app-09-theta "$Z")"
 run_case "sample-only commit with evidence for the new sample passes" 0 "$R" "$Z" \
   '^GATE PASS app-09-theta [0-9a-f]{12} [(]evidence [0-9a-f]{12}, same app tree[)]$'
 
+# Decision GJ evidence: pre-written checks all PASS and no blockers, instead of the 8-item checklist.
+gj() {
+  mkdir -p ".acceptance/gate/$1"
+  printf '{"app": "%s", "sha": "%s", "verdict": "PASS", "sample_sha256": "%s", "preview_url": "https://preview.example.test/%s", "standard": "GJ", "checks": {"1": "PASS", "2": "%s"}, "blockers": %s}\n' \
+    "$1" "$2" "$(hash_of "$1" "$2")" "$1" "$3" "$4" >".acceptance/gate/$1/$2.json"
+}
+git checkout -q -b gjcase "$RB"
+put app-09-theta/t.txt "gj"
+GJ=$(commit "app-09 GJ change")
+gj app-09-theta "$GJ" PASS '["crash"]'
+run_case "GJ evidence with a blocker fails" 1 "$RB" "$GJ" "^GATE FAIL app-09-theta .*blockers"
+gj app-09-theta "$GJ" FAIL '[]'
+run_case "GJ evidence with a failed check fails" 1 "$RB" "$GJ" "^GATE FAIL app-09-theta .*check 2"
+gj app-09-theta "$GJ" PASS '[]'
+run_case "GJ evidence, all checks PASS and no blockers, passes" 0 "$RB" "$GJ" "^GATE PASS app-09-theta [0-9a-f]{12}$"
+git checkout -q resampled
+
 # A pre-push hook runs with GIT_DIR set (always so from a worktree); the scripts must still find themselves.
 n=$((n + 1))
 if out=$(GIT_DIR="$repo/.git" bash scripts/preview-gate.sh "$R" "$Z" 2>&1) && grep -q "^GATE PASS app-09-theta" <<<"$out"; then
