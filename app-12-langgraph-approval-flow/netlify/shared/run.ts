@@ -70,6 +70,7 @@ function userMessage(err: unknown, node: NodeName | null): string {
       const twice = candidate.retried ? ', even after one automatic retry' : ''
       return `The AI provider did not answer within ${CALL_TIMEOUT_MS / 1000} seconds ${during(node)}${twice}. ${SAVED}`
     }
+    if (candidate.kind === 'length') return `The AI ran out of reply length ${during(node)} before the reply was finished. ${SAVED}`
     return candidate.message
   }
   return storeTimeoutOf(err)?.message ?? GENERIC_RUN_FAILURE

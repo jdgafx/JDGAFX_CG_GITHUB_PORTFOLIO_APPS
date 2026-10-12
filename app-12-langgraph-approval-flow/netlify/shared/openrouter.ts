@@ -19,17 +19,19 @@ export const PROVIDER_TIMEOUT = `The AI provider did not answer within ${CALL_TI
 export const PROVIDER_UNREACHABLE = 'Could not reach the AI provider.'
 export const PROVIDER_REQUEST = 'The AI provider rejected the request.'
 export const PROVIDER_BAD_REPLY = 'The AI provider sent a reply that could not be read.'
+export const PROVIDER_CUT_OFF = 'The AI ran out of reply length before the reply was finished.'
 
 /** A failed model call. The message is written for the visitor and is safe to show. */
 export class ProviderError extends Error {
   /**
    * timeout: this one call passed its own limit. budget: the whole run's budget ended while the call
-   * was in flight. Anything else is a failure the provider or the network reported.
+   * was in flight. length: the reply stopped at the token cap, so its text may be missing its tail.
+   * Anything else is a failure the provider or the network reported.
    */
   constructor(
     readonly status: number,
     message: string,
-    readonly kind?: 'timeout' | 'budget',
+    readonly kind?: 'timeout' | 'budget' | 'length',
     /** True when this is the failure of a second attempt, after one automatic retry. */
     readonly retried = false,
   ) {

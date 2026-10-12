@@ -6,7 +6,7 @@ import { classifyMessage, CLASSIFY_PROMPT, readClassification, replyDataBlock, U
 import { isRecord } from './guard'
 import { issueRefOf } from './issue-input'
 import { CLASSIFY_MAX_TOKENS, MODEL, REPLY_MAX_TOKENS, estimateCost } from './models'
-import { CALL_TIMEOUT_MS, ProviderError, type ChatFn, type ChatRequest, type ChatResult } from './openrouter'
+import { CALL_TIMEOUT_MS, PROVIDER_CUT_OFF, ProviderError, type ChatFn, type ChatRequest, type ChatResult } from './openrouter'
 import { draftProblem } from './reply-guard'
 import type { GraphValues } from './state'
 import { servedCheck } from './newest-model'
@@ -215,9 +215,18 @@ async function checked(deps: NodeDeps, call: Omit<CallRecord, 'newestModel' | 'm
 }
 
 /**
+ * A reply that stopped at the token cap is cut off: its text may still parse or read well, but the tail is lost.
+ * It is never used, so the call fails and the step ends where a hung call would, retryable from the checkpoint.
+ */
+function whole(result: ChatResult): ChatResult {
+  if (result.finishReason === 'length') throw new ProviderError(502, PROVIDER_CUT_OFF, 'length')
+  return result
+}
+
+/**
  * One model call. A call that hangs past its limit, or loses its connection, is made once more with the
  * same limit, when the budget has room for that call and for the model calls still to come. A rejected
- * key, a 4xx, and a budget stop are never retried. A second failure carries `retried`, so its message says so.
+ * key, a 4xx, a budget stop and a cut-off reply are never retried. A second failure carries `retried`, so its message says so.
  */
 export async function runChat(
   deps: NodeDeps,
@@ -237,7 +246,7 @@ export async function runChat(
     ],
   }
   try {
-    return await checked(deps, { requested: model, result: await deps.chat(request, signal) })
+    return await checked(deps, { requested: model, result: whole(await deps.chat(request, signal)) })
   } catch (err) {
     const reason = retryReason(err)
     // 12 s retry + 7 s per call still to come + 1 s margin: 27 s for classify (two calls after), 20 s for the
@@ -247,7 +256,7 @@ export async function runChat(
     const needed = CALL_TIMEOUT_MS + modelCallsAfter * EXPECTED_CALL_MS + RETRY_MARGIN_MS
     if (reason === null || signal.aborted || deps.remainingMs() < needed) throw err
     try {
-      return await checked(deps, { requested: model, result: await deps.chat(request, signal), retriedAfter: reason })
+      return await checked(deps, { requested: model, result: whole(await deps.chat(request, signal)), retriedAfter: reason })
     } catch (second) {
       if (second instanceof ProviderError && second.kind === 'timeout') {
         throw new ProviderError(second.status, second.message, 'timeout', true)
