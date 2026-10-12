@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import ReadoutStrip from '../../src/components/ReadoutStrip'
-import type { ModelCheck, RunView } from '../../src/types'
+import RunTrace from '../../src/components/RunTrace'
+import type { ModelCheck, RunStep, RunView } from '../../src/types'
 
 const SERVED = 'anthropic/claude-haiku-5.5'
 const NEWER = 'anthropic/claude-haiku-5.6'
@@ -31,7 +32,7 @@ describe('a partial total in the readout', () => {
   it('shows the spent figures with the count after a failure', () => {
     const html = readout(
       failedRun({
-        trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', tokens: 1200, cost: 0.0002, notReported: true }],
+        trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', tokens: 1200, cost: 0.0002, unreportedCalls: 1 }],
         usage: { total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 },
       }),
     )
@@ -40,7 +41,7 @@ describe('a partial total in the readout', () => {
   })
 
   it('says not reported, never a zero, when no call reported anything', () => {
-    const html = readout(failedRun({ trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', notReported: true }], usage: { unreportedCalls: 1 } }))
+    const html = readout(failedRun({ trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', unreportedCalls: 1 }], usage: { unreportedCalls: 1 } }))
     expect(html).toContain('not reported')
     expect(html).toContain('1 call not reported')
     expect(html).not.toContain('$0.000000')
@@ -89,5 +90,37 @@ describe('the served model chip in the readout', () => {
     expect(html).toContain('not reported')
     expect(html).not.toContain('newest')
     expect(html).not.toContain('unchecked')
+  })
+})
+
+describe('a trace row with calls not reported', () => {
+  const trace = (over: Partial<RunStep>): string =>
+    renderToStaticMarkup(createElement(RunTrace, { running: false, run: failedRun({ trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', ...over }] }) }))
+
+  it('says a call, singular, for one call not reported beside the figures', () => {
+    const html = trace({ tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+    expect(html).toContain('plus a call not reported')
+  })
+
+  it('says the count, plural, for two calls not reported beside the figures', () => {
+    const html = trace({ tokens: 1200, cost: 0.0002, unreportedCalls: 2 })
+    expect(html).toContain('plus 2 calls not reported')
+    expect(html).not.toContain('plus a call')
+  })
+
+  it('says usage not reported for one call with no figures, and the count for two', () => {
+    expect(trace({ unreportedCalls: 1 })).toContain('usage not reported')
+    const html = trace({ unreportedCalls: 2 })
+    expect(html).toContain('2 calls not reported')
+    expect(html).not.toContain('a call not reported')
+  })
+
+  it('shows the same count as the readout total', () => {
+    const run = failedRun({
+      trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', tokens: 1200, cost: 0.0002, unreportedCalls: 3 }],
+      usage: { total_tokens: 1200, cost: 0.0002, unreportedCalls: 3 },
+    })
+    expect(renderToStaticMarkup(createElement(RunTrace, { running: false, run }))).toContain('3 calls not reported')
+    expect(readout(run)).toContain('3 calls not reported')
   })
 })

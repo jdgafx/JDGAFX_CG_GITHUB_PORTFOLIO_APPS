@@ -18,6 +18,12 @@ export function lanesFor(steps: RunStep[]): { left: number; width: number }[] {
   })
 }
 
+/** What a row says of its calls with no usage: the same count the totals give. */
+function missingWords(count: number, hasFigures: boolean): string {
+  if (hasFigures) return `plus ${count === 1 ? 'a call' : `${count} calls`} not reported`
+  return count === 1 ? 'usage not reported' : `${count} calls not reported`
+}
+
 function rowClass(step: RunStep, stopped: boolean): string {
   if (step.status === 'failed') return 'ds-trace__step ds-trace__step--failed'
   return stopped && step.status === 'skipped' ? 'ds-trace__step ds-trace__step--stopped' : 'ds-trace__step'
@@ -79,9 +85,9 @@ export default function RunTrace({ run, running }: { run: RunView | null; runnin
                 </div>
                 <div className="ds-trace__meta">
                   <span>{step.status === 'skipped' ? 'not run' : formatMs(step.ms)}</span>
-                  {step.tokens !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatCount(step.tokens)} tok</span>}
-                  {step.cost !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatCost(step.cost)}</span>}
-                  {step.notReported && <span>{step.tokens === undefined ? 'usage not reported' : 'plus a call not reported'}</span>}
+                  {step.tokens !== undefined && <span>{step.unreportedCalls ? 'at least ' : ''}{formatCount(step.tokens)} tok</span>}
+                  {step.cost !== undefined && <span>{step.unreportedCalls ? 'at least ' : ''}{formatCost(step.cost)}</span>}
+                  {step.unreportedCalls ? <span>{missingWords(step.unreportedCalls, step.tokens !== undefined)}</span> : null}
                 </div>
                 {lane && step.status !== 'skipped' && (
                   <div className="ds-trace__lane" aria-hidden="true">

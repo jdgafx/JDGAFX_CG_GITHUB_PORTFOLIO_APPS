@@ -10,7 +10,7 @@ interface TraceStep {
   detail: string
   tokens?: number
   cost?: number
-  notReported?: boolean
+  unreportedCalls?: number
 }
 
 interface Reply {
@@ -556,7 +556,7 @@ describe('ai function billed usage on failure', () => {
     stubProvider(providerStatus(500))
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.usage).toEqual({ unreportedCalls: 1 })
-    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', notReported: true })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', unreportedCalls: 1 })
     expect(rowOf(reply, 'Model call')?.tokens).toBeUndefined()
   })
 
@@ -564,14 +564,14 @@ describe('ai function billed usage on failure', () => {
     stubProvider(abortError(), abortError())
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.usage).toEqual({ unreportedCalls: 2 })
-    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', notReported: true })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', unreportedCalls: 2 })
   })
 
   it('keeps the billed empty first reply when its second try fails', async () => {
     stubProvider(modelReply(''), providerStatus(500))
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
-    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', tokens: 1200, cost: 0.0002, notReported: true })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
   })
 
   it('keeps the first call in the totals when the repair turn fails, and marks the repair row not reported', async () => {
@@ -579,13 +579,13 @@ describe('ai function billed usage on failure', () => {
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
     expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'ok', tokens: 1200 })
-    expect(rowOf(reply, 'Repair turn')).toMatchObject({ status: 'failed', notReported: true })
+    expect(rowOf(reply, 'Repair turn')).toMatchObject({ status: 'failed', unreportedCalls: 1 })
   })
 
   it('shows a successful run as partial when its first try timed out and was repeated', async () => {
     stubProvider(abortError(), modelReply(JSON.stringify(PLAN)))
     const reply = await readReply(await handler(request(BODY)))
     expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
-    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'ok', tokens: 1200, notReported: true })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'ok', tokens: 1200, unreportedCalls: 1 })
   })
 })

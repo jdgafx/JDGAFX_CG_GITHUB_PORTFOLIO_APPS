@@ -77,8 +77,8 @@ export interface RunStep {
   detail: string
   tokens?: number
   cost?: number
-  /** A model call in this row reported no usage (a timeout, a lost connection, an HTTP error), so the figures cover only the calls that did. */
-  notReported?: boolean
+  /** Model calls in this row that reported no usage (a timeout, a lost connection, an HTTP error), so the figures cover only the calls that did. */
+  unreportedCalls?: number
 }
 
 export interface RunUsage {

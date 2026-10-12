@@ -177,9 +177,9 @@ const FOLLOW_UP_RULES = `This is a follow-up. You are given the previous questio
 - If the follow-up cannot be answered from this dataset (a time range the data does not cover, another dataset, a column that does not exist, or a comparison that needs two series), return the previous plan UNCHANGED and set "cannotApply" to one plain sentence saying why, naming what the data does cover. Do not guess a stand-in.
 - "cannotApply" is null when you applied the follow-up. "aboutData" is true on a follow-up.`
 
-/** The figures a trace row carries for the calls behind it. `notReported` marks a row with a call that gave none. */
-function figuresOf(usage: RunUsage): { tokens?: number; cost?: number; notReported?: boolean } {
-  return { tokens: usage.total_tokens, cost: usage.cost, ...(usage.unreportedCalls ? { notReported: true } : {}) }
+/** The figures a trace row carries for the calls behind it. `unreportedCalls` counts the calls behind the row that gave none. */
+function figuresOf(usage: RunUsage): { tokens?: number; cost?: number; unreportedCalls?: number } {
+  return { tokens: usage.total_tokens, cost: usage.cost, ...(usage.unreportedCalls ? { unreportedCalls: usage.unreportedCalls } : {}) }
 }
 
 /** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
@@ -205,13 +205,13 @@ class RunLog {
     status: RunStep['status'],
     startedAt: number,
     detail: string,
-    extra: { tokens?: number; cost?: number; notReported?: boolean } = {},
+    extra: { tokens?: number; cost?: number; unreportedCalls?: number } = {},
   ): void {
     this.trace.push({ name, status, ms: Date.now() - startedAt, detail, ...extra })
   }
 
   /** A failed model call: what its tries were billed goes into the run's totals, and the failed row carries it. */
-  billed(err: unknown): { tokens?: number; cost?: number; notReported?: boolean } {
+  billed(err: unknown): { tokens?: number; cost?: number; unreportedCalls?: number } {
     const spent = billedUsage(err)
     if (!spent) return {}
     this.usage.push(spent)
