@@ -83,7 +83,9 @@ export function installReplayShim(recording: Recording, opts: ShimOptions): Repl
   function pump(): void {
     timer = null
     while (active && timeline.length > 0) {
-      const wait = timeline[0].at - Date.now()
+      const next = timeline[0]
+      if (!next) break
+      const wait = next.at - Date.now()
       if (wait > 0) {
         timer = setTimeout(pump, wait)
         return
