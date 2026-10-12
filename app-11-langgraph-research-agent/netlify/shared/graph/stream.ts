@@ -5,6 +5,7 @@ import { round12 } from '../models'
 import { BUDGET_MESSAGE, SLOW_MESSAGE } from '../openrouter'
 import { isRecord } from '../json'
 import { offersFrom, type HistoryPoint, type Rewind, type Snapshot } from '../checkpoint'
+import { withLookupNote } from './nodes'
 import { buildGraph, type CustomChunk, type GraphDeps } from './build'
 import type { ResearchValues, TraceRow } from './state'
 
@@ -170,12 +171,12 @@ export function partialResult(values: ResearchValues, ms: number, message: strin
       reviewed && values.critique
         ? { verdict: values.critique.verdict, notes: values.critique.notes, reviewed: true }
         : { verdict: 'accept' as const, notes: text, reviewed: false }
-    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, { kind: 'partial', message: text }, citation, failed)
+    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, withLookupNote({ kind: 'partial', message: text }, values.failedLookups), citation, failed)
   }
   if (values.evidence.length === 0) return null
   const pages = values.evidence.map(({ n, title, url }) => ({ n, title, url }))
   const text = `No answer was written: ${cause} the run. The agent read ${values.evidence.length === 1 ? '1 page' : `${values.evidence.length} pages`}, listed below.`
-  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, { kind: 'no_answer', message: text }, { sentences: 0, uncited: [] }, failed)
+  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, withLookupNote({ kind: 'no_answer', message: text }, values.failedLookups), { sentences: 0, uncited: [] }, failed)
 }
 
 interface Drive {

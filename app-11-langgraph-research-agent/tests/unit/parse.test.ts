@@ -139,6 +139,7 @@ describe('runToolCall', () => {
       content: 'No Wikipedia page has the title "Nope".',
       note: 'No Wikipedia page has the title "Nope".',
       unreachable: false,
+      lookup: 'page "Nope"',
     })
   })
 
@@ -152,7 +153,8 @@ describe('runToolCall', () => {
       },
     }
     expect((await runToolCall(call('c7', 'wikipedia_search', { query: 'x' }), down, SIGNAL)).unreachable).toBe(true)
-    expect((await runToolCall(call('c8', 'wikipedia_page', { title: 'x' }), down, SIGNAL)).unreachable).toBe(true)
+    const page = await runToolCall(call('c8', 'wikipedia_page', { title: 'x' }), down, SIGNAL)
+    expect(page).toMatchObject({ unreachable: true, lookup: 'page "x"', note: 'The page read timed out.' })
   })
 
   it('hides an unexpected error behind a generic lookup message', async () => {

@@ -25,7 +25,7 @@ import {
   introText,
   PLAN_SYSTEM,
 } from './prompts'
-import { MAX_REVISIONS, MAX_TOOL_ROUNDS, type ResearchValues, type Route } from './state'
+import { MAX_REVISIONS, MAX_TOOL_ROUNDS, type FailedLookup, type ResearchValues, type Route } from './state'
 import { MAX_CALLS_PER_REPLY, numberSources, runToolCall, TOOL_DEFINITIONS, type ToolOutcome } from './tools'
 
 export interface NodeContext {
@@ -73,7 +73,6 @@ const secondsLeft = (ctx: NodeContext) => `${Math.max(0, Math.floor(timeLeft(ctx
 
 const OUT_OF_TIME = 'out of time'
 const UNCITED = 'The answer cites none of the sources it was given, so it was not shown.'
-const NO_SOURCE = 'Wikipedia could not be reached, so no page was read and nothing was researched. Please try again.'
 const NEEDS = STEP_NEEDS_MS
 
 /** What a node returns. The wrapper in build.ts adds the trace row and the route key. */
@@ -258,7 +257,9 @@ export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promis
       messages,
       evidence: added,
       toolRounds: state.toolRounds + 1,
-      lookupFailures: state.lookupFailures + outcomes.filter((outcome) => outcome.unreachable).length,
+      failedLookups: outcomes
+        .filter((outcome) => outcome.unreachable)
+        .map((outcome) => ({ lookup: outcome.lookup ?? 'lookup', reason: outcome.note })),
       pendingCalls: [],
     },
     detail: [found, ...problems].join(' '),
@@ -268,7 +269,9 @@ export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promis
 /** Writes the answer from the numbered sources. On a revision it also sees the critic's notes. */
 export async function draftStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
   // No page was read because Wikipedia did not answer: there is nothing to answer from, so the run fails here.
-  if (state.evidence.length === 0 && state.lookupFailures > 0) throw new PlainError(502, NO_SOURCE)
+  if (state.evidence.length === 0 && state.failedLookups.length > 0) {
+    throw new PlainError(502, `${state.failedLookups[0].reason} No page was read, so nothing was researched. Please try again.`)
+  }
   const notes = state.critique?.verdict === 'revise' ? state.critique.notes : null
   const call = await callModel(ctx, {
     maxTokens: MAX_TOKENS.draft,
@@ -391,6 +394,23 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
   }
 }
 
+const LOOKUPS_NAMED_MAX = 4
+
+/** Says which lookups Wikipedia did not answer, for an answer built from the pages that were read. Empty when none failed. */
+export function lookupNote(failed: FailedLookup[]): string {
+  if (failed.length === 0) return ''
+  const named = failed.slice(0, LOOKUPS_NAMED_MAX).map(({ lookup, reason }) => `${lookup} (${reason.replace(/\.$/, '')})`)
+  const more = failed.length > LOOKUPS_NAMED_MAX ? ` and ${failed.length - LOOKUPS_NAMED_MAX} more` : ''
+  return `Wikipedia did not answer ${failed.length === 1 ? 'this lookup' : 'these lookups'}: ${named.join('; ')}${more}. The answer uses only the pages that were read.`
+}
+
+/** Adds the failed-lookup note to how the run ended. A run that would have been complete becomes partial. */
+export function withLookupNote(ending: EndingView, failed: FailedLookup[]): EndingView {
+  const note = lookupNote(failed)
+  if (note === '') return ending
+  return ending.kind === 'complete' ? { kind: 'partial', message: note } : { ...ending, message: `${ending.message} ${note}`.trim() }
+}
+
 /** Drops citation markers that name no source and lists the sources the answer cites. No model call. */
 export function finalStep(state: ResearchValues): NodeResult {
   // Only a revised draft has seen the reviewer's issues, so only it can speak about them.
@@ -401,13 +421,15 @@ export function finalStep(state: ResearchValues): NodeResult {
   const unreviewed = state.critique !== null && !state.critique.reviewed
   // A year gap the sources do not bear out, left after the revisions or for lack of time, is said, not hidden.
   const gapIssues = yearGapIssues(state.question, answer, state.evidence)
-  const ending: EndingView =
+  const ending: EndingView = withLookupNote(
     state.ending ??
-    (unreviewed
-      ? { kind: 'partial', message: state.critique?.notes ?? '' }
-      : gapIssues.length > 0
-        ? { kind: 'partial', message: `The year gap is not confirmed by the sources. ${issueNotes(gapIssues)}` }
-        : { kind: 'complete', message: '' })
+      (unreviewed
+        ? { kind: 'partial', message: state.critique?.notes ?? '' }
+        : gapIssues.length > 0
+          ? { kind: 'partial', message: `The year gap is not confirmed by the sources. ${issueNotes(gapIssues)}` }
+          : { kind: 'complete', message: '' }),
+    state.failedLookups,
+  )
   return {
     update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending, citation } },
     detail:

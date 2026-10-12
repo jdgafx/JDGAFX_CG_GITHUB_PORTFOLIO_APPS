@@ -25,12 +25,14 @@ const plan: Snapshot = {
   draftText: '',
   draftTruncated: false,
   revisions: 0,
+  failedLookups: [],
 }
 const critic: Snapshot = {
   ...plan,
   kind: 'critic',
   evidence: [{ n: 1, title: 'Eiffel Tower', url: 'https://en.wikipedia.org/wiki/Eiffel_Tower', extract: 'The Eiffel Tower was completed in 1889.' }],
   draftText: 'The Eiffel Tower was completed in 1889 [1].',
+  failedLookups: [{ lookup: 'page "Empire State Building"', reason: 'Could not reach Wikipedia.' }],
 }
 
 describe('the signed token', () => {

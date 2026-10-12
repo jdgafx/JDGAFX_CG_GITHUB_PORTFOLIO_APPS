@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 const plan: Snapshot = {
-  kind: 'plan', visit: 1, question: 'Q?', searchQueries: ['q'], evidence: [], toolRounds: 0, draftText: '', draftTruncated: false, revisions: 0,
+  kind: 'plan', visit: 1, question: 'Q?', searchQueries: ['q'], evidence: [], toolRounds: 0, draftText: '', draftTruncated: false, revisions: 0, failedLookups: [],
   trace: [{ node: 'plan', visit: 1, status: 'ok', ms: 5, detail: 'Planned searches: q' }],
 }
 

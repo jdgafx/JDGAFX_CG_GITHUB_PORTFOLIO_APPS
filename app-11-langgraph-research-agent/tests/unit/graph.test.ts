@@ -5,6 +5,7 @@ import { roleOf } from '../helpers/roles'
 import type { PriceBook } from '../../netlify/shared/pricing'
 import { ProviderError, type ChatFn, type ChatReply, type ChatRequest, type ToolCall } from '../../netlify/shared/openrouter'
 import { runResearch } from '../../netlify/shared/graph/stream'
+import { lookupNote, withLookupNote } from '../../netlify/shared/graph/nodes'
 import { WikiError, type PageText, type WikiTools } from '../../netlify/shared/wikipedia'
 
 // The graph runs for real. Only the model layer and Wikipedia are replaced, so no test
@@ -273,13 +274,13 @@ describe('graph: the path taken', () => {
     )
 
     expect(out.result).toBeNull()
-    expect(out.errors).toEqual([expect.stringContaining('Wikipedia could not be reached')])
+    expect(out.errors).toEqual(['Could not reach Wikipedia. No page was read, so nothing was researched. Please try again.'])
     expect(out.path).toEqual(['plan', 'agent', 'tools', 'agent', 'tools', 'agent', 'draft'])
     expect(out.calls.filter((request) => roleOf(request) === 'draft')).toHaveLength(0)
     expect(out.ends.find((end) => end.node === 'draft')).toMatchObject({ status: 'failed' })
   })
 
-  it('(d3) a failed lookup followed by a page that was read still answers', async () => {
+  it('(d3) a failed lookup followed by a page that was read still answers, but says which lookup failed', async () => {
     let first = true
     const flaky: WikiTools = {
       ...fakeWiki(),
@@ -292,12 +293,28 @@ describe('graph: the path taken', () => {
       },
     }
     const out = await run(
-      { agent: [{ tools: [readPage('f1', "Expo '98")] }, { tools: [readPage('f2', "Expo '98")] }, { text: 'Done.' }], draft: [DRAFT_CITED], critic: ['{"verdict": "accept", "issues": []}'] },
+      { agent: [{ tools: [readPage('f1', 'Lisbon')] }, { tools: [readPage('f2', "Expo '98")] }, { text: 'Done.' }], draft: [DRAFT_CITED], critic: ['{"verdict": "accept", "issues": []}'] },
       flaky,
     )
 
     expect(out.errors).toEqual([])
-    expect(out.result).toMatchObject({ evidenceCount: 1 })
+    expect(out.result).toMatchObject({
+      evidenceCount: 1,
+      ending: {
+        kind: 'partial',
+        message:
+          'Wikipedia did not answer this lookup: page "Lisbon" (Could not reach Wikipedia). The answer uses only the pages that were read.',
+      },
+    })
+  })
+
+  it('(d4) a page that does not exist is not a failed fetch, so the answer is complete', async () => {
+    const out = await run({
+      agent: [{ tools: [readPage('m1', 'Missing Page')] }, { tools: [readPage('m2', "Expo '98")] }, { text: 'Done.' }],
+      draft: [DRAFT_CITED],
+      critic: ['{"verdict": "accept", "issues": []}'],
+    })
+    expect(out.result).toMatchObject({ ending: { kind: 'complete' } })
   })
 
   it('(e) the critic cannot force more than two revisions', async () => {
@@ -553,3 +570,20 @@ describe('graph: the model that answers', () => {
   })
 })
 
+
+describe('graph: the note on failed lookups', () => {
+  const failed = (n: number) => Array.from({ length: n }, (_, i) => ({ lookup: `page "P${i}"`, reason: 'Could not reach Wikipedia.' }))
+
+  it('names the first lookups and counts the rest', () => {
+    expect(lookupNote([])).toBe('')
+    expect(lookupNote(failed(6))).toBe(
+      'Wikipedia did not answer these lookups: page "P0" (Could not reach Wikipedia); page "P1" (Could not reach Wikipedia); page "P2" (Could not reach Wikipedia); page "P3" (Could not reach Wikipedia) and 2 more. The answer uses only the pages that were read.',
+    )
+  })
+
+  it('turns a complete ending partial, and adds to a partial one', () => {
+    expect(withLookupNote({ kind: 'complete', message: '' }, failed(1)).kind).toBe('partial')
+    expect(withLookupNote({ kind: 'partial', message: 'Unreviewed.' }, failed(1)).message).toMatch(/^Unreviewed\. Wikipedia did not answer/)
+    expect(withLookupNote({ kind: 'complete', message: '' }, [])).toEqual({ kind: 'complete', message: '' })
+  })
+})

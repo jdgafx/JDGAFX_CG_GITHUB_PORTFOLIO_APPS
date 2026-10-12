@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { Evidence } from './citations'
 import { EDIT_LIMITS, type CheckpointKind, type CheckpointOffer } from './events'
 import { isRecord } from './json'
-import { MAX_REVISIONS, type ResearchValues, type TraceRow } from './graph/state'
+import { MAX_REVISIONS, type FailedLookup, type ResearchValues, type TraceRow } from './graph/state'
 import { EXTRACT_CHARS } from './wikipedia'
 
 /**
@@ -34,6 +34,8 @@ export interface Snapshot {
   draftText: string
   draftTruncated: boolean
   revisions: number
+  /** Lookups Wikipedia did not answer before this point, so a re-run's answer still says so. */
+  failedLookups: FailedLookup[]
 }
 
 export const BAD_TOKEN_MESSAGE = 'This checkpoint is not valid or has expired. Run the question again to get a new one.'
@@ -53,6 +55,10 @@ export function signSnapshot(snapshot: Snapshot, secret: string, now: number): s
 
 function isStringList(value: unknown, max: number, chars: number): value is string[] {
   return Array.isArray(value) && value.length <= max && value.every((item) => typeof item === 'string' && item.length <= chars)
+}
+
+function isFailedLookup(value: unknown): value is FailedLookup {
+  return isRecord(value) && typeof value.lookup === 'string' && value.lookup.length <= 300 && typeof value.reason === 'string' && value.reason.length <= 300
 }
 
 function isEvidence(value: unknown): value is Evidence {
@@ -84,7 +90,7 @@ function isTraceRow(value: unknown): value is TraceRow {
 /** A second look at the shape, so a bug in the signer could not let a malformed state reach the graph. */
 export function isSnapshot(value: unknown): value is Snapshot {
   if (!isRecord(value)) return false
-  const { kind, visit, question, searchQueries, trace, evidence, toolRounds, draftText, draftTruncated, revisions } = value
+  const { kind, visit, question, searchQueries, trace, evidence, toolRounds, draftText, draftTruncated, revisions, failedLookups } = value
   return (
     (kind === 'plan' || kind === 'critic') &&
     typeof visit === 'number' &&
@@ -103,7 +109,10 @@ export function isSnapshot(value: unknown): value is Snapshot {
     typeof draftTruncated === 'boolean' &&
     typeof revisions === 'number' &&
     revisions >= 0 &&
-    revisions <= MAX_REVISIONS
+    revisions <= MAX_REVISIONS &&
+    Array.isArray(failedLookups) &&
+    failedLookups.length <= MAX_EVIDENCE * 2 &&
+    failedLookups.every(isFailedLookup)
   )
 }
 
@@ -143,6 +152,7 @@ function snapshotOf(kind: CheckpointKind, visit: number, values: ResearchValues)
     draftText: values.draftText,
     draftTruncated: values.draftTruncated,
     revisions: values.revisions,
+    failedLookups: values.failedLookups,
   }
 }
 
@@ -274,6 +284,7 @@ export function rewindFor(snapshot: Snapshot, edit: unknown): EditResult<Rewind>
         searchQueries: snapshot.searchQueries,
         evidence: snapshot.evidence,
         toolRounds: snapshot.toolRounds,
+        failedLookups: snapshot.failedLookups,
         draftText: snapshot.draftText,
         draftTruncated: snapshot.draftTruncated,
         draftReviewed: true,

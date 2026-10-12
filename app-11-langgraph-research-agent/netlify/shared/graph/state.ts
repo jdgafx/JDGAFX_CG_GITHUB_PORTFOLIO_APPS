@@ -34,6 +34,12 @@ export interface TraceRow {
   edited?: boolean
 }
 
+/** A lookup Wikipedia did not answer: what was asked, and the plain reason. */
+export interface FailedLookup {
+  lookup: string
+  reason: string
+}
+
 export interface Critique {
   verdict: 'accept' | 'revise'
   notes: string
@@ -69,8 +75,8 @@ export const ResearchState = Annotation.Root({
   messages: appended<ChatMessage>(),
   pendingCalls: last<ToolCall[]>(() => []),
   toolRounds: last(() => 0),
-  /** Lookups that failed because Wikipedia did not answer (not a missing page). The tools step writes the running total. */
-  lookupFailures: last(() => 0),
+  /** Lookups that failed because Wikipedia did not answer (not a missing page), each update appends. */
+  failedLookups: appended<FailedLookup>(),
   /** Pages the agent read, numbered in order. Each update appends the new pages only. */
   evidence: appended<Evidence>(),
   draftText: last(() => ''),
