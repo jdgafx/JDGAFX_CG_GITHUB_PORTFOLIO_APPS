@@ -10,6 +10,7 @@ import {
   RunCancelledError,
   cutOffMessage,
   friendlyUpstreamMessage,
+  isConnectionError,
   runStage,
   UpstreamError,
   type StageResult,
@@ -31,6 +32,8 @@ interface StageRecord {
 
 function failureMessage(err: unknown, name: string): string {
   if (err instanceof UpstreamError) return friendlyUpstreamMessage(err.status)
+  // The request never got an answer. The message names the stage that failed and says what happened, as the key case does.
+  if (isConnectionError(err)) return `${name} could not reach the AI provider. Try again.`
   return `${name} could not finish. Try again.`
 }
 

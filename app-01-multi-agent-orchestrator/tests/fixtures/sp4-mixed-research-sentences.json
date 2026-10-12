@@ -1,0 +1,14 @@
+[
+ {
+  "run": "r3-1",
+  "id": 5,
+  "sentence": "A Hacker News story links to Shopify's post \"Shopify Embraces Rust for Systems Programming,\" but the research did not retrieve the post's content, so it cannot confirm Shopify's reasons [5].",
+  "typedByModel": "about_research"
+ },
+ {
+  "run": "double-1",
+  "id": 5,
+  "sentence": "A Hacker News story links to Shopify's \"Shopify Embraces Rust for Systems Programming,\" but the sources contain no details of Shopify's reasoning. [5]",
+  "typedByModel": "about_research"
+ }
+]

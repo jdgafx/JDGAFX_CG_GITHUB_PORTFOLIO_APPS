@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as audit from '../../src/lib/audit'
-import { decidedWithoutModel, deriveVerdict, extractClaims, findSpan, preCheck, reportBody, settleClaim, type Judgment } from '../../src/lib/audit'
+import { decidedWithoutModel, deriveVerdict, extractClaims, findSpan, locateSpan, preCheck, reportBody, settleClaim, type Judgment } from '../../src/lib/audit'
 import type { Source } from '../../src/types'
+import { AUDIT_AGENT } from '../../netlify/shared/audit'
 import { fixture } from '../fixtures/load'
 
 const PASS = { sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes' } as const
@@ -36,7 +37,7 @@ function settleHand(item: Handchecked, over: Partial<Judgment> = {}) {
 }
 
 describe('deriveVerdict: a table of typed criteria and the span check', () => {
-  const ok = { found: 1, missed: 0, joined: 0 }
+  const ok = { found: 1, missed: 0, joined: 0, strong: 1 }
   it.each([
     ['all criteria pass and every span is one found passage', PASS, ok, 'supported'],
     ['source_supports no (silent or incompatible)', { ...PASS, sourceSupports: 'no' }, ok, 'unsupported'],
@@ -45,10 +46,12 @@ describe('deriveVerdict: a table of typed criteria and the span check', () => {
     ['cause_matches no', { ...PASS, causeMatches: 'no' }, ok, 'partly'],
     ['cause_matches yes counts as a pass', { ...PASS, causeMatches: 'yes' }, ok, 'supported'],
     ['all_parts_covered no', { ...PASS, allPartsCovered: 'no' }, ok, 'partly'],
-    ['a criterion no with spans not found stays partly', { ...PASS, allPartsCovered: 'no' }, { found: 0, missed: 1, joined: 0 }, 'partly'],
-    ['all pass, no span at all', PASS, { found: 0, missed: 0, joined: 0 }, 'unverified'],
-    ['all pass, one span not found', PASS, { found: 1, missed: 1, joined: 0 }, 'unverified'],
-    ['all pass, a span that joins two passages', PASS, { found: 1, missed: 0, joined: 1 }, 'unverified'],
+    ['a criterion no with spans not found stays partly', { ...PASS, allPartsCovered: 'no' }, { found: 0, missed: 1, joined: 0, strong: 0 }, 'partly'],
+    ['all pass, no span at all', PASS, { found: 0, missed: 0, joined: 0, strong: 0 }, 'unverified'],
+    ['all pass, one span not found', PASS, { found: 1, missed: 1, joined: 0, strong: 1 }, 'unverified'],
+    ['all pass, a span that joins two passages', PASS, { found: 1, missed: 0, joined: 1, strong: 1 }, 'unverified'],
+    ['all pass, spans found but none of three words or more', PASS, { found: 2, missed: 0, joined: 0, strong: 0 }, 'unverified'],
+    ['all pass, a short span beside a longer one', PASS, { found: 2, missed: 0, joined: 0, strong: 1 }, 'supported'],
   ] as const)('%s -> %s', (_name, criteria, spans, verdict) => {
     expect(deriveVerdict(criteria, spans)).toBe(verdict)
   })
@@ -162,10 +165,18 @@ describe('findSpan', () => {
     expect(findSpan('He said “it works well” today.', 'said "it works well"')).not.toBeNull()
   })
 
-  it('accepts a short true span of three words, and refuses fewer', () => {
+  it('accepts a true span of two words or more, and not a single word', () => {
     expect(at('6.5 m wide')).toEqual(['6.5 m wide'])
-    expect(at('primary mirror')).toBeNull()
+    expect(at('primary mirror')).toEqual(['primary mirror'])
     expect(at('the')).toBeNull()
+  })
+
+  it('says why a span was refused: found but too short is not "not found"', () => {
+    expect(locateSpan(text, 'Hubble.').status).toBe('too_short')
+    expect(locateSpan(text, 'a 9 meter primary mirror').status).toBe('not_found')
+    expect(locateSpan(text, 'primary mirror').status).toBe('found')
+    expect(locateSpan(text, 'Its 6.5 meter primary mirror ... Hubble.').status).toBe('too_short')
+    expect(locateSpan(text, 'Its 6.5 meter primary mirror ... nothing like this').status).toBe('not_found')
   })
 
   it('refuses wording the source does not hold', () => {
@@ -181,6 +192,7 @@ describe('findSpan', () => {
     expect(at('Its 6.5 meter primary mirror … too old and distant for Hubble')).toEqual(['Its 6.5 meter primary mirror', 'too old and distant for Hubble'])
     expect(at('Its 6.5 meter primary mirror ... a span the source lacks')).toBeNull()
     expect(at('Its 6.5 meter primary mirror ... Hubble.')).toBeNull()
+    expect(at('Its 6.5 meter primary mirror ... too old and distant for Hubble')).toEqual(['Its 6.5 meter primary mirror', 'too old and distant for Hubble'])
   })
 })
 
@@ -237,12 +249,91 @@ describe('the span check is recorded per claim', () => {
     expect(claim.judged).toEqual({
       kind: 'source_claim',
       answers: { sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes' },
-      spans: { asked, found: item.spans.length, missed: 1 + 2, joined: 0, malformed: 2 },
+      spans: { asked, found: item.spans.length, missed: 1 + 2, joined: 0, malformed: 2, strong: item.spans.filter(span => span.text.split(/\s+/).length >= 3).length, short: 0 },
     })
   })
 
   it('keeps it for an unsupported and an unchecked-by-source claim too, and for about_research only the kind', () => {
     expect(settleHand(item, { sourceSupports: 'no' }).judged?.spans).toMatchObject({ found: 0, missed: 0 })
-    expect(settleHand(item, { kind: 'about_research' }).judged).toEqual({ kind: 'about_research', spans: { asked: item.spans, found: 0, missed: 0, joined: 0, malformed: 0 } })
+    expect(settleHand(item, { kind: 'about_research' }).judged).toEqual({ kind: 'about_research', spans: { asked: item.spans, found: 0, missed: 0, joined: 0, malformed: 0, strong: 0, short: 0 } })
+  })
+})
+
+describe('short exact spans are counted, never reported as "not found" (round 4: r1-1 c5, c6 and r2-3 c3, c4)', () => {
+  interface Short { run: string; id: number; text: string; spans: Array<{ source: number; text: string }>; answers: Handchecked['criteria'] | Record<string, string> }
+  const shorts = JSON.parse(fixture('sp4-short-span-claims.json')) as Short[]
+  const sources = (run: string) => JSON.parse(fixture(`sp4-${run}-sources.json`)) as Source[]
+  const settleShort = (item: Short, spans = item.spans, over: Partial<Judgment> = {}) => {
+    const draft = extractClaims(reportBody(fixture(`sp4-${item.run}-report.md`))).find(claim => claim.id === item.id)
+    if (!draft) throw new Error('no claim')
+    return settleClaim(draft, preCheck(draft.text, draft.cites, sources(item.run)), sources(item.run), { id: draft.id, ...PASS, spans, ...over })
+  }
+
+  it('has the four real claims, each with a headline span and a two-word date span', () => {
+    expect(shorts).toHaveLength(4)
+    for (const item of shorts) expect(item.spans.map(span => span.text.trim().split(/\s+/).length).sort((a, b) => a - b)).toEqual([2, expect.any(Number)])
+  })
+
+  it.each([[0], [1], [2], [3]])('claim %i is supported with every span found, as the model asked', index => {
+    const item = shorts[index] as Short
+    const claim = settleShort(item)
+    expect(claim.verdict).toBe('supported')
+    expect(claim.reason).not.toContain('not found')
+    expect(claim.judged?.spans).toMatchObject({ found: 2, missed: 0, joined: 0, strong: 1, short: 0 })
+    expect(claim.quotes).toHaveLength(2)
+  })
+
+  it('counts a one-word span that is in the source as too short, not as missed, and the claim stays supported beside a longer span', () => {
+    const item = shorts[2] as Short
+    const claim = settleShort(item, [(item.spans[0] as { source: number; text: string }), { source: 4, text: '2024' }])
+    expect(claim.verdict).toBe('supported')
+    expect(claim.judged?.spans).toMatchObject({ found: 1, missed: 0, strong: 1, short: 1 })
+  })
+
+  it('does not call a claim supported on short spans alone, and says they were too short, not that they were not found', () => {
+    const item = shorts[2] as Short
+    const claim = settleShort(item, [{ source: 4, text: 'May 2024' }])
+    expect(claim.verdict).toBe('unverified')
+    expect(claim.reason).toContain('too short')
+    expect(claim.reason).not.toContain('not found')
+    const one = settleShort(item, [{ source: 4, text: '2024' }])
+    expect(one.verdict).toBe('unverified')
+    expect(one.reason).toContain('too short')
+  })
+
+  it('still reports a span that is not in the source as not found', () => {
+    const item = shorts[2] as Short
+    const claim = settleShort(item, [...item.spans, { source: 4, text: 'June 1999' }])
+    expect(claim.verdict).toBe('unverified')
+    expect(claim.reason).toContain('not found in the source')
+    expect(claim.judged?.spans).toMatchObject({ found: 2, missed: 1 })
+  })
+})
+
+describe('a sentence with any claim about a source is typed by the model as a source claim, and judged', () => {
+  const mixed = JSON.parse(fixture('sp4-mixed-research-sentences.json')) as Array<{ run: string; sentence: string; typedByModel: string }>
+
+  it('has the two real mixed sentences, which the round 4 model typed about_research', () => {
+    expect(mixed).toHaveLength(2)
+    expect(mixed.map(item => item.typedByModel)).toEqual(['about_research', 'about_research'])
+    for (const item of mixed) expect(item.sentence).toContain('Hacker News story')
+  })
+
+  it.each([[0], [1]])('sentence %i is extracted as a claim and its factual clause is judged when typed source_claim', index => {
+    const sentence = (mixed[index] as { sentence: string }).sentence
+    const [draft] = extractClaims(sentence)
+    expect(draft?.text).toBe(sentence.trim())
+    const source: Source = { n: 5, title: 'Shopify Embraces Rust for Systems Programming', site: 'Hacker News', url: '', snippet: 'Hacker News story "Shopify Embraces Rust for Systems Programming", linking to shopify.engineering. 310 points, 120 comments, Mar 2023.' }
+    const settle = (over: Partial<Judgment>) => settleClaim(draft as never, preCheck(sentence, [5], [source]), [source], { id: 1, ...PASS, ...over })
+    expect(settle({ kind: 'source_claim', spans: [{ source: 5, text: 'Shopify Embraces Rust for Systems Programming' }] }).verdict).toBe('supported')
+    expect(settle({ kind: 'source_claim', allPartsCovered: 'no' }).verdict).toBe('partly')
+  })
+
+  it('tells the model the rule: about_research only when the WHOLE sentence is about the research, with this very sentence as the example', () => {
+    const prompt = AUDIT_AGENT.systemPrompt
+    expect(prompt).toContain('WHOLE sentence')
+    expect(prompt).toContain('any claim about what a source says')
+    expect(prompt).toContain('links to')
+    expect(prompt).toContain('"source_claim"')
   })
 })

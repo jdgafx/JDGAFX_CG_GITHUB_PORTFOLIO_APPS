@@ -107,7 +107,7 @@ function isRetryable(err: unknown): err is UpstreamError {
 }
 
 /** The request never got an answer: the connection failed before any response (not a status, not our timer). */
-function isConnectionError(err: unknown): boolean {
+export function isConnectionError(err: unknown): boolean {
   return err instanceof TypeError || (err instanceof Error && /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket|fetch failed/i.test(err.message))
 }
 

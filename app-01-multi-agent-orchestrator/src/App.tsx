@@ -20,7 +20,7 @@ import {
 import { isAbortError, runErrorMessage, startResearch } from './lib/api'
 import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
 import { buildSteps } from './lib/graphLayout'
-import { derivePhase, failInFlight, settleAgents, type RunPhase } from './lib/pipeline'
+import { derivePhase, failInFlight, keepFirstError, settleAgents, type RunPhase } from './lib/pipeline'
 import { buildTraceRows } from './lib/traceRows'
 import { settleAudit } from './lib/auditState'
 import { useAudit } from './lib/useAudit'
@@ -121,7 +121,7 @@ export default function App() {
         }
         case 'agent_error': {
           const { agent, ms, error } = event
-          setPipelineError(error)
+          setPipelineError(current => keepFirstError(current, error))
           if (agent === 'system') {
             setAgents(prev => failInFlight(prev, error))
             return

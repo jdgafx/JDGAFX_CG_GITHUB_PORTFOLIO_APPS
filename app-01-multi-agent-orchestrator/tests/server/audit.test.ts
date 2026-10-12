@@ -173,7 +173,7 @@ describe('audit function', () => {
     }
     // Two spans were asked, one was malformed: the check records what was asked and what happened to each.
     expect(result.claims[0]?.verdict).toBe('unverified')
-    expect(result.claims[0]?.judged).toMatchObject({ kind: 'source_claim', answers: { sourceSupports: 'yes', allPartsCovered: 'yes' }, spans: { found: 1, missed: 2, joined: 0, malformed: 1 } })
+    expect(result.claims[0]?.judged).toMatchObject({ kind: 'source_claim', answers: { sourceSupports: 'yes', allPartsCovered: 'yes' }, spans: { found: 1, missed: 2, joined: 0, malformed: 1, strong: 1, short: 0 } })
     expect(result.claims[0]?.judged.spans.asked.map(asked => asked.text)).toEqual(['it was launched in the year 2021 by NASA', 'designed to conduct infrared astronomy'])
     expect(result.claims[1]?.judged.spans).toMatchObject({ found: 1, missed: 0 })
     expect(result.callTrace).toEqual([expect.objectContaining({ claims: [1, 2], finish: 'stop', reasoningTokens: 55, usage: expect.objectContaining({ total_tokens: 380 }) })])
@@ -303,6 +303,10 @@ describe('audit function', () => {
       const result = (await res.json()) as { claims: Array<{ id: number; verdict: string }>; usage: { total_tokens: number }; calls: unknown[]; summary: Record<string, number> }
       expect(providerCalls(fetchMock)).toHaveLength(3)
       expect(peak).toBe(3)
+      // Each call's own latency is recorded: every stub waited 20 ms.
+      const trace = (result as unknown as { callTrace: Array<{ ms: number }> }).callTrace
+      expect(trace).toHaveLength(3)
+      for (const call of trace) expect(call.ms).toBeGreaterThanOrEqual(15)
       expect(seen.map(entry => entry.ids).sort((a, b) => a[0]! - b[0]!)).toEqual([[1, 2, 3, 4], [5, 6, 7, 8], [9]])
       const second = seen.find(entry => entry.ids[0] === 5)
       expect(second?.user).toContain('[2] Other (Wikipedia)')

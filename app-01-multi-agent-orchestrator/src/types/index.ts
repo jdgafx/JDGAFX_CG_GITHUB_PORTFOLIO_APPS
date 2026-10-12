@@ -128,13 +128,15 @@ export interface AuditQuote {
   text: string
 }
 
-/** What the span check did with the spans the model quoted for one claim. `missed` counts spans not found and malformed entries; `joined` counts spans found only as separate passages. */
+/** What the span check did with the spans the model quoted for one claim. `missed` counts spans not found and malformed entries; `joined` counts spans found only as separate passages; `strong` counts found spans of three words or more; `short` counts spans that are in the source but too short to count. */
 export interface SpanTrace {
   asked: Array<{ source: number; text: string }>
   found: number
   missed: number
   joined: number
   malformed: number
+  strong: number
+  short: number
 }
 
 /** The model's four typed answers about one claim. */
@@ -204,6 +206,8 @@ export interface AuditResult {
 
 export interface AuditCallTrace {
   claims: number[]
+  /** How long this call took, retry included, in milliseconds. */
+  ms: number
   /** The finish reason of the reply used, or 'rejected' when the call failed before a reply. */
   finish: string | null
   reasoningTokens: number

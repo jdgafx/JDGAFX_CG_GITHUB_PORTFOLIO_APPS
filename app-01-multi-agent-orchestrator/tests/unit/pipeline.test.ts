@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAgents, foundNoSources, statusView } from '../../src/lib/agents'
 import { liveDataView } from '../../src/lib/liveData'
-import { derivePhase, retryLine, settleAgents, traceDetail, traceMeta } from '../../src/lib/pipeline'
+import { derivePhase, keepFirstError, retryLine, settleAgents, traceDetail, traceMeta } from '../../src/lib/pipeline'
 
 describe('retryLine', () => {
   it('names why a stage was tried a second time, and says nothing when it ran once', () => {
@@ -82,5 +82,12 @@ describe('a failed Retrieve', () => {
     expect(['researcher', 'analyst', 'critic', 'synthesizer'].map(role => settled[role as 'critic'].status)).toEqual(['skipped', 'skipped', 'skipped', 'skipped'])
     expect(liveDataView(settled.retriever, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
     expect(statusView(settled.retriever).word).toBe('Failed')
+  })
+})
+
+describe('keepFirstError', () => {
+  it('shows the error of the stage that failed first, not the last one to fail', () => {
+    expect(keepFirstError(null, 'Researcher could not reach the AI provider. Try again.')).toBe('Researcher could not reach the AI provider. Try again.')
+    expect(keepFirstError('Researcher could not reach the AI provider. Try again.', 'Synthesizer could not reach the AI provider. Try again.')).toBe('Researcher could not reach the AI provider. Try again.')
   })
 })

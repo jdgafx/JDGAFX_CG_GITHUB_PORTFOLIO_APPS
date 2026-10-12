@@ -1,0 +1,90 @@
+[
+ {
+  "run": "r1-1",
+  "id": 5,
+  "text": "**Disease treatment:** A 2021 headline said CRISPR advances could open the door to treating a broad range of diseases [4].",
+  "roundFourVerdict": "unverified",
+  "spans": [
+   {
+    "source": 4,
+    "text": "CRISPR gene-editing breakthrough opens door to treating broad array of diseases"
+   },
+   {
+    "source": 4,
+    "text": "Jun 2021"
+   }
+  ],
+  "answers": {
+   "sourceSupports": "yes",
+   "subjectMatches": "yes",
+   "causeMatches": "not_applicable",
+   "allPartsCovered": "yes"
+  }
+ },
+ {
+  "run": "r1-1",
+  "id": 6,
+  "text": "**HIV research:** A 2024 headline reported that HIV was eliminated in cell culture using CRISPR-Cas editing [5].",
+  "roundFourVerdict": "unverified",
+  "spans": [
+   {
+    "source": 5,
+    "text": "HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]"
+   },
+   {
+    "source": 5,
+    "text": "Mar 2024."
+   }
+  ],
+  "answers": {
+   "sourceSupports": "yes",
+   "subjectMatches": "yes",
+   "causeMatches": "not_applicable",
+   "allPartsCovered": "yes"
+  }
+ },
+ {
+  "run": "r2-3",
+  "id": 3,
+  "text": "**May 2024:** A headline reports that JWST found the \"most distant known galaxy\" [4].",
+  "roundFourVerdict": "unverified",
+  "spans": [
+   {
+    "source": 4,
+    "text": "James Webb Space Telescope Finds Most Distant Known Galaxy"
+   },
+   {
+    "source": 4,
+    "text": "May 2024"
+   }
+  ],
+  "answers": {
+   "sourceSupports": "yes",
+   "subjectMatches": "yes",
+   "causeMatches": "not_applicable",
+   "allPartsCovered": "yes"
+  }
+ },
+ {
+  "run": "r2-3",
+  "id": 4,
+  "text": "**January 2023:** A headline says JWST is \"finding too many early galaxies\" [5].",
+  "roundFourVerdict": "unverified",
+  "spans": [
+   {
+    "source": 5,
+    "text": "The James Webb Space Telescope is finding too many early galaxies"
+   },
+   {
+    "source": 5,
+    "text": "Jan 2023"
+   }
+  ],
+  "answers": {
+   "sourceSupports": "yes",
+   "subjectMatches": "yes",
+   "causeMatches": "not_applicable",
+   "allPartsCovered": "yes"
+  }
+ }
+]

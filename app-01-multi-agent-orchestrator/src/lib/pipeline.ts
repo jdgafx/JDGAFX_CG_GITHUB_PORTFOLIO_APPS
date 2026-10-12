@@ -2,6 +2,11 @@ import type { AgentRole, AgentState } from '../types'
 import { AGENT_ORDER, MODEL_ORDER, hasUsefulOutput } from './agents'
 import { formatUsd } from './usage'
 
+/** The error to show when several stages fail: the first, which is the stage that actually failed, not the last to be tried. */
+export function keepFirstError(current: string | null, next: string): string {
+  return current ?? next
+}
+
 export type RunPhase = 'ready' | 'running' | 'complete' | 'partial' | 'stopped' | 'failed'
 export type AgentMap = Record<AgentRole, AgentState>
 

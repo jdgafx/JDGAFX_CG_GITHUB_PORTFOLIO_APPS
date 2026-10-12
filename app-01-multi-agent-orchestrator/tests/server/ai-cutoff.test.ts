@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import handler from '../../netlify/functions/ai'
-import { SERVED, VALID_BODY, errorsOf, frames, installHarness, lengthReply, plan, providerCalls, reply, request } from './helpers'
+import { SERVED, VALID_BODY, errorsOf, frames, installHarness, lengthReply, plan, providerCalls, reply, request, stubFetch } from './helpers'
 
 installHarness()
 
@@ -125,4 +125,30 @@ describe('ai function: a failed stage carries what it was billed', () => {
     expect(events.at(-1)).toMatchObject({ type: 'session_complete', usage: { prompt_tokens: 20, completion_tokens: 8000, total_tokens: 8020 } })
     expect(((events.at(-1)?.usage ?? {}) as { cost: number }).cost).toBeCloseTo(0.002, 6)
   })
+})
+
+describe('ai function: a provider that cannot be reached', () => {
+  it('names the stage that failed and says the AI provider could not be reached, for every stage', async () => {
+    stubFetch(() => {
+      throw new TypeError('fetch failed')
+    })
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(errorsOf(events)).toEqual([
+      'Researcher could not reach the AI provider. Try again.',
+      'Analyst could not reach the AI provider. Try again.',
+      'Critic could not reach the AI provider. Try again.',
+      'Synthesizer could not reach the AI provider. Try again.',
+    ])
+  }, 20_000)
+
+  it('keeps a failure that is not a connection failure in the old words', async () => {
+    plan({
+      researcher: reply('- A.', 0.1, 10, 10),
+      analyst: () => new Response('', { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+      critic: reply('- C.', 0.1, 10, 10),
+      synthesizer: reply('D [1].', 0.1, 10, 10),
+    })
+    const errors = errorsOf(await frames(await handler(request(VALID_BODY))))
+    expect(errors.some(error => String(error).includes('could not reach'))).toBe(false)
+  }, 20_000)
 })

@@ -299,33 +299,48 @@ function fold(text: string): Folded {
   return { text: out, at }
 }
 
-const MIN_SPAN_WORDS = 3
+/** A passage needs two words to count at all, and a claim needs a span of three words or more to be supported. */
+const MIN_SPAN_WORDS = 2
+export const STRONG_SPAN_WORDS = 3
 const ELLIPSIS = /\s*(?:…|\.\.\.)\s*/
 
+/** Where a quoted span is in a source text, or why it is not counted: 'too_short' means it is there word for word but has fewer than two words in a passage. */
+export type SpanLocation = { status: 'found'; ranges: Array<{ start: number; end: number }>; words: number } | { status: 'too_short' } | { status: 'not_found' }
+
 /**
- * Finds a span the model quoted in a source text: the same words, ignoring case, spacing, quote marks and dash
+ * Looks for a span the model quoted in a source text: the same words, ignoring case, spacing, quote marks and dash
  * variants. An ellipsis at either end is dropped. An ellipsis inside the span splits it into passages, and every
- * passage must be found, so the result has one range per passage (in the original text), or null. Each passage
- * needs three words at least, so a stray word cannot verify anything. This is the only check code makes on what
- * the model quoted.
+ * passage must be found, so a found span has one range per passage (in the original text). A passage that is in the
+ * text but has under two words is 'too_short': it is not counted, and it is never called 'not_found'. This is the only
+ * check code makes on what the model quoted.
  */
-export function findSpan(text: string, span: string): Array<{ start: number; end: number }> | null {
+export function locateSpan(text: string, span: string): SpanLocation {
   const bare = span.replace(/(?:…|\.\.\.)+\s*$/, '').replace(/^\s*(?:…|\.\.\.)+/, '')
   const parts = bare
     .split(ELLIPSIS)
     .map(part => fold(part).text.trim())
     .filter(Boolean)
-  if (parts.length === 0) return null
+  if (parts.length === 0) return { status: 'not_found' }
   const folded = fold(text)
   const ranges: Array<{ start: number; end: number }> = []
+  let short = false
+  let words = 0
   for (const wanted of parts) {
-    if (wanted.split(' ').length < MIN_SPAN_WORDS) return null
     const found = folded.text.indexOf(wanted)
-    if (found === -1) return null
+    if (found === -1) return { status: 'not_found' }
+    const count = wanted.split(' ').length
+    if (count < MIN_SPAN_WORDS) short = true
+    words += count
     const start = folded.at[found] ?? 0
     ranges.push({ start, end: (folded.at[found + wanted.length - 1] ?? start) + 1 })
   }
-  return ranges
+  return short ? { status: 'too_short' } : { status: 'found', ranges, words }
+}
+
+/** The passages of a found span, one range each, or null when the span is not counted. */
+export function findSpan(text: string, span: string): Array<{ start: number; end: number }> | null {
+  const location = locateSpan(text, span)
+  return location.status === 'found' ? location.ranges : null
 }
 
 // ---- The verdict ----------------------------------------------------------------------------------------
@@ -360,17 +375,19 @@ export interface Judgment {
   reason?: string
 }
 
-/** What the span check found: spans found as one passage, spans not found (or malformed), and spans found only as two or more passages. */
+/** What the span check found: spans found, spans not found (or malformed), spans found only as separate passages, and how many found spans have three words or more. */
 export interface SpanCheck {
   found: number
   missed: number
   joined: number
+  strong: number
 }
 
 /**
  * The verdict, from the typed answers and the span check, and nothing else.
- * No support is "unsupported". Every answer passing and every span one found passage is "supported"; every answer
- * passing but the spans missing, not found or joined is "unverified". Any answer failing is "partly".
+ * No support is "unsupported". Every answer passing, every span found as one passage and one found span of three words
+ * or more is "supported"; every answer passing but the spans missing, not found, joined or all too short is "unverified".
+ * Any answer failing is "partly".
  */
 export function deriveVerdict(
   answers: Pick<Judgment, 'sourceSupports' | 'subjectMatches' | 'causeMatches' | 'allPartsCovered'>,
@@ -379,34 +396,42 @@ export function deriveVerdict(
   if (answers.sourceSupports === 'no') return 'unsupported'
   const passes = answers.subjectMatches === 'yes' && answers.causeMatches !== 'no' && answers.allPartsCovered === 'yes'
   if (!passes) return 'partly'
-  return spans.found > 0 && spans.missed === 0 && spans.joined === 0 ? 'supported' : 'unverified'
+  return spans.strong > 0 && spans.missed === 0 && spans.joined === 0 ? 'supported' : 'unverified'
 }
 
 const clean = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
 
 /** Every passage of every span that appears in a source the claim cites, and the tally of what was found. */
-function checkSpans(draft: ClaimDraft, sources: Source[], spans: JudgedSpan[], bad: number): { quotes: AuditQuote[]; check: SpanCheck } {
+function checkSpans(draft: ClaimDraft, sources: Source[], spans: JudgedSpan[], bad: number): { quotes: AuditQuote[]; check: SpanCheck; short: number } {
   const quotes: AuditQuote[] = []
-  const check: SpanCheck = { found: 0, missed: bad, joined: 0 }
+  const check: SpanCheck = { found: 0, missed: bad, joined: 0, strong: 0 }
+  let short = 0
   for (const span of spans) {
     const order = [span.source, ...draft.cites].filter(n => draft.cites.includes(n))
     let found: AuditQuote[] | undefined
+    let words = 0
+    let tooShort = false
     for (const n of new Set(order)) {
       const source = sources.find(candidate => candidate.n === n)
-      const at = source ? findSpan(source.snippet, span.text) : null
-      if (source && at) {
-        found = at.map(range => ({ n, start: range.start, end: range.end, text: source.snippet.slice(range.start, range.end) }))
+      const at = source ? locateSpan(source.snippet, span.text) : ({ status: 'not_found' } as const)
+      if (source && at.status === 'found') {
+        found = at.ranges.map(range => ({ n, start: range.start, end: range.end, text: source.snippet.slice(range.start, range.end) }))
+        words = at.words
         break
       }
+      if (at.status === 'too_short') tooShort = true
     }
-    if (!found) check.missed += 1
-    else {
+    if (!found) {
+      if (tooShort) short += 1
+      else check.missed += 1
+    } else {
       check.found += 1
+      if (words >= STRONG_SPAN_WORDS) check.strong += 1
       if (found.length > 1) check.joined += 1
       for (const quote of found) if (!quotes.some(have => have.n === quote.n && have.start === quote.start && have.end === quote.end)) quotes.push(quote)
     }
   }
-  return { quotes, check }
+  return { quotes, check, short }
 }
 
 /**
@@ -421,25 +446,27 @@ export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[],
   const asked = judgment.spans ?? []
   const kind = judgment.kind ?? 'source_claim'
   if (kind === 'about_research') {
-    return { ...base, verdict: 'research', reason: clean(judgment.reason) || 'About the research, not a statement a source could back.', judged: { kind, spans: { asked, found: 0, missed: 0, joined: 0, malformed: 0 } } }
+    return { ...base, verdict: 'research', reason: clean(judgment.reason) || 'About the research, not a statement a source could back.', judged: { kind, spans: { asked, found: 0, missed: 0, joined: 0, malformed: 0, strong: 0, short: 0 } } }
   }
-  const { quotes, check } = judgment.sourceSupports === 'no' ? { quotes: [], check: { found: 0, missed: 0, joined: 0 } } : checkSpans(draft, sources, asked, judgment.badSpans ?? 0)
+  const { quotes, check, short } = judgment.sourceSupports === 'no' ? { quotes: [], check: { found: 0, missed: 0, joined: 0, strong: 0 }, short: 0 } : checkSpans(draft, sources, asked, judgment.badSpans ?? 0)
   const verdict = deriveVerdict(judgment, check)
   let note = ''
   if (verdict === 'unverified') {
     note =
       asked.length === 0 && check.missed === 0
         ? 'No text was quoted from the source, so support is not confirmed.'
-        : check.missed === 0
-          ? 'A quoted span joins separate passages of the source, so support is not confirmed.'
-          : 'The quoted text was not found in the source, so support is not confirmed.'
+        : check.missed > 0
+          ? 'The quoted text was not found in the source, so support is not confirmed.'
+          : check.joined > 0
+            ? 'A quoted span joins separate passages of the source, so support is not confirmed.'
+            : 'The quoted passages are too short to confirm support (one of three words or more is needed), so support is not confirmed.'
   }
   const uncovered = verdict === 'partly' || verdict === 'unsupported' ? clean(judgment.uncovered) : ''
   const reason = [clean(judgment.reason), note].filter(Boolean).join(' ')
   const judged: AuditJudged = {
     kind,
     answers: { sourceSupports: judgment.sourceSupports, subjectMatches: judgment.subjectMatches, causeMatches: judgment.causeMatches, allPartsCovered: judgment.allPartsCovered },
-    spans: { asked, found: check.found, missed: check.missed, joined: check.joined, malformed: judgment.badSpans ?? 0 },
+    spans: { asked, found: check.found, missed: check.missed, joined: check.joined, malformed: judgment.badSpans ?? 0, strong: check.strong, short },
   }
   return { ...base, judged, verdict, reason: reason || 'No reason given.', ...(quotes.length > 0 && (verdict === 'supported' || verdict === 'partly') ? { quotes } : {}), ...(uncovered ? { uncovered } : {}) }
 }
