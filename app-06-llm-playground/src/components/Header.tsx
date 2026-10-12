@@ -21,8 +21,11 @@ function toneFor({ catalogue, catalogueFailed, run }: HeaderProps): Tone {
   if (run) {
     switch (run.status) {
       case 'running':
+        if (run.replay) return { badge: 'ds-badge--accent', dot: 'ds-dot--running', label: 'Replaying' }
         return { badge: 'ds-badge--accent', dot: 'ds-dot--running', label: run.compare ? 'Judging' : 'Running' }
       case 'voting':
+        // A replay waits on nobody: votes are off, so the pill says so instead of asking for one.
+        if (run.replay) return { badge: '', dot: 'arena-dot--ring', label: 'Replay, votes off' }
         return { badge: '', dot: 'arena-dot--neutral', label: 'Your vote' }
       case 'error':
         return { badge: 'ds-badge--danger', dot: 'ds-dot--failed', label: 'Failed' }

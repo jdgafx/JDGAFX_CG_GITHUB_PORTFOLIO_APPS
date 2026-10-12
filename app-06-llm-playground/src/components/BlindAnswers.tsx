@@ -28,7 +28,7 @@ export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswe
           const state = answerState(answer)
           const id = `blind-${answer.label}`
           return (
-            <article className="ds-panel arena-panel" aria-labelledby={`${id}-title`} key={answer.label}>
+            <article className="ds-panel arena-panel" data-slot={answer.label} aria-labelledby={`${id}-title`} key={answer.label}>
               <div className="arena-panel__head">
                 <span className="arena-letter" aria-hidden="true">{answer.label}</span>
                 <div className="arena-panel__id">

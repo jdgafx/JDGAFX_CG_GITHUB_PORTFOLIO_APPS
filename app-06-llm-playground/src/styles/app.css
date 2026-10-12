@@ -1,8 +1,7 @@
 /* App layer for ModelArena. Colour, type, states, readout, trace, segmented control and the ds- classes come from tokens.css
    and components.css. This file holds the blind answers, the reveal and the leaderboard. */
 
-/* The danger rule for a warm accent is shared (components.css v3.2 draws running states in graphite). Locally: a lost
-   rating is not an error, so it is never drawn in danger red. */
+/* A lost rating is not an error, so it is never drawn in danger red. */
 .arena-dot--neutral { background: var(--ds-text-muted); }
 
 /* Status dots beyond the shared set: measured markers, the judge's pick, and a warning. */
@@ -183,3 +182,93 @@
 .replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; overflow-wrap: anywhere; }
 .replay-label__live { min-height: 36px; padding: 0 12px; }
 .replay-label .ds-help { margin: 0; }
+
+/* ================= The stage (v4, own design): deep navy, one electric-blue accent, scoreboard numerals ================= */
+.ds-app { background: radial-gradient(90% 420px at 50% 0, #14275f 0%, transparent 100%), var(--ds-bg); }
+::selection { background: color-mix(in srgb, var(--ds-accent) 45%, var(--ds-bg)); }
+
+/* Masthead: the title is the scoreboard header; the app number is a lit tile. */
+.ds-header { background: transparent; }
+.ds-header__inner { padding-top: 32px; padding-bottom: 20px; }
+.ds-title { font-family: var(--ds-display); font-size: 64px; font-weight: 800; letter-spacing: 0.01em; line-height: 0.95; text-transform: uppercase; }
+.ds-plate { min-width: 64px; height: 64px; font-family: var(--ds-display); font-size: 40px; font-weight: 800; letter-spacing: 0; color: var(--ds-accent); background: var(--ds-surface); border: 2px solid var(--ds-accent); box-shadow: none; }
+.ds-showcase { background: var(--ds-surface); border-color: var(--ds-border); }
+.ds-subtitle { font-size: 18px; color: var(--ds-text); }
+.ds-badge { background: var(--ds-surface-2); color: var(--ds-text); border-color: var(--ds-border-strong); }
+.ds-badge--success { color: var(--ds-success); background: var(--ds-success-soft); border-color: var(--ds-success); }
+.ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: var(--ds-warning); }
+.ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: var(--ds-danger); }
+.ds-badge--accent { color: var(--ds-text); background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.arena-dot--ring { border-color: var(--ds-text); }
+.ds-dot { width: 10px; height: 10px; }
+
+/* Cards and bench sit one step above the stage. */
+.ds-card, .ds-panel, .ds-controls { border-color: var(--ds-border); }
+.ds-panel { background: var(--ds-surface); }
+.ds-actions { box-shadow: 0 -10px 14px -12px #000; }
+.ds-section__title, .ds-card__title { letter-spacing: 0; }
+.ds-button--primary { font-weight: 760; }
+.ds-button--primary:hover:not(:disabled) { filter: brightness(1.12); }
+.howto { background: var(--ds-surface); }
+.howto__try .ds-button--primary { min-height: 52px; padding: 0 32px; font-size: 18px; }
+.replay-label { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.live-data { background: var(--ds-surface-2); color: var(--ds-text); }
+
+/* A, B and C: a lit letter tile in the panel's own hue, and a full tinted border (no side stripes). */
+.arena-panel[data-slot="A"] { --slot: var(--ds-slot-a); }
+.arena-panel[data-slot="B"] { --slot: var(--ds-slot-b); }
+.arena-panel[data-slot="C"] { --slot: var(--ds-slot-c); }
+.arena-panel[data-slot] { border-color: color-mix(in srgb, var(--slot) 50%, var(--ds-border)); }
+.arena-letter { width: 56px; height: 56px; font-family: var(--ds-display); font-size: 44px; font-weight: 800; line-height: 1; color: var(--ds-bg); background: var(--slot, var(--ds-text)); border: 0; border-radius: var(--ds-radius-sm); }
+.arena-panel--picked .arena-letter { box-shadow: 0 0 0 3px var(--ds-surface), 0 0 0 5px var(--slot, var(--ds-accent)); }
+.arena-panel--picked { border-color: var(--slot, var(--ds-accent)); box-shadow: 0 0 0 1px var(--slot, var(--ds-accent)); }
+.arena-panel__title { font-size: 15px; color: var(--ds-text); }
+.arena-answer { background: var(--ds-bg); }
+.arena-pick { color: var(--ds-text); border-color: color-mix(in srgb, var(--slot, var(--ds-accent)) 70%, var(--ds-border-strong)); }
+.arena-pick:hover:not(:disabled) { background: color-mix(in srgb, var(--slot, var(--ds-accent)) 18%, var(--ds-surface)); border-color: var(--slot, var(--ds-accent)); }
+.arena-mask { background: repeating-linear-gradient(135deg, var(--ds-border-strong) 0 4px, var(--ds-border) 4px 8px); }
+.arena-votebar { background: var(--ds-surface); }
+
+/* Leaderboard: the memorable part. Rank and rating are big display numerals; first place lights up. */
+.arena-board { padding: 16px 20px 4px; background: var(--ds-surface); }
+.arena-rank { font-family: var(--ds-display); font-size: 72px; font-weight: 800; letter-spacing: -0.01em; line-height: 0.9; color: var(--ds-text-muted); }
+.arena-row:first-child .arena-rank { color: var(--ds-accent); }
+.arena-rating { font-family: var(--ds-display); font-size: 48px; font-weight: 800; letter-spacing: 0; line-height: 0.95; }
+.arena-row--few .arena-rating { font-weight: 700; }
+.arena-row { grid-template-columns: 88px minmax(0, 1fr) auto; }
+.arena-meter { height: 10px; background: var(--ds-bg); border-color: var(--ds-border); }
+.arena-meter__base { background: var(--ds-text); opacity: 0.8; }
+.arena-row--moved { background: var(--ds-surface-2); }
+.arena-conf--steady { border-color: var(--ds-success); }
+.arena-shift { color: var(--ds-text); }
+@container (min-width: 700px) {
+  .arena-row { grid-template-columns: 64px minmax(176px, 1.3fr) minmax(48px, 0.6fr) 100px 216px 100px; gap: 4px 12px; }
+  .arena-record { gap: 4px 12px; }
+  .arena-conf { justify-content: center; }
+}
+.ds-run__stage > .ds-section__head .ds-section__title { font-family: var(--ds-display); font-size: 36px; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.01em; }
+
+/* Run totals read as a scoreboard strip. */
+.ds-strip { background: var(--ds-border); }
+.ds-strip__item { background: var(--ds-surface); }
+.ds-strip__value { font-family: var(--ds-display); font-size: 32px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.1; }
+.ds-strip--live { border-color: var(--ds-accent); }
+.ds-strip--live .ds-strip__value { color: var(--ds-accent); }
+.ds-strip--live .ds-strip__item { background: color-mix(in srgb, var(--ds-accent) 8%, var(--ds-surface)); }
+
+/* The judge stays a tentative, dashed panel. */
+.arena-judge, .arena-votebar { border-color: var(--ds-border-strong); }
+
+@media (max-width: 720px) {
+  .ds-title { font-size: 44px; }
+  .ds-plate { min-width: 52px; height: 52px; font-size: 32px; }
+  .ds-subtitle { font-size: 16px; }
+  .arena-rank { font-size: 56px; }
+  .arena-rating { font-size: 40px; }
+  .arena-row { grid-template-columns: 64px minmax(0, 1fr) auto; }
+  .arena-letter { width: 48px; height: 48px; font-size: 38px; }
+}
+
+/* A disabled control stays readable (4.5:1) and says so with a dashed edge instead of fading out. */
+.ds-button:disabled { opacity: 0.72; border-style: dashed; }
+.ds-button--quiet:disabled { border-style: solid; }

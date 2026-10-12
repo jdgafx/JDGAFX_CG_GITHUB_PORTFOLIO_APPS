@@ -8,9 +8,11 @@ interface JudgeCardProps {
   compare: CompareResponse | null
   // A blind run before the vote: the judge may be done, but its opinion stays hidden.
   held?: boolean
+  // A replayed run: votes are off, so the opinion and the panel identities are never revealed.
+  replay?: boolean
 }
 
-export function JudgeCard({ judge, compare, held = false }: JudgeCardProps) {
+export function JudgeCard({ judge, compare, held = false, replay = false }: JudgeCardProps) {
   return (
     <section className="ds-section" aria-labelledby="judge-title">
       <div className="ds-section__head ds-section__head--bare">
@@ -19,7 +21,12 @@ export function JudgeCard({ judge, compare, held = false }: JudgeCardProps) {
         </h2>
         <p className="ds-section__sub">One model's opinion of the three answers. It is not a measurement.</p>
       </div>
-      {held ? (
+      {replay ? (
+        <div className="ds-empty">
+          The judge's opinion and the models behind the panels are not shown in a replay. Votes are off here, and both stay hidden
+          until a vote. Choose Run it live to vote on your own run.
+        </div>
+      ) : held ? (
         <div className="ds-empty">
           {judge.state === 'failed' ? 'The judge could not give an opinion.' : 'The judge is reading the answers.'} Its opinion
           appears after you vote, so it cannot sway you.
@@ -31,7 +38,7 @@ export function JudgeCard({ judge, compare, held = false }: JudgeCardProps) {
   )
 }
 
-function JudgeBody({ judge, compare }: Omit<JudgeCardProps, 'held'>) {
+function JudgeBody({ judge, compare }: Pick<JudgeCardProps, 'judge' | 'compare'>) {
   switch (judge.state) {
     case 'idle':
       return <div className="ds-empty">The judge reads the answers after a run.</div>

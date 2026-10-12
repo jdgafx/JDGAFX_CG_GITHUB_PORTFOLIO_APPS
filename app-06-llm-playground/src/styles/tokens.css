@@ -1,4 +1,4 @@
-/* Shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule; v3.3: neutral changed chip everywhere, no focus ring on programmatic headings). Copy tokens.css and components.css
+/* ModelArena tokens (own dark palette, app 06; derived from shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule; v3.3: neutral changed chip everywhere, no focus ring on programmatic headings). Copy tokens.css and components.css
    verbatim to src/styles/ and import both first, in that order. Never edit them per app.
    One line per app selects the identity: <html lang="en" data-app="11"> sets the signal hue from the 13-step palette
    below; neutrals, type, spacing, radii and components are shared. Set data-run (idle, running, done, failed, stopped)
@@ -17,74 +17,39 @@
    Spacing scale: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48 (plus 1 and 2 for hairline offsets); no other values in padding, margin or gap. */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
   --ds-font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
   --ds-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ds-display: "Big Shoulders Display", "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
 
-  --ds-bg: #f3f5f8;          /* paper */
-  --ds-surface: #ffffff;     /* panel face */
-  --ds-surface-2: #ebeff4;   /* bench: the tinted work surface */
-  --ds-border: #d5dce6;      /* hairline rule */
-  --ds-border-strong: #7d8aa0; /* form controls and graph strokes: 3:1 against the surfaces */
-  --ds-text: #0e1b2b;
-  --ds-text-muted: #4d5a70;
-  --ds-accent: var(--app-l, #047172);   /* the app's signal: action fill, active node, taken path */
-  --ds-accent-text: #ffffff;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 12%, var(--ds-surface));
-  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 38%, var(--ds-surface));
-  --ds-success: #1a6e3c;
-  --ds-success-soft: #e3f3e8;
-  --ds-warning: #8a5a00;
-  --ds-warning-soft: #fdf2d8;
-  --ds-danger: #b3261e;
-  --ds-danger-soft: #fbe9e7;
-  --ds-focus: var(--ds-accent);
-  --ds-series-2: #4d5a70; --ds-series-3: #b4580f; --ds-series-4: #6d4fc9; /* chart series after the accent, 3:1 or better */
+  /* ModelArena: one deep-navy stage, always dark. Electric blue is the only accent; A, B and C each get a hue that
+     is always paired with the letter, so identity never rests on colour alone. */
+  --ds-bg: #060b1a;          /* the stage */
+  --ds-surface: #0d1630;     /* panel face */
+  --ds-surface-2: #131f42;   /* raised bench */
+  --ds-border: #263663;      /* hairline rule */
+  --ds-border-strong: #7385b8; /* form controls and strokes: 3:1 against the surfaces */
+  --ds-text: #eef2ff;
+  --ds-text-muted: #aab6d9;
+  --ds-accent: #4f8dff;
+  --ds-accent-text: #04112e;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 16%, var(--ds-surface));
+  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 42%, var(--ds-surface));
+  --ds-success: #62dc8f;
+  --ds-success-soft: #0f2c1d;
+  --ds-warning: #f2c14e;
+  --ds-warning-soft: #2f2610;
+  --ds-danger: #ff8068;
+  --ds-danger-soft: #38170f;
+  --ds-focus: #8db6ff;
+  --ds-slot-a: #78a8ff; --ds-slot-b: #bdf24a; --ds-slot-c: #ffa24f;
+  --ds-series-2: #aab6d9; --ds-series-3: #ffa24f; --ds-series-4: #bdf24a;
   --ds-radius: 8px;
   --ds-radius-sm: 6px;
   --ds-shadow: none;
   --ds-measure: 68ch;
   --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-    --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-    --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-    --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-    --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-    --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
-  }
-}
-
-:root[data-theme="dark"] {
-  --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-  --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-  --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-  --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-  --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
-}
-
-/* The 13-step signal palette: app number to hue. --app-l is the accent in light mode (5.6:1 on white), --app-d in dark
-   (7:1 on the dark bench). Hues sit at least 20 degrees apart in OKLCH and stay off the warning amber (60-100) and the
-   danger red (20-35); app 8 (green) sits near the success green, so its done state keeps a word and a check shape. */
-[data-app="1"] { --app-l: #5259c8; --app-d: #97a5fe; }
-[data-app="2"] { --app-l: #754ebf; --app-d: #b79aff; }
-[data-app="3"] { --app-l: #9044ac; --app-d: #d591f0; }
-[data-app="4"] { --app-l: #a43b90; --app-d: #eb8ad5; }
-[data-app="5"] { --app-l: #b2346f; --app-d: #fa86b4; }
-[data-app="6"] { --app-l: #b73259; --app-d: #ff859e; }
-[data-app="7"] { --app-l: #516f03; --app-d: #90b844; }
-[data-app="8"] { --app-l: #047534; --app-d: #54c072; }
-[data-app="9"] { --app-l: #057361; --app-d: #0cc1a3; }
-[data-app="10"] { --app-l: #036f83; --app-d: #0ebbdb; }
-[data-app="11"] { --app-l: #047172; --app-d: #0fbebf; }
-[data-app="12"] { --app-l: #016c99; --app-d: #24b6fa; }
-[data-app="13"] { --app-l: #0963c5; --app-d: #70adfe; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -236,7 +201,6 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }

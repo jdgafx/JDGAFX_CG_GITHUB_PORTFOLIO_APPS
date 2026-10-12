@@ -3,9 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CatalogueResponse, CompareRequest } from '../../netlify/shared/contract'
 import { BlindAnswers } from '../../src/components/BlindAnswers'
+import { Header } from '../../src/components/Header'
+import { JudgeCard } from '../../src/components/JudgeCard'
 import { ReplayLabel } from '../../src/components/ReplayLabel'
 import { runCompare, runJudge } from '../../src/lib/api'
-import { DEFAULT_PICKS } from '../../src/lib/run'
+import { DEFAULT_PICKS, startedRun } from '../../src/lib/run'
 import { compareRequest } from '../../src/lib/useArena'
 import { recordsThisRun, replayDisabled, requestMatches, REPLAY_URL } from '../../src/lib/useReplay'
 import { installReplayShim } from '../../src/replay'
@@ -118,6 +120,30 @@ describe('a replay never votes', () => {
     for (const file of ['src/lib/useReplay.ts', 'src/replay/shim.ts', 'src/replay/recording.ts']) {
       expect(readFileSync(file, 'utf8')).not.toMatch(/runVote|api\/vote/)
     }
+  })
+})
+
+describe('judge panel and status pill in a replay', () => {
+  const live = { state: 'idle' as const, label: 'x', title: 'x' }
+  it('says the opinion and panel identities are not shown, instead of promising them after a vote', () => {
+    const html = renderToStaticMarkup(JudgeCard({ judge: { state: 'running' }, compare: null, held: true, replay: true }))
+    expect(html).toContain('not shown in a replay')
+    expect(html).not.toContain('appears after you vote')
+    expect(html).not.toContain('is reading the answers')
+  })
+
+  it('keeps the held message for a visitor\'s own blind run', () => {
+    const html = renderToStaticMarkup(JudgeCard({ judge: { state: 'running' }, compare: null, held: true }))
+    expect(html).toContain('appears after you vote')
+  })
+
+  it('gives the pill a replay state, never "Your vote"', () => {
+    const run = { ...startedRun('blind', 'p'), status: 'voting' as const, replay: true as const }
+    const html = renderToStaticMarkup(Header({ catalogue: null, catalogueFailed: false, run, live }))
+    expect(html).toContain('Replay, votes off')
+    expect(html).not.toContain('Your vote')
+    const own = renderToStaticMarkup(Header({ catalogue: null, catalogueFailed: false, run: { ...run, replay: undefined }, live }))
+    expect(own).toContain('Your vote')
   })
 })
 

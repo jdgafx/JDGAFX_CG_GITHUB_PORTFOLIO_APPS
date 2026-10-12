@@ -172,6 +172,7 @@ export default function App() {
                 judge={run?.judge ?? { state: 'idle' }}
                 compare={run?.compare ?? null}
                 held={run?.status === 'voting'}
+                replay={run?.replay === true}
               />
             </div>
             <div className="ds-run__trace arena-result">

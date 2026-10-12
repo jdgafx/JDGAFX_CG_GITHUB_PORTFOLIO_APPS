@@ -120,6 +120,7 @@ export function ResultCard(props: ResultCardProps) {
   return (
     <article
       className={`ds-panel arena-panel${active ? ' arena-panel--active' : ''}${yourPick ? ' arena-panel--picked' : ''}`}
+      data-slot={slot}
       aria-labelledby={headingId}
     >
       <div className="arena-panel__head">
