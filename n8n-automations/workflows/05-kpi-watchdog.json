@@ -557,7 +557,7 @@
       "parameters": {
         "model": "~anthropic/claude-haiku-latest",
         "options": {
-          "maxTokens": 600
+          "maxTokens": 3500
         }
       },
       "credentials": {
