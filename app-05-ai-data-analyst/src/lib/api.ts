@@ -1,7 +1,9 @@
 import type { AnalysisResponse, ParsedData, QueryPlan, RunStep, RunSummary } from '../types'
+import { CLIENT_GRACE_MS, RUN_BUDGET_MS } from '../../netlify/shared/budget'
 import { MAX_CELL_CHARS, MAX_SAMPLE_ROWS } from './limits'
 
-const REQUEST_TIMEOUT_MS = 30_000
+/** The server's run budget plus a grace, so the server's own error (with what the run spent) arrives first. */
+export const REQUEST_TIMEOUT_MS = RUN_BUDGET_MS + CLIENT_GRACE_MS
 const UNREADABLE = 'The analysis service returned an unreadable response. Please try again.'
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
 const TIMED_OUT = 'The analysis service did not answer in time. Try again.'

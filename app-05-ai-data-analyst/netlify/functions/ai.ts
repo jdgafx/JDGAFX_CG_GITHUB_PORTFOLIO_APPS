@@ -1,7 +1,9 @@
 import { validateQueryPlan } from '../../src/lib/queryPlan'
 import type { QueryPlan, RunStep, RunSummary, RunUsage } from '../../src/types'
 import { checkAnalysisBody, readJsonBody, type AnalysisInput } from '../shared/requestBody'
+import { RUN_BUDGET_MS } from '../shared/budget'
 import {
+  billedUsage,
   callModel,
   describeFailure,
   getApiKey,
@@ -28,8 +30,8 @@ const ALLOWED_ORIGINS = [
   .map((o) => o.trim().replace(/\/$/, ''))
   .filter(Boolean)
 
-/** One budget for the whole request: the first call, its empty-reply retry and the repair turn. */
-const UPSTREAM_TIMEOUT_MS = 25_000
+/** One budget for the whole request: the first call, its empty-reply retry and the repair turn. The browser waits for this plus a grace. */
+const UPSTREAM_TIMEOUT_MS = RUN_BUDGET_MS
 /** A repair turn needs at least this much time left in the budget, or it is skipped. One full call limit, so it can finish. */
 const REPAIR_MIN_MS = 10_000
 
@@ -175,6 +177,11 @@ const FOLLOW_UP_RULES = `This is a follow-up. You are given the previous questio
 - If the follow-up cannot be answered from this dataset (a time range the data does not cover, another dataset, a column that does not exist, or a comparison that needs two series), return the previous plan UNCHANGED and set "cannotApply" to one plain sentence saying why, naming what the data does cover. Do not guess a stand-in.
 - "cannotApply" is null when you applied the follow-up. "aboutData" is true on a follow-up.`
 
+/** The figures a trace row carries for the calls behind it. `notReported` marks a row with a call that gave none. */
+function figuresOf(usage: RunUsage): { tokens?: number; cost?: number; notReported?: boolean } {
+  return { tokens: usage.total_tokens, cost: usage.cost, ...(usage.unreportedCalls ? { notReported: true } : {}) }
+}
+
 /** Records each step, timed with Date.now() on the server, plus the usage of every model call. */
 class RunLog {
   readonly startedAt = Date.now()
@@ -198,9 +205,17 @@ class RunLog {
     status: RunStep['status'],
     startedAt: number,
     detail: string,
-    extra: { tokens?: number; cost?: number } = {},
+    extra: { tokens?: number; cost?: number; notReported?: boolean } = {},
   ): void {
     this.trace.push({ name, status, ms: Date.now() - startedAt, detail, ...extra })
+  }
+
+  /** A failed model call: what its tries were billed goes into the run's totals, and the failed row carries it. */
+  billed(err: unknown): { tokens?: number; cost?: number; notReported?: boolean } {
+    const spent = billedUsage(err)
+    if (!spent) return {}
+    this.usage.push(spent)
+    return figuresOf(spent)
   }
 
   skip(names: string[], detail: string): void {
@@ -341,12 +356,12 @@ async function repairPlan(
     reply = await callModel(askAgain, signal, { deadlineAt: log.startedAt + UPSTREAM_TIMEOUT_MS })
   } catch (err) {
     const failure = describeFailure(err)
-    log.step('Repair turn', 'failed', repairAt, failure.message)
+    log.step('Repair turn', 'failed', repairAt, failure.message, log.billed(err))
     return { ok: false, status: failure.status, message: failure.message }
   }
   log.served(reply.servedModels)
   log.usage.push(reply.usage)
-  const costs = { tokens: reply.usage.total_tokens, cost: reply.usage.cost }
+  const costs = figuresOf(reply.usage)
 
   const read = readReplyJson(reply)
   if (!read.ok) {
@@ -390,16 +405,13 @@ async function analyse(
     reply = await callModel(messages, signal, { deadlineAt: log.startedAt + UPSTREAM_TIMEOUT_MS })
   } catch (err) {
     const failure = describeFailure(err)
-    log.step('Model call', 'failed', callAt, failure.message)
+    log.step('Model call', 'failed', callAt, failure.message, log.billed(err))
     log.skip(AFTER_MODEL_CALL, 'Not reached: the model call did not finish.')
     return failed(log, failure.status, failure.message, cors)
   }
   log.served(reply.servedModels)
   log.usage.push(reply.usage)
-  log.step('Model call', 'ok', callAt, callDetail(reply), {
-    tokens: reply.usage.total_tokens,
-    cost: reply.usage.cost,
-  })
+  log.step('Model call', 'ok', callAt, callDetail(reply), figuresOf(reply.usage))
 
   const readAt = Date.now()
   const read = readReplyJson(reply)

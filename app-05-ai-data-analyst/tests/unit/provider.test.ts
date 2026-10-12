@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { callModel, describeFailure, getApiKey, MODEL, ProviderError, sumUsage } from '../../netlify/shared/provider'
+import { billedUsage, callModel, describeFailure, getApiKey, MODEL, ProviderError, sumUsage } from '../../netlify/shared/provider'
 
 const KEY = 'test-only-placeholder'
 const MESSAGES = [{ role: 'user' as const, content: 'hi' }]
@@ -212,6 +212,16 @@ describe('sumUsage', () => {
     expect(sumUsage([{ total_tokens: 120, cost: 0.0001 }, { total_tokens: 60 }])).toEqual({ total_tokens: 180 })
     expect(sumUsage([])).toEqual({})
   })
+
+  it('counts calls that reported nothing instead of dropping the figures of the others', () => {
+    expect(sumUsage([{ total_tokens: 120, cost: 0.0001 }], 1)).toEqual({ total_tokens: 120, cost: 0.0001, unreportedCalls: 1 })
+    expect(sumUsage([{ total_tokens: 120, cost: 0.0001, unreportedCalls: 1 }, { unreportedCalls: 2 }], 1)).toEqual({
+      total_tokens: 120,
+      cost: 0.0001,
+      unreportedCalls: 4,
+    })
+    expect(sumUsage([], 1)).toEqual({ unreportedCalls: 1 })
+  })
 })
 
 describe('describeFailure', () => {
@@ -238,5 +248,54 @@ describe('describeFailure', () => {
       status: 502,
       message: 'Could not reach the AI provider. Try again.',
     })
+  })
+})
+
+// C13: a try that never reported usage is counted as not reported, and a try that did report it keeps its
+// usage even when a later try of the same call fails. The failure carries both.
+describe('callModel billed usage on failure', () => {
+  const aborted = () => Object.assign(new Error('aborted'), { name: 'AbortError' })
+  const caught = async (): Promise<unknown> => callModel(MESSAGES, SIGNAL).then(() => undefined, (err: unknown) => err)
+
+  it('carries the usage of an empty first reply when the second try is an HTTP error', async () => {
+    const mock = vi.fn<FetchFn>().mockResolvedValueOnce(reply('')).mockResolvedValueOnce(new Response('{}', { status: 500 }))
+    vi.stubGlobal('fetch', mock)
+    const err = await caught()
+    expect(err).toBeInstanceOf(ProviderError)
+    expect(billedUsage(err)).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+  })
+
+  it('carries the usage of an empty first reply when the second try times out', async () => {
+    const mock = vi.fn<FetchFn>().mockResolvedValueOnce(reply('')).mockRejectedValueOnce(aborted()).mockRejectedValueOnce(aborted())
+    vi.stubGlobal('fetch', mock)
+    const err = await caught()
+    expect(err).toMatchObject({ name: 'AbortError' })
+    expect(billedUsage(err)).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 2 })
+  })
+
+  it('counts every timed-out try as not reported, with no figures', async () => {
+    vi.stubGlobal('fetch', vi.fn<FetchFn>().mockRejectedValue(aborted()))
+    expect(billedUsage(await caught())).toEqual({ unreportedCalls: 2 })
+  })
+
+  it('counts a 5xx as one call not reported', async () => {
+    vi.stubGlobal('fetch', vi.fn<FetchFn>().mockResolvedValue(new Response('{}', { status: 500 })))
+    expect(billedUsage(await caught())).toEqual({ unreportedCalls: 1 })
+  })
+
+  it.each([400, 401, 402, 403, 429])('counts an HTTP %i as $0, not as not reported', async (status) => {
+    vi.stubGlobal('fetch', vi.fn<FetchFn>().mockResolvedValue(new Response('{}', { status })))
+    expect(billedUsage(await caught())).toEqual({})
+  })
+
+  it('shows a reply that needed a retry after a timeout as partial', async () => {
+    vi.stubGlobal('fetch', vi.fn<FetchFn>().mockRejectedValueOnce(aborted()).mockResolvedValueOnce(reply('{"ok":true}')))
+    const result = await callModel(MESSAGES, SIGNAL)
+    expect(result.usage).toEqual({ prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+  })
+
+  it('has nothing to report when no call was made', async () => {
+    process.env.OPENROUTER_API_KEY = '   '
+    expect(billedUsage(await caught())).toBeUndefined()
   })
 })

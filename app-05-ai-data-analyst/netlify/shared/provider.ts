@@ -55,6 +55,7 @@ export class ProviderError extends Error {
   }
 }
 
+const UNBILLED_STATUSES = new Set([400, 401, 402, 403, 429])
 const USAGE_KEYS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
 export function getApiKey(): string | null {
@@ -71,17 +72,37 @@ function readUsage(raw: unknown): RunUsage {
   return out
 }
 
-/** Adds usage across calls. A total is reported only when every call reported that field. */
-export function sumUsage(parts: RunUsage[]): RunUsage {
-  if (parts.length === 0) return {}
+/**
+ * Adds usage across calls. A total is reported only when every call that reported usage reported that field.
+ * A call that reported nothing (a timeout, a lost connection, an HTTP error) is counted in `unreportedCalls`,
+ * never guessed and never allowed to hide the figures of the calls that were billed. `unreported` adds calls
+ * that are not in `parts` at all.
+ */
+export function sumUsage(parts: RunUsage[], unreported = 0): RunUsage {
+  const isLost = (part: RunUsage) => !USAGE_KEYS.some((key) => part[key] !== undefined) && (part.unreportedCalls ?? 0) > 0
+  const known = parts.filter((part) => !isLost(part))
   const out: RunUsage = {}
-  for (const key of USAGE_KEYS) {
-    const values = parts.map((part) => part[key])
-    if (values.every((value): value is number => typeof value === 'number')) {
-      out[key] = values.reduce((sum, value) => sum + value, 0)
+  if (known.length > 0) {
+    for (const key of USAGE_KEYS) {
+      const values = known.map((part) => part[key])
+      if (values.every((value): value is number => typeof value === 'number')) {
+        out[key] = values.reduce((sum, value) => sum + value, 0)
+      }
     }
   }
+  const lost = unreported + parts.reduce((sum, part) => sum + (part.unreportedCalls ?? 0), 0)
+  if (lost > 0) out.unreportedCalls = lost
   return out
+}
+
+/** What a failed call was billed for its tries so far, carried on the error it threw. Undefined when no call was made. */
+export function billedUsage(err: unknown): RunUsage | undefined {
+  return typeof err === 'object' && err !== null ? (err as { billed?: RunUsage }).billed : undefined
+}
+
+function carryBilled(err: unknown, billed: RunUsage): unknown {
+  if (typeof err === 'object' && err !== null) Object.assign(err, { billed })
+  return err
 }
 
 interface RawReply {
@@ -158,31 +179,52 @@ export async function callModel(
   if (!apiKey) throw new ProviderError(401)
 
   let retriedAfter: ModelReply['retriedAfter'] = null
+  // Every try is counted: the usage of each that replied, and how many ended with no reply at all.
+  const billed: RunUsage[] = []
+  let lost = 0
+  const tryOnce = async (): Promise<RawReply> => {
+    try {
+      const raw = await requestOnce(messages, apiKey, signal)
+      billed.push(raw.usage)
+      return raw
+    } catch (err) {
+      // A request the provider refused outright (HTTP 400, 401, 402, 403, 429) was never billed: $0, not "not reported".
+      if (!(err instanceof ProviderError && UNBILLED_STATUSES.has(err.status))) lost += 1
+      throw err
+    }
+  }
   const attempt = async (): Promise<RawReply> => {
     try {
-      return await requestOnce(messages, apiKey, signal)
+      return await tryOnce()
     } catch (err) {
       const kind = retryKind(err, signal)
       const roomLeft = options.deadlineAt === undefined || options.deadlineAt - Date.now() >= RETRY_MIN_MS
       if (!kind || retriedAfter || !roomLeft) throw err
       retriedAfter = kind
-      return await requestOnce(messages, apiKey, signal)
+      return await tryOnce()
     }
   }
 
-  const first = await attempt()
-  if (first.text || first.finish === 'length') return { ...first, servedModels: [first.model], attempts: 1, retriedAfter }
+  try {
+    const first = await attempt()
+    if (first.text || first.finish === 'length') {
+      return { ...first, usage: sumUsage(billed, lost), servedModels: [first.model], attempts: 1, retriedAfter }
+    }
 
-  // The served model is the one that answered the second try. A missing name is not filled in from the first try.
-  const second = await attempt()
-  return {
-    text: second.text,
-    finish: second.finish,
-    model: second.model,
-    servedModels: [first.model, second.model],
-    usage: sumUsage([first.usage, second.usage]),
-    attempts: 2,
-    retriedAfter,
+    // The served model is the one that answered the second try. A missing name is not filled in from the first try.
+    const second = await attempt()
+    return {
+      text: second.text,
+      finish: second.finish,
+      model: second.model,
+      servedModels: [first.model, second.model],
+      usage: sumUsage(billed, lost),
+      attempts: 2,
+      retriedAfter,
+    }
+  } catch (err) {
+    // The failure keeps what the tries before it were billed, so the run's rows and totals can show it.
+    throw carryBilled(err, sumUsage(billed, lost))
   }
 }
 

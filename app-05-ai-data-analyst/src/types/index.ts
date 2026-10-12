@@ -77,6 +77,8 @@ export interface RunStep {
   detail: string
   tokens?: number
   cost?: number
+  /** A model call in this row reported no usage (a timeout, a lost connection, an HTTP error), so the figures cover only the calls that did. */
+  notReported?: boolean
 }
 
 export interface RunUsage {
@@ -85,6 +87,8 @@ export interface RunUsage {
   total_tokens?: number
   /** USD, reported by the provider. Absent when it is not reported. */
   cost?: number
+  /** Model calls of the run that reported no usage. The figures above then count the other calls: "at least" that much. */
+  unreportedCalls?: number
 }
 
 /**

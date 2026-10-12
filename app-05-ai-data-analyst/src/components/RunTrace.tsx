@@ -79,8 +79,9 @@ export default function RunTrace({ run, running }: { run: RunView | null; runnin
                 </div>
                 <div className="ds-trace__meta">
                   <span>{step.status === 'skipped' ? 'not run' : formatMs(step.ms)}</span>
-                  {step.tokens !== undefined && <span>{formatCount(step.tokens)} tok</span>}
-                  {step.cost !== undefined && <span>{formatCost(step.cost)}</span>}
+                  {step.tokens !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatCount(step.tokens)} tok</span>}
+                  {step.cost !== undefined && <span>{step.notReported ? 'at least ' : ''}{formatCost(step.cost)}</span>}
+                  {step.notReported && <span>{step.tokens === undefined ? 'usage not reported' : 'plus a call not reported'}</span>}
                 </div>
                 {lane && step.status !== 'skipped' && (
                   <div className="ds-trace__lane" aria-hidden="true">

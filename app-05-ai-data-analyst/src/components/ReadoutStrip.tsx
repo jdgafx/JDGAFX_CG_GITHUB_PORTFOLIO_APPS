@@ -77,6 +77,11 @@ export default function ReadoutStrip({ running, run }: ReadoutStripProps) {
   const sofar = run && failedOrStopped ? spent(run.trace.filter((step) => step.status !== 'skipped')) : null
   const hint = run?.outcome === 'failed' ? 'Before it failed' : 'Before it stopped'
   const usage = run?.usage ?? {}
+  // Calls that reported no usage: a total with any is "at least" what it shows, never a complete figure.
+  const missing = usage.unreportedCalls ?? 0
+  const partial = missing > 0 ? `${missing} ${missing === 1 ? 'call' : 'calls'} not reported` : null
+  const atLeast = missing > 0 ? 'at least ' : ''
+  const withNote = (text: string) => (partial ? `${text}, ${partial}` : text)
   const tone = running ? ' ds-strip--live' : run ? '' : ' ds-strip--pending'
 
   return (
@@ -85,19 +90,19 @@ export default function ReadoutStrip({ running, run }: ReadoutStripProps) {
         <Cell label="Time" hint={running ? 'Running now' : sofar ? hint : 'Request to result'}>
           {running ? <LiveClock /> : run ? formatMs(sofar ? sofar.ms : run.totalMs) : NONE}
         </Cell>
-        <Cell label="Tokens" hint={sofar ? hint : 'All model calls'}>
+        <Cell label="Tokens" hint={withNote(sofar ? hint : 'All model calls')}>
           {running || !run
             ? NONE
             : sofar
-              ? sofar.tokens > 0 ? formatCount(sofar.tokens) : NONE
-              : usage.total_tokens === undefined ? 'not reported' : formatCount(usage.total_tokens)}
+              ? sofar.tokens > 0 ? `${atLeast}${formatCount(sofar.tokens)}` : partial ? 'not reported' : NONE
+              : usage.total_tokens === undefined ? 'not reported' : `${atLeast}${formatCount(usage.total_tokens)}`}
         </Cell>
-        <Cell label="Cost (USD)" hint={sofar ? hint : 'Reported by the provider'}>
+        <Cell label="Cost (USD)" hint={withNote(sofar ? hint : 'Reported by the provider')}>
           {running || !run
             ? NONE
             : sofar
-              ? sofar.priced ? formatCost(sofar.cost) : NONE
-              : usage.cost === undefined ? 'not reported' : formatCost(usage.cost)}
+              ? sofar.priced ? `${atLeast}${formatCost(sofar.cost)}` : partial ? 'not reported' : NONE
+              : usage.cost === undefined ? 'not reported' : `${atLeast}${formatCost(usage.cost)}`}
         </Cell>
         <Cell label={running ? 'Step' : 'Model'} hint={running ? 'Waiting for the reply' : 'Named in the reply'} mono={false}>
           {running ? (

@@ -16,6 +16,43 @@ function readout(run: RunView): string {
   return renderToStaticMarkup(createElement(ReadoutStrip, { running: false, run }))
 }
 
+function failedRun(over: Partial<RunView>): RunView {
+  return { ...runWith(null, 'not-reported', null), outcome: 'failed', ...over }
+}
+
+describe('a partial total in the readout', () => {
+  it('says "at least" and counts the calls not reported on a finished run', () => {
+    const html = readout({ ...runWith(SERVED, 'match', SERVED), usage: { total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 } })
+    expect(html).toContain('at least 1,200')
+    expect(html).toContain('at least $0.000200')
+    expect(html).toContain('1 call not reported')
+  })
+
+  it('shows the spent figures with the count after a failure', () => {
+    const html = readout(
+      failedRun({
+        trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', tokens: 1200, cost: 0.0002, notReported: true }],
+        usage: { total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 },
+      }),
+    )
+    expect(html).toContain('at least 1,200')
+    expect(html).toContain('1 call not reported')
+  })
+
+  it('says not reported, never a zero, when no call reported anything', () => {
+    const html = readout(failedRun({ trace: [{ name: 'Model call', status: 'failed', ms: 9, detail: 'x', notReported: true }], usage: { unreportedCalls: 1 } }))
+    expect(html).toContain('not reported')
+    expect(html).toContain('1 call not reported')
+    expect(html).not.toContain('$0.000000')
+  })
+
+  it('leaves a complete total as it was', () => {
+    const html = readout({ ...runWith(SERVED, 'match', SERVED), usage: { total_tokens: 1200, cost: 0.0002 } })
+    expect(html).not.toContain('at least')
+    expect(html).not.toContain('not reported</dd>')
+  })
+})
+
 describe('the served model chip in the readout', () => {
   it('shows the served id and "newest" when the list names it the newest model', () => {
     const html = readout(runWith(SERVED, 'match', SERVED))

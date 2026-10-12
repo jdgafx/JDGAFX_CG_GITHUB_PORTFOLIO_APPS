@@ -9,6 +9,8 @@ interface TraceStep {
   status: string
   detail: string
   tokens?: number
+  cost?: number
+  notReported?: boolean
 }
 
 interface Reply {
@@ -543,5 +545,47 @@ describe('ai function follow-ups', () => {
     const title = `T${'x'.repeat(500)}END`
     await handler(request({ ...FOLLOW, previous: { ...PREVIOUS, plan: { ...PLAN, title } } }))
     expect(sentMessages(mock)[1]?.content).not.toContain('END')
+  })
+})
+
+// C13: what a failed run spent is in its trace rows and its totals, and a call that reported nothing is said so.
+describe('ai function billed usage on failure', () => {
+  const rowOf = (reply: Reply, name: string) => reply.trace?.find((step) => step.name === name)
+
+  it('marks the model call not reported, and the total partial, when the provider answers an HTTP error', async () => {
+    stubProvider(providerStatus(500))
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.usage).toEqual({ unreportedCalls: 1 })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', notReported: true })
+    expect(rowOf(reply, 'Model call')?.tokens).toBeUndefined()
+  })
+
+  it('counts both timed-out tries as not reported', async () => {
+    stubProvider(abortError(), abortError())
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.usage).toEqual({ unreportedCalls: 2 })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', notReported: true })
+  })
+
+  it('keeps the billed empty first reply when its second try fails', async () => {
+    stubProvider(modelReply(''), providerStatus(500))
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'failed', tokens: 1200, cost: 0.0002, notReported: true })
+  })
+
+  it('keeps the first call in the totals when the repair turn fails, and marks the repair row not reported', async () => {
+    stubProvider(modelReply(JSON.stringify({ ...PLAN, groupBy: 'category' })), providerStatus(500))
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'ok', tokens: 1200 })
+    expect(rowOf(reply, 'Repair turn')).toMatchObject({ status: 'failed', notReported: true })
+  })
+
+  it('shows a successful run as partial when its first try timed out and was repeated', async () => {
+    stubProvider(abortError(), modelReply(JSON.stringify(PLAN)))
+    const reply = await readReply(await handler(request(BODY)))
+    expect(reply.usage).toMatchObject({ total_tokens: 1200, cost: 0.0002, unreportedCalls: 1 })
+    expect(rowOf(reply, 'Model call')).toMatchObject({ status: 'ok', tokens: 1200, notReported: true })
   })
 })
