@@ -1,7 +1,8 @@
 {
   "app": "app-08-vision-ai",
-  "version": 1,
-  "frozen": "2026-10-11",
+  "version": 2,
+  "frozen": "2026-10-12",
+  "revision": "v2 2026-10-12 (Chris, decision GI.2 = app-08 option 1): r2 hand check 2 judges labels, axes, totals and legend names; colour-to-series matching is reported in the evidence, not judged. r3 hand check 2 judges that the answer describes the scene; quoting the sign text is reported, not judged",
   "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
   "done_sentence": "Commons picks load and the pick error clears on a new image, and SP2 8 of 8",
   "runs": [
@@ -53,7 +54,7 @@
           "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
         },
         {
-          "claim": "the analysis states the text, numbers or table the chart shows, as laid out, and that matches the Commons file page",
+          "claim": "the analysis states the chart's labels, axes, totals and legend names as the chart shows them, and they match the picture and the Commons file page; which colour it assigns to which series is recorded in the evidence and reported, not judged",
           "expected": "HAND_CHECK_AT_RUN",
           "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
         },
@@ -85,7 +86,7 @@
           "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
         },
         {
-          "claim": "the answer to 'what does the sign say?' gives the words on the sign, and they match the picture",
+          "claim": "the answer describes the scene (the sign and its surroundings) and that matches the picture; any sign text it quotes is recorded in the evidence and reported, not judged",
           "expected": "HAND_CHECK_AT_RUN",
           "verify_at": "https://commons.wikimedia.org/wiki/File:<file title from the run, spaces as underscores>"
         },
