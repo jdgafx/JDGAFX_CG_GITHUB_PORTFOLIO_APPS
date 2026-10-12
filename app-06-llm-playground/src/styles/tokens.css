@@ -42,6 +42,7 @@
   --ds-danger: #ff8068;
   --ds-danger-soft: #38170f;
   --ds-focus: #8db6ff;
+  --ds-accent-fg: #8db6ff;   /* the accent as text on dark surfaces and tints: 4.5:1 or better on every one */
   --ds-slot-a: #78a8ff; --ds-slot-b: #bdf24a; --ds-slot-c: #ffa24f;
   --ds-series-2: #aab6d9; --ds-series-3: #ffa24f; --ds-series-4: #bdf24a;
   --ds-radius: 8px;
@@ -169,7 +170,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-button--primary:hover:not(:disabled) { background: var(--ds-accent); border-color: var(--ds-accent); filter: brightness(0.93); }
 .ds-button--danger { color: var(--ds-danger); border-color: var(--ds-danger); }
 .ds-button--quiet { background: transparent; border-color: transparent; color: var(--ds-text-muted); }
-.ds-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.ds-button:disabled { cursor: not-allowed; }
 .ds-button[aria-busy="true"] { cursor: progress; }
 
 /* Choice: a compact selectable example or preset. Title and a two-line question; the hint shows on the selected one only */
@@ -181,7 +182,7 @@ pre { max-width: none; overflow-x: auto; }
 }
 .ds-choice:hover:not(:disabled) { border-color: var(--ds-accent); }
 .ds-choice--selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
-.ds-choice:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-choice:disabled { cursor: not-allowed; }
 .ds-choice__label { font-size: 15px; font-weight: 650; }
 .ds-choice__text { font-size: 13px; color: var(--ds-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .ds-choice--selected .ds-choice__text { color: var(--ds-text); }

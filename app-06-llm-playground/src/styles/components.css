@@ -50,7 +50,7 @@
 .ds-strip__hint, .ds-metric__hint { font-size: 13px; color: var(--ds-text-muted); }
 .ds-strip--pending .ds-strip__value { color: var(--ds-text-muted); font-weight: 400; }
 .ds-strip--live { border-color: var(--ds-accent-dim); }
-.ds-strip--live .ds-strip__value { color: var(--ds-accent); }
+.ds-strip--live .ds-strip__value { color: var(--ds-accent-fg); }
 .ds-strip--live .ds-strip__item { background: color-mix(in srgb, var(--ds-accent) 5%, var(--ds-surface)); }
 .ds-chips { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
 .ds-chip { display: inline-flex; align-items: center; gap: 8px; padding: 1px 8px; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ds-text); background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: 999px; }
@@ -64,7 +64,7 @@
 .ds-chip--change::before { content: "~"; }
 .ds-chip--remove { color: var(--ds-danger); border-color: var(--ds-danger); }
 .ds-chip--remove::before { content: "-"; }
-.ds-chip--live { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
+.ds-chip--live { color: var(--ds-accent-fg); background: var(--ds-accent-soft); border-color: transparent; }
 
 /* Step trace: rows in order with a waterfall lane; a state sets the row tint and the bar down its left edge */
 .ds-trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--ds-border); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); overflow: hidden; }
@@ -76,7 +76,7 @@
 .ds-trace__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .ds-trace__name { font-size: 15px; font-weight: 650; }
 .ds-trace__state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--ds-text-muted); }
-.ds-trace__state--running { color: var(--ds-accent); }
+.ds-trace__state--running { color: var(--ds-accent-fg); }
 .ds-trace__state--ok { color: var(--ds-success); }
 .ds-trace__state--failed { color: var(--ds-danger); }
 .ds-trace__state--stopped { color: var(--ds-warning); }
@@ -92,7 +92,7 @@
 /* Path (the steps a run took) and legend */
 .ds-path { display: flex; flex-wrap: wrap; gap: 2px 0; margin: 0; padding: 0; list-style: none; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); }
 .ds-path li:not(:last-child)::after { content: "/"; margin: 0 8px; color: var(--ds-border-strong); }
-.ds-path__now { color: var(--ds-accent); font-weight: 600; }
+.ds-path__now { color: var(--ds-accent-fg); font-weight: 600; }
 .ds-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--ds-text-muted); }
 .ds-legend li { display: inline-flex; align-items: center; gap: 8px; }
 .ds-legend__edge { width: 18px; height: 0; border-top: 2.5px solid var(--ds-accent); }
@@ -136,7 +136,7 @@
 .ds-lead__foot { font-size: 13px; color: var(--ds-text-muted); }
 .ds-cite { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ds-border); }
 .ds-cite li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--ds-border); }
-.ds-cite__n { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; color: var(--ds-accent); font-variant-numeric: tabular-nums; }
+.ds-cite__n { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; color: var(--ds-accent-fg); font-variant-numeric: tabular-nums; }
 .ds-cite__title { color: var(--ds-text); font-weight: 650; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--ds-border-strong); text-underline-offset: 3px; }
 .ds-cite__title:hover { text-decoration-color: var(--ds-accent); }
 .ds-cite__url { grid-column: 2; font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }

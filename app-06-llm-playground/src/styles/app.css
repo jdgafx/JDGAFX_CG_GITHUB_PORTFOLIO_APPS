@@ -66,7 +66,7 @@
 /* The reveal: what the vote did, above the revealed panels. */
 .arena-reveal { padding: 12px 16px; background: var(--ds-surface); border: 1px solid var(--ds-accent); border-radius: var(--ds-radius); }
 .arena-reveal__line { font-weight: 650; max-width: none; }
-.arena-reveal__line a { color: var(--ds-accent); font-weight: 650; }
+.arena-reveal__line a { color: var(--ds-accent-fg); font-weight: 650; }
 .arena-reveal__moves { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 
 /* Rating changes: an arrow for the direction (green up, muted down) and the figure in the text colour. */
@@ -253,7 +253,7 @@
 .ds-strip__item { background: var(--ds-surface); }
 .ds-strip__value { font-family: var(--ds-display); font-size: 32px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.1; }
 .ds-strip--live { border-color: var(--ds-accent); }
-.ds-strip--live .ds-strip__value { color: var(--ds-accent); }
+.ds-strip--live .ds-strip__value { color: var(--ds-accent-fg); }
 .ds-strip--live .ds-strip__item { background: color-mix(in srgb, var(--ds-accent) 8%, var(--ds-surface)); }
 
 /* The judge stays a tentative, dashed panel. */
@@ -269,6 +269,8 @@
   .arena-letter { width: 48px; height: 48px; font-size: 38px; }
 }
 
-/* A disabled control stays readable (4.5:1) and says so with a dashed edge instead of fading out. */
-.ds-button:disabled { opacity: 0.72; border-style: dashed; }
-.ds-button--quiet:disabled { border-style: solid; }
+/* A disabled control keeps full-strength text: explicit muted colour (never opacity), a dashed edge and the not-allowed cursor. */
+.ds-button:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-bg); border: 1px dashed var(--ds-border-strong); }
+.ds-button--quiet:disabled { background: transparent; border-color: transparent; }
+.ds-choice:disabled { opacity: 1; background: var(--ds-bg); border-style: dashed; border-color: var(--ds-border-strong); }
+.ds-choice:disabled .ds-choice__label, .ds-choice:disabled .ds-choice__text, .ds-choice:disabled .ds-choice__meta { color: var(--ds-text-muted); }
