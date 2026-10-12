@@ -16,6 +16,17 @@ export interface RunInput {
   models: [string, string]
 }
 
+// The request the client sends for a run: the one place it is built, so a replay can check a recording against it.
+export function compareRequest(defaultModel: string, input: RunInput): CompareRequest {
+  return {
+    prompt: input.prompt,
+    models: [defaultModel, input.models[0], input.models[1]],
+    system: input.system.trim() === '' ? undefined : input.system,
+    temperature: input.temperature ?? undefined,
+    blind: input.mode === 'blind' ? true : undefined,
+  }
+}
+
 export function judgeView(verdict: JudgeResponse): JudgeView {
   if (verdict.ok) return { state: 'done', verdict }
   return { state: 'failed', step: verdict.trace[0], model: verdict.model, usage: verdict.usage, cost: verdict.cost, notReported: verdict.notReported }
@@ -62,20 +73,15 @@ export function useArena(catalogue: CatalogueResponse | null) {
     return () => controller.abort()
   }, [refreshBoard])
 
-  async function start(input: RunInput) {
+  // replay: the run is a recorded one being played back through this same code. It can never take a vote.
+  async function start(input: RunInput, options: { replay?: boolean } = {}) {
     if (!catalogue) return
     controllerRef.current?.abort()
     const gen = ++generation.current
     const controller = new AbortController()
     controllerRef.current = controller
-    setRun(startedRun(input.mode, input.prompt))
-    const request: CompareRequest = {
-      prompt: input.prompt,
-      models: [catalogue.defaultModel, input.models[0], input.models[1]],
-      system: input.system.trim() === '' ? undefined : input.system,
-      temperature: input.temperature ?? undefined,
-      blind: input.mode === 'blind' ? true : undefined,
-    }
+    setRun({ ...startedRun(input.mode, input.prompt), replay: options.replay === true ? true : undefined })
+    const request = compareRequest(catalogue.defaultModel, input)
     try {
       const result = await runCompare(request, controller.signal)
       if (result.blind === true) {
@@ -133,7 +139,7 @@ export function useArena(catalogue: CatalogueResponse | null) {
 
   async function vote(choice: VoteChoice) {
     const blind = run?.blind
-    if (!blind) return
+    if (!blind || run?.replay) return
     const gen = generation.current
     update(gen, prev => ({ ...prev, vote: { state: 'sending', choice } }))
     try {

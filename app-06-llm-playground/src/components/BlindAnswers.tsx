@@ -6,6 +6,8 @@ interface BlindAnswersProps {
   blind: BlindCompareResponse
   vote: VoteView
   onVote: (choice: VoteChoice) => void
+  // A replayed run: the answers are real but the vote is off, so nothing is sent or stored.
+  replay?: boolean
 }
 
 function answerState(answer: BlindAnswer): { label: string; dot: string } {
@@ -15,9 +17,9 @@ function answerState(answer: BlindAnswer): { label: string; dot: string } {
 }
 
 // The answers with the models withheld. Nothing here names a model or carries a figure that could.
-export function BlindAnswers({ blind, vote, onVote }: BlindAnswersProps) {
+export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswersProps) {
   const sending = vote.state === 'sending'
-  const dead = vote.state === 'failed' && vote.final
+  const dead = (vote.state === 'failed' && vote.final) || replay
   const answered = blind.answers.filter(a => a.ok).length
   return (
     <div className="arena-blind">
@@ -82,6 +84,11 @@ export function BlindAnswers({ blind, vote, onVote }: BlindAnswersProps) {
           A tie draws every pair. "All answers are bad" is counted as a ballot but moves no rating. One vote per comparison.
         </p>
       </div>
+      {replay && (
+        <p className="ds-help" role="note">
+          This is a replay, so voting is off and nothing is sent. Choose Run it live to run your own and vote.
+        </p>
+      )}
       {vote.state === 'failed' && (
         <div className="ds-state ds-state--error" role="alert">
           <span className="ds-state__mark" aria-hidden="true" />

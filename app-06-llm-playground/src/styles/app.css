@@ -177,3 +177,9 @@
   .howto__what, .howto__steps, .howto .ds-notice { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
 }
+
+/* Replay label: a recorded run is played back on load; this says so, with the figures from the recording. */
+.replay-label { display: grid; gap: 4px; padding: 12px 16px; min-width: 0; }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; overflow-wrap: anywhere; }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }

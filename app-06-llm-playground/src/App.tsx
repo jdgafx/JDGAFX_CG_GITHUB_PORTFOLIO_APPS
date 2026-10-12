@@ -3,7 +3,8 @@ import { fetchCatalogue, isAbortError } from './lib/api'
 import { blockedReason, chooseOption, DEFAULT_PICKS, statusText, type Mode, type Picks, type RunView } from './lib/run'
 import { liveIndicator } from './lib/liveData'
 import { HOWTO_STEPS, HOWTO_WHAT } from './lib/howto'
-import { useArena } from './lib/useArena'
+import { useArena, type RunInput } from './lib/useArena'
+import { useReplay } from './lib/useReplay'
 import { useResultFocus } from './lib/useResultFocus'
 import type { CatalogueResponse } from '../netlify/shared/contract'
 import { AnswersSection } from './components/AnswersSection'
@@ -14,6 +15,7 @@ import { JudgeCard } from './components/JudgeCard'
 import { Leaderboard } from './components/Leaderboard'
 import { PanelSetup } from './components/PanelSetup'
 import { PromptCard, SAMPLES } from './components/PromptCard'
+import { ReplayLabel } from './components/ReplayLabel'
 import { RunActions } from './components/RunActions'
 import { RunTotalsStrip } from './components/RunTotals'
 import { TraceCard } from './components/TraceCard'
@@ -95,8 +97,12 @@ export default function App() {
   // Try it: the first sample prompt, compared blind on the picked panels. It never casts a vote.
   const tryPrompt = SAMPLES[0].prompt
   const tryBlocked = blockedReason(catalogue, picks, tryPrompt) !== null
+  const tryInput: RunInput = { mode: 'blind', prompt: tryPrompt, system: '', temperature: null, models: [picks.B, picks.C] }
+  // On load, a fresh recording of this very example is played back through the same client; Run it live ends it.
+  const replay = useReplay({ catalogue, run, input: tryInput, start: arena.start, clear: arena.clear })
   function handleTry() {
-    if (running || tryBlocked) return
+    if ((running && !run?.replay) || tryBlocked) return
+    replay.stop()
     setMode('blind')
     setPrompt(tryPrompt)
     setSystem('')
@@ -156,6 +162,7 @@ export default function App() {
           <div className="ds-run">
             <p className="ds-sr-only" role="status" aria-live="polite">{statusText(run, blocked)}</p>
             <Leaderboard state={arena.board} changes={voted} onRetry={() => void arena.refreshBoard()} />
+            {replay.info && <ReplayLabel info={replay.info} onRunLive={handleTry} disabled={tryBlocked} />}
             <RunTotalsStrip run={run} />
             <div className="ds-run__result arena-result">
               <AnswersSection run={run} picks={picks} onVote={choice => void arena.vote(choice)} onRetry={handleRun} canRetry={canRun} />

@@ -89,7 +89,7 @@ function Body({ run, picks, onVote, onRetry, canRetry }: AnswersSectionProps) {
     )
   }
   if (run.status === 'voting' && run.blind) {
-    return <BlindAnswers blind={run.blind} vote={run.vote} onVote={onVote} />
+    return <BlindAnswers blind={run.blind} vote={run.vote} onVote={onVote} replay={run.replay === true} />
   }
   return <Revealed run={run} picks={picks} />
 }

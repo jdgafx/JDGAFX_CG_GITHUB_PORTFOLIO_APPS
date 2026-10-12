@@ -59,6 +59,8 @@ export interface RunView {
   // Why a blind request was shown openly (nothing to vote on, or votes unavailable).
   notice: string | null
   vote: VoteView
+  // True for a recorded run played back by the replay. Its run id is a real one, so it must never be voted on.
+  replay?: true
 }
 
 export function startedRun(mode: Mode, prompt: string): RunView {
