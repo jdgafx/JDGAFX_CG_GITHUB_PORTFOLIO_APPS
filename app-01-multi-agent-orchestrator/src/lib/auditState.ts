@@ -17,7 +17,7 @@ export interface AuditView {
   note?: string
 }
 
-const EMPTY_SUMMARY: AuditSummary = { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0 }
+const EMPTY_SUMMARY: AuditSummary = { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0 }
 
 /** An audit still waiting once the run has ended will never start, so the trace and graph say it was not run. */
 export function settleAudit(view: AuditView, runEnded: boolean, runStopped = false): AuditView {

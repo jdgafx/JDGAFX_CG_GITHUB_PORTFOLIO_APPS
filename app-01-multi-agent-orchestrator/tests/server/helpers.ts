@@ -182,6 +182,20 @@ export function reply(text: string, cost: number, prompt: number, completion: nu
   }
 }
 
+/** A reply that streams its text and then ends with finish_reason 'length': the text may still look like a complete answer. */
+export function lengthReply(text: string): () => Response {
+  return () =>
+    new Response(
+      [
+        { model: SERVED, choices: [{ delta: { content: text } }] },
+        { model: SERVED, choices: [{ delta: {}, finish_reason: 'length' }], usage: { prompt_tokens: 10, completion_tokens: 4000, total_tokens: 4010, cost: 0.001 } },
+      ]
+        .map(value => `data: ${JSON.stringify(value)}\n\n`)
+        .join('') + 'data: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
+}
+
 /** A reply whose frames name no model, so its served model is not reported. */
 export function unnamedReply(text: string): () => Response {
   return () =>

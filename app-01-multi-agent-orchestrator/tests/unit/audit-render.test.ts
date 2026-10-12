@@ -22,8 +22,7 @@ function settled(): AuditClaim[] {
     settleClaim(claim, claim.pre, SOURCES, {
       id: claim.id,
       verdict: i === 0 ? 'supported' : 'unsupported',
-      source: 1,
-      ...(i === 0 ? { quote: 'designed to conduct infrared astronomy' } : {}),
+      spans: i === 0 ? [{ source: 1, text: 'designed to conduct infrared astronomy' }] : [],
       reason: i === 0 ? 'Stated.' : 'Not stated.',
     }),
   )
@@ -112,6 +111,37 @@ describe('SourcePanel', () => {
     const out = html(createElement(SourcePanel, { claim: second as AuditClaim, sources: SOURCES }))
     expect(out).toContain('No sentence of the cited source backs this claim')
     expect(out).not.toContain('<mark')
+  })
+})
+
+describe('unverified verdict', () => {
+  const noop = () => undefined
+  const unverified = (): AuditClaim => {
+    const [draft] = pendingClaims(REPORT, SOURCES)
+    if (!draft) throw new Error('no claim')
+    return settleClaim(draft, draft.pre, SOURCES, { id: draft.id, verdict: 'supported', spans: [{ source: 1, text: 'a sentence that the source never contains' }], reason: 'Stated.' })
+  }
+
+  it('is named in the badge, the headline detail, the legend and the source panel, never as supported', () => {
+    const claim = unverified()
+    expect(claim.verdict).toBe('unverified')
+    const panel = html(createElement(SourcePanel, { claim, sources: SOURCES }))
+    expect(panel).toContain('Unverified')
+    expect(panel).toContain('The quoted text was not found in the source, so support is not confirmed.')
+    expect(panel).not.toContain('<mark')
+    const out = html(createElement(AuditSummary, { view: viewOf([claim]), onRetry: noop }))
+    expect(out).toContain('0 of 1 cited claim supported')
+    expect(out).toContain('1 unverified.')
+    expect(out).toContain('aria-label="Audit result: 1 unverified"')
+  })
+
+  it('shows what the source does not cover for a partly supported claim', () => {
+    const [draft] = pendingClaims(REPORT, SOURCES)
+    if (!draft) throw new Error('no claim')
+    const claim = settleClaim(draft, draft.pre, SOURCES, { id: draft.id, verdict: 'partly', spans: [{ source: 1, text: 'designed to conduct infrared astronomy' }], uncovered: 'the word "launched"', reason: 'Close.' })
+    const panel = html(createElement(SourcePanel, { claim, sources: SOURCES }))
+    expect(panel).toContain('Not covered by the source:')
+    expect(panel).toContain('the word &quot;launched&quot;')
   })
 })
 

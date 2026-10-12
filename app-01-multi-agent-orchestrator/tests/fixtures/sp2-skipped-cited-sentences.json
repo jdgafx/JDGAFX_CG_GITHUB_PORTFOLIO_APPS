@@ -1,0 +1,47 @@
+[
+ {
+  "run": "b143f-2026-10-12",
+  "file": "r2-2-report.md",
+  "sentence": "The description of JWST's purpose also rests on a single source [1]."
+ },
+ {
+  "run": "b143f-2026-10-12",
+  "file": "r2-3-report.md",
+  "sentence": "**Single-source reliance:** The mission and infrared claims rest on one source [1]."
+ },
+ {
+  "run": "b143f-2026-10-12",
+  "file": "r3-3-report.md",
+  "sentence": "Every substantive claim rests on a single source [1], so none is corroborated."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "double-1-report.md",
+  "sentence": "The record-setting galaxy claim depends on a single source [4], and the model-revision implication comes from the reviewer's reading of [5], not from a stated researcher conclusion."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "r1-3-report.md",
+  "sentence": "Whether guide RNAs are fully synthetic or partly natural is supported by a single source [1] and should be corroborated."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "r2-1-report.md",
+  "sentence": "The claim that JWST is a \"larger successor\" to Hubble also rests on a single source without cited comparative specifications [1]."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "r2-2-report.md",
+  "sentence": "The telescope's scope and purpose rest on a single source [1], and the discovery claims cannot be checked against the figures, redshifts, or methods they would need."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "r3-1-report.md",
+  "sentence": "The memory-safety claim is supported by a single source, and no benchmark or independent corroboration is cited to show these guarantees hold in practice [1]."
+ },
+ {
+  "run": "r-sp2-2026-10-11",
+  "file": "r3-3-report.md",
+  "sentence": "The kernel milestones rest on a single source [3], so they should be corroborated before being treated as firmly established."
+ }
+]

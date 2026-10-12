@@ -17,6 +17,7 @@
 .verdict[data-verdict="supported"], [data-verdict="supported"] > .verdict { color: var(--ds-success); background: var(--ds-success-soft); border-color: transparent; }
 .verdict[data-verdict="partly"], [data-verdict="partly"] > .verdict { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .verdict[data-verdict="unsupported"], [data-verdict="unsupported"] > .verdict { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
+.verdict[data-verdict="unverified"], [data-verdict="unverified"] > .verdict { color: var(--ds-text); background: var(--ds-surface-2); border-color: var(--ds-border-strong); border-style: dashed; }
 .verdict[data-verdict="checking"], [data-verdict="checking"] > .verdict { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
 
 /* Audit summary: the headline, the bar of the four verdicts, the legend with counts */
@@ -28,6 +29,7 @@
 .audit-bar > [data-verdict="supported"] { background: var(--ds-success); }
 .audit-bar > [data-verdict="partly"] { background: repeating-linear-gradient(135deg, var(--ds-warning) 0 4px, color-mix(in srgb, var(--ds-warning) 55%, var(--ds-surface-2)) 4px 8px); }
 .audit-bar > [data-verdict="unsupported"] { background: var(--ds-danger); }
+.audit-bar > [data-verdict="unverified"] { background: repeating-linear-gradient(45deg, var(--ds-text-muted) 0 3px, var(--ds-surface-2) 3px 6px); }
 .audit-bar > [data-verdict="unchecked"] { background: var(--ds-border-strong); }
 .audit-bar--pending { background: repeating-linear-gradient(135deg, var(--ds-border) 0 6px, var(--ds-surface-2) 6px 12px); }
 .audit-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
@@ -49,6 +51,7 @@
 .claim[data-verdict="supported"] { --claim-line: var(--ds-border-strong); --claim-tint: transparent; }
 .claim[data-verdict="partly"] { --claim-line: var(--ds-warning); --claim-tint: color-mix(in srgb, var(--ds-warning) 9%, transparent); text-decoration-style: dashed; }
 .claim[data-verdict="unsupported"] { --claim-line: var(--ds-danger); --claim-tint: color-mix(in srgb, var(--ds-danger) 10%, transparent); text-decoration-style: wavy; }
+.claim[data-verdict="unverified"] { --claim-line: var(--ds-text-muted); text-decoration-style: dashed; }
 .claim[data-verdict="unchecked"], .claim[data-verdict="checking"] { text-decoration-style: dotted; }
 .claim__tail { white-space: nowrap; }
 .claim__tail > .verdict { margin-left: 4px; vertical-align: 1px; }

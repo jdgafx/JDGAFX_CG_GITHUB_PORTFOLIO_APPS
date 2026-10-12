@@ -1,7 +1,7 @@
 import { VERDICT_VIEW } from '../lib/verdict'
 import type { Verdict } from '../types'
 
-/** One shape per verdict, so the badge reads without colour: check, half circle, cross, dash, open ring. */
+/** One shape per verdict, so the badge reads without colour: check, half circle, cross, ringed dot, dash, dashed ring. */
 function Shape({ verdict }: { verdict: Verdict }) {
   switch (verdict) {
     case 'supported':
@@ -15,6 +15,13 @@ function Shape({ verdict }: { verdict: Verdict }) {
       )
     case 'unsupported':
       return <path d="M4 4l8 8M12 4l-8 8" fill="none" strokeWidth="2.2" strokeLinecap="round" />
+    case 'unverified':
+      return (
+        <>
+          <circle cx="8" cy="8" r="5.5" fill="none" strokeWidth="1.8" />
+          <circle cx="8" cy="8" r="1.6" stroke="none" />
+        </>
+      )
     case 'unchecked':
       return <path d="M4 8h8" fill="none" strokeWidth="2.2" strokeLinecap="round" />
     case 'checking':

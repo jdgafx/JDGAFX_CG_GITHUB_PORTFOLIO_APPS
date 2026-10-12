@@ -375,13 +375,25 @@ describe('runStage', () => {
     expect(result.usage).toEqual({})
   })
 
-  it('keeps the first attempt text when the retry drops before any text arrives', async () => {
+  it('does not fall back to the first attempt text when the retry drops before any text arrives', async () => {
     const fetchMock = stubFetch(() => upstreamReply('Start', { finish: 'length' }), droppedBody([]))
 
     const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(result).toMatchObject({ content: 'Start', finish: 'length' })
+    // The last attempt is the reply. A cut-off first attempt is never preferred for being longer.
+    expect(result).toMatchObject({ content: '', finish: 'interrupted' })
+  })
+
+  it('returns the retry that finished, not a longer cut-off first attempt', async () => {
+    stubFetch(
+      () => upstreamReply('A long first attempt that ran out of length', { finish: 'length' }),
+      () => upstreamReply('Short'),
+    )
+
+    const result = await runStage(stageAt(0), 'Q', provider, Date.now() + 60_000, LIVE)
+
+    expect(result).toMatchObject({ content: 'Short', finish: 'stop' })
   })
 
   it('retries a reply that ends without a finish reason, and keeps the fuller answer', async () => {

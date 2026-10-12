@@ -1,0 +1,39 @@
+[
+  {
+    "title": "CRISPR gene editing",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/CRISPR_gene_editing",
+    "snippet": "CRISPR gene editing (; pronounced like \"crisper\"; an abbreviation for \"clustered regularly interspaced short palindromic repeats\") is a genetic engineering technique in molecular biology by which the genomes of living organisms may be modified. It is based on a simplified version of the bacterial CRISPR-Cas9 antiviral defense system. By delivering the Cas9 nuclease complexed with a synthetic guide RNA (gRNA) into a cell, the cell's genome can be cut at a desired location, allowing existingâ€¦",
+    "n": 1
+  },
+  {
+    "title": "CRISPR",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/CRISPR",
+    "snippet": "CRISPR (; acronym for clustered regularly interspaced short palindromic repeats) is a family of DNA sequences found in the genomes of prokaryotic organisms such as bacteria and archaea. Each sequence within an individual prokaryotic CRISPR is derived from a DNA fragment of a bacteriophage that had previously infected the prokaryote or one of its ancestors. These sequences are used to detect and destroy DNA from similar bacteriophages during subsequent infections. Hence these sequences play aâ€¦",
+    "n": 2
+  },
+  {
+    "title": "Genome editing",
+    "site": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Genome_editing",
+    "snippet": "Genome editing, or genome engineering, or gene editing, is a type of genetic engineering in which DNA is inserted, deleted, modified or replaced in the genome of a living organism. Unlike early genetic engineering techniques that randomly insert genetic material into a host genome, genome editing targets the insertions to site-specific locations. Programmable molecules called restriction endonucleases, also known as gene editors or molecular scissors, are used to create double-strand breaksâ€¦",
+    "n": 3
+  },
+  {
+    "title": "CRISPR gene-editing breakthrough opens door to treating broad array of diseases",
+    "site": "Hacker News",
+    "url": "https://news.ycombinator.com/item?id=27643517",
+    "snippet": "Hacker News story \"CRISPR gene-editing breakthrough opens door to treating broad array of diseases\", linking to npr.org. 600 points, 234 comments, Jun 2021.",
+    "note": "600 points, 234 comments, Jun 2021",
+    "n": 4
+  },
+  {
+    "title": "HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]",
+    "site": "Hacker News",
+    "url": "https://news.ycombinator.com/item?id=39761283",
+    "snippet": "Hacker News story \"HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]\", linking to escmid.org. 324 points, 77 comments, Mar 2024.",
+    "note": "324 points, 77 comments, Mar 2024",
+    "n": 5
+  }
+]

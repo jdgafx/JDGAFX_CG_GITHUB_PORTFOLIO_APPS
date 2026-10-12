@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import * as audit from '../../src/lib/audit'
 import {
   type Judgment,
   citesOf,
   decidedWithoutModel,
   extractClaims,
-  admitsGap,
-  unstatedSuperlatives,
-  isAboutResearch,
-  findQuote,
+  findSpan,
   namesIn,
   numbersIn,
   preCheck,
@@ -19,6 +17,7 @@ import {
   summaryLine,
 } from '../../src/lib/audit'
 import type { AuditClaim, Source } from '../../src/types'
+import { readFileSync } from 'node:fs'
 
 const JWST =
   'The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy. Its 6.5 meter primary mirror lets it see objects too old and distant for Hubble. It launched on 25 December 2021.'
@@ -78,16 +77,28 @@ describe('citesOf and extractClaims', () => {
   })
 })
 
-describe('claims about the research itself', () => {
-  it('are not extracted as claims, and the sentence stays plain in the report', () => {
-    const body = 'The wall is long [1]. The research rests on a single source [1]. One source [4] names no climber. Independent corroboration would help [2].'
-    expect(extractClaims(body).map(claim => claim.text)).toEqual(['The wall is long [1].'])
-    expect(isAboutResearch('No source names the climbers [3].')).toBe(false)
-    expect(isAboutResearch('The sources do not agree [3].')).toBe(true)
-    expect(isAboutResearch('The sources consulted mention these but offer no detail on what causal evidence supports them [3][4].')).toBe(true)
-    expect(isAboutResearch('Python 3.0 was released as a major version, but the sources cut off before giving its release date [1].')).toBe(true)
-    expect(isAboutResearch('Two supplied sources contained no substantive content on causation [4][5].')).toBe(true)
-    expect(isAboutResearch('Popular "unsinkable" claims about the ship are treated in the sources as legends rather than established facts [3].')).toBe(false)
+describe('every sentence with a citation marker is audited', () => {
+  // The nine cited sentences the old research-meta regex dropped from the audit in the SP2 evidence (rounds 1 and 2).
+  const skipped = JSON.parse(fixture('sp2-skipped-cited-sentences.json')) as Array<{ run: string; file: string; sentence: string }>
+
+  it('has the nine real sentences', () => {
+    expect(skipped).toHaveLength(9)
+    expect(skipped.some(item => item.sentence.startsWith('The record-setting galaxy claim depends on a single source [4], and the model-revision'))).toBe(true)
+  })
+
+  it.each(skipped.map(item => [`${item.file}: ${item.sentence.slice(0, 60)}`, item.sentence]))('extracts it as a claim: %s', (_name, sentence) => {
+    const claims = extractClaims(`A plain fact is stated here [1].\n\n${sentence}`)
+    expect(claims.map(claim => claim.text)).toEqual(['A plain fact is stated here [1].', sentence.trim()])
+    expect(claims[1]?.cites.length).toBeGreaterThan(0)
+  })
+
+  it('extracts research-meta sentences with a marker in running text; a sentence without a marker is not a claim', () => {
+    const body = 'The wall is long [1]. The research rests on a single source [1]. One source [4] names no climber. Independent corroboration would help [2]. Nothing here is cited.'
+    expect(extractClaims(body).map(claim => claim.text)).toEqual(['The wall is long [1].', 'The research rests on a single source [1].', 'One source [4] names no climber.', 'Independent corroboration would help [2].'])
+  })
+
+  it('exports no research-meta phrase test', () => {
+    expect('isAboutResearch' in audit).toBe(false)
   })
 })
 
@@ -142,7 +153,7 @@ describe('preCheck', () => {
     const pre = preCheck(text, [4], [hn])
     expect(pre.missingNames).toEqual([])
     const draft = { id: 1, block: 0, piece: 0, text, cites: [4] }
-    const claim = settleClaim(draft, pre, [hn], { id: 1, verdict: 'supported', source: 4, quote: 'James Webb Space Telescope Finds Most Distant Known Galaxy', reason: 'Headline states it.' })
+    const claim = settleClaim(draft, pre, [hn], { id: 1, verdict: 'supported', spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }], reason: 'Headline states it.' })
     expect(claim.verdict).toBe('supported')
   })
 
@@ -180,177 +191,179 @@ describe('preCheck', () => {
   })
 })
 
-describe('findQuote', () => {
+
+/** The real SP2 round 2 (r2-1) and round 1 (r1-1) reports and the source text the app received, saved from the acceptance run. */
+const fixture = (name: string): string => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')
+const R2_SOURCES = JSON.parse(fixture('sp2-r2-1-sources.json')) as Source[]
+const R1_SOURCES = JSON.parse(fixture('sp2-r1-1-sources.json')) as Source[]
+const R2_CLAIMS = extractClaims(reportBody(fixture('sp2-r2-1-report.md')))
+const R1_CLAIMS = extractClaims(reportBody(fixture('sp2-r1-1-report.md')))
+const settleFor = (claims: ReturnType<typeof extractClaims>, sources: Source[], id: number, judgment: Omit<Judgment, 'id'>) => {
+  const draft = claims.find(claim => claim.id === id)
+  if (!draft) throw new Error(`no claim ${id}`)
+  return settleClaim(draft, preCheck(draft.text, draft.cites, sources), sources, { id, ...judgment })
+}
+
+describe('findSpan', () => {
   const text = 'Its 6.5 meter primary mirror lets it see objects too old and distant for Hubble.'
 
-  it('finds the span despite case, spacing and curly quotes', () => {
-    const span = findQuote(text, 'ITS 6.5  meter primary mirror')
-    expect(span).not.toBeNull()
+  it('finds the span despite spacing and curly quotes, and returns its place in the original text', () => {
+    const span = findSpan(text, 'Its 6.5  meter\nprimary mirror')
     expect(text.slice(span?.start, span?.end)).toBe('Its 6.5 meter primary mirror')
-    expect(findQuote('He said “it works well” today.', 'said "it works well"')).not.toBeNull()
+    expect(findSpan('He said “it works well” today.', 'said "it works well"')).not.toBeNull()
   })
 
-  it('ignores a trailing ellipsis the model added', () => {
-    const span = findQuote(text, 'objects too old and distant…')
+  it('is exact otherwise: case, wording and dashes must match', () => {
+    expect(findSpan(text, 'ITS 6.5 meter primary mirror')).toBeNull()
+    expect(findSpan(text, 'a 9 meter primary mirror lets it see')).toBeNull()
+    expect(findSpan('A well-known, long-lived result here.', 'well–known, long-lived result')).toBeNull()
+  })
+
+  it('ignores an ellipsis the model put at either end, and refuses a span too short to mean anything', () => {
+    const span = findSpan(text, 'objects too old and distant…')
     expect(text.slice(span?.start, span?.end)).toBe('objects too old and distant')
-  })
-
-  it('refuses a quote that is not in the text, or too short to mean anything', () => {
-    expect(findQuote(text, 'a 9 meter primary mirror lets it see')).toBeNull()
-    expect(findQuote(text, 'primary mirror')).toBeNull()
-    expect(findQuote(text, 'the')).toBeNull()
+    expect(findSpan(text, 'primary mirror')).toBeNull()
+    expect(findSpan(text, 'the')).toBeNull()
   })
 })
 
-describe('settleClaim', () => {
-  const draft = { id: 1, block: 0, piece: 0, text: 'The James Webb Space Telescope launched on 25 December 2021 [1].', cites: [1] }
-  const pre = preCheck(draft.text, draft.cites, SOURCES)
-
-  it('keeps supported when the quote is word for word in the cited source', () => {
-    const claim = settleClaim(draft, pre, SOURCES, { id: 1, verdict: 'supported', source: 1, quote: 'It launched on 25 December 2021.', reason: 'Date stated.' })
-    expect(claim.verdict).toBe('supported')
-    expect(claim.quote).toMatchObject({ n: 1, text: 'It launched on 25 December 2021.' })
-    expect(JWST.slice(claim.quote?.start, claim.quote?.end)).toBe('It launched on 25 December 2021.')
-  })
-
-  it('downgrades supported to partly when the quote is not in the source, and drops the quote', () => {
-    const claim = settleClaim(draft, pre, SOURCES, { id: 1, verdict: 'supported', source: 1, quote: 'It lifted off on Christmas Day 2021.', reason: 'Date.' })
-    expect(claim.verdict).toBe('partly')
-    expect(claim.quote).toBeUndefined()
-    expect(claim.reason).toContain('not in the source text')
-  })
-
-  it('downgrades supported to partly when a number is in no cited source', () => {
-    const wrong = { ...draft, text: 'The James Webb Space Telescope launched on 25 December 2022 [1].' }
-    const claim = settleClaim(wrong, preCheck(wrong.text, wrong.cites, SOURCES), SOURCES, {
-      id: 1,
+describe('settleClaim: the typed verdict plus the verbatim span check, nothing else', () => {
+  it('keeps supported for r2 claim 2 ("record-distant galaxy") when the span is in the source: no superlative table', () => {
+    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, {
       verdict: 'supported',
-      source: 1,
-      quote: 'It launched on 25 December 2021.',
+      spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }],
+      reason: 'Headline states the most distant known galaxy.',
+    })
+    expect(R2_CLAIMS[1]?.text).toContain('record-distant galaxy')
+    expect(claim.verdict).toBe('supported')
+    expect(claim.quotes).toHaveLength(1)
+    expect(claim.quotes?.[0]).toMatchObject({ n: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' })
+    expect(R2_SOURCES[3]?.snippet.slice(claim.quotes?.[0]?.start, claim.quotes?.[0]?.end)).toBe('James Webb Space Telescope Finds Most Distant Known Galaxy')
+  })
+
+  it('keeps supported for r2 claim 3 even when the model says "implied, not stated": the reason text never changes the verdict', () => {
+    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 3, {
+      verdict: 'supported',
+      spans: [{ source: 5, text: 'The James Webb Space Telescope is finding too many early galaxies' }],
+      uncovered: "the word 'expected'",
+      reason: "'expected' wording is implied, not stated",
+    })
+    expect(R2_CLAIMS[2]?.text).toContain('more early galaxies than expected')
+    expect(claim.verdict).toBe('supported')
+    expect(claim.reason).toBe("'expected' wording is implied, not stated")
+  })
+
+  it('makes a supported verdict whose span is not in the source "unverified" (r2 claim 2 and 3)', () => {
+    const c2 = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 4, text: 'JWST found the record-distant galaxy of May 2024' }], reason: 'Stated.' })
+    expect(c2.verdict).toBe('unverified')
+    expect(c2.quotes ?? []).toEqual([])
+    expect(c2.reason).toContain('not found in the source')
+    const c3 = settleFor(R2_CLAIMS, R2_SOURCES, 3, { verdict: 'supported', spans: [{ source: 5, text: 'JWST is finding more early galaxies than expected' }], reason: 'Stated.' })
+    expect(c3.verdict).toBe('unverified')
+  })
+
+  it('makes a supported verdict with one verbatim span and one invented span "unverified", and one with no span too', () => {
+    const real = { source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }
+    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [real, { source: 4, text: 'a span the source never contains' }] }).verdict).toBe('unverified')
+    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [] }).verdict).toBe('unverified')
+  })
+
+  it('accepts a span only from a source the claim cites', () => {
+    const wrong = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 5, text: 'The James Webb Space Telescope is finding too many early galaxies' }] })
+    expect(wrong.verdict).toBe('unverified')
+  })
+
+  it('finds a span whose source number the model got wrong, when another cited source holds it', () => {
+    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: [{ source: 1, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }] })
+    expect(claim.verdict).toBe('supported')
+    expect(claim.quotes?.[0]?.n).toBe(4)
+  })
+
+  it('keeps partly for r1 claim 2 and shows the part of the claim the source does not cover', () => {
+    const claim = settleFor(R1_CLAIMS, R1_SOURCES, 2, {
+      verdict: 'partly',
+      spans: [{ source: 3, text: R1_SOURCES[2]?.snippet.slice(0, 60) ?? '' }],
+      uncovered: 'that these scissors are Cas9 specifically',
+      reason: 'Source describes genome editors in general.',
     })
     expect(claim.verdict).toBe('partly')
-    expect(claim.reason).toContain('2022')
-    expect(claim.quote).toBeDefined()
+    expect(claim.uncovered).toBe('that these scissors are Cas9 specifically')
+    expect(claim.quotes).toHaveLength(1)
   })
 
-  it('never turns a model "unsupported" into something better, and ignores a quote it gave', () => {
-    const claim = settleClaim(draft, pre, SOURCES, { id: 1, verdict: 'unsupported', quote: 'It launched on 25 December 2021.', reason: 'Not stated.' })
+  it('never turns a model "unsupported" into something better, and ignores spans it gave', () => {
+    const claim = settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'unsupported', spans: [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }], reason: 'Not stated.' })
     expect(claim.verdict).toBe('unsupported')
-    expect(claim.quote).toBeUndefined()
-  })
-
-  it('only accepts a quote from a source the claim cites', () => {
-    const claim = settleClaim(draft, pre, SOURCES, { id: 1, verdict: 'partly', source: 2, quote: 'Webb telescope finds early galaxies' })
-    expect(claim.quote).toBeUndefined()
+    expect(claim.quotes ?? []).toEqual([])
   })
 
   it('marks a sentence with no judgment as not checked', () => {
-    expect(settleClaim(draft, pre, SOURCES, undefined)).toMatchObject({ verdict: 'unchecked' })
+    const draft = R2_CLAIMS[0]
+    if (!draft) throw new Error('no claim')
+    expect(settleClaim(draft, preCheck(draft.text, draft.cites, R2_SOURCES), R2_SOURCES, undefined)).toMatchObject({ verdict: 'unchecked' })
   })
 })
 
-describe('a supported verdict that the reason contradicts', () => {
-  const documentary =
-    'Titanic Sinks Tonight is a four-part television documentary and drama series about the sinking of the Titanic. The series places emphasis on the social class and sex of the passengers, as well as the perceived mistakes by those in command.'
-  const sources: Source[] = [{ n: 2, title: 'Titanic Sinks Tonight', site: 'Wikipedia', url: 'https://x.test', snippet: documentary }]
-  const quote = 'The series places emphasis on the social class and sex of the passengers, as well as the perceived mistakes by those in command.'
-  const settle = (text: string, reason: string) => {
-    const draft = { id: 1, block: 0, piece: 0, text, cites: [2] }
-    return settleClaim(draft, preCheck(text, [2], sources), sources, { id: 1, verdict: 'supported', source: 2, quote, reason })
-  }
-
-  it('caps the widened documentary claim to partly and keeps the reason', () => {
-    const claim = settle('Accounts of the disaster frequently point to perceived mistakes by those in command as a recurring theme [2].', "Source says the series emphasizes perceived mistakes by those in command; 'recurring theme' is a mild extension.")
-    expect(claim.verdict).toBe('partly')
-    expect(claim.reason).toContain('mild extension')
-    expect(claim.reason).toContain('does not state all of the claim')
-  })
-
-  it('caps the "implied" case from the 1906 earthquake report', () => {
-    const claim = settle('The quake itself caused severe damage, but fires that burned for several days compounded it [2].', 'Source states fires lasted several days after the earthquake; damage attribution is implied.')
-    expect(claim.verdict).toBe('partly')
-  })
-
-  it.each([
+describe('no prose or word-list rule is left in the verdict', () => {
+  const good = [{ source: 4, text: 'James Webb Space Telescope Finds Most Distant Known Galaxy' }]
+  const reasons = [
     'it does not say this is a recurring theme across accounts generally',
-    "it describes a documentary, not all accounts, so close paraphrase",
     'The source does not mention the cause.',
     'Source extrapolates beyond the series.',
-    'The source does not explicitly state this.',
-    'The claim is an addition to the source.',
-    'The claim adds a detail not in the source.',
-    'A reasonable inference from the source.',
-    'The claim goes beyond the source.',
-    'Cause not mentioned in the source.',
-  ])('flags the reason: %s', reason => {
-    expect(admitsGap(reason)).toBe(true)
-  })
-
-  it.each([
-    'Source states the date, which does not differ from the claim.',
-    'Source states magnitude, coast, time, and date as claimed.',
-    'Source states both the death toll above 3,000 and over 80% destruction.',
-    'The source does not say otherwise; wording matches.',
-    'Shaking extends from Eureka to the Salinas Valley, as stated.',
+    "'expected' wording is implied, not stated",
+    'A mild extension of the source; the claim goes beyond the source.',
+    'Not all of the claim is stated.',
     'Date stated.',
-  ])('leaves a true supported reason alone: %s', reason => {
-    expect(admitsGap(reason)).toBe(false)
-    expect(settle('The series emphasizes perceived mistakes by those in command [2].', reason).verdict).toBe('supported')
-  })
-})
+  ]
 
-describe('superlatives the source does not state', () => {
-  const quake: Source = {
-    n: 1, title: 'San Francisco earthquake', site: 'Wikipedia', url: 'https://x.test',
-    snippet: 'With a maximum Mercalli intensity of XI (Extreme), it created high-intensity shaking from Eureka on the North Coast to the Salinas Valley.',
-  }
-  const text = 'The shaking reached the highest category on the Mercalli intensity scale, XI (Extreme), and was strong along a long stretch of coast from Eureka to the Salinas Valley [1].'
-
-  it('caps the Mercalli claim to partly and names the word', () => {
-    const draft = { id: 1, block: 0, piece: 0, text, cites: [1] }
-    const claim = settleClaim(draft, preCheck(text, [1], [quake]), [quake], {
-      id: 1, verdict: 'supported', source: 1, quote: 'With a maximum Mercalli intensity of XI (Extreme), it created high-intensity shaking from Eureka on the North Coast to the Salinas Valley.',
-      reason: 'Intensity XI and the Eureka to Salinas Valley range are both stated.',
-    })
-    expect(claim.verdict).toBe('partly')
-    expect(claim.reason).toContain('The source text does not state "highest".')
+  it.each(reasons)('a supported verdict with verbatim spans stays supported whatever the reason says: %s', reason => {
+    expect(settleFor(R2_CLAIMS, R2_SOURCES, 2, { verdict: 'supported', spans: good, reason, uncovered: reason }).verdict).toBe('supported')
   })
 
-  it('counts a word only where it ranks, and accepts synonyms', () => {
-    const src = (snippet: string): Source[] => [{ ...quake, snippet }]
-    for (const claim of ['Fires not only broke out but also lasted days [1].', 'At first the tower was red [1].', 'Named for him ever since [1].', 'Most of the city was destroyed [1].', 'It was most likely a fire [1].', 'She was designed first and then built [1].'])
-      expect(unstatedSuperlatives(claim, src('Fires lasted days.'))).toEqual([])
-    expect(unstatedSuperlatives('It is the tallest structure [1].', src('It is the highest structure.'))).toEqual([])
-    expect(unstatedSuperlatives('It was her first voyage, the first of three [1].', src('A voyage.'))).toEqual(['first'])
-    expect(unstatedSuperlatives('It is the only one [1].', src('It is exclusively theirs.'))).toEqual([])
-    expect(unstatedSuperlatives('The most damaged city [1].', src('Over 80% of the city was destroyed.'))).toEqual([])
-    expect(unstatedSuperlatives('The most damaged city [1].', src('Over 30% of the city was destroyed.'))).toEqual(['most'])
-    expect(unstatedSuperlatives('The largest storm ever recorded [1].', src('A storm.'))).toEqual(['largest', 'ever'])
-  })
-
-  it('finds the word, or a synonym, in the cited source', () => {
-    const src = (snippet: string): Source[] => [{ ...quake, snippet }]
-    expect(unstatedSuperlatives(text, src('XI was the highest category reached.'))).toEqual([])
-    expect(unstatedSuperlatives('It was the first described in 1906 [1].', src('It was first described in 1906.'))).toEqual([])
-    expect(unstatedSuperlatives('Almost every galaxy has one [1].', src('Every galaxy has one.'))).toEqual([])
-    expect(unstatedSuperlatives('It was the largest city [1].', src('It was the biggest city.'))).toEqual([])
-    expect(unstatedSuperlatives('It is the only survivor, and the most notable [1].', src('A survivor.'))).toEqual(['only', 'most'])
-  })
-})
-
-describe('a verdict is never raised in code', () => {
-  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 and sank two hours later. She was the largest ship afloat.' }
   it.each([
-    ['The Titanic struck a mine and sank [1].', 'Source 1 says Titanic struck an iceberg, not a mine.'],
-    ['The fault is left-lateral [1].', 'Source describes a right-lateral fault, but the claim says left-lateral.'],
-    ['She did not strike an iceberg [1].', 'Source states she struck an iceberg.'],
-    ['Gas mains started the fires on the ship [1].', 'Source says nothing about gas mains starting the fires.'],
-    ['The ship was built by the company of Thomas Edison [1].', 'Source states the company of Gustave Eiffel designed and built it.'],
-    ['The ship sank slowly over three days [1].', 'Source says the reverse: she sank two hours later.'],
-    ['The ship hit a mine and an iceberg [1].', 'Source 1 states she hit an iceberg; no mine is mentioned.'],
-  ])('keeps unsupported: %s', (text, reason) => {
+    ['highest, first, only and record words the source never uses', 'It is the highest, the first and the only record telescope ever built [1].'],
+    ['a number and a name the source never mentions', 'Dr Zorblax measured 4,242 galaxies on 3 March 1999 [1].'],
+  ])('the claim text never changes the verdict: %s', (_name, text) => {
+    const source: Source = R2_SOURCES[0] as Source
     const draft = { id: 1, block: 0, piece: 0, text, cites: [1] }
-    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'unsupported', reason })).toMatchObject({ verdict: 'unsupported', reason })
+    const span = { source: 1, text: 'designed to conduct infrared astronomy' }
+    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'supported', spans: [span] }).verdict).toBe('supported')
+    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', spans: [span] }).verdict).toBe('partly')
+    expect(settleClaim(draft, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'unsupported' }).verdict).toBe('unsupported')
+  })
+
+  it('exports no reason-reading or superlative-table function, and its source holds none', () => {
+    expect('admitsGap' in audit).toBe(false)
+    expect('unstatedSuperlatives' in audit).toBe(false)
+    const code = readFileSync(new URL('../../src/lib/audit.ts', import.meta.url), 'utf8')
+    for (const name of ['admitsGap', 'SUPERLATIVES', 'unstatedSuperlatives', 'conflict']) expect(code).not.toContain(name)
+  })
+
+  it('lets the model judge a sentence that shares no content word with its source; code only refuses a source that is not in the list', () => {
+    const draft = { id: 1, block: 0, piece: 0, text: 'Bananas are rich in potassium [1].', cites: [1] }
+    expect(decidedWithoutModel(draft, preCheck(draft.text, [1], SOURCES))).toBeNull()
+    const missing = { ...draft, text: 'Bananas are rich in potassium [9].', cites: [9] }
+    expect(decidedWithoutModel(missing, preCheck(missing.text, [9], SOURCES))).toBe('It cites a source that is not in the list.')
+  })
+})
+
+describe('the preceding sentence as context', () => {
+  it('gives r1 claim 2 ("These programmable ...") the Cas9 sentence before it, so "These" can be resolved', () => {
+    const claim = R1_CLAIMS.find(candidate => candidate.id === 2)
+    expect(claim?.text).toMatch(/^These programmable/)
+    expect(claim?.context).toBe('The Cas9 nuclease paired with a synthetic guide RNA can cut the genome at a chosen location when delivered into a cell.')
+  })
+
+  it('takes the last sentence of the previous text block when the claim opens its block, and none for the first sentence of the report', () => {
+    const claims = extractClaims('First fact is here [1].\n\nSecond block opens here [2]. Then more [3].')
+    expect(claims[0]?.context).toBeUndefined()
+    expect(claims[1]?.context).toBe('First fact is here.')
+    expect(claims[2]?.context).toBe('Second block opens here.')
+  })
+
+  it('does not take a heading as context', () => {
+    const claims = extractClaims('Intro sentence here.\n\n## A Heading\n\nA fact after it [1].')
+    expect(claims[0]?.context).toBe('Intro sentence here.')
   })
 })
 
@@ -361,76 +374,13 @@ describe('names in plural form', () => {
   })
 })
 
-describe('true claims about order and direction keep the model\'s supported verdict', () => {
-  const src = (title: string, snippet: string): Source => ({ n: 1, title, site: 'Wikipedia', url: '', snippet })
-  it.each([
-    ['Apollo 11 landed on the Moon in July 1969, after Apollo 10 tested the lunar lander in May 1969 [1].', 'Apollo 10 tested the lunar lander in lunar orbit in May 1969, two months before Apollo 11 landed on the Moon on 20 July 1969.', 'Source states both dates and the order.'],
-    ['East Germany and West Germany reunified on 3 October 1990 [1].', 'West Germany and East Germany reunified on 3 October 1990, ending 41 years of division.', 'Source states the reunification date.'],
-    ['North Korea invaded South Korea on 25 June 1950 [1].', 'The war began on 25 June 1950 when North Korean forces invaded South Korea across the 38th parallel.', 'Source states the invasion and date.'],
-    ['The earthquake caused fires that burned the city for several days [1].', 'Fires caused by the earthquake burned the city for several days, destroying about 80% of San Francisco.', 'Source states fires caused by the quake lasted days.'],
-    ['Korea had been a Japanese colony until the end of World War II in 1945 [1].', 'After the end of World War II in 1945, Korea, which had been a Japanese colony for 35 years, was divided.', 'Source states the colony ended with the war.'],
-  ])('%s', (text, snippet, reason) => {
-    const source = src('T', snippet)
-    const quote = snippet.split('. ')[0] ?? snippet
-    const claim = settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'supported', source: 1, quote, reason })
-    expect(claim.verdict).toBe('supported')
-  })
-})
-
-describe('a verdict is lowered to unsupported only by the conflict field', () => {
-  const source: Source = { n: 1, title: 'Titanic', site: 'Wikipedia', url: '', snippet: 'RMS Titanic struck an iceberg at 23:40 on 14 April. They often follow speculation and bubbles.' }
-  const settle = (text: string, judgment: Partial<Judgment>) =>
-    settleClaim({ id: 1, block: 0, piece: 0, text, cites: [1] }, preCheck(text, [1], [source]), [source], { id: 1, verdict: 'partly', source: 1, quote: 'RMS Titanic struck an iceberg at 23:40 on 14 April.', ...judgment })
-
-  it('lowers to unsupported on conflict true and drops the quote', () => {
-    const claim = settle('The Titanic struck a mine on 14 April [1].', { reason: 'Source says iceberg.', conflict: true })
-    expect(claim.verdict).toBe('unsupported')
-    expect(claim.quote).toBeUndefined()
-    expect(claim.reason).toContain('The source states something incompatible with this claim.')
-  })
-
-  it.each([
-    "Source says 'often', not 'typically'; the claim's framing adds emphasis the source does not state.",
-    "Source says 'tallest', not 'highest'; otherwise the same.",
-    'Not stated, rather than wrong; the source is silent on the cause.',
-    'The source does not contradict this, but only implies it.',
-    'No contradiction, but the source gives only the date, not the cause.',
-    'The source says legends rather than facts.',
-  ])('stays partly when the reason only says wording differs: %s', reason => {
-    const claim = settle('Crashes typically follow speculation and bubbles [1].', { reason })
-    expect(claim.verdict).toBe('partly')
-    expect(claim.quote).toBeDefined()
-  })
-
-  it('treats supported with conflict true as the contradiction it is, and ignores conflict false', () => {
-    expect(settle('RMS Titanic struck a mine [1].', { verdict: 'supported', reason: 'Stated.', conflict: true }).verdict).toBe('unsupported')
-    expect(settle('RMS Titanic struck an iceberg [1].', { verdict: 'supported', reason: 'Stated.' }).verdict).toBe('supported')
-  })
-})
-
-describe('gap admissions that affirm support are not gaps (admitsGap)', () => {
-  it.each([
-    'Source adds that it was finished in 1889, matching the claim.',
-    'The claim adds nothing beyond it.',
-    'No inference needed; the source states it.',
-    'In addition to the magnitude, both match.',
-    'Nothing goes beyond the source.',
-  ])('%s', reason => {
-    expect(admitsGap(reason)).toBe(false)
-  })
-
-  it('still catches real admissions', () => {
-    expect(admitsGap('The claim adds a cause the source does not give.')).toBe(true)
-    expect(admitsGap('Source adds nothing on that; the claim goes beyond the source.')).toBe(true)
-  })
-})
-
 describe('hyphenated names', () => {
   it('treats Polish-born as its parts', () => {
     const source: Source = { n: 1, title: 'Marie Curie', site: 'Wikipedia', url: '', snippet: 'Marie Curie was a Polish and naturalised-French physicist.' }
     expect(preCheck('Marie Curie was a Polish-born physicist [1].', [1], [source]).missingNames).toEqual([])
   })
 })
+
 
 describe('summary', () => {
   const claim = (id: number, verdict: AuditClaim['verdict']): AuditClaim => ({
@@ -444,11 +394,11 @@ describe('summary', () => {
     reason: '',
   })
 
-  it('counts every verdict and words the headline', () => {
-    const summary = summarize([claim(1, 'supported'), claim(2, 'supported'), claim(3, 'partly'), claim(4, 'unsupported'), claim(5, 'unchecked')])
-    expect(summary).toEqual({ total: 5, supported: 2, partly: 1, unsupported: 1, unchecked: 1 })
-    expect(summaryLine(summary)).toBe('2 of 5 cited claims supported')
-    expect(summaryDetail(summary)).toBe('1 partly supported, 1 not supported, 1 not checked')
+  it('counts every verdict, shows unverified as its own count, and words the headline', () => {
+    const summary = summarize([claim(1, 'supported'), claim(2, 'supported'), claim(3, 'partly'), claim(4, 'unsupported'), claim(5, 'unchecked'), claim(6, 'unverified')])
+    expect(summary).toEqual({ total: 6, supported: 2, partly: 1, unsupported: 1, unchecked: 1, unverified: 1 })
+    expect(summaryLine(summary)).toBe('2 of 6 cited claims supported')
+    expect(summaryDetail(summary)).toBe('1 partly supported, 1 not supported, 1 unverified, 1 not checked')
   })
 
   it('handles one claim and none', () => {

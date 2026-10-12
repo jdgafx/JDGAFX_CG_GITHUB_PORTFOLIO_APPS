@@ -33,12 +33,20 @@ export function preLines(claim: AuditClaim): PreLine[] {
   ]
 }
 
-/** A source text cut into plain and marked runs. Joined, the runs give back the text exactly. */
-export function markedRuns(text: string, span: { start: number; end: number } | null): Array<{ text: string; hit: boolean }> {
-  if (!span) return [{ text, hit: false }]
-  return [
-    { text: text.slice(0, span.start), hit: false },
-    { text: text.slice(span.start, span.end), hit: true },
-    { text: text.slice(span.end), hit: false },
-  ].filter(run => run.text !== '')
+/** A source text cut into plain and marked runs. Joined, the runs give back the text exactly. Overlapping spans are merged. */
+export function markedRuns(text: string, spans: Array<{ start: number; end: number }>): Array<{ text: string; hit: boolean }> {
+  const merged: Array<{ start: number; end: number }> = []
+  for (const span of [...spans].sort((a, b) => a.start - b.start)) {
+    const last = merged[merged.length - 1]
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end)
+    else merged.push({ ...span })
+  }
+  const runs: Array<{ text: string; hit: boolean }> = []
+  let at = 0
+  for (const span of merged) {
+    runs.push({ text: text.slice(at, span.start), hit: false }, { text: text.slice(span.start, span.end), hit: true })
+    at = span.end
+  }
+  runs.push({ text: text.slice(at), hit: false })
+  return runs.filter(run => run.text !== '')
 }

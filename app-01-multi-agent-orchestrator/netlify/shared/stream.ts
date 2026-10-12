@@ -49,6 +49,18 @@ export interface StageResult {
   retried?: string
 }
 
+/**
+ * The plain words for a reply that was cut off, or null when it finished. `subject` is who was cut off ("Analyst",
+ * "The audit"). A cut-off reply is never parsed, shown or passed on, whatever its text looks like.
+ */
+export function cutOffMessage(finish: string | null, subject: string, consequence: string): string | null {
+  if (!isCutOff(finish)) return null
+  if (finish === 'timeout') return TIMEOUT_MESSAGE
+  return finish === 'length'
+    ? `${subject} ran out of reply length before it finished${consequence}. Try again.`
+    : `${subject} stopped before it finished${consequence}. Try again.`
+}
+
 /** Maps a provider status to words a visitor can act on. Raw provider bodies never leave the server. */
 export function friendlyUpstreamMessage(status: number): string {
   if (status === 401 || status === 402 || status === 403) return 'The AI provider rejected the key or is out of credit.'
@@ -217,22 +229,19 @@ async function readAttempt(stream: OpenStream): Promise<StageResult> {
 }
 
 /**
- * Folds the attempts of one stage into one result. The text and finish reason come from the
- * attempt with the most text (a later attempt wins ties). Usage is summed over every attempt,
- * because a retry is billed too. As in usage.ts, the total is reported only when every attempt
- * reported usage, so an attempt that was cut off before its usage arrived leaves it not reported.
+ * Folds the attempts of one stage into one result. The reply is the last attempt read: a retry starts only after
+ * an empty or cut-off attempt, so an earlier attempt is never the one to use, however much text it held. Usage is
+ * summed over every attempt, because a retry is billed too. As in usage.ts, the total is reported only when every
+ * attempt reported usage, so an attempt that was cut off before its usage arrived leaves it not reported.
  */
 function combineAttempts(attempts: StageResult[], retried: string | undefined): StageResult {
-  let best = attempts[0]
-  for (const attempt of attempts) {
-    if (best && attempt.content.trim().length >= best.content.trim().length) best = attempt
-  }
-  if (!best) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {}, attemptServed: [], ...(retried ? { retried } : {}) }
+  const last = attempts[attempts.length - 1]
+  if (!last) return { content: '', finish: 'timeout', reasoningTokens: 0, usage: {}, attemptServed: [], ...(retried ? { retried } : {}) }
   return {
     ...(retried ? { retried } : {}),
-    content: best.content,
-    finish: best.finish,
-    servedModel: best.servedModel,
+    content: last.content,
+    finish: last.finish,
+    servedModel: last.servedModel,
     attemptServed: attempts.map(attempt => attempt.servedModel),
     reasoningTokens: attempts.reduce((sum, attempt) => sum + attempt.reasoningTokens, 0),
     usage: sumUsage(attempts.map(attempt => attempt.usage)),
@@ -243,7 +252,8 @@ function combineAttempts(attempts: StageResult[], retried: string | undefined): 
  * Runs one stage: at most two attempts, both on the fixed model. Every attempt's time cap is cut
  * to what is left of the shared run deadline, and a second attempt starts only when MIN_RETRY_MS
  * or more is left. A retry follows an empty or cut-off reply, or a 429 or 5xx that produced
- * nothing. Text from earlier attempts is kept if a later one fails. If the retry delay leaves no
+ * nothing. The result is the last attempt read, so a cut-off result means the final attempt was cut off: the
+ * caller must not use its text (see cutOffMessage). If the retry delay leaves no
  * room for a second attempt and nothing arrived, the provider's own error is thrown, not a timeout.
  * A cancelled run throws RunCancelledError and starts no further call.
  */

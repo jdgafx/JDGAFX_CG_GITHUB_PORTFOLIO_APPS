@@ -60,14 +60,8 @@ export interface ClaimDraft {
   piece: number
   text: string
   cites: number[]
-}
-
-/**
- * A sentence about the research itself ("the research rests on a single source", "no source names the climbers") cites a
- * source but is not a claim of fact the source could state, so the audit does not judge it.
- */
-export function isAboutResearch(text: string): boolean {
-  return /\b(this|the|these|our) (research|evidence|report|excerpts?|retrieved)\b|\b(?:supplied|cited|retrieved) sources? (?:contain|contained|give|gave|offer|offered) no\b|\bthe sources?(?: (?:consulted|retrieved|used|cited|here))? (?:do not|don't|disagree|differ|are limited|are thin|offer no|give no|cut off|say nothing|mention\b[^.]{0,40}\bbut)\b|\b(rests?|relies|rely|depends?)\b[^.]{0,30}\b(sources?|corroboration)\b|\bcorroborat\w*|\bone source \[|\b(single|only|one) source\b/i.test(plainText(text))
+  /** The sentence before this one in the report, as plain words. Read-only context for words such as "These"; it is never judged. */
+  context?: string
 }
 
 const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
@@ -78,15 +72,26 @@ const LIST_BLOCKS = new Set(['paragraph', 'bullet', 'numbered', 'quote'])
  */
 export function extractClaims(body: string): ClaimDraft[] {
   const claims: ClaimDraft[] = []
+  let previous: string | undefined
   parseBlocks(body).forEach((block, b) => {
     if (!LIST_BLOCKS.has(block.kind) || !('text' in block)) return
     sentencePieces(block.text).forEach((piece, p) => {
       const cites = citesOf(piece)
-      if (cites.length === 0 || isAboutResearch(piece)) return
-      claims.push({ id: claims.length + 1, block: b, piece: p, text: piece.trim(), cites })
+      if (cites.length > 0) {
+        claims.push({ id: claims.length + 1, block: b, piece: p, text: piece.trim(), cites, ...(previous ? { context: previous } : {}) })
+      }
+      const words = readable(piece)
+      if (words) previous = words
     })
   })
   return claims
+}
+
+const MAX_CONTEXT_CHARS = 400
+
+/** A sentence as it reads aloud: markers and marks removed, and no space left before its punctuation. */
+function readable(text: string): string {
+  return plainText(text).replace(/\s+([.,;:!?])/g, '$1').slice(0, MAX_CONTEXT_CHARS)
 }
 
 // ---- The pre-pass ---------------------------------------------------------------------------------------
@@ -241,14 +246,13 @@ export function preCheck(claim: string, cites: number[], sources: Source[]): Pre
   return { overlap, best: best?.n ?? null, missingNumbers, missingNames, level }
 }
 
-/** A claim the model need not judge: it cites nothing that exists, or shares no content word with what it cites. */
+/** A claim the model need not judge: it cites a source that is not in the list. Nothing else is decided by code. */
 export function decidedWithoutModel(draft: ClaimDraft, pre: PreCheck): string | null {
   if (pre.best === null) return 'It cites a source that is not in the list.'
-  if (pre.overlap === 0) return 'It shares no content word with the source it cites.'
   return draft.text ? null : 'Empty sentence.'
 }
 
-// ---- Quotes ---------------------------------------------------------------------------------------------
+// ---- Spans ----------------------------------------------------------------------------------------------
 
 interface Folded {
   text: string
@@ -256,16 +260,15 @@ interface Folded {
   at: number[]
 }
 
-/** Lower case, one space for any whitespace, straight quotes and hyphens, so a copied quote still matches. */
+/** One space for any run of whitespace and straight quotes for curly ones. Nothing else changes: case, wording and dashes stay. */
 function fold(text: string): Folded {
   let out = ''
   const at: number[] = []
   for (let i = 0; i < text.length; i += 1) {
-    let ch = (text[i] ?? '').toLowerCase()
+    let ch = text[i] ?? ''
     if (/\s/.test(ch)) ch = ' '
     else if (/[‘’]/.test(ch)) ch = "'"
     else if (/[“”]/.test(ch)) ch = '"'
-    else if (/[‐-―−]/.test(ch)) ch = '-'
     if (ch === ' ' && (out === '' || out.endsWith(' '))) continue
     out += ch
     at.push(i)
@@ -273,16 +276,18 @@ function fold(text: string): Folded {
   return { text: out, at }
 }
 
-const MIN_QUOTE_CHARS = 15
-const MIN_QUOTE_WORDS = 3
+const MIN_SPAN_CHARS = 15
+const MIN_SPAN_WORDS = 3
 
 /**
- * Finds a quote word for word in a source text, ignoring case, spacing, curly quotes and a trailing ellipsis.
- * Returns the span in the original text, or null. A quote that is too short to mean anything is refused.
+ * Finds a span the model quoted, character for character, in a source text. Only whitespace and curly quotes are
+ * normalised, and an ellipsis the model put at either end is ignored. Returns the span in the original text, or
+ * null. A span too short to mean anything is refused. This is the only check code makes on what the model quoted.
  */
-export function findQuote(text: string, quote: string): { start: number; end: number } | null {
-  const wanted = fold(quote.replace(/(?:…|\.\.\.)+\s*$/, '').replace(/^(?:…|\.\.\.)+\s*/, '')).text.trim()
-  if (wanted.length < MIN_QUOTE_CHARS || wanted.split(' ').length < MIN_QUOTE_WORDS) return null
+export function findSpan(text: string, span: string): { start: number; end: number } | null {
+  const bare = span.replace(/(?:…|\.\.\.)+\s*$/, '').replace(/^\s*(?:…|\.\.\.)+/, '')
+  const wanted = fold(bare).text.trim()
+  if (wanted.length < MIN_SPAN_CHARS || wanted.split(' ').length < MIN_SPAN_WORDS) return null
   const folded = fold(text)
   const found = folded.text.indexOf(wanted)
   if (found === -1) return null
@@ -293,119 +298,67 @@ export function findQuote(text: string, quote: string): { start: number; end: nu
 
 // ---- The verdict ----------------------------------------------------------------------------------------
 
+/** A stretch of source text the model relied on, and the number of the source it took it from. */
+export interface JudgedSpan {
+  source: number
+  text: string
+}
+
 /** What the model said about one claim, before the server checks it. */
 export interface Judgment {
   id: number
   verdict: 'supported' | 'partly' | 'unsupported'
-  source?: number
-  quote?: string
+  spans?: JudgedSpan[]
+  /** The part of the claim the source does not cover. Shown, never read by code. */
+  uncovered?: string
+  /** The model's reason. Shown, never read by code. */
   reason?: string
-  /** True only when the source states something incompatible with the claim. */
-  conflict?: boolean
 }
 
-const cleanReason = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
+const clean = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
 
-function listOf(items: string[]): string {
-  return items.join(', ')
+/** Every span that appears verbatim in a source the claim cites, and how many do not. */
+function checkSpans(draft: ClaimDraft, sources: Source[], spans: JudgedSpan[]): { quotes: AuditQuote[]; missed: number } {
+  const quotes: AuditQuote[] = []
+  let missed = 0
+  for (const span of spans) {
+    const order = [span.source, ...draft.cites].filter(n => draft.cites.includes(n))
+    let found: AuditQuote | undefined
+    for (const n of new Set(order)) {
+      const source = sources.find(candidate => candidate.n === n)
+      const at = source ? findSpan(source.snippet, span.text) : null
+      if (source && at) {
+        found = { n, start: at.start, end: at.end, text: source.snippet.slice(at.start, at.end) }
+        break
+      }
+    }
+    if (!found) missed += 1
+    else if (!quotes.some(quote => quote.n === found.n && quote.start === found.start && quote.end === found.end)) quotes.push(found)
+  }
+  return { quotes, missed }
 }
 
 /**
- * Turns the model's judgment into the verdict the page shows, after the checks the model cannot waive:
- * a quote must be word for word in a cited source; "supported" needs such a quote; a number in the
- * claim that no cited source contains caps it at "partly supported"; a name that none contains also does.
- * No judgment at all is "unchecked", never a guess.
+ * Turns the model's judgment into the verdict the page shows. The model's typed verdict stands. The one thing code
+ * checks is whether the text the model quoted is in a cited source, word for word: a "supported" verdict whose
+ * quotes are missing or not found there is "unverified". Code never reads the reason or the claim to change a
+ * verdict. No judgment at all is "unchecked", never a guess.
  */
 export function settleClaim(draft: ClaimDraft, pre: PreCheck, sources: Source[], judgment: Judgment | undefined): AuditClaim {
   const base = { id: draft.id, block: draft.block, piece: draft.piece, text: draft.text, cites: draft.cites, pre }
   if (!judgment) return { ...base, verdict: 'unchecked', reason: 'The model gave no verdict for this sentence.' }
 
-  let quote: AuditQuote | undefined
-  if (judgment.quote && judgment.verdict !== 'unsupported') {
-    const order = [judgment.source, ...draft.cites].filter((n): n is number => n !== undefined && draft.cites.includes(n))
-    for (const n of new Set(order)) {
-      const source = sources.find(candidate => candidate.n === n)
-      const span = source ? findQuote(source.snippet, judgment.quote) : null
-      if (source && span) {
-        quote = { n, start: span.start, end: span.end, text: source.snippet.slice(span.start, span.end) }
-        break
-      }
-    }
-  }
-
+  const asked = judgment.spans ?? []
+  const { quotes, missed } = judgment.verdict === 'unsupported' ? { quotes: [], missed: 0 } : checkSpans(draft, sources, asked)
   let verdict: Verdict = judgment.verdict
-  const notes: string[] = []
-  if (verdict === 'supported' && !quote) {
-    verdict = 'partly'
-    notes.push(judgment.quote ? 'The quoted sentence is not in the source text, so support is not confirmed.' : 'No supporting sentence was quoted.')
+  let note = ''
+  if (verdict === 'supported' && (quotes.length === 0 || missed > 0)) {
+    verdict = 'unverified'
+    note = asked.length === 0 ? 'No text was quoted from the source, so support is not confirmed.' : 'The quoted text was not found in the source, so support is not confirmed.'
   }
-  // The model marks a real conflict with a field, never in prose, so a wording gap ("often" for "typically") cannot trigger this.
-  if (verdict !== 'unsupported' && judgment.conflict === true) {
-    verdict = 'unsupported'
-    quote = undefined
-    notes.push('The source states something incompatible with this claim.')
-  }
-  if (verdict === 'supported' && admitsGap(judgment.reason)) {
-    verdict = 'partly'
-    notes.push("The model's own reason says the source does not state all of the claim.")
-  }
-  if (verdict === 'supported') {
-    const unstated = unstatedSuperlatives(draft.text, draft.cites.map(n => sources.find(source => source.n === n)).filter((source): source is Source => source !== undefined))
-    if (unstated.length > 0) {
-      verdict = 'partly'
-      notes.push(`The source text does not state ${listOf(unstated.map(word => `"${word}"`))}.`)
-    }
-  }
-  if (verdict === 'supported' && pre.missingNumbers.length > 0) {
-    verdict = 'partly'
-    notes.push(`The source text does not contain ${listOf(pre.missingNumbers)}.`)
-  }
-  if (verdict === 'supported' && pre.missingNames.length > 0) {
-    verdict = 'partly'
-    notes.push(`The source text does not mention ${listOf(pre.missingNames)}.`)
-  }
-  const reason = [cleanReason(judgment.reason), ...notes].filter(Boolean).join(' ')
-  return { ...base, verdict, reason: reason || 'No reason given.', ...(quote ? { quote } : {}) }
-}
-
-/**
- * Ranking words. Each has the pattern that makes it a ranking in a claim ("the only", not "not only"; "the first", not
- * "at first"; "ever" beside a superlative, not "ever since") and the wording that backs it in a source.
- */
-const SUPERLATIVES: Array<[word: string, inClaim: string, inSource: string]> = [
-  ['highest', 'highest', 'highest|tallest|top|peak|greatest'],
-  ['tallest', 'tallest', 'tallest|highest|top|peak'],
-  ['largest', 'largest', 'largest|biggest|greatest'],
-  ['first', 'the first', 'first|maiden|earliest|inaugural|initial'],
-  ['only', 'the only', 'only|exclusively|sole|solely|alone'],
-  ['most', 'the most (?!of\\b|likely\\b)\\w+', 'most|majority|more than half|(?:5[1-9]|[6-9]\\d|100)(?:\\.\\d+)?\\s?%'],
-  ['record', 'record', 'record'],
-  ['ever', '(?<=\\w{3}est\\b[^.]{0,40})ever(?! since)', 'ever'],
-  ['top', 'top', 'top|highest|peak'],
-  ['best', 'best', 'best'],
-  ['worst', 'worst', 'worst'],
-  ['never', 'never', 'never|no one|at any time|not once'],
-  ['deadliest', 'deadliest', 'deadliest|deadly'],
-  ['longest', 'longest', 'longest'],
-  ['lowest', 'lowest', 'lowest'],
-  ['smallest', 'smallest', 'smallest'],
-  ['oldest', 'oldest', 'oldest'],
-]
-
-/** The ranking words the claim uses that none of its cited sources states (whole words, so "almost" is not "most"). */
-export function unstatedSuperlatives(claim: string, cited: Source[]): string[] {
-  const text = plainText(claim)
-  const source = cited.map(sourceText).join(' ')
-  const found = (pattern: string, within: string) => new RegExp(`(?<!\\w)(?:${pattern})(?!\\w)`, 'i').test(within)
-  return SUPERLATIVES.filter(([, inClaim, inSource]) => found(inClaim, text) && !found(inSource, source)).map(([word]) => word)
-}
-
-/**
- * A reason that says the source does not state it, calls the claim an extension, or says it is only implied contradicts a
- * supported verdict. "The source states X, which does not differ from the claim" is not such a reason.
- */
-export function admitsGap(reason: string | undefined): boolean {
-  return /\b(does not|doesn't|do not|not)(?: (?:explicitly|directly|specifically|actually))? (say|state|specify|mention|give|spell out)\b(?! otherwise)|\bnot (mentioned|stated|specified)\b|\bextension\b|\bis an? (?:\w+ )?(?:addition|inference)\b|\b(?:reasonable|fair) inference\b|\bclaim adds (?!nothing)|\badds [^.;]{0,40}(?:not in|beyond) the source|(?<!nothing )\bgoes beyond the source\b|\bextrapolat\w*|\bimplied\b|\bimplies\b|\bnot all\b/i.test(reason ?? '')
+  const uncovered = verdict === 'partly' || verdict === 'unsupported' ? clean(judgment.uncovered) : ''
+  const reason = [clean(judgment.reason), note].filter(Boolean).join(' ')
+  return { ...base, verdict, reason: reason || 'No reason given.', ...(quotes.length > 0 && verdict !== 'unverified' ? { quotes } : {}), ...(uncovered ? { uncovered } : {}) }
 }
 
 export function summarize(claims: AuditClaim[]): AuditSummary {
@@ -416,6 +369,7 @@ export function summarize(claims: AuditClaim[]): AuditSummary {
     partly: count('partly'),
     unsupported: count('unsupported'),
     unchecked: count('unchecked'),
+    unverified: count('unverified'),
   }
 }
 
@@ -431,6 +385,7 @@ export function summaryDetail(summary: AuditSummary): string {
   const parts = [
     summary.partly > 0 ? `${summary.partly} partly supported` : '',
     summary.unsupported > 0 ? `${summary.unsupported} not supported` : '',
+    summary.unverified > 0 ? `${summary.unverified} unverified` : '',
     summary.unchecked > 0 ? `${summary.unchecked} not checked` : '',
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : 'Every cited claim is backed by a quote from its source'

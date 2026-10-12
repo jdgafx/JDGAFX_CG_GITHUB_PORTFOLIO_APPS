@@ -104,8 +104,8 @@ export type StreamEvent =
   | { type: 'agent_error'; agent: AgentRole | 'system'; ms?: number; error: string }
   | ({ type: 'session_complete'; agent: 'synthesizer' } & RunSummary)
 
-/** The audit's verdict on one cited claim. 'unchecked' means no verdict was reached; it is never hidden. 'checking' exists only in the browser, while the request is out. */
-export type Verdict = 'supported' | 'partly' | 'unsupported' | 'unchecked' | 'checking'
+/** The audit's verdict on one cited claim. 'unverified' means the model said supported but the text it quoted is not in the source. 'unchecked' means no verdict was reached. Neither is hidden. 'checking' exists only in the browser, while the request is out. */
+export type Verdict = 'supported' | 'partly' | 'unsupported' | 'unverified' | 'unchecked' | 'checking'
 
 /** The deterministic pre-pass for one claim, computed against the text of the sources it cites. */
 export interface PreCheck {
@@ -120,7 +120,7 @@ export interface PreCheck {
   level: 'ok' | 'weak' | 'fail'
 }
 
-/** A quote the model gave, found word for word in the source. start and end are offsets into the source snippet. */
+/** A span the model quoted, found word for word in the source. start and end are offsets into the source snippet. */
 export interface AuditQuote {
   n: number
   start: number
@@ -138,7 +138,10 @@ export interface AuditClaim {
   pre: PreCheck
   verdict: Verdict
   reason: string
-  quote?: AuditQuote
+  /** Every span the model relied on that was found word for word in a cited source. */
+  quotes?: AuditQuote[]
+  /** For a partly supported or unsupported claim, the part of it the source does not cover, as the model said. */
+  uncovered?: string
 }
 
 export interface AuditSummary {
@@ -147,6 +150,7 @@ export interface AuditSummary {
   partly: number
   unsupported: number
   unchecked: number
+  unverified: number
 }
 
 export interface AuditResult {

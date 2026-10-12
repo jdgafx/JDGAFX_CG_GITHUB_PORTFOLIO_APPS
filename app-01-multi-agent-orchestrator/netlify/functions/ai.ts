@@ -1,4 +1,3 @@
-import { isCutOff } from '../../src/lib/finish'
 import { stripBadCitations, withSources } from '../../src/lib/sources'
 import { sumUsage } from '../../src/lib/usage'
 import type { ModelFacts, StageUsage, StreamEvent, TraceStep } from '../../src/types'
@@ -9,7 +8,7 @@ import { getProvider, type Provider } from '../shared/provider'
 import { RETRIEVE_TIMEOUT_MS, retrieveSources } from '../shared/retrieve'
 import {
   RunCancelledError,
-  TIMEOUT_MESSAGE,
+  cutOffMessage,
   friendlyUpstreamMessage,
   runStage,
   UpstreamError,
@@ -18,7 +17,8 @@ import {
 
 const NO_DATA_MESSAGE = 'Live data unavailable, so no report was written.'
 
-type Outcome = { ok: true; stage: StageResult } | { ok: false; message: string; usage?: StageUsage }
+/** `cutOff` marks a reply that stopped before its end: the run stops there, and the cut text is not kept. */
+type Outcome = { ok: true; stage: StageResult } | { ok: false; message: string; usage?: StageUsage; cutOff?: true }
 
 /** What the server keeps about each stage, to build the trace and the totals. */
 interface StageRecord {
@@ -55,9 +55,12 @@ async function runOneStage(
 ): Promise<Outcome> {
   try {
     const stage = await runStage(agent, agent.buildUserMessage(query, context), provider, deadline, runSignal)
+    // Checked before the text: a reply that ran out of length can still read like a complete answer.
+    const cut = cutOffMessage(stage.finish, agent.name, ', so the run was stopped')
+    // A timeout fails the stage like any stage without an answer; a reply that stopped on its own ends the run.
+    if (cut) return { ok: false, message: cut, usage: stage.usage, ...(stage.finish === 'timeout' ? {} : { cutOff: true as const }) }
     if (stage.content.trim()) return { ok: true, stage }
-    const message = stage.finish === 'timeout' ? TIMEOUT_MESSAGE : `${agent.name} returned no text. Try again.`
-    return { ok: false, message, usage: stage.usage }
+    return { ok: false, message: `${agent.name} returned no text. Try again.`, usage: stage.usage }
   } catch (err) {
     if (err instanceof RunCancelledError) throw err
     return { ok: false, message: failureMessage(err, agent.name) }
@@ -130,13 +133,12 @@ async function runPipeline(
       // The Sources list is built from what was retrieved, never from model text.
       const content = agent.role === 'synthesizer' ? withSources(cleaned, found.sources) : cleaned
       context[agent.role] = content
-      const status: TraceStep['status'] = isCutOff(stage.finish) ? 'cut off' : 'ok'
       const newest = await newestP
       const model = modelFacts(stage.servedModel, newest)
       // One record per attempt. The attempt that gave the reply shares its record, so it is judged and logged once.
       const calls = (stage.attemptServed ?? [stage.servedModel]).map(served => (served === stage.servedModel ? model : modelFacts(served, newest)))
       if (agent.role === 'synthesizer') shownModel = model
-      records.push({ name: agent.name, status, ms, detail, usage: stage.usage })
+      records.push({ name: agent.name, status: 'ok', ms, detail, usage: stage.usage })
       send({ type: 'agent_chunk', agent: agent.role, content })
       send({
         type: 'agent_complete',
@@ -154,6 +156,15 @@ async function runPipeline(
       context[agent.role] = ''
       records.push({ name: agent.name, status: 'failed', ms, detail: outcome.message, usage: outcome.usage })
       send({ type: 'agent_error', agent: agent.role, ms, error: outcome.message })
+      if (outcome.cutOff) {
+        // A cut-off reply ends the run: no later stage reads it, and no report is written from it.
+        const detail = `Not started: ${agent.name} was cut off.`
+        for (const later of AGENTS.slice(AGENTS.indexOf(agent) + 1)) {
+          records.push({ name: later.name, status: 'skipped', ms: 0, detail })
+          send({ type: 'agent_skipped', agent: later.role, detail })
+        }
+        break
+      }
     }
   }
 

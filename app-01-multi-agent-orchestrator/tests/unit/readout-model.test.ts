@@ -76,7 +76,7 @@ describe('run-wide marker: the worst check across the run calls', () => {
         model: match,
         calls: [match, mismatch],
         summary: null,
-        audit: { ...IDLE_AUDIT, phase: 'done', result: { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0 }, overLimit: 0, usage: {}, ms: 1, model: mismatch } },
+        audit: { ...IDLE_AUDIT, phase: 'done', result: { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0 }, overLimit: 0, usage: {}, ms: 1, model: mismatch } },
       }),
     )
     expect(out).toContain('claude-haiku-4.5')

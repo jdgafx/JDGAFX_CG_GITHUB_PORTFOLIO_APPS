@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import handler from '../../netlify/functions/audit'
-import { FIXED_MODEL, PROVIDER_TIMEOUT, SERVED, SITE, installHarness, providerCalls, refuse, request, stubFetch, unnamedReply } from './helpers'
+import { FIXED_MODEL, PROVIDER_TIMEOUT, SERVED, SITE, installHarness, lengthReply, providerCalls, refuse, request, stubFetch, unfinishedReply, unnamedReply } from './helpers'
 
 const PREVIEW = 'https://deploy-preview-9--jdgafx-app-01-multi-agent-orchestrator.netlify.app'
 
@@ -31,25 +31,32 @@ function modelReply(text: string, usage = { prompt_tokens: 300, completion_token
 
 const body = (report = REPORT) => JSON.stringify({ report, sources: SOURCES })
 
+const span = (text: string, source = 1) => ({ source, text })
+const answer = (...results: unknown[]) => JSON.stringify({ results })
+const LENGTH_ERROR = 'The audit ran out of reply length before it finished. Try again.'
+
 describe('audit function', () => {
-  it('judges the cited sentences with one model call, verifies the quote, and decides a no-overlap sentence without the model', async () => {
+  it('judges every cited sentence with one model call, with the preceding sentence as context, and checks each span word for word', async () => {
     const fetchMock = stubFetch(async (_url, init) => {
       const sent = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }>; temperature?: number }
       expect(sent.model).toBe(FIXED_MODEL)
       expect('temperature' in sent).toBe(false)
-      // The banana sentence shares no word with the source, so only two claims go to the model.
       expect(sent.messages[1]?.content).toContain('1. JWST is built for infrared astronomy [1].')
-      expect(sent.messages[1]?.content).toContain('2. Its primary mirror is 9 metres wide [1].')
-      expect(sent.messages[1]?.content).not.toContain('Bananas')
+      expect(sent.messages[1]?.content).toContain('2. Its primary mirror is 9 metres wide [1].\n   Context: JWST is built for infrared astronomy.')
+      expect(sent.messages[1]?.content).toContain('3. Bananas are rich in potassium and grow in tropical regions [1].')
       return modelReply(
-        '{"results":[{"id":1,"verdict":"supported","source":1,"quote":"designed to conduct infrared astronomy","reason":"Stated."},{"id":2,"verdict":"supported","source":1,"quote":"Its 6.5 meter primary mirror lets it see objects","reason":"Mirror size stated."}]}',
+        answer(
+          { id: 1, verdict: 'supported', spans: [span('designed to conduct infrared astronomy')], reason: 'Stated.' },
+          { id: 2, verdict: 'partly', spans: [span('Its 6.5 meter primary mirror lets it see objects')], uncovered: 'the 9 metre width', reason: 'Source says 6.5 meter.' },
+          { id: 3, verdict: 'unsupported', reason: 'Not about the telescope.' },
+        ),
       )()
     })
 
     const res = await handler(request(body()))
     expect(res.status).toBe(200)
     const result = (await res.json()) as {
-      claims: Array<{ id: number; verdict: string; reason: string; quote?: { n: number; text: string }; pre: { missingNumbers: string[] } }>
+      claims: Array<{ id: number; verdict: string; reason: string; uncovered?: string; quotes?: Array<{ n: number; text: string }> }>
       summary: Record<string, number>
       usage: { total_tokens: number }
       model: string
@@ -58,38 +65,66 @@ describe('audit function', () => {
     expect(providerCalls(fetchMock)).toHaveLength(1)
     expect(result.claims.map(claim => [claim.id, claim.verdict])).toEqual([
       [1, 'supported'],
-      [2, 'partly'], // the model said supported, but 9 is in no source text
-      [3, 'unsupported'], // decided by the pre-pass
+      [2, 'partly'],
+      [3, 'unsupported'],
     ])
-    expect(result.claims[0]?.quote).toMatchObject({ n: 1, text: 'designed to conduct infrared astronomy' })
-    expect(result.claims[1]?.reason).toContain('does not contain 9')
-    expect(result.claims[2]?.reason).toBe('It shares no content word with the source it cites.')
-    expect(result.summary).toEqual({ total: 3, supported: 1, partly: 1, unsupported: 1, unchecked: 0 })
+    expect(result.claims[0]?.quotes).toMatchObject([{ n: 1, text: 'designed to conduct infrared astronomy' }])
+    expect(result.claims[1]?.uncovered).toBe('the 9 metre width')
+    expect(result.summary).toEqual({ total: 3, supported: 1, partly: 1, unsupported: 1, unchecked: 0, unverified: 0 })
     expect(result.usage.total_tokens).toBe(380)
     expect(result.model).toEqual({ servedModel: SERVED, newestModel: SERVED, modelCheck: 'match' })
   })
 
+  it('shows a supported verdict whose span is not in the source as unverified, and a sentence the model skipped as not checked', async () => {
+    stubFetch(() => modelReply(answer({ id: 1, verdict: 'supported', spans: [span('it was launched in the year 2021 by NASA')], reason: 'x' }))())
+    const res = await handler(request(body()))
+    const result = (await res.json()) as { claims: Array<{ verdict: string; quotes?: unknown; reason: string }>; summary: Record<string, number> }
+    expect(result.claims.map(claim => claim.verdict)).toEqual(['unverified', 'unchecked', 'unchecked'])
+    expect(result.claims[0]?.quotes).toBeUndefined()
+    expect(result.claims[0]?.reason).toContain('not found in the source')
+    expect(result.summary).toMatchObject({ unverified: 1, unchecked: 2, supported: 0 })
+  })
+
   it('shows a judgment whose reply named no model as not reported, never as the requested alias', async () => {
-    stubFetch(unnamedReply('{"results":[{"id":1,"verdict":"supported","source":1,"quote":"designed to conduct infrared astronomy","reason":"Stated."}]}'))
+    stubFetch(unnamedReply(answer({ id: 1, verdict: 'supported', spans: [span('designed to conduct infrared astronomy')], reason: 'Stated.' })))
     const res = await handler(request(body()))
     const result = (await res.json()) as { model: unknown }
     expect(result.model).toEqual({ servedModel: null, newestModel: SERVED, modelCheck: 'not-reported' })
   })
 
-  it('shows a sentence the model skipped as not checked, and a made-up quote as partly supported', async () => {
-    stubFetch(() =>
-      modelReply('{"results":[{"id":1,"verdict":"supported","source":1,"quote":"it was launched in the year 2021 by NASA","reason":"x"}]}')(),
+  it.each([
+    ['length', lengthReply],
+    ['no finish reason', unfinishedReply],
+  ])('stops with a visible error and uses no verdict when the final attempt ends with %s, even if the JSON is complete', async (_name, cutOff) => {
+    const fetchMock = stubFetch(
+      cutOff(answer({ id: 1, verdict: 'supported', spans: [span('designed to conduct infrared astronomy')], reason: 'Stated.' }, { id: 2, verdict: 'supported', spans: [span('Its 6.5 meter primary mirror lets it see objects')] })),
     )
     const res = await handler(request(body()))
-    const result = (await res.json()) as { claims: Array<{ verdict: string; quote?: unknown; reason: string }> }
-    expect(result.claims.map(claim => claim.verdict)).toEqual(['partly', 'unchecked', 'unsupported'])
-    expect(result.claims[0]?.quote).toBeUndefined()
-    expect(result.claims[0]?.reason).toContain('not in the source text')
+    expect(res.status).toBe(502)
+    const message = ((await res.json()) as { error: string }).error
+    expect(message).toBe(_name === 'length' ? LENGTH_ERROR : 'The audit stopped before it finished. Try again.')
+    // The second attempt was cut off too, so no verdict from either was used.
+    expect(providerCalls(fetchMock)).toHaveLength(2)
   })
 
-  it('makes no model call when every sentence is decided by the pre-pass', async () => {
+  it('uses a retry that finished when the first attempt was cut off by length', async () => {
+    let calls = 0
+    stubFetch(() => {
+      calls += 1
+      return calls === 1
+        ? lengthReply(answer({ id: 1, verdict: 'unsupported', reason: 'a longer first attempt, cut off, with a verdict that must not be used' }))()
+        : modelReply(answer({ id: 1, verdict: 'supported', spans: [span('designed to conduct infrared astronomy')], reason: 'Stated.' }))()
+    })
+    const res = await handler(request(body('JWST is built for infrared astronomy [1].')))
+    const result = (await res.json()) as { claims: Array<{ verdict: string }>; retried?: string }
+    expect(calls).toBe(2)
+    expect(result.retried).toBe('reply')
+    expect(result.claims[0]?.verdict).toBe('supported')
+  })
+
+  it('makes no model call when every sentence cites a source that is not in the list', async () => {
     const fetchMock = stubFetch(() => modelReply('{}')())
-    const res = await handler(request(body('Bananas are rich in potassium [1].')))
+    const res = await handler(request(body('Bananas are rich in potassium [4].')))
     expect(res.status).toBe(200)
     expect(fetchMock).not.toHaveBeenCalled()
     const result = (await res.json()) as { summary: Record<string, number> }
@@ -101,7 +136,7 @@ describe('audit function', () => {
     stubFetch(() => {
       calls += 1
       if (calls === 1) throw Object.assign(new Error('aborted'), { name: 'AbortError' })
-      return modelReply('{"results":[{"id":1,"verdict":"unsupported","reason":"Not stated."}]}')()
+      return modelReply(answer({ id: 1, verdict: 'unsupported', reason: 'Not stated.' }))()
     })
     const res = await handler(request(body('JWST is built for infrared astronomy [1].')))
     const result = (await res.json()) as { retried?: string; claims: Array<{ verdict: string }> }

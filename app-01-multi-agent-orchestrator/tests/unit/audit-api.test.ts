@@ -4,7 +4,7 @@ import { isAbortError } from '../../src/lib/api'
 import type { AuditResult, Source } from '../../src/types'
 
 const SOURCES: Source[] = [{ n: 1, title: 'T', site: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/T', snippet: 'Some text of the source.', note: 'a note' }]
-const RESULT: AuditResult = { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0 }, overLimit: 0, usage: {}, ms: 5 }
+const RESULT: AuditResult = { claims: [], summary: { total: 0, supported: 0, partly: 0, unsupported: 0, unchecked: 0, unverified: 0 }, overLimit: 0, usage: {}, ms: 5 }
 
 afterEach(() => {
   vi.unstubAllGlobals()
