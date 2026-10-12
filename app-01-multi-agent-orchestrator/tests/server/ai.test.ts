@@ -43,6 +43,34 @@ describe('ai function: thinking stays on', () => {
   })
 })
 
+describe("ai function: today's date", () => {
+  const stages = {
+    researcher: reply('- A [1].', 0.1, 10, 10),
+    analyst: reply('- B [1].', 0.1, 10, 10),
+    critic: reply('- C.', 0.1, 10, 10),
+    synthesizer: reply('D [1].', 0.1, 10, 10),
+  }
+  const systemsOf = (fetchMock: ReturnType<typeof plan>) =>
+    providerCalls(fetchMock).map(call => (JSON.parse(String(call[1]?.body)) as { messages: Array<{ content: string }> }).messages[0]?.content ?? '')
+
+  it('is read from the server clock on every run and sent to each of the four stages', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-12T09:30:00Z'))
+    const firstMock = plan(stages)
+    await frames(await handler(request(VALID_BODY)))
+    const first = systemsOf(firstMock)
+    vi.setSystemTime(new Date('2027-01-03T23:59:00Z'))
+    const fetchMock = plan(stages)
+    await frames(await handler(request(VALID_BODY)))
+
+    expect(first).toHaveLength(4)
+    expect(first.every(system => system.endsWith("Today's date is 2026-10-12."))).toBe(true)
+    const second = systemsOf(fetchMock)
+    expect(second).toHaveLength(4)
+    expect(second.every(system => system.endsWith("Today's date is 2027-01-03."))).toBe(true)
+  })
+})
+
 describe('ai function: success path', () => {
   it('streams each stage as it finishes, then one summary with trace, usage, cost and served model', async () => {
     const fetchMock = plan({

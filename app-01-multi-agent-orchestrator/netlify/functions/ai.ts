@@ -57,7 +57,9 @@ async function runOneStage(
   runSignal: AbortSignal,
 ): Promise<Outcome> {
   try {
-    const stage = await runStage(agent, agent.buildUserMessage(query, context), provider, deadline, runSignal)
+    // The date is read from the server clock on every stage, never once at load, so a warm function does not carry yesterday's date past midnight.
+    const dated = { ...agent, systemPrompt: `${agent.systemPrompt} Today's date is ${new Date().toISOString().slice(0, 10)}.` }
+    const stage = await runStage(dated, agent.buildUserMessage(query, context), provider, deadline, runSignal)
     // Checked before the text: a reply that ran out of length can still read like a complete answer.
     const cut = cutOffMessage(stage.finish, agent.name, ', so the run was stopped')
     // A timeout fails the stage like any stage without an answer; a reply that stopped on its own ends the run.
