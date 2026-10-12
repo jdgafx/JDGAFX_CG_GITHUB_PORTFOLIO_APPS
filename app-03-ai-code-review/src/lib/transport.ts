@@ -2,7 +2,7 @@
 import { SEVERITIES } from '../constants'
 import type { Decider, ModelCheck, PrCounts, ReviewComment, ReviewResult, RunSummary, ServedCall, Severity, StepStatus, TraceStep, Usage, Verdict } from '../types'
 
-/** One request's limit. The platform cuts a function at 26 s (netlify/shared/budget.ts), so a request still open at 30 s is lost. */
+/** One request's limit. The platform cuts a function at about 30 s (measured, netlify/shared/budget.ts), so a request still open at 30 s is lost. */
 const REQUEST_TIMEOUT_MS = 30_000
 const STEP_STATUSES: StepStatus[] = ['ok', 'failed', 'skipped']
 export const VERDICTS: Verdict[] = ['kept', 'moved', 'dropped', 'unverified']

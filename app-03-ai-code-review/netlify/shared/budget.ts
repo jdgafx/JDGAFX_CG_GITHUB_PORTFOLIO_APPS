@@ -30,7 +30,7 @@
 //   on one shard's reply: SHARD_MAX_TOKENS below. PASS1 p50 12.0 s, p95 19.6 s (the slowest seen) are those 7 shard calls.
 // A pass 1 may therefore take 21 s (it was 24 s until the instance wait above was found) and a read 22 s.
 
-/** The platform's cut-off for one function invocation. See above for the source. */
+/** A conservative budget bound, a margin under the platform's measured cut-off of about 30 s for one function invocation. See above. */
 export const PLATFORM_CUTOFF_MS = 26_000
 /** What one request may use in all, from the first byte of the request to the reply. Under the platform cut-off. */
 export const TOTAL_MS = 25_000
