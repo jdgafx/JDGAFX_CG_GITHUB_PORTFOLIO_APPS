@@ -155,6 +155,24 @@ describe('replay fetch shim', () => {
     shim.stop()
   })
 
+  it('survives a client that cancels its reader before the end event and then asks for the next reply', async () => {
+    const { call, onDone, onDiverge } = setup()
+    const pending = call('/api/compare', COMPARE_REQUEST)
+    await vi.advanceTimersByTimeAsync(4000)
+    const res = await pending
+    const reader = res.body!.getReader()
+    await reader.read()
+    await reader.cancel()
+    // The clock passes the recorded end (4100) without its timer having run, so the next fetch finds overdue events.
+    vi.setSystemTime(Date.now() + 200)
+    const next = call('/api/judge', JUDGE_REQUEST)
+    await vi.advanceTimersByTimeAsync(3000)
+    const judge = await next
+    expect(await judge.json()).toEqual(JUDGE_BODY)
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onDiverge).not.toHaveBeenCalled()
+  })
+
   it('does not stay installed when the app never makes the last recorded call', async () => {
     const { call, target, original, onDiverge } = setup()
     void call('/api/compare', COMPARE_REQUEST).then(r => r.text())

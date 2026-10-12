@@ -106,7 +106,17 @@ export function installReplayShim(recording: Recording, opts: ShimOptions): Repl
       const encoder = new TextEncoder()
       let stream: ReadableStreamDefaultController<Uint8Array> | null = null
       let closed = false
-      const body = new ReadableStream<Uint8Array>({ start: c => (stream = c) })
+      // A client that cancels its reader (for example on reading [DONE]) leaves the stream closed for good: later chunks and
+      // the end are still counted, but nothing is written to it, and nothing thrown may escape into the shim's fetch.
+      const body = new ReadableStream<Uint8Array>({ start: c => (stream = c), cancel: () => void (closed = true) })
+      const write = (fn: () => void) => {
+        if (closed) return
+        try {
+          fn()
+        } catch {
+          closed = true
+        }
+      }
       const cancel = () => {
         if (!closed) {
           closed = true
@@ -119,12 +129,12 @@ export function installReplayShim(recording: Recording, opts: ShimOptions): Repl
       const at = (ms: number) => start + ms / speed
       enqueue([
         { at: at(ex.t_headers), run: () => resolve(new Response(body, { status: ex.status, headers: ex.headers })) },
-        ...ex.chunks.map(chunk => ({ at: at(chunk.t), run: () => stream?.enqueue(encoder.encode(chunk.text)) })),
+        ...ex.chunks.map(chunk => ({ at: at(chunk.t), run: () => write(() => stream?.enqueue(encoder.encode(chunk.text))) })),
         {
           at: at(ex.t_end),
           run: () => {
+            write(() => stream?.close())
             closed = true
-            stream?.close()
             cancels.delete(cancel)
             delivered += 1
             if (delivered === exchanges.length) {
