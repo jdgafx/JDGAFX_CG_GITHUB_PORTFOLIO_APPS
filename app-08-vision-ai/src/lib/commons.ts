@@ -36,8 +36,9 @@ const API_URL = 'https://commons.wikimedia.org/w/api.php'
 // Some matches are filtered out (other media types, originals over 4 MB), so more are asked for than are shown.
 const REQUEST_LIMIT = 24
 const SHOWN_LIMIT = 12
-// Scaled thumbnails are asked for at this width, which keeps a photo well under the 4 MB limit.
-const THUMB_WIDTH = 1280
+// Scaled thumbnails are asked for at this width: a rotated axis label or small print stays readable to the model,
+// and a photo stays well under the 4 MB limit. A picture no wider than this comes back as its original.
+const THUMB_WIDTH = 1920
 // Result cards show a smaller standard thumbnail size than the one that is analyzed.
 const GRID_THUMB_WIDTH = 330
 const MAX_QUERY_CHARS = 100
@@ -88,7 +89,8 @@ export function stripHtml(html: string): string {
 }
 
 // Wikimedia serves thumbnails only at standard widths, and throttles requests for originals ("use thumbnail images
-// instead", HTTP 429). So the page asks for a standard thumbnail wherever the picture is wide enough to have one.
+// instead", HTTP 429). So the page asks for a standard thumbnail wherever the picture is wide enough to have one,
+// except between 1280 and 1920 px wide, where the original is the picture sent (the readability fix above).
 const THUMB_STEPS = [120, 250, 330, 500, 960, 1280]
 const THUMB_PATH = /^\/wikipedia\/commons\/thumb\/([0-9a-f]\/[0-9a-f]{2})\/([^/]+)\/\d+px-[^/]+$/
 const ORIGINAL_PATH = /^\/wikipedia\/commons\/([0-9a-f]\/[0-9a-f]{2})\/([^/]+)$/
@@ -96,7 +98,7 @@ const BITMAP_NAME = /\.(jpe?g|png|webp|gif)$/i
 
 /**
  * The thumbnail of a Commons image at the given width, from either of the two URL forms the API returns: the
- * original (.../commons/a/ab/Name.jpg) or a scaled thumbnail (.../commons/thumb/a/ab/Name.jpg/1280px-Name.jpg).
+ * original (.../commons/a/ab/Name.jpg) or a scaled thumbnail (.../commons/thumb/a/ab/Name.jpg/1920px-Name.jpg).
  * The query string is dropped. Returns null for anything else, including names that are not JPEG, PNG, WebP or GIF
  * (other types carry a rendered suffix such as Name.svg.png and are not requested here).
  */
@@ -119,12 +121,12 @@ export function gridThumbUrl(url: string, sourceWidth: number): string {
 }
 
 /**
- * Addresses to try, in order, for the picture a pick analyzes. A wide picture arrives from the API as a 1280 px
- * thumbnail already. A narrower one gets the largest standard thumbnail that is no wider than itself, and its
- * original only as the last resort if that fails.
+ * Addresses to try, in order, for the picture a pick analyzes. A picture wider than the largest step here arrives from
+ * the API at its final size already (a 1920 px thumbnail, or the original up to 1920 px wide). A narrower one gets the
+ * largest standard thumbnail that is no wider than itself, and its original only as the last resort if that fails.
  */
 export function downloadUrls(image: Pick<CommonsImage, 'thumbUrl' | 'width'>): string[] {
-  if (image.width > THUMB_WIDTH || image.width <= 0) return [image.thumbUrl]
+  if (image.width > THUMB_STEPS[THUMB_STEPS.length - 1] || image.width <= 0) return [image.thumbUrl]
   const step = [...THUMB_STEPS].reverse().find(width => width <= image.width)
   const thumb = step ? thumbUrlAt(image.thumbUrl, step) : null
   return thumb ? [thumb, image.thumbUrl] : [image.thumbUrl]
