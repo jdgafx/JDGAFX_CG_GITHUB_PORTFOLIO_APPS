@@ -21,3 +21,5 @@ export interface ExplainRequest { target: string; names: string[]; window: RunWi
 export type ExplainResponse =
   | { ok: true; paragraph: Segment[]; servedModel: string | null; usage: { prompt: number; completion: number; reasoning: number } | null; modelMs: number }
   | { ok: false; reason: 'model-unavailable' | 'invalid:cut-off' | 'invalid:empty' | 'invalid:not-json' | 'invalid:bad-shape'; servedModel: string | null };
+/** What /api/explain actually sends: the response plus what only the function side knows (lead, 2026-10-12). */
+export type ExplainReply = ExplainResponse & { newestModel: string | null; costUsd: number | null };
