@@ -86,7 +86,7 @@ export interface ReviewResult {
   comments: ReviewComment[]
   /** Numbered lines the reviewer saw. Every comment line falls inside it. */
   lineCount: number
-  /** True when the first pass hit its token ceiling, so the comment list may be incomplete. */
+  /** Always false now: a reply cut off at its token ceiling is never used (it ends the run with an error). Kept for the wire shape. */
   truncated: boolean
   /** True when the second pass ran. False means every surviving comment is unverified. */
   verified: boolean
@@ -108,6 +108,12 @@ export interface TraceStep {
   at?: number
   tokens?: number
   cost?: number
+  /** The provider's finish_reason for a model call ("stop", "length"). Absent on a stage that made no call or got no reply. */
+  finish?: string
+  /** Thinking tokens the provider reported for a model call (usage.completion_tokens_details.reasoning_tokens). */
+  reasoningTokens?: number
+  /** True on a model call whose usage was never reported (it timed out, the connection was lost, or the reply had no usage block). */
+  unreported?: true
 }
 
 /** Provider-reported usage, summed over the model calls in one run. A field is absent when no call reported it. */
@@ -140,6 +146,8 @@ export interface ReviewRun {
   /** Every call's served model, in call order. */
   servedModels: ServedCall[]
   totalMs: number
+  /** Model calls whose usage was not reported. Above zero, `usage` is at least what was spent, never a complete total. */
+  unreportedCalls: number
 }
 
 export type RunSummary = Omit<ReviewRun, 'result'>

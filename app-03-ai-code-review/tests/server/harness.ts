@@ -1,6 +1,8 @@
 import { afterEach, beforeAll, beforeEach, vi } from 'vitest'
 import { MODEL } from '../../netlify/shared/provider'
 import { MODEL_LIST_URL, resetNewestModel } from '../../netlify/shared/newest-model'
+import { ReviewError, reviewCode, reviewPullRequest } from '../../src/lib/api'
+import type { PrFileInput } from '../../netlify/shared/diff'
 
 // Smoke tests for netlify/functions/ai.ts. The provider is a stub: every fetch is
 // replaced before the handler runs, and the key is the placeholder for the test only.
@@ -22,6 +24,9 @@ export interface TraceEntry {
 export interface Payload {
   success: boolean
   error?: string
+  candidates?: Array<{ id: number; line: number; fromLine: number; quote: string; message: string }>
+  handoff?: { text: string; seal: string } | null
+  rows?: Array<Record<string, unknown>>
   result?: {
     comments: Array<{ id: number; line: number; fromLine: number; severity: string; message: string; suggestion: string; verdict: string; decidedBy: string; reason: string; evidence: string | null; code: string; where: { file: string; line: number; side: string } | null }>
     lineCount: number
@@ -66,9 +71,11 @@ export const fetchStub = vi.fn<FetchStub>()
 /** OpenRouter's public model list, answered apart from the provider queues so their order never shifts. */
 export const listStub = vi.fn<FetchStub>()
 const routedFetch: FetchStub = (url, init) => (url === MODEL_LIST_URL ? listStub(url, init) : fetchStub(url, init))
-export const api: { handler: Handler | null } = { handler: null }
-/** The function under test, loaded in beforeAll with the origin allowlist pinned. */
+export const api: { handler: Handler | null; read1: Handler | null; read2: Handler | null } = { handler: null, read1: null, read2: null }
+/** The function under test (request 1, pass 1), loaded in beforeAll with the origin allowlist pinned. */
 export const handler: Handler = (req) => (api.handler as Handler)(req)
+/** The two read functions (requests 2 and 3). */
+export const readHandler = (n: 1 | 2): Handler => (req) => (n === 1 ? (api.read1 as Handler) : (api.read2 as Handler))(req)
 let ipCounter = 0
 
 /** Registers the shared hooks in the test file that calls it. */
@@ -77,6 +84,8 @@ beforeAll(async () => {
   // The origin allowlist is read once, when the module loads, so pin it before the import.
   vi.stubEnv('ALLOWED_ORIGINS', `${ORIGIN},https://jdgafx-app-03-ai-code-review.netlify.app`)
   api.handler = (await import('../../netlify/functions/ai')).default
+  api.read1 = (await import('../../netlify/functions/ai-read-1')).default
+  api.read2 = (await import('../../netlify/functions/ai-read-2')).default
   vi.unstubAllEnvs()
 })
 
@@ -172,9 +181,7 @@ export function standsFor(verdicts: unknown[]): unknown[] {
 
 /** Pass 1 returns `comments`; read 1 of pass 2 returns `verdicts`; read 2 (the adversary) finds nothing unless given `adversary`. */
 export function twoPasses(comments: unknown[], verdicts: unknown[], adversary: unknown[] = standsFor(verdicts)): void {
-  fetchStub.mockResolvedValueOnce(providerReply(reviewJson(comments)))
-  fetchStub.mockResolvedValueOnce(providerReply(verdictJson(verdicts)))
-  fetchStub.mockResolvedValueOnce(providerReply(verdictJson(adversary)))
+  script({ pass1: [reply(reviewJson(comments))], read1: [reply(verdictJson(verdicts))], read2: [reply(verdictJson(adversary))] })
 }
 
 type Step = () => Response | Error
@@ -200,3 +207,31 @@ export function script(queues: { pass1?: Step[]; read1?: Step[]; read2?: Step[] 
 }
 
 export const COMPLETE = ['Check request:ok', 'Build prompt:ok', 'Pass 1: review:ok', 'Parse reply:ok', 'Checks:ok', 'Pass 2: verify (read 1):ok', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok']
+
+/**
+ * One whole review the way the browser runs it: request 1, then the two reads side by side, each a separate call of the
+ * handler for its own function. Answers in the single-reply shape the earlier tests read: the merged trace and the final result.
+ * A failure answers with the status of the request that failed.
+ */
+export async function full(body: Record<string, unknown>, options: { ip?: string } = {}): Promise<Response> {
+  const ip = options.ip ?? nextIp()
+  let failed: { status: number; headers: Headers } | null = null
+  const route: Record<string, Handler> = { '/api/ai': handler, '/api/ai/read-1': readHandler(1), '/api/ai/read-2': readHandler(2) }
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    const call = route[url.split('?')[0]]
+    if (!call) return routedFetch(url, init)
+    const res = await call(new Request(`http://localhost${url}`, { ...init, headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-nf-client-connection-ip': ip } }))
+    if (!res.ok && failed === null) failed = { status: res.status, headers: res.headers }
+    return res
+  })
+  try {
+    const run = body.mode === 'pr' ? await reviewPullRequest(body.files as PrFileInput[]) : await reviewCode(body.code as string, body.language as string)
+    const { result, ...rest } = run
+    return new Response(JSON.stringify({ success: true, result, ...rest }), { status: 200 })
+  } catch (err) {
+    if (!(err instanceof ReviewError)) throw err
+    return new Response(JSON.stringify({ success: false, error: err.message, ...err.summary }), { status: (failed as { status: number } | null)?.status ?? 500 })
+  } finally {
+    vi.stubGlobal('fetch', routedFetch)
+  }
+}

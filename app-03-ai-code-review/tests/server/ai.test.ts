@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  ORIGIN, buildRequest, CRITICAL_DIVIDE, DIVIDE_BODY, fetchStub, handler, installHooks, post, providerReply, readPayload, reviewJson, sentBody, stepSummary,
+  ORIGIN, buildRequest, CRITICAL_DIVIDE, DIVIDE_BODY, fetchStub, handler, installHooks, readHandler, post, providerReply, readPayload, reviewJson, sentBody, stepSummary,
   type Payload,
 } from './harness'
 
@@ -86,7 +86,7 @@ describe('ai function: request checks', () => {
     expect(sentBody().messages[0].content).toContain('You are an expert code reviewer.')
   })
 
-  it('answers 429 from the twenty-first request in a minute from one address', async () => {
+  it('answers 429 from the twenty-first request in a minute from one address, counted apart for each of the three functions', async () => {
     const ip = '192.0.2.77'
     for (let i = 0; i < 20; i += 1) {
       expect((await handler(post('not json', { ip }))).status).toBe(400)
@@ -97,6 +97,9 @@ describe('ai function: request checks', () => {
     expect(retryAfter).toBeGreaterThan(0)
     expect(retryAfter).toBeLessThanOrEqual(60)
     expect((await readPayload(res)).error).toBe('Too many reviews from this address. Please wait a moment and try again.')
+    // The reads have their own counters: twenty reviews of three requests do not trip them.
+    expect((await readHandler(1)(post('not json', { ip }))).status).toBe(400)
+    expect((await readHandler(2)(post('not json', { ip }))).status).toBe(400)
     expect(fetchStub).not.toHaveBeenCalled()
   })
 })
@@ -120,7 +123,7 @@ describe('ai function: provider failures in pass 1', () => {
     expect(res.status).toBe(429)
     expect(res.headers.get('retry-after')).toBe('60')
     expect(payload.error).toBe('Rate limited, try again in a minute.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'Rate limited (HTTP 429) (limit 16.4 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'Rate limited (HTTP 429) (limit 24.0 s)' })
     expect(stepSummary(payload).slice(3)).toEqual(['Parse reply:skipped', 'Checks:skipped', 'Pass 2: verify (read 1):skipped', 'Pass 2: verify (read 2, adversary):skipped', 'Re-validate:skipped'])
   })
 

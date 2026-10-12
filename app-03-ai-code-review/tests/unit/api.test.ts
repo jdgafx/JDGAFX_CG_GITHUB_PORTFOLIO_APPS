@@ -49,7 +49,7 @@ describe('reviewCode: failures shown to the user', () => {
 
   it('retries once after a dropped connection and keeps the failed try in the trace of the run that succeeds', async () => {
     fetchStub.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    fetchStub.mockResolvedValueOnce(jsonResponse({ success: true, result: { comments: [], lineCount: 1, truncated: false, verified: true, malformed: 0, mode: 'file', pr: null }, trace: [{ name: 'Check request', status: 'ok', ms: 3, detail: 'go' }], usage: null, model: null, totalMs: 1 }))
+    fetchStub.mockResolvedValueOnce(jsonResponse({ success: true, result: { comments: [], lineCount: 1, truncated: false, verified: true, malformed: 0, mode: 'file', pr: null }, candidates: [], dropped: [], batches: [], handoff: null, trace: [{ name: 'Check request', status: 'ok', ms: 3, detail: 'go' }], usage: null, model: null, totalMs: 1 }))
     const run = await reviewCode('x = 1', 'python')
     expect(fetchStub).toHaveBeenCalledTimes(2)
     expect(run.trace.map((s) => s.name)).toEqual(['Send request', 'Check request'])
@@ -150,7 +150,7 @@ describe('reviewErrorMessage', () => {
   it('shows only a review error message and hides any other error', () => {
     expect(reviewErrorMessage(new TypeError('Failed to fetch'))).toBe(GENERIC)
     expect(reviewErrorMessage(new Error('internal detail'))).toBe(GENERIC)
-    expect(reviewErrorMessage(new ReviewError(NETWORK, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: 0 }))).toBe(NETWORK)
+    expect(reviewErrorMessage(new ReviewError(NETWORK, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 0, totalMs: 0 }))).toBe(NETWORK)
   })
 })
 
@@ -160,6 +160,10 @@ describe('reviewCode: a completed run', () => {
   const okRun = (overrides: Record<string, unknown> = {}) => ({
     success: true,
     result: { comments: [], lineCount: 1, truncated: false, verified: true, malformed: 0, mode: 'file', pr: null },
+    candidates: [],
+    dropped: [],
+    batches: [],
+    handoff: null,
     trace: [],
     usage: null,
     model: null,
@@ -190,7 +194,8 @@ describe('reviewCode: a completed run', () => {
     expect(run.trace).toEqual([{ name: 'Pass 1: review', status: 'ok', ms: 1200, at: 10, detail: 'Reply received', tokens: 150, cost: 0.00015 }])
     expect(run.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00015 })
     expect(run.model).toBe('anthropic/claude-haiku-5.5')
-    expect(run.totalMs).toBe(1300)
+    // The total is the browser's own clock over all the requests of the review, pinned in review-flow.test.ts.
+    expect(run.totalMs).toBeGreaterThanOrEqual(0)
   })
 
   it('reports no usage when a figure is not a number', async () => {
@@ -225,7 +230,7 @@ describe('reviewCode: a completed run', () => {
 
   it('sends only the code and language, never a model choice', async () => {
     fetchStub.mockResolvedValueOnce(
-      jsonResponse({ success: true, result: { comments: [], lineCount: 1, truncated: false, verified: true, malformed: 0, mode: 'file', pr: null }, trace: [], usage: null, model: null, totalMs: 1 }),
+      jsonResponse({ success: true, result: { comments: [], lineCount: 1, truncated: false, verified: true, malformed: 0, mode: 'file', pr: null }, candidates: [], dropped: [], batches: [], handoff: null, trace: [], usage: null, model: null, totalMs: 1 }),
     )
     await reviewCode('x = 1', 'python')
     const [url, init] = fetchStub.mock.calls[0]

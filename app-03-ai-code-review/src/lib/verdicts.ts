@@ -62,6 +62,13 @@ export function verdictSentence(counts: VerdictCounts, verified: boolean): strin
   return `${lead} ${parts.join(', ')}.`
 }
 
+/** The sentence while the reads run: what the first pass and the checks did, and that nothing is confirmed yet. */
+export function waitingSentence(counts: VerdictCounts): string {
+  const total = counts.kept + counts.moved + counts.dropped + counts.unverified
+  if (total === 0) return 'The first pass wrote no comments.'
+  return `The first pass wrote ${plural(total, 'comment', 'comments')}. The checks dropped ${counts.dropped}; ${plural(counts.unverified, 'comment is', 'comments are')} being read against the code, and none is confirmed yet.`
+}
+
 /**
  * Milliseconds of the model passes in a trace, for the readout hint. Pass 1 adds its tries up. Pass 2 is two reads side by side,
  * so it is the span from the first read's start to the last read's end, not their sum. Null when that pass did not run.

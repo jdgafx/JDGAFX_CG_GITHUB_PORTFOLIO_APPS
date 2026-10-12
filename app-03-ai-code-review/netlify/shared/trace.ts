@@ -1,4 +1,5 @@
 import type { ServedCall, StepStatus, TraceStep, Usage } from '../../src/types'
+import type { ProviderReply } from './provider'
 
 const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
@@ -25,6 +26,8 @@ export interface Run {
   served: ServedCall[]
   /** The newest model from the list, started before the first model call. Null until then. */
   newest: Promise<string | null> | null
+  /** Model calls whose usage never reached us (a timeout, a lost connection, a reply with no usage block): the totals are at least what they show. */
+  unreported: number
 }
 
 export function noun(count: number, word: string): string {
@@ -32,7 +35,10 @@ export function noun(count: number, word: string): string {
 }
 
 /** Appends one finished stage to the trace, timed from `startedAt`. */
-export function record(run: Run, name: string, status: StepStatus, startedAt: number, detail: string, usage?: Usage): void {
+export function record(run: Run, name: string, status: StepStatus, startedAt: number, detail: string, reply?: ProviderReply, unreported = false): void {
+  const usage = reply?.usage
+  const finish = reply?.choices?.[0]?.finish_reason
+  const reasoning = usage?.completion_tokens_details?.reasoning_tokens
   run.trace.push({
     name,
     status,
@@ -41,7 +47,11 @@ export function record(run: Run, name: string, status: StepStatus, startedAt: nu
     detail,
     ...(usage?.total_tokens !== undefined ? { tokens: usage.total_tokens } : {}),
     ...(usage?.cost !== undefined ? { cost: usage.cost } : {}),
+    ...(typeof finish === 'string' ? { finish } : {}),
+    ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
+    ...(unreported ? { unreported: true as const } : {}),
   })
+  if (unreported) run.unreported += 1
 }
 
 /** Lists the stages a run never reached, so the trace always shows the whole pipeline. */

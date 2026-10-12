@@ -53,32 +53,35 @@ A file over 50,000 characters, a binary or empty file and a folder are refused w
 
 ## Time budget
 
-One function invocation must finish inside the platform's cut-off, so the two model calls share one 25 s deadline (`netlify/shared/budget.ts`, tested in `tests/unit/budget.test.ts`). Healthy latencies were measured live on the alias `~anthropic/claude-haiku-latest`, which resolved to the newest Haiku then, over 39 complete runs (about 120 model calls) on 2026-10-09:
+A review is three function requests, each with its own clock, so each must finish inside the platform's cut-off on its own: request 1 is pass 1 (the review) with the checks, then requests 2 and 3 are the two reads of pass 2, side by side, one read each (`netlify/functions/ai.ts`, `ai-read-1.ts`, `ai-read-2.ts`; limits in `netlify/shared/budget.ts`, pinned in `tests/unit/budget.test.ts`). The earlier design ran both passes in one request under one 25 s deadline, which thinking made too short: pass 1 alone took 13 to 22 s.
 
-Thinking is on, so these are estimates, not measurements: the 2026-10-09 figures (pass 1 p50 9.3 s, p95 11.6 s; a pass 2 read p50 6.3 s, p95 9.4 s; both together p50 17.6 s, p95 24.3 s) were taken with thinking off. Pass 1 emits about 2,000 tokens in 9.3 s and a read about 1,000 in 6.3 s, about 3 ms a token, so about 500 thinking tokens add about 1.5 s to a p50 and up to 800 add about 2.5 s to a p95. Re-measure live and replace them.
+The cut-off is taken as 26 s, the smaller of the two figures in the repo (this app's earlier "~26 s" and the 2026-10-07 audit; `SYSTEM.md` says 30 s, which comes from another app). Measured on 2026-10-12 with thinking on, through the three bundled functions in the browser's order (five runs: `createStore.ts`, `auth.py` twice, `mux.go` and express `response.js` at 1,178 lines), plus three earlier local probes:
 
-| Call | p50 (estimate) | p95 (estimate) | Per-call limit (1.5 x p95) |
-|---|---|---|---|
-| Pass 1: review | 11.0 s | 14.1 s | 21.15 s, held to 16.4 s while a healthy pass 2 and the 0.7 s margin must still fit |
-| Pass 2: each of the two reads (side by side) | 7.9 s | 11.9 s | 17.85 s |
-| Both passes together | about 19 s | about 26 s | 25 s (the run) |
+| Call | Measured | p50 | Slowest | Limit |
+|---|---|---|---|---|
+| Pass 1: review (request 1) | 13.2 to 22.3 s (11 calls) | 17.5 s | 22.3 s | 24 s |
+| Pass 2: each batched read (at most 4 comments per request) | 2.5 to 14.0 s (12 calls) | 7.1 s | 14.0 s | 22 s |
 
-The run deadline stays 25 s. A typical run fits; a run whose two passes both land near their p95 does not, and then its pass 2 is cut to what is left and its comments are shown as not confirmed (the review still returns).
+Before batching, one read took every comment: 12 such reads ran 6.8 to 20.4 s, and one hit its 5,000-token cap with 3,746 tokens spent thinking, so a whole review was left not confirmed. Each read request now takes at most 4 comments (the whole numbered file still goes with every request), and each read fans out into one request per batch, all at once (`netlify/shared/batches.ts`). Pass 1 signs the batches with the comments, and a read refuses a batch that is not one of them.
 
-- A call that passes its limit is a provider hang. It is retried once, after a timeout or a lost connection only, and only when what is left of the run could hold a healthy call (and, for pass 1, a healthy pass 2). The trace shows "Retried once after ...", or "Not retried: N s left". 4xx, 429 and 5xx are never retried.
-- An empty reply, a reply cut at the token cap and a reply that is not readable JSON (a pass 1 review, or a pass 2 list of verdicts) are also retried once when the budget allows.
-- After a full-length pass 1 hang (16.4 s) there is not enough left for a retry plus pass 2, so the run answers 504 with its trace.
-- The two reads of pass 2 run at the same time and each has its own limit and its own single retry. If a read fails or hangs, the run still answers with the first-pass comments marked not confirmed.
-- The browser retries once when the connection drops within 12 s, or when a reply ends before its JSON does (the earlier verifier saw one such call as `ERR_ABORTED` with an empty trace). It never retries a timeout or an HTTP answer, and a failed run without a server trace shows a trace row that says what the browser saw.
-- The browser gives up after 45 s.
+The first comments are on the page after pass 1 (13 to 22 s); the checked review is done about 26 to 33 s after the click in the batched proof runs. Each request keeps 0.7 s back for the reply, so 24 s and 22 s both end inside 26 s.
+
+- A call that passes its limit is a provider hang. It is retried once, after a timeout or a lost connection only, and only when what is left of that request could hold a healthy call. The trace shows "Retried once after ...", or "Not retried: N s left". 4xx, 429 and 5xx are never retried.
+- An empty reply and a reply that is not readable JSON are retried once when the budget allows. A reply that ends at its token cap (`finish_reason` length) is never used, whatever part of it parses: pass 1 ends the review with a "ran out of reply length" error, and a read that is cut off counts as not finished. Thinking tokens count toward the cap; one whole-list read in the first live proof spent 3,746 of its 5,000 on thinking and was cut, which is why reads are batched.
+- Pass 1's comments are shown as soon as request 1 answers, labelled "Checking each comment" and not confirmed. The checked view replaces them when both reads are back. If a read fails or times out, the comments stay as not confirmed with the note "The second pass did not finish".
+- The reads are separate requests, one per read and batch, each with its own limit and its own single retry. A failed batch leaves only its own comments not confirmed. Stopping a review, or starting another, cancels the pending reads.
+- A review counts once against the rate limit: pass 1 counts one request, and a read function counts only the first batch (`?batch=0`) of a review, with a ceiling of 5 batches per review on all its requests.
+- The reads get the first pass's comments from the browser, so the server does not trust them. Request 1 signs the raw comments with the SHA-256 of the exact code it read (an HMAC under a key derived from the provider key); a read refuses anything that is not that signed record for the code in its own request, then runs the deterministic checks on the raw comments again and checks each verdict against the code again.
+- The browser retries once when the connection drops within 12 s, or when a reply ends before its JSON does. It never retries a timeout or an HTTP answer, and a failed run without a server trace shows a trace row that says what the browser saw.
+- The browser gives up on a request after 30 s.
 
 ## Architecture
 
-- **Browser**: React and Vite in `src/`. `lib/api.ts` posts `{ code, language }` or `{ mode: "pr", files }` to `/api/ai` and checks the shape of the reply once. `lib/github.ts` and `lib/pullrequest.ts` parse links and read GitHub replies. `lib/verdicts.ts` holds the counting and wording of verdicts. Model prose is rendered through `lib/markdown.ts` as elements, never as raw markers or HTML.
-- **Server**: the Netlify Function `netlify/functions/ai.ts` (request checks, rate limit, responses). The pipeline sits in `netlify/shared/`: `pipeline.ts` (stages, retry), `budget.ts`, `model.ts` (one call with its own limit), `review.ts` (prompts, parsing, checks), `anchor.ts` (where a comment sits), `verify.ts` (second-pass prompt, verdicts, re-validation), `diff.ts` (patch parsing, file selection), `trace.ts`, `provider.ts`, `deadline.ts`.
+- **Browser**: React and Vite in `src/`. `lib/api.ts` runs a review as three requests: it posts `{ code, language }` or `{ mode: "pr", files }` to `/api/ai`, shows that first pass, then posts the same input with the signed hand-off to `/api/ai/read-1?batch=N` and `/api/ai/read-2?batch=N` at once, one request per batch of at most four comments, and combines the reads. It checks the shape of every reply. `lib/github.ts` and `lib/pullrequest.ts` parse links and read GitHub replies. `lib/verdicts.ts` holds the counting and wording of verdicts. Model prose is rendered through `lib/markdown.ts` as elements, never as raw markers or HTML.
+- **Server**: three thin Netlify Functions (`netlify/functions/ai.ts`, `ai-read-1.ts`, `ai-read-2.ts`) over `netlify/shared/serve.ts` (request checks, rate limit, responses). The pipeline sits in `netlify/shared/`: `pipeline.ts` (the first pass and one read, retry), `handoff.ts` (the signed record), `wire.ts` (reply shapes), `budget.ts`, `model.ts` (one call with its own limit), `review.ts` (prompts, parsing, checks), `anchor.ts` (where a comment sits), `verify.ts` (second-pass prompt, verdicts, re-validation), `diff.ts` (patch parsing, file selection), `trace.ts`, `provider.ts`, `deadline.ts`.
 - **Provider**: OpenRouter chat completions. The model is one constant, the OpenRouter alias `~anthropic/claude-haiku-latest` (the newest Claude Haiku), in `netlify/shared/provider.ts`. The page shows the model OpenRouter answered with, never the alias, and checks it against the newest Haiku that OpenRouter's public model list gives for the alias (`newest-model.ts`): match, not newest, unchecked, or not reported. No temperature is sent and no reasoning override: the model thinks as it does by default, and every call's token cap leaves room for that (6,000 for the review, 5,000 for each pass 2 read). The client cannot choose the model.
 - **Key**: `OPENROUTER_API_KEY` is read only on the server.
-- **Request checks**: POST only (405); the Origin must be on the allowlist (403); the body must be JSON (400) and at most 256 KiB (413); 20 requests a minute per address (429).
+- **Request checks**: POST only (405); the Origin must be on the allowlist (403); the body must be JSON (400) and at most 256 KiB (413); 20 requests a minute per address and per function (429), so 20 reviews a minute: a review sends one request to each of the three functions.
 - **Errors**: every failure returns `{ success: false, error }` in plain language with the trace of the stages that ran. Provider bodies, keys and stack traces never reach the browser.
 - **Design**: the shared design system v3.3 (`src/styles/tokens.css` and `components.css`, copied unchanged), `data-app="3"`. Only what is local is in `src/styles/app.css`.
 
@@ -110,9 +113,10 @@ The tests use data recorded from the live services: the patch of `psf/requests#6
 - Results vary between runs of the same file: counts, wording and which comments survive differ every time.
 - The checks use word patterns for "leave as-is" and "this is fine" verdicts and names for moving comments. They catch the phrasings seen so far, not every phrasing, and a move by name can land one or two lines from the best line.
 - A pull request review reads at most 50,000 characters of diff, whole files only, from the first 100 files GitHub lists, and cannot see code outside the diff. A claim about code outside the diff cannot be checked and is dropped by the second pass when it says so.
-- A very large diff can take a full-length pass 1 (about 10 to 12 s), leaving no time to retry an unreadable reply. The run then answers with an error and its trace.
+- A very large file or diff can take a pass 1 of 22 s or more, leaving no time in that request to retry an unreadable reply. The run then answers with an error and its trace.
+- Thinking uses part of each call's token cap. A read that spends most of its 5,000 tokens thinking is cut off and counts as not finished, so its batch stays not confirmed (none of 12 batched reads in the live proof).
 - The rate limit counts requests per warm function instance, so the effective limit depends on how many run.
 - Stop cancels the browser request. The server keeps running until it finishes or its deadline, and the provider may still bill the calls.
-- A run costs about $0.005 to $0.012 (the review and two reads) on a 600-line file, and up to three more calls when retries happen.
-- The function's platform time limit is not set in this repository; the 25 s run deadline is set in code.
+- A run costs about $0.006 to $0.012 (the review and two reads) on a 300 to 1,200 line file, and up to three more calls when retries happen.
+- The functions' platform time limit is not set in this repository (`netlify.toml` has none). The 26 s cut-off used in `budget.ts` is the smaller of the figures found in the repo, not a measured one for this site, and Netlify's clock also counts cold start, which the in-process proof does not.
 - Reviews are not saved. Reloading the page clears the result.

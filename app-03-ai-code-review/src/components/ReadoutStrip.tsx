@@ -42,7 +42,11 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
   /** A figure the provider did not report is a dash, never a big word. */
   const reported = (value: number | undefined, show: (n: number) => string) => (value === undefined ? none : show(value))
   const chip = summary ? servedChip(summary.model, summary.newestModel, summary.modelCheck, summary.servedModels) : null
-  const unreported = (value: number | undefined, base: string) => (summary && value === undefined ? (sofar ? `${sofar}, not reported` : 'Not reported by the provider') : base)
+  /** Calls whose usage never arrived: a total is then at least what it shows. */
+  const missing = summary?.unreportedCalls ?? 0
+  const missingNote = `${missing} ${missing === 1 ? 'call' : 'calls'} not reported`
+  const atLeast = (shown: string) => (missing > 0 ? `at least ${shown}` : shown)
+  const unreported = (value: number | undefined, base: string) => (summary && value === undefined ? (sofar ? `${sofar}, not reported` : 'Not reported by the provider') : missing > 0 ? `${sofar ? `${sofar}, ` : ''}${missingNote}` : base)
 
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
@@ -51,10 +55,10 @@ export function ReadoutStrip({ phase, summary }: ReadoutStripProps) {
           {running ? <LiveClock /> : summary ? milliseconds(summary.totalMs) : none}
         </Cell>
         <Cell label="Tokens" hint={unreported(usage?.total_tokens, sofar ?? 'Both passes')}>
-          {summary ? reported(usage?.total_tokens, count) : none}
+          {summary ? reported(usage?.total_tokens, (n) => atLeast(count(n))) : none}
         </Cell>
         <Cell label="Cost (USD)" hint={unreported(usage?.cost, sofar ?? 'Reported by the provider')}>
-          {summary ? reported(usage?.cost, usd) : none}
+          {summary ? reported(usage?.cost, (n) => atLeast(usd(n))) : none}
         </Cell>
         <Cell label="Model" hint={summary && !summary.model ? 'Not reported by the provider' : 'Named in the provider reply'}>
           {chip ? (

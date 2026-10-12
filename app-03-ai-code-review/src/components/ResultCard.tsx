@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { SEVERITIES, SEVERITY_CONFIG, SEVERITY_HINT } from '../constants'
 import { count } from '../lib/format'
 import type { ContextLine } from '../lib/context'
-import { countVerdicts, isShown, plural, verdictSentence } from '../lib/verdicts'
+import { countVerdicts, isShown, plural, verdictSentence, waitingSentence } from '../lib/verdicts'
 import type { ReviewComment, ReviewResult, RunPhase, Severity } from '../types'
 import { DroppedList } from './DroppedList'
 import { Finding } from './Finding'
@@ -45,6 +45,8 @@ interface ResultCardProps {
   phase: RunPhase
   error: string | null
   result: ReviewResult | null
+  /** The first pass's comments are on the page and the reads are still running: nothing in `result` is confirmed yet. */
+  checking: boolean
   hasSteps: boolean
   /** Shown comments sorted for reading. Dropped ones are listed apart. */
   filters: Record<Severity, boolean>
@@ -62,28 +64,28 @@ interface ResultCardProps {
   sortComments: (comments: ReviewComment[]) => ReviewComment[]
 }
 
-function Notices({ result, stale }: { result: ReviewResult; stale: boolean }): ReactNode {
+function Notices({ result, stale, checking }: { result: ReviewResult; stale: boolean; checking: boolean }): ReactNode {
   const counts = countVerdicts(result.comments)
   return (
     <>
+      {checking && (
+        <p role="status" className="ds-notice ds-notice--warning">
+          Checking each comment against the code… These are the first pass's comments after the deterministic checks. None is confirmed yet, and the checked list replaces this one when both reads finish.
+        </p>
+      )}
       {result.pr && (
         <p className="ds-help">
           {`Read ${plural(result.pr.filesIncluded, 'file', 'files')}: ${count(result.pr.changedIncluded)} changed lines, ${count(result.pr.charsIncluded)} of ${count(result.pr.charLimit)} characters. Comments sit on changed lines only.`}
         </p>
       )}
-      {!result.verified && (
+      {!checking && !result.verified && (
         <p role="status" className="ds-notice ds-notice--warning">
           The second pass did not finish, so the surviving comments are shown as not confirmed. Only the deterministic checks ran on them. Run the review again to verify them.
         </p>
       )}
-      {result.verified && counts.unverified > 0 && (
+      {!checking && result.verified && counts.unverified > 0 && (
         <p role="status" className="ds-notice ds-notice--warning">
           {`${plural(counts.unverified, 'comment', 'comments')} not confirmed: the two reads disagreed, the adversarial read found code against them, or they rest on something outside the code. They are listed below, closed.`}
-        </p>
-      )}
-      {result.truncated && (
-        <p role="status" className="ds-notice ds-notice--warning">
-          The first pass hit its length limit, so this list may be incomplete. Try a smaller file or fewer files for full coverage.
         </p>
       )}
       {result.malformed > 0 && (
@@ -101,14 +103,14 @@ function Notices({ result, stale }: { result: ReviewResult; stale: boolean }): R
 }
 
 export function ResultCard(props: ResultCardProps) {
-  const { phase, error, result, hasSteps, filters, highlightedLine, copied, stale, onToggleFilter, onShowLine, onRetry, onCopy, sortComments, contextOf, hrefOf, emptyBody } = props
+  const { phase, error, result, checking, hasSteps, filters, highlightedLine, copied, stale, onToggleFilter, onShowLine, onRetry, onCopy, sortComments, contextOf, hrefOf, emptyBody } = props
 
-  if (phase === 'running') {
+  if (phase === 'running' && !(checking && result)) {
     return (
       <ResultState
         tone="loading"
         title="Reviewing"
-        body="Pass 1 writes the comments, the checks test them, then pass 2 reads each one against the code. This takes 10 to 20 seconds."
+        body="Pass 1 writes the comments, the checks test them, then pass 2 reads each one against the code. The first comments appear in about 15 to 25 seconds; the checked review takes about 20 to 40."
       />
     )
   }
@@ -152,21 +154,22 @@ export function ResultCard(props: ResultCardProps) {
   const severityCounts: Record<Severity, number> = { critical: 0, warning: 0, info: 0 }
   for (const c of shown) severityCounts[c.severity] += 1
   const fullyVerified = result.verified && counts.unverified === 0
+  const heading = checking ? 'Checking each comment…' : fullyVerified ? 'Review checked by a second pass' : 'Review partly checked'
 
   return (
     <div className="result">
       <div className="ds-lead">
         <div className="ds-lead__meta">
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>
-            {fullyVerified ? 'Review checked by a second pass' : 'Review partly checked'}
+            {heading}
           </h2>
           <span className="ds-chip ds-chip--muted">{result.mode === 'pr' ? 'pull request' : 'file'}</span>
         </div>
         <p className="ds-lead__text result__sentence" role="status">
-          {verdictSentence(counts, result.verified)}
+          {checking ? waitingSentence(counts) : verdictSentence(counts, result.verified)}
         </p>
-        <Ledger counts={counts} />
-        <Notices result={result} stale={stale} />
+        {!checking && <Ledger counts={counts} />}
+        <Notices result={result} stale={stale} checking={checking} />
       </div>
 
       {result.comments.length === 0 ? (
@@ -181,7 +184,7 @@ export function ResultCard(props: ResultCardProps) {
         <section className="ds-section" aria-labelledby="findings-title">
           <div className="ds-section__head ds-section__head--bare">
             <h2 id="findings-title" className="ds-section__title">
-              {`Comments to act on (${shown.length})`}
+              {checking ? `First-pass comments, being checked (${shown.length})` : `Comments to act on (${shown.length})`}
             </h2>
           </div>
           <div className="review-controls__row">
@@ -202,7 +205,7 @@ export function ResultCard(props: ResultCardProps) {
                 </button>
               ))}
             </div>
-            {shown.length > 0 && (
+            {shown.length > 0 && !checking && (
               <button type="button" className="ds-button ds-button--quiet review-controls__copy" onClick={onCopy}>
                 {copied ? 'Copied' : 'Copy review'}
               </button>

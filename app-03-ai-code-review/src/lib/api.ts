@@ -1,8 +1,14 @@
 import { SEVERITIES } from '../constants'
-import type { PrFileInput } from '../../netlify/shared/diff'
+import { buildDiff, type PrFileInput } from '../../netlify/shared/diff'
+import type { Candidate, CheckedDrop } from '../../netlify/shared/review'
+import { batchesOf } from '../../netlify/shared/batches'
+import { sumUsage } from '../../netlify/shared/trace'
+import { buildComments, locatorFor, type Located, type Rebuttal, type Settled } from '../../netlify/shared/verify'
+import type { FirstPassReply, FirstRow, Handoff, SecondRow } from '../../netlify/shared/wire'
 import type { Decider, ModelCheck, PrCounts, ReviewComment, ReviewResult, ReviewRun, RunSummary, ServedCall, Severity, StepStatus, TraceStep, Usage, Verdict } from '../types'
 
-const REQUEST_TIMEOUT_MS = 45_000
+/** One request's limit. The platform cuts a function at 26 s (netlify/shared/budget.ts), so a request still open at 30 s is lost. */
+const REQUEST_TIMEOUT_MS = 30_000
 const STEP_STATUSES: StepStatus[] = ['ok', 'failed', 'skipped']
 const VERDICTS: Verdict[] = ['kept', 'moved', 'dropped', 'unverified']
 const DECIDERS: Decider[] = ['verifier', 'check', 'none']
@@ -108,6 +114,9 @@ function summaryOf(data: unknown): RunSummary {
     modelCheck: MODEL_CHECKS.includes(reply.modelCheck as ModelCheck) ? (reply.modelCheck as ModelCheck) : 'not-reported',
     servedModels: Array.isArray(reply.servedModels) && reply.servedModels.every(isServedCall) ? reply.servedModels : [],
     totalMs: isNumber(reply.totalMs) ? reply.totalMs : 0,
+    // The server counts the calls it could not account for. An answer that is not the server's JSON (a platform cut-off page)
+    // leaves the call that was running unknown.
+    unreportedCalls: isNumber(reply.unreportedCalls) ? reply.unreportedCalls : isRecord(data) ? 0 : 1,
   }
 }
 
@@ -128,11 +137,12 @@ const attemptStep = (detail: string, startedAt: number, status: StepStatus = 'fa
 })
 
 /**
- * Posts a review request. Rejects with a ReviewError whose message is safe to show. Aborts on `signal` (user cancel)
- * with the abort error; the caller ignores that one. A connection that drops early, or a reply that ends before its JSON
- * does, gets one automatic retry; a rejection, a rate limit, a server error or a timeout never does.
+ * Posts one request of a review. `accept` reads the successful reply and returns null for one that is not the shape that
+ * request promises. Rejects with a ReviewError whose message is safe to show. Aborts on `signal` (user cancel) with the abort
+ * error; the caller ignores that one. A connection that drops early, or a reply that ends before its JSON does, gets one
+ * automatic retry; a rejection, a rate limit, a server error or a timeout never does.
  */
-async function postReview(payload: unknown, signal?: AbortSignal): Promise<ReviewRun> {
+async function postStage<T>(path: string, payload: unknown, signal: AbortSignal | undefined, accept: (data: Record<string, unknown>) => T | null): Promise<{ value: T } & RunSummary> {
   const startedAt = Date.now()
   let dropped: TraceStep | null = null
 
@@ -148,7 +158,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
       let response: Response
       let data: unknown
       try {
-        response = await fetch('/api/ai', {
+        response = await fetch(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -159,7 +169,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
         if (signal?.aborted) throw err
         const totalMs = Date.now() - startedAt
         if ((err as Error)?.name === 'TimeoutError') {
-          throw new ReviewError(TIMEOUT_ERROR, withDropped({ trace: [attemptStep('No answer from the server in time', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs }, dropped))
+          throw new ReviewError(TIMEOUT_ERROR, withDropped({ trace: [attemptStep('No answer from the server in time', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 1, totalMs }, dropped))
         }
         if (retryable()) {
           dropped = attemptStep('Could not reach the server. Retried once', attemptAt)
@@ -167,7 +177,7 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
         }
         // Logged only when the last try fails: a dropped connection that the retry recovers is not an error.
         console.error('CodeLens: review request failed', err)
-        throw new ReviewError(NETWORK_ERROR, withDropped({ trace: [attemptStep('Could not reach the server', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs }, dropped))
+        throw new ReviewError(NETWORK_ERROR, withDropped({ trace: [attemptStep('Could not reach the server', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 1, totalMs }, dropped))
       }
 
       // A reply that started and then ended before its JSON did: the connection dropped mid-answer.
@@ -176,34 +186,169 @@ async function postReview(payload: unknown, signal?: AbortSignal): Promise<Revie
           dropped = attemptStep(`The connection dropped before the reply finished (HTTP ${response.status}). Retried once`, attemptAt)
           continue
         }
-        throw new ReviewError(CUT_OFF_ERROR, withDropped({ trace: [attemptStep('The reply ended before it finished', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: Date.now() - startedAt }, dropped))
+        throw new ReviewError(CUT_OFF_ERROR, withDropped({ trace: [attemptStep('The reply ended before it finished', attemptAt)], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 1, totalMs: Date.now() - startedAt }, dropped))
       }
       if (!response.ok || !isRecord(data) || data.success !== true) {
         const summary = summaryOf(data)
         if (summary.trace.length === 0) summary.trace = [attemptStep(`The server answered HTTP ${response.status} without a trace`, attemptAt)]
         throw new ReviewError(serverMessage(response.status, isRecord(data) ? data.error : undefined), withDropped(summary, dropped))
       }
-      if (!isReviewResult(data.result)) throw new ReviewError(GENERIC_ERROR, withDropped(summaryOf(data), dropped))
-      return { result: data.result, ...withDropped(summaryOf(data), dropped) }
+      const value = accept(data)
+      if (value === null) throw new ReviewError(GENERIC_ERROR, withDropped(summaryOf(data), dropped))
+      return { value, ...withDropped(summaryOf(data), dropped) }
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
     }
   }
-  throw new ReviewError(NETWORK_ERROR, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], totalMs: Date.now() - startedAt })
+  throw new ReviewError(NETWORK_ERROR, { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 1, totalMs: Date.now() - startedAt })
 }
 
 /** Puts the dropped first attempt in front of the server's trace, so a retry is never invisible. */
 function withDropped(summary: RunSummary, dropped: TraceStep | null): RunSummary {
-  return dropped ? { ...summary, trace: [dropped, ...summary.trace] } : summary
+  // A connection that was lost may have reached the server and run a call: it is one the totals cannot account for.
+  return dropped ? { ...summary, trace: [dropped, ...summary.trace], unreportedCalls: summary.unreportedCalls + 1 } : summary
 }
 
-/** Posts code for review. */
-export function reviewCode(code: string, language: string, signal?: AbortSignal): Promise<ReviewRun> {
-  return postReview({ code, language }, signal)
+const isHandoff = (value: unknown): value is Handoff => isRecord(value) && typeof value.text === 'string' && typeof value.seal === 'string'
+const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
+const isNullableNumber = (value: unknown): value is number | null => value === null || isNumber(value)
+
+function isCandidate(value: unknown): value is Candidate {
+  return (
+    isRecord(value) &&
+    isNumber(value.id) &&
+    isNumber(value.line) &&
+    isNumber(value.fromLine) &&
+    typeof value.quote === 'string' &&
+    SEVERITIES.includes(value.severity as Severity) &&
+    typeof value.message === 'string' &&
+    typeof value.suggestion === 'string' &&
+    isNullableString(value.moveNote) &&
+    (value.loweredFrom === null || SEVERITIES.includes(value.loweredFrom as Severity))
+  )
+}
+
+function isDrop(value: unknown): value is CheckedDrop {
+  return isRecord(value) && isNumber(value.id) && isNumber(value.line) && isNumber(value.fromLine) && SEVERITIES.includes(value.severity as Severity) && typeof value.message === 'string' && typeof value.suggestion === 'string' && typeof value.reason === 'string'
+}
+
+/** The reply of request 1. Without a hand-off (nothing left to read) the review is already whole. */
+function acceptFirst(data: Record<string, unknown>): FirstPassReply | null {
+  if (!isReviewResult(data.result) || !Array.isArray(data.candidates) || !data.candidates.every(isCandidate) || !Array.isArray(data.dropped) || !data.dropped.every(isDrop)) return null
+  if (data.handoff !== null && !isHandoff(data.handoff)) return null
+  if (data.candidates.length > 0 && data.handoff === null) return null
+  // The batches are exactly the candidates, in order, at most four to a batch: a reply that loses or repeats one is not used.
+  const batches = data.batches
+  if (!Array.isArray(batches) || !batches.every((b) => Array.isArray(b) && b.every(isNumber))) return null
+  if (JSON.stringify(batches) !== JSON.stringify(batchesOf(data.candidates.map((c: Candidate) => c.id)))) return null
+  return { result: data.result, candidates: data.candidates, dropped: data.dropped, batches: batches as number[][], handoff: data.handoff }
+}
+
+const isSettled = (value: unknown): value is FirstRow =>
+  isRecord(value) &&
+  isNumber(value.id) &&
+  isNumber(value.line) &&
+  VERDICTS.includes(value.verdict as Verdict) &&
+  DECIDERS.includes(value.decidedBy as Decider) &&
+  typeof value.reason === 'string' &&
+  isNullableString(value.evidence) &&
+  isNullableString(value.support) &&
+  isNullableNumber(value.supportAt) &&
+  isNullableString(value.claimKind)
+
+const isRebuttal = (value: unknown): value is SecondRow =>
+  isRecord(value) && isNumber(value.id) && (value.state === 'stands' || value.state === 'refuted' || value.state === 'unsure') && typeof value.reason === 'string' && isNullableString(value.quote)
+
+/** A read's rows, when there is exactly one for every comment that went to be read. */
+function acceptRows<R extends { id: number }>(candidates: readonly Candidate[], check: (row: unknown) => row is R) {
+  return (data: Record<string, unknown>): Map<number, R> | null => {
+    if (!Array.isArray(data.rows) || !data.rows.every(check)) return null
+    const rows = new Map(data.rows.map((row: R) => [row.id, row]))
+    return rows.size === candidates.length && candidates.every((c) => rows.has(c.id)) ? rows : null
+  }
+}
+
+const RANK: Record<ModelCheck, number> = { match: 0, unchecked: 1, 'not-reported': 2, mismatch: 3 }
+
+/** What a read that did not finish leaves in the run: its failure and the stages the server reported before it. */
+const summaryOfFailure = (err: unknown, fallback: number): RunSummary =>
+  err instanceof ReviewError ? err.summary : { trace: [], usage: null, model: null, newestModel: null, modelCheck: 'not-reported', servedModels: [], unreportedCalls: 1, totalMs: fallback }
+
+/** Called once pass 1 and its checks are back, with the comments that passed the checks and none confirmed yet. */
+export type OnFirstPass = (run: ReviewRun) => void
+
+/**
+ * One review as the browser runs it: request 1 (pass 1 and the checks), then requests 2 and 3 (the two reads of pass 2) side by
+ * side. `locate` places a numbered line. A read that fails or times out does not fail the review: its comments stay on the page
+ * as not confirmed, and the result says the second pass did not finish.
+ */
+async function review(payload: object, locate: (line: number) => Located, inPullRequest: boolean, signal: AbortSignal | undefined, onFirstPass?: OnFirstPass): Promise<ReviewRun> {
+  const startedAt = Date.now()
+  const first = await postStage('/api/ai', payload, signal, acceptFirst)
+  const { candidates, dropped, handoff, batches } = first.value
+  const afterFirst: ReviewRun = { result: first.value.result, ...first, totalMs: Date.now() - startedAt }
+  if (handoff === null) return afterFirst
+  onFirstPass?.(afterFirst)
+
+  const readsAt = Date.now() - startedAt
+  const withHandoff = { ...payload, handoff }
+  // Each read is one request per batch of at most four comments, all at once, each with the whole input.
+  type Batched<R> = Array<PromiseSettledResult<{ value: Map<number, R> } & RunSummary>>
+  const fanOut = <R extends { id: number }>(path: string, check: (row: unknown) => row is R): Promise<Batched<R>> =>
+    Promise.allSettled(
+      batches.map((ids, i) =>
+        postStage(`${path}?batch=${i}`, withHandoff, signal, acceptRows(candidates.filter((c) => ids.includes(c.id)), check)),
+      ),
+    )
+  const [ones, twos] = await Promise.all([fanOut('/api/ai/read-1', isSettled), fanOut('/api/ai/read-2', isRebuttal)])
+  // A stopped or replaced review never reports reads: the caller drops the run on its own abort.
+  if (signal?.aborted) throw signal.reason ?? new DOMException('The review was stopped.', 'AbortError')
+
+  const combineAt = Date.now()
+  // A batch that did not finish leaves its comments without a row; those come out not confirmed. A read is whole only when every batch is.
+  const merged = <R,>(parts: Batched<R>): Map<number, R> => new Map(parts.flatMap((p) => (p.status === 'fulfilled' ? [...p.value.value] : [])))
+  const verified = [...ones, ...twos].every((p) => p.status === 'fulfilled')
+  const firsts = merged(ones) as Map<number, Settled>
+  const seconds = merged(twos) as Map<number, Rebuttal>
+  const comments = buildComments(candidates, dropped, firsts, seconds, locate, inPullRequest)
+  const count = (v: Verdict) => comments.filter((c) => c.verdict === v).length
+
+  const reads = [...ones, ...twos].map((r) => (r.status === 'fulfilled' ? r.value : summaryOfFailure(r.reason, 0)))
+  // The reads ran side by side: place each one's stages from where the browser started them, and list read 1 first.
+  const readTrace = reads.flatMap((r) => r.trace.map((step) => ({ ...step, at: (step.at ?? 0) + readsAt })))
+  const readsEnd = Math.max(0, ...readTrace.map((s) => (s.at ?? 0) + s.ms)) - readsAt
+  const validated: TraceStep = {
+    name: 'Re-validate',
+    status: 'ok',
+    ms: Date.now() - combineAt,
+    at: readsAt + readsEnd,
+    detail: verified
+      ? `Every verdict checked against the code: ${count('kept')} kept, ${count('moved')} moved, ${count('dropped')} dropped, ${count('unverified')} not confirmed`
+      : `A second-pass read did not finish: ${count('unverified')} ${count('unverified') === 1 ? 'comment' : 'comments'} not confirmed, ${count('dropped')} dropped`,
+  }
+  const all = [first, ...reads]
+  const served = all.flatMap((r) => r.servedModels)
+  return {
+    result: { ...first.value.result, comments, verified },
+    trace: [...first.trace, ...readTrace, validated],
+    usage: sumUsage(all.flatMap((r) => (r.usage ? [r.usage] : []))),
+    model: first.model,
+    newestModel: first.newestModel ?? all.map((r) => r.newestModel).find((m) => m !== null) ?? null,
+    modelCheck: all.map((r) => r.modelCheck).reduce((worst, check) => (RANK[check] > RANK[worst] ? check : worst)),
+    servedModels: served,
+    totalMs: Date.now() - startedAt,
+    unreportedCalls: all.reduce((sum, r) => sum + r.unreportedCalls, 0),
+  }
+}
+
+/** Posts code for review. `onFirstPass` gets the first pass's comments as soon as they are back. */
+export function reviewCode(code: string, language: string, signal?: AbortSignal, onFirstPass?: OnFirstPass): Promise<ReviewRun> {
+  return review({ code, language }, locatorFor(code.split('\n'), null), false, signal, onFirstPass)
 }
 
 /** Posts the chosen files of a pull request for review. Each patch is exactly what GitHub listed. */
-export function reviewPullRequest(files: PrFileInput[], signal?: AbortSignal): Promise<ReviewRun> {
-  return postReview({ mode: 'pr', files }, signal)
+export function reviewPullRequest(files: PrFileInput[], signal?: AbortSignal, onFirstPass?: OnFirstPass): Promise<ReviewRun> {
+  const units = buildDiff(files).units
+  return review({ mode: 'pr', files }, locatorFor(units.map((u) => u.shown), units), true, signal, onFirstPass)
 }

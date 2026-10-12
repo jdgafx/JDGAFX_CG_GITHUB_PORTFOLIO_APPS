@@ -14,7 +14,8 @@ export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completion
 export interface ProviderReply {
   model?: string
   choices?: Array<{ message?: { content?: string | null }; finish_reason?: string | null }>
-  usage?: Usage
+  /** The summed fields plus the breakdown OpenRouter reports for thinking. */
+  usage?: Usage & { completion_tokens_details?: { reasoning_tokens?: number } }
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  COMPLETE, CRITICAL_DIVIDE, DIVIDE_BODY, FIVE, HOURS_BODY, failure, fetchStub, handler, installHooks, keep, post, providerReply, readPayload, reply, reviewJson, script, sentBody, standsFor, stepSummary, twoPasses, verdictJson,
+  COMPLETE, CRITICAL_DIVIDE, DIVIDE_BODY, FIVE, HOURS_BODY, failure, fetchStub, full, installHooks, keep, providerReply, readPayload, reply, reviewJson, script, sentBody, standsFor, stepSummary, twoPasses, verdictJson,
   type Payload,
 } from './harness'
 
@@ -12,7 +12,7 @@ describe('ai function: a verified review', () => {
       keep(1, 2, 'return a / b', 'return a / b divides with no guard for b equal to 0.'),
       { id: 2, verdict: 'drop', line: 1, evidence: 'def divide(a, b):', reason: 'divide is a clear name for def divide(a, b):.' },
     ])
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
     expect(stepSummary(payload)).toEqual(COMPLETE)
@@ -26,7 +26,7 @@ describe('ai function: a verified review', () => {
 
   it('sums the tokens and cost of both passes, and gives every stage a start offset for the waterfall', async () => {
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload.usage).toEqual({ prompt_tokens: 300, completion_tokens: 150, total_tokens: 450, cost: 0.00045 })
     expect(payload.trace.every((s) => typeof s.at === 'number')).toBe(true)
     expect(payload.trace[2]).toMatchObject({ tokens: 150, cost: 0.00015 })
@@ -36,7 +36,7 @@ describe('ai function: a verified review', () => {
 
   it('sends the review to pass 1 and the numbered code plus the comments to pass 2, both on the fixed model', async () => {
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    await handler(post({ ...DIVIDE_BODY, model: 'gpt-evil' }))
+    await full({ ...DIVIDE_BODY, model: 'gpt-evil' })
     expect(fetchStub).toHaveBeenCalledTimes(3)
     for (const call of [0, 1, 2]) {
       const sent = sentBody(call)
@@ -62,14 +62,14 @@ describe('ai function: a verified review', () => {
 
   it('moves a comment to the line the second pass names when the quoted code is on that line', async () => {
     twoPasses([{ ...FIVE, line: 6, quote: '' }], [{ id: 1, verdict: 'move', line: 5, evidence: 'data = open(path).read()', support: 'data = open(path).read()', reason: 'The unclosed handle is on line 5, not the return on line 6.', claim: { kind: 'other', names: [], lines: [5], quote: 'data = open(path).read()' } }])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'moved', line: 5, fromLine: 6, decidedBy: 'verifier', code: '    data = open(path).read()' })
     expect(payload.trace[7].detail).toContain('1 moved')
   })
 
   it('shows a comment as not confirmed when the second pass quotes code that is not on the line it names', async () => {
     twoPasses([FIVE], [keep(1, 5, 'rows = load(sys.argv[1])')])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none', evidence: null, line: 5 })
     expect(payload.result?.comments[0].reason).toMatch(/not on line 5/)
     expect(payload.result?.verified).toBe(true)
@@ -78,7 +78,7 @@ describe('ai function: a verified review', () => {
   it('never sends a comment the checks dropped to the second pass, and lists it with its reason', async () => {
     const leave = { line: 11, quote: 'os.exit(0)', severity: 'info', message: 'os.exit is deprecated and kept only for compatibility.', suggestion: 'Leave as-is for compatibility.', issue: true }
     twoPasses([FIVE, leave], [keep(1, 5, 'data = open(path).read()')])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(sentBody(1).messages[1].content).not.toContain('os.exit is deprecated')
     expect(payload.result?.comments.map((c) => [c.id, c.verdict, c.decidedBy])).toEqual([[1, 'kept', 'verifier'], [2, 'dropped', 'check']])
     expect(payload.result?.comments[1].reason).toMatch(/^Concludes that nothing should change/)
@@ -90,7 +90,7 @@ describe('ai function: a verified review', () => {
     )
     fetchStub.mockResolvedValueOnce(providerReply(verdictJson([keep(1, 5, 'data = open(path).read()')])))
     fetchStub.mockResolvedValueOnce(providerReply(verdictJson(standsFor([keep(1, 5, 'data = open(path).read()')]))))
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     const reasons = payload.result?.comments.filter((c) => c.decidedBy === 'check').map((c) => c.reason)
     expect(reasons).toEqual([
       'The reviewer marked its own comment as not an issue.',
@@ -102,7 +102,7 @@ describe('ai function: a verified review', () => {
 
   it('skips the second pass, and says why, when the first pass wrote nothing', async () => {
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([])))
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(fetchStub).toHaveBeenCalledTimes(1)
     expect(stepSummary(payload)).toEqual(['Check request:ok', 'Build prompt:ok', 'Pass 1: review:ok', 'Parse reply:ok', 'Checks:ok', 'Pass 2: verify (read 1):skipped', 'Re-validate:ok'])
     expect(payload.result).toMatchObject({ comments: [], verified: true })
@@ -110,7 +110,7 @@ describe('ai function: a verified review', () => {
 
   it('shows every surviving comment as not confirmed when a second-pass read fails, and says the pass did not finish', async () => {
     script({ pass1: [reply(reviewJson([FIVE]))], read1: [() => new Response('upstream exploded', { status: 500 })], read2: [reply(verdictJson(standsFor([keep(1, 5, 'data = open(path).read()')])))] })
-    const res = await handler(post(HOURS_BODY))
+    const res = await full(HOURS_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
     expect(fetchStub).toHaveBeenCalledTimes(3)
@@ -118,12 +118,12 @@ describe('ai function: a verified review', () => {
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
     expect(payload.result?.comments[0].reason).toBe('The second pass did not finish, so only the deterministic checks ran on this comment.')
     expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify (read 1):failed', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
-    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 17.9 s)')
+    expect(payload.trace[5].detail).toBe('Provider failed (HTTP 500) (limit 22.0 s)')
   })
 
   it('retries a read whose reply is not a list of verdicts once, and then calls that read failed', async () => {
     script({ pass1: [reply(reviewJson([FIVE]))], read1: [reply('I think the comment is fine.'), reply('Still fine, I think.')], read2: [reply(verdictJson(standsFor([keep(1, 5, 'data = open(path).read()')])))] })
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.verified).toBe(false)
     expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify (read 1):ok', 'Pass 2: verify (read 1) retry:failed', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
     expect(payload.trace[6].detail).toContain('not a readable list of verdicts')
@@ -133,7 +133,7 @@ describe('ai function: a verified review', () => {
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([FIVE])))
     fetchStub.mockResolvedValueOnce(providerReply(JSON.stringify({ verdicts: [keep(1, 5, 'data = open(path).read()')] })))
     fetchStub.mockResolvedValueOnce(providerReply(verdictJson(standsFor([keep(1, 5, 'data = open(path).read()')]))))
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0].verdict).toBe('kept')
   })
 })
@@ -143,13 +143,13 @@ describe('ai function: the adversarial read', () => {
 
   it('keeps a comment only when the adversary, looking for code that breaks the claim, finds none', async () => {
     twoPasses([FIVE], kept, [{ id: 1, verdict: 'stands', line: 5, evidence: 'data = open(path).read()', support: '', reason: 'Nothing closes the handle.' }])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'kept', support: 'data = open(path).read()', supportLine: 5 })
   })
 
   it('leaves a comment not confirmed, with the code the adversary found, when it refutes the claim', async () => {
     twoPasses([FIVE], kept, [{ id: 1, verdict: 'refuted', line: 6, evidence: 'return data.split(",")', support: '', reason: 'The handle is dropped as soon as read() returns, which closes it in CPython.' }])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
     expect(payload.result?.comments[0].reason).toBe('A second read looked for code that breaks the claim and found some: "return data.split(",")". The handle is dropped as soon as read() returns, which closes it in CPython.')
     expect(payload.result?.verified).toBe(true)
@@ -157,7 +157,7 @@ describe('ai function: the adversarial read', () => {
 
   it('does not trust an adversary that quotes code which is not in the file, either way', async () => {
     twoPasses([FIVE], kept, [{ id: 1, verdict: 'stands', line: 5, evidence: 'with open(path) as f:', support: '', reason: 'Fine.' }])
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments[0].verdict).toBe('unverified')
     expect(payload.result?.comments[0].reason).toMatch(/^A second read could not settle it from the code: The second read quoted "with open\(path\) as f:", which is not in the code\.$/)
   })
@@ -169,7 +169,7 @@ describe('ai function: the adversarial read', () => {
       { id: 2, verdict: 'unsure', line: 6, evidence: 'return data.split(",")', support: '', reason: 'Depends on how callers quote their input.' },
     ]
     twoPasses([FIVE, second], verdicts, standsFor(verdicts))
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments.map((c) => [c.verdict, c.reason])).toEqual([
       ['dropped', 'The handle is closed when read() returns.'],
       ['unverified', 'Cannot be confirmed from the code: Depends on how callers quote their input.'],
@@ -183,21 +183,21 @@ describe('ai function: the typed claim of a kept comment', () => {
 
   it('shows a claim of kind other as quote-only, and a typed claim the file bears out by its kind', async () => {
     twoPasses([FIVE], [keep(1, 5, LINE)])
-    const other = await readPayload(await handler(post(HOURS_BODY)))
+    const other = await readPayload(await full(HOURS_BODY))
     expect(other.result?.comments[0]).toMatchObject({ verdict: 'kept', claimKind: 'other' })
     twoPasses([FIVE], typed({ kind: 'unused', names: ['data'], lines: [5], quote: LINE }))
-    const unusedClaim = await readPayload(await handler(post(HOURS_BODY)))
+    const unusedClaim = await readPayload(await full(HOURS_BODY))
     expect(unusedClaim.result?.comments[0]).toMatchObject({ verdict: 'unverified', claimKind: null })
     expect(unusedClaim.result?.comments[0].reason).toMatch(/data is used again on line 6/)
   })
 
   it('does not confirm a typed claim the file does not bear out, or a keep with no typed claim at all', async () => {
     twoPasses([FIVE], typed({ kind: 'shadows', names: ['data'], lines: [5], quote: LINE }))
-    const shadows = await readPayload(await handler(post(HOURS_BODY)))
+    const shadows = await readPayload(await full(HOURS_BODY))
     expect(shadows.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none', support: null })
     expect(shadows.result?.comments[0].reason).toMatch(/no import and no outer declaration of data/)
     twoPasses([FIVE], typed(undefined))
-    const none = await readPayload(await handler(post(HOURS_BODY)))
+    const none = await readPayload(await full(HOURS_BODY))
     expect(none.result?.comments[0]).toMatchObject({ verdict: 'unverified', decidedBy: 'none' })
     expect(none.result?.comments[0].reason).toMatch(/did not give a typed claim/)
   })
@@ -207,7 +207,7 @@ describe('ai function: the first pass and its retry', () => {
   it('retries a read that was cut short, and uses the retry when it is a good list', async () => {
     const good = reply(verdictJson([keep(1, 5, 'data = open(path).read()')]))
     script({ pass1: [reply(reviewJson([FIVE]))], read1: [reply('[{"id":1,"verdict":"ke', 'length'), good], read2: [reply(verdictJson(standsFor([keep(1, 5, 'data = open(path).read()')])))] })
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result).toMatchObject({ verified: true })
     expect(stepSummary(payload).slice(5)).toEqual(['Pass 2: verify (read 1):ok', 'Pass 2: verify (read 1) retry:ok', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
     expect(payload.trace[5].detail).toContain('but it was cut short')
@@ -217,7 +217,7 @@ describe('ai function: the first pass and its retry', () => {
     const second = { ...FIVE, line: 6, quote: 'data.split', message: 'split(",") breaks on quoted commas.', suggestion: 'Use the csv module.' }
     const both = [keep(1, 5, 'data = open(path).read()'), keep(2, 6, 'return data.split(",")')]
     script({ pass1: [reply(reviewJson([FIVE, second]))], read1: [reply(verdictJson(both.slice(0, 1))), reply(verdictJson(both))], read2: [reply(verdictJson(standsFor(both)))] })
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments.map((c) => c.verdict)).toEqual(['kept', 'kept'])
     expect(payload.trace[5].detail).toContain('but it was missing 1 of 2 verdicts')
   })
@@ -227,7 +227,7 @@ describe('ai function: the first pass and its retry', () => {
     const only = reply(verdictJson([keep(1, 5, 'data = open(path).read()')]))
     const both = [keep(1, 5, 'data = open(path).read()'), keep(2, 6, 'return data.split(",")')]
     script({ pass1: [reply(reviewJson([FIVE, second]))], read1: [only, only], read2: [reply(verdictJson(standsFor(both)))] })
-    const payload = await readPayload(await handler(post(HOURS_BODY)))
+    const payload = await readPayload(await full(HOURS_BODY))
     expect(payload.result?.comments.map((c) => [c.verdict, c.reason])).toEqual([
       ['kept', 'The code does what the comment says.'],
       ['unverified', 'The second pass gave no verdict for this comment.'],
@@ -236,7 +236,7 @@ describe('ai function: the first pass and its retry', () => {
 
   it('retries once when the first reply is empty, and sums usage across all three calls', async () => {
     script({ pass1: [reply(''), reply(reviewJson([CRITICAL_DIVIDE]))], read1: [reply(verdictJson([keep(1, 2, 'return a / b')]))], read2: [reply(verdictJson(standsFor([keep(1, 2, 'return a / b')])))] })
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(stepSummary(payload)).toEqual(['Check request:ok', 'Build prompt:ok', 'Pass 1: review:ok', 'Pass 1: review retry:ok', 'Parse reply:ok', 'Checks:ok', 'Pass 2: verify (read 1):ok', 'Pass 2: verify (read 2, adversary):ok', 'Re-validate:ok'])
     expect(payload.trace[2].detail).toContain('but it was empty')
     expect(payload.trace[3].detail).toContain('Retried once because the first reply was empty')
@@ -246,17 +246,17 @@ describe('ai function: the first pass and its retry', () => {
   it('retries once when the first reply was cut short, and reports a review cut short twice as cut short', async () => {
     fetchStub.mockResolvedValueOnce(providerReply('{"comments": [{"line": 2, "sev', 'length'))
     fetchStub.mockResolvedValueOnce(providerReply('{"comments": [{"line": 2, "sev', 'length'))
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(502)
     expect(fetchStub).toHaveBeenCalledTimes(2)
-    expect(payload.error).toBe('The review was cut short before it could be read. Try a shorter snippet.')
+    expect(payload.error).toBe('The AI ran out of reply length before it finished the review. Try a shorter snippet.')
     expect(stepSummary(payload).slice(2, 4)).toEqual(['Pass 1: review:ok', 'Pass 1: review retry:ok'])
   })
 
   it('retries once after a lost connection, and shows the failed try and the retry in the trace', async () => {
     script({ pass1: [failure(new TypeError('fetch failed')), reply(reviewJson([CRITICAL_DIVIDE]))], read1: [reply(verdictJson([keep(1, 2, 'return a / b')]))], read2: [reply(verdictJson(standsFor([keep(1, 2, 'return a / b')])))] })
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(200)
     expect(stepSummary(payload).slice(2, 4)).toEqual(['Pass 1: review:failed', 'Pass 1: review retry:ok'])
@@ -265,7 +265,7 @@ describe('ai function: the first pass and its retry', () => {
 
   it('answers 502 when the retry also loses the connection, after exactly two tries', async () => {
     fetchStub.mockRejectedValue(new TypeError('fetch failed'))
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     expect(res.status).toBe(502)
     expect(fetchStub).toHaveBeenCalledTimes(2)
     expect((await readPayload(res)).error).toBe('Could not reach the AI provider. Try again in a moment.')
@@ -273,14 +273,14 @@ describe('ai function: the first pass and its retry', () => {
 
   it.each([401, 402, 429, 500, 503])('never retries a provider %i', async (status) => {
     fetchStub.mockResolvedValue(new Response('{"error":"no"}', { status }))
-    await handler(post(DIVIDE_BODY))
+    await full(DIVIDE_BODY)
     expect(fetchStub).toHaveBeenCalledTimes(1)
   })
 
   it('retries once when the reply is complete but is not a readable review, then answers 502', async () => {
     fetchStub.mockResolvedValueOnce(providerReply('I looked and it seems fine.'))
     fetchStub.mockResolvedValueOnce(providerReply('Still no JSON, sorry.'))
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(502)
     expect(fetchStub).toHaveBeenCalledTimes(2)
@@ -292,14 +292,14 @@ describe('ai function: the first pass and its retry', () => {
     fetchStub.mockResolvedValueOnce(providerReply(JSON.stringify([CRITICAL_DIVIDE, { line: 2 }])))
     fetchStub.mockResolvedValueOnce(providerReply(verdictJson([keep(1, 2, 'return a / b')])))
     fetchStub.mockResolvedValueOnce(providerReply(verdictJson(standsFor([keep(1, 2, 'return a / b')]))))
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload.result?.comments).toHaveLength(1)
     expect(payload.result?.malformed).toBe(1)
   })
 
   it('recovers when the retry of an unreadable first reply is a good review', async () => {
     script({ pass1: [reply('{"comments": [oops'), reply(reviewJson([CRITICAL_DIVIDE]))], read1: [reply(verdictJson([keep(1, 2, 'return a / b')]))], read2: [reply(verdictJson(standsFor([keep(1, 2, 'return a / b')])))] })
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload.result?.comments[0].verdict).toBe('kept')
     expect(payload.trace[2].detail).toContain('but it was not a readable JSON review')
   })
@@ -307,7 +307,7 @@ describe('ai function: the first pass and its retry', () => {
   it('answers 500 with a fixed message, hides the detail and marks the stage that broke', async () => {
     const broken = { ok: true, json: async () => ({ get choices(): never { throw new Error('boom: secret detail') } }) } as unknown as Response
     fetchStub.mockResolvedValueOnce(broken)
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const text = await res.text()
     const payload = JSON.parse(text) as Payload
     expect(res.status).toBe(500)

@@ -54,7 +54,7 @@ export function HowTo({ busy, error, collapseKey, onTry }: HowToProps) {
         <p className="howto__lead">Reviews a source file or pull request, then checks every comment against the code.</p>
         <ol className="howto__steps">
           <li>Choose a public GitHub file and select Load file, or paste code into the editor.</li>
-          <li>Select Review code. It takes about 10 to 20 seconds.</li>
+          <li>Select Review code. The first comments appear in about 15 to 25 seconds, and the checked review takes about 20 to 40.</li>
           <li>Read each comment: kept, moved, dropped or Not confirmed, with the reason. Select Show in editor to see the line.</li>
         </ol>
         <div className="howto__try">

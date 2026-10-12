@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  CRITICAL_DIVIDE, DIVIDE_BODY, fetchStub, handler, installHooks, keep, post, providerReply, readPayload, reviewJson, sentBody, stepSummary, twoPasses,
+  CRITICAL_DIVIDE, DIVIDE_BODY, fetchStub, handler, full, installHooks, keep, post, providerReply, readPayload, reviewJson, sentBody, stepSummary, twoPasses,
   type FetchStub,
 } from './harness'
 
@@ -13,11 +13,11 @@ describe('ai function: the time budget', () => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
     })
 
-  it('ends a hung first pass at 16.4 s (what is left after the 0.7 s margin and a healthy pass 2), and does not retry because pass 2 would then have no time', async () => {
+  it('ends a hung first pass at 24 s, its own limit in its own request, and does not retry because too little of the request is left', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockImplementation(hang)
-    const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(16_399)
+    const pending = full(DIVIDE_BODY)
+    await vi.advanceTimersByTimeAsync(23_999)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     const res = await pending
@@ -25,7 +25,7 @@ describe('ai function: the time budget', () => {
     expect(res.status).toBe(504)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     expect(payload.error).toBe('The AI provider did not answer in time.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 16.4 s (limit 16.4 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 24.0 s (limit 24.0 s)' })
     expect(payload.trace[3]).toMatchObject({ name: 'Pass 1: review retry', status: 'skipped' })
     expect(payload.trace[3].detail).toMatch(/^Not retried: /)
   })
@@ -34,17 +34,17 @@ describe('ai function: the time budget', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const stalled = new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
     fetchStub.mockResolvedValueOnce(stalled)
-    const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(16_400)
+    const pending = full(DIVIDE_BODY)
+    await vi.advanceTimersByTimeAsync(24_000)
     expect((await pending).status).toBe(504)
   })
 
-  it('ends two hung reads at 17.9 s, does not retry because too little is left for a healthy read, and shows the comments as not confirmed', async () => {
+  it('ends two hung reads at 22 s, each its own limit in its own request, does not retry because too little is left for a healthy read, and shows the comments as not confirmed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([CRITICAL_DIVIDE])))
     fetchStub.mockImplementation(hang)
-    const pending = handler(post(DIVIDE_BODY))
-    await vi.advanceTimersByTimeAsync(17_849)
+    const pending = full(DIVIDE_BODY)
+    await vi.advanceTimersByTimeAsync(21_999)
     expect(fetchStub).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(1)
     const res = await pending
@@ -78,7 +78,7 @@ const PR_BODY = { mode: 'pr', files: [{ path: 'src/requests/utils.py', status: '
 describe('ai function: a pull request review', () => {
   it('numbers the diff for the reviewer and tells it to comment on changed lines only', async () => {
     fetchStub.mockResolvedValueOnce(providerReply(reviewJson([])))
-    await handler(post(PR_BODY))
+    await full(PR_BODY)
     const sent = sentBody(0)
     expect(sent.messages[0].content).toContain('Review only the change')
     expect(sent.messages[1].content).toContain('1\t| === src/requests/utils.py (modified)')
@@ -94,7 +94,7 @@ describe('ai function: a pull request review', () => {
       [{ line: added, quote: 'os.path.expanduser(f)', severity: 'warning', message: 'The new line calls expanduser with no guard around it.', suggestion: 'Catch KeyError and return None.', issue: true }],
       [keep(1, added, 'loc = os.path.expanduser(f)', 'The new line calls os.path.expanduser(f) with no handler.')],
     )
-    const payload = await readPayload(await handler(post(PR_BODY)))
+    const payload = await readPayload(await full(PR_BODY))
     const comment = payload.result?.comments[0]
     expect(comment).toMatchObject({ verdict: 'kept', where: { file: 'src/requests/utils.py', line: 222, side: 'new' } })
     expect(comment?.code).toBe('+            loc = os.path.expanduser(f)')
@@ -107,7 +107,7 @@ describe('ai function: a pull request review', () => {
       [{ line: removed, quote: 'try:', severity: 'info', message: 'The try block that guarded expanduser was removed.', suggestion: 'Restore it.', issue: true }],
       [keep(1, removed, 'try:', 'The removed line try: opened the guard.')],
     )
-    const payload = await readPayload(await handler(post(PR_BODY)))
+    const payload = await readPayload(await full(PR_BODY))
     expect(payload.result?.comments[0].where).toEqual({ file: 'src/requests/utils.py', line: 222, side: 'old' })
   })
 
@@ -117,7 +117,7 @@ describe('ai function: a pull request review', () => {
       [{ line: ctx, quote: '', severity: 'info', message: 'netrc_path starts as None and is reassigned.', suggestion: 'Use a single expression.', issue: true }],
       [],
     )
-    const payload = await readPayload(await handler(post(PR_BODY)))
+    const payload = await readPayload(await full(PR_BODY))
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'dropped', decidedBy: 'check', where: { file: 'src/requests/utils.py', line: 219, side: 'new' } })
     expect(payload.result?.comments[0].reason).toBe('Cited an unchanged line of the diff. Comments may only sit on changed lines.')
     expect(fetchStub).toHaveBeenCalledTimes(1)

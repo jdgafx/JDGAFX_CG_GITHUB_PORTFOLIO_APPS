@@ -1,39 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { PASS1, PASS2, SAFETY_MS, TOTAL_MS, callLimit } from '../../netlify/shared/budget'
+import { PASS1, PASS2, PLATFORM_CUTOFF_MS, SAFETY_MS, TOTAL_MS, callLimit } from '../../netlify/shared/budget'
 
-describe('callLimit', () => {
-  it('keeps the limit of each pass at 1.5 times its healthy p95', () => {
-    expect(PASS1.limitMs).toBe(Math.round(PASS1.p95 * 1.5))
-    expect(PASS2.limitMs).toBe(Math.round(PASS2.p95 * 1.5))
+// A review is three function requests (pass 1, then the two reads of pass 2 side by side), each with its own clock. The numbers
+// are pinned here with their sources, which are in the header of netlify/shared/budget.ts: 26 s is the smaller of the platform
+// figures found (this app's earlier "~26 s cut-off" and the 2026-10-07 audit; SYSTEM.md's 30 s is app-13's), and 24 s and 22 s come
+// from the thinking-on measurements of 2026-10-12 (pass 1 up to 20.6 s, a read up to 15.1 s).
+describe('the time budget of the three requests', () => {
+  it('pins the platform cut-off at the smaller figure, 26 s', () => {
+    expect(PLATFORM_CUTOFF_MS).toBe(26_000)
   })
 
-  it('holds pass 1 to what leaves a healthy pass 2 and the safety margin, when the run is fresh', () => {
-    expect(callLimit(PASS1, TOTAL_MS, PASS2.p50)).toBe(TOTAL_MS - SAFETY_MS - PASS2.p50)
-    expect(callLimit(PASS1, TOTAL_MS, PASS2.p50)).toBeGreaterThan(PASS1.p95)
+  it('pins the pass 1 limit at 24 s and the limit of each read at 22 s', () => {
+    expect(PASS1.limitMs).toBe(24_000)
+    expect(PASS2.limitMs).toBe(22_000)
   })
 
-  it('fits a healthy run: pass 1 and then pass 2 at their p50 end before the run does', () => {
-    expect(PASS1.p50 + PASS2.p50 + SAFETY_MS).toBeLessThan(TOTAL_MS)
+  it('keeps every call, its safety margin included, inside the platform cut-off, and the request budget under it', () => {
+    expect(PASS1.limitMs + SAFETY_MS).toBeLessThan(PLATFORM_CUTOFF_MS)
+    expect(PASS2.limitMs + SAFETY_MS).toBeLessThan(PLATFORM_CUTOFF_MS)
+    expect(TOTAL_MS).toBeLessThan(PLATFORM_CUTOFF_MS)
   })
 
-  it('gives pass 2 its limit, 1.5 times its healthy p95', () => {
+  it('gives the slowest measured calls room: the limit is above the measured p95 of each pass', () => {
+    expect(PASS1.limitMs).toBeGreaterThan(PASS1.p95)
+    expect(PASS2.limitMs).toBeGreaterThan(PASS2.p95)
+    expect(PASS1.p50).toBeLessThan(PASS1.p95)
+    expect(PASS2.p50).toBeLessThan(PASS2.p95)
+  })
+
+  it('gives a fresh request the whole limit of its call', () => {
+    expect(callLimit(PASS1, TOTAL_MS)).toBe(PASS1.limitMs)
     expect(callLimit(PASS2, TOTAL_MS)).toBe(PASS2.limitMs)
   })
 
-  it('shrinks a call to what is left, keeping the reserve and the safety margin', () => {
-    expect(callLimit(PASS2, 9_000)).toBe(9_000 - SAFETY_MS)
+  it('shrinks a call to what is left of the request, keeping the safety margin', () => {
+    expect(callLimit(PASS2, 20_000)).toBe(20_000 - SAFETY_MS)
   })
 
   it('refuses a call that could not finish at a healthy pace', () => {
     expect(callLimit(PASS2, PASS2.p50 + SAFETY_MS - 1)).toBeNull()
   })
 
-  it('does not retry pass 1 after a full-length hang: not enough is left for it and for pass 2', () => {
-    const left = TOTAL_MS - PASS1.limitMs
-    expect(callLimit(PASS1, left, PASS2.p50)).toBeNull()
+  it('does not retry pass 1 after a full-length hang: not enough of the request is left', () => {
+    expect(callLimit(PASS1, TOTAL_MS - PASS1.limitMs)).toBeNull()
   })
 
   it('does retry pass 1 after a connection that failed in the first two seconds', () => {
-    expect(callLimit(PASS1, TOTAL_MS - 2_000, PASS2.p50)).toBe(TOTAL_MS - 2_000 - SAFETY_MS - PASS2.p50)
+    expect(callLimit(PASS1, TOTAL_MS - 2_000)).toBe(TOTAL_MS - 2_000 - SAFETY_MS)
   })
 })

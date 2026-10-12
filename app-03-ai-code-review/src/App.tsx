@@ -11,7 +11,7 @@ import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard } from './components/ResultCard'
 import { RunTrace } from './components/RunTrace'
 import { LINE_HEIGHT, SEVERITY_CONFIG, SEVERITY_ORDER, getFileExt } from './constants'
-import { ReviewError, reviewCode, reviewErrorMessage, reviewPullRequest } from './lib/api'
+import { ReviewError, reviewCode, reviewErrorMessage, reviewPullRequest, type OnFirstPass } from './lib/api'
 import { count } from './lib/format'
 import { liveData } from './lib/livedata'
 import type { GitHubFile } from './lib/github'
@@ -37,6 +37,8 @@ export default function App() {
   const [language, setLanguage] = useState('javascript')
   const [phase, setPhase] = useState<RunPhase>('idle')
   const [result, setResult] = useState<ReviewResult | null>(null)
+  /** True from the moment the first pass's comments are on the page until the reads have settled them: nothing in `result` is confirmed yet. */
+  const [checking, setChecking] = useState(false)
   const [summary, setSummary] = useState<RunSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null)
@@ -96,16 +98,16 @@ export default function App() {
   /** Commented lines of the reviewed file, the most severe comment on each. Not offered once the editor text has changed. */
   const marks = useMemo(() => {
     const map = new Map<number, ReviewComment>()
-    if (result?.mode !== 'file' || stale) return map
+    if (result?.mode !== 'file' || stale || checking) return map
     for (const c of [...shownComments].sort(bySeverityThenLine).reverse()) map.set(c.line, c)
     return map
-  }, [result, shownComments, stale])
+  }, [result, shownComments, stale, checking])
   const commentCounts = useMemo(() => {
     const out: Record<string, number> = {}
-    if (result?.mode !== 'pr') return out
+    if (result?.mode !== 'pr' || checking) return out
     for (const c of shownComments) if (c.where) out[c.where.file] = (out[c.where.file] ?? 0) + 1
     return out
-  }, [result, shownComments])
+  }, [result, shownComments, checking])
 
   const contextOf = useCallback(
     (c: ReviewComment): ContextLine[] | null => {
@@ -168,6 +170,7 @@ export default function App() {
 
     setPhase('running')
     setResult(null)
+    setChecking(false)
     setSummary(null)
     setError(null)
     setHighlightedLine(null)
@@ -178,18 +181,30 @@ export default function App() {
     const asFile = example !== undefined || mode === 'file'
     const text = example?.code ?? code
     const files = asFile ? [] : (pr?.files ?? []).filter((f) => selected.has(f.path))
-    try {
-      const run = asFile ? await reviewCode(text, example?.language ?? language, controller.signal) : await reviewPullRequest(files, controller.signal)
-      if (controller.signal.aborted) return
+    const show = (run: Parameters<OnFirstPass>[0]) => {
       const { result: next, ...runSummary } = run
       setResult(next)
       setSummary(runSummary)
       setReviewedInput(asFile ? `file:${text}` : inputKey)
       setReviewedCode(asFile ? text : null)
       setReviewedFiles(asFile ? null : files)
+    }
+    // The first pass's comments go up as soon as they are back; a stopped or replaced run shows nothing of them.
+    const onFirstPass: OnFirstPass = (run) => {
+      if (controller.signal.aborted) return
+      show(run)
+      setChecking(true)
+    }
+    try {
+      const run = asFile ? await reviewCode(text, example?.language ?? language, controller.signal, onFirstPass) : await reviewPullRequest(files, controller.signal, onFirstPass)
+      if (controller.signal.aborted) return
+      show(run)
+      setChecking(false)
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) return
+      setResult(null)
+      setChecking(false)
       setError(reviewErrorMessage(err))
       if (err instanceof ReviewError) setSummary(err.summary)
       else console.error('CodeLens: unexpected review error', err)
@@ -242,11 +257,16 @@ export default function App() {
     abortRef.current = null
     setPhase('stopped')
     setError(null)
+    // A stopped run keeps nothing: the first pass's unconfirmed comments go with it.
+    setResult(null)
+    setSummary(null)
+    setChecking(false)
   }
 
   const clearResults = () => {
     setPhase('idle')
     setResult(null)
+    setChecking(false)
     setSummary(null)
     setError(null)
     setHighlightedLine(null)
@@ -326,7 +346,7 @@ export default function App() {
   }
 
   const handleCopy = async () => {
-    if (!result) return
+    if (!result || checking) return
     const shown = sortComments(shownComments)
     const header = `CodeLens AI verified review - ${result.mode === 'pr' ? `pull request ${pr?.owner}/${pr?.repo}#${pr?.number}` : `${language}, ${result.lineCount} lines`}, ${shown.length} comment${shown.length === 1 ? '' : 's'} kept of ${result.comments.length} from the first pass`
     const body = shown
@@ -423,6 +443,7 @@ export default function App() {
                 phase={phase}
                 error={error}
                 result={result}
+                checking={checking}
                 hasSteps={(summary?.trace.length ?? 0) > 0}
                 filters={filters}
                 highlightedLine={highlightedLine}

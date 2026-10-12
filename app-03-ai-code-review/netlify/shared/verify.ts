@@ -5,6 +5,7 @@ import { seenLines } from './scope'
 import { codeNames, collapse, MIN_QUOTE_CHARS, QUOTE_WINDOW, type Doc } from './anchor'
 import { parseJsonObject, type Candidate, type CheckedDrop } from './review'
 import { checkClaim, declares, readClaim, type TypedClaim } from './typed-claim'
+import type { DiffUnit } from './diff'
 
 /** A moved comment may travel at most this far from where the checks left it. Further is not a correction. */
 export const MAX_MOVE = 25
@@ -303,14 +304,47 @@ export function combineReads(candidate: Candidate, first: Settled | null, rebutt
   return unconfirmed(candidate, `A second read could not settle it from the code: ${quoted(rebuttal.reason)}`)
 }
 
-export function assemble(
-  candidates: Candidate[],
-  checkedDrops: CheckedDrop[],
-  /** The first read, then the adversarial read; a read that did not finish is null. */
-  reads: readonly [Map<number, RawVerdict> | null, Map<number, RawVerdict> | null],
-  doc: Doc,
+/** The first read's verdict on every candidate, checked against the code. Null when the read did not finish. */
+export function settleFirst(candidates: readonly Candidate[], read: ReadonlyMap<number, RawVerdict> | null, doc: Doc): Map<number, Settled> | null {
+  return read === null ? null : new Map(candidates.map((c) => [c.id, settle(c, read.get(c.id), doc)]))
+}
+
+/** The adversarial read's answer on every candidate, checked against the code. Null when the read did not finish. */
+export function settleSecond(candidates: readonly Candidate[], read: ReadonlyMap<number, RawVerdict> | null, doc: Doc): Map<number, Rebuttal> | null {
+  return read === null ? null : new Map(candidates.map((c) => [c.id, settleRebuttal(read.get(c.id), doc)]))
+}
+
+/** Where a numbered line sits: its text and, in a pull request, its file, line and side. `units` is the numbered diff, or null for a file. */
+export function locatorFor(texts: readonly string[], units: readonly DiffUnit[] | null): (line: number) => Located {
+  return (line) => {
+    if (!units) return { text: texts[line - 1] ?? '', where: null }
+    const u = units[line - 1]
+    if (!u) return { text: '', where: null }
+    // A header line names its file only; a context line has a new-side number; a changed line has the side it is on.
+    const where =
+      u.kind === 'meta'
+        ? { file: u.file, line: 0, side: 'new' as const }
+        : u.kind === 'del'
+          ? { file: u.file, line: u.oldLine ?? 0, side: 'old' as const }
+          : { file: u.file, line: u.newLine ?? 0, side: 'new' as const }
+    return { text: u.shown, where }
+  }
+}
+
+const WAITING = 'Waiting for the second pass: this comment has passed the checks only, and has not been read against the code yet.'
+
+/**
+ * Builds the comment list from the settled reads: every first-pass comment appears once, kept, moved, dropped or unverified.
+ * Pure: the browser runs it on rows the server settled against the code. `waiting` is the view while the reads are still running.
+ */
+export function buildComments(
+  candidates: readonly Candidate[],
+  checkedDrops: readonly CheckedDrop[],
+  firsts: ReadonlyMap<number, Settled> | null,
+  seconds: ReadonlyMap<number, Rebuttal> | null,
   locate: (line: number) => Located,
   inPullRequest = false,
+  waiting = false,
 ): ReviewComment[] {
   const make = (
     base: { id: number; fromLine: number; severity: ReviewComment['severity']; message: string; suggestion: string },
@@ -321,8 +355,9 @@ export function assemble(
     return { id, fromLine, severity, message, suggestion, line: s.line, verdict: s.verdict, decidedBy: s.decidedBy, reason: inPullRequest ? translateLines(s.reason, locate) : s.reason, evidence: s.evidence, code: at.text, where: at.where, support: s.support, claimKind: s.claimKind, supportLine: s.supportAt === null ? null : inPullRequest ? (locate(s.supportAt).where?.line || null) : s.supportAt }
   }
   const settled = candidates.map((c) => {
-    const [first, adversary] = reads
-    const s = combineReads(c, first === null ? null : settle(c, first.get(c.id), doc), adversary === null ? null : settleRebuttal(adversary.get(c.id), doc))
+    const s = waiting
+      ? unconfirmed(c, WAITING)
+      : combineReads(c, firsts === null ? null : (firsts.get(c.id) ?? null), seconds === null ? null : (seconds.get(c.id) ?? null))
     const note = c.loweredFrom ? ` Severity lowered from ${c.loweredFrom}: the comment itself says the code is safe.` : ''
     return make(c, { ...s, reason: `${s.reason}${note}` })
   })
@@ -330,4 +365,16 @@ export function assemble(
     make(d, { line: d.line, verdict: 'dropped', decidedBy: 'check', reason: d.reason, evidence: null, support: null, supportAt: null, claimKind: null }),
   )
   return [...settled, ...dropped].sort((a, b) => a.id - b.id)
+}
+
+export function assemble(
+  candidates: Candidate[],
+  checkedDrops: CheckedDrop[],
+  /** The first read, then the adversarial read; a read that did not finish is null. */
+  reads: readonly [Map<number, RawVerdict> | null, Map<number, RawVerdict> | null],
+  doc: Doc,
+  locate: (line: number) => Located,
+  inPullRequest = false,
+): ReviewComment[] {
+  return buildComments(candidates, checkedDrops, settleFirst(candidates, reads[0], doc), settleSecond(candidates, reads[1], doc), locate, inPullRequest)
 }

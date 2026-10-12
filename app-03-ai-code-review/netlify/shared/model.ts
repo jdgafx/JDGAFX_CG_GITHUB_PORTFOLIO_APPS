@@ -16,10 +16,13 @@ export type Attempt =
       headers?: Record<string, string>
       /** True for a timeout or a lost connection: the only failures worth one more try. 4xx, 429 and 5xx never are. */
       retryable: boolean
+      /** True when the provider may have run and billed the call but no usage reached us: a timeout, a lost connection, an unreadable body. */
+      billedUnknown: boolean
     }
 
 function providerFailure(status: number): Attempt {
-  const base = { ok: false, retryable: false } as const
+  // An answered rejection (a status code) was not billed: only a call that vanished or came back unreadable is unknown.
+  const base = { ok: false, retryable: false, billedUnknown: false } as const
   if (status === 401 || status === 402 || status === 403) {
     return { ...base, status: 502, detail: `Key rejected or out of credit (HTTP ${status})`, message: PROVIDER_REJECTED }
   }
@@ -52,6 +55,7 @@ export async function callModel(apiKey: string, body: string, limitMs: number): 
         detail: `No answer within ${(limitMs / 1000).toFixed(1)} s`,
         message: PROVIDER_SLOW,
         retryable: true,
+        billedUnknown: true,
       }
     }
     if (err instanceof SyntaxError) {
@@ -61,6 +65,7 @@ export async function callModel(apiKey: string, body: string, limitMs: number): 
         detail: 'Reply was not JSON',
         message: 'The AI service is unavailable right now. Try again in a moment.',
         retryable: false,
+        billedUnknown: true,
       }
     }
     console.error('CodeLens: provider call failed', err)
@@ -70,6 +75,7 @@ export async function callModel(apiKey: string, body: string, limitMs: number): 
       detail: 'Could not reach the provider',
       message: 'Could not reach the AI provider. Try again in a moment.',
       retryable: true,
+      billedUnknown: true,
     }
   }
 }

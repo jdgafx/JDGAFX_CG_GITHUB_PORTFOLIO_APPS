@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 import {
-  CRITICAL_DIVIDE, DEFAULT_USAGE, DIVIDE_BODY, SERVED_MODEL, fetchStub, handler, installHooks, keep, listAnswers, listStub, post, providerReply, readPayload, reply, reviewJson, script, standsFor, twoPasses, verdictJson,
+  CRITICAL_DIVIDE, DEFAULT_USAGE, DIVIDE_BODY, SERVED_MODEL, fetchStub, full, installHooks, keep, listAnswers, listStub, providerReply, readPayload, reply, reviewJson, script, standsFor, twoPasses, verdictJson,
 } from './harness'
 
 installHooks()
@@ -15,7 +15,7 @@ const STANDS = verdictJson(standsFor([keep(1, 2, 'return a / b')]))
 describe('ai function: the served model against the newest', () => {
   it('reports a served model that is the newest as a match', async () => {
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: SERVED_MODEL, newestModel: SERVED_MODEL, modelCheck: 'match' })
   })
 
@@ -23,7 +23,7 @@ describe('ai function: the served model against the newest', () => {
     listAnswers(NEWER)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: SERVED_MODEL, newestModel: NEWER, modelCheck: 'mismatch' })
     expect(payload.result?.comments[0]).toMatchObject({ verdict: 'kept' })
     expect(warn).toHaveBeenCalledWith(`model mismatch: served ${SERVED_MODEL}, newest ${NEWER}, requested ~anthropic/claude-haiku-latest`)
@@ -33,7 +33,7 @@ describe('ai function: the served model against the newest', () => {
     const OLDER = 'anthropic/claude-haiku-4.5'
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     script({ pass1: [reply(reviewJson([CRITICAL_DIVIDE]))], read1: [servedAs(VERDICTS, OLDER)], read2: [reply(STANDS)] })
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: SERVED_MODEL, newestModel: SERVED_MODEL, modelCheck: 'mismatch' })
     expect(payload.servedModels).toEqual([
       { pass: 'Pass 1: review', model: SERVED_MODEL },
@@ -46,27 +46,27 @@ describe('ai function: the served model against the newest', () => {
   it('answers unchecked when the list gives no answer, and the review is still returned', async () => {
     listAnswers(null)
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: SERVED_MODEL, newestModel: null, modelCheck: 'unchecked' })
     expect(payload.result?.verified).toBe(true)
   })
 
   it('answers not-reported with a null model when no reply names one', async () => {
     script({ pass1: [unnamed(reviewJson([CRITICAL_DIVIDE]))], read1: [unnamed(VERDICTS)], read2: [unnamed(STANDS)] })
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: null, modelCheck: 'not-reported' })
   })
 
   // Mutation: a pass 2 reply that names a model must not stand in for the pass 1 reply that named none.
   it('never shows another call\'s served model in place of the review reply that named none', async () => {
     script({ pass1: [unnamed(reviewJson([CRITICAL_DIVIDE]))], read1: [reply(VERDICTS)], read2: [reply(STANDS)] })
-    const payload = await readPayload(await handler(post(DIVIDE_BODY)))
+    const payload = await readPayload(await full(DIVIDE_BODY))
     expect(payload).toMatchObject({ success: true, model: null, modelCheck: 'not-reported' })
   })
 
   it('answers a failed provider call with a null model and not-reported, and sends no model choice', async () => {
     fetchStub.mockResolvedValueOnce(new Response('down', { status: 500 }))
-    const res = await handler(post(DIVIDE_BODY))
+    const res = await full(DIVIDE_BODY)
     const payload = await readPayload(res)
     expect(res.status).toBe(502)
     expect(payload).toMatchObject({ success: false, model: null, newestModel: null, modelCheck: 'not-reported' })
@@ -74,9 +74,9 @@ describe('ai function: the served model against the newest', () => {
 
   it('asks the public model list once per function instance, with the app User-Agent, and only the provider sees the review', async () => {
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    await handler(post(DIVIDE_BODY))
+    await full(DIVIDE_BODY)
     twoPasses([CRITICAL_DIVIDE], [keep(1, 2, 'return a / b')])
-    await handler(post(DIVIDE_BODY))
+    await full(DIVIDE_BODY)
     expect(listStub).toHaveBeenCalledTimes(1)
     expect(listStub.mock.calls[0][0]).toBe(MODEL_LIST_URL)
     expect(listStub.mock.calls[0][1].headers).toMatchObject({ 'User-Agent': 'jdgafx-portfolio-bot/1.0 (+https://github.com/jdgafx)' })

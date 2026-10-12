@@ -1,4 +1,4 @@
-import { PASS1, PASS2, TOTAL_MS } from '../../netlify/shared/budget'
+import { PASS1, PASS2 } from '../../netlify/shared/budget'
 import { PIPELINE_STAGES } from '../constants'
 import { count, milliseconds } from '../lib/format'
 import type { RunPhase, RunSummary, StepStatus, TraceStep } from '../types'
@@ -33,7 +33,10 @@ function TraceRow({ index, step, axis }: { index: number; step: TraceStep; axis:
       </div>
       <div className="ds-trace__meta">
         <span>{step.status === 'skipped' ? 'not run' : milliseconds(step.ms)}</span>
+        {step.unreported && <span>usage not reported</span>}
         {step.tokens !== undefined && <span>{`${count(step.tokens)} tok`}</span>}
+        {step.reasoningTokens !== undefined && <span>{`${count(step.reasoningTokens)} thinking tok`}</span>}
+        {step.finish !== undefined && <span>{`finish: ${step.finish}`}</span>}
         {step.cost !== undefined && <span>{`$${step.cost.toFixed(5)}`}</span>}
       </div>
       {bar && (
@@ -55,7 +58,7 @@ export function RunTrace({ phase, summary }: { phase: RunPhase; summary: RunSumm
           Run trace
         </h2>
         <p className="ds-section__sub">
-          Bars show when each stage ran. {`The two model calls share a ${TOTAL_MS / 1000} s budget: pass 1 may take up to ${PASS1.limitMs / 1000} s (healthy p95 ${PASS1.p95 / 1000} s), pass 2 up to ${PASS2.limitMs / 1000} s (healthy p95 ${PASS2.p95 / 1000} s). A timeout or a dropped connection is retried once if the budget allows.`}
+          Bars show when each stage ran. {`A review is a series of requests, each with its own time budget: pass 1 may take up to ${PASS1.limitMs / 1000} s (measured p95 ${PASS1.p95 / 1000} s), then the two reads of pass 2 run side by side, one request per batch of at most four comments, each up to ${PASS2.limitMs / 1000} s (measured p95 ${PASS2.p95 / 1000} s). A timeout or a dropped connection is retried once if the budget allows.`}
         </p>
       </div>
       {steps.length > 0 ? (
