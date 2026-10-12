@@ -13,11 +13,11 @@ describe('ai function: the time budget', () => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
     })
 
-  it('ends a hung first pass at 24 s, its own limit in its own request, and does not retry because too little of the request is left', async () => {
+  it('ends a hung first pass at 21 s, its own limit in its own request, and does not retry because too little of the request is left', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     fetchStub.mockImplementation(hang)
     const pending = full(DIVIDE_BODY)
-    await vi.advanceTimersByTimeAsync(23_999)
+    await vi.advanceTimersByTimeAsync(20_999)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     const res = await pending
@@ -25,7 +25,7 @@ describe('ai function: the time budget', () => {
     expect(res.status).toBe(504)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     expect(payload.error).toBe('The AI provider did not answer in time.')
-    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 24.0 s (limit 24.0 s)' })
+    expect(payload.trace[2]).toMatchObject({ name: 'Pass 1: review', status: 'failed', detail: 'No answer within 21.0 s (limit 21.0 s)' })
     expect(payload.trace[3]).toMatchObject({ name: 'Pass 1: review retry', status: 'skipped' })
     expect(payload.trace[3].detail).toMatch(/^Not retried: /)
   })
@@ -35,7 +35,7 @@ describe('ai function: the time budget', () => {
     const stalled = new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
     fetchStub.mockResolvedValueOnce(stalled)
     const pending = full(DIVIDE_BODY)
-    await vi.advanceTimersByTimeAsync(24_000)
+    await vi.advanceTimersByTimeAsync(21_000)
     expect((await pending).status).toBe(504)
   })
 

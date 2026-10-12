@@ -45,7 +45,7 @@ describe('ai function: a verified review', () => {
       // Thinking stays on (Decision FS): no call turns reasoning off, and every cap leaves room for thinking plus the JSON.
       expect(sent.reasoning?.enabled).not.toBe(false)
       expect(sent).not.toHaveProperty('reasoning')
-      expect(sent.max_tokens).toBeGreaterThanOrEqual(4500)
+      expect(sent.max_tokens).toBeGreaterThanOrEqual(4000)
       expect(fetchStub.mock.calls[call][0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     }
     expect(sentBody(0).messages[1].content).toContain('1\t| def divide(a, b):')

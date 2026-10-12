@@ -19,8 +19,8 @@ describe('chatBody', () => {
     expect(body).not.toHaveProperty('temperature')
     expect(body.provider).toEqual({ require_parameters: true })
     expect(body.max_tokens).toBe(MAX_OUTPUT_TOKENS)
-    // Room for about 2,500 tokens of thinking and 2,000 of JSON, and no more than the pass 1 time limit can write.
-    expect(body.max_tokens).toBeGreaterThanOrEqual(4500)
+    // Room for about 2,000 tokens of thinking and 2,000 of JSON, and no more than the pass 1 time limit can write.
+    expect(body.max_tokens).toBeGreaterThanOrEqual(4000)
     expect(body.max_tokens * MS_PER_TOKEN_WORST + 2_000).toBeLessThanOrEqual(PASS1_LIMIT_MS)
     expect(body.reasoning?.enabled).not.toBe(false)
     expect(body).not.toHaveProperty('reasoning')

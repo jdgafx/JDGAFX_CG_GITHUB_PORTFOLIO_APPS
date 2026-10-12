@@ -2,11 +2,11 @@
 // by side. Each request is its own function invocation with its own clock, so each must finish inside the platform's cut-off
 // on its own. They no longer share one deadline (that was failure class C8: one 25 s deadline for 20.6 s + 15.1 s of model time).
 //
-// Platform cut-off: 26 s. Sources: this app's own earlier header ("the platform's ~26 s cut-off", budget.ts before this change) and
-// docs/2026-10-07-haiku-audit.md:61 ("the 26-second budget"). SYSTEM.md:37 says 30 s, but that figure comes from c-incidents.md
-// (app-13), not from this site, and netlify.toml sets no function timeout. No run on this site has been seen to live past 26 s,
-// and none has been proven to be cut at 30 s, so the smaller figure is used. Netlify's clock also counts cold start and the
-// reply's trip, which `Run.started` does not, so every limit below leaves room under 26 s.
+// Platform cut-off: about 30 s, measured (.acceptance/dw/es/cutoff-probe-2026-10-12/). The 26 s figure this header used to give came
+// from this app's earlier "~26 s" and docs/2026-10-07-haiku-audit.md:61, not from a measurement. Netlify's clock also counts cold
+// start and the reply's trip, which `Run.started` does not. Parallel pass-1 calls after the first also wait 6.1 to 6.9 s for a function
+// instance before the handler's clock starts (.acceptance/dw/es/app-03-prod-cause-2026-10-12/), and the browser aborts a request at 30 s,
+// so PASS1_LIMIT_MS leaves room for that wait: 6.9 s + 21 s + 2 s margin stays under 30 s.
 //
 // Measured live with thinking ON (Decision FS), ~anthropic/claude-haiku-latest resolving to anthropic/claude-haiku-5.5,
 // 4.5 to 4.9 ms per output token, 1,910 to 3,063 reasoning tokens in a pass 1:
@@ -28,8 +28,7 @@
 //   2026-10-12 (.acceptance/dw/es/app-03-sharded-pass1-2026-10-12/, mux.go in 4 shards and createStore.ts in 3): shards at 7.1, 8.2,
 //   8.8, 13.7 s and 12.0, 14.1, 19.6 s (all finish_reason stop, 1,006 to 3,492 reasoning tokens); 12 more reads at 3.2 to 11.1 s. Cap
 //   on one shard's reply: SHARD_MAX_TOKENS below. PASS1 p50 12.0 s, p95 19.6 s (the slowest seen) are those 7 shard calls.
-// A pass 1 may therefore take 24 s and a read 22 s: each is the longest a call may run while the reply is still sent inside 26 s
-// (24 s + the 0.7 s margin + assembling leaves 1.3 s; a read has 3.3 s of margin because it has less to assemble).
+// A pass 1 may therefore take 21 s (it was 24 s until the instance wait above was found) and a read 22 s.
 
 /** The platform's cut-off for one function invocation. See above for the source. */
 export const PLATFORM_CUTOFF_MS = 26_000
@@ -46,11 +45,11 @@ interface Pass {
 }
 
 /**
- * The longest pass 1 may run, one function request of its own. Source: 24 s is under the 26 s platform cut-off less the 0.7 s
- * margin (above), and above the slowest of 11 measured thinking-on calls, 22.3 s (2026-10-12 live proofs). It is the one place
- * to change if cold starts need a wider margin.
+ * The longest pass 1 may run, one function request of its own. Source: 21 s plus the 6.9 s longest measured wait for a function
+ * instance and a 2 s margin stays under the 30 s platform cut-off and the browser's 30 s abort (above). It is the one place to
+ * change if cold starts need a wider margin.
  */
-export const PASS1_LIMIT_MS = 24_000
+export const PASS1_LIMIT_MS = 21_000
 /** The longest one batched read may run, one function request of its own. Source: the slowest of 12 batched reads was 14.0 s (2026-10-12), and the limit stays at the 22 s set for whole-list reads. */
 export const READ_LIMIT_MS = 22_000
 
@@ -73,7 +72,7 @@ export function callLimit(pass: Pass, remaining: number): number | null {
  * Pass 1 is sharded by line range (shards.ts) so that no shard has more to write than it can finish inside PASS1_LIMIT_MS.
  * The measured rate of the model: 4.44 to 4.75 ms per completion token (SP2 round 3, 2026-10-12, replies of up to 4,684 tokens
  * took 21.5 s). A shard's reply is capped at the number of tokens that rate fits inside the limit, with 2 s kept for the prompt
- * and the first token: (24,000 - 2,000) / 4.75 = 4,631, rounded down. A reply that reaches the cap is cut off and reported as
+ * and the first token: (21,000 - 2,000) / 4.75 = 4,000. A reply that reaches the cap is cut off and reported as
  * such for that shard alone; it is never left to run into the time limit and be lost with nothing to show.
  */
 export const MS_PER_TOKEN_WORST = 4.75
