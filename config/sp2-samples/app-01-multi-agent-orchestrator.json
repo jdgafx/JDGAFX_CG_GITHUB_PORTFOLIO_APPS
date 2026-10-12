@@ -1,10 +1,10 @@
 {
   "app": "app-01-multi-agent-orchestrator",
-  "version": 2,
+  "version": 3,
   "frozen": "2026-10-12",
-  "revision": "v2 2026-10-12 (Chris, decision GD.1 = app-01 bar option 1): max 0 applies to CLEAR disagreements; a disagreement a second clean-context Opus judge rates BORDERLINE counts as agreement",
-  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
-  "done_sentence": "The citation audit's verdict on each cited claim matches a hand verdict written into the evidence file before the run (3 claims per live run), and SP2 8 of 8",
+  "revision": "v3 2026-10-12 (Chris GH.3, sized per GJ.3): known-false claims are planted and sent once each through the preview's real citation audit; caught = partly, unsupported or unverified (each visibly not confirmed to the user); the three controls must show supported; the second judge and borderline rule are gone. ",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it. PLANTED_POST: the verifier POSTs the frozen planted report and sources to PREVIEW_URL/.netlify/functions/audit (the request the browser's requestAudit sends) and saves request, status and body. CAUGHT: a planted claim whose audit verdict is 'partly' or 'unsupported'. Any other verdict, a missing claim or a non-200 is NOT caught.",
+  "done_sentence": "Every known-false claim planted in a report sent to the preview's real citation audit is flagged (partly, unsupported or unverified) and the three plain-true controls show supported; on the 3 live runs (once each) each cited claim shows a verdict and none the verifier judges wrong is shown as supported",
   "runs": [
     {
       "id": "r1",
@@ -15,17 +15,17 @@
       "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
       "hand_checks": [
         {
-          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         }
@@ -40,17 +40,17 @@
       "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
       "hand_checks": [
         {
-          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         }
@@ -65,24 +65,296 @@
       "live_source": "https://en.wikipedia.org/w/api.php and https://hn.algolia.com/api/v1/search",
       "hand_checks": [
         {
-          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 1 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 1 = the 1st claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 2 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 2 = the 2nd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         },
         {
-          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run; the audit verdict for claim 3 must equal it, and unchecked counts as a mismatch.",
+          "claim": "claim 3 = the 3rd claim in audit order. Before the audit panel is read, the verifier writes a hand verdict (supported|partly|unsupported, app-01-multi-agent-orchestrator/src/lib/verdict.ts:10-16) from the report sentence and its cited source text captured in the run. Pass: the audit shows a verdict on it (not 'unchecked'), and does NOT show 'supported' when the hand verdict is 'partly' or 'unsupported'. An audit stricter than the hand verdict is a visible flag and counts as handled.",
           "expected": "WRITE_BEFORE_RUN",
           "verify_at": "the cited source text in the run's captured sources response"
         }
       ]
     }
   ],
-  "repeat": 3,
+  "planted_runs": [
+    {
+      "id": "p1",
+      "pairs_with_live_run": "r1",
+      "sources_copied_from": "r1-1-SEALED-audit.json (request.sources, byte for byte)",
+      "request": {
+        "method": "POST",
+        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "report": "## How CRISPR Gene Editing Works\n\n- A 2021 Hacker News story about a CRISPR gene-editing breakthrough, linking to npr.org, had 900 points and 234 comments [4].\n- The technique is a simplified version of the bacterial CRISPR-Cas9 antiviral defense system [1].\n- CRISPR is a family of DNA sequences found in the genomes of bacteriophages, each derived from a DNA fragment of a prokaryote that had previously infected the bacteriophage [2].\n- The study behind the Hacker News story on eliminating HIV in cell culture with CRISPR-Cas gene editing was funded by the European Union [5].\n\n### Sources\n\n1. CRISPR gene editing - Wikipedia\n2. CRISPR - Wikipedia\n3. Genome editing - Wikipedia\n4. CRISPR gene-editing breakthrough opens door to treating broad array of diseases - Hacker News\n5. HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf] - Hacker News",
+          "sources": [
+            {
+              "n": 1,
+              "title": "CRISPR gene editing",
+              "site": "Wikipedia",
+              "snippet": "CRISPR gene editing (; pronounced like \"crisper\"; an abbreviation for \"clustered regularly interspaced short palindromic repeats\") is a genetic engineering technique in molecular biology by which the genomes of living organisms may be modified. It is based on a simplified version of the bacterial CRISPR-Cas9 antiviral defense system. By delivering the Cas9 nuclease complexed with a synthetic guide RNA (gRNA) into a cell, the cell's genome can be cut at a desired location, allowing existing…"
+            },
+            {
+              "n": 2,
+              "title": "CRISPR",
+              "site": "Wikipedia",
+              "snippet": "CRISPR (; acronym for clustered regularly interspaced short palindromic repeats) is a family of DNA sequences found in the genomes of prokaryotic organisms such as bacteria and archaea. Each sequence within an individual prokaryotic CRISPR is derived from a DNA fragment of a bacteriophage that had previously infected the prokaryote or one of its ancestors. These sequences are used to detect and destroy DNA from similar bacteriophages during subsequent infections. Hence these sequences play a…"
+            },
+            {
+              "n": 3,
+              "title": "Genome editing",
+              "site": "Wikipedia",
+              "snippet": "Genome editing, or genome engineering, or gene editing, is a type of genetic engineering in which DNA is inserted, deleted, modified or replaced in the genome of a living organism. Unlike early genetic engineering techniques that randomly insert genetic material into a host genome, genome editing targets the insertions to site-specific locations. Programmable molecules called restriction endonucleases, also known as gene editors or molecular scissors, are used to create double-strand breaks…"
+            },
+            {
+              "n": 4,
+              "title": "CRISPR gene-editing breakthrough opens door to treating broad array of diseases",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"CRISPR gene-editing breakthrough opens door to treating broad array of diseases\", linking to npr.org. 600 points, 234 comments, Jun 2021.",
+              "note": "600 points, 234 comments, Jun 2021"
+            },
+            {
+              "n": 5,
+              "title": "HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]\", linking to escmid.org. 324 points, 77 comments, Mar 2024.",
+              "note": "324 points, 77 comments, Mar 2024"
+            }
+          ]
+        }
+      },
+      "claims": [
+        {
+          "claim_id": 1,
+          "role": "planted_false",
+          "falsehood": "number",
+          "text": "A 2021 Hacker News story about a CRISPR gene-editing breakthrough, linking to npr.org, had 900 points and 234 comments [4].",
+          "cites": 4,
+          "source_passage": "600 points, 234 comments, Jun 2021",
+          "why": "the story had 600 points, not 900",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 2,
+          "role": "control_supported",
+          "text": "The technique is a simplified version of the bacterial CRISPR-Cas9 antiviral defense system [1].",
+          "cites": 1,
+          "source_passage": "It is based on a simplified version of the bacterial CRISPR-Cas9 antiviral defense system.",
+          "why": "near-verbatim; scored supported in round 5 (r1-1 claim 3)",
+          "expected": "supported"
+        },
+        {
+          "claim_id": 3,
+          "role": "planted_false",
+          "falsehood": "reversed relation",
+          "text": "CRISPR is a family of DNA sequences found in the genomes of bacteriophages, each derived from a DNA fragment of a prokaryote that had previously infected the bacteriophage [2].",
+          "cites": 2,
+          "source_passage": "Each sequence within an individual prokaryotic CRISPR is derived from a DNA fragment of a bacteriophage that had previously infected the prokaryote or one of its ancestors.",
+          "why": "the source says prokaryotic genomes, derived from a bacteriophage that infected the prokaryote; the claim reverses both",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 4,
+          "role": "planted_false",
+          "falsehood": "not made by the source",
+          "text": "The study behind the Hacker News story on eliminating HIV in cell culture with CRISPR-Cas gene editing was funded by the European Union [5].",
+          "cites": 5,
+          "source_passage": "Hacker News story \"HIV in cell culture can be completely eliminated using CRISPR-Cas gene editing [pdf]\", linking to escmid.org. 324 points, 77 comments, Mar 2024.",
+          "why": "the source gives title, link, points and date only; it says nothing about funding",
+          "expected": "partly or unsupported"
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "pairs_with_live_run": "r2",
+      "sources_copied_from": "r2-1-SEALED-audit.json (request.sources, byte for byte)",
+      "request": {
+        "method": "POST",
+        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "report": "## What the Space Telescopes Are\n\n- The Hubble Space Telescope was launched into low Earth orbit in 1999 and remains in operation [2].\n- The Nancy Grace Roman Space Telescope is named after NASA's first chief of astronomy, Edwin Hubble [3].\n- The James Webb Space Telescope can observe objects too old, distant, or faint for the Hubble Space Telescope [1].\n- The Hubble Space Telescope was the first space telescope [2].\n\n### Sources\n\n1. James Webb Space Telescope - Wikipedia\n2. Hubble Space Telescope - Wikipedia\n3. Nancy Grace Roman Space Telescope - Wikipedia\n4. James Webb Space Telescope Finds Most Distant Known Galaxy - Hacker News\n5. The James Webb Space Telescope is finding too many early galaxies - Hacker News",
+          "sources": [
+            {
+              "n": 1,
+              "title": "James Webb Space Telescope",
+              "site": "Wikipedia",
+              "snippet": "The James Webb Space Telescope (JWST) is a space telescope designed to conduct infrared astronomy. It is the largest telescope in space, and is equipped with high-resolution and high-sensitivity instruments, allowing it to view objects too old, distant, or faint for the Hubble Space Telescope. This enables investigations across many fields of astronomy and cosmology, such as observation of the first stars and the formation of the first galaxies, and detailed atmospheric characterization of…"
+            },
+            {
+              "n": 2,
+              "title": "Hubble Space Telescope",
+              "site": "Wikipedia",
+              "snippet": "The Hubble Space Telescope (HST or Hubble) is a space telescope that was launched into low Earth orbit in 1990 and remains in operation. It was not the first space telescope, but it is one of the largest and most versatile, renowned as a vital research tool and as a public relations boon for astronomy. The Hubble Space Telescope is named after astronomer Edwin Hubble and is one of NASA's Great Observatories. The Space Telescope Science Institute (STScI) selects Hubble's targets and processes…"
+            },
+            {
+              "n": 3,
+              "title": "Nancy Grace Roman Space Telescope",
+              "site": "Wikipedia",
+              "snippet": "The Nancy Grace Roman Space Telescope is a NASA infrared space telescope that was launched on a trajectory toward a Sun–Earth L2 orbit on 30 August 2026. It is named after NASA's first chief of astronomy, Nancy Grace Roman. The telescope is based on an existing 2.4-meter (7.9-foot) primary mirror with a wide field of view that was donated by the National Reconnaissance Office and will carry two scientific instruments. The Wide-Field Instrument (WFI) is a 300.8-megapixel multi-band visible and…"
+            },
+            {
+              "n": 4,
+              "title": "James Webb Space Telescope Finds Most Distant Known Galaxy",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"James Webb Space Telescope Finds Most Distant Known Galaxy\", linking to blogs.nasa.gov. 148 points, 55 comments, May 2024.",
+              "note": "148 points, 55 comments, May 2024"
+            },
+            {
+              "n": 5,
+              "title": "The James Webb Space Telescope is finding too many early galaxies",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"The James Webb Space Telescope is finding too many early galaxies\", linking to skyandtelescope.org. 764 points, 526 comments, Jan 2023.",
+              "note": "764 points, 526 comments, Jan 2023"
+            }
+          ]
+        }
+      },
+      "claims": [
+        {
+          "claim_id": 1,
+          "role": "planted_false",
+          "falsehood": "wrong date",
+          "text": "The Hubble Space Telescope was launched into low Earth orbit in 1999 and remains in operation [2].",
+          "cites": 2,
+          "source_passage": "launched into low Earth orbit in 1990 and remains in operation",
+          "why": "the source says 1990",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 2,
+          "role": "planted_false",
+          "falsehood": "wrong name",
+          "text": "The Nancy Grace Roman Space Telescope is named after NASA's first chief of astronomy, Edwin Hubble [3].",
+          "cites": 3,
+          "source_passage": "It is named after NASA's first chief of astronomy, Nancy Grace Roman.",
+          "why": "the source names Nancy Grace Roman",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 3,
+          "role": "control_supported",
+          "text": "The James Webb Space Telescope can observe objects too old, distant, or faint for the Hubble Space Telescope [1].",
+          "cites": 1,
+          "source_passage": "allowing it to view objects too old, distant, or faint for the Hubble Space Telescope",
+          "why": "near-verbatim; scored supported in round 5 (r2-1 claim 1)",
+          "expected": "supported"
+        },
+        {
+          "claim_id": 4,
+          "role": "planted_false",
+          "falsehood": "contradicts the source",
+          "text": "The Hubble Space Telescope was the first space telescope [2].",
+          "cites": 2,
+          "source_passage": "It was not the first space telescope",
+          "why": "the source says it was not the first",
+          "expected": "partly or unsupported"
+        }
+      ]
+    },
+    {
+      "id": "p3",
+      "pairs_with_live_run": "r3",
+      "sources_copied_from": "r3-1-SEALED-audit.json (request.sources, byte for byte)",
+      "request": {
+        "method": "POST",
+        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "report": "## Rust in Systems Programming\n\n- Rust for Linux is an ongoing project started in 2016 to add Rust as a programming language that can be used within the Linux kernel [3].\n- A December 2022 Hacker News post links to Stripe's engineering blog about embracing Rust for systems programming [5].\n- A 2016 Hacker News story, \"Rust: Systems Programming for Everyone\", reports that Rust programs run 40% faster than equivalent C programs [4].\n- Rust is a general-purpose language that emphasizes performance, type safety, concurrency, and memory safety [1].\n\n### Sources\n\n1. Rust (programming language) - Wikipedia\n2. Hello, world - Wikipedia\n3. Rust for Linux - Wikipedia\n4. Rust: Systems Programming for Everyone - Hacker News\n5. Shopify Embraces Rust for Systems Programming - Hacker News",
+          "sources": [
+            {
+              "n": 1,
+              "title": "Rust (programming language)",
+              "site": "Wikipedia",
+              "snippet": "Rust is a general-purpose programming language that emphasizes performance, type safety, concurrency, and memory safety. Rust supports multiple programming paradigms. It was influenced by ideas from functional programming, including immutability, higher-order functions, algebraic data types, and pattern matching. It also supports object-oriented programming via structs, enums, traits, and methods. Rust enforces memory safety (i.e., that all references point to valid memory) without a…"
+            },
+            {
+              "n": 2,
+              "title": "Hello, world",
+              "site": "Wikipedia",
+              "snippet": "A \"Hello, world\" program is usually a simple computer program that outputs a message similar to \"Hello, world\". The text may be printed out or displayed on a screen (often a console). A small piece of code in most general-purpose programming languages, this program is used to illustrate a language's basic syntax. Such a program is often the first written by a student of a new programming language, but it can also be used as a sanity check to ensure that the computer software intended to compile…"
+            },
+            {
+              "n": 3,
+              "title": "Rust for Linux",
+              "site": "Wikipedia",
+              "snippet": "Rust for Linux is an ongoing project started in 2020 to add Rust as a programming language that can be used within the Linux kernel software, which has been written using C and assembly only. This project aims to leverage Rust's memory safety to reduce bugs when writing kernel drivers. Progress has been slower than hoped by both Rust advocates and Linus Torvalds, lead of the Linux kernel project. In December 2023, the first drivers written in Rust were accepted, and released in kernel version…"
+            },
+            {
+              "n": 4,
+              "title": "Rust: Systems Programming for Everyone",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"Rust: Systems Programming for Everyone\", linking to infoq.com. 126 points, 66 comments, Aug 2016.",
+              "note": "126 points, 66 comments, Aug 2016"
+            },
+            {
+              "n": 5,
+              "title": "Shopify Embraces Rust for Systems Programming",
+              "site": "Hacker News",
+              "snippet": "Hacker News story \"Shopify Embraces Rust for Systems Programming\", linking to shopify.engineering. 64 points, 3 comments, Dec 2022.",
+              "note": "64 points, 3 comments, Dec 2022"
+            }
+          ]
+        }
+      },
+      "claims": [
+        {
+          "claim_id": 1,
+          "role": "planted_false",
+          "falsehood": "wrong date",
+          "text": "Rust for Linux is an ongoing project started in 2016 to add Rust as a programming language that can be used within the Linux kernel [3].",
+          "cites": 3,
+          "source_passage": "Rust for Linux is an ongoing project started in 2020 to add Rust as a programming language that can be used within the Linux kernel software",
+          "why": "the source says 2020",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 2,
+          "role": "planted_false",
+          "falsehood": "wrong name",
+          "text": "A December 2022 Hacker News post links to Stripe's engineering blog about embracing Rust for systems programming [5].",
+          "cites": 5,
+          "source_passage": "Hacker News story \"Shopify Embraces Rust for Systems Programming\", linking to shopify.engineering. 64 points, 3 comments, Dec 2022.",
+          "why": "the source names Shopify",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 3,
+          "role": "planted_false",
+          "falsehood": "not made by the source",
+          "text": "A 2016 Hacker News story, \"Rust: Systems Programming for Everyone\", reports that Rust programs run 40% faster than equivalent C programs [4].",
+          "cites": 4,
+          "source_passage": "Hacker News story \"Rust: Systems Programming for Everyone\", linking to infoq.com. 126 points, 66 comments, Aug 2016.",
+          "why": "the source gives title, link, points and date only; it gives no speed figure",
+          "expected": "partly or unsupported"
+        },
+        {
+          "claim_id": 4,
+          "role": "control_supported",
+          "text": "Rust is a general-purpose language that emphasizes performance, type safety, concurrency, and memory safety [1].",
+          "cites": 1,
+          "source_passage": "Rust is a general-purpose programming language that emphasizes performance, type safety, concurrency, and memory safety.",
+          "why": "near-verbatim; scored supported in round 5 (r3-1 claim 1)",
+          "expected": "supported"
+        }
+      ]
+    }
+  ],
+  "repeat": 1,
   "block_hosts": [
     "en.wikipedia.org",
     "hn.algolia.com",
@@ -94,11 +366,10 @@
     "openrouter.ai": "function"
   },
   "rate": {
-    "metric": "audit-hand disagreement",
-    "numerator": "claims whose audit verdict differs from the hand verdict",
-    "denominator": "9 claims (3 per run)",
+    "metric": "planted false claims not caught + live claims shown supported against a hand verdict of partly or unsupported",
+    "numerator": "planted claims whose audit verdict is not 'partly', 'unsupported' or 'unverified', plus controls whose verdict is not 'supported', plus live claims shown 'supported' where the hand verdict is 'partly' or 'unsupported', plus live claims shown 'unchecked'",
+    "denominator": "9 planted claims and 3 controls, each sent once (repeat 1, GJ.3); 9 live claims (3 per run, each run once)",
     "max": 0,
-    "max_applies_to": "CLEAR disagreements only",
-    "borderline_rule": "For each claim whose audit verdict differs from the hand verdict, a second clean-context Opus judge (not the verifier), shown both readings (the audit verdict with its reason and the hand verdict with its reason), the report sentence and the cited source text captured in the run, rates the disagreement CLEAR (one reading is plainly wrong on the source) or BORDERLINE (both readings are defensible on the source). A BORDERLINE disagreement counts as agreement; a CLEAR one counts toward max. The judge's ratings and reasons are saved with the evidence."
+    "rule": "No second judge (GH.3). Planted cases are deterministic: the false claims are written and frozen here, so the expected result is known before any call."
   }
 }
