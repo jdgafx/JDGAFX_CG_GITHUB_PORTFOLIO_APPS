@@ -15,6 +15,8 @@ export interface RunView {
   /** Each taken edge as "from>to", with its conditional label when it has one. */
   taken: Record<string, string>
   trace: TraceRow[]
+  /** What the thread's failed attempts billed, when the run comes from a reopened thread: counted in the totals, not listed as steps. */
+  spent: TraceRow[]
   proposal: ReviewPayload | null
   /** The duplicate check, once its step has finished. */
   duplicates: DuplicateReport | null
@@ -29,7 +31,7 @@ function idleNodes(): Record<NodeName, NodeStatus> {
 }
 
 export function emptyRun(issue: IssueRef | null = null, threadId: string | null = null): RunView {
-  return { threadId, issue, nodes: idleNodes(), taken: {}, trace: [], proposal: null, duplicates: null, result: null, error: null, retryable: false }
+  return { threadId, issue, nodes: idleNodes(), taken: {}, trace: [], spent: [], proposal: null, duplicates: null, result: null, error: null, retryable: false }
 }
 
 /**
@@ -113,6 +115,7 @@ export function runFromView(view: ThreadView): RunView {
     nodes,
     taken,
     trace: view.trace.filter((row) => row.status !== 'skipped' && row.status !== 'pending'),
+    spent: view.spent ?? [],
     proposal: view.proposal,
     duplicates: view.duplicates,
     result: view.result,

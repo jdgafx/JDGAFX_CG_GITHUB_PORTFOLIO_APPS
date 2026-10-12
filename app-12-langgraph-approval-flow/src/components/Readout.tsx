@@ -32,7 +32,7 @@ function Cell({ label, hint, children }: { label: string; hint: string; children
 
 /** The run's figures: live while it runs, the totals of the steps that ran once it ends, dashes before any step. */
 export function Readout({ run, phase, startedAt }: ReadoutProps) {
-  const totals = run.result?.totals ?? totalsOf(run.trace)
+  const totals = run.result?.totals ?? totalsOf([...run.trace, ...run.spent])
   const running = phase === 'running'
   const partial = totals.unreportedCalls > 0
   const show = run.trace.some((row) => row.status !== 'skipped' && row.status !== 'pending')

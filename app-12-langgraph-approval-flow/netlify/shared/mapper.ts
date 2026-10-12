@@ -85,17 +85,18 @@ export class FrameMapper {
    * The run stopped with an error: the node that was running is reported as failed with the message. The spend
    * its error carried (a billed reply that was refused, calls that never reported) is on the same frame.
    */
-  failCurrent(message: string, spend?: Spend): void {
-    if (!this.current) return
-    this.send({
-      type: 'node_end',
+  failCurrent(message: string, spend?: Spend): TraceRow | undefined {
+    if (!this.current) return undefined
+    const row: TraceRow = {
       node: this.current.node,
-      ms: Date.now() - this.current.startedAt,
       status: 'failed',
+      ms: Date.now() - this.current.startedAt,
       ...(spend ? spendFields(spend) : {}),
       detail: message,
-    })
+    }
+    this.send({ type: 'node_end', ...row })
     this.current = null
+    return row
   }
 
   private onNodeEnd(node: NodeName, value: unknown): void {

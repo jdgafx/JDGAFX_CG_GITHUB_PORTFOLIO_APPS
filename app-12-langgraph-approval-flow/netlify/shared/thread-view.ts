@@ -31,7 +31,7 @@ function requireValue<T>(value: T | null, name: string): T {
 }
 
 /** The finished triage card of a completed thread, with the labels and priority after the maintainer's answer. */
-export function buildResult(threadId: string, values: GraphValues): RunResult {
+export function buildResult(threadId: string, values: GraphValues, spent: readonly TraceRow[] = []): RunResult {
   const issue = requireValue(values.issue, 'issue')
   const classification = requireValue(values.classification, 'classification')
   const triage = requireValue(values.triage, 'triage')
@@ -51,7 +51,8 @@ export function buildResult(threadId: string, values: GraphValues): RunResult {
     reply,
     path: values.humanDecision ? 'human' : 'auto',
     trace: padTrace(values.trace, 'completed'),
-    totals: totalsOf(values.trace),
+    // The failed attempts left no checkpoint row, but they were billed, so the totals count them.
+    totals: totalsOf([...values.trace, ...spent]),
   }
 }
 
@@ -63,6 +64,8 @@ interface ThreadViewInput {
   proposal: ReviewPayload | null
   retryable: boolean
   running?: boolean
+  /** What the thread's failed attempts billed, as rows for the totals. */
+  spent?: readonly TraceRow[]
 }
 
 /** What GET /api/thread returns: status, the pending proposal while waiting, and the result when done. */
@@ -82,6 +85,7 @@ export function threadViewOf(input: ThreadViewInput): ThreadView {
     retryable: input.retryable,
     trace: padTrace(values.trace, running ? 'awaiting_approval' : entry.status),
     duplicates: values.duplicateReport,
-    result: finished ? buildResult(input.threadId, values) : null,
+    result: finished ? buildResult(input.threadId, values, input.spent) : null,
+    spent: [...(input.spent ?? [])],
   }
 }

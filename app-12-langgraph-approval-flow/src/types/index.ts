@@ -270,6 +270,8 @@ export interface ThreadView {
   /** True for a failed thread whose checkpoint still has a step to run. */
   retryable: boolean
   trace: TraceRow[]
+  /** What the failed attempts of this thread billed. They left no checkpoint row, so they count in the totals only. */
+  spent?: TraceRow[]
   duplicates: DuplicateReport | null
   result: RunResult | null
 }

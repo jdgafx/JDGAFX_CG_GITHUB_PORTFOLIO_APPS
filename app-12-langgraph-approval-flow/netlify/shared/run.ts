@@ -1,5 +1,5 @@
 import { Command } from '@langchain/langgraph'
-import type { HumanDecision, IssueInput, NodeName, Priority, ReviewPayload, ThreadEntry, ThreadStatus, ThreadView } from '../../src/types'
+import type { HumanDecision, IssueInput, NodeName, TraceRow, Priority, ReviewPayload, ThreadEntry, ThreadStatus, ThreadView } from '../../src/types'
 import { GraphGateSaver } from './blobs-saver'
 import { buildGraph, type GraphInstance } from './graph'
 import type { StreamEvent } from './events'
@@ -7,6 +7,7 @@ import { FrameMapper } from './mapper'
 import { CALL_TIMEOUT_MS, ProviderError, type ChatFn } from './openrouter'
 import type { GraphValues } from './state'
 import { CallWatch, spendOfError, WATCH_KEY } from './spend'
+import { readSpend, SpendLedger, spentRows, unreadableSpend } from './spend-record'
 import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from './store'
 import { RUN_BUDGET_MS } from './budget'
 import { buildResult, threadViewOf } from './thread-view'
@@ -118,6 +119,8 @@ interface Attempt {
   release?: () => Promise<void>
   /** Ends the closing writes (the summary) with the request's closing grace. Without it they have only the per-call limit. */
   closeBy?: AbortSignal
+  /** True for a new thread, which has no spend record to read yet. */
+  fresh?: boolean
   send: Send
 }
 
@@ -142,7 +145,10 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   const logTiming = () =>
     console.info('GraphGate: run timing', { threadId: attempt.threadId, firstNodeMs, totalMs: Date.now() - began })
   attempt.send({ type: 'thread', threadId: attempt.threadId })
+  // What this thread's failed attempts billed is kept beside its checkpoints, so a finished run and a reopened thread can count it.
+  const ledger = await SpendLedger.begin(deps.store, attempt.threadId, attempt.fresh === true, attempt.budget)
   let closing: StreamEvent | undefined
+  let failedRow: TraceRow | undefined
   try {
     const stream = await graph.stream(attempt.input, {
       streamMode: ['updates', 'custom'],
@@ -158,7 +164,7 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
       await recordThread(deps, attempt.threadId, attempt.meta, 'awaiting_approval', mapper.proposalPriority, deps.now(), attempt.closeBy)
     } else {
       const snapshot = await graph.getState({ configurable: { thread_id: attempt.threadId } })
-      const result = buildResult(attempt.threadId, snapshot.values as GraphValues)
+      const result = buildResult(attempt.threadId, snapshot.values as GraphValues, ledger.rows())
       closing = { type: 'result', result }
       await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority, deps.now(), attempt.closeBy)
     }
@@ -167,10 +173,11 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
     console.error('GraphGate: run failed', err)
     const node = mapper.currentNode
     const message = attempt.budget.aborted ? budgetMessage(node) : userMessage(err, node)
-    mapper.failCurrent(message, spendOfError(err) ?? watch.spend())
+    failedRow = mapper.failCurrent(message, spendOfError(err) ?? watch.spend())
     closing = { type: 'error', message }
     await recordThread(deps, attempt.threadId, attempt.meta, 'failed', attempt.failedPriority, deps.now(), attempt.closeBy)
   }
+  await ledger.finish(failedRow, attempt.closeBy)
   await attempt.release?.()
   if (closing) attempt.send(closing)
 }
@@ -181,6 +188,7 @@ export function startRun(
   args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; closeBy?: AbortSignal; send: Send },
 ): Promise<void> {
   return drive(deps, {
+    fresh: true,
     threadId: args.threadId,
     meta: { title: titleFor(args.issue), repo: args.issue.repo, number: args.issue.number },
     failedPriority: null,
@@ -312,7 +320,10 @@ export async function inspectThread(
 export async function readThread(deps: RunDeps, threadId: string, signal?: AbortSignal): Promise<ThreadView | null> {
   const info = await inspectThread(deps, threadId, signal)
   if (!info) return null
+  // What the thread's failed attempts billed. A record that cannot be read leaves one call not reported.
+  const spent = await readSpend(guardStore(deps.store, signal), threadId).then((record) => spentRows(record, info.running), () => unreadableSpend())
   return threadViewOf({
+    spent,
     threadId,
     entry: info.entry,
     storage: deps.storage,
