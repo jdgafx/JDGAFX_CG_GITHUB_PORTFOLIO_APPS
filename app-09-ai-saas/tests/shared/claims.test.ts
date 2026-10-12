@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeFacts } from '../../shared/aggregates'
+import { computeFacts, growthPercent } from '../../shared/aggregates'
 import { figureNumbers, fillCode, judge, renderClaim, renderCompare, validateShape } from '../../shared/claims'
 import { computeWindow } from '../../shared/window'
 import type { FigureKind, PackageFacts, Segment } from '../../shared/types'
@@ -276,6 +276,19 @@ describe('G1/G2 fillCode: code supplies the growth figure and the comparison rel
           const out = judge(filled([cmp(a, b, metric)], f1), r1.rows, w1, r1.days)[0]!
           expect(out.verdict, `${a} ${b} ${metric}`).toBe('checked')
         }
+  })
+  it('the compare relation of change_pct follows the same growth formula as the card figure and the direction word', () => {
+    // Daily averages differ in day count, so the plain sums order these two the other way round: a growth formula written twice could diverge here.
+    const withGrowth = (name: string, S1: bigint, n1: number, S0: bigint, n0: number): PackageFacts => {
+      const base = f1[0]!
+      return { ...base, name, aggregates: { ...base.aggregates, growth: { S1, n1, S0, n0, computable: true } } }
+    }
+    const fast = withGrowth('fast', 100n, 5, 100n, 10) // A1/A0 = 2: +100.0
+    const slow = withGrowth('slow', 150n, 10, 100n, 10) // +50.0, though S1 is larger
+    const asNumber = (f: PackageFacts): number => Number(growthPercent(f.aggregates.growth))
+    expect(asNumber(fast)).toBeGreaterThan(asNumber(slow))
+    expect(filled([cmp('fast', 'slow', 'change_pct')], [fast, slow])[0]).toMatchObject({ relation: 'higher' })
+    expect(filled([cmp('slow', 'fast', 'change_pct')], [fast, slow])[0]).toMatchObject({ relation: 'lower' })
   })
   it('G3: facts that disagree with the rows are marked wrong by judge(); the same paragraph on true facts is checked', () => {
     const paragraph: Segment[] = [claim('change_pct', 'react', ''), cmp('zod', 'react', 'window_total')]

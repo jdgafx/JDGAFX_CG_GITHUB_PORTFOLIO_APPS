@@ -3,11 +3,11 @@ import { computeFacts } from '../../shared/aggregates'
 import { CLAIM_SCHEMA, SYSTEM_RULES, buildPastRows, buildUserMessage, decodeRequest, encodeRequest } from '../../shared/modelInput'
 import { topUnusual } from '../../shared/unusual'
 import { computeWindow } from '../../shared/window'
-import type { ExplainRequest, ReleaseState, Rows } from '../../shared/types'
+import type { ExplainRequest, Release, ReleaseState, Rows } from '../../shared/types'
 import { fname, loadGolden, loadGoldenJson, loadScenario, series } from '../fixtures/load'
 import type { Scenario } from '../fixtures/load'
 
-function requestFor(s: Scenario, target: string, state: ReleaseState = 'ok'): ExplainRequest {
+function requestFor(s: Pick<Scenario, 'names' | 'rows' | 'releases' | 'date' | 'days'>, target: string, state: ReleaseState = 'ok'): ExplainRequest {
   const releaseState = Object.fromEntries(s.names.map((n) => [n, state]))
   const window = computeWindow(s.rows, s.date, s.days)
   const facts = computeFacts(s.rows, window, s.releases, releaseState)
@@ -49,6 +49,18 @@ describe('buildUserMessage is the messages sent in the live runs, with only the 
         expect(buildUserMessage(requestFor(s, target, state))).toBe(rev8(loadGolden(`user-${golden}-${fname(target)}.txt`), s, target))
       })
   }
+})
+
+describe('buildUserMessage is the rev 8 message sent live (Step 0.5, r1 react)', () => {
+  // Step 0.5 fetched npm one day after the 2026-10-12 fixtures, so its own npm and release captures are the input (golden/rev8-r1).
+  it('is byte for byte the captured user message, built from the captured npm and release responses', () => {
+    const names = ['react', 'vite', 'zod', '@anthropic-ai/sdk']
+    const rows = Object.fromEntries(
+      names.map((n) => [n, Object.fromEntries((JSON.parse(loadGolden(`rev8-r1/npm-${fname(n)}.txt`).split('\n')[1]!) as { downloads: Array<{ day: string; downloads: number }> }).downloads.map((r) => [r.day, r.downloads]))]),
+    ) as Record<string, Rows>
+    const releases = Object.fromEntries(names.map((n) => [n, loadGoldenJson<{ releases: Release[] }>(`rev8-r1/releases-${fname(n)}.json`).releases]))
+    expect(buildUserMessage(requestFor({ names, rows, releases, date: '2026-10-12', days: 365 }, 'react'))).toBe(loadGolden('user-rev8-react.txt'))
+  })
 })
 
 describe('content rules', () => {
@@ -210,7 +222,7 @@ describe('SYSTEM_RULES', () => {
         `5. Every comparison between packages is a compare claim {package, peer, metric}; code decides higher or lower and writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.\n`,
       )
   it('is the live text plus the rev 7 and rev 8 replacements, for a year and a month window', () => {
-    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev8Rules(loadGolden('system-rev6-r1-react.txt'), 'the past year'))
+    expect(SYSTEM_RULES('the past year', 'react')).toBe(loadGolden('system-rev8.txt')) // the capture, Step 0.5
     expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'))
   })
   it('tells the model to write no total or peak claim for a zero, and to say so in words', () => {
@@ -236,24 +248,8 @@ describe('SYSTEM_RULES', () => {
 })
 
 describe('CLAIM_SCHEMA', () => {
-  it('is the schema accepted live (judge r6 pattern probe) with the rev 7 total/peak pattern and the rev 8 change_pct and compare branches', () => {
-    const names = ['react', 'vite', 'zod', '@anthropic-ai/sdk']
-    type Branch = { required: string[]; properties: { kind?: { enum: string[] }; value?: { pattern: string }; relation?: unknown } }
-    const live = loadGoldenJson<{ properties: { paragraph: { items: { anyOf: Branch[] } } } }>('schema-r1p-react.json')
-    const branches = live.properties.paragraph.items.anyOf
-    const branch = branches.find((b) => b.properties.kind?.enum.join() === 'change_pct')!
-    expect(branch.properties.value!.pattern).toBe('^[+-][0-9]+[.][0-9]$')
-    // Rev 8 (G1): the model writes no growth figure, so the value is empty.
-    branch.properties.value!.pattern = '^$'
-    // Step 0.5: the model wrote 0 as a placeholder for a total and a peak, so those two kinds take a positive integer.
-    const totals = branches.find((b) => b.properties.kind?.enum.join() === 'window_total,peak_value')!
-    expect(totals.properties.value!.pattern).toBe('^[0-9]+$')
-    totals.properties.value!.pattern = '^[1-9][0-9]*$'
-    // Rev 8 (G2): code fills the relation, so a compare is {package, peer, metric}.
-    const compare = branches.find((b) => b.required.includes('relation'))!
-    compare.required = compare.required.filter((k) => k !== 'relation')
-    delete compare.properties.relation
-    expect(CLAIM_SCHEMA(names)).toEqual(live)
+  it('is the rev 8 schema accepted live (Step 0.5, r1 react)', () => {
+    expect(CLAIM_SCHEMA(['react', 'vite', 'zod', '@anthropic-ai/sdk'])).toEqual(loadGoldenJson('schema-rev8-react.json'))
   })
   it('the window_total and peak_value pattern refuses 0 and a leading zero, and keeps day_value open to 0', () => {
     const anyOf = (CLAIM_SCHEMA(['a']) as { properties: { paragraph: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } }).properties.paragraph.items.anyOf

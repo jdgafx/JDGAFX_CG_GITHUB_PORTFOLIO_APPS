@@ -103,7 +103,7 @@ function readFacts(value: unknown, name: string): PackageFacts | null {
   const S0 = bigintOf(g.S0)
   if (windowTotal === null || last30Total === null || S1 === null || S0 === null) return null
   if (!isDay(a.peakDay) || !isCount(a.peakValue) || !isCount(g.n1) || !isCount(g.n0) || typeof g.computable !== 'boolean') return null
-  // Growth that claims to be computable divides by n1, n0 and S0 (shared/modelInput fixedDecimal): none may be zero.
+  // Growth that claims to be computable divides by n1, n0 and S0 (growthPercent in shared/aggregates): none may be zero.
   if (g.computable && (g.n1 === 0 || g.n0 === 0 || S0 === 0n)) return null
   if (!Array.isArray(value.unusual) || value.unusual.length > MAX_UNUSUAL) return null
   const unusual = value.unusual.map(readUnusual)

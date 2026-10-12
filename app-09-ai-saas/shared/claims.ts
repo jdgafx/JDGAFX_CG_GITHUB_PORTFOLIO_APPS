@@ -1,4 +1,4 @@
-import { growthPercent } from './aggregates'
+import { growthFraction, growthPercent } from './aggregates'
 import { formatCount, formatDate, formatPct, isIsoDate } from './format'
 import { checkSegment, recompute } from './recompute'
 import type { Check } from './recompute'
@@ -55,8 +55,8 @@ function metricFrom(metric: CompareSeg['metric'], f: PackageFacts): { n: bigint;
   if (metric === 'window_total') return { n: a.windowTotal, d: 1n }
   if (metric === 'last30_total') return { n: a.last30Total, d: 1n }
   if (metric === 'peak_value') return { n: BigInt(a.peakValue), d: 1n }
-  // growth as the exact ratio A1/A0 = S1 n0 / (S0 n1); the order of two changes is the order of two ratios
-  return a.growth.computable ? { n: a.growth.S1 * BigInt(a.growth.n0), d: a.growth.S0 * BigInt(a.growth.n1) } : null
+  // the order of two growths is the order of two fractions n/d, d > 0 (growthFraction is the one growth formula)
+  return growthFraction(a.growth)
 }
 
 /**

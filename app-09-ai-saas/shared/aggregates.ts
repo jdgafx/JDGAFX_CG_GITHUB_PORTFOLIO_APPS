@@ -33,13 +33,23 @@ export function growthBasis(rows: Rows, past: [Day, Day], before: [Day, Day]): G
 }
 
 /**
+ * The growth as one exact fraction n/d with d > 0 (the ratio of the two daily averages A1/A0, minus 1), or null when it is not
+ * computable. The one place the growth formula is written: growthPercent and the compare of change_pct (shared/claims.ts) both read it.
+ * Basis-agnostic: it only reads the Growth that growthBasis() built.
+ */
+export function growthFraction(g: Growth): { n: bigint; d: bigint } | null {
+  return g.computable ? { n: g.S1 * BigInt(g.n0) - g.S0 * BigInt(g.n1), d: g.S0 * BigInt(g.n1) } : null
+}
+
+/**
  * The growth as one signed one-decimal figure (`+34.1`, `-4.2`, `+0.0`), or null when it is not computable. The
  * one place that rounds it: the Metrics card, the figure code fills into a change_pct claim (`+34.10`) and the
- * direction word the model is told all read it. Basis-agnostic: it only reads the Growth that growthBasis() built.
+ * direction word the model is told all read it.
  */
 export function growthPercent(g: Growth): string | null {
-  if (!g.computable) return null
-  const value = fixedDecimal((g.S1 * BigInt(g.n0) - g.S0 * BigInt(g.n1)) * 100n, g.S0 * BigInt(g.n1), 1)
+  const f = growthFraction(g)
+  if (!f) return null
+  const value = fixedDecimal(f.n * 100n, f.d, 1)
   return value.startsWith('-') ? value : `+${value}`
 }
 

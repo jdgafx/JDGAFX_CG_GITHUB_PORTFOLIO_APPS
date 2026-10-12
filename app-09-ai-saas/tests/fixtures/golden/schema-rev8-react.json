@@ -1,0 +1,287 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "paragraph"
+  ],
+  "properties": {
+    "paragraph": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "s"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              },
+              "s": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "kind",
+              "package",
+              "span",
+              "day",
+              "value"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "claim"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "window_total",
+                  "peak_value"
+                ]
+              },
+              "package": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "span": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "last30",
+                  "none"
+                ]
+              },
+              "day": {
+                "type": "string",
+                "pattern": "^$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "kind",
+              "package",
+              "span",
+              "day",
+              "value"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "claim"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "day_value"
+                ]
+              },
+              "package": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "span": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "last30",
+                  "none"
+                ]
+              },
+              "day": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9]+$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "kind",
+              "package",
+              "span",
+              "day",
+              "value"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "claim"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "peak_day",
+                  "unusual_day",
+                  "day"
+                ]
+              },
+              "package": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "span": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "last30",
+                  "none"
+                ]
+              },
+              "day": {
+                "type": "string",
+                "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2})?$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "kind",
+              "package",
+              "span",
+              "day",
+              "value"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "claim"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "change_pct"
+                ]
+              },
+              "package": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "span": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "last30",
+                  "none"
+                ]
+              },
+              "day": {
+                "type": "string",
+                "pattern": "^$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t",
+              "package",
+              "peer",
+              "metric"
+            ],
+            "properties": {
+              "t": {
+                "type": "string",
+                "enum": [
+                  "compare"
+                ]
+              },
+              "package": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "peer": {
+                "type": "string",
+                "enum": [
+                  "react",
+                  "vite",
+                  "zod",
+                  "@anthropic-ai/sdk"
+                ]
+              },
+              "metric": {
+                "type": "string",
+                "enum": [
+                  "window_total",
+                  "last30_total",
+                  "change_pct",
+                  "peak_value"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
