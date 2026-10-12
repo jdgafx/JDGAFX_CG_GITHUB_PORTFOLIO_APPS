@@ -80,7 +80,8 @@ check() {
   local cands=("$ev/.acceptance/gate/$1/$2.json")
   if [[ ! -f ${cands[0]} ]]; then cands=("$ev/.acceptance/gate/$1"/*.json); fi
   [[ -f ${cands[0]} ]] || { echo "$reason"; return 1; }
-  if ! sample=$("$root/scripts/sp2-sample-hash.sh" "$1" "$2" 2>/dev/null); then
+  # The sample in force is the one at the pushed commit: a sample-only commit has no app path.
+  if ! sample=$("$root/scripts/sp2-sample-hash.sh" "$1" "$new" 2>/dev/null); then
     echo "no frozen sample committed"
     return 1
   fi

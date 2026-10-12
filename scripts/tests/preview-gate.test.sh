@@ -151,5 +151,15 @@ Y=$(commit "app-09 back to v1 with a new sample")
 run_case "identical app tree with a changed sample fails" 1 "$R" "$Y" \
   "^GATE FAIL app-09-theta [0-9a-f]{12}: sample_sha256 does not match"
 
+# A sample-only commit after the app tip: evidence for it with the new sample's hash passes.
+git checkout -q -b resampled "$RB"
+put config/sp2-samples/app-09-theta.json '{"questions": ["q9", "v2"]}'
+Z=$(commit "app-09 sample v2 only")
+run_case "sample-only commit: evidence for the old sample fails" 1 "$R" "$Z" \
+  "^GATE FAIL app-09-theta [0-9a-f]{12}: sample_sha256 does not match"
+evidence app-09-theta "$Z" PASS PASS "$(hash_of app-09-theta "$Z")"
+run_case "sample-only commit with evidence for the new sample passes" 0 "$R" "$Z" \
+  '^GATE PASS app-09-theta [0-9a-f]{12} [(]evidence [0-9a-f]{12}, same app tree[)]$'
+
 echo "$((n - fails))/$n passed"
 [[ $fails -eq 0 ]]
