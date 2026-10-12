@@ -56,6 +56,28 @@ describe('Try it', () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ code: loaded.value.file.text, language: 'javascript' })
   })
 
+  it('falls back to the same file from raw.githubusercontent.com when the contents API has spent its anonymous quota', async () => {
+    const text = 'export default function clsx() {\n  return 1\n}\n'
+    fetchStub.mockImplementation(async (input) =>
+      input.startsWith('https://api.github.com/')
+        ? new Response('{}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } })
+        : new Response(text, { status: 200 }),
+    )
+    const loaded = await loadExample()
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(fetchStub.mock.calls[1]![0]).toBe('https://raw.githubusercontent.com/lukeed/clsx/v2.1.1/src/index.js')
+    expect(loaded.value.file).toMatchObject({ text: text.replace(/\n$/, ''), path: 'src/index.js', ref: 'v2.1.1', url: 'https://github.com/lukeed/clsx/blob/v2.1.1/src/index.js' })
+    expect(loaded.value.file.sha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('names the contents API failure when the raw file cannot be had either', async () => {
+    fetchStub.mockImplementation(async (input) => (input.startsWith('https://api.github.com/') ? new Response('{}', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }) : new Response('', { status: 404 })))
+    const loaded = await loadExample()
+    expect(loaded).toMatchObject({ ok: false })
+    if (!loaded.ok) expect(loaded.error).toContain('60 anonymous requests')
+  })
+
   it('returns a message, not data, when GitHub fails', async () => {
     fetchStub.mockResolvedValue(new Response('{}', { status: 500 }))
     const loaded = await loadExample()
