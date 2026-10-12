@@ -307,7 +307,9 @@ function promptFor(input: AnalysisInput): ChatMessage[] {
 Columns: ${input.headers.join(', ')}
 Sample rows:
 ${JSON.stringify(input.sampleRows, null, 2)}`
-  const system = input.previous ? `${SYSTEM_PROMPT}\n\n${FOLLOW_UP_RULES}` : SYSTEM_PROMPT
+  // The date is read from the server clock on every request, never once at load, so a warm function does not carry yesterday's date past midnight.
+  const today = `Today's date is ${new Date().toISOString().slice(0, 10)}.`
+  const system = `${input.previous ? `${SYSTEM_PROMPT}\n\n${FOLLOW_UP_RULES}` : SYSTEM_PROMPT}\n\n${today}`
   const user = input.previous
     ? `Dataset:\n${schema}\n\nPrevious question: ${input.previous.question}\nPrevious plan: ${JSON.stringify(input.previous.plan)}\n\nFollow-up: ${input.question}`
     : `Dataset:\n${schema}\n\nQuestion: ${input.question}`

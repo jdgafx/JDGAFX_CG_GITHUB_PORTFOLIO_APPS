@@ -78,6 +78,27 @@ describe('the query-plan prompt', () => {
     expect(system).toContain('Whenever "missing" is not empty, "aboutData" is true.')
   })
 
+  it("ends with today's date from the server clock, for a first question and a follow-up", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-12T09:30:00Z'))
+      const first = await systemPromptFor({ question: 'How many earthquakes this year?', headers: HEADERS, sampleRows: [], rowCount: 50 })
+      vi.setSystemTime(new Date('2027-01-03T23:59:00Z'))
+      const followUp = await systemPromptFor({
+        question: 'Show only the top three',
+        headers: HEADERS,
+        sampleRows: [],
+        rowCount: 50,
+        previous: { question: 'Which product has the highest total revenue?', plan: PLAN },
+      })
+      expect(first.endsWith("Today's date is 2026-10-12.")).toBe(true)
+      expect(followUp.endsWith("Today's date is 2027-01-03.")).toBe(true)
+      expect(followUp).not.toContain('2026-10-12')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps the placeholder in a follow-up prompt too', async () => {
     const system = await systemPromptFor({
       question: 'Show only the top three',
