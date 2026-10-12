@@ -66,8 +66,10 @@ interface ChatResponse {
   usage?: Record<string, unknown>
 }
 
-function systemPrompt(domains: string[]): string {
-  return `You plan browser steps for a bounded agent. Given a user task, return a JSON object with a "steps" array of 2 to 6 steps.
+// The date is read from the server clock on every request, never once at load, so a warm function
+// does not carry yesterday's date past midnight.
+function systemPrompt(domains: string[], now: Date = new Date()): string {
+  return `You plan browser steps for a bounded agent. Today's date is ${now.toISOString().slice(0, 10)}. Given a user task, return a JSON object with a "steps" array of 2 to 6 steps.
 
 Each step has:
 - action: one of "navigate" | "find" | "click" | "type" | "extract" | "verify"
@@ -83,6 +85,7 @@ Rules:
 - Open the page that holds the answer with one "navigate" step whose url goes straight to it. Do not pad the plan with steps the task does not need.
 - The last step must be "extract" or "verify". Its value describes what the browser should observe. Never write results, prices or page titles yourself.
 - When the answer sits in one part of a page, give the last step a selector so the browser reads only that part. Known selectors: Hacker News front page story titles ".titleline > a"; a Wikipedia article's information box "table.infobox"; a Wikipedia article's opening paragraphs "#mw-content-text .mw-parser-output p"; the Wikipedia main page's featured article blurb "#mp-tfa > p", which starts with the article's name and leaves out the picture caption. Omit the selector when you do not know one, and the browser reads the whole page text.
+- Add a year to text you type into a search box or to a url only when the task names one.
 - Never claim that a page was visited or that a result was found. The browser run is the source of truth.
 - Return ONLY valid JSON. No markdown and no commentary.
 

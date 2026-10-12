@@ -169,6 +169,23 @@ describe('planner function: a plan', () => {
     expect(sent.messages[1]).toEqual({ role: 'user', content: 'Task: Open google.com and report the page title.' })
   })
 
+  it("puts today's date from the server clock in the planner's instructions on every request", async () => {
+    const planned = async (day: string) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(day))
+      fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+      await handler(planRequest({ task: 'Find the latest news on Hacker News.' }))
+      vi.useRealTimers()
+      return (JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body)) as { messages: Array<{ content: string }> }).messages[0].content
+    }
+    const first = await planned('2026-10-12T09:30:00Z')
+    const second = await planned('2027-01-03T23:59:00Z')
+    expect(first).toContain("Today's date is 2026-10-12.")
+    expect(second).toContain("Today's date is 2027-01-03.")
+    expect(second).not.toContain('2026-10-12')
+    expect(first).toContain('only when the task names one')
+  })
+
   it('leaves thinking on: the request body never turns reasoning off', async () => {
     fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
     await handler(planRequest({ task: 'Open google.com and report the page title.' }))
