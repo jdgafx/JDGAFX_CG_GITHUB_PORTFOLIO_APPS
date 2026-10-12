@@ -154,9 +154,36 @@ test('a non-stream reply is still parsed as JSON even when the app config has an
 
 test('sse config is validated', () => {
   const write = sseValue => tempDir({ 'a.json': { ...config, sse: sseValue } })
-  configError(() => loadAppConfig('a', write({})), /sse.frame/)
+  configError(() => loadAppConfig('a', write('x')), /sse must be/)
+  configError(() => loadAppConfig('a', write({ frame: { has: 'result', equals: 1 } })), /sse.frame/)
+  configError(() => loadAppConfig('a', write({ frame: { has: '' } })), /sse.frame/)
+  configError(() => loadAppConfig('a', write({ take: 'all', path: 'run' })), /cannot be used with take 'all'/)
+  assert.deepEqual(loadAppConfig('a', write({})).sse, {})
+  assert.deepEqual(loadAppConfig('a', write({ frame: { has: 'result.metrics' }, take: 'all' })).sse.take, 'all')
   configError(() => loadAppConfig('a', write({ frame: { field: 'type' } })), /sse.frame/)
   configError(() => loadAppConfig('a', write({ frame: sse.frame, take: 'middle' })), /sse.take/)
   configError(() => loadAppConfig('a', write({ frame: sse.frame, path: '' })), /sse.path/)
   assert.deepEqual(loadAppConfig('a', write(sse)).sse, sse)
+})
+
+// app-13 style: frames carry no type field, the useful values sit at result.metrics, and [DONE] ends the stream.
+const untypedStream = [frame({ progress: 1 }), frame({ result: { model: 'v/m', metrics: { ok: true, usd: 0.03 } } }), frame({ progress: 2 }), frame({ result: { model: 'v/m', metrics: { ok: true, usd: 0.04 } } }), 'data: [DONE]\n\n']
+const untypedConfig = (sseRule, expectField, modelField, costField) => ({ ...streamConfig, sse: sseRule, expect: [{ path: '/api/ai', field: expectField, equals: true }], reported: { ...streamConfig.reported, model: { path: '/api/ai', field: modelField }, costUsd: { path: '/api/ai', field: costField } } })
+
+test('frames can be selected by the presence of a field, and [DONE] is skipped', () => {
+  const cfg = untypedConfig({ frame: { has: 'result.metrics' }, path: 'result' }, 'metrics.ok', 'model', 'metrics.usd')
+  const rec = buildRecording(streamInput(untypedStream, undefined, cfg))
+  assert.deepEqual(rec.reported, { model: 'v/m', model_role: 'writer', cost_usd: 0.04, cost_scope: 'whole run' })
+  assert.equal(rec.exchanges[0].chunks.map(c => c.text).join(''), untypedStream.join(''))
+  refused(streamInput([frame({ progress: 1 }), 'data: [DONE]\n\n'], undefined, cfg), /never sent a frame with result.metrics/)
+})
+
+test("take 'all' hands every kept frame to expect/reported as an array", () => {
+  const cfg = untypedConfig({ frame: { has: 'result' }, take: 'all' }, '*.result.metrics.ok', '0.result.model', '1.result.metrics.usd')
+  assert.equal(buildRecording(streamInput(untypedStream, undefined, cfg)).reported.cost_usd, 0.04)
+  // no frame filter: every frame, progress frames included, so a check over all of them sees the frames without a result
+  const everything = untypedConfig({ take: 'all' }, '*.result.metrics.ok', '1.result.model', '1.result.metrics.usd')
+  refused(streamInput(untypedStream, undefined, everything), /not as expected/)
+  refused(streamInput(['data: [DONE]\n\n'], undefined, cfg), /never sent a frame/)
+  refused(streamInput([frame({ result: {} }), 'data: nope\n\n'], undefined, cfg), /not JSON/)
 })

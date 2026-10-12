@@ -15,9 +15,11 @@ const round = ms => Math.round(ms * 10) / 10
 // good run looks like and where its model and cost are reported. Fields:
 //   url, tryButton, finishPath, apiPrefix, settleMs (optional), expect (checks on the recorded reply bodies),
 //   reported { model, modelRole, costUsd, costScope } (read from the recorded bodies, never from the screen),
-//   sse (optional, for apps whose replies are text/event-stream): { frame: { field, equals }, take: 'last' | 'first', path }.
-//     The body that expect/reported read is chosen from the reply's parsed data: frames: the first or last (default last)
-//     frame whose dotted `field` equals `equals`, then the dotted `path` inside it (optional; whole frame if omitted).
+//   sse (optional, for apps whose replies are text/event-stream): { frame, take, path }. The body that expect/reported read
+//     is chosen from the reply's parsed data: frames (a literal [DONE] is skipped). `frame` filters them: {field, equals}
+//     keeps frames whose dotted field equals the value, {has} keeps frames that carry the dotted field; omitted keeps all.
+//     `take` is 'last' (default), 'first', or 'all' (the body is the array of kept frames, so a * in expect/reported reaches
+//     into each). `path` (not with 'all') then picks a dotted field inside the one frame; omitted keeps the whole frame.
 //     One rule for every event-stream reply of the app; JSON replies are parsed as before.
 export const APPS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'apps')
 const APP_NAME = /^[a-z0-9][a-z0-9-]*$/
@@ -54,10 +56,14 @@ export function loadAppConfig(app, dir = APPS_DIR) {
     throw bad('expect must list {path, field, equals | minLength | nonEmpty}')
   }
   if (c.sse !== undefined) {
-    const f = isObject(c.sse) ? c.sse.frame : undefined
-    if (!isObject(f) || typeof f.field !== 'string' || f.field === '' || f.equals === undefined) throw bad('sse.frame must be {field, equals}')
-    if (c.sse.take !== undefined && c.sse.take !== 'first' && c.sse.take !== 'last') throw bad("sse.take must be 'first' or 'last'")
-    if (c.sse.path !== undefined && (typeof c.sse.path !== 'string' || c.sse.path === '')) throw bad('sse.path must be a dotted field name')
+    if (!isObject(c.sse)) throw bad('sse must be an object')
+    const f = c.sse.frame
+    const nonEmpty = v => typeof v === 'string' && v !== ''
+    if (f !== undefined && !(isObject(f) && (nonEmpty(f.has) ? f.field === undefined && f.equals === undefined : nonEmpty(f.field) && f.equals !== undefined))) {
+      throw bad('sse.frame must be {field, equals} or {has}')
+    }
+    if (c.sse.take !== undefined && !['first', 'last', 'all'].includes(c.sse.take)) throw bad("sse.take must be 'first', 'last' or 'all'")
+    if (c.sse.path !== undefined && (!nonEmpty(c.sse.path) || c.sse.take === 'all')) throw bad("sse.path must be a dotted field name and cannot be used with take 'all'")
   }
   const r = c.reported
   if (!isObject(r) || !isSpec(r.model) || !isSpec(r.costUsd) || typeof r.modelRole !== 'string' || typeof r.costScope !== 'string') {
@@ -119,8 +125,11 @@ function sseFrames(text, where) {
 function sseBody(text, sse, where) {
   if (!sse) throw new RefusedRun(`${where} answered with an event stream but the app config has no sse rule`)
   const frames = sseFrames(text, where)
-  const hits = frames.filter(f => valuesAt(f, sse.frame.field)[0] === sse.frame.equals)
-  if (hits.length === 0) throw new RefusedRun(`${where} never sent a frame with ${sse.frame.field} = ${JSON.stringify(sse.frame.equals)}`)
+  const f = sse.frame
+  const keep = !f ? () => true : f.has !== undefined ? frame => valuesAt(frame, f.has)[0] !== undefined : frame => valuesAt(frame, f.field)[0] === f.equals
+  const hits = frames.filter(keep)
+  if (hits.length === 0) throw new RefusedRun(`${where} never sent a frame ${!f ? '' : f.has !== undefined ? `with ${f.has}` : `with ${f.field} = ${JSON.stringify(f.equals)}`}`.trim())
+  if (sse.take === 'all') return hits
   const frame = sse.take === 'first' ? hits[0] : hits[hits.length - 1]
   if (sse.path === undefined) return frame
   const value = valuesAt(frame, sse.path)[0]
