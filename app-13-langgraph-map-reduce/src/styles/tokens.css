@@ -236,7 +236,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
+.ds-badge .ds-dot:not([class*="ds-dot--"]) { background: currentColor; } /* a plain dot follows the badge text; a state dot keeps its own colour */
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }
@@ -260,4 +260,26 @@ pre { max-width: none; overflow-x: auto; }
   .ds-card, .ds-panel { padding: 12px; }
   .ds-button { min-height: 48px; }
   .ds-input, .ds-select, .ds-textarea, .ds-choice { min-height: 48px; }
+}
+
+/* App 13, GraphSwarm: blueprint. One drafting-sheet theme for every colour scheme: cyanotype blue, chalk lines, a cyan
+   signal for the work in flight and an amber one for the merge. Contrast on the panel face (#0e3560): text 12:1,
+   muted 7:1, accent 7.4:1, control borders 4.9:1. No pink or rose anywhere. */
+:root[data-app="13"] {
+  color-scheme: dark;
+  --ds-font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --ds-head: "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --ds-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ds-bg: #0a2a4a; --ds-surface: #0e3560; --ds-surface-2: #0c2f55; --ds-border: #2f5f94; --ds-border-strong: #7fa8d4;
+  --ds-text: #eef5fc; --ds-text-muted: #b4cbe4;
+  --ds-accent: #6fd0ff; --ds-accent-text: #05213b;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 16%, var(--ds-surface));
+  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 45%, var(--ds-surface));
+  --ds-merge: #ffc94d;
+  --ds-success: #7de3a8; --ds-success-soft: #0d4136; --ds-warning: #ffc94d; --ds-warning-soft: #4a3a12;
+  --ds-danger: #ff9068; --ds-danger-soft: #4a2418;
+  --ds-series-2: #b4cbe4; --ds-series-3: #ffc94d; --ds-series-4: #9fb5ff;
+  --ds-radius: 3px; --ds-radius-sm: 2px;
+  --ds-grid-minor: color-mix(in srgb, #7fa8d4 9%, transparent);
+  --ds-grid-major: color-mix(in srgb, #7fa8d4 17%, transparent);
 }

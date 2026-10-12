@@ -1,0 +1,25 @@
+{
+  "url": "https://jdgafx-app-13-langgraph-map-reduce.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/synthesize",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": {
+    "/api/run": { "frame": { "has": "servedModel" }, "take": "all" },
+    "/api/synthesize": { "frame": { "has": "result" }, "take": "last" }
+  },
+  "expect": [
+    { "path": "/api/run", "field": "*.servedModel", "nonEmpty": true, "message": "the extract step named no model" },
+    { "path": "/api/synthesize", "field": "result.summary.sections", "minLength": 1, "message": "the run wrote no summary" },
+    { "path": "/api/synthesize", "field": "result.coverage.covered", "minLength": 1, "message": "the run covered no chunk" }
+  ],
+  "reported": {
+    "model": { "path": "/api/run", "field": "0.servedModel" },
+    "modelRole": "served by",
+    "costUsd": [
+      { "path": "/api/run", "field": "*.cost" },
+      { "path": "/api/synthesize", "field": "result.metrics.totalCost" }
+    ],
+    "costScope": "whole run"
+  }
+}

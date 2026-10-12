@@ -1,17 +1,21 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { ChunkMap } from './components/ChunkMap'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
 import { HowTo } from './components/HowTo'
 import { InputPanel } from './components/InputPanel'
+import { ReplayLabel } from './components/ReplayLabel'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { ResultCard } from './components/ResultCard'
 import { TracePanel } from './components/TracePanel'
 import { runAnalysis } from './lib/api'
 import { HOWTO_STEPS, HOWTO_WHAT, TRY_ARTICLE } from './lib/howto'
+import { summarize } from './lib/chunkMap'
 import { applyFetch, fetchedNow, liveIndicator, NO_FETCH, type WikiEvent } from './lib/liveData'
 import { loadArticle } from './lib/wikipedia-api'
 import { MAX_CHARS, MIN_CHARS } from './lib/limits'
 import { statusLine } from './lib/status'
+import { useReplay } from './lib/useReplay'
 import { useResultFocus } from './lib/useResultFocus'
 import { applyFrame, endView, failView, initialView, stopView, type RunView } from './lib/view'
 import type { Frame } from './types/frames'
@@ -23,6 +27,7 @@ type Action =
   | { type: 'fail'; message: string }
   | { type: 'stop' }
   | { type: 'end' }
+  | { type: 'reset' }
 
 function reduce(view: RunView, action: Action): RunView {
   switch (action.type) {
@@ -38,6 +43,8 @@ function reduce(view: RunView, action: Action): RunView {
       return stopView(view)
     case 'end':
       return endView(view)
+    case 'reset':
+      return initialView()
   }
 }
 
@@ -51,14 +58,53 @@ export default function App() {
   /** The text of the run on screen. The box can be edited after a run, so the coverage map reads this copy. */
   const [analyzed, setAnalyzed] = useState('')
   const [fetched, setFetched] = useState(NO_FETCH)
+  /** The title of the article the page itself fetched (on load or with Try it), to name it in the chunk map. */
+  const [titled, setTitled] = useState<{ text: string; title: string } | null>(null)
+  /** True while the run on screen is the replayed one, until Run it live or a run of the visitor's own replaces it. */
+  const [replaying, setReplaying] = useState(false)
   const [loadingExample, setLoadingExample] = useState(false)
   const [tryError, setTryError] = useState<string | null>(null)
+  /** The example article that fills the box on load: free live data, no model call. */
+  const [preload, setPreload] = useState<{ status: 'loading' | 'ready' | 'failed'; error: string | null }>({ status: 'loading', error: null })
   const [collapseKey, setCollapseKey] = useState(0)
   const [railScrolled, setRailScrolled] = useState(false)
   const busy = useRef(false)
+  /** Set when a replay could not be answered from its recording: the failure that follows is not the visitor's, so the screen resets instead. */
+  const diverged = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const running = view.phase === 'running'
   const valid = isValid(text)
+
+  /** The example article arrived: it fills the box unless the visitor typed or loaded something first. */
+  function exampleLoaded(article: { title: string; text: string }): void {
+    setTitled({ text: article.text, title: article.title })
+    setText((current) => (current === '' ? article.text : current))
+    setFetched((prev) => (prev.loaded === null ? applyFetch(prev, { kind: 'loaded', text: article.text, at: fetchedNow() }) : prev))
+    setPreload({ status: 'ready', error: null })
+  }
+  function exampleFailed(err: unknown): void {
+    setPreload({ status: 'failed', error: err instanceof Error ? err.message : 'The example article could not be loaded. Try again.' })
+  }
+
+  // On load: the example article from Wikipedia, free live data with no model call. The chunk map splits it at once.
+  useEffect(() => {
+    const controller = new AbortController()
+    loadArticle(TRY_ARTICLE, controller.signal).then(
+      (article) => !controller.signal.aborted && exampleLoaded(article),
+      (err: unknown) => !controller.signal.aborted && exampleFailed(err),
+    )
+    return () => controller.abort()
+  }, [])
+
+  // The map shows the text a run would split: the box before a run, the analyzed copy once one has started.
+  const mapped = view.phase === 'idle' ? text : analyzed
+  const chunks = useMemo(() => summarize(mapped), [mapped])
+  const source =
+    titled?.text === mapped
+      ? `the Wikipedia article “${titled.title}”`
+      : fetched.loaded?.text === mapped
+        ? 'a Wikipedia article you loaded'
+        : 'your text'
 
   // Leaving the page stops the stream, so no request keeps running in the background.
   useEffect(() => () => controller.current?.abort(), [])
@@ -81,6 +127,9 @@ export default function App() {
       // An abort from the Stop button is not a connection failure, so it never shows the connection message.
       if (current.signal.aborted) {
         dispatch({ type: 'stop' })
+      } else if (diverged.current) {
+        diverged.current = false
+        dispatch({ type: 'reset' })
       } else {
         dispatch({ type: 'fail', message: err instanceof Error ? err.message : 'Something went wrong. Try again.' })
       }
@@ -98,6 +147,7 @@ export default function App() {
     try {
       const article = await loadArticle(TRY_ARTICLE)
       setText(article.text)
+      setTitled({ text: article.text, title: article.title })
       setFetched((prev) => applyFetch(prev, { kind: 'loaded', text: article.text, at: fetchedNow() }))
       setLoadingExample(false)
       await analyze(article.text)
@@ -106,6 +156,31 @@ export default function App() {
       setFetched((prev) => applyFetch(prev, { kind: 'failed' }))
       setTryError(err instanceof Error ? err.message : 'The example article could not be loaded. Try again.')
     }
+  }
+
+  // On load, plays back the stored real run of the example article through the code above, if it is fresh and is of this text.
+  const replay = useReplay({
+    text,
+    idle: view.phase === 'idle',
+    start: (source) => {
+      setReplaying(true)
+      return analyze(source)
+    },
+    clear: () => {
+      setReplaying(false)
+      diverged.current = true
+      dispatch({ type: 'reset' })
+      setAnalyzed('')
+    },
+  })
+
+  /** Run it live: ends the replay, then makes the real requests for the same text. */
+  async function runLive(): Promise<void> {
+    replay.stop()
+    setReplaying(false)
+    controller.current?.abort()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await analyze(text)
   }
 
   return (
@@ -144,8 +219,22 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
             <ResultCard view={view} analyzed={analyzed} onRetry={() => void analyze(text)} />
-            <ReadoutStrip view={view} />
+            <ReadoutStrip view={view} replayed={replaying} />
+            <ChunkMap
+              summary={chunks}
+              source={source}
+              loading={preload.status === 'loading' && text === ''}
+              loadError={preload.status === 'failed' && text === '' ? preload.error : null}
+              onReload={() => {
+                setPreload({ status: 'loading', error: null })
+                loadArticle(TRY_ARTICLE).then(exampleLoaded, exampleFailed)
+              }}
+              branches={view.branches}
+              reduce={view.stages.reduce}
+              idle={view.phase === 'idle'}
+            />
             <GraphView view={view} />
             <TracePanel view={view} />
           </div>

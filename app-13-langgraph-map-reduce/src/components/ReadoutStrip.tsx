@@ -94,7 +94,7 @@ function Cell({ label, hint, children }: { label: string; hint: string; children
 }
 
 /** Live figures while the run goes, the run's own totals once it is done, and the figures spent so far after a failure or a stop. */
-export function ReadoutStrip({ view }: { view: RunView }) {
+export function ReadoutStrip({ view, replayed = false }: { view: RunView; replayed?: boolean }) {
   const { phase, rows, result } = view
   const running = phase === 'running'
   const ended = phase === 'error' || phase === 'stopped'
@@ -111,7 +111,7 @@ export function ReadoutStrip({ view }: { view: RunView }) {
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
       <dl className={`ds-strip${tone}`}>
-        <Cell label="Time" hint={running ? 'Running now' : result ? 'Wall clock, whole run' : ended ? sofar : 'Shown while it runs'}>
+        <Cell label="Time" hint={running ? 'Running now' : result ? (replayed ? 'Replay clock, not the real run' : 'Wall clock, whole run') : ended ? sofar : 'Shown while it runs'}>
           {running && view.startedAt !== null ? <LiveClock since={view.startedAt} /> : wall !== null ? formatMs(wall) : none}
         </Cell>
         <Cell label="Tokens" hint={unreportedText(metrics) ?? (result ? 'Prompt plus completion, all calls' : show ? sofar : 'All model calls')}>

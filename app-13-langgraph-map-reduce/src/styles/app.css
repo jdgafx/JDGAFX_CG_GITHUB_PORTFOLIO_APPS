@@ -288,3 +288,111 @@
   .howto__what, .howto__steps, .howto .ds-notice { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
 }
+
+/* ---------- Blueprint (app 13) ---------- */
+
+/* The sheet: a 16 px drafting grid with a heavier line every fifth square. */
+:root[data-app="13"] body {
+  background-color: var(--ds-bg);
+  background-image:
+    linear-gradient(var(--ds-grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ds-grid-major) 1px, transparent 1px),
+    linear-gradient(var(--ds-grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ds-grid-minor) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+}
+:root[data-app="13"] .ds-title,
+:root[data-app="13"] .ds-section__title,
+:root[data-app="13"] .ds-card__title,
+:root[data-app="13"] .ds-label,
+:root[data-app="13"] .summary-section__title { font-family: var(--ds-head); }
+:root[data-app="13"] .ds-title { font-size: 44px; font-weight: 600; letter-spacing: -0.01em; }
+:root[data-app="13"] .ds-section__title { font-size: 22px; font-weight: 600; letter-spacing: 0; }
+:root[data-app="13"] .ds-label { font-weight: 600; letter-spacing: 0.01em; }
+:root[data-app="13"] .ds-header { background: color-mix(in srgb, var(--ds-bg) 88%, transparent); border-bottom: 1px solid var(--ds-border-strong); }
+:root[data-app="13"] .ds-header::before { height: 3px; }
+:root[data-app="13"] .ds-plate {
+  min-width: 56px; height: 56px; font-weight: 500; letter-spacing: 0;
+  color: var(--ds-accent); background: transparent; border-radius: var(--ds-radius); box-shadow: none; border: 2px solid var(--ds-accent);
+}
+:root[data-app="13"] .ds-showcase { background: transparent; border: 1px dashed var(--ds-border-strong); }
+:root[data-app="13"] .ds-controls,
+:root[data-app="13"] .ds-card,
+:root[data-app="13"] .ds-panel,
+:root[data-app="13"] .ds-lead,
+:root[data-app="13"] .ds-stage,
+:root[data-app="13"] .source { background: var(--ds-surface); border-color: var(--ds-border); }
+:root[data-app="13"] .ds-actions { background: var(--ds-surface); }
+:root[data-app="13"] .ds-controls::after { background: linear-gradient(transparent, var(--ds-surface)); }
+:root[data-app="13"] .ds-chip { font-family: var(--ds-mono); font-weight: 500; }
+
+/* Coverage map shades: accent over the panel face, text flips to dark where the fill gets light (all 4.5:1 or better) */
+:root[data-app="13"] {
+  --cell-1: color-mix(in srgb, var(--ds-accent) 16%, var(--ds-surface));
+  --cell-2: color-mix(in srgb, var(--ds-accent) 34%, var(--ds-surface));
+  --cell-3: color-mix(in srgb, var(--ds-accent) 66%, var(--ds-surface));
+  --cell-4: var(--ds-accent);
+  --cell-fg-1: var(--ds-text); --cell-fg-2: var(--ds-text); --cell-fg-3: var(--ds-accent-text); --cell-fg-4: var(--ds-accent-text);
+}
+:root[data-app="13"] .cell { border-radius: var(--ds-radius); }
+
+/* Chunk map: the strip is the document, cut where the splitter cuts; the leaders fan out to one tile per chunk and
+   draw back in at the Reduce node. The one amber element on the sheet is that merge point. */
+.cm { gap: 8px; order: 1; }
+.cm__line { max-width: 62ch; }
+.cm__sheet {
+  display: grid; gap: 0; padding: 16px 16px 20px; min-width: 0;
+  background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius);
+}
+.cm__strip { display: flex; height: 18px; gap: 2px; }
+.cm__cut { flex-basis: 0; min-width: 4px; background: var(--ds-accent-dim); border-radius: 1px; }
+.cm__cut:nth-child(even) { background: color-mix(in srgb, var(--ds-accent) 28%, var(--ds-surface)); }
+.cm__cut--on, .cm__cut--on:nth-child(even) { background: var(--ds-accent); }
+.cm__fan { display: block; width: 100%; height: 44px; overflow: visible; }
+.cm__fan--merge { height: 32px; }
+.cm__lead { fill: none; stroke: var(--ds-border-strong); stroke-width: 1px; stroke-opacity: 0.7; vector-effect: non-scaling-stroke; }
+.cm__lead--on { stroke: var(--ds-accent); stroke-width: 2px; stroke-opacity: 1; }
+.cm__lead--merge { stroke: var(--ds-merge); stroke-opacity: 0.55; }
+.cm__tiles { display: grid; grid-template-columns: repeat(var(--n, 9), minmax(0, 1fr)); gap: 4px; }
+.cm__tile {
+  position: relative; display: grid; gap: 2px; justify-items: center; align-content: start; min-width: 0; min-height: 76px; padding: 8px 2px 12px;
+  font: inherit; color: var(--ds-text); cursor: pointer; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius);
+}
+.cm__tile:hover { border-color: var(--ds-accent); }
+.cm__tile[aria-pressed="true"] { border-color: var(--ds-accent); box-shadow: inset 0 0 0 1px var(--ds-accent); background: var(--ds-accent-soft); }
+.cm__id { font-family: var(--ds-head); font-size: 22px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.cm__size { font-family: var(--ds-mono); font-size: 12px; font-weight: 500; line-height: 1.2; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
+.cm__bar { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; background: var(--ds-border); }
+.cm__bar i { display: block; height: 100%; background: var(--ds-accent); }
+.cm__tile .ds-dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; }
+.cm__tile[data-status="running"] { border-color: var(--ds-accent); }
+.cm__tile[data-status="failed"] { border-color: var(--ds-danger); }
+.cm__merge { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 12px; max-width: none; margin: 0; font-size: 13px; color: var(--ds-text-muted); }
+.cm__node {
+  padding: 4px 16px; font-family: var(--ds-head); font-size: 18px; font-weight: 600; color: var(--ds-merge);
+  border: 2px solid var(--ds-merge); border-radius: var(--ds-radius);
+}
+.cm__merge[data-status="running"] .cm__node { background: color-mix(in srgb, var(--ds-merge) 16%, transparent); }
+.cm__open { display: grid; gap: 4px 24px; margin: 16px 0 0; padding-top: 12px; border-top: 1px dashed var(--ds-border-strong); grid-template-columns: minmax(0, 1fr); }
+.cm__open dt { font-size: 13px; font-weight: 600; color: var(--ds-text-muted); }
+.cm__open dd { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.cm__open > div:first-child dd { font-family: var(--ds-mono); font-size: 13px; }
+.cm__empty { background: transparent; }
+@media (min-width: 900px) {
+  .cm__open { grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .cm__tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cm__fan { display: none; }
+  .cm__strip { margin-bottom: 12px; }
+  .cm__tiles + .cm__fan--merge { display: none; }
+  .cm__merge { margin-top: 12px; }
+  :root[data-app="13"] .ds-title { font-size: 34px; }
+}
+
+/* Replay label: first thing in the run column while a recording is on screen. */
+.replay-label { order: -10; display: grid; gap: 4px; padding: 12px 16px; min-width: 0; border-color: var(--ds-merge); }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; overflow-wrap: anywhere; max-width: none; }
+.replay-label__line strong { font-family: var(--ds-head); font-size: 18px; font-weight: 600; color: var(--ds-merge); }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }
