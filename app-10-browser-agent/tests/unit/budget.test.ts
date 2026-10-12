@@ -3,7 +3,7 @@ import type { Page } from 'playwright-core'
 import { IDLE_LIMIT_MS, OVERALL_LIMIT_MS, START_LIMIT_MS, planTask, streamRun } from '../../src/lib/api'
 import {
   CAPTURE_MS, CLIENT_MARGIN_MS, FAILED_STEP_MS, LAUNCH_MS, PLAN_BUDGET_MS, PLAN_CLIENT_WAIT_MS, PLAN_PLATFORM_CUT_MS,
-  RUN_CLIENT_WAIT_MS, RUN_MAX_GAP_MS, RUN_PLATFORM_CUT_MS, RUN_WORST_MS, SNAPSHOT_MS, STEP_ACTION_MS,
+  NAVIGATE_MS, RUN_CLIENT_WAIT_MS, RUN_MAX_GAP_MS, RUN_PLATFORM_CUT_MS, RUN_WORST_MS, SNAPSHOT_MS, STEP_ACTION_MS,
 } from '../../src/lib/budget'
 import { pageSnapshot, runStep } from '../../netlify/shared/browser'
 import { FrameRecorder } from '../../netlify/shared/frames'
@@ -46,6 +46,11 @@ describe('client wait outlasts the server budget: browser run', () => {
     expect(OVERALL_LIMIT_MS).toBeGreaterThanOrEqual(RUN_WORST_MS + 3_000)
     expect(OVERALL_LIMIT_MS).toBe(RUN_CLIENT_WAIT_MS)
     expect(OVERALL_LIMIT_MS).toBeLessThanOrEqual(RUN_PLATFORM_CUT_MS)
+  })
+
+  it('pins the server worst case at 55 s and the page wait at 58 s', () => {
+    expect(RUN_WORST_MS).toBe(55_000)
+    expect(RUN_CLIENT_WAIT_MS).toBe(58_000)
   })
 
   it('keeps the server worst case under the platform cut with room to spare', () => {
@@ -100,6 +105,14 @@ describe('server limits add up to the worst case the page waits for', () => {
     const at = await settleTime(runStep(hangingPage, step), STEP_ACTION_MS + 1_000)
     expect(at).not.toBeNull()
     expect(at).toBeLessThanOrEqual(STEP_ACTION_MS)
+  })
+
+  it('gives a page load 8 s, and a hung navigation fails at exactly that limit', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    expect(NAVIGATE_MS).toBe(8_000)
+    expect(STEP_ACTION_MS).toBe(NAVIGATE_MS)
+    const at = await settleTime(runStep(hangingPage, steps[0]), NAVIGATE_MS + 1_000)
+    expect(at).toBe(NAVIGATE_MS)
   })
 
   it('a hung page read with a region ends within the snapshot limit', async () => {

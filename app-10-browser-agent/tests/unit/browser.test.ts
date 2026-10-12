@@ -34,7 +34,20 @@ describe('runStep', () => {
   it('reports the host a navigate step landed on, and leaves the allowlist check to the caller', async () => {
     const page = { url: () => 'https://example.com/', goto: async () => null } as unknown as Page
     const navigate: BotStep = { action: 'navigate', target: 'Example', thought: 'Open it.', url: 'https://example.com/' }
-    await expect(runStep(page, navigate)).resolves.toBe('Opened example.com.')
+    await expect(runStep(page, navigate)).resolves.toMatch(/^Opened example\.com\./)
+  })
+
+  it('reports the page load time of a navigate step on its own, apart from any text read or picture', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const page = { url: () => 'https://example.com/', goto: () => new Promise((resolve) => setTimeout(resolve, 4_876)) } as unknown as Page
+      const navigate: BotStep = { action: 'navigate', target: 'Example', thought: 'Open it.', url: 'https://example.com/' }
+      const detail = runStep(page, navigate)
+      await vi.advanceTimersByTimeAsync(4_876)
+      await expect(detail).resolves.toBe('Opened example.com. Page loaded in 4876 ms.')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('uses the page-title shortcut only for the page title, not for any target that contains the word title', async () => {

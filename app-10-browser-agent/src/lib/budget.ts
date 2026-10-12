@@ -24,7 +24,7 @@ export const OPEN_PAGE_MS = 4_000
 /** No new step starts after this much time since the browser was ready. */
 export const STEP_GATE_MS = 12_000
 /** One page navigation. */
-export const NAVIGATE_MS = 6_000
+export const NAVIGATE_MS = 8_000
 /** One page action or one count of matches. */
 export const ACTION_MS = 3_000
 /** A typed value read back. */

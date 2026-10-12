@@ -123,10 +123,13 @@ function targetLocator(page: Page, target: string) {
 export async function runStep(page: Page, step: BotStep): Promise<string> {
   switch (step.action) {
     case 'navigate': {
+      // The load time is reported on its own, apart from the text read and the picture that follow the step.
+      const loadStarted = Date.now()
       await acting(page.goto(step.url ?? '', { waitUntil: 'domcontentloaded' }), 'The page could not be loaded.', NAVIGATE_MS)
+      const loadMs = Date.now() - loadStarted
       const host = currentHost(page)
       if (host === null) throw new ExecutionError('The browser did not reach a web page.')
-      return `Opened ${host}.`
+      return `Opened ${host}. Page loaded in ${loadMs} ms.`
     }
     case 'find': {
       const locator = targetLocator(page, step.target)
