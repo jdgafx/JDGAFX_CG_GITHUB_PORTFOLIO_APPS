@@ -70,15 +70,16 @@ export function waitingSentence(counts: VerdictCounts): string {
 }
 
 /**
- * Milliseconds of the model passes in a trace, for the readout hint. Pass 1 adds its tries up. Pass 2 is two reads side by side,
- * so it is the span from the first read's start to the last read's end, not their sum. Null when that pass did not run.
+ * Milliseconds of the model passes in a trace, for the readout hint. Each pass is the span from its first row's start to its last
+ * row's end, not the sum of its rows: the shards of pass 1 and the two reads of pass 2 run side by side, so a sum is longer than
+ * the run. A retry follows the try before it, so the span covers both. Null when that pass did not run.
  */
 export function passTimes(trace: readonly TraceStep[]): { pass1: number | null; pass2: number | null } {
-  const rows = (prefix: string) => trace.filter((s) => s.name.startsWith(prefix) && s.status !== 'skipped')
-  const one = rows('Pass 1')
-  const two = rows('Pass 2')
-  const span = two.length === 0 ? null : Math.max(...two.map((s) => (s.at ?? 0) + s.ms)) - Math.min(...two.map((s) => s.at ?? 0))
-  return { pass1: one.length === 0 ? null : one.reduce((total, s) => total + s.ms, 0), pass2: span }
+  const span = (prefix: string) => {
+    const rows = trace.filter((s) => s.name.startsWith(prefix) && s.status !== 'skipped')
+    return rows.length === 0 ? null : Math.max(...rows.map((s) => (s.at ?? 0) + s.ms)) - Math.min(...rows.map((s) => s.at ?? 0))
+  }
+  return { pass1: span('Pass 1'), pass2: span('Pass 2') }
 }
 
 export const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`

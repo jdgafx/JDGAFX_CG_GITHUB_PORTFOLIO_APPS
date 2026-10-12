@@ -3,7 +3,7 @@ import { makeShardRecord } from '../../netlify/shared/handoff'
 import { commentBudget } from '../../netlify/shared/review'
 import { SHARD_MAX_TOKENS } from '../../netlify/shared/budget'
 import { planShards } from '../../netlify/shared/shards'
-import { PLACEHOLDER_KEY, fetchStub, handler, installHooks, keep, mergeHandler, post, readHandler, readPayload, reply, reviewJson, script, sentBody, verdictJson, type Payload } from './harness'
+import { PLACEHOLDER_KEY, SERVED_MODEL, fetchStub, full, handler, installHooks, keep, mergeHandler, post, readHandler, readPayload, reply, reviewJson, script, sentBody, standsFor, verdictJson, type Payload } from './harness'
 
 installHooks()
 
@@ -163,14 +163,13 @@ describe('the merge request', () => {
     expect(payload.trace[0].detail).toBe('Joined 2 parts of 3: 2 comments, 1 part not reviewed')
   })
 
-  it('removes a comment two shards both made: the same cited line and the same opening of the message', async () => {
-    const dup = inShard(1)
-    const a = await runShard(1, [dup])
-    const b = await runShard(2, [{ ...dup }, inShard(2)])
-    const payload = (await (await mergeRequest([null, a, b])).json()) as MergeReply
-    // The second shard cited a line of the first one's range: both are the same comment.
-    expect((payload.candidates ?? []).map((x) => x.line)).toEqual([PLAN[1].from + 3, PLAN[2].from + 3])
-    expect(payload.trace[0].detail).toContain('1 duplicate removed')
+  it('drops a comment a shard cited outside its own range, so the shard that owns the line is the only one that reviews it (live r1-a: shard 0 wrote L326, L242 and L330)', async () => {
+    const outside = inShard(2)
+    const a = await runShard(0, [inShard(0), { ...outside }])
+    const c = await runShard(2, [{ ...outside }, inShard(2, 6)])
+    const payload = (await (await mergeRequest([a, null, c])).json()) as MergeReply
+    expect((payload.candidates ?? []).map((x) => x.line)).toEqual([PLAN[0].from + 3, PLAN[2].from + 3, PLAN[2].from + 6])
+    expect(payload.trace[0].detail).toBe('Joined 2 parts of 3: 3 comments, 1 cited outside its part and removed, 1 part not reviewed')
   })
 
   it('has no hand-off when every comment was dropped by the checks', async () => {
@@ -226,3 +225,13 @@ describe('the merge request', () => {
   })
 })
 
+describe('the served model of a review made of shards', () => {
+  it('is a match: the merge calls no model, so it is not a call whose check can pull the others down (live: every sharded review lost its newest marker)', async () => {
+    const comments = [inShard(0), inShard(1), inShard(2)]
+    const kept = comments.map((c, i) => keep(i + 1, c.line, LINES[c.line - 1].trim()))
+    script({ pass1: comments.map((c) => reply(reviewJson([c]))), read1: [reply(verdictJson(kept))], read2: [reply(verdictJson(standsFor(kept)))] })
+    const payload = (await (await full(BIG)).json()) as Payload
+    expect(payload.servedModels.length).toBeGreaterThan(3)
+    expect(payload).toMatchObject({ success: true, model: SERVED_MODEL, newestModel: SERVED_MODEL, modelCheck: 'match' })
+  })
+})

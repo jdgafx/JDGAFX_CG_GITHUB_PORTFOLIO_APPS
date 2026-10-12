@@ -14,7 +14,7 @@ The code is shown with a line number, a tab and a pipe in front of every line. T
 Each comment comes with "scope": the whole function or class that holds its line (cut around the line when it is very long). Read the scope, and follow every name the comment mentions to where it is defined, in the scope or in the full listing.
 
 For each comment decide:
-- "keep": the claim is true of this code, you can point at the code that makes it true, and the suggestion is a concrete change. Keep a true, concrete finding even when it is minor.
+- "keep": the claim is true of this code, you can point at the code that makes it true, and the suggestion is a concrete change. Keep a true, concrete finding even when it is minor. A message may state more than one thing: check each statement in it, and keep the comment only when every statement is true.
 - "move": the claim is true, but the code it is about is on a different line than the comment sits on. Give the line of the statement the message talks about (the call, the assignment, the condition), never the signature of the function that contains it, and never move a comment off the line that declares the name it is about.
 - "drop": the claim is false (the code shows the opposite), or the code already does what the suggestion asks, or the suggestion changes nothing ("leave as-is"), or it objects to something the code must do (a parameter that an interface or callback signature requires, a deprecated member kept for compatibility, a form the language demands), or its own message calls the code safe or harmless while rating it warning or critical.
 - "unsure": the truth of the claim depends on something outside this ${noun} that you cannot see: how another file behaves, what a third-party library does inside, the version of a language or library the project supports. Say what it rests on. Standard language rules are not outside the ${noun}: if the code shows the construct, judge the claim yourself (Python removes __hash__ from a class that defines __eq__; Go slices that share a backing array alias; JavaScript coerces types). A confident claim about runtime or library behaviour that the code does not show, and you cannot judge, is "unsure", never "keep".
@@ -40,6 +40,7 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
       "evidence": "<code copied verbatim from that line, at most 100 characters, without the line number prefix>",
       "support": "<for keep and move: code copied verbatim from any line of the ${noun} that makes the claim true, at most 100 characters; empty for drop and unsure>",
       "claim": <for keep and move: { "kind": "shadows" | "missing-comment" | "type-mismatch" | "unused" | "null-risk" | "other", "names": [<identifiers>], "lines": [<integers>], "quote": "<code copied verbatim>" }; null for drop and unsure>,
+      "contradicted": "<for keep and move: the statement in the comment's message that code in the ${noun} shows is false, copied from the message; empty when every statement in it is true>",
       "reason": "<one sentence of at most 30 words that says why, naming the code>"
     }
   ]
@@ -83,10 +84,10 @@ export function buildRefutePrompt(kind: 'file' | 'pr', lineCount: number): strin
 The code is shown with a line number, a tab and a pipe in front of every line. That prefix is scaffolding, not code.
 Each comment comes with "scope": the whole function or class that holds its line. Read the scope and the whole listing.
 
-For each comment assume the claim is false and look for the code that shows it. Look for: an earlier branch, return or case that handles the situation the claim describes before the cited line is reached (a value the claim says "falls through" may be handled above); a guard or check; a definition that does what the claim says is missing (follow every name to where it is defined); a place where the value is set or closed (a file the claim says is never closed, closed on the same line); a function the scope calls whose definition is listed under "definitions" (read it); a caller or surrounding code that makes the case impossible.
+A message may state more than one thing. For each comment assume each statement in it is false, not only the one about the cited line, and look for the code that shows it. Look for: an earlier branch, return or case that handles the situation the claim describes before the cited line is reached (a value the claim says "falls through" may be handled above); a guard or check; a definition that does what the claim says is missing (follow every name to where it is defined); a place where the value is set or closed (a file the claim says is never closed, closed on the same line); a function the scope calls whose definition is listed under "definitions" (read it); a caller or surrounding code that makes the case impossible.
 
 Answer for each comment:
-- "refuted": you found code in the ${noun} that makes the claim false or inapplicable. Quote that code and give its line.
+- "refuted": you found code in the ${noun} that makes any statement in the message false or inapplicable. Quote that code and give its line.
 - "stands": you looked for such code and there is none. Quote the code you checked most closely (the branch or definition the claim depends on).
 - "unsure": the claim depends on something outside this ${noun} that you cannot see (another file, a library's internals, a version).
 

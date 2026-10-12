@@ -24,6 +24,8 @@ export interface RawVerdict {
   /** Code that makes the claim true, quoted from anywhere in the file. */
   support: string
   reason: string
+  /** The statement in the comment's message that the code shows is false, or empty when every statement in it is true. */
+  contradicted?: string
   /** What the comment claims, typed so the code can check it against the file. Null when the reply gave none or gave a malformed one. */
   claim: TypedClaim | null
 }
@@ -57,6 +59,7 @@ export function readVerdicts(text: string): Map<number, RawVerdict> | null {
       evidence: typeof v.evidence === 'string' ? v.evidence.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
       support: typeof v.support === 'string' ? v.support.slice(0, MAX_EVIDENCE_CHARS * 2) : '',
       reason: typeof v.reason === 'string' ? collapse(v.reason).slice(0, MAX_REASON_CHARS) : '',
+      contradicted: typeof v.contradicted === 'string' ? collapse(v.contradicted).slice(0, MAX_REASON_CHARS) : '',
       claim: readClaim(v.claim),
     })
   }
@@ -225,6 +228,8 @@ export function settle(candidate: Candidate, raw: RawVerdict | undefined, doc: D
     if (collapse(raw.support).length < MIN_QUOTE_CHARS) {
       return unconfirmed(candidate, 'Not confirmed: the second pass could not quote the code that shows the claim is true.')
     }
+    // A comment is kept whole or not at all: a statement in it that the read itself found false is not confirmed, however true the rest is.
+    if (raw.contradicted) return unconfirmed(candidate, `Not confirmed: the second pass found a statement in the comment that the code contradicts ("${clip(raw.contradicted, 80)}").`)
     // A reason that admits the code does not show the claim is not a confirmation, whatever verdict came with it (live auth.py L114).
     const admitted = ADMISSION.exec(reason)
     if (admitted) return unconfirmed(candidate, `Not confirmed: the second pass's own reason says the code does not show it ("${admitted[0]}").`)

@@ -103,6 +103,9 @@ function acceptShard(data: Record<string, unknown>): Ticket | null {
 /** One request's summary, and where in the review's own timeline it began: its stages are placed from there. */
 type Piece = RunSummary & { offset: number }
 
+/** The worst check of the requests that made a model call. A request that made none (the merge) has no check to give, so it is left out by the caller; none at all is "not reported". */
+const worstCheck = (checks: readonly ModelCheck[]): ModelCheck => (checks.length === 0 ? 'not-reported' : checks.reduce((worst, check) => (RANK[check] > RANK[worst] ? check : worst)))
+
 /** The trace, usage and checks of several requests as one run's: stages placed by when each request began, usage and unreported calls added. */
 function combine(pieces: readonly Piece[], totalMs: number, model: string | null): RunSummary {
   return {
@@ -110,7 +113,7 @@ function combine(pieces: readonly Piece[], totalMs: number, model: string | null
     usage: sumUsage(pieces.flatMap((p) => (p.usage ? [p.usage] : []))),
     model,
     newestModel: pieces.map((p) => p.newestModel).find((m) => m !== null) ?? null,
-    modelCheck: pieces.map((p) => p.modelCheck).reduce((worst, check) => (RANK[check] > RANK[worst] ? check : worst), 'match' as ModelCheck),
+    modelCheck: worstCheck(pieces.filter((p) => p.servedModels.length > 0 || p.unreportedCalls > 0).map((p) => p.modelCheck)),
     servedModels: pieces.flatMap((p) => p.servedModels),
     totalMs,
     unreportedCalls: pieces.reduce((sum, p) => sum + p.unreportedCalls, 0),

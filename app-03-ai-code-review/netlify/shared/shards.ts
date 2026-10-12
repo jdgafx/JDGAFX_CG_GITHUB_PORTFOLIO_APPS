@@ -110,9 +110,21 @@ export function planShards(texts: readonly string[], units: readonly DiffUnit[] 
 const normal = (text: unknown) => (typeof text === 'string' ? text.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60) : '')
 
 /**
+ * The comments a shard wrote for its own range. One that cites a line outside it is left out: the shard that owns that line
+ * reviews it, and a model that cites outside its range is the cause of the same finding being made twice. An item with no
+ * numeric line is kept: the checks count it as unreadable.
+ */
+export function withinRange(comments: readonly unknown[], shard: Pick<Shard, 'from' | 'to'>): { kept: unknown[]; outside: number } {
+  const kept = comments.filter((item) => {
+    const line = item && typeof item === 'object' ? (item as { line?: unknown }).line : undefined
+    return typeof line !== 'number' || (Math.round(line) >= shard.from && Math.round(line) <= shard.to)
+  })
+  return { kept, outside: comments.length - kept.length }
+}
+
+/**
  * Joins the comments the shards wrote, in shard order, dropping a comment that another already made: the same cited line and the
- * same opening of the message. (The ranges do not overlap, so this only matters for a shard that cited outside its range.) An item
- * that is not an object is kept as it is: the checks count it as unreadable.
+ * same opening of the message. An item that is not an object is kept as it is: the checks count it as unreadable.
  */
 export function mergeComments(lists: ReadonlyArray<readonly unknown[]>): { comments: unknown[]; duplicates: number } {
   const seen = new Set<string>()

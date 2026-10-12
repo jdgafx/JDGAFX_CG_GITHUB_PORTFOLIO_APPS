@@ -3,7 +3,7 @@ import { countVerdicts, isShown, passTimes, verdictLabel, verdictSentence } from
 import type { ReviewComment, TraceStep } from '../../src/types'
 
 const c = (verdict: ReviewComment['verdict']): ReviewComment => ({ id: 1, line: 1, fromLine: 1, severity: 'info', message: 'm', suggestion: 's', verdict, decidedBy: 'none', reason: 'r', evidence: null, support: null, supportLine: null, code: '', where: null })
-const step = (name: string, ms: number, status: TraceStep['status'] = 'ok'): TraceStep => ({ name, ms, status, detail: '' })
+const step = (name: string, ms: number, status: TraceStep['status'] = 'ok', at?: number): TraceStep => ({ name, ms, status, detail: '', ...(at === undefined ? {} : { at }) })
 
 describe('countVerdicts and isShown', () => {
   const list = [c('kept'), c('kept'), c('moved'), c('dropped'), c('unverified')]
@@ -29,9 +29,20 @@ describe('verdictSentence', () => {
 })
 
 describe('passTimes', () => {
-  it('adds a retry to its pass and ignores skipped rows', () => {
-    const trace = [step('Check request', 3), step('Pass 1: review', 1200, 'failed'), step('Pass 1: review retry', 9000), step('Pass 2: verify', 0, 'skipped')]
+  it('covers a retry, which follows its failed try, and ignores skipped rows', () => {
+    const trace = [step('Check request', 3, 'ok', 0), step('Pass 1: review', 1200, 'failed', 3), step('Pass 1: review retry', 9000, 'ok', 1203), step('Pass 2: verify', 0, 'skipped', 10203)]
     expect(passTimes(trace)).toEqual({ pass1: 10200, pass2: null })
+  })
+
+  it('is the wall time of shards that ran side by side, not their sum (live r3-a: 41.5 s shown for a 30.4 s run)', () => {
+    // The four pass 1 rows of r3-a as the server reported them: 14.0, 8.3, 9.2 and 9.9 s, all started within 54 ms.
+    const trace = [
+      step('Pass 1: review (lines 1-170)', 14045, 'ok', 3),
+      step('Pass 1: review (lines 458-608)', 8347, 'ok', 54),
+      step('Pass 1: review (lines 305-457)', 9220, 'ok', 2),
+      step('Pass 1: review (lines 171-304)', 9899, 'ok', 17),
+    ]
+    expect(passTimes(trace).pass1).toBe(14048 - 2)
   })
 })
 

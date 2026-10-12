@@ -10,7 +10,7 @@ import { MAX_OUTPUT_TOKENS, MODEL, chatBody, replyEnding, replyText, type Provid
 import { buildPrPrompt, buildSystemPrompt, commentBudget, parseReview, precheck } from './review'
 import { noun, record, type Run } from './trace'
 import { buildComments, buildRefutePrompt, buildVerifyPrompt, buildVerifyUser, locatorFor, readVerdicts, settleFirst, settleSecond } from './verify'
-import { mergeComments, planShards, type Shard } from './shards'
+import { mergeComments, planShards, withinRange, type Shard } from './shards'
 import type { FirstPassReply, FirstRow, SecondRow, ShardNote, Ticket } from './wire'
 
 export type ReviewInput =
@@ -299,6 +299,7 @@ export function runMerge(run: Run, input: ReviewInput, apiKey: string, tickets: 
   if (!Array.isArray(tickets) || tickets.length !== plan.length) return { ok: false, error: `This review is made of ${plan.length} parts, and the merge needs the record of each.`, status: 400 }
   const lists: unknown[][] = []
   const notes: ShardNote[] = []
+  let outside = 0
   for (const [i, ticket] of tickets.entries()) {
     if (ticket === null) {
       notes.push({ from: plan[i].from, to: plan[i].to, ok: false })
@@ -308,7 +309,9 @@ export function runMerge(run: Run, input: ReviewInput, apiKey: string, tickets: 
     if (opened === null || opened === 'expired') {
       return { ok: false, error: opened === null ? HANDOFF_REFUSED : HANDOFF_EXPIRED, status: 400 }
     }
-    lists.push(opened)
+    const own = withinRange(opened, plan[i])
+    outside += own.outside
+    lists.push(own.kept)
     notes.push({ from: plan[i].from, to: plan[i].to, ok: true })
   }
   if (lists.length === 0) return { ok: false, error: 'Every part of the review failed, so there is nothing to merge.', status: 400 }
@@ -319,7 +322,7 @@ export function runMerge(run: Run, input: ReviewInput, apiKey: string, tickets: 
     'Merge shards',
     'ok',
     mergeAt,
-    `Joined ${noun(lists.length, 'part')} of ${plan.length}: ${noun(merged.comments.length, 'comment')}${merged.duplicates > 0 ? `, ${merged.duplicates} duplicate${merged.duplicates === 1 ? '' : 's'} removed` : ''}${lists.length < plan.length ? `, ${noun(plan.length - lists.length, 'part')} not reviewed` : ''}`,
+    `Joined ${noun(lists.length, 'part')} of ${plan.length}: ${noun(merged.comments.length, 'comment')}${merged.duplicates > 0 ? `, ${merged.duplicates} duplicate${merged.duplicates === 1 ? '' : 's'} removed` : ''}${outside > 0 ? `, ${outside} cited outside its part and removed` : ''}${lists.length < plan.length ? `, ${noun(plan.length - lists.length, 'part')} not reviewed` : ''}`,
   )
   return finishFirstPass(run, input, apiKey, merged.comments, notes)
 }

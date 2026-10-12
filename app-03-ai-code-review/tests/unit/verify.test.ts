@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { anchorLine, diffDoc, fileDoc } from '../../netlify/shared/anchor'
 import type { Candidate } from '../../netlify/shared/review'
 import { assemble } from './assemble-helper'
+import { buildRefutePrompt, buildVerifyPrompt } from '../../netlify/shared/verify-prompt'
 import { buildVerifyUser, combineReads, findEvidence, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
 
 // gorilla/mux v1.8.1 mux.go lines 375 to 392, copied verbatim. Line 1 here is line 375 there.
@@ -416,5 +418,48 @@ describe('a reason that admits the claim is not shown', () => {
   })
   it('does not touch a reason that points at code', () => {
     expect(settle(candidate(), verdict({}), doc).verdict).toBe('kept')
+  })
+})
+
+// Live r2-a (SP2 on f1c3524): requests auth.py, comment 7 at line 176. Its first sentence is true (a lambda assigned to a name, with a
+// noqa), its second is false (hash_utf8 is assigned at line 136, before the branches). Read 1 saw it ("overstated since hash_utf8 is
+// initialised at line 136") and still answered keep, because the verdict is one word for a message of two statements; read 2 answered
+// stands for the first. The ids, lines and scope of the three stages agreed: nothing was lost between them.
+describe('a comment of two statements, one of them false (r2-a, auth.py line 176)', () => {
+  const AUTH = fileDoc(readFileSync(new URL('../fixtures/sp2/requests-auth.py.txt', import.meta.url), 'utf8').replace(/\n$/, '').split('\n'))
+  const seven = candidate({
+    id: 7,
+    line: 176,
+    fromLine: 176,
+    quote: 'KD = lambda s, d:',
+    severity: 'info',
+    message: 'Assigning a lambda to a name, with a lint suppression, is a style smell. The lambda also closes over hash_utf8, which is only defined in the branches above.',
+    suggestion: 'Replace it with a nested `def KD(s, d): return hash_utf8(f"{s}:{d}")` placed after the hash_utf8 None check.',
+  })
+  const code = 'KD = lambda s, d: hash_utf8(f"{s}:{d}")  # noqa:E731'
+  const reply = (contradicted: string) =>
+    JSON.stringify({ verdicts: [{ id: 7, verdict: 'keep', line: 176, evidence: code, support: code, claim: { kind: 'other', names: [], lines: [176], quote: code }, contradicted, reason: 'Line 176 assigns a lambda to a name with an E731 suppression; hash_utf8 is initialised at line 136.' }] })
+  const settled = (text: string) => settle(seven, readVerdicts(text)?.get(7), AUTH)
+
+  it('is kept when read 1 reports no false statement, as before', () => {
+    expect(settled(reply(''))).toMatchObject({ verdict: 'kept', line: 176 })
+  })
+
+  it('is not confirmed when read 1 names the statement the code shows is false, even though it answered keep', () => {
+    const s = settled(reply('which is only defined in the branches above'))
+    expect(s.verdict).toBe('unverified')
+    expect(s.reason).toContain('only defined in the branches above')
+  })
+
+  it('reads the field tolerantly: a reply without it, or with a non-string, names no false statement', () => {
+    expect(settled(reply('')).verdict).toBe('kept')
+    expect(settled(reply('').replace('"contradicted":"",', '')).verdict).toBe('kept')
+    expect(settled(reply('').replace('"contradicted":""', '"contradicted":null')).verdict).toBe('kept')
+  })
+
+  it('asks both reads to check every statement of a message, and read 1 for the field', () => {
+    expect(buildVerifyPrompt('file', 314)).toContain('"contradicted"')
+    expect(buildVerifyPrompt('file', 314)).toContain('every statement is true')
+    expect(buildRefutePrompt('file', 314)).toContain('each statement in it is false, not only the one about the cited line')
   })
 })
