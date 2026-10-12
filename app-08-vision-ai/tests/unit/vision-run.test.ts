@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FIRST_TEXT_LIMIT_MS, UPSTREAM_BUDGET_MS, streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
+import { FIRST_TEXT_LIMIT_MS, RETRY_MIN_LEFT_MS, UPSTREAM_BUDGET_MS, streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
 
 type Provider = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -442,13 +442,13 @@ describe('streamVisionRun deadline', () => {
     await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
     const frames = await done
 
-    // One try at the 12-second hang limit, one retry that runs into the shared 25-second deadline.
-    expect(provider).toHaveBeenCalledTimes(2)
+    // No retry: after a 12-second wait the rest of the budget cannot hold another full call.
+    expect(provider).toHaveBeenCalledTimes(1)
     expect(frames.at(-3)).toMatchObject({
       stage: 'step',
       step: { name: 'Model call', status: 'failed', detail: 'No response from the AI provider within the time limit' },
     })
-    expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.', truncated: false })
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.', truncated: false, totalMs: 25_000 })
   })
 })
 
@@ -459,25 +459,42 @@ describe('streamVisionRun hang retry', () => {
       { choices: [], usage: { total_tokens: 10 } },
     ])
 
-  it('retries once when the first call says nothing for 12 seconds, and shows it in the trace', async () => {
-    vi.useFakeTimers()
+  it('retries a fast failure once, shows it in the trace, and the retry runs under the same deadline', async () => {
     let calls = 0
-    const provider = stubFetch(() => (++calls === 1 ? new Promise<Response>(() => {}) : Promise.resolve(ok())))
+    const provider = stubFetch(async () => {
+      if (++calls === 1) throw new TypeError('fetch failed')
+      return ok()
+    })
 
-    const done = framesOf(streamVisionRun(makeRun()))
-    await vi.advanceTimersByTimeAsync(FIRST_TEXT_LIMIT_MS + 100)
-    const frames = await done
+    const frames = await framesOf(streamVisionRun(makeRun()))
 
     expect(provider).toHaveBeenCalledTimes(2)
     expect(frames).toContainEqual({
       stage: 'step',
-      step: { name: 'Model call', status: 'running', detail: 'No answer within 12 seconds. Retried once' },
+      step: { name: 'Model call', status: 'running', detail: 'The first try got no answer. Retried once' },
     })
     expect(frames).toContainEqual({ text: 'A sign.' })
     expect(frames.at(-3)).toMatchObject({
       step: { name: 'Model call', status: 'ok', detail: 'anthropic/claude-haiku-5.5, 1 text chunks, retried once' },
     })
     expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A sign.' })
+  })
+
+  it('does not retry a call that says nothing for 12 seconds: the 13 seconds left cannot hold a full call (slowest measured 13.3 s)', async () => {
+    vi.useFakeTimers()
+    const provider = stubFetch(() => new Promise<Response>(() => {}))
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(FIRST_TEXT_LIMIT_MS + 100)
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    const frames = await done
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', error: 'The AI provider did not answer in time.', truncated: false })
+  })
+
+  it('pins the retry threshold to the slowest measured call with a 20% margin', () => {
+    // 20 thinking-on single-image calls (SP2 browser runs and replays, plus in-process Extract replays): the slowest took 13,293 ms.
+    expect(RETRY_MIN_LEFT_MS).toBe(Math.ceil((13_293 * 1.2) / 1_000) * 1_000)
+    expect(RETRY_MIN_LEFT_MS).toBe(16_000)
   })
 
   it('retries a connection failure once, and gives up with the could-not-reach message after the second', async () => {
@@ -517,11 +534,10 @@ describe('streamVisionRun hang retry', () => {
   })
 
   it('does not retry when the budget left is too small for a second try', async () => {
-    vi.useFakeTimers()
-    const provider = stubFetch(() => new Promise<Response>(() => {}))
-    const done = framesOf(streamVisionRun(makeRun({ startedAt: Date.now() - 10_000 })))
-    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
-    await done
+    const provider = stubFetch(async () => {
+      throw new TypeError('fetch failed')
+    })
+    await framesOf(streamVisionRun(makeRun({ startedAt: Date.now() - 10_000 })))
     expect(provider).toHaveBeenCalledTimes(1)
   })
 
@@ -533,6 +549,61 @@ describe('streamVisionRun hang retry', () => {
     await reader.cancel()
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(provider).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('streamVisionRun keep-alive liveness', () => {
+  const KEEP_ALIVE = ': OPENROUTER PROCESSING\n\n'
+  const encoder = new TextEncoder()
+
+  // The provider sends a comment line every few seconds while the model thinks, and nothing else until it is done.
+  function thinkingStream() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c
+      },
+    })
+    return { body, ping: () => controller.enqueue(encoder.encode(KEEP_ALIVE)), controller: () => controller }
+  }
+
+  it('counts keep-alive comment lines as liveness: a model still thinking after 12 seconds is not retried', async () => {
+    vi.useFakeTimers()
+    const stream = thinkingStream()
+    const provider = stubFetch(async () => new Response(stream.body, { status: 200 }))
+
+    const done = framesOf(streamVisionRun(makeRun()))
+    for (let i = 0; i < 4; i += 1) {
+      await vi.advanceTimersByTimeAsync(4_000)
+      stream.ping()
+    }
+    stream.controller().enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"A sign."},"finish_reason":"stop"}]}\n\n'))
+    stream.controller().close()
+    const frames = await done
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A sign.' })
+  })
+
+  it('still ends at the 25-second deadline with the plain timeout message when only keep-alives ever arrive', async () => {
+    vi.useFakeTimers()
+    const stream = thinkingStream()
+    const provider = stubFetch(async () => new Response(stream.body, { status: 200 }))
+
+    const done = framesOf(streamVisionRun(makeRun()))
+    for (let i = 0; i < 7; i += 1) {
+      await vi.advanceTimersByTimeAsync(4_000)
+      if (i < 6) stream.ping()
+    }
+    const frames = await done
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(frames.at(-1)).toMatchObject({
+      stage: 'failed',
+      error: 'The AI provider did not answer in time.',
+      truncated: false,
+      totalMs: 25_000,
+    })
   })
 })
 

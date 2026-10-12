@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FIRST_TEXT_LIMIT_MS, streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
+import { streamVisionRun, type TraceStep, type VisionRun } from '../../netlify/shared/vision-run'
 
 type Provider = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -121,19 +121,23 @@ describe('streamVisionRun newest-model check', () => {
   })
 
   it('leaves out a try that got headers but no words, so its silence does not hide the retry match', async () => {
-    vi.useFakeTimers()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     let calls = 0
-    // Headers arrive, then nothing: the first try hangs until the first-word limit and the run retries once.
+    // Headers arrive, then the connection drops before any word: the run retries once.
     stubFetch(async () =>
       ++calls === 1
-        ? new Response(new ReadableStream<Uint8Array>(), { status: 200 })
+        ? new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.error(new TypeError('socket closed'))
+              },
+            }),
+            { status: 200 },
+          )
         : sseReply([{ model: NEWEST, choices: [{ delta: { content: 'A sign.' }, finish_reason: 'stop' }] }]),
     )
 
-    const done = framesOf(streamVisionRun(makeRun()))
-    await vi.advanceTimersByTimeAsync(FIRST_TEXT_LIMIT_MS + 100)
-    const frames = await done
+    const frames = await framesOf(streamVisionRun(makeRun()))
 
     expect(calls).toBe(2)
     expect(frames.at(-1)).toMatchObject({ stage: 'complete', result: 'A sign.', servedModel: NEWEST, modelCheck: 'match' })
