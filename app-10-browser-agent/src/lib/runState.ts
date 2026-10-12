@@ -1,4 +1,4 @@
-import type { BotStep, ModelCheck, ObservedPage, PlanResponse, RunEvent, StepFrame, TraceEntry, TraceStatus, UsageReport } from '../types'
+import type { BotStep, ModelCheck, ObservedPage, PlanResponse, PlanSpend, RunEvent, StepFrame, TraceEntry, TraceStatus, UsageReport } from '../types'
 
 export type Phase = 'idle' | 'planning' | 'running' | 'complete' | 'failed' | 'stopped'
 
@@ -29,6 +29,8 @@ export interface RunState {
   steps: BotStep[]
   planTrace: TraceEntry[]
   usage: UsageReport | null
+  /** Planner calls made whose usage never arrived. The usage above is then a floor. */
+  unreportedCalls: number
   model: string | null
   /** The newest model the list names for the requested alias. Null when the list does not say. */
   newestModel: string | null
@@ -52,6 +54,7 @@ export const initialRunState: RunState = {
   steps: [],
   planTrace: [],
   usage: null,
+  unreportedCalls: 0,
   model: null,
   newestModel: null,
   modelCheck: null,
@@ -67,7 +70,7 @@ export const initialRunState: RunState = {
 export type RunAction =
   | { type: 'planning'; at?: number }
   | { type: 'planned'; plan: PlanResponse }
-  | { type: 'planFailed'; message: string; trace: TraceEntry[] }
+  | { type: 'planFailed'; message: string; trace: TraceEntry[]; spend?: PlanSpend | null }
   | { type: 'running'; replay: boolean; at?: number }
   | { type: 'event'; event: RunEvent; at?: number }
   | { type: 'runFailed'; message: string }
@@ -169,6 +172,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         steps: action.plan.result.steps,
         planTrace: action.plan.trace,
         usage: action.plan.usage,
+        unreportedCalls: action.plan.unreportedCalls,
         model: action.plan.model,
         newestModel: action.plan.newestModel,
         modelCheck: action.plan.modelCheck,
@@ -180,6 +184,12 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         runId: state.runId,
         phase: 'failed',
         planTrace: withFailedEntry(action.trace, action.message),
+        // A plan that failed after a model call still spent that call.
+        usage: action.spend?.usage ?? null,
+        unreportedCalls: action.spend?.unreportedCalls ?? 0,
+        model: action.spend?.model ?? null,
+        newestModel: action.spend?.newestModel ?? null,
+        modelCheck: action.spend?.modelCheck ?? null,
         error: { message: action.message, index: null },
       }
     case 'running':

@@ -8,6 +8,7 @@ const plan: PlanResponse = {
   result: { steps: [navigate] },
   trace: [{ name: 'Model call', status: 'ok', ms: 812, detail: 'Served by m.' }],
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.0001 },
+  unreportedCalls: 0,
   model: 'anthropic/claude-haiku-5.5',
   newestModel: 'anthropic/claude-haiku-5.5',
   modelCheck: 'match',
@@ -39,6 +40,19 @@ describe('planning', () => {
     expect(failed.steps).toEqual([])
     expect(failed.error).toEqual({ message: NETWORK, index: null })
     expect(failed.planTrace).toEqual([{ name: 'Planner request', status: 'failed', ms: 0, detail: NETWORK }])
+  })
+
+  it('keeps what a failed plan spent, so the totals show on failure too', () => {
+    const usage = { prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 }
+    const failed = run(initialRunState, {
+      type: 'planFailed',
+      message: 'The model ran out of room before finishing the plan. Try a shorter task.',
+      trace: [],
+      spend: { usage, unreportedCalls: 1, model: 'anthropic/claude-haiku-5.5', newestModel: null, modelCheck: null },
+    })
+    expect(failed.usage).toEqual(usage)
+    expect(failed.unreportedCalls).toBe(1)
+    expect(failed.model).toBe('anthropic/claude-haiku-5.5')
   })
 
   it('does not add a second failed entry when the server already marked one', () => {

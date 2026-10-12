@@ -1,4 +1,4 @@
-import { formatMs, lanesFor, type TraceRow } from '../lib/trace'
+import { formatMs, lanesFor, usageLine, type TraceRow } from '../lib/trace'
 
 const DOT: Record<TraceRow['status'], string> = {
   ok: 'ds-dot ds-dot--ok',
@@ -57,6 +57,7 @@ export default function RunTrace({ rows, summary }: RunTraceProps) {
                     </span>
                   </div>
                   <div className="ds-trace__detail">{row.detail}</div>
+                  {row.usage !== undefined && <div className="ds-trace__detail ds-mono">{usageLine(row.usage)}</div>}
                   {row.observed && <div className="ds-trace__detail ds-mono">Page: {row.observed.url}</div>}
                 </div>
                 <div className="ds-trace__meta">

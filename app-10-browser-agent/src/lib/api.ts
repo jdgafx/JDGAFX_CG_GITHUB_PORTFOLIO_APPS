@@ -1,4 +1,4 @@
-import type { BotStep, ModelCheck, PlanResponse, RunEvent, TraceEntry, TraceStatus } from '../types'
+import type { BotStep, ModelCheck, PlanResponse, PlanSpend, RunEvent, TraceEntry, TraceStatus } from '../types'
 import { cleanFrame } from './replay'
 import { isAction, usageOf } from './shared'
 
@@ -23,11 +23,14 @@ export class RequestFailure extends Error {
   readonly trace: TraceEntry[]
   /** True for a gateway or server failure, or a cut connection: the kinds worth one more try. A 4xx, 429 or a stalled stream is final. */
   readonly retryable: boolean
+  /** What the failed plan still spent. Null when the server named no model call. */
+  readonly spend: PlanSpend | null
 
-  constructor(message: string, trace: TraceEntry[] = [], retryable = false) {
+  constructor(message: string, trace: TraceEntry[] = [], retryable = false, spend: PlanSpend | null = null) {
     super(message)
     this.trace = trace
     this.retryable = retryable
+    this.spend = spend
   }
 }
 
@@ -43,13 +46,39 @@ function toTrace(raw: unknown): TraceEntry[] {
   return raw.flatMap((item): TraceEntry[] => {
     const entry = item as Partial<TraceEntry> | null
     if (!entry || typeof entry.name !== 'string' || !TRACE_STATUSES.includes(entry.status as TraceStatus)) return []
-    return [{
+    const row: TraceEntry = {
       name: entry.name,
       status: entry.status as TraceStatus,
       ms: typeof entry.ms === 'number' ? entry.ms : 0,
       detail: typeof entry.detail === 'string' ? entry.detail : '',
-    }]
+    }
+    // Null is a call whose usage never arrived. A row with no usage key is no billed call.
+    if (entry.usage === null) row.usage = null
+    else if (entry.usage && typeof entry.usage === 'object') row.usage = usageOf(entry.usage)
+    return [row]
   })
+}
+
+function unreportedOf(raw: unknown): number {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : 0
+}
+
+function modelCheckOf(raw: unknown): ModelCheck | null {
+  return MODEL_CHECKS.find((check) => check === raw) ?? null
+}
+
+/** The billed figures a failed plan still reports, or null when it made no model call. */
+function spendOf(body: ErrorBody | null): PlanSpend | null {
+  const usage = body?.usage && typeof body.usage === 'object' ? usageOf(body.usage) : null
+  const unreportedCalls = unreportedOf(body?.unreportedCalls)
+  if (usage === null && unreportedCalls === 0) return null
+  return {
+    usage,
+    unreportedCalls,
+    model: typeof body?.model === 'string' ? body.model : null,
+    newestModel: typeof body?.newestModel === 'string' ? body.newestModel : null,
+    modelCheck: modelCheckOf(body?.modelCheck),
+  }
 }
 
 function toStep(raw: unknown): BotStep | null {
@@ -70,6 +99,11 @@ function toStep(raw: unknown): BotStep | null {
 interface ErrorBody {
   error?: unknown
   trace?: unknown
+  usage?: unknown
+  unreportedCalls?: unknown
+  model?: unknown
+  newestModel?: unknown
+  modelCheck?: unknown
 }
 
 /** Shows only the server's own curated error text. Anything else gets plain status copy. */
@@ -81,7 +115,7 @@ async function readFailure(response: Response, kind: 'plan' | 'run'): Promise<Re
     // Not JSON, such as a gateway page. Never show it raw.
   }
   const error = typeof body?.error === 'string' ? body.error.trim().slice(0, MAX_ERROR_CHARS) : ''
-  return new RequestFailure(error || statusCopy(response.status, kind), toTrace(body?.trace), response.status >= 500)
+  return new RequestFailure(error || statusCopy(response.status, kind), toTrace(body?.trace), response.status >= 500, spendOf(body))
 }
 
 /** Posts JSON to the server. A network failure becomes curated copy, unless the caller cancelled. */
@@ -105,7 +139,7 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
   const response = await postJson('/api/ai', { task }, signal, 20_000)
   if (!response.ok) throw await readFailure(response, 'plan')
 
-  let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; model?: unknown; newestModel?: unknown; modelCheck?: unknown; totalMs?: unknown }
+  let data: { result?: { steps?: unknown }; trace?: unknown; usage?: unknown; unreportedCalls?: unknown; model?: unknown; newestModel?: unknown; modelCheck?: unknown; totalMs?: unknown }
   try {
     data = await response.json()
   } catch {
@@ -121,9 +155,10 @@ export async function planTask(task: string, signal: AbortSignal): Promise<PlanR
     result: { steps },
     trace: toTrace(data.trace),
     usage: usageOf(data.usage),
+    unreportedCalls: unreportedOf(data.unreportedCalls),
     model,
     newestModel: typeof data.newestModel === 'string' ? data.newestModel : null,
-    modelCheck: MODEL_CHECKS.find((check) => check === data.modelCheck) ?? (model === null ? 'not-reported' : 'unchecked'),
+    modelCheck: modelCheckOf(data.modelCheck) ?? (model === null ? 'not-reported' : 'unchecked'),
     totalMs: typeof data.totalMs === 'number' ? data.totalMs : 0,
   }
 }

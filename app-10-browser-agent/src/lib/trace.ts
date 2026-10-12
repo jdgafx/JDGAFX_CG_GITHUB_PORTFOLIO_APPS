@@ -1,4 +1,4 @@
-import type { BotStep, ObservedPage, TraceStatus } from '../types'
+import type { BotStep, ObservedPage, TraceStatus, UsageReport } from '../types'
 import type { RunState } from './runState'
 import { stepLabel } from './shared'
 
@@ -11,6 +11,8 @@ export interface TraceRow {
   detail: string
   planned?: string
   observed?: ObservedPage
+  /** A model call's billed figures. Null when they never arrived. Absent when the row is no billed call. */
+  usage?: UsageReport | null
 }
 
 export function formatMs(ms: number): string {
@@ -24,9 +26,19 @@ const usdFormat = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 6,
 })
 
-function countOf(value: number | null, planned: boolean): string {
-  if (value !== null) return value.toLocaleString('en-US')
-  return planned ? 'not reported' : '—'
+/** What one model call cost, in words, for its trace row. */
+export function usageLine(usage: UsageReport | null): string {
+  if (usage === null) return 'Usage: not reported.'
+  const tokens = usage.total_tokens !== null ? usage.total_tokens.toLocaleString('en-US') : 'not reported'
+  const cost = usage.cost !== null ? usdFormat.format(usage.cost) : 'not reported'
+  return `Tokens: ${tokens}. Cost: ${cost}.`
+}
+
+/** A run total from billed calls. When some calls never reported, the figure is a floor and says so. */
+function totalOf(value: string | null, unreported: number): string {
+  if (value === null) return 'not reported'
+  if (unreported === 0) return value
+  return `at least ${value} (${unreported} ${unreported === 1 ? 'call' : 'calls'} not reported)`
 }
 
 /** Planner stages first, then the browser run, then planned steps the run has not reached yet. */
@@ -37,6 +49,7 @@ export function buildTraceRows(state: RunState): TraceRow[] {
     status: entry.status,
     ms: entry.ms,
     detail: entry.detail,
+    usage: entry.usage,
   }))
   if (state.phase === 'planning') {
     return [...planRows, { key: 'planning', name: 'Planning the steps', status: 'running', ms: null, detail: 'Waiting for the model to answer.' }]
@@ -159,7 +172,9 @@ function spentMs(state: RunState): number {
  */
 export function readoutFor(state: RunState, now: number): ReadoutCell[] {
   const usage = state.usage
-  const planned = usage !== null
+  const unreported = state.unreportedCalls
+  // A planner call was made if it billed or if it left a call whose usage never arrived.
+  const planned = usage !== null || unreported > 0
   const live = state.phase === 'planning' || state.phase === 'running'
   const ended = state.phase === 'failed' || state.phase === 'stopped'
   const sofar = state.phase === 'failed' ? 'Before it failed' : 'Before it stopped'
@@ -178,8 +193,8 @@ export function readoutFor(state: RunState, now: number): ReadoutCell[] {
   const hint = prompt !== null && completion !== null ? `${prompt.toLocaleString('en-US')} in, ${completion.toLocaleString('en-US')} out` : 'Planner call'
   return [
     { label: 'Time', ...time },
-    { label: 'Tokens', value: countOf(usage?.total_tokens ?? null, planned), hint },
-    { label: 'Cost (USD)', value: usage?.cost != null ? usdFormat.format(usage.cost) : planned ? 'not reported' : '—', hint: 'From usage.cost in the provider response' },
+    { label: 'Tokens', value: planned ? totalOf(usage?.total_tokens != null ? usage.total_tokens.toLocaleString('en-US') : null, unreported) : '—', hint },
+    { label: 'Cost (USD)', value: planned ? totalOf(usage?.cost != null ? usdFormat.format(usage.cost) : null, unreported) : '—', hint: 'From usage.cost in the provider response' },
     { label: 'Model', value: state.model ?? (planned ? 'not reported' : '—'), hint: 'Reported by the planner response', marker: modelMarker(state) },
   ]
 }

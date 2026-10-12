@@ -128,6 +128,34 @@ describe('planTask', () => {
     ])
   })
 
+  it('carries what a failed plan spent: the billed usage, the unreported calls, the served model, and each row\'s usage', async () => {
+    const usage = { prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 }
+    fetchMock.mockResolvedValueOnce(json({
+      error: 'The model ran out of room before finishing the plan. Try a shorter task.',
+      trace: [
+        { name: 'Model call 1 of 2', status: 'failed', ms: 40, detail: 'x', usage },
+        { name: 'Model call 2 of 2', status: 'failed', ms: 50, detail: 'y', usage: null },
+        { name: 'Request built', status: 'ok', ms: 1, detail: 'z' },
+      ],
+      usage,
+      unreportedCalls: 1,
+      model: 'anthropic/claude-haiku-5.5',
+    }, 502))
+    const failure = await planTask('x', signal()).catch((error: unknown) => error) as RequestFailure
+    expect(failure.spend).toEqual({ usage, unreportedCalls: 1, model: 'anthropic/claude-haiku-5.5', newestModel: null, modelCheck: null })
+    expect(failure.trace.map((row) => row.usage)).toEqual([usage, null, undefined])
+  })
+
+  it('reads a failed plan that made no model call as spending nothing', async () => {
+    fetchMock.mockResolvedValueOnce(json({ error: 'Enter a task first.', usage: null, unreportedCalls: 0, model: null }, 400))
+    expect(((await planTask('x', signal()).catch((error: unknown) => error)) as RequestFailure).spend).toBeNull()
+  })
+
+  it('reads the unreported call count of a plan that succeeded', async () => {
+    fetchMock.mockResolvedValueOnce(json({ result: { steps: [{ action: 'extract', target: 'page title', thought: 'Read it.' }] }, unreportedCalls: 1 }))
+    expect((await planTask('x', signal())).unreportedCalls).toBe(1)
+  })
+
   it('uses plain status copy for a server error that is not JSON', async () => {
     fetchMock.mockResolvedValueOnce(new Response('<html>internal stack trace</html>', { status: 500 }))
     const failure = await planTask('x', signal()).catch((error: unknown) => error)

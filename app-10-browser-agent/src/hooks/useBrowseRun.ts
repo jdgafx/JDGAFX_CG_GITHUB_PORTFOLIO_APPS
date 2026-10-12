@@ -75,6 +75,7 @@ export function useBrowseRun() {
         type: 'planFailed',
         message: failure?.message ?? 'Something went wrong while planning this task. Try again.',
         trace: failure?.trace ?? [],
+        spend: failure?.spend ?? null,
       })
     }
   }, [execute, startController])

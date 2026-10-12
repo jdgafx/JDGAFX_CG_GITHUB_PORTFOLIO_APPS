@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary, type ReadoutCell } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary, usageLine, type ReadoutCell } from '../../src/lib/trace'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
 
@@ -101,6 +101,26 @@ describe('readoutFor', () => {
     expect(cells.Tokens).toEqual({ value: 'not reported', hint: 'Planner call' })
     expect(cells['Cost (USD)'].value).toBe('not reported')
     expect(cells.Model.value).toBe('not reported')
+  })
+
+  it('shows the totals of a failed plan, as a floor when a call never reported', () => {
+    const usage = { prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 }
+    const whole = metricsByLabel(stateWith({ phase: 'failed', usage, model: 'anthropic/claude-haiku-5.5' }))
+    expect(whole.Tokens.value).toBe('1,952')
+    expect(whole['Cost (USD)'].value).toBe('$0.00084')
+    const partial = metricsByLabel(stateWith({ phase: 'failed', usage, unreportedCalls: 1 }))
+    expect(partial.Tokens.value).toBe('at least 1,952 (1 call not reported)')
+    expect(partial['Cost (USD)'].value).toBe('at least $0.00084 (1 call not reported)')
+    const none = metricsByLabel(stateWith({ phase: 'failed', usage: null, unreportedCalls: 2 }))
+    expect(none.Tokens.value).toBe('not reported')
+    expect(none['Cost (USD)'].value).toBe('not reported')
+  })
+
+  it('says each trace row\'s own usage, or that it was not reported', () => {
+    expect(usageLine({ prompt_tokens: 812, completion_tokens: 164, total_tokens: 976, cost: 0.00042 })).toBe('Tokens: 976. Cost: $0.00042.')
+    expect(usageLine(null)).toBe('Usage: not reported.')
+    const rows = buildTraceRows(stateWith({ phase: 'failed', planTrace: [{ name: 'Model call', status: 'failed', ms: 5, detail: 'x', usage: null }] }))
+    expect(rows[0].usage).toBeNull()
   })
 
   it('shows dashes before any planner call or browser run', () => {

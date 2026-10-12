@@ -32,20 +32,33 @@ class PlanError extends Error {
   readonly transient: boolean
   /** Set when a hang retry was made before this failure. */
   retried = false
+  /** The call that failed, so the trace and the totals can account for it. Unset for a failure outside a call. */
+  readonly attempt?: Attempt
 
-  constructor(message: string, status: number, transient = false) {
+  constructor(message: string, status: number, transient = false, attempt?: Attempt) {
     super(message)
     this.status = status
     this.transient = transient
+    this.attempt = attempt
   }
 }
 
+/**
+ * One call to the provider.
+ * - `answered`: the provider replied with an answer and a usage block, whatever the answer was worth.
+ * - `unreported`: the call may have been billed but no usage arrived (a timeout, a dropped connection, an unreadable body, a 5xx).
+ * - `rejected`: the provider refused the call with a 4xx status, so nothing was billed.
+ */
 interface Attempt {
+  kind: 'answered' | 'unreported' | 'rejected'
   content: string
   finish: string | null
   model: string | null
-  usage: UsageReport
+  /** Null unless the call was `answered`. */
+  usage: UsageReport | null
   ms: number
+  /** Curated copy for a call that gave no answer. */
+  failure?: string
 }
 
 interface ChatResponse {
@@ -104,14 +117,22 @@ function tracedMs(trace: TraceEntry[]): number {
   return trace.reduce((total, entry) => total + entry.ms, 0)
 }
 
-function aggregateUsage(attempts: Attempt[]): UsageReport {
-  const pick = (field: keyof UsageReport) => sumOf(attempts.map((attempt) => attempt.usage[field]))
+/** The billed figures of every answered call, or null when no call was answered. Each call counts, whatever its answer was worth. */
+function aggregateUsage(attempts: Attempt[]): UsageReport | null {
+  const billed = attempts.flatMap((attempt) => (attempt.usage ? [attempt.usage] : []))
+  if (billed.length === 0) return null
+  const pick = (field: keyof UsageReport) => sumOf(billed.map((usage) => usage[field]))
   return {
     prompt_tokens: pick('prompt_tokens'),
     completion_tokens: pick('completion_tokens'),
     total_tokens: pick('total_tokens'),
     cost: pick('cost'),
   }
+}
+
+/** A call that gave no answer. Its figures are billed to us only if the provider says so, which it did not. */
+function noAnswer(kind: 'unreported' | 'rejected', started: number, failure: string): Attempt {
+  return { kind, content: '', finish: null, model: null, usage: null, ms: Date.now() - started, failure }
 }
 
 async function callOnce(apiKey: string, task: string, domains: string[], timeoutMs: number): Promise<Attempt> {
@@ -147,22 +168,28 @@ async function callOnce(apiKey: string, task: string, domains: string[], timeout
       }
     })
   } catch (error) {
-    throw isTimeout(error)
-      ? new PlanError(TIMEOUT_COPY, 504, true)
-      : new PlanError('The AI provider could not be reached. Try again in a moment.', 502, true)
+    const timedOut = isTimeout(error)
+    const message = timedOut ? TIMEOUT_COPY : 'The AI provider could not be reached. Try again in a moment.'
+    throw new PlanError(message, timedOut ? 504 : 502, true, noAnswer('unreported', started, message))
   }
 
   if (got.kind === 'http') {
     console.error(`OpenRouter returned HTTP ${got.status}`)
-    throw new PlanError(providerMessage(got.status), 502)
+    const message = providerMessage(got.status)
+    // A 4xx refusal bills nothing. A 5xx may have run the model before it failed, and says nothing about it.
+    throw new PlanError(message, 502, false, noAnswer(got.status >= 500 ? 'unreported' : 'rejected', started, message))
   }
-  if (got.kind === 'unreadable') throw new PlanError('The AI provider returned an unreadable answer. Try again.', 502)
+  if (got.kind === 'unreadable') {
+    const message = 'The AI provider returned an unreadable answer. Try again.'
+    throw new PlanError(message, 502, false, noAnswer('unreported', started, message))
+  }
   const data = got.data
 
   const choice = data.choices?.[0]
   const content = choice?.message?.content
   const finish = choice?.finish_reason
   return {
+    kind: 'answered',
     content: typeof content === 'string' ? content : '',
     finish: typeof finish === 'string' ? finish : null,
     model: typeof data.model === 'string' ? data.model : null,
@@ -171,18 +198,13 @@ async function callOnce(apiKey: string, task: string, domains: string[], timeout
   }
 }
 
-interface Asked {
-  attempts: Attempt[]
-  /** True when the first call timed out or dropped and a second call was made. */
-  hangRetried: boolean
-}
-
 /**
  * Asks the model once. A second call is made at most once: when the first answer is empty or cut
  * off, or when the first call timed out or dropped and the budget still allows a try.
+ * Every call is recorded in `attempts` as it ends, failed ones too, so a throw leaves the whole ledger with the caller.
+ * Returns true when the first call timed out or dropped and a second call was made.
  */
-async function askModel(apiKey: string, task: string, domains: string[], deadline: number): Promise<Asked> {
-  const attempts: Attempt[] = []
+async function askModel(apiKey: string, task: string, domains: string[], deadline: number, attempts: Attempt[]): Promise<boolean> {
   let hangRetried = false
   for (let n = 0; n < MAX_ATTEMPTS; n++) {
     const remaining = deadline - Date.now()
@@ -191,6 +213,7 @@ async function askModel(apiKey: string, task: string, domains: string[], deadlin
       // The first call gets its own limit so a hang leaves time for the retry. The retry gets what is left.
       attempts.push(await callOnce(apiKey, task, domains, n === 0 ? Math.min(CALL_LIMIT_MS, Math.max(remaining, 1)) : Math.max(remaining, 1)))
     } catch (error) {
+      if (error instanceof PlanError && error.attempt) attempts.push(error.attempt)
       if (n === 0 && error instanceof PlanError && error.transient && deadline - Date.now() >= MIN_RETRY_MS) {
         hangRetried = true
         continue
@@ -201,7 +224,7 @@ async function askModel(apiKey: string, task: string, domains: string[], deadlin
     const attempt = attempts[attempts.length - 1]
     if (attempt.content.trim() && attempt.finish !== 'length') break
   }
-  return { attempts, hangRetried }
+  return hangRetried
 }
 
 /** Pulls the JSON out of a model answer: drops any markdown fence and any prose around it. */
@@ -251,6 +274,24 @@ function stepsOf(parsed: unknown): unknown {
   return Array.isArray(parsed) ? parsed : (parsed as { steps?: unknown } | null)?.steps
 }
 
+/**
+ * One trace row per call, so each call shows its own usage. The last call's row says how the run
+ * ended (`lastNote`, and `lastStatus` when it was usable). Earlier calls say why they were not enough.
+ * With `ended` false the failure came from outside any call, so every call is an earlier one.
+ */
+function callRows(attempts: Attempt[], lastNote: string, lastStatus: TraceEntry['status'] = 'failed', ended = true): TraceEntry[] {
+  return attempts.map((attempt, i): TraceEntry => {
+    const isLast = ended && i === attempts.length - 1
+    const name = attempts.length > 1 ? `Model call ${i + 1} of ${attempts.length}` : 'Model call'
+    // A rejected call bills nothing, so its row carries no usage. An unreported call shows null: "not reported".
+    const usage = attempt.kind === 'rejected' ? undefined : attempt.usage
+    if (isLast) return { name, status: lastStatus, ms: attempt.ms, detail: lastNote, usage }
+    if (attempt.failure) return { name, status: 'failed', ms: attempt.ms, detail: attempt.failure, usage }
+    const why = attempt.finish === 'length' ? 'The answer was cut off' : attempt.content.trim() ? 'The answer was not usable' : 'The answer was empty'
+    return { name, status: 'failed', ms: attempt.ms, detail: `${why}, so the model was asked again.`, usage }
+  })
+}
+
 async function handle(req: Request): Promise<Response> {
   const origin = req.headers.get('origin')
   const headers = corsHeaders(origin, req.url)
@@ -287,8 +328,20 @@ async function handle(req: Request): Promise<Response> {
     ms: Date.now() - startedAt,
     detail: `Task of ${task.length} characters. Allowed sites: ${domains.join(', ')}.`,
   }]
-  const fail = (message: string, status: number): Response =>
-    jsonResponse({ error: message, trace, totalMs: tracedMs(trace) }, status, headers)
+  // Every call the provider answered or may have billed, kept as it ends. The rows and the totals both come from this list.
+  const attempts: Attempt[] = []
+  const fail = (message: string, status: number, extra: Record<string, unknown> = {}): Response => {
+    const answered = attempts.filter((attempt) => attempt.kind === 'answered')
+    return jsonResponse({
+      error: message,
+      trace,
+      totalMs: tracedMs(trace),
+      usage: aggregateUsage(attempts),
+      unreportedCalls: attempts.filter((attempt) => attempt.kind === 'unreported').length,
+      model: answered.at(-1)?.model ?? null,
+      ...extra,
+    }, status, headers)
+  }
 
   // A site the task names must be on the list before any model or browser call is made.
   const siteCheckStarted = Date.now()
@@ -302,50 +355,42 @@ async function handle(req: Request): Promise<Response> {
   const modelStarted = Date.now()
   // The list is read alongside the model call, so it never holds the call up. It never throws, and it is bounded by its own limit.
   const newestP = newestModel()
-  let attempts: Attempt[]
   let hangRetried: boolean
   try {
-    ;({ attempts, hangRetried } = await askModel(apiKey, task, domains, startedAt + PLAN_BUDGET_MS))
+    hangRetried = await askModel(apiKey, task, domains, startedAt + PLAN_BUDGET_MS, attempts)
   } catch (error) {
     const failure = error instanceof PlanError
       ? error
       : new PlanError('Something went wrong while planning this task. Please try again.', 500)
     if (!(error instanceof PlanError)) console.error('Planning failed:', error instanceof Error ? error.name : 'unknown error')
-    trace.push({ name: 'Model call', status: 'failed', ms: Date.now() - modelStarted, detail: `${failure.retried ? 'Retried once, and the second call failed too. ' : ''}${failure.message}` })
+    const lastNote = `${failure.retried ? 'Retried once, and the second call failed too. ' : ''}${failure.message}`
+    trace.push(...callRows(attempts, lastNote, 'failed', failure.attempt !== undefined))
+    // A failure outside any call still leaves one failed row.
+    if (!failure.attempt) trace.push({ name: 'Model call', status: 'failed', ms: attempts.length === 0 ? Date.now() - modelStarted : 0, detail: lastNote })
     return fail(failure.message, failure.status)
   }
 
   const last = attempts[attempts.length - 1]
   const retried = attempts.length > 1
   const retryNote = hangRetried ? 'Retried once: the first call did not answer in time. ' : ''
-  const usage = aggregateUsage(attempts)
-  const modelMs = attempts.reduce((total, attempt) => total + attempt.ms, 0)
   const newest = await newestP
   const modelCheck = servedCheck(newest, last.model)
   if (modelCheck === 'mismatch') console.warn(`model mismatch: served ${last.model}, newest ${newest}, requested ${MODEL}`)
+  const served = { newestModel: newest, modelCheck }
 
   if (!last.content.trim() || last.finish === 'length') {
     const cut = last.finish === 'length'
-    trace.push({
-      name: 'Model call',
-      status: 'failed',
-      ms: modelMs,
-      detail: `${retryNote}${retried && !hangRetried ? 'Asked twice. ' : ''}${cut ? 'The answer was cut off.' : 'The answer was empty.'}`,
-    })
+    trace.push(...callRows(attempts, `${retryNote}${retried && !hangRetried ? 'Asked twice. ' : ''}${cut ? 'The answer was cut off.' : 'The answer was empty.'}`))
     return fail(
       cut
         ? 'The model ran out of room before finishing the plan. Try a shorter task.'
         : 'The model returned an empty answer. Try again.',
       502,
+      served,
     )
   }
 
-  trace.push({
-    name: 'Model call',
-    status: 'ok',
-    ms: modelMs,
-    detail: `${retryNote}${retried && !hangRetried ? 'The first answer was empty or cut off, so the model was asked again. ' : ''}Served by ${last.model ?? 'a model the provider did not name'}. Finish reason: ${last.finish ?? 'not reported'}.`,
-  })
+  trace.push(...callRows(attempts, `${retryNote}Served by ${last.model ?? 'a model the provider did not name'}. Finish reason: ${last.finish ?? 'not reported'}.`, 'ok'))
 
   const parseStarted = Date.now()
   let steps: BotStep[]
@@ -358,7 +403,7 @@ async function handle(req: Request): Promise<Response> {
     const curated = error instanceof CuratedError || error instanceof PlanError
     const message = curated ? error.message : 'The model returned a plan the agent could not read. Try again.'
     trace.push({ name: 'Parse and validate', status: 'failed', ms: Date.now() - parseStarted, detail: message })
-    return fail(message, error instanceof PlanError ? error.status : 502)
+    return fail(message, error instanceof PlanError ? error.status : 502, served)
   }
   trace.push({
     name: 'Parse and validate',
@@ -370,7 +415,8 @@ async function handle(req: Request): Promise<Response> {
   return jsonResponse({
     result: { steps },
     trace,
-    usage,
+    usage: aggregateUsage(attempts),
+    unreportedCalls: attempts.filter((attempt) => attempt.kind === 'unreported').length,
     model: last.model,
     newestModel: newest,
     modelCheck,

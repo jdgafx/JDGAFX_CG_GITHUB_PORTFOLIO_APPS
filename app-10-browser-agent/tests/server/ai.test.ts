@@ -27,12 +27,14 @@ interface TraceEntry {
   status: string
   ms: number
   detail: string
+  usage?: typeof USAGE | null
 }
 
 interface PlanBody {
   result?: { steps: unknown[] }
   trace?: TraceEntry[]
-  usage?: typeof USAGE
+  usage?: typeof USAGE | null
+  unreportedCalls?: number
   model?: string | null
   newestModel?: string | null
   modelCheck?: string
@@ -136,7 +138,7 @@ describe('planner function: a plan', () => {
     fetchMock.mockImplementation(async () => reply('{"steps":[{"action":"navigate"', 'length'))
     const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
     const rows = body.trace?.map((entry) => entry.ms) ?? []
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
     expect(body.totalMs).toBe(rows.reduce((total, ms) => total + ms, 0))
   })
 
@@ -223,7 +225,7 @@ describe('planner function: a plan', () => {
     expect(response.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(body.result?.steps).toEqual(PLAN.steps)
-    expect(body.trace?.[1]?.detail).toContain('The first answer was empty or cut off, so the model was asked again.')
+    expect(body.trace?.[1]?.detail).toBe('The answer was empty, so the model was asked again.')
     expect(body.usage).toEqual({ prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 })
   })
 
@@ -235,7 +237,8 @@ describe('planner function: a plan', () => {
     expect(response.status).toBe(502)
     expect(body.error).toBe('The model ran out of room before finishing the plan. Try a shorter task.')
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(body.trace?.[1]).toMatchObject({ status: 'failed', detail: 'Asked twice. The answer was cut off.' })
+    expect(body.trace?.[1]).toMatchObject({ name: 'Model call 1 of 2', status: 'failed', detail: 'The answer was cut off, so the model was asked again.' })
+    expect(body.trace?.[2]).toMatchObject({ name: 'Model call 2 of 2', status: 'failed', detail: 'Asked twice. The answer was cut off.' })
   })
 
   it('refuses a plan that opens a site outside the allowlist, and marks the parse step failed', async () => {
@@ -251,6 +254,122 @@ describe('planner function: a plan', () => {
     expect(response.status).toBe(502)
     expect(body.error).toBe(`Step 1 opens example.com, which is outside the allowed sites: ${ALLOWED_LIST}.`)
     expect(body.trace?.at(-1)).toMatchObject({ name: 'Parse and validate', status: 'failed' })
+  })
+})
+
+const TWICE = { prompt_tokens: 1624, completion_tokens: 328, total_tokens: 1952, cost: 0.00084 }
+const hangs = (): Response => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { 'content-type': 'application/json' } })
+
+describe('planner function: billed usage is never dropped (C13)', () => {
+  it('counts both cut-off calls in a failed plan, in the totals and in each row', async () => {
+    fetchMock.mockImplementation(async () => reply('{"steps":[{"action":"navigate"', 'length'))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(body.error).toBe('The model ran out of room before finishing the plan. Try a shorter task.')
+    expect(body.usage).toEqual(TWICE)
+    expect(body.unreportedCalls).toBe(0)
+    expect(body.model).toBe(SERVED)
+    expect(body.trace?.slice(1).map((entry) => entry.usage)).toEqual([USAGE, USAGE])
+  })
+
+  it('counts an empty last answer, which the plan then fails on', async () => {
+    fetchMock.mockImplementation(async () => reply('', 'stop'))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(body.error).toBe('The model returned an empty answer. Try again.')
+    expect(body.usage).toEqual(TWICE)
+    expect(body.trace?.at(-1)).toMatchObject({ status: 'failed', ms: expect.any(Number), usage: USAGE })
+  })
+
+  it('counts a plan that is not JSON', async () => {
+    fetchMock.mockResolvedValueOnce(reply('I cannot plan this, sorry.'))
+    const response = await handler(planRequest({ task: 'Open google.com' }))
+    const body = await bodyOf(response)
+    expect(response.status).toBe(502)
+    expect(body.error).toBe('The model returned a plan the agent could not read. Try again.')
+    expect(body.usage).toEqual(USAGE)
+    expect(body.trace?.[1]).toMatchObject({ name: 'Model call', status: 'ok', usage: USAGE })
+  })
+
+  it('counts a plan that fails validation, and a refusal', async () => {
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify({ steps: [{ action: 'delete', target: 'x', thought: 'y' }] })))
+    expect((await bodyOf(await handler(planRequest({ task: 'Open google.com' })))).usage).toEqual(USAGE)
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify({ refuse: 'No such site.' })))
+    const refused = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(refused.error).toBe('The planner declined this task: No such site.')
+    expect(refused.usage).toEqual(USAGE)
+  })
+
+  it('keeps the first call when the second call is refused by the provider', async () => {
+    fetchMock.mockResolvedValueOnce(reply('{"steps":[{"action":"navigate"', 'length'))
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 429 }))
+    const response = await handler(planRequest({ task: 'Open google.com' }))
+    const body = await bodyOf(response)
+    expect(body.error).toBe('Rate limited, try again in a minute')
+    expect(body.usage).toEqual(USAGE)
+    // The 429 bills nothing, so it leaves no unreported call and no usage on its row.
+    expect(body.unreportedCalls).toBe(0)
+    expect(body.trace?.slice(1)).toMatchObject([{ name: 'Model call 1 of 2', usage: USAGE }, { name: 'Model call 2 of 2', status: 'failed' }])
+    expect(body.trace?.[2]).not.toHaveProperty('usage')
+  })
+
+  it('sums every attempt of a success after a cut-off retry, with each attempt in its own row', async () => {
+    fetchMock.mockResolvedValueOnce(reply('{"steps":[{"action":"navigate"', 'length'))
+    fetchMock.mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(body.usage).toEqual(TWICE)
+    expect(body.unreportedCalls).toBe(0)
+    expect(body.trace?.map((entry) => [entry.name, entry.status, entry.usage])).toEqual([
+      ['Request built', 'ok', undefined],
+      ['Model call 1 of 2', 'failed', USAGE],
+      ['Model call 2 of 2', 'ok', USAGE],
+      ['Parse and validate', 'ok', undefined],
+    ])
+  })
+
+  it('marks two timeouts as not reported: no usage, two unreported calls, and a null on each row', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('timeout'), { name: 'AbortError' }))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(body.usage).toBeNull()
+    expect(body.unreportedCalls).toBe(2)
+    expect(body.trace?.slice(1).map((entry) => entry.usage)).toEqual([null, null])
+  })
+
+  it('marks a success after a timeout as partial: the answered call is counted, the timed-out call is not reported', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    fetchMock.mockResolvedValueOnce(hangs()).mockResolvedValueOnce(reply(JSON.stringify(PLAN)))
+    const pending = handler(planRequest({ task: 'Open google.com' }))
+    await vi.advanceTimersByTimeAsync(11_000)
+    const body = await bodyOf(await pending)
+    expect(body.usage).toEqual(USAGE)
+    expect(body.unreportedCalls).toBe(1)
+    expect(body.trace?.[1]).toMatchObject({ name: 'Model call 1 of 2', status: 'failed', usage: null })
+    expect(body.trace?.[2]).toMatchObject({ name: 'Model call 2 of 2', status: 'ok', usage: USAGE })
+  })
+
+  it('keeps an answered first call when the second call times out', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    fetchMock.mockResolvedValueOnce(reply('', 'stop')).mockResolvedValueOnce(hangs())
+    const pending = handler(planRequest({ task: 'Open google.com' }))
+    await vi.advanceTimersByTimeAsync(24_000)
+    const body = await bodyOf(await pending)
+    expect(body.error).toBe('The AI provider did not answer in time')
+    expect(body.usage).toEqual(USAGE)
+    expect(body.unreportedCalls).toBe(1)
+    expect(body.trace?.slice(1).map((entry) => entry.usage)).toEqual([USAGE, null])
+  })
+
+  it('keeps the total equal to the rows when failed rows carry usage', async () => {
+    let now = 1_700_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 7))
+    fetchMock.mockImplementation(async () => reply('', 'stop'))
+    const body = await bodyOf(await handler(planRequest({ task: 'Open google.com' })))
+    expect(body.trace?.filter((entry) => entry.usage)).toHaveLength(2)
+    expect(body.totalMs).toBe((body.trace ?? []).reduce((total, entry) => total + entry.ms, 0))
+  })
+
+  it('reports no usage when no model call was made', async () => {
+    const body = await bodyOf(await handler(planRequest({ task: 'Open example.org' })))
+    expect(body.usage).toBeNull()
+    expect(body.unreportedCalls).toBe(0)
   })
 })
 
@@ -428,7 +547,8 @@ describe('planner function: provider failures', () => {
     const body = await bodyOf(response)
     expect(response.status).toBe(504)
     expect(body.error).toBe('The AI provider did not answer in time')
-    expect(body.trace?.[1]?.detail).toBe('Retried once, and the second call failed too. The AI provider did not answer in time')
+    expect(body.trace?.[1]?.detail).toBe('The AI provider did not answer in time')
+    expect(body.trace?.[2]?.detail).toBe('Retried once, and the second call failed too. The AI provider did not answer in time')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -454,7 +574,7 @@ describe('planner function: provider failures', () => {
     const body = await bodyOf(response)
     expect(response.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(body.trace?.[1]?.detail).toContain('Retried once: the first call did not answer in time. Served by')
+    expect(body.trace?.[2]?.detail).toContain('Retried once: the first call did not answer in time. Served by')
     expect(body.result?.steps).toEqual(PLAN.steps)
   })
 

@@ -37,6 +37,8 @@ export interface TraceEntry {
   status: TraceStatus
   ms: number
   detail: string
+  /** A model call's billed figures. Null when the call was made but its usage never arrived. Absent on a row that is no billed call. */
+  usage?: UsageReport | null
 }
 
 /** Provider figures for the planner call. Null means the provider did not report the figure. */
@@ -57,12 +59,24 @@ export interface PlanResponse {
   result: { steps: BotStep[] }
   trace: TraceEntry[]
   usage: UsageReport
+  /** Planner calls that were made but whose usage never arrived, so the figures are a floor. */
+  unreportedCalls: number
   /** The model that served the planner call. Null when the reply named none. */
   model: string | null
   /** The newest model the list says the requested alias resolves to. Null when the list does not say. */
   newestModel: string | null
   modelCheck: ModelCheck
   totalMs: number
+}
+
+/** What a failed plan still spent: the billed calls it made, and the model that answered. */
+export interface PlanSpend {
+  /** Null when no call was answered. */
+  usage: UsageReport | null
+  unreportedCalls: number
+  model: string | null
+  newestModel: string | null
+  modelCheck: ModelCheck | null
 }
 
 /** Events streamed from /api/execute, in the order the run produces them. */
