@@ -66,11 +66,16 @@ describe('totalsOf', () => {
     expect(totals.cost).toBeCloseTo(0.00003, 12)
   })
 
-  it('reports no total for tokens or cost when a model call did not report them', () => {
+  // Changed on purpose (C13): a call with no usage no longer blanks the totals. The sum of what was reported stays, and the call is counted.
+  it('keeps the sum of what was reported and counts a model call that did not report, so the total reads "at least"', () => {
     const partial = totalsOf([{ ...classifyRow, usage: undefined, cost: undefined, costSource: undefined }, replyRow])
-    expect(partial.tokens).toBeNull()
-    expect(partial.cost).toBeNull()
-    expect(partial.costSource).toBeNull()
+    expect(partial).toMatchObject({ tokens: 50, unreportedCalls: 1, costSource: 'estimated' })
+    expect(partial.cost).toBe(replyRow.cost)
+  })
+
+  it('reports no total when no call reported anything', () => {
+    const none = totalsOf([{ ...classifyRow, usage: undefined, cost: undefined, costSource: undefined }])
+    expect(none).toMatchObject({ tokens: null, cost: null, costSource: null, unreportedCalls: 1 })
   })
 })
 

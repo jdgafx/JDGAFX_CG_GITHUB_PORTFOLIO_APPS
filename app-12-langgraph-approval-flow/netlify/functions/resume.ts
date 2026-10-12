@@ -1,5 +1,5 @@
 import { searchIssues } from '../shared/github-search'
-import { RunBudget } from '../shared/budget'
+import { PRE_STREAM_RELEASE_CALL_MS, RunBudget } from '../shared/budget'
 import {
   checkRequest,
   clientKey,
@@ -49,12 +49,13 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = opened
     const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date(), newestModel }
+    // The work before the stream shares the pre-stream time, so a hung store cannot hold the request past the page's wait.
+    const before = budget.preStreamSignal
     // One run at a time per thread, across function instances. The loser is told so, and nothing runs twice.
-    claim = await claimThread(guardStore(store, budget.signal), threadId)
+    claim = await claimThread(guardStore(store, before), threadId)
     if (!claim) return fail(THREAD_BUSY, 409)
-    // The read before the stream shares the request budget, so a hung store cannot hold the request. The
-    // checkpoint decides whether the thread is waiting, whatever its summary says.
-    const info = await inspectThread(deps, threadId, budget.signal, { ownsClaim: true })
+    // The checkpoint decides whether the thread is waiting, whatever its summary says.
+    const info = await inspectThread(deps, threadId, before, { ownsClaim: true })
     if (!info?.proposal) return fail(NOT_AWAITING, 409)
     const review = info.proposal
     const entry = info.entry
@@ -68,8 +69,10 @@ export default async (req: Request): Promise<Response> => {
 
     streaming = true
     const held = claim
-    return streamResponse(budget, (send, signal) =>
-      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), release: () => releaseClaim(guardStore(store), held), send }).finally(() => releaseClaim(guardStore(store), held)),
+    // The claim is freed under the request's closing signal, so the last writes end with the closing grace.
+    const free = () => releaseClaim(guardStore(store, budget.closeSignal), held)
+    return streamResponse(budget, (send, signal, closeBy) =>
+      resumeRun(deps, { threadId, entry, answer, budget: signal, remainingMs: () => budget.remainingMs(), release: free, closeBy, send }).finally(free),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)
@@ -79,7 +82,7 @@ export default async (req: Request): Promise<Response> => {
   } finally {
     if (!streaming) {
       budget.dispose()
-      if (claim) await releaseClaim(guardStore(opened.store), claim)
+      if (claim) await releaseClaim(guardStore(opened.store, undefined, PRE_STREAM_RELEASE_CALL_MS), claim)
     }
   }
 }

@@ -1,6 +1,7 @@
 import { NODES, PRIORITIES, type DuplicateReport, type NodeName, type Priority, type ReviewPayload, type TraceRow } from '../../src/types'
 import { NOT_NEEDED_DETAIL, type EdgeLabel, type StreamEvent } from './events'
 import { isRecord } from './guard'
+import { spendFields, type Spend } from './spend'
 
 const INTERRUPT_KEY = '__interrupt__'
 
@@ -80,14 +81,18 @@ export class FrameMapper {
     }
   }
 
-  /** The run stopped with an error: the node that was running is reported as failed with the message. */
-  failCurrent(message: string): void {
+  /**
+   * The run stopped with an error: the node that was running is reported as failed with the message. The spend
+   * its error carried (a billed reply that was refused, calls that never reported) is on the same frame.
+   */
+  failCurrent(message: string, spend?: Spend): void {
     if (!this.current) return
     this.send({
       type: 'node_end',
       node: this.current.node,
       ms: Date.now() - this.current.startedAt,
       status: 'failed',
+      ...(spend ? spendFields(spend) : {}),
       detail: message,
     })
     this.current = null
@@ -114,6 +119,7 @@ export class FrameMapper {
         usage: row.usage,
         cost: row.cost,
         costSource: row.costSource,
+        unreportedCalls: row.unreportedCalls,
         detail: row.detail,
       })
     }

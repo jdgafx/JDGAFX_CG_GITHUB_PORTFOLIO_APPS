@@ -21,8 +21,21 @@ export const PROVIDER_REQUEST = 'The AI provider rejected the request.'
 export const PROVIDER_BAD_REPLY = 'The AI provider sent a reply that could not be read.'
 export const PROVIDER_CUT_OFF = 'The AI ran out of reply length before the reply was finished.'
 
+/** What a failed call still billed: its answered result, and how many calls ended with no usage block (see ProviderError). */
+export interface Billing {
+  /** The reply the provider billed and the run then refused, such as one cut off at the token cap. */
+  result?: ChatResult
+  /** Calls that may have been billed but whose usage never arrived: a timeout, a lost connection, a 5xx, an unreadable body. */
+  unreportedCalls?: number
+}
+
 /** A failed model call. The message is written for the visitor and is safe to show. */
 export class ProviderError extends Error {
+  /** The billed reply, when the call was answered and then refused. Its usage and cost count in the step's row and the totals. */
+  readonly result?: ChatResult
+  /** Calls whose usage cannot be known. Grows when a retry fails after an earlier attempt that never reported. */
+  unreportedCalls: number
+
   /**
    * timeout: this one call passed its own limit. budget: the whole run's budget ended while the call
    * was in flight. length: the reply stopped at the token cap, so its text may be missing its tail.
@@ -34,9 +47,12 @@ export class ProviderError extends Error {
     readonly kind?: 'timeout' | 'budget' | 'length',
     /** True when this is the failure of a second attempt, after one automatic retry. */
     readonly retried = false,
+    billing: Billing = {},
   ) {
     super(message)
     this.name = 'ProviderError'
+    this.result = billing.result
+    this.unreportedCalls = billing.unreportedCalls ?? 0
   }
 }
 
@@ -44,7 +60,8 @@ export class ProviderError extends Error {
 export function providerFailure(status: number): ProviderError {
   if (status === 401 || status === 402 || status === 403) return new ProviderError(status, PROVIDER_REJECTED)
   if (status === 429) return new ProviderError(status, PROVIDER_BUSY)
-  if (status >= 500) return new ProviderError(status, PROVIDER_SLOW)
+  // A 5xx may have run the model before it failed, and says nothing about it. A 4xx bills nothing.
+  if (status >= 500) return new ProviderError(status, PROVIDER_SLOW, undefined, false, { unreportedCalls: 1 })
   return new ProviderError(status, PROVIDER_REQUEST)
 }
 
@@ -138,14 +155,14 @@ async function exchange(request: ChatRequest, apiKey: string, signal: AbortSigna
       signal,
     })
   } catch {
-    throw new ProviderError(0, PROVIDER_UNREACHABLE)
+    throw new ProviderError(0, PROVIDER_UNREACHABLE, undefined, false, { unreportedCalls: 1 })
   }
   if (!response.ok) throw providerFailure(response.status)
   let body: unknown
   try {
     body = await response.json()
   } catch {
-    throw new ProviderError(502, PROVIDER_BAD_REPLY)
+    throw new ProviderError(502, PROVIDER_BAD_REPLY, undefined, false, { unreportedCalls: 1 })
   }
   return parseChatReply(body)
 }
@@ -166,11 +183,11 @@ export async function chat(request: ChatRequest, signal: AbortSignal): Promise<C
   const deadlines = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       controller.abort()
-      reject(new ProviderError(504, PROVIDER_TIMEOUT, 'timeout'))
+      reject(new ProviderError(504, PROVIDER_TIMEOUT, 'timeout', false, { unreportedCalls: 1 }))
     }, CALL_TIMEOUT_MS)
     onRunAbort = () => {
       controller.abort()
-      reject(new ProviderError(504, PROVIDER_SLOW, 'budget'))
+      reject(new ProviderError(504, PROVIDER_SLOW, 'budget', false, { unreportedCalls: 1 }))
     }
     if (signal.aborted) onRunAbort()
     else signal.addEventListener('abort', onRunAbort, { once: true })

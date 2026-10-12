@@ -1,16 +1,17 @@
+import { CONNECT_WAIT_MS, OVERALL_WAIT_MS } from '../../netlify/shared/budget'
 import type { StreamEvent } from '../../netlify/shared/events'
 import type { HumanDecision, IssueInput, ThreadEntry, ThreadView } from '../types'
 
-/** The server must start answering within 15 s. */
-const CONNECT_TIMEOUT_MS = 15_000
-/** No bytes for 30 s means the connection is dead: the server sends something at every step. */
+/** The server's work before the stream, and the release of a claim it took, ends within 8 s (netlify/shared/budget.ts); this adds the margin. */
+export const CONNECT_TIMEOUT_MS = CONNECT_WAIT_MS
+/** No bytes for 30 s means the connection is dead: the server's whole request, closing writes included, ends by 27 s. */
 export const IDLE_TIMEOUT_MS = 30_000
-/** The server ends a request at 25 s, so a stream still open at 70 s is not coming back. */
-export const OVERALL_TIMEOUT_MS = 70_000
+/** The server ends a request by 27 s (the 25 s budget and the closing grace), so a stream still open at 30 s, the platform's cut, is not coming back. */
+export const OVERALL_TIMEOUT_MS = OVERALL_WAIT_MS
 
 const UNREACHABLE = 'Could not reach the server. Check your connection and try again.'
 const STALLED = 'The server sent nothing for 30 seconds. The thread may still be saved: open it from Saved threads, or try again.'
-const TOO_LONG = 'The run took longer than the server allows (25 seconds, plus a margin), so the page stopped waiting. The thread may still be saved: open it from Saved threads, or try again.'
+const TOO_LONG = 'The run took longer than the server allows (25 seconds, plus the time to save it), so the page stopped waiting. The thread may still be saved: open it from Saved threads, or try again.'
 const NOT_A_RUN = 'The server did not start a run. Check that the site functions are deployed.'
 const GENERIC = 'The run stopped unexpectedly. Try again.'
 
@@ -83,7 +84,8 @@ async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, 
   const read = reader.read()
   let timer: ReturnType<typeof setTimeout> | undefined
   const left = endsAt - Date.now()
-  const overall = left <= IDLE_TIMEOUT_MS
+  // The idle limit wins a tie: a stream that has sent nothing since the start has stalled, not run long.
+  const overall = left < IDLE_TIMEOUT_MS
   const stalled = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new RequestFailure(overall ? TOO_LONG : STALLED)), Math.max(0, Math.min(left, IDLE_TIMEOUT_MS)))
   })
@@ -101,6 +103,7 @@ async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, 
 async function readEvents(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onEvent: (event: StreamEvent) => void,
+  endsAt: number,
   signal?: AbortSignal,
 ): Promise<void> {
   const onStop = () => void reader.cancel().catch(() => {})
@@ -108,7 +111,6 @@ async function readEvents(
   if (signal?.aborted) onStop()
 
   const decoder = new TextDecoder()
-  const endsAt = Date.now() + OVERALL_TIMEOUT_MS
   let buffer = ''
   try {
     for (;;) {
@@ -152,6 +154,8 @@ async function streamFrom(
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // The whole-request limit counts from the send, so the wait for the response to begin is part of it.
+  const endsAt = Date.now() + OVERALL_TIMEOUT_MS
   const connect = new AbortController()
   const timer = setTimeout(() => connect.abort(), CONNECT_TIMEOUT_MS)
   const cancelConnect = () => connect.abort()
@@ -181,7 +185,7 @@ async function streamFrom(
   }
   const reader = response.body?.getReader()
   if (!reader) throw new RequestFailure(NOT_A_RUN)
-  await readEvents(reader, onEvent, signal)
+  await readEvents(reader, onEvent, endsAt, signal)
 }
 
 export function startIssue(issue: IssueInput, onEvent: (event: StreamEvent) => void, signal?: AbortSignal): Promise<void> {

@@ -18,6 +18,7 @@ export type StreamEvent =
       usage?: TokenUsage
       cost?: number
       costSource?: 'usage' | 'estimated'
+      unreportedCalls?: number
       detail: string
     }
   | { type: 'duplicates'; report: DuplicateReport }

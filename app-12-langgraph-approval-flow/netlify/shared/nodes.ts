@@ -1,15 +1,16 @@
 import { interrupt, type LangGraphRunnableConfig } from '@langchain/langgraph'
 import { EDIT_LABELS_MAX } from '../../src/lib/limits'
-import { PRIORITIES, type Classification, type HumanDecision, type ModelCheck, type NodeName, type Priority, type Reply, type TokenUsage, type TraceRow, type TraceStatus } from '../../src/types'
+import { PRIORITIES, type Classification, type HumanDecision, type ModelCheck, type NodeName, type Priority, type Reply, type TraceRow, type TraceStatus } from '../../src/types'
 import type { ReviewPayload } from '../../src/types'
 import { classifyMessage, CLASSIFY_PROMPT, readClassification, replyDataBlock, UNREADABLE_CLASSIFICATION } from './classify'
 import { isRecord } from './guard'
 import { issueRefOf } from './issue-input'
-import { CLASSIFY_MAX_TOKENS, MODEL, REPLY_MAX_TOKENS, estimateCost } from './models'
+import { CLASSIFY_MAX_TOKENS, MODEL, REPLY_MAX_TOKENS } from './models'
 import { CALL_TIMEOUT_MS, PROVIDER_CUT_OFF, ProviderError, type ChatFn, type ChatRequest, type ChatResult } from './openrouter'
 import { draftProblem } from './reply-guard'
 import type { GraphValues } from './state'
 import { servedCheck } from './newest-model'
+import { CallWatch, spendFields, WATCH_KEY, type Spend } from './spend'
 import { decideTriage, resolveTriage, type FinalTriage } from './triage'
 import type { SearchFn } from './github-search'
 
@@ -37,6 +38,8 @@ export interface CallRecord {
   result: ChatResult
   /** Why the call was made a second time, for the trace. Absent when the first attempt answered. */
   retriedAfter?: string
+  /** Earlier attempts of this call whose usage never arrived (a timeout, a lost connection). Absent when the first attempt answered. */
+  unreportedCalls?: number
   /** The newest model the list named for the requested alias, or null when it did not say. */
   newestModel: string | null
   modelCheck: ModelCheck
@@ -59,6 +62,8 @@ export function signalOf(config: LangGraphRunnableConfig): AbortSignal {
 
 /** Tells the stream which node is starting. The server turns this into a node_start frame. */
 export function announce(config: LangGraphRunnableConfig, node: NodeName): void {
+  const watch: unknown = config.configurable?.[WATCH_KEY]
+  if (watch instanceof CallWatch) watch.reset()
   config.writer?.({ type: 'node_start', node })
 }
 
@@ -151,45 +156,24 @@ export function fallbackBody(final: FinalTriage): string {
   return `Thank you for the report. This issue is now triaged${labels} with ${final.priority} priority.`
 }
 
-function tokenUsageOf({ usage }: ChatResult): TokenUsage | undefined {
-  const picked: TokenUsage = {}
-  if (usage.prompt_tokens !== undefined) picked.prompt_tokens = usage.prompt_tokens
-  if (usage.completion_tokens !== undefined) picked.completion_tokens = usage.completion_tokens
-  if (usage.total_tokens !== undefined) picked.total_tokens = usage.total_tokens
-  return Object.keys(picked).length > 0 ? picked : undefined
-}
-
 /**
  * One finished node as a trace row. A model call adds the served model, the reported tokens, and
- * a cost: the provider's figure when it reported one, otherwise an estimate from the list price.
+ * a cost: the provider's figure when it reported one, otherwise an estimate from the list price. A step whose
+ * call failed passes `failed`, the spend its error carries, so the billed reply still counts in its row.
  */
-export function traceRow(node: NodeName, startedAt: number, status: TraceStatus, detail: string, call?: CallRecord): TraceRow {
+export function traceRow(node: NodeName, startedAt: number, status: TraceStatus, detail: string, call?: CallRecord, failed?: Spend): TraceRow {
   const row: TraceRow = {
     node,
     status,
     ms: Date.now() - startedAt,
     detail: call?.retriedAfter ? `Retried once after ${call.retriedAfter}. ${detail}` : detail,
   }
-  if (!call) return row
-  // The model the reply named. A reply that names none is null here, never the requested alias.
-  row.model = call.result.servedModel ?? null
-  row.newestModel = call.newestModel
-  row.modelCheck = call.modelCheck
-  const usage = tokenUsageOf(call.result)
-  if (usage) row.usage = usage
-  const reported = call.result.usage.cost
-  if (typeof reported === 'number') {
-    row.cost = reported
-    row.costSource = 'usage'
-  } else {
-    const { prompt_tokens: prompt, completion_tokens: completion } = call.result.usage
-    // Priced by the model that answered. An unnamed or unknown model gets no estimate, so no cost is shown.
-    const estimate =
-      prompt !== undefined && completion !== undefined ? estimateCost(row.model ?? null, prompt, completion) : undefined
-    if (estimate !== undefined) {
-      row.cost = estimate
-      row.costSource = 'estimated'
-    }
+  if (call) {
+    Object.assign(row, spendFields({ result: call.result, unreportedCalls: call.unreportedCalls ?? 0 }))
+    row.newestModel = call.newestModel
+    row.modelCheck = call.modelCheck
+  } else if (failed) {
+    Object.assign(row, spendFields(failed))
   }
   return row
 }
@@ -219,7 +203,8 @@ async function checked(deps: NodeDeps, call: Omit<CallRecord, 'newestModel' | 'm
  * It is never used, so the call fails and the step ends where a hung call would, retryable from the checkpoint.
  */
 function whole(result: ChatResult): ChatResult {
-  if (result.finishReason === 'length') throw new ProviderError(502, PROVIDER_CUT_OFF, 'length')
+  // The reply was billed whatever becomes of it, so the error carries it to the row and the totals.
+  if (result.finishReason === 'length') throw new ProviderError(502, PROVIDER_CUT_OFF, 'length', false, { result })
   return result
 }
 
@@ -255,11 +240,15 @@ export async function runChat(
     // so it is retried wherever the budget still has the room.
     const needed = CALL_TIMEOUT_MS + modelCallsAfter * EXPECTED_CALL_MS + RETRY_MARGIN_MS
     if (reason === null || signal.aborted || deps.remainingMs() < needed) throw err
+    // Only a failure that reported nothing is retried (a timeout or a lost connection), so the first attempt is one call not reported.
+    const earlier = err instanceof ProviderError ? err.unreportedCalls : 0
     try {
-      return await checked(deps, { requested: model, result: whole(await deps.chat(request, signal)), retriedAfter: reason })
+      return await checked(deps, { requested: model, result: whole(await deps.chat(request, signal)), retriedAfter: reason, unreportedCalls: earlier })
     } catch (second) {
-      if (second instanceof ProviderError && second.kind === 'timeout') {
-        throw new ProviderError(second.status, second.message, 'timeout', true)
+      if (second instanceof ProviderError) {
+        const billing = { result: second.result, unreportedCalls: second.unreportedCalls + earlier }
+        if (second.kind === 'timeout') throw new ProviderError(second.status, second.message, 'timeout', true, billing)
+        second.unreportedCalls = billing.unreportedCalls
       }
       throw second
     }

@@ -69,7 +69,7 @@ describe('applyEvent', () => {
       reply: { body: 'Thanks.' },
       path: 'auto',
       trace: [{ node: 'classify', status: 'ok', ms: 5, detail: 'd' }],
-      totals: { nodeMs: 5, tokens: null, cost: null, costSource: null, models: [] },
+      totals: { nodeMs: 5, tokens: null, cost: null, costSource: null, models: [], unreportedCalls: 0 },
     }
     const finished = apply([{ type: 'result', result }])
     expect(finished.result).toEqual(result)

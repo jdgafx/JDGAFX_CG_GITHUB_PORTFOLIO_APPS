@@ -90,6 +90,7 @@ export function TraceCard({ run, current, phase }: TraceCardProps) {
                   <span>{formatMs(row.ms)}</span>
                   {row.usage?.total_tokens !== undefined ? <span>{formatTokens(row.usage.total_tokens)} tok</span> : null}
                   {row.cost !== undefined ? <span>{formatCost(row.cost, row.costSource)}</span> : null}
+                  {row.unreportedCalls ? <span>{row.unreportedCalls} call{row.unreportedCalls === 1 ? '' : 's'} not reported</span> : null}
                   {row.model !== undefined ? (
                     <span className="ds-chip ds-chip--wrap" title={model.title}>
                       {model.chip}

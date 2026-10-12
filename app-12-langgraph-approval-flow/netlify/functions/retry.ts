@@ -1,5 +1,5 @@
 import { searchIssues } from '../shared/github-search'
-import { RunBudget } from '../shared/budget'
+import { PRE_STREAM_RELEASE_CALL_MS, RunBudget } from '../shared/budget'
 import { checkRequest, clientKey, fail, isRecord, rateLimit, readJsonBody, SERVER_ERROR, threadIdFrom } from '../shared/guard'
 import { chat, PROVIDER_NOT_CONFIGURED } from '../shared/openrouter'
 import { newestModel } from '../shared/newest-model'
@@ -40,19 +40,23 @@ export default async (req: Request): Promise<Response> => {
 
     const { store, kind } = opened
     const deps = { store, storage: kind, chat, search: searchIssues, now: () => new Date(), newestModel }
+    // The work before the stream shares the pre-stream time, so a hung store cannot hold the request past the page's wait.
+    const before = budget.preStreamSignal
     // One run at a time per thread, across function instances. A thread being resumed holds the claim too.
-    claim = await claimThread(guardStore(store, budget.signal), threadId)
+    claim = await claimThread(guardStore(store, before), threadId)
     if (!claim) return fail(THREAD_BUSY, 409)
     // The checkpoint decides whether the thread failed, whatever its summary says.
-    const info = await inspectThread(deps, threadId, budget.signal, { ownsClaim: true })
+    const info = await inspectThread(deps, threadId, before, { ownsClaim: true })
     if (!info || info.entry.status !== 'failed') return fail(NOT_FAILED, 409)
     if (!info.hasNext) return fail(NOTHING_SAVED, 409)
     const entry = info.entry
 
     streaming = true
     const held = claim
-    return streamResponse(budget, (send, signal) =>
-      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), release: () => releaseClaim(guardStore(store), held), send }).finally(() => releaseClaim(guardStore(store), held)),
+    // The claim is freed under the request's closing signal, so the last writes end with the closing grace.
+    const free = () => releaseClaim(guardStore(store, budget.closeSignal), held)
+    return streamResponse(budget, (send, signal, closeBy) =>
+      retryRun(deps, { threadId, entry, budget: signal, remainingMs: () => budget.remainingMs(), release: free, closeBy, send }).finally(free),
     )
   } catch (err) {
     const timeout = storeTimeoutOf(err)
@@ -62,7 +66,7 @@ export default async (req: Request): Promise<Response> => {
   } finally {
     if (!streaming) {
       budget.dispose()
-      if (claim) await releaseClaim(guardStore(opened.store), claim)
+      if (claim) await releaseClaim(guardStore(opened.store, undefined, PRE_STREAM_RELEASE_CALL_MS), claim)
     }
   }
 }

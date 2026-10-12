@@ -191,6 +191,8 @@ export interface TraceRow {
   usage?: TokenUsage
   cost?: number
   costSource?: 'usage' | 'estimated'
+  /** Model calls of this step whose usage never arrived (a timeout, a lost connection). Absent when every call reported. */
+  unreportedCalls?: number
   detail: string
 }
 
@@ -216,13 +218,17 @@ export interface ThreadEntry {
   priority: Priority | null
 }
 
-/** Totals over the trace rows. Tokens and cost stay null when no node reported them. */
+/**
+ * Totals over the trace rows. Tokens and cost are the sums of what was reported, and stay null when nothing was.
+ * `unreportedCalls` counts the model calls with no usage, so a sum with a call missing reads "at least".
+ */
 export interface RunTotals {
   nodeMs: number
   tokens: number | null
   cost: number | null
   costSource: 'usage' | 'estimated' | null
   models: string[]
+  unreportedCalls: number
 }
 
 /** How the triage was settled: by the rules alone, or by a maintainer's answer. */

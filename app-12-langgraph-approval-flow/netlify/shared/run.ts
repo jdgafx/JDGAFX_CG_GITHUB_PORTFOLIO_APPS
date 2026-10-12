@@ -6,6 +6,7 @@ import type { StreamEvent } from './events'
 import { FrameMapper } from './mapper'
 import { CALL_TIMEOUT_MS, ProviderError, type ChatFn } from './openrouter'
 import type { GraphValues } from './state'
+import { CallWatch, spendOfError, WATCH_KEY } from './spend'
 import { guardStore, storeTimeoutOf, type KeyValueStore, type StorageKind } from './store'
 import { RUN_BUDGET_MS } from './budget'
 import { buildResult, threadViewOf } from './thread-view'
@@ -92,10 +93,11 @@ async function recordThread(
   status: ThreadStatus,
   priority: Priority | null,
   at: Date = deps.now(),
+  signal?: AbortSignal,
 ): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      await writeThread(guardStore(deps.store), { id: threadId, ...meta, status, priority }, at)
+      await writeThread(guardStore(deps.store, signal), { id: threadId, ...meta, status, priority }, at)
       return
     } catch (err) {
       console.error(`GraphGate: could not write the summary of thread ${threadId} (attempt ${attempt}): ${describeError(err)}`)
@@ -114,6 +116,8 @@ interface Attempt {
   remainingMs?: () => number
   /** Frees the claim on the thread. Called once the summary is written, before the closing frame is sent. */
   release?: () => Promise<void>
+  /** Ends the closing writes (the summary) with the request's closing grace. Without it they have only the per-call limit. */
+  closeBy?: AbortSignal
   send: Send
 }
 
@@ -126,7 +130,8 @@ interface Attempt {
  */
 async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   // The list is read once per run, started here so it runs alongside the first model call.
-  const graph = graphFor(deps, deps.chat, attempt.budget, attempt.remainingMs, deps.newestModel?.())
+  const watch = new CallWatch(deps.chat)
+  const graph = graphFor(deps, watch.chat, attempt.budget, attempt.remainingMs, deps.newestModel?.())
   const began = Date.now()
   let firstNodeMs: number | null = null
   const mapper = new FrameMapper(attempt.threadId, (event) => {
@@ -141,7 +146,7 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
   try {
     const stream = await graph.stream(attempt.input, {
       streamMode: ['updates', 'custom'],
-      configurable: { thread_id: attempt.threadId },
+      configurable: { thread_id: attempt.threadId, [WATCH_KEY]: watch },
       signal: attempt.budget,
     })
     for await (const [mode, chunk] of stream) {
@@ -150,21 +155,21 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
     }
     if (mapper.paused) {
       closing = mapper.interruptEvent ?? undefined
-      await recordThread(deps, attempt.threadId, attempt.meta, 'awaiting_approval', mapper.proposalPriority)
+      await recordThread(deps, attempt.threadId, attempt.meta, 'awaiting_approval', mapper.proposalPriority, deps.now(), attempt.closeBy)
     } else {
       const snapshot = await graph.getState({ configurable: { thread_id: attempt.threadId } })
       const result = buildResult(attempt.threadId, snapshot.values as GraphValues)
       closing = { type: 'result', result }
-      await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority)
+      await recordThread(deps, attempt.threadId, attempt.meta, 'completed', result.priority, deps.now(), attempt.closeBy)
     }
     logTiming()
   } catch (err) {
     console.error('GraphGate: run failed', err)
     const node = mapper.currentNode
     const message = attempt.budget.aborted ? budgetMessage(node) : userMessage(err, node)
-    mapper.failCurrent(message)
+    mapper.failCurrent(message, spendOfError(err) ?? watch.spend())
     closing = { type: 'error', message }
-    await recordThread(deps, attempt.threadId, attempt.meta, 'failed', attempt.failedPriority)
+    await recordThread(deps, attempt.threadId, attempt.meta, 'failed', attempt.failedPriority, deps.now(), attempt.closeBy)
   }
   await attempt.release?.()
   if (closing) attempt.send(closing)
@@ -173,7 +178,7 @@ async function drive(deps: RunDeps, attempt: Attempt): Promise<void> {
 /** Starts a new thread for one issue and runs it until the review pause or the end. */
 export function startRun(
   deps: RunDeps,
-  args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
+  args: { issue: IssueInput; threadId: string; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; closeBy?: AbortSignal; send: Send },
 ): Promise<void> {
   return drive(deps, {
     threadId: args.threadId,
@@ -183,6 +188,7 @@ export function startRun(
     budget: args.budget,
     remainingMs: args.remainingMs,
     release: args.release,
+    closeBy: args.closeBy,
     send: args.send,
   })
 }
@@ -190,7 +196,7 @@ export function startRun(
 /** Continues a paused thread from its checkpoint with the maintainer's answer. */
 export function resumeRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
+  args: { threadId: string; entry: ThreadEntry; answer: HumanDecision; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; closeBy?: AbortSignal; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -201,6 +207,7 @@ export function resumeRun(
     budget: args.budget,
     remainingMs: args.remainingMs,
     release: args.release,
+    closeBy: args.closeBy,
     send: args.send,
   })
 }
@@ -208,7 +215,7 @@ export function resumeRun(
 /** Continues a failed thread from its last checkpoint: the steps that finished are not run again. */
 export function retryRun(
   deps: RunDeps,
-  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; send: Send },
+  args: { threadId: string; entry: ThreadEntry; budget: AbortSignal; remainingMs?: () => number; release?: () => Promise<void>; closeBy?: AbortSignal; send: Send },
 ): Promise<void> {
   const { title, repo, number, priority } = args.entry
   return drive(deps, {
@@ -219,6 +226,7 @@ export function retryRun(
     budget: args.budget,
     remainingMs: args.remainingMs,
     release: args.release,
+    closeBy: args.closeBy,
     send: args.send,
   })
 }
@@ -296,7 +304,7 @@ export async function inspectThread(
   // A repair is not activity: the row keeps the time it had, so it does not jump to the top of the list.
   const at = stored ? new Date(stored.updatedAt) : deps.now()
   const entry: ThreadEntry = { id: threadId, ...meta, status, priority, updatedAt: at.toISOString() }
-  await recordThread(deps, threadId, meta, status, priority, at)
+  await recordThread(deps, threadId, meta, status, priority, at, signal)
   return { entry, values, proposal, hasNext, running: false }
 }
 

@@ -14,6 +14,7 @@ import { SearchError, type SearchFn } from './github-search'
 import { MODEL } from './models'
 import { announce, required, runChat, signalOf, traceRow, type CallRecord, type NodeDeps } from './nodes'
 import { ProviderError } from './openrouter'
+import { spendOfError, type Spend } from './spend'
 import type { GraphValues } from './state'
 
 /** The search and the judge need about this long when healthy: two parallel searches (1 s), the judge (7 s), and the reply call after (7 s). */
@@ -32,6 +33,8 @@ interface Outcome {
   status: TraceStatus
   detail: string
   call?: CallRecord
+  /** What a judge call that failed still billed: its cut-off reply, or the calls that never reported. */
+  spend?: Spend
 }
 
 /** Both searches, each in GitHub's best-match order. One failing is fine; both failing is the failure that is reported. */
@@ -92,7 +95,7 @@ async function check(issue: IssueInput, deps: NodeDeps, signal: AbortSignal): Pr
     // A run that is out of time stops here. A slow or refusing model costs only the verdicts.
     if (signal.aborted || !(err instanceof ProviderError)) throw err
     const message = `The model could not judge the candidates (${err.message}) The ranked candidates are shown without verdicts.`
-    return { report: { status: 'unavailable', message, terms, candidates: ranked, confirmed: null }, status: 'failed', detail: message }
+    return { report: { status: 'unavailable', message, terms, candidates: ranked, confirmed: null }, status: 'failed', detail: message, spend: spendOfError(err) }
   }
   const judgements = readJudgements(call.result.text, issue, items)
   const candidates = ranked.map((candidate) => ({ ...candidate, judgement: judgements.get(candidate.number) ?? null }))
@@ -114,6 +117,6 @@ export async function duplicatesNode(state: GraphValues, config: LangGraphRunnab
   const outcome = await check(issue, deps, signalOf(config))
   return {
     duplicateReport: outcome.report,
-    trace: [traceRow('duplicates', started, outcome.status, outcome.detail, outcome.call)],
+    trace: [traceRow('duplicates', started, outcome.status, outcome.detail, outcome.call, outcome.spend)],
   }
 }

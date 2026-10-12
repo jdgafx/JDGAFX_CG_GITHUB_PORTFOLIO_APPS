@@ -73,6 +73,7 @@ export function applyEvent(run: RunView, event: StreamEvent): RunView {
             usage: event.usage,
             cost: event.cost,
             costSource: event.costSource,
+            unreportedCalls: event.unreportedCalls,
             detail: event.detail,
           },
         ],

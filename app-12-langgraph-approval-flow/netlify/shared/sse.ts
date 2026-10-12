@@ -2,7 +2,8 @@ import type { RunBudget } from './budget'
 import { DONE_FRAME, encodeFrame, SSE_HEADERS, type StreamEvent } from './events'
 import { SERVER_ERROR } from './guard'
 
-export type StreamWork = (send: (event: StreamEvent) => void, signal: AbortSignal) => Promise<void>
+/** The work gets the budget's signal and, for the closing writes, the signal that ends with the closing grace. */
+export type StreamWork = (send: (event: StreamEvent) => void, signal: AbortSignal, closeSignal: AbortSignal) => Promise<void>
 
 /**
  * A server-sent response. The work runs inside the stream, so each event reaches the browser as it is
@@ -21,7 +22,7 @@ export function streamResponse(budget: RunBudget, work: StreamWork): Response {
         }
       }
       try {
-        await work(send, budget.signal)
+        await work(send, budget.signal, budget.closeSignal)
       } catch (err) {
         console.error('GraphGate: stream failed', err)
         send({ type: 'error', message: SERVER_ERROR })

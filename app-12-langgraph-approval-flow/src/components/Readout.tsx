@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatCost, formatMs, formatTokens } from '../lib/format'
+import { formatMs, formatTotalCost, formatTotalTokens } from '../lib/format'
 import type { Phase, RunView } from '../lib/run-state'
 import { totalsOf } from '../lib/totals'
 
@@ -34,6 +34,7 @@ function Cell({ label, hint, children }: { label: string; hint: string; children
 export function Readout({ run, phase, startedAt }: ReadoutProps) {
   const totals = run.result?.totals ?? totalsOf(run.trace)
   const running = phase === 'running'
+  const partial = totals.unreportedCalls > 0
   const show = run.trace.some((row) => row.status !== 'skipped' && row.status !== 'pending')
   const ended = phase === 'failed' || phase === 'stopped'
   const sofar = running ? 'So far' : ended ? (phase === 'failed' ? 'Before it failed' : 'Before it stopped') : null
@@ -46,11 +47,11 @@ export function Readout({ run, phase, startedAt }: ReadoutProps) {
         <Cell label="Step time" hint={running ? 'Running now' : (sofar ?? (show ? 'Sum of the steps that ran' : 'Shown while it runs'))}>
           {running && startedAt !== null ? <LiveClock since={startedAt} /> : show ? formatMs(totals.nodeMs) : none}
         </Cell>
-        <Cell label="Tokens" hint={sofar ?? (show ? 'Prompt plus completion, all calls' : 'All model calls')}>
-          {show ? formatTokens(totals.tokens) : none}
+        <Cell label="Tokens" hint={sofar ?? (partial ? 'Partial: some calls did not report' : show ? 'Prompt plus completion, all calls' : 'All model calls')}>
+          {show ? formatTotalTokens(totals) : none}
         </Cell>
-        <Cell label="Cost (USD)" hint={sofar ?? (totals.costSource === 'estimated' ? 'Estimated from list prices' : show ? 'As reported by OpenRouter' : 'Reported or estimated')}>
-          {show ? formatCost(totals.cost ?? undefined, totals.costSource ?? undefined) : none}
+        <Cell label="Cost (USD)" hint={sofar ?? (partial ? 'Partial: some calls did not report' : totals.costSource === 'estimated' ? 'Estimated from list prices' : show ? 'As reported by OpenRouter' : 'Reported or estimated')}>
+          {show ? formatTotalCost(totals) : none}
         </Cell>
         <Cell label="Models" hint={show ? 'Named in the provider replies' : 'Named in the provider replies'}>
           {totals.models.length > 0 ? (
