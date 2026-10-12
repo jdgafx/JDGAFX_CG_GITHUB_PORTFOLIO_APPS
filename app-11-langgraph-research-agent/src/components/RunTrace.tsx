@@ -1,4 +1,4 @@
-import { count, milliseconds, plainModel, shortModel, usd } from '../lib/format'
+import { count, milliseconds, notReported, plainModel, shortModel, usd } from '../lib/format'
 import type { CheckpointOffer } from '../../netlify/shared/events'
 import type { RunView, TraceEntry } from '../lib/runState'
 
@@ -26,7 +26,10 @@ function ModelChip({ entry }: { entry: TraceEntry }) {
 
 /** The model chip already says when the reply named no model, so a row without a price says only why it has none. */
 function costLine(entry: TraceEntry): string {
-  if (entry.cost !== undefined) return usd(entry.cost)
+  if (entry.cost !== undefined) {
+    const source = entry.costSource === 'reported' ? ' (billed, as OpenRouter reported)' : entry.costSource === 'list' ? ' (OpenRouter list price)' : ''
+    return `${usd(entry.cost)}${source}`
+  }
   return entry.servedModel ? 'price unavailable' : 'no price'
 }
 
@@ -78,6 +81,8 @@ function TraceRow({ index, entry, lane, rewind, onRewind }: TraceRowProps) {
       <div className="ds-trace__meta">
         <span>{entry.edited ? 'set by you' : entry.ms === undefined ? '—' : entry.reused ? `${milliseconds(entry.ms)} (original)` : milliseconds(entry.ms)}</span>
         {tokens !== undefined && <span>{`${count(tokens)} tok`}</span>}
+        {entry.refused ? <span>refused: reply not used, still billed</span> : null}
+        {entry.unreportedCalls ? <span>{`usage not reported (${notReported(entry.unreportedCalls)})`}</span> : null}
         {entry.model && (
           <span title={entry.cost !== undefined && entry.servedModel ? `Tokens times the OpenRouter price for ${plainModel(entry.servedModel)}` : undefined}>
             {costLine(entry)}

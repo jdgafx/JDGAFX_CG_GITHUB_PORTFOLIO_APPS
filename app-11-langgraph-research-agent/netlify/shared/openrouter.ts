@@ -88,6 +88,14 @@ export function isRetryable(err: unknown): boolean {
   return isCallTimeout(err) || (err instanceof ProviderError && err.status === 502 && err.message === UNREACHABLE_MESSAGE)
 }
 
+/**
+ * True when the call may have been billed but no usage came back: a timeout, a dropped connection, an abort,
+ * a 5xx or an unreadable reply. A 4xx refusal bills nothing, and an unset key means no call was made.
+ */
+export function isUnreported(err: unknown): boolean {
+  return err instanceof ProviderError && (err.status >= 500 || err.status === 408) && err.message !== NOT_CONFIGURED_MESSAGE
+}
+
 /** Plain text for an HTTP status. The provider's own body is never shown or logged. */
 export function messageForStatus(status: number): string {
   if (status === 401 || status === 402 || status === 403) {

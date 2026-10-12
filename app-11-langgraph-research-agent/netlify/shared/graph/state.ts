@@ -26,6 +26,10 @@ export interface TraceRow {
   servedModel?: string | null
   usage?: TokenUsage
   cost?: number
+  /** Model calls in this visit whose usage never arrived. Absent when none. */
+  unreportedCalls?: number
+  refused?: boolean
+  costSource?: 'reported' | 'list'
   /** True when the visitor's edit stands in for what the step produced. */
   edited?: boolean
 }

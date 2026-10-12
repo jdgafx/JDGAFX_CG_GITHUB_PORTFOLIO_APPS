@@ -11,7 +11,7 @@ import type { ResearchValues, TraceRow } from './state'
 export const GRAPH_RECURSION_LIMIT = 30
 
 function nodeEnd(row: TraceRow): NodeEndFrame {
-  const { node, visit, ms, status, detail, model, servedModel, cost, usage } = row
+  const { node, visit, ms, status, detail, model, servedModel, cost, usage, unreportedCalls, refused, costSource } = row
   // JSON drops the undefined fields, so a row without a model call sends none of them.
   return {
     type: 'node_end',
@@ -28,6 +28,9 @@ function nodeEnd(row: TraceRow): NodeEndFrame {
       completion_tokens: usage.completion_tokens,
       total_tokens: usage.total_tokens,
     },
+    unreportedCalls,
+    refused,
+    costSource,
   }
 }
 
@@ -41,7 +44,12 @@ interface OpenVisit {
 interface Tracker {
   open: OpenVisit | null
   failure: string | null
+  /** The row of the node that threw. It never reaches the saved state, so the totals take it from here. */
+  failedRow: TraceRow | null
 }
+
+/** The nodes that call the model. An abort that ends one of them leaves a call whose usage never arrived. */
+const MODEL_NODES: readonly NodeName[] = ['plan', 'agent', 'draft', 'critic']
 
 /** Maps one custom chunk to a frame. A failed node's text is kept on the tracker. */
 function handleCustom(raw: unknown, emit: (frame: Frame) => void, tracker: Tracker): void {
@@ -54,6 +62,7 @@ function handleCustom(raw: unknown, emit: (frame: Frame) => void, tracker: Track
     tracker.open = null
     emit(nodeEnd(chunk.row))
     tracker.failure = chunk.row.detail
+    tracker.failedRow = chunk.row
   }
 }
 
@@ -76,7 +85,7 @@ function totalsFor(rows: TraceRow[], ms: number): Totals {
   // A row with a model made a model call, and only those can lack a price. Tool and final rows
   // never carry a model, so they are not counted.
   const unpricedRows = rows.filter((row) => row.model !== undefined && row.cost === undefined).length
-  const totals: Totals = { ms, unpricedRows }
+  const totals: Totals = { ms, unpricedRows, unreportedCalls: rows.reduce((sum, row) => sum + (row.unreportedCalls ?? 0), 0), refusedCalls: rows.filter((row) => row.refused).length }
   const tokenRows = rows.filter((row) => row.usage?.total_tokens !== undefined)
   if (tokenRows.length > 0) {
     totals.tokens = tokenRows.reduce((sum, row) => sum + (row.usage?.total_tokens ?? 0), 0)
@@ -102,6 +111,7 @@ function frameFor(
   critic: ResultFrame['critic'],
   truncated: boolean,
   ending: EndingView,
+  failed: TraceRow | null,
 ): ResultFrame {
   const rows = values.trace
   return {
@@ -116,8 +126,9 @@ function frameFor(
     revisions: values.revisions,
     truncated,
     // A resumed run reports only the steps it ran again; the first `skip` rows are the original run's.
-    totals: totalsFor(rows.slice(skip), ms),
-    models: modelsFor(rows.slice(skip)),
+    // The failed step's row counts too: the call it made was billed although the step produced nothing.
+    totals: totalsFor([...rows.slice(skip), ...(failed ? [failed] : [])], ms),
+    models: modelsFor([...rows.slice(skip), ...(failed ? [failed] : [])]),
   }
 }
 
@@ -125,7 +136,7 @@ function resultFrame(values: ResearchValues, ms: number, skip: number): ResultFr
   const { finalAnswer, critique } = values
   if (!finalAnswer || !critique) return null
   const { answer, sources, truncated, ending } = finalAnswer
-  return frameFor(values, ms, skip, answer, sources, { verdict: critique.verdict, notes: critique.notes, reviewed: critique.reviewed }, truncated, ending)
+  return frameFor(values, ms, skip, answer, sources, { verdict: critique.verdict, notes: critique.notes, reviewed: critique.reviewed }, truncated, ending, null)
 }
 
 const times = (count: number) => (count === 1 ? 'once' : `${count} times`)
@@ -141,7 +152,7 @@ function causeOf(message: string): string {
  * Builds the result a stopped run still owes the visitor: the last draft with its cited sources and a
  * plain label of how far the review got, or, with no draft, the pages read. Null when nothing was found.
  */
-export function partialResult(values: ResearchValues, ms: number, message: string, skip = 0): ResultFrame | null {
+export function partialResult(values: ResearchValues, ms: number, message: string, skip = 0, failed: TraceRow | null = null): ResultFrame | null {
   const cause = causeOf(message)
   if (values.draftText !== '') {
     const draft = values.revisions > 0 ? cleanRevisedAnswer(values.draftText, values.evidence, values.question).text : values.draftText
@@ -159,12 +170,12 @@ export function partialResult(values: ResearchValues, ms: number, message: strin
       reviewed && values.critique
         ? { verdict: values.critique.verdict, notes: values.critique.notes, reviewed: true }
         : { verdict: 'accept' as const, notes: text, reviewed: false }
-    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, { kind: 'partial', message: text })
+    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, { kind: 'partial', message: text }, failed)
   }
   if (values.evidence.length === 0) return null
   const pages = values.evidence.map(({ n, title, url }) => ({ n, title, url }))
   const text = `No answer was written: ${cause} the run. The agent read ${values.evidence.length === 1 ? '1 page' : `${values.evidence.length} pages`}, listed below.`
-  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, { kind: 'no_answer', message: text })
+  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, { kind: 'no_answer', message: text }, failed)
 }
 
 interface Drive {
@@ -197,7 +208,7 @@ async function drive(
   { input, skip, fork }: Drive,
 ): Promise<void> {
   const started = Date.now()
-  const tracker: Tracker = { open: null, failure: null }
+  const tracker: Tracker = { open: null, failure: null, failedRow: null }
   try {
     const stream = await graph.stream(input, {
       ...threadConfig,
@@ -226,11 +237,13 @@ async function drive(
     // An abort ends the stream before the failed node can report itself, so its row is closed here.
     if (tracker.open && tracker.failure === null) {
       const { node, visit, startedAt } = tracker.open
-      emit(nodeEnd({ node, visit, status: 'failed', ms: Date.now() - startedAt, detail: message }))
+      // The abort cut a model call off before any usage came back, so that call is counted as not reported.
+      tracker.failedRow = { node, visit, status: 'failed', ms: Date.now() - startedAt, detail: message, ...(MODEL_NODES.includes(node) ? { unreportedCalls: 1 } : {}) }
+      emit(nodeEnd(tracker.failedRow))
     }
     // Work already done is never thrown away: the last committed state still holds the draft and the pages read.
     const snapshot = await graph.getState(threadConfig).catch(() => null)
-    const partial = snapshot ? partialResult(snapshot.values as ResearchValues, Date.now() - started, message, skip) : null
+    const partial = snapshot ? partialResult(snapshot.values as ResearchValues, Date.now() - started, message, skip, tracker.failedRow) : null
     emit(partial ? (fork ? { ...partial, fork: { ...fork, rerun: partial.path.length - skip } } : partial) : { type: 'error', message })
   }
 }

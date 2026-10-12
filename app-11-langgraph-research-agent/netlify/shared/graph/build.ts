@@ -1,5 +1,5 @@
 import { END, MemorySaver, START, StateGraph, type LangGraphRunnableConfig } from '@langchain/langgraph'
-import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
+import { PlainError, plainMessageOf, SERVER_ERROR, spentOf } from '../errors'
 import type { NodeName } from '../events'
 import type { ChatFn } from '../openrouter'
 import { costFor, newestModel, type PriceBook } from '../pricing'
@@ -11,6 +11,7 @@ import {
   finalStep,
   planStep,
   toolsStep,
+  type NodeCall,
   type NodeContext,
   type NodeResult,
 } from './nodes'
@@ -51,32 +52,45 @@ export interface FailedChunk {
 
 export type CustomChunk = StartChunk | FailedChunk
 
+/** Puts the billed call on a row: the model, its usage and its price. A call that never reported is only counted. */
+async function addCall(row: TraceRow, call: NodeCall | null, unreported: number, priceBook: Promise<PriceBook | null>): Promise<void> {
+  if (unreported > 0) row.unreportedCalls = unreported
+  if (!call) return
+  const { model, reply } = call
+  row.model = model
+  row.servedModel = reply.servedModel
+  row.usage = reply.usage
+  // The price is the list price of the model that answered, never of the one asked for.
+  if (call.refused) {
+    // A refused reply is billed, so its cost is what OpenRouter reported for the call. The list price is the fallback.
+    row.refused = true
+    if (reply.usage.cost !== undefined) {
+      row.cost = reply.usage.cost
+      row.costSource = 'reported'
+      return
+    }
+    row.costSource = 'list'
+  }
+  const cost = costFor(await priceBook.catch(() => null), reply.servedModel, reply.usage)
+  if (cost !== null) row.cost = cost
+}
+
 async function rowFor(node: NodeName, visit: number, ms: number, result: NodeResult, priceBook: Promise<PriceBook | null>): Promise<TraceRow> {
   const retry = result.call?.retried ? ' The first call timed out or could not connect, so it was tried once more.' : ''
   const unchecked = result.call && !result.call.checked ? ' The served model was not checked: the price list was unavailable.' : ''
   const detail = `${result.detail}${retry}${unchecked}`
   const row: TraceRow = { node, visit, status: result.status ?? 'ok', ms, detail }
   if (result.route) row.next = result.route.label
-  if (result.call) {
-    const { model, reply } = result.call
-    row.model = model
-    row.servedModel = reply.servedModel
-    row.usage = reply.usage
-    // The price is the list price of the model that answered, never of the one asked for.
-    const cost = costFor(await priceBook, reply.servedModel, reply.usage)
-    if (cost !== null) row.cost = cost
-  }
+  await addCall(row, result.call ?? null, result.call?.unreported ?? 0, priceBook)
   return row
 }
 
-function failedRow(node: NodeName, visit: number, ms: number, err: unknown): TraceRow {
-  return {
-    node,
-    visit,
-    status: 'failed',
-    ms,
-    detail: plainMessageOf(err) ?? SERVER_ERROR,
-  }
+/** The row of a node that threw. A call it made before it failed is on the error, and counts here like any other. */
+async function failedRow(node: NodeName, visit: number, ms: number, err: unknown, priceBook: Promise<PriceBook | null>): Promise<TraceRow> {
+  const row: TraceRow = { node, visit, status: 'failed', ms, detail: plainMessageOf(err) ?? SERVER_ERROR }
+  const spent = spentOf(err)
+  if (spent) await addCall(row, spent.call, spent.unreported, priceBook)
+  return row
 }
 
 function routeAfter(state: ResearchValues): Target {
@@ -106,7 +120,7 @@ export function buildGraph(deps: GraphDeps) {
         const row = await rowFor(name, visit, Date.now() - began, result, priceBook)
         return { ...result.update, route: result.route ?? null, trace: [row] }
       } catch (err) {
-        write({ kind: 'failed', row: failedRow(name, visit, Date.now() - began, err) } satisfies FailedChunk)
+        write({ kind: 'failed', row: await failedRow(name, visit, Date.now() - began, err, priceBook) } satisfies FailedChunk)
         throw err
       }
     }

@@ -39,7 +39,7 @@ describe('diffWords', () => {
 const frame = (answer: string, titles: string[]): ResultFrame => ({
   type: 'result', answer, sources: titles.map((title, i) => ({ n: i + 1, title, url: `https://en.wikipedia.org/wiki/${title}` })),
   critic: { verdict: 'accept', notes: '', reviewed: true }, ending: { kind: 'complete', message: '' }, path: [], evidenceCount: titles.length,
-  toolRounds: 1, revisions: 0, truncated: false, totals: { ms: 1, unpricedRows: 0 }, models: [],
+  toolRounds: 1, revisions: 0, truncated: false, totals: { ms: 1, unpricedRows: 0, unreportedCalls: 0, refusedCalls: 0 }, models: [],
 })
 
 describe('sourceDelta', () => {

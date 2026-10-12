@@ -1,10 +1,11 @@
 import { citedNumbers, cleanRevisedAnswer, sanitizeCitations, sourcesFor } from '../citations'
 import type { EndingView, NodeStatus } from '../events'
-import { PlainError } from '../errors'
+import { PlainError, type Spent } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
 import { servedMismatch } from '../pricing'
 import {
   isRetryable,
+  isUnreported,
   type AssistantToolCall,
   type ChatFn,
   type ChatMessage,
@@ -47,6 +48,10 @@ export interface NodeCall {
   retried: boolean
   /** False when the price list could not say which model is the newest, so the served model is unchecked. */
   checked: boolean
+  /** Calls this step made before this reply whose usage never arrived (the timed-out first attempt of a retry). */
+  unreported: number
+  /** True when the reply came from a model that is not the newest, so nothing of it is used. It was still billed. */
+  refused?: boolean
 }
 
 /** Milliseconds left in the run budget. */
@@ -95,19 +100,34 @@ async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCa
   }
   if (options.json) request.response_format = { type: 'json_object' }
   let retried = false
+  let unreported = 0
   let reply: ChatReply
   try {
     reply = await ctx.chat(request, ctx.signal)
   } catch (err) {
-    if (!isRetryable(err) || timeLeft(ctx) < options.retryNeedsMs) throw err
-    reply = await ctx.chat(request, ctx.signal)
+    if (isUnreported(err)) unreported++
+    if (!isRetryable(err) || timeLeft(ctx) < options.retryNeedsMs) throw spend(err, { call: null, unreported })
+    try {
+      reply = await ctx.chat(request, ctx.signal)
+    } catch (second) {
+      if (isUnreported(second)) unreported++
+      throw spend(second, { call: null, unreported })
+    }
     retried = true
   }
-  // A reply from any model but the newest Haiku is refused here, so it is never priced or accepted as an answer.
   const newest = (await ctx.newestModel) ?? null
+  const call: NodeCall = { model: NODE_MODEL, reply, retried, checked: newest !== null, unreported }
+  // A reply from any model but the newest Haiku is refused here, so it is never accepted as an answer. The provider
+  // still billed it, so the refusal carries the call and its usage stays in the row and the totals.
   const refused = newest === null ? null : servedMismatch(newest, reply.servedModel)
-  if (refused !== null) throw new PlainError(502, refused)
-  return { model: NODE_MODEL, reply, retried, checked: newest !== null }
+  if (refused !== null) throw spend(new PlainError(502, refused), { call: { ...call, refused: true }, unreported })
+  return call
+}
+
+/** Puts what a failed step spent on its error, so the failed row and the totals count it. Returns the error. */
+function spend<E>(err: E, spent: Spent): E {
+  if (err instanceof PlainError) err.spent = spent
+  return err
 }
 
 function toAssistantCall(call: ToolCall): AssistantToolCall {
@@ -245,7 +265,7 @@ export async function draftStep(state: ResearchValues, ctx: NodeContext): Promis
     ],
   })
   const text = call.reply.text
-  if (text === '') throw new PlainError(502, 'The draft came back empty.')
+  if (text === '') throw spend(new PlainError(502, 'The draft came back empty.'), { call, unreported: call.unreported })
   const truncated = call.reply.finishReason === 'length'
   const detail = truncated
     ? 'The reply hit the token limit and may be cut short.'

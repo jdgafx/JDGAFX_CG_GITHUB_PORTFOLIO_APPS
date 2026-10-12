@@ -96,7 +96,7 @@ export function newestModel(book: PriceBook | null): string | null {
  */
 export function servedMismatch(newest: string, served: string | null): string | null {
   if (served === newest) return null
-  return `The reply came from ${served ?? 'a model it did not name'}, not ${newest}, the newest Haiku that OpenRouter resolves ${NODE_MODEL} to. The run stopped, so nothing from that reply is priced or shown.`
+  return `The reply came from ${served ?? 'a model it did not name'}, not ${newest}, the newest Haiku that OpenRouter resolves ${NODE_MODEL} to. The run stopped, so nothing from that reply is shown. The call was billed, so its tokens and its cost still count.`
 }
 
 /**

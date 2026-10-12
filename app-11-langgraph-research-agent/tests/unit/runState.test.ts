@@ -56,6 +56,14 @@ describe('run view', () => {
     ])
   })
 
+  it('keeps the usage and the unreported calls of a failed step on its row', () => {
+    const view = applyFrame(startRun(), {
+      type: 'node_end', node: 'draft', visit: 1, ms: 5, status: 'failed', detail: 'The draft came back empty.',
+      model: 'm', servedModel: 'anthropic/claude-haiku-5.5', usage: { total_tokens: 140 }, cost: 0.00003, unreportedCalls: 1,
+    })
+    expect(view.trace[0]).toMatchObject({ status: 'failed', usage: { total_tokens: 140 }, cost: 0.00003, unreportedCalls: 1 })
+  })
+
   it('records the latest label taken on each conditional edge', () => {
     let view = applyFrame(startRun(), { type: 'edge', from: 'agent', to: 'tools', label: 'tools (round 1 of 4)' })
     view = applyFrame(view, { type: 'edge', from: 'agent', to: 'tools', label: 'tools (round 2 of 4)' })
@@ -73,7 +81,7 @@ describe('run view', () => {
     toolRounds: 0,
     revisions: 0,
     truncated: false,
-    totals: { ms: 4000, unpricedRows: 0 },
+    totals: { ms: 4000, unpricedRows: 0, unreportedCalls: 0, refusedCalls: 0 },
     models: ['qwen/qwen3.7-flash'],
     ...overrides,
   })
@@ -153,7 +161,7 @@ describe('a resumed run', () => {
   it('does not call a re-run answer ready when the critic still asked for changes', () => {
     const frame = (verdict: 'accept' | 'revise'): ResultFrame => ({
       type: 'result', answer: 'A [1].', sources: [], critic: { verdict, notes: 'n', reviewed: true }, ending: { kind: 'complete', message: '' },
-      path: [], evidenceCount: 1, toolRounds: 1, revisions: 2, truncated: false, totals: { ms: 1, unpricedRows: 0 }, models: [],
+      path: [], evidenceCount: 1, toolRounds: 1, revisions: 2, truncated: false, totals: { ms: 1, unpricedRows: 0, unreportedCalls: 0, refusedCalls: 0 }, models: [],
       fork: { kind: 'plan', visit: 1, reused: 0, rerun: 8 },
     })
     expect(statusText(applyFrame(startRun(), frame('accept')))).toBe('New answer ready')

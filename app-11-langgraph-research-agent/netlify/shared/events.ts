@@ -41,6 +41,10 @@ export interface Totals {
   cost?: number
   /** Model calls with no price. When this is above zero, `cost` covers only part of the run. */
   unpricedRows: number
+  /** Model calls whose usage never arrived. When this is above zero, `tokens` and `cost` are a floor. */
+  unreportedCalls: number
+  /** Replies that were refused (not the newest model) but billed. Their cost is in `cost`. */
+  refusedCalls: number
 }
 
 export interface NodeEndFrame {
@@ -56,6 +60,12 @@ export interface NodeEndFrame {
   /** The model OpenRouter says served the reply, or null when it named none. */
   servedModel?: string | null
   usage?: FrameUsage
+  /** Model calls in this step whose usage never arrived (a timeout, a dropped connection, an abort). Absent when none. */
+  unreportedCalls?: number
+  /** True for a reply refused for coming from a model that is not the newest. Its usage and cost are billed, nothing of its content is shown. */
+  refused?: boolean
+  /** Where a refused reply's `cost` comes from: `reported` is OpenRouter's usage.cost, `list` is the list price of the served model. */
+  costSource?: 'reported' | 'list'
   /** Tokens times the OpenRouter list price of `servedModel`. Absent when the reply named no model or the price could not be had. */
   cost?: number
   /** True for a step a resumed run did not run again: the row is the original run's, with its original time. */

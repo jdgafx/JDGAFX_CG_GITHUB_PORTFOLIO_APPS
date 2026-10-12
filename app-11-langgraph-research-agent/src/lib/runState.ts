@@ -27,6 +27,11 @@ export interface TraceEntry {
   servedModel?: string | null
   usage?: FrameUsage
   cost?: number
+  /** Model calls in this step whose usage never arrived. */
+  unreportedCalls?: number
+  /** A reply refused for coming from a model that is not the newest. Billed, not used. */
+  refused?: boolean
+  costSource?: 'reported' | 'list'
   /** A step a resumed run did not run again. Its time and cost are the original run's. */
   reused?: boolean
   /** A step the visitor's edit stands in for. */
@@ -76,8 +81,8 @@ export function startRun(): RunView {
 }
 
 function entryFor(frame: NodeEndFrame): TraceEntry {
-  const { node, visit, status, ms, detail, model, servedModel, usage, cost, reused, edited } = frame
-  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, reused, edited }
+  const { node, visit, status, ms, detail, model, servedModel, usage, cost, unreportedCalls, refused, costSource, reused, edited } = frame
+  return { key: keyOf(node, visit), node, visit, status, ms, detail, model, servedModel, usage, cost, unreportedCalls, refused, costSource, reused, edited }
 }
 
 function withEntry(trace: TraceEntry[], entry: TraceEntry): TraceEntry[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { costHint, noCostText, plainModel, shortModel } from '../../src/lib/format'
+import { atLeast, costHint, noCostText, notReported, plainModel, shortModel } from '../../src/lib/format'
 
 describe('costHint', () => {
   const served = ['anthropic/claude-haiku-5.5']
@@ -18,6 +18,22 @@ describe('costHint', () => {
     expect(costHint({ cost: 0.5, unpricedRows: 2 }, served)).toBe(
       'partial (2 rows without a price), OpenRouter price for anthropic/claude-haiku-5.5',
     )
+  })
+
+  it('names calls whose usage never arrived, beside the rows without a price', () => {
+    expect(costHint({ cost: 0.5, unpricedRows: 0, unreportedCalls: 1 }, served)).toBe(
+      'partial (1 call not reported), OpenRouter price for anthropic/claude-haiku-5.5',
+    )
+    expect(costHint({ cost: 0.5, unpricedRows: 1, unreportedCalls: 2 }, served)).toBe(
+      'partial (1 row without a price, 2 calls not reported), OpenRouter price for anthropic/claude-haiku-5.5',
+    )
+  })
+
+  it('says the total includes the cost of a refused call', () => {
+    expect(costHint({ cost: 0.5, unpricedRows: 0, unreportedCalls: 0, refusedCalls: 1 }, served)).toBe(
+      'includes the cost of a refused call, OpenRouter price for anthropic/claude-haiku-5.5',
+    )
+    expect(costHint({ cost: 0.5, unpricedRows: 0, refusedCalls: 2 }, served)).toContain('includes the cost of 2 refused calls')
   })
 
   it('says only that there is no price when there is no total', () => {
@@ -41,5 +57,15 @@ describe('model chips', () => {
     expect(shortModel('~anthropic/claude-haiku-latest')).toBe('claude-haiku-latest')
     expect(plainModel('~anthropic/claude-haiku-latest')).toBe('anthropic/claude-haiku-latest')
     expect(plainModel('anthropic/claude-haiku-5.5')).toBe('anthropic/claude-haiku-5.5')
+  })
+})
+
+describe('calls whose usage never arrived', () => {
+  it('words the count, and turns a total into a floor only when a call is missing', () => {
+    expect(notReported(0)).toBe('')
+    expect(notReported(1)).toBe('1 call not reported')
+    expect(notReported(2)).toBe('2 calls not reported')
+    expect(atLeast('$0.000120', 0)).toBe('$0.000120')
+    expect(atLeast('$0.000120', 1)).toBe('at least $0.000120')
   })
 })

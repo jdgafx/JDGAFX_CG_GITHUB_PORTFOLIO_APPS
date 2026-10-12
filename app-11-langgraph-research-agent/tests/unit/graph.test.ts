@@ -387,11 +387,13 @@ describe('graph: the path taken', () => {
     expect(out.result?.totals).toMatchObject({ cost: RUN_COST, tokens: 5 * 140, unpricedRows: 0 })
   })
 
-  it('(j2) a reply from an older model is refused, so it is never priced', async () => {
+  it('(j2) a reply from an older model is refused, but the call was billed, so its tokens and price stay on the failed step', async () => {
     const out = await run({ ...PRICED_RUN, servedModel: 'anthropic/claude-haiku-4.5' })
 
     expect(out.result).toBeNull()
-    expect(modelRows(out.ends).every((end) => end.cost === undefined)).toBe(true)
+    expect(modelRows(out.ends)).toHaveLength(1)
+    expect(modelRows(out.ends)[0]).toMatchObject({ node: 'plan', status: 'failed', servedModel: 'anthropic/claude-haiku-4.5', usage: { total_tokens: 140 } })
+    expect(modelRows(out.ends)[0].cost).toBeGreaterThan(0)
   })
 
   it('(j3) a reply with no model field is refused, so it is never priced', async () => {
@@ -481,12 +483,13 @@ describe('graph: the model that answers', () => {
   const OLD_HAIKU = 'anthropic/claude-haiku-4.5'
   const readTurn = { tools: [readPage('call_1', "Expo '98")] }
 
-  it('(f) a reply from an older Haiku is refused: no answer, no price on that step', async () => {
+  it('(f) a reply from an older Haiku is refused: no answer, and the billed call stays priced at the model that answered', async () => {
     const out = await run({ agent: [readTurn], draft: [DRAFT_CITED], critic: [], servedModel: OLD_HAIKU })
 
     expect(out.result).toBeNull()
     expect(out.errors).toEqual([expect.stringContaining('The reply came from anthropic/claude-haiku-4.5, not anthropic/claude-haiku-5.5')])
-    expect(out.ends.some((frame) => frame.cost !== undefined)).toBe(false)
+    expect(out.ends.find((frame) => frame.status === 'failed')).toMatchObject({ node: 'plan', servedModel: OLD_HAIKU, usage: { total_tokens: 140 } })
+    expect(out.ends.find((frame) => frame.status === 'failed')?.cost).toBeGreaterThan(0)
   })
 
   it('(h) with the price list unavailable, the trace says the served model was not checked', async () => {

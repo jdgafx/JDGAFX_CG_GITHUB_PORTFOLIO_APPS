@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { costHint, count, milliseconds, noCostText, plainModel, shortModel, usd } from '../lib/format'
+import { atLeast, costHint, count, milliseconds, noCostText, notReported, plainModel, shortModel, usd } from '../lib/format'
 import type { RunView } from '../lib/runState'
 
 interface CellProps {
@@ -50,6 +50,8 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
   const spentTokens = own.reduce((sum, entry) => sum + (entry.usage?.total_tokens ?? 0), 0)
   const priced = own.filter((entry) => entry.cost !== undefined)
   const spentCost = priced.reduce((sum, entry) => sum + (entry.cost ?? 0), 0)
+  const spentRefused = own.filter((entry) => entry.refused).length
+  const spentUnreported = own.reduce((sum, entry) => sum + (entry.unreportedCalls ?? 0), 0)
   const current = trace.find((entry) => entry.status === 'running')
   const usedModels = Array.from(new Set(trace.map((entry) => entry.servedModel ?? '').filter(Boolean)))
   // Before any step has finished there is nothing to show but dashes.
@@ -79,26 +81,28 @@ export function ReadoutStrip({ view }: ReadoutStripProps) {
         <Cell label="Time" hint={running ? 'Running now' : (soFar || elapsed !== null) && !result ? sofarHint : result?.fork ? 'The re-run only' : 'Start to answer'}>
           {running ? <LiveClock /> : totals ? milliseconds(totals.ms) : elapsed !== null ? milliseconds(elapsed) : soFar ? milliseconds(spentMs) : none}
         </Cell>
-        <Cell label="Tokens" hint={soFar && !result ? sofarHint : 'All model calls'}>
+        <Cell label="Tokens" hint={[soFar && !result ? sofarHint : 'All model calls', notReported(totals?.unreportedCalls ?? spentUnreported)].filter(Boolean).join(', ')}>
           {totals
             ? totals.tokens === undefined
               ? 'not reported'
-              : count(totals.tokens)
+              : atLeast(count(totals.tokens), totals.unreportedCalls)
             : soFar && spentTokens > 0
-              ? count(spentTokens)
-              : none}
+              ? atLeast(count(spentTokens), spentUnreported)
+              : soFar && spentUnreported > 0
+                ? 'not reported'
+                : none}
         </Cell>
         <Cell
           label="Cost (USD)"
-          hint={result ? costHint(result.totals, result.models) : soFar ? sofarHint : 'Priced by OpenRouter'}
+          hint={result ? costHint(result.totals, result.models) : soFar ? `${sofarHint}${spentRefused > 0 ? ', includes the cost of a refused call' : ''}` : 'Priced by OpenRouter'}
           mono={!result || result.totals.cost !== undefined}
         >
           {result
             ? result.totals.cost === undefined
               ? noCostText(result.models)
-              : usd(result.totals.cost)
+              : atLeast(usd(result.totals.cost), result.totals.unreportedCalls)
             : soFar && priced.length > 0
-              ? usd(spentCost)
+              ? atLeast(usd(spentCost), spentUnreported)
               : none}
         </Cell>
         {running ? (
