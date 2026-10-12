@@ -1,10 +1,11 @@
-import type { ResultFrame } from '../../netlify/shared/events'
+import { NOT_CITED, type ResultFrame } from '../../netlify/shared/events'
 import { plural } from '../lib/format'
 import { parseInline } from '../lib/markdown'
 import type { Phase } from '../lib/runState'
 
 export function badgeFor(result: ResultFrame): { text: string; tone: string } {
   if (result.ending.kind === 'no_answer') return { text: 'No answer written', tone: 'ds-badge--warning' }
+  if (result.citation.uncited.length > 0) return { text: 'Not fully cited', tone: 'ds-badge--warning' }
   if (!result.critic.reviewed) return { text: 'Not reviewed', tone: 'ds-badge--warning' }
   if (result.critic.verdict === 'accept') return { text: 'Critic accepted', tone: 'ds-badge--success' }
   return { text: 'Critic asked for changes', tone: 'ds-badge--warning' }
@@ -132,6 +133,11 @@ export function AnswerCard({ result, phase, error, hasSteps, onRetry }: AnswerCa
             <p className="ds-state__title">{noAnswer ? 'No answer written' : 'Partial answer'}</p>
             <p className="ds-state__body">{result.ending.message}</p>
           </div>
+        )}
+        {result.citation.uncited.length > 0 && (
+          <p className="ds-notice">
+            {`${result.citation.uncited.length} of ${plural(result.citation.sentences, 'sentence')} carry no citation and are marked ${NOT_CITED}.`}
+          </p>
         )}
         {result.truncated && <p className="ds-notice">The answer was cut short at its length limit.</p>}
         {!noAnswer && (

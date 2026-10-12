@@ -45,6 +45,8 @@ export interface ToolOutcome {
   ok: boolean
   content: string
   note: string
+  /** True when the lookup failed because Wikipedia did not answer (unreachable, timed out, an error reply). A missing page is not. */
+  unreachable?: boolean
   /** Set only when a page was read. Numbering happens in `numberSources`. */
   page?: PageText
 }
@@ -56,8 +58,11 @@ function failure(call: ToolCall, message: string): ToolOutcome {
   return { call, ok: false, content: message, note: message }
 }
 
-function lookupError(err: unknown): string {
-  return err instanceof WikiError ? err.message : 'The Wikipedia lookup failed.'
+function lookupError(call: ToolCall, err: unknown): ToolOutcome {
+  const message = err instanceof WikiError ? err.message : 'The Wikipedia lookup failed.'
+  // Only a "no such page" reply (4xx) means Wikipedia answered. Anything else left the lookup unanswered.
+  const unreachable = !(err instanceof WikiError && err.status < 500)
+  return { ...failure(call, message), unreachable }
 }
 
 function formatHits(query: string, hits: SearchHit[]): string {
@@ -91,7 +96,7 @@ export async function runToolCall(call: ToolCall, wiki: WikiTools, signal: Abort
         note: `Search "${parsed.data.query}" returned ${hits.length} title(s).`,
       }
     } catch (err) {
-      return failure(call, lookupError(err))
+      return lookupError(call, err)
     }
   }
 
@@ -102,7 +107,7 @@ export async function runToolCall(call: ToolCall, wiki: WikiTools, signal: Abort
       const page = await wiki.page(parsed.data.title, signal)
       return { call, ok: true, content: '', note: `Read "${page.title}".`, page }
     } catch (err) {
-      return failure(call, lookupError(err))
+      return lookupError(call, err)
     }
   }
 

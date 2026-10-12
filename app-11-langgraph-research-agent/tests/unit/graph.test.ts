@@ -258,6 +258,48 @@ describe('graph: the path taken', () => {
     expect(out.result).toMatchObject({ evidenceCount: 0, toolRounds: 2, sources: [] })
   })
 
+  it('(d2) when Wikipedia cannot be reached and no page was read, the run ends in an error, with no draft and no answer', async () => {
+    const down: WikiTools = {
+      search: async () => {
+        throw new WikiError(502, 'Could not reach Wikipedia.')
+      },
+      page: async () => {
+        throw new WikiError(502, 'Could not reach Wikipedia.')
+      },
+    }
+    const out = await run(
+      { agent: [{ tools: [readPage('u1', "Expo '98")] }, { tools: [readPage('u2', 'Lisbon')] }, { text: 'Done.' }], draft: [], critic: [] },
+      down,
+    )
+
+    expect(out.result).toBeNull()
+    expect(out.errors).toEqual([expect.stringContaining('Wikipedia could not be reached')])
+    expect(out.path).toEqual(['plan', 'agent', 'tools', 'agent', 'tools', 'agent', 'draft'])
+    expect(out.calls.filter((request) => roleOf(request) === 'draft')).toHaveLength(0)
+    expect(out.ends.find((end) => end.node === 'draft')).toMatchObject({ status: 'failed' })
+  })
+
+  it('(d3) a failed lookup followed by a page that was read still answers', async () => {
+    let first = true
+    const flaky: WikiTools = {
+      ...fakeWiki(),
+      page: async (title, signal) => {
+        if (first) {
+          first = false
+          throw new WikiError(502, 'Could not reach Wikipedia.')
+        }
+        return fakeWiki().page(title, signal)
+      },
+    }
+    const out = await run(
+      { agent: [{ tools: [readPage('f1', "Expo '98")] }, { tools: [readPage('f2', "Expo '98")] }, { text: 'Done.' }], draft: [DRAFT_CITED], critic: ['{"verdict": "accept", "issues": []}'] },
+      flaky,
+    )
+
+    expect(out.errors).toEqual([])
+    expect(out.result).toMatchObject({ evidenceCount: 1 })
+  })
+
   it('(e) the critic cannot force more than two revisions', async () => {
     const out = await run({
       agent: [{ text: 'Enough.' }],
@@ -502,7 +544,7 @@ describe('graph: the model that answers', () => {
   it('(j) an answer that cites none of the sources it was given is not shown', async () => {
     const out = await run({
       agent: [readTurn, { text: 'Enough sources.' }],
-      draft: ['Lisbon hosted Expo 98 in 1998.'],
+      draft: ['Lisbon hosted Expo 98 in 1998.', 'Lisbon hosted Expo 98 in 1998.', 'Lisbon hosted Expo 98 in 1998.'],
       critic: ['{"verdict": "accept", "issues": []}'],
     })
 

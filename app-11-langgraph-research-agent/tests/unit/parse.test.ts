@@ -138,7 +138,21 @@ describe('runToolCall', () => {
       ok: false,
       content: 'No Wikipedia page has the title "Nope".',
       note: 'No Wikipedia page has the title "Nope".',
+      unreachable: false,
     })
+  })
+
+  it('marks a lookup as unreachable when Wikipedia did not answer, and not when the page is missing', async () => {
+    const down: WikiTools = {
+      search: async () => {
+        throw new WikiError(502, 'Could not reach Wikipedia.')
+      },
+      page: async () => {
+        throw new WikiError(504, 'The page read timed out.')
+      },
+    }
+    expect((await runToolCall(call('c7', 'wikipedia_search', { query: 'x' }), down, SIGNAL)).unreachable).toBe(true)
+    expect((await runToolCall(call('c8', 'wikipedia_page', { title: 'x' }), down, SIGNAL)).unreachable).toBe(true)
   })
 
   it('hides an unexpected error behind a generic lookup message', async () => {

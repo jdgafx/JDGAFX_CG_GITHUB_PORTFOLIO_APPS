@@ -181,6 +181,7 @@ export function statusText(view: RunView): string {
   }
   if (view.phase === 'done') {
     if (view.result?.ending.kind === 'partial') return 'Partial answer'
+    if (view.result && view.result.citation.uncited.length > 0 && view.result.ending.kind === 'complete') return 'Not fully cited'
     return view.result?.ending.kind === 'no_answer' ? 'No answer' : 'Answer ready'
   }
   if (view.phase === 'failed') return 'Failed'
@@ -209,9 +210,10 @@ export function researchStatus(view: RunView): string {
     return view.trace.length === 0 ? 'Starting research.' : 'Research running.'
   }
   if (view.phase === 'done') {
-    const { ending, sources } = view.result ?? { ending: { kind: 'complete' }, sources: [] }
+    const { ending, sources, citation } = view.result ?? { ending: { kind: 'complete' }, sources: [], citation: { sentences: 0, uncited: [] } }
     if (ending.kind === 'no_answer') return 'Research stopped early. No answer was written. The pages read are listed.'
     if (ending.kind === 'partial') return 'Research stopped early. The answer is the last draft, labelled below.'
+    if (citation.uncited.length > 0) return `Research finished. ${citation.uncited.length} sentence(s) of the answer are marked not cited.`
     return sources.length === 0 ? 'Research finished. The answer cites no source.' : 'Research finished. The cited answer is ready.'
   }
   if (view.phase === 'failed') return 'Research failed. The answer panel says why.'

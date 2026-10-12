@@ -1,6 +1,6 @@
 import { Annotation } from '@langchain/langgraph'
 import type { Evidence } from '../citations'
-import type { EndingView, NodeName, NodeStatus, SourceView } from '../events'
+import type { CitationStatus, EndingView, NodeName, NodeStatus, SourceView } from '../events'
 import type { ChatMessage, TokenUsage, ToolCall } from '../openrouter'
 
 /** The most tool rounds the agent may run before it must draft. */
@@ -53,6 +53,7 @@ export interface FinalAnswer {
   /** True when the draft behind this answer hit its length limit. */
   truncated: boolean
   ending: EndingView
+  citation: CitationStatus
 }
 
 /** A field the latest update replaces. `initial` builds the starting value, so no run shares an array. */
@@ -68,6 +69,8 @@ export const ResearchState = Annotation.Root({
   messages: appended<ChatMessage>(),
   pendingCalls: last<ToolCall[]>(() => []),
   toolRounds: last(() => 0),
+  /** Lookups that failed because Wikipedia did not answer (not a missing page). The tools step writes the running total. */
+  lookupFailures: last(() => 0),
   /** Pages the agent read, numbered in order. Each update appends the new pages only. */
   evidence: appended<Evidence>(),
   draftText: last(() => ''),

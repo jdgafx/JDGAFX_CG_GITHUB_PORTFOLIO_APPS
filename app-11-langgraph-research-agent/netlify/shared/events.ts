@@ -17,6 +17,16 @@ export interface SourceView {
   url: string
 }
 
+/** What an answer's citations come to: how many sentences it has, and which of them name no source. */
+export interface CitationStatus {
+  sentences: number
+  /** The sentences with no source marker. They stay in the answer, tagged "(not cited)". */
+  uncited: string[]
+}
+
+/** The tag an uncited sentence carries in the answer text. */
+export const NOT_CITED = '(not cited)'
+
 export interface CriticView {
   verdict: 'accept' | 'revise'
   notes: string
@@ -114,6 +124,8 @@ export interface ResultFrame {
   toolRounds: number
   revisions: number
   ending: EndingView
+  /** The citation check of the answer, made the same way for every answer. */
+  citation: CitationStatus
   /** True when the final draft hit its length limit, so the answer may stop mid-sentence. */
   truncated: boolean
   totals: Totals

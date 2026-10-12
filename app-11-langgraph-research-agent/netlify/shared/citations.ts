@@ -1,4 +1,4 @@
-import type { SourceView } from './events'
+import { NOT_CITED, type CitationStatus, type SourceView } from './events'
 
 /** A page the agent read. `n` is its source number: the order it was first read, one per URL. */
 export interface Evidence {
@@ -37,6 +37,36 @@ export function sourcesFor(answer: string, evidence: Evidence[]): SourceView[] {
 const REVIEW_TALK =
   /\b(?:the|a|that|this|your) (?:reviewers?|critics?)\b|\b(?:reviewer|critic)['’]s\b|\b(?:previous|earlier|prior) draft\b|\bthe feedback\b|\bthe notes\b|\b(?:as|per) (?:requested|instructed)\b|\b(?:the|your|my|given) (?:guidance|instructions?)\b|\bI (?:can't|can’t|cannot) (?:quote|share|reveal)\b/i
 
+/** A sentence that ends on a one-letter abbreviation ("U.S.") has not ended: the next piece belongs to it. */
+const ABBREVIATION_END = /(?:^|[\s(.])\p{Lu}\.$/u
+/** Markers at the start of a piece ("[1] Next sentence", after the full stop) belong to the sentence before it. */
+const LEADING_MARKERS = /^((?:\[\d{1,3}\]\s*)+)(.*)$/s
+
+/** The sentences of one line, each trimmed. A marker that follows its full stop stays with its sentence. */
+export function sentencesOf(line: string): string[] {
+  const sentences: string[] = []
+  for (const part of line.split(/(?<=[.!?])\s+/)) {
+    let piece = part.trim()
+    if (piece === '') continue
+    let before = sentences[sentences.length - 1]
+    if (before !== undefined) {
+      const lead = LEADING_MARKERS.exec(piece)
+      if (lead) {
+        before = `${before} ${lead[1].trim()}`
+        sentences[sentences.length - 1] = before
+        piece = lead[2].trim()
+        if (piece === '') continue
+      }
+    }
+    if (before !== undefined && ABBREVIATION_END.test(before)) {
+      sentences[sentences.length - 1] = `${before} ${piece}`
+    } else {
+      sentences.push(piece)
+    }
+  }
+  return sentences
+}
+
 /**
  * Removes the sentences of a revised answer that talk about the review itself. The draft prompt forbids
  * them, and this is the check behind it. An answer that is nothing but such talk is kept whole, and the
@@ -45,7 +75,7 @@ const REVIEW_TALK =
 export function removeReviewTalk(answer: string): { text: string; removed: number } {
   let removed = 0
   const kept = answer.split('\n').map((line) => {
-    const sentences = line.split(/(?<=[.!?])\s+/)
+    const sentences = sentencesOf(line)
     const clean = sentences.filter((sentence) => !REVIEW_TALK.test(sentence))
     removed += sentences.length - clean.length
     return clean.join(' ')
@@ -55,40 +85,52 @@ export function removeReviewTalk(answer: string): { text: string; removed: numbe
 }
 
 /**
- * Removes the uncited sentences of a revised answer that state something no source gives: a sentence with no
- * [n] marker that holds a number of three digits or more, or a capitalised word not at its start, which is in
- * no source and not in the question. A revision can pull in a fact the reviewer hinted at, and without
- * a citation nothing shows where it came from. An answer left empty by this is kept whole.
+ * The one citation rule, for every answer. A sentence is cited when it holds a source marker [n]; with sources
+ * read, a sentence that holds none gets the tag and is listed, whatever it says. Nothing is deleted: an
+ * uncited sentence stays in the answer, marked. Run it after `sanitizeCitations`, so a marker that named no
+ * source no longer counts. A line with no word or number in it (a rule, a bullet) is not a sentence.
  */
-export function removeUncitedFacts(
-  answer: string,
-  evidence: Evidence[],
-  question: string,
-): { text: string; removed: number } {
-  const known = `${evidence.map((item) => item.extract).join(' ')} ${question}`.toLowerCase()
-  let removed = 0
-  const kept = answer.split('\n').map((line) => {
-    const sentences = line.split(/(?<=[.!?])\s+/)
-    const clean = sentences.filter((sentence) => {
-      if (/\[\d{1,3}\]/.test(sentence)) return true
-      const words = sentence.match(/[\p{L}\p{N}'’-]+/gu) ?? []
-      const claims = words.filter((word, index) => (index > 0 && /^\p{Lu}/u.test(word)) || /^\d{3,}$/.test(word))
-      return claims.every((claim) => known.includes(claim.toLowerCase()))
-    })
-    removed += sentences.length - clean.length
-    return clean.join(' ')
-  })
-  const text = kept.filter((line) => line.trim() !== '').join('\n')
-  return text === '' ? { text: answer, removed: 0 } : { text, removed }
+export function markUncited(answer: string, evidence: Evidence[]): { text: string; status: CitationStatus } {
+  const status: CitationStatus = { sentences: 0, uncited: [] }
+  if (evidence.length === 0) return { text: answer, status }
+  const text = answer
+    .split('\n')
+    .map((line) =>
+      sentencesOf(line)
+        .map((sentence) => {
+          if (!/[\p{L}\p{N}]/u.test(sentence.replace(/\[\d{1,3}\]/g, ''))) return sentence
+          status.sentences += 1
+          if (/\[\d{1,3}\]/.test(sentence)) return sentence
+          status.uncited.push(sentence)
+          return `${sentence} ${NOT_CITED}`
+        })
+        .join(' '),
+    )
+    .join('\n')
+  return { text, status }
 }
 
-/** What a revised answer is cleaned of before it goes out: talk about the review, and uncited facts no source gives. */
-export function cleanRevisedAnswer(
-  draft: string,
-  evidence: Evidence[],
-  question: string,
-): { text: string; reviewRemoved: number; factsRemoved: number } {
-  const noReviewTalk = removeReviewTalk(draft)
-  const noFacts = removeUncitedFacts(noReviewTalk.text, evidence, question)
-  return { text: noFacts.text, reviewRemoved: noReviewTalk.removed, factsRemoved: noFacts.removed }
+/** An answer ready to show: cleaned, its citations checked, and the sources it cites. */
+export interface FinishedAnswer {
+  text: string
+  sources: SourceView[]
+  citation: CitationStatus
+  /** Sentences of a revised answer that talked about the review and were removed. */
+  reviewRemoved: number
+}
+
+/**
+ * The one path every answer takes before it goes out, a first draft and a revision alike: a revision loses its
+ * talk about the review, markers that name no source go, then each sentence is checked for a marker.
+ */
+export function finishAnswer(draft: string, evidence: Evidence[], revised: boolean): FinishedAnswer {
+  const quiet = revised ? removeReviewTalk(draft) : { text: draft, removed: 0 }
+  const sanitized = sanitizeCitations(quiet.text, evidence)
+  const marked = markUncited(sanitized, evidence)
+  return {
+    text: marked.text,
+    sources: sourcesFor(sanitized, evidence),
+    citation: marked.status,
+    reviewRemoved: quiet.removed,
+  }
 }

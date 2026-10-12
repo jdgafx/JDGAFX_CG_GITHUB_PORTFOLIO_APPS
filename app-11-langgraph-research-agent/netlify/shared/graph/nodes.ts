@@ -1,4 +1,4 @@
-import { citedNumbers, cleanRevisedAnswer, sanitizeCitations, sourcesFor } from '../citations'
+import { citedNumbers, finishAnswer } from '../citations'
 import type { EndingView, NodeStatus } from '../events'
 import { PlainError, type Spent } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
@@ -14,7 +14,7 @@ import {
   type ToolCall,
 } from '../openrouter'
 import type { WikiTools } from '../wikipedia'
-import { groundedIssues, issueNotes, parseCritic, parseQueries } from './parse'
+import { groundedIssues, issueNotes, parseCritic, parseQueries, type CriticIssue } from './parse'
 import { yearGapIssues } from './yearcheck'
 import {
   agentSystem,
@@ -54,6 +54,16 @@ export interface NodeCall {
   refused?: boolean
 }
 
+/** The most uncited sentences one revision note names. */
+const UNCITED_ISSUES_MAX = 3
+
+/** One issue per sentence of the draft that holds no source marker, found by the same rule that marks the final answer. */
+function uncitedIssues(draft: string, evidence: ResearchValues['evidence'], revised: boolean): CriticIssue[] {
+  return finishAnswer(draft, evidence, revised)
+    .citation.uncited.slice(0, UNCITED_ISSUES_MAX)
+    .map((quote) => ({ quote, fix: 'Cite the source number that supports this sentence, like [1], or the sources of every input it uses.' }))
+}
+
 /** Milliseconds left in the run budget. */
 export function timeLeft(ctx: NodeContext): number {
   return ctx.deadline === undefined ? Infinity : ctx.deadline - (ctx.now ?? Date.now)()
@@ -63,6 +73,7 @@ const secondsLeft = (ctx: NodeContext) => `${Math.max(0, Math.floor(timeLeft(ctx
 
 const OUT_OF_TIME = 'out of time'
 const UNCITED = 'The answer cites none of the sources it was given, so it was not shown.'
+const NO_SOURCE = 'Wikipedia could not be reached, so no page was read and nothing was researched. Please try again.'
 const NEEDS = STEP_NEEDS_MS
 
 /** What a node returns. The wrapper in build.ts adds the trace row and the route key. */
@@ -247,6 +258,7 @@ export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promis
       messages,
       evidence: added,
       toolRounds: state.toolRounds + 1,
+      lookupFailures: state.lookupFailures + outcomes.filter((outcome) => outcome.unreachable).length,
       pendingCalls: [],
     },
     detail: [found, ...problems].join(' '),
@@ -255,6 +267,8 @@ export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promis
 
 /** Writes the answer from the numbered sources. On a revision it also sees the critic's notes. */
 export async function draftStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
+  // No page was read because Wikipedia did not answer: there is nothing to answer from, so the run fails here.
+  if (state.evidence.length === 0 && state.lookupFailures > 0) throw new PlainError(502, NO_SOURCE)
   const notes = state.critique?.verdict === 'revise' ? state.critique.notes : null
   const call = await callModel(ctx, {
     maxTokens: MAX_TOKENS.draft,
@@ -289,14 +303,16 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
       route: { to: 'final', label: `final (${OUT_OF_TIME})` },
     }
   }
-  // A check in code first: a year gap worked out from the wrong year of a range goes back without a model call.
+  // Checks in code first: a year gap worked out from the wrong year of a range, or a sentence with no source
+  // marker, goes back without a model call.
   const gapIssues = yearGapIssues(state.question, state.draftText, state.evidence)
-  if (gapIssues.length > 0 && state.revisions < MAX_REVISIONS && timeLeft(ctx) >= NEEDS.draft + NEEDS.critic) {
-    const notes = issueNotes(gapIssues)
+  const codeIssues = [...gapIssues, ...uncitedIssues(state.draftText, state.evidence, state.revisions > 0)]
+  if (codeIssues.length > 0 && state.revisions < MAX_REVISIONS && timeLeft(ctx) >= NEEDS.draft + NEEDS.critic) {
+    const notes = issueNotes(codeIssues)
     const revisions = state.revisions + 1
     return {
       update: { critique: { verdict: 'revise', notes, reviewed: true }, revisions, draftReviewed: true },
-      detail: `Checked the year gap against the sources. ${notes}`,
+      detail: `${gapIssues.length > 0 ? 'Checked the year gap against the sources.' : 'Checked that every sentence cites a source.'} ${notes}`,
       route: { to: 'draft', label: `revise (${revisions} of ${MAX_REVISIONS})` },
     }
   }
@@ -378,12 +394,8 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
 /** Drops citation markers that name no source and lists the sources the answer cites. No model call. */
 export function finalStep(state: ResearchValues): NodeResult {
   // Only a revised draft has seen the reviewer's issues, so only it can speak about them.
-  const cleaned =
-    state.revisions > 0
-      ? cleanRevisedAnswer(state.draftText, state.evidence, state.question)
-      : { text: state.draftText, reviewRemoved: 0, factsRemoved: 0 }
-  const answer = sanitizeCitations(cleaned.text, state.evidence)
-  const sources = sourcesFor(answer, state.evidence)
+  const finished = finishAnswer(state.draftText, state.evidence, state.revisions > 0)
+  const { text: answer, sources, citation } = finished
   // With sources read, an answer that cites none of them is not shown, whatever the critic said.
   if (state.evidence.length > 0 && sources.length === 0) throw new PlainError(502, UNCITED)
   const unreviewed = state.critique !== null && !state.critique.reviewed
@@ -397,10 +409,10 @@ export function finalStep(state: ResearchValues): NodeResult {
         ? { kind: 'partial', message: `The year gap is not confirmed by the sources. ${issueNotes(gapIssues)}` }
         : { kind: 'complete', message: '' })
   return {
-    update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending } },
+    update: { finalAnswer: { answer, sources, truncated: state.draftTruncated, ending, citation } },
     detail:
       (sources.length > 0 ? `${sources.length} cited source(s).` : 'No source is cited.') +
-      (cleaned.reviewRemoved > 0 ? ` Removed ${cleaned.reviewRemoved} sentence(s) that talked about the review.` : '') +
-      (cleaned.factsRemoved > 0 ? ` Removed ${cleaned.factsRemoved} uncited sentence(s) with a fact no source gives.` : ''),
+      (finished.reviewRemoved > 0 ? ` Removed ${finished.reviewRemoved} sentence(s) that talked about the review.` : '') +
+      (citation.uncited.length > 0 ? ` ${citation.uncited.length} of ${citation.sentences} sentence(s) carry no citation and are marked not cited.` : ''),
   }
 }

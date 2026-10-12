@@ -261,7 +261,7 @@ describe('the year gap is checked in code', () => {
   })
 
   it('does not run for a question that asks for no gap', async () => {
-    const out = await run({ toolsOnAgentCall: [1], script: { draft: ['Lisbon hosted Expo 98 [1]. A gap of 41 years (1930 minus 1889).'] } })
+    const out = await run({ toolsOnAgentCall: [1], script: { draft: ['Lisbon hosted Expo 98 [1]. A gap of 41 years (1930 minus 1889) [1].'] } })
     expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (no more searches)', 'final (accepted)'])
   })
 })
@@ -281,7 +281,7 @@ describe('the answer never talks about the review', () => {
   })
 
   it('leaves a first draft alone, since it has not seen the review', async () => {
-    const out = await run({ script: { draft: ["Lisbon hosted Expo '98 in 1998 [1]. The critic Harold Bloom was not involved."] }, toolsOnAgentCall: [1] })
+    const out = await run({ script: { draft: ["Lisbon hosted Expo '98 in 1998 [1]. The critic Harold Bloom was not involved [1]."] }, toolsOnAgentCall: [1] })
     expect(out.result?.answer).toContain('The critic Harold Bloom')
     expect(out.ends.find((end) => end.node === 'final')?.detail).toBe('1 cited source(s).')
   })
@@ -296,29 +296,50 @@ describe('the answer never talks about the review', () => {
   })
 })
 
-describe('a revised answer carries no fact that no source gives', () => {
-  it('removes an uncited sentence with a new name, says so, and keeps the cited ones', async () => {
+describe('every sentence cites a source', () => {
+  const SIZA = 'The pavilion architect was Siza.'
+  const ACCEPT = '{"verdict": "accept", "issues": []}'
+
+  it('sends a draft with an uncited sentence back, naming the sentence, and the cited rewrite goes out unmarked', async () => {
     const out = await run({
-      script: {
-        draft: [DRAFT, `${DRAFT} The pavilion architect was Siza.`],
-        critic: [revise(QUOTE, 'Add the architect.'), '{"verdict": "accept", "issues": []}'],
-      },
+      script: { draft: [`${DRAFT} ${SIZA}`, `${DRAFT} The pavilion architect was Siza [1].`], critic: [ACCEPT] },
       toolsOnAgentCall: [1],
     })
-    expect(out.result?.answer).toBe(DRAFT)
+    expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (no more searches)', 'revise (1 of 2)', 'final (accepted)'])
+    expect(out.ends.find((end) => end.node === 'critic')?.detail).toBe(
+      `Checked that every sentence cites a source. "${SIZA}": Cite the source number that supports this sentence, like [1], or the sources of every input it uses.`,
+    )
+    expect(out.result?.answer).toBe(`${DRAFT} The pavilion architect was Siza [1].`)
+    expect(out.result?.citation).toEqual({ sentences: 2, uncited: [] })
+  })
+
+  it('asks the same of a derived figure: the inputs are cited, or the sentence goes back', async () => {
+    const bare = await run({ script: { draft: [`${DRAFT} 1998 minus 1900 is 98 years.`, `${DRAFT} 1998 [1] minus 1900 [1] is 98 years.`], critic: [ACCEPT] }, toolsOnAgentCall: [1] })
+    expect(bare.edges).toContain('revise (1 of 2)')
+    expect(bare.result?.citation).toEqual({ sentences: 2, uncited: [] })
+  })
+
+  it('keeps a sentence still uncited once the revisions are used, marks it, and says so in the final row', async () => {
+    const draft = `${DRAFT} ${SIZA}`
+    const out = await run({ script: { draft: [draft, draft, draft], critic: [ACCEPT] }, toolsOnAgentCall: [1] })
+    expect(out.counts.draft).toBe(3)
+    expect(out.result?.answer).toBe(`${DRAFT} ${SIZA} (not cited)`)
+    expect(out.result?.citation).toEqual({ sentences: 2, uncited: [SIZA] })
     expect(out.ends.find((end) => end.node === 'final')?.detail).toBe(
-      '1 cited source(s). Removed 1 uncited sentence(s) with a fact no source gives.',
+      '1 cited source(s). 1 of 2 sentence(s) carry no citation and are marked not cited.',
     )
   })
 
-  it('leaves a first draft alone', async () => {
-    const out = await run({ script: { draft: [`${DRAFT} The pavilion architect was Siza.`] }, toolsOnAgentCall: [1] })
-    expect(out.result?.answer).toContain('Siza')
+  it('shows the same status on the partial answer of a run that stops', async () => {
+    const timeout = new ProviderError(504, SLOW_MESSAGE)
+    const draft = `${DRAFT} ${SIZA}`
+    const out = await run({ script: { draft: [draft, draft, draft] }, toolsOnAgentCall: [1], failOn: { critic: { call: 1, error: timeout } } })
+    expect(out.last).toMatchObject({ type: 'result', citation: { uncited: [SIZA] }, answer: `${DRAFT} ${SIZA} (not cited)` })
   })
 })
 
 describe('an honest "the sources do not say" draft', () => {
-  const HONEST = 'The sources do not say who the mayor was. The page read, Lisbon, Ohio [1], has nothing on a pet.'
+  const HONEST = 'The sources do not say who the mayor was [1]. The page read, Lisbon, Ohio [1], has nothing on a pet.'
 
   it('passes the critic and goes out in one draft', async () => {
     const out = await run({ script: { draft: [HONEST] }, toolsOnAgentCall: [1] })
@@ -417,13 +438,13 @@ describe('a run that stops keeps what it has', () => {
 
   it('shows the revised draft as unreviewed when the second review times out', async () => {
     const out = await run({
-      script: { draft: [DRAFT, `${DRAFT} The fair was held in Lisbon.`], critic: [revise(QUOTE, 'Cite the theme.')] },
+      script: { draft: [DRAFT, `${DRAFT} The fair was held in Lisbon [1].`], critic: [revise(QUOTE, 'Cite the theme.')] },
       toolsOnAgentCall: [1],
       failOn: { critic: { call: 2, error: timeout } },
     })
     expect(out.last).toMatchObject({
       type: 'result',
-      answer: `${DRAFT} The fair was held in Lisbon.`,
+      answer: `${DRAFT} The fair was held in Lisbon [1].`,
       critic: { reviewed: false },
       ending: {
         kind: 'partial',

@@ -1,6 +1,6 @@
 import { PlainError, plainMessageOf, SERVER_ERROR } from '../errors'
-import { cleanRevisedAnswer, sanitizeCitations, sourcesFor } from '../citations'
-import type { EndingView, Frame, NodeEndFrame, NodeName, ResultFrame, SourceView, Totals } from '../events'
+import { finishAnswer } from '../citations'
+import type { CitationStatus, EndingView, Frame, NodeEndFrame, NodeName, ResultFrame, SourceView, Totals } from '../events'
 import { round12 } from '../models'
 import { BUDGET_MESSAGE, SLOW_MESSAGE } from '../openrouter'
 import { isRecord } from '../json'
@@ -111,6 +111,7 @@ function frameFor(
   critic: ResultFrame['critic'],
   truncated: boolean,
   ending: EndingView,
+  citation: CitationStatus,
   failed: TraceRow | null,
 ): ResultFrame {
   const rows = values.trace
@@ -120,6 +121,7 @@ function frameFor(
     sources,
     critic,
     ending,
+    citation,
     path: rows.map((row) => row.node),
     evidenceCount: values.evidence.length,
     toolRounds: values.toolRounds,
@@ -135,8 +137,8 @@ function frameFor(
 function resultFrame(values: ResearchValues, ms: number, skip: number): ResultFrame | null {
   const { finalAnswer, critique } = values
   if (!finalAnswer || !critique) return null
-  const { answer, sources, truncated, ending } = finalAnswer
-  return frameFor(values, ms, skip, answer, sources, { verdict: critique.verdict, notes: critique.notes, reviewed: critique.reviewed }, truncated, ending, null)
+  const { answer, sources, truncated, ending, citation } = finalAnswer
+  return frameFor(values, ms, skip, answer, sources, { verdict: critique.verdict, notes: critique.notes, reviewed: critique.reviewed }, truncated, ending, citation, null)
 }
 
 const times = (count: number) => (count === 1 ? 'once' : `${count} times`)
@@ -155,9 +157,7 @@ function causeOf(message: string): string {
 export function partialResult(values: ResearchValues, ms: number, message: string, skip = 0, failed: TraceRow | null = null): ResultFrame | null {
   const cause = causeOf(message)
   if (values.draftText !== '') {
-    const draft = values.revisions > 0 ? cleanRevisedAnswer(values.draftText, values.evidence, values.question).text : values.draftText
-    const answer = sanitizeCitations(draft, values.evidence)
-    const sources = sourcesFor(answer, values.evidence)
+    const { text: answer, sources, citation } = finishAnswer(values.draftText, values.evidence, values.revisions > 0)
     // A draft that cites none of the sources read is not shown, even as a partial answer.
     if (values.evidence.length > 0 && sources.length === 0) return null
     const reviewed = values.draftReviewed && values.critique !== null
@@ -170,12 +170,12 @@ export function partialResult(values: ResearchValues, ms: number, message: strin
       reviewed && values.critique
         ? { verdict: values.critique.verdict, notes: values.critique.notes, reviewed: true }
         : { verdict: 'accept' as const, notes: text, reviewed: false }
-    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, { kind: 'partial', message: text }, failed)
+    return frameFor(values, ms, skip, answer, sources, critic, values.draftTruncated, { kind: 'partial', message: text }, citation, failed)
   }
   if (values.evidence.length === 0) return null
   const pages = values.evidence.map(({ n, title, url }) => ({ n, title, url }))
   const text = `No answer was written: ${cause} the run. The agent read ${values.evidence.length === 1 ? '1 page' : `${values.evidence.length} pages`}, listed below.`
-  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, { kind: 'no_answer', message: text }, failed)
+  return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, { kind: 'no_answer', message: text }, { sentences: 0, uncited: [] }, failed)
 }
 
 interface Drive {

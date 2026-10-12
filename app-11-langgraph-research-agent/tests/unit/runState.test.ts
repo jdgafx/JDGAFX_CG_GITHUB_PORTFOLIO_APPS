@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ResultFrame } from '../../netlify/shared/events'
-import { applyFrame, emptyRun, failRun, researchStatus, startRun, statusText } from '../../src/lib/runState'
+import { applyFrame, emptyRun, failRun, liveData, researchStatus, startRun, statusText } from '../../src/lib/runState'
 
 describe('run view', () => {
   it('starts ready, then says it is starting, then names the running node', () => {
@@ -76,6 +76,7 @@ describe('run view', () => {
     sources: [{ n: 1, title: 'Expo 98', url: 'https://en.wikipedia.org/wiki/Expo_98' }],
     critic: { verdict: 'accept', notes: '', reviewed: true },
     ending: { kind: 'complete', message: '' },
+    citation: { sentences: 1, uncited: [] },
     path: ['plan', 'agent', 'draft', 'critic', 'final'],
     evidenceCount: 1,
     toolRounds: 0,
@@ -136,6 +137,25 @@ describe('run view', () => {
     expect(view).toMatchObject({ phase: 'failed', error: 'The AI provider did not answer in time.' })
     expect(statusText(view)).toBe('Failed')
   })
+
+  it('ends a run whose Wikipedia reads all failed as Failed, with the live chip failed, never as Answer ready', () => {
+    let view = applyFrame(startRun(), { type: 'node_end', node: 'tools', visit: 1, ms: 3, status: 'ok', detail: 'No new source. Could not reach Wikipedia.' })
+    view = applyFrame(view, { type: 'node_start', node: 'draft', visit: 1, ms: 9 })
+    view = applyFrame(view, { type: 'node_end', node: 'draft', visit: 1, ms: 1, status: 'failed', detail: 'Wikipedia could not be reached, so no page was read and nothing was researched. Please try again.' })
+    view = applyFrame(view, { type: 'error', message: 'Wikipedia could not be reached, so no page was read and nothing was researched. Please try again.' })
+    expect(view.phase).toBe('failed')
+    expect(view.result).toBeNull()
+    expect(statusText(view)).toBe('Failed')
+    expect(researchStatus(view)).toBe('Research failed. The answer panel says why.')
+    expect(liveData(view).state).toBe('failed')
+  })
+
+  it('does not call an answer with an uncited sentence ready', () => {
+    const view = applyFrame(startRun(), resultFrame({ citation: { sentences: 2, uncited: ['1931 minus 1889 is 42 years.'] } }))
+    expect(statusText(view)).toBe('Not fully cited')
+    expect(researchStatus(view)).toBe('Research finished. 1 sentence(s) of the answer are marked not cited.')
+    expect(statusText(applyFrame(startRun(), resultFrame()))).toBe('Answer ready')
+  })
 })
 
 describe('a resumed run', () => {
@@ -160,7 +180,7 @@ describe('a resumed run', () => {
 
   it('does not call a re-run answer ready when the critic still asked for changes', () => {
     const frame = (verdict: 'accept' | 'revise'): ResultFrame => ({
-      type: 'result', answer: 'A [1].', sources: [], critic: { verdict, notes: 'n', reviewed: true }, ending: { kind: 'complete', message: '' },
+      type: 'result', answer: 'A [1].', sources: [], critic: { verdict, notes: 'n', reviewed: true }, ending: { kind: 'complete', message: '' }, citation: { sentences: 1, uncited: [] },
       path: [], evidenceCount: 1, toolRounds: 1, revisions: 2, truncated: false, totals: { ms: 1, unpricedRows: 0, unreportedCalls: 0, refusedCalls: 0 }, models: [],
       fork: { kind: 'plan', visit: 1, reused: 0, rerun: 8 },
     })

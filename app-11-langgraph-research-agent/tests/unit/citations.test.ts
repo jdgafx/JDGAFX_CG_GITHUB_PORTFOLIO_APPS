@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   citedNumbers,
-  cleanRevisedAnswer,
+  finishAnswer,
+  markUncited,
   removeReviewTalk,
-  removeUncitedFacts,
+  sentencesOf,
   sanitizeCitations,
   sourcesFor,
   type Evidence,
 } from '../../netlify/shared/citations'
+import { NOT_CITED } from '../../netlify/shared/events'
 
 const EVIDENCE: Evidence[] = [
   { n: 1, title: 'Expo 98', url: 'https://en.wikipedia.org/wiki/Expo_98', extract: 'Held in 1998.' },
@@ -95,44 +97,74 @@ describe('removeReviewTalk', () => {
   })
 })
 
-describe('removeUncitedFacts', () => {
-  const EVIDENCE: Evidence[] = [
-    { n: 1, title: 'Vltava', url: 'https://en.wikipedia.org/wiki/Vltava', extract: 'The Vltava flows through Prague, the capital of the Czech Republic.' },
+describe('sentencesOf', () => {
+  it('keeps a marker that follows its full stop with its sentence', () => {
+    expect(sentencesOf('Built in 1889. [1] Opened in 1931 [2].')).toEqual(['Built in 1889. [1]', 'Opened in 1931 [2].'])
+  })
+
+  it('does not split on a decimal or on a one-letter abbreviation', () => {
+    expect(sentencesOf('It is 3.5 km long [1]. The U.S. Army used it [2].')).toEqual(['It is 3.5 km long [1].', 'The U.S. Army used it [2].'])
+  })
+})
+
+describe('markUncited', () => {
+  const sources: Evidence[] = [
+    { n: 1, title: 'Eiffel Tower', url: 'https://en.wikipedia.org/wiki/Eiffel_Tower', extract: 'Completed in 1889.' },
+    { n: 2, title: 'Empire State Building', url: 'https://en.wikipedia.org/wiki/Empire_State_Building', extract: 'Completed in 1931.' },
   ]
-  const QUESTION = 'Which river flows through the capital of the country where Bedřich Smetana was born?'
 
-  it('removes an uncited sentence that brings in a name no source or question has', () => {
-    const answer = 'The Vltava flows through Prague [1]. Smetana was born in Litomyšl.'
-    expect(removeUncitedFacts(answer, EVIDENCE, QUESTION)).toEqual({ text: 'The Vltava flows through Prague [1].', removed: 1 })
+  it('tags a sentence with no source marker, keeps its text, and lists it', () => {
+    const answer = 'The Eiffel Tower came first [1]. 1931 minus 1889 is 42 years.'
+    expect(markUncited(answer, sources)).toEqual({
+      text: `The Eiffel Tower came first [1]. 1931 minus 1889 is 42 years. ${NOT_CITED}`,
+      status: { sentences: 2, uncited: ['1931 minus 1889 is 42 years.'] },
+    })
   })
 
-  it('keeps an uncited sentence whose names and numbers are in a source or in the question', () => {
-    const answer = 'The Vltava flows through Prague [1]. The sources do not say where Bedřich Smetana was born. Prague is the capital of the Czech Republic.'
-    expect(removeUncitedFacts(answer, EVIDENCE, QUESTION)).toEqual({ text: answer, removed: 0 })
+  it('counts a derived figure as cited when it carries the markers of its inputs', () => {
+    const answer = '1931 [2] minus 1889 [1] is 42 years.'
+    expect(markUncited(answer, sources)).toEqual({ text: answer, status: { sentences: 1, uncited: [] } })
   })
 
-  it('does not touch a sentence that carries a citation, and flags an uncited year no source has', () => {
-    expect(removeUncitedFacts('Smetana was born in Litomyšl [1].', EVIDENCE, QUESTION).removed).toBe(0)
-    const kept = removeUncitedFacts('The Vltava flows through Prague [1]. It was dammed in 1953.', EVIDENCE, QUESTION)
-    expect(kept).toEqual({ text: 'The Vltava flows through Prague [1].', removed: 1 })
+  it('works line by line and ignores a line with no word or number in it', () => {
+    const answer = 'Built in 1889 [1].\n---\n- Opened in 1931.'
+    expect(markUncited(answer, sources)).toEqual({
+      text: `Built in 1889 [1].\n---\n- Opened in 1931. ${NOT_CITED}`,
+      status: { sentences: 2, uncited: ['- Opened in 1931.'] },
+    })
   })
 
-  it('keeps the answer whole when nothing in it would remain', () => {
-    expect(removeUncitedFacts('Smetana was born in Litomyšl.', EVIDENCE, QUESTION)).toEqual({
-      text: 'Smetana was born in Litomyšl.',
-      removed: 0,
+  it('asks for no citation when no source was read', () => {
+    expect(markUncited('The sources were not reached.', [])).toEqual({
+      text: 'The sources were not reached.',
+      status: { sentences: 0, uncited: [] },
     })
   })
 })
 
-describe('cleanRevisedAnswer', () => {
-  it('removes review talk and then uncited facts, and counts each', () => {
-    const evidence: Evidence[] = [{ n: 1, title: 'Prague', url: 'https://en.wikipedia.org/wiki/Prague', extract: 'Prague is the capital of Czechia.' }]
+describe('finishAnswer', () => {
+  const sources: Evidence[] = [{ n: 1, title: 'Prague', url: 'https://en.wikipedia.org/wiki/Prague', extract: 'Prague is the capital of Czechia.' }]
+
+  it('checks a first draft and a revision by the same rule', () => {
+    const draft = 'Prague is the capital [1]. It lies on the Vltava.'
+    const first = finishAnswer(draft, sources, false)
+    const revised = finishAnswer(draft, sources, true)
+    expect(first.citation).toEqual({ sentences: 2, uncited: ['It lies on the Vltava.'] })
+    expect(revised.text).toBe(first.text)
+    expect(revised.citation).toEqual(first.citation)
+  })
+
+  it('removes review talk from a revision only, and never deletes an uncited sentence', () => {
     const draft = 'Prague is the capital [1]. The reviewer is right that more was needed. It lies on the Vltava.'
-    expect(cleanRevisedAnswer(draft, evidence, 'What is the capital?')).toEqual({
-      text: 'Prague is the capital [1].',
-      reviewRemoved: 1,
-      factsRemoved: 1,
-    })
+    const revised = finishAnswer(draft, sources, true)
+    expect(revised.reviewRemoved).toBe(1)
+    expect(revised.text).toBe(`Prague is the capital [1]. It lies on the Vltava. ${NOT_CITED}`)
+    expect(finishAnswer(draft, sources, false).reviewRemoved).toBe(0)
+  })
+
+  it('counts a sentence whose only marker names no source as uncited', () => {
+    const out = finishAnswer('Prague is the capital [1]. It is old [7].', sources, false)
+    expect(out.text).toBe(`Prague is the capital [1]. It is old. ${NOT_CITED}`)
+    expect(out.sources.map((source) => source.n)).toEqual([1])
   })
 })
