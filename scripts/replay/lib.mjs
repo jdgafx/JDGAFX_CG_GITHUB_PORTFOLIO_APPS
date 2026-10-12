@@ -19,7 +19,7 @@ const round = ms => Math.round(ms * 10) / 10
 //     is chosen from the reply's parsed data: frames (a literal [DONE] is skipped). `frame` filters them: {field, equals}
 //     keeps frames whose dotted field equals the value, {has} keeps frames that carry the dotted field; omitted keeps all.
 //     `take` is 'last' (default), 'first', or 'all' (the body is the array of kept frames, so a * in expect/reported reaches
-//     into each). `path` (not with 'all') then picks a dotted field inside the one frame; omitted keeps the whole frame.
+//     into each). `path` then picks a dotted field inside each kept frame (a kept frame without it refuses the run); omitted keeps whole frames.
 //     One rule for every event-stream reply of the app; JSON replies are parsed as before.
 export const APPS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'apps')
 const APP_NAME = /^[a-z0-9][a-z0-9-]*$/
@@ -63,7 +63,7 @@ export function loadAppConfig(app, dir = APPS_DIR) {
       throw bad('sse.frame must be {field, equals} or {has}')
     }
     if (c.sse.take !== undefined && !['first', 'last', 'all'].includes(c.sse.take)) throw bad("sse.take must be 'first', 'last' or 'all'")
-    if (c.sse.path !== undefined && (!nonEmpty(c.sse.path) || c.sse.take === 'all')) throw bad("sse.path must be a dotted field name and cannot be used with take 'all'")
+    if (c.sse.path !== undefined && (!nonEmpty(c.sse.path))) throw bad('sse.path must be a dotted field name')
   }
   const r = c.reported
   if (!isObject(r) || !isSpec(r.model) || !isSpec(r.costUsd) || typeof r.modelRole !== 'string' || typeof r.costScope !== 'string') {
@@ -129,12 +129,14 @@ function sseBody(text, sse, where) {
   const keep = !f ? () => true : f.has !== undefined ? frame => valuesAt(frame, f.has)[0] !== undefined : frame => valuesAt(frame, f.field)[0] === f.equals
   const hits = frames.filter(keep)
   if (hits.length === 0) throw new RefusedRun(`${where} never sent a frame ${!f ? '' : f.has !== undefined ? `with ${f.has}` : `with ${f.field} = ${JSON.stringify(f.equals)}`}`.trim())
-  if (sse.take === 'all') return hits
-  const frame = sse.take === 'first' ? hits[0] : hits[hits.length - 1]
-  if (sse.path === undefined) return frame
-  const value = valuesAt(frame, sse.path)[0]
-  if (value === undefined) throw new RefusedRun(`${where} chosen frame has no ${sse.path}`)
-  return value
+  const pick = frame => {
+    if (sse.path === undefined) return frame
+    const value = valuesAt(frame, sse.path)[0]
+    if (value === undefined) throw new RefusedRun(`${where} chosen frame has no ${sse.path}`)
+    return value
+  }
+  if (sse.take === 'all') return hits.map(pick)
+  return pick(sse.take === 'first' ? hits[0] : hits[hits.length - 1])
 }
 
 function satisfies(value, e) {

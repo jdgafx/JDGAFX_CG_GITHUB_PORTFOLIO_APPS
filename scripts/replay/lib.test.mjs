@@ -157,7 +157,6 @@ test('sse config is validated', () => {
   configError(() => loadAppConfig('a', write('x')), /sse must be/)
   configError(() => loadAppConfig('a', write({ frame: { has: 'result', equals: 1 } })), /sse.frame/)
   configError(() => loadAppConfig('a', write({ frame: { has: '' } })), /sse.frame/)
-  configError(() => loadAppConfig('a', write({ take: 'all', path: 'run' })), /cannot be used with take 'all'/)
   assert.deepEqual(loadAppConfig('a', write({})).sse, {})
   assert.deepEqual(loadAppConfig('a', write({ frame: { has: 'result.metrics' }, take: 'all' })).sse.take, 'all')
   configError(() => loadAppConfig('a', write({ frame: { field: 'type' } })), /sse.frame/)
@@ -184,6 +183,14 @@ test("take 'all' hands every kept frame to expect/reported as an array", () => {
   // no frame filter: every frame, progress frames included, so a check over all of them sees the frames without a result
   const everything = untypedConfig({ take: 'all' }, '*.result.metrics.ok', '1.result.model', '1.result.metrics.usd')
   refused(streamInput(untypedStream, undefined, everything), /not as expected/)
+  // [DONE] is skipped with take all: exactly the two result frames are in the array, no third element
+  const count = untypedConfig({ frame: { has: 'result' }, take: 'all' }, '2', '0.result.model', '1.result.metrics.usd')
+  refused(streamInput(untypedStream, undefined, { ...count, expect: [{ path: '/api/ai', field: '2', nonEmpty: true }] }), /not as expected/)
+  assert.equal(buildRecording(streamInput(untypedStream, undefined, { ...count, expect: [{ path: '/api/ai', field: '1.result.model', nonEmpty: true }] })).reported.model, 'v/m')
+  // path is applied to each kept frame
+  const pathed = untypedConfig({ frame: { has: 'result' }, take: 'all', path: 'result' }, '*.metrics.ok', '0.model', '1.metrics.usd')
+  assert.deepEqual(buildRecording(streamInput(untypedStream, undefined, pathed)).reported, { model: 'v/m', model_role: 'writer', cost_usd: 0.04, cost_scope: 'whole run' })
+  refused(streamInput([frame({ result: { model: 'v/m' } }), frame({ a: 1 })], undefined, { ...pathed, sse: { take: 'all', path: 'result' } }), /no result/)
   refused(streamInput(['data: [DONE]\n\n'], undefined, cfg), /never sent a frame/)
   refused(streamInput([frame({ result: {} }), 'data: nope\n\n'], undefined, cfg), /not JSON/)
 })
