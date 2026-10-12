@@ -1,0 +1,280 @@
+{
+ "source": "SP2 30e7b9c r2-a (Photosynthesis): the real extract output and summary, and the ids the lenient check attached to each sentence. Sentence 4 drops \"as a byproduct of water splitting\" yet was credited with 1.2.",
+ "chunks": [
+  {
+   "chunk": 1,
+   "points": [
+    "Photosynthesis is a set of biological processes in which photopigment-bearing autotrophs convert light energy, typically sunlight, into chemical energy to fuel their metabolism.",
+    "The term photosynthesis usually refers to oxygenic photosynthesis, which releases oxygen as a byproduct of water splitting.",
+    "Photosynthetic organisms store converted energy in intracellular organic compounds, typically carbohydrates such as sugars, starches, phytoglycogen and cellulose.",
+    "Cells metabolize these stored organic compounds through cellular respiration when they need to use the energy.",
+    "Photosynthesis produces and maintains the oxygen content of Earth's atmosphere and supplies most biological energy needed for complex life; some organisms perform anoxygenic photosynthesis without producing oxygen."
+   ]
+  },
+  {
+   "chunk": 2,
+   "points": [
+    "Purple bacteria use bacteriochlorophyll to split hydrogen sulfide as a reductant instead of water, releasing sulfur rather than oxygen.",
+    "Sulfur-based anoxygenic photosynthesis was a dominant form of photosynthesis in the euxinic Canfield oceans during the Boring Billion.",
+    "Halobacterium and other archaea use retinal and microbial rhodopsins to absorb green light and create a proton gradient that powers ATP synthesis.",
+    "Archaeal photosynthesis may have been the earliest form of photosynthesis, evolving as far back as the Paleoarchean, before cyanobacteria.",
+    "In all species, photosynthesis begins when reaction centers absorb light energy, though details vary between species."
+   ]
+  },
+  {
+   "chunk": 3,
+   "points": [
+    "In plants, chlorophylls absorb red and blue light, reflecting green, and are held inside chloroplasts abundant in leaf cells.",
+    "In cyanobacteria, photosynthetic pigments are embedded in the plasma membrane.",
+    "Light-dependent reactions use some energy to strip electrons from substances such as water, producing oxygen gas.",
+    "Hydrogen freed from splitting water is used to create NADPH and ATP, which carry energy for later processes.",
+    "In the Calvin cycle, light-independent reactions incorporate atmospheric carbon dioxide into compounds like RuBP, then reduce them using ATP and NADPH to form carbohydrates such as glucose."
+   ]
+  },
+  {
+   "chunk": 4,
+   "points": [
+    "The first photosynthetic organisms likely evolved using reducing agents such as hydrogen or hydrogen sulfide, rather than water, as electron sources.",
+    "Cyanobacteria appeared later and their excess oxygen directly contributed to oxygenating the Earth, making complex life possible.",
+    "Global photosynthesis captures energy at about 130 terawatts, roughly eight times human civilization's total power consumption.",
+    "Photosynthetic organisms convert about 100\u2013115 billion tons of carbon into biomass per year.",
+    "Most photosynthetic organisms are photoautotrophs, synthesizing food from carbon dioxide and water using light energy; photoheterotrophs instead use organic compounds as their carbon source."
+   ]
+  },
+  {
+   "chunk": 5,
+   "points": [
+    "In plants, algae, and cyanobacteria, photosynthesis releases oxygen; this oxygenic photosynthesis is by far the most common type used by living organisms.",
+    "Some shade-loving plants (sciophytes) produce so little oxygen during photosynthesis that they use all of it themselves rather than releasing it.",
+    "Anoxygenic photosynthesis, used mostly by bacteria, either consumes carbon dioxide without releasing oxygen or produces elemental sulfur instead of molecular oxygen.",
+    "Carbon fixation converts carbon dioxide into sugars, with photosynthesis capturing sunlight energy to make carbohydrates; carbon fixation is an endothermic redox reaction.",
+    "Photosynthesis is broadly the opposite of cellular respiration: it reduces carbon dioxide to carbohydrates, while respiration oxidizes carbohydrates or nutrients to carbon dioxide."
+   ]
+  },
+  {
+   "chunk": 6,
+   "points": [
+    "Cellular respiration uses carbohydrates, amino acids and fatty acids, which are oxidized to produce carbon dioxide and water and release chemical energy.",
+    "Photosynthesis and cellular respiration are distinct processes, using different reaction sequences and taking place in different cellular compartments; respiration occurs in mitochondria.",
+    "Van Niel's general photosynthesis equation uses H2A as electron donor, producing carbohydrate and oxidized electron donor A from light energy.",
+    "In oxygenic photosynthesis water is the electron donor, so CO2 plus water and light yields carbohydrate and oxygen.",
+    "Water appears on both sides of the oxygenic equation; canceling water gives the net equation CO2 + H2O + light \u2192 [CH2O] + O2."
+   ]
+  },
+  {
+   "chunk": 7,
+   "points": [
+    "Some microbes use sunlight to oxidize arsenite to arsenate, substituting arsenite for water in the electron-supply role.",
+    "Photosynthesis occurs in two stages: light-dependent reactions and light-independent reactions.",
+    "Light-dependent reactions capture light energy to make NADPH and ATP.",
+    "Light-independent reactions use NADPH and ATP to capture and reduce carbon dioxide.",
+    "Most oxygenic photosynthesizers use visible light, though at least three use far-red radiation; some archaea use bacteriorhodopsin as a proton pump."
+   ]
+  },
+  {
+   "chunk": 8,
+   "points": [
+    "The non-carbon-fixing, non-oxygen-releasing photosynthesis process produces a proton gradient directly, which is then converted into chemical energy.",
+    "This type of photosynthesis appears to have evolved separately from the more common photosynthesis types.",
+    "In photosynthetic bacteria, light-gathering proteins are embedded in cell membranes, which may be folded into thylakoids or vesicles called intracytoplasmic membranes.",
+    "Folded membranes can fill most of a bacterial cell's interior, greatly increasing surface area and the amount of light the bacteria can absorb.",
+    "In plants and algae, photosynthesis occurs in chloroplasts, which are enclosed by a membrane with inner and outer phospholipid layers and an intermembrane space, surrounding an aqueous stroma; a typical plant cell has about 10 to 100 chloroplasts."
+   ]
+  },
+  {
+   "chunk": 9,
+   "points": [
+    "Stacks of thylakoids, called grana, are embedded within the stroma and are the site of photosynthesis.",
+    "Thylakoids appear as flattened disks.",
+    "Each thylakoid is enclosed by a thylakoid membrane, and the enclosed volume is called the lumen or thylakoid space.",
+    "Integral and peripheral membrane protein complexes of the photosynthetic system are embedded in the thylakoid membrane."
+   ]
+  }
+ ],
+ "summary": {
+  "overview": "Photosynthesis converts light energy into chemical energy stored in carbohydrates, mainly through oxygenic processes in plants, algae, and cyanobacteria. The text also covers its types, stages, equation, and cell structures.",
+  "sections": [
+   {
+    "heading": "Core role and significance",
+    "points": [
+     {
+      "text": "Photosynthesis lets photopigment-bearing autotrophs convert light energy into chemical energy stored in carbohydrates.",
+      "chunks": [
+       1
+      ]
+     },
+     {
+      "text": "Photosynthesis produces and maintains Earth's atmospheric oxygen and supplies most biological energy for complex life.",
+      "chunks": [
+       1,
+       4
+      ]
+     },
+     {
+      "text": "Global photosynthesis captures about 130 terawatts, roughly eight times human civilization's total power consumption.",
+      "chunks": [
+       4
+      ]
+     }
+    ]
+   },
+   {
+    "heading": "Types of photosynthesis",
+    "points": [
+     {
+      "text": "Oxygenic photosynthesis, used by plants, algae, and cyanobacteria, releases oxygen and is the most common type.",
+      "chunks": [
+       1,
+       5
+      ]
+     },
+     {
+      "text": "Purple bacteria split hydrogen sulfide instead of water, releasing sulfur, while anoxygenic photosynthesis releases no oxygen.",
+      "chunks": [
+       2,
+       5
+      ]
+     },
+     {
+      "text": "Some microbes oxidize arsenite to arsenate using sunlight, and Halobacterium uses rhodopsins to build a proton gradient.",
+      "chunks": [
+       2,
+       7
+      ]
+     }
+    ]
+   },
+   {
+    "heading": "Stages and key reactions",
+    "points": [
+     {
+      "text": "Light-dependent reactions capture light energy to make NADPH and ATP, which fuel later processes.",
+      "chunks": [
+       3,
+       7
+      ]
+     },
+     {
+      "text": "In the Calvin cycle, light-independent reactions reduce carbon dioxide into carbohydrates such as glucose.",
+      "chunks": [
+       3,
+       7
+      ]
+     },
+     {
+      "text": "The net oxygenic equation is CO2 + H2O + light, yielding carbohydrate and oxygen.",
+      "chunks": [
+       6
+      ]
+     }
+    ]
+   },
+   {
+    "heading": "Relation to cellular respiration",
+    "points": [
+     {
+      "text": "Photosynthesis reduces carbon dioxide to carbohydrates, while cellular respiration oxidizes them back to carbon dioxide.",
+      "chunks": [
+       5,
+       6
+      ]
+     },
+     {
+      "text": "Cells use cellular respiration to metabolize stored compounds when they need energy, and respiration occurs in mitochondria.",
+      "chunks": [
+       1,
+       6
+      ]
+     }
+    ]
+   },
+   {
+    "heading": "Cellular structures",
+    "points": [
+     {
+      "text": "In plants and algae, photosynthesis occurs in chloroplasts, and a typical plant cell has about 10 to 100.",
+      "chunks": [
+       8
+      ]
+     },
+     {
+      "text": "Grana, stacks of thylakoids embedded in the stroma, are the site of photosynthesis.",
+      "chunks": [
+       9
+      ]
+     },
+     {
+      "text": "In cyanobacteria and photosynthetic bacteria, light-gathering pigments and proteins sit in membranes.",
+      "chunks": [
+       3,
+       8
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "stated": {
+  "1": [
+   "5.4",
+   "1.1",
+   "1.3"
+  ],
+  "2": [
+   "1.5"
+  ],
+  "3": [
+   "4.3"
+  ],
+  "4": [
+   "5.1",
+   "1.2"
+  ],
+  "5": [
+   "2.1",
+   "5.3",
+   "1.5"
+  ],
+  "6": [
+   "7.1",
+   "7.5",
+   "2.3"
+  ],
+  "7": [
+   "7.3",
+   "3.4"
+  ],
+  "8": [
+   "7.4",
+   "5.4",
+   "3.5"
+  ],
+  "9": [
+   "6.4",
+   "6.5"
+  ],
+  "10": [
+   "5.5",
+   "6.1"
+  ],
+  "11": [
+   "1.4",
+   "6.2"
+  ],
+  "12": [
+   "8.5"
+  ],
+  "13": [
+   "9.1"
+  ],
+  "14": [
+   "8.3",
+   "3.2"
+  ]
+ },
+ "reviewFlags": [
+  "2.5",
+  "3.3",
+  "4.5"
+ ]
+}
