@@ -1,12 +1,15 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
 import { buildDiff, MAX_DIFF_CHARS, type PrFileInput } from './diff'
 import { HANDOFF_EXPIRED, HANDOFF_REFUSED, openHandoff } from './handoff'
-import { checkRate, reviewId } from './ratelimit'
-import { runFirstPass, runRead, settleModel, type ReviewInput } from './pipeline'
+import { checkRate, reviewId, shardCount } from './ratelimit'
+import { runFirstPass, runMerge, runRead, runShard, settleModel, shardsOf, type ReviewInput } from './pipeline'
 import { PIPELINE, noun, padSkipped, record, sumUsage, type Run } from './trace'
 
-/** The three requests of one review: pass 1, then the two reads of pass 2. Each is its own function with its own time budget. */
-export type Stage = 'review' | 'read-1' | 'read-2'
+/**
+ * The requests of one review. Pass 1 is one request (`review`), or one per shard followed by a `merge` when the file is large;
+ * then the two reads of pass 2, one request per batch. Each is its own function invocation with its own time budget.
+ */
+export type Stage = 'review' | 'merge' | 'read-1' | 'read-2'
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://jdgafx-app-03-ai-code-review.netlify.app',
@@ -55,7 +58,7 @@ function fail(error: string, status: number, headers: Record<string, string>): R
 }
 
 type Checked =
-  | { ok: true; input: ReviewInput; apiKey: string; summary: string; handoff: unknown }
+  | { ok: true; input: ReviewInput; apiKey: string; summary: string; handoff: unknown; shards: unknown }
   | { ok: false; status: number; error: string; headers?: Record<string, string> }
 
 const MAX_FILES = 300
@@ -87,7 +90,9 @@ function readBatch(req: Request): number | null {
 }
 
 async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
-  const limit = checkRate(stage, clientKey(req), reviewId(req))
+  const of = shardCount(req)
+  if (of === null) return bad('The number of parts of this review was not a whole number.')
+  const limit = checkRate(stage, clientKey(req), reviewId(req), of)
   if (!limit.allowed) {
     return {
       ok: false,
@@ -104,7 +109,7 @@ async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) return bad('Request is too large.', 413)
 
   // Measure the bytes actually received, because Content-Length can be missing or wrong.
-  type Body = { mode?: unknown; code?: unknown; language?: unknown; files?: unknown; handoff?: unknown }
+  type Body = { mode?: unknown; code?: unknown; language?: unknown; files?: unknown; handoff?: unknown; shards?: unknown }
   let body: Body | null
   try {
     const bytes = await req.arrayBuffer()
@@ -115,7 +120,7 @@ async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
   }
 
   // The client may send a model field; it is ignored. The chat model is fixed in provider.ts.
-  const { mode, code, language, files, handoff } = body ?? {}
+  const { mode, code, language, files, handoff, shards } = body ?? {}
 
   if (mode === 'pr') {
     const checked = checkFiles(files)
@@ -129,6 +134,7 @@ async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
       ok: true,
       apiKey,
       handoff,
+      shards,
       input: { kind: 'pr', files: checked.files },
       summary: `Pull request, ${noun(checked.files.length, 'file')}, ${noun(built.changed, 'changed line')}, ${built.chars.toLocaleString('en-US')} characters of diff`,
     }
@@ -142,14 +148,15 @@ async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
     ok: true,
     apiKey,
     handoff,
+    shards,
     input: { kind: 'file', lang, lines },
     summary: `${lang}, ${noun(lines.length, 'line')}, ${code.length.toLocaleString('en-US')} characters`,
   }
 }
 
-async function endWithError(run: Run, stage: Stage, error: string, status: number, headers: Record<string, string> = {}): Promise<Response> {
-  // Only the review lists the whole pipeline: a read request's trace is its own rows.
-  if (stage === 'review' && run.trace.length > 0) padSkipped(run)
+async function endWithError(run: Run, stage: Stage, error: string, status: number, headers: Record<string, string> = {}, pad = stage === 'review'): Promise<Response> {
+  // Only a review that is one request lists the whole pipeline: a shard's, a merge's and a read's trace is its own rows.
+  if (pad && run.trace.length > 0) padSkipped(run)
   const model = await settleModel(run)
   return json(
     { success: false, error, trace: run.trace, usage: sumUsage(run.usages), unreportedCalls: run.unreported, model: run.model, ...model, totalMs: Date.now() - run.started },
@@ -166,18 +173,55 @@ async function handle(req: Request, run: Run, stage: Stage): Promise<Response> {
     record(run, 'Check request', 'failed', checkAt, checked.error)
     return endWithError(run, stage, checked.error, checked.status, checked.headers)
   }
+  const answer = async (body: Record<string, unknown>, model: string | null): Promise<Response> => {
+    const settled = await settleModel(run)
+    return json({ success: true, stage, ...body, trace: run.trace, usage: sumUsage(run.usages), unreportedCalls: run.unreported, model, ...settled, totalMs: Date.now() - run.started }, 200, run.headers)
+  }
+
+  if (stage === 'merge') {
+    const outcome = runMerge(run, checked.input, checked.apiKey, checked.shards)
+    if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers, false)
+    const { result, candidates, dropped, batches, handoff, model } = outcome
+    return answer({ result, candidates, dropped, batches, handoff }, model)
+  }
+
+  if (stage === 'review') {
+    // The parts of this review, planned here from the same input the browser planned them from. A request that disagrees is refused
+    // before any model call: the rate limit counted it as a share of a review of `of` parts.
+    const plan = shardsOf(checked.input)
+    const index = new URL(req.url).searchParams.get('shard')
+    const part = index === null ? 0 : /^\d{1,2}$/.test(index) ? Number(index) : -1
+    if (plan.length !== shardCount(req) || part < 0 || part >= plan.length) {
+      const why = `This review is made of ${plan.length} ${plan.length === 1 ? 'part' : 'parts'}; the request named another.`
+      record(run, 'Check request', 'failed', checkAt, why)
+      return endWithError(run, stage, why, 400, {}, false)
+    }
+    const many = plan.length > 1
+    // One Check request row for the whole review: the first part records it.
+    if (part === 0) record(run, 'Check request', 'ok', checkAt, checked.summary)
+    if (!many) {
+      const outcome = await runFirstPass(run, checked.input, checked.apiKey)
+      if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers)
+      const { result, candidates, dropped, batches, handoff, model } = outcome
+      return answer({ result, candidates, dropped, batches, handoff }, model)
+    }
+    const outcome = await runShard(run, checked.input, checked.apiKey, part)
+    if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers, false)
+    return answer({ shard: part, of: plan.length, record: outcome.record }, outcome.model)
+  }
+
   // A read works from the first pass's comments, which came through the browser: only the server's own signed record, made for
   // exactly this code, this function and this batch, and made within the last three minutes, is accepted. Anything else is
   // refused before any model is called.
-  const batch = stage === 'review' ? 0 : readBatch(req)
+  const batch = readBatch(req)
   if (batch === null) {
     record(run, 'Check request', 'failed', checkAt, 'A read needs the number of its batch.')
     return endWithError(run, stage, 'A read needs the number of its batch.', 400)
   }
-  const opened = stage === 'review' ? { id: '', comments: [], batches: [] } : openHandoff(checked.apiKey, checked.input, checked.handoff, stage, batch)
+  const opened = openHandoff(checked.apiKey, checked.input, checked.handoff, stage, batch)
   // The rate limit counted this request under the id in the query string, before the hand-off could be read. That id must be the
   // hand-off's own, or one admitted review could front for the hand-offs of others and skip their count.
-  if (stage !== 'review' && opened !== null && opened !== 'expired' && reviewId(req) !== opened.id) {
+  if (opened !== null && opened !== 'expired' && reviewId(req) !== opened.id) {
     record(run, 'Check request', 'failed', checkAt, HANDOFF_REFUSED)
     return endWithError(run, stage, HANDOFF_REFUSED, 400)
   }
@@ -186,20 +230,9 @@ async function handle(req: Request, run: Run, stage: Stage): Promise<Response> {
     record(run, 'Check request', 'failed', checkAt, why)
     return endWithError(run, stage, why, 400)
   }
-  // A read's trace is its model call alone: the review's own trace already holds the one Check request row.
-  if (stage === 'review') record(run, 'Check request', 'ok', checkAt, checked.summary)
-
-  if (stage === 'review') {
-    const outcome = await runFirstPass(run, checked.input, checked.apiKey)
-    if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers)
-    const settled = await settleModel(run)
-    const { result, candidates, dropped, batches, handoff, model } = outcome
-    return json({ success: true, stage, result, candidates, dropped, batches, handoff, trace: run.trace, usage: sumUsage(run.usages), unreportedCalls: run.unreported, model, ...settled, totalMs: Date.now() - run.started }, 200, run.headers)
-  }
   const outcome = await runRead(run, checked.input, checked.apiKey, stage === 'read-1' ? 1 : 2, opened, batch)
   if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers)
-  const settled = await settleModel(run)
-  return json({ success: true, stage, read: outcome.read, rows: outcome.rows, trace: run.trace, usage: sumUsage(run.usages), unreportedCalls: run.unreported, model: run.model, ...settled, totalMs: Date.now() - run.started }, 200, run.headers)
+  return answer({ read: outcome.read, rows: outcome.rows }, run.model)
 }
 
 /** The function for one stage: the same checks and answers for all three, each with its own run and clock. */
@@ -228,7 +261,7 @@ export function serve(stage: Stage): (req: Request) => Promise<Response> {
     } catch (err) {
       console.error('CodeLens: unexpected server error', err)
       if (!run) return json({ success: false, error: SERVER_ERROR }, 500, headers)
-      const names: readonly string[] = stage === 'review' ? PIPELINE : [stage === 'read-1' ? 'Pass 2: verify (read 1)' : 'Pass 2: verify (read 2, adversary)']
+      const names: readonly string[] = stage === 'review' ? PIPELINE : stage === 'merge' ? ['Merge shards'] : [stage === 'read-1' ? 'Pass 2: verify (read 1)' : 'Pass 2: verify (read 2, adversary)']
       const next = names.find((name) => !run!.trace.some((step) => step.name.startsWith(name.replace(/\)$/, ''))))
       if (next) run.trace.push({ name: next, status: 'failed', ms: 0, at: Date.now() - run.started, detail: 'Unexpected server error' })
       return endWithError(run, stage, SERVER_ERROR, 500)

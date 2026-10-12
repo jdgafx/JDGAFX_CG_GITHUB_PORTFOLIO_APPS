@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PASS1, PASS2, PLATFORM_CUTOFF_MS, SAFETY_MS, TOTAL_MS, callLimit } from '../../netlify/shared/budget'
+import { MS_PER_TOKEN_WORST, PASS1, PASS2, PLATFORM_CUTOFF_MS, SAFETY_MS, SHARD_MAX_TOKENS, TOTAL_MS, callLimit } from '../../netlify/shared/budget'
 
 // A review is three function requests (pass 1, then the two reads of pass 2 side by side), each with its own clock. The numbers
 // are pinned here with their sources, which are in the header of netlify/shared/budget.ts: 26 s is the smaller of the platform
@@ -47,5 +47,13 @@ describe('the time budget of the three requests', () => {
 
   it('does retry pass 1 after a connection that failed in the first two seconds', () => {
     expect(callLimit(PASS1, TOTAL_MS - 2_000)).toBe(TOTAL_MS - 2_000 - SAFETY_MS)
+  })
+
+  // A shard's reply is capped at what the slowest measured rate (4.75 ms a token, SP2 round 3) writes inside the limit, 2 s kept for the prompt.
+  it('caps a pass 1 shard at the tokens the measured rate fits in the limit: 4,600', () => {
+    expect(MS_PER_TOKEN_WORST).toBe(4.75)
+    expect(SHARD_MAX_TOKENS).toBe(4_600)
+    expect(SHARD_MAX_TOKENS * MS_PER_TOKEN_WORST + 2_000).toBeLessThanOrEqual(PASS1.limitMs)
+    expect((SHARD_MAX_TOKENS + 100) * MS_PER_TOKEN_WORST + 2_000).toBeGreaterThan(PASS1.limitMs)
   })
 })

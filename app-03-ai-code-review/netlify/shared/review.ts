@@ -41,7 +41,28 @@ function extractJsonObject(text: string): string | null {
   return null
 }
 
-export function buildSystemPrompt(lang: string, lineCount: number, maxComments: number): string {
+export interface LineRange {
+  from: number
+  to: number
+}
+
+export function buildSystemPrompt(lang: string, lineCount: number, maxComments: number, range?: LineRange): string {
+  const first = range?.from ?? 1
+  const last = range?.to ?? lineCount
+  const coverage = range
+    ? `- This file has ${lineCount} lines, and you review lines ${first} to ${last} only. The rest of the file is read-only context: read it
+  to see what the code calls and what calls it, but never comment on it. Divide lines ${first} to ${last} into ${maxComments} regions of
+  roughly ${Math.ceil((last - first + 1) / maxComments)} lines each and report the most important issue in each region. Aim for ${maxComments} comments in total; return fewer
+  only where a region genuinely has nothing worth flagging. Never cluster your findings in the opening lines.`
+    : `- This file has ${lineCount} lines. Read all of it, then divide it into ${maxComments} regions of
+  roughly ${Math.ceil(lineCount / maxComments)} lines each and report the most important issue in
+  each region. Aim for ${maxComments} comments in total; return fewer only where a region genuinely
+  has nothing worth flagging. Never cluster your findings in the opening lines.`
+  const cite = range
+    ? `- Only cite lines from ${first} to ${last}. A comment carrying any other line number is
+  discarded before the user sees it.`
+    : `- Only cite lines that exist, from 1 to ${lineCount}. A comment carrying any other line number is
+  discarded before the user sees it.`
   return `You are an expert ${lang} reviewer. You return JSON and nothing else.
 
 The file below is presented with a line number, a tab and a pipe in front of every line:
@@ -56,7 +77,7 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
 {
   "comments": [
     {
-      "line": <integer between 1 and ${lineCount}>,
+      "line": <integer between ${first} and ${last}>,
       "quote": "<the exact code fragment this comment is about, copied verbatim from that line>",
       "severity": "critical" | "warning" | "info",
       "message": "<what is wrong, one or two sentences>",
@@ -74,13 +95,9 @@ Severity guidelines. Judge what the code does today, not what it could become:
 - info: style, best practice and refactoring opportunities
 
 Coverage rules:
-- This file has ${lineCount} lines. Read all of it, then divide it into ${maxComments} regions of
-  roughly ${Math.ceil(lineCount / maxComments)} lines each and report the most important issue in
-  each region. Aim for ${maxComments} comments in total; return fewer only where a region genuinely
-  has nothing worth flagging. Never cluster your findings in the opening lines.
+${coverage}
 - Sort the comments by line number, ascending. Never file two comments on the same line.
-- Only cite lines that exist, from 1 to ${lineCount}. A comment carrying any other line number is
-  discarded before the user sees it.
+${cite}
 - Every comment is about code on the line it cites, never a blank line. "quote" is the few words or the
   line the comment is about: for a typo or a name, that word or phrase itself, copied exactly. A comment
   whose quoted code is not on or near its line is moved or discarded.
@@ -96,7 +113,15 @@ Coverage rules:
 }
 
 /** The system prompt for a pull request diff: comments sit on changed lines, and unchanged lines are context only. */
-export function buildPrPrompt(lineCount: number, changedCount: number, maxComments: number): string {
+export function buildPrPrompt(lineCount: number, changedCount: number, maxComments: number, range?: LineRange): string {
+  const first = range?.from ?? 1
+  const last = range?.to ?? lineCount
+  const scope = range
+    ? `This diff has ${lineCount} numbered lines, ${changedCount} of them changed, and you review lines ${first} to ${last} only: the rest of the diff is
+read-only context, to understand the change and never to comment on. Report the most important issue in each region of the changes on
+lines ${first} to ${last}, up to ${maxComments} comments`
+    : `This diff has ${lineCount} numbered lines, ${changedCount} of them changed. Report the most important issue in
+each region of the changes, up to ${maxComments} comments`
   return `You are an expert code reviewer reading a pull request diff. You return JSON and nothing else.
 
 The diff is presented with a line number, a tab and a pipe in front of every line:
@@ -112,7 +137,7 @@ Respond with valid JSON in exactly this shape, with no markdown fence and no pro
 {
   "comments": [
     {
-      "line": <integer between 1 and ${lineCount}>,
+      "line": <integer between ${first} and ${last}>,
       "quote": "<the exact code fragment this comment is about, copied verbatim from that line, without the leading + or ->",
       "severity": "critical" | "warning" | "info",
       "message": "<what is wrong with this change, one or two sentences>",
@@ -126,8 +151,7 @@ Review only the change. A comment must sit on a line that starts with + or -, ne
 line. Use unchanged context only to understand the change.
 Severity: critical is only an exploitable security hole, a crash, data loss or a definite bug the change introduces on
 a reachable path; warning is a likely bug, performance problem or smell; info is style or refactoring.
-This diff has ${lineCount} numbered lines, ${changedCount} of them changed. Report the most important issue in
-each region of the changes, up to ${maxComments} comments, fewer where a region has nothing worth flagging. Sort by
+${scope}, fewer where a region has nothing worth flagging. Sort by
 line number and never file two comments on one line. Every suggestion is a concrete change: never write "leave
 as-is". A comment that concludes the change is fine is not a finding: leave it out, or set "issue" to false. Only
 state what the diff shows. If the change has no real issues, return {"comments": []}.`

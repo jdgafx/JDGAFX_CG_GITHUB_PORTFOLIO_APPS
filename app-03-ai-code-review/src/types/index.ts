@@ -82,6 +82,16 @@ export interface PrCounts {
   charLimit: number
 }
 
+/** A range of the input that no comment was written for, because the request that reviewed it failed. Never silent: the page lists it. */
+export interface NotReviewed {
+  from: number
+  to: number
+  /** The range in words the reader can find: `lines 201-400`, or the files of a pull request. */
+  label: string
+  /** Why, in the words the failed request gave. */
+  reason: string
+}
+
 export interface ReviewResult {
   comments: ReviewComment[]
   /** Numbered lines the reviewer saw. Every comment line falls inside it. */
@@ -94,6 +104,8 @@ export interface ReviewResult {
   malformed: number
   mode: 'file' | 'pr'
   pr: PrCounts | null
+  /** Ranges of the input whose review failed, so no comment was written for them. Absent or empty when the whole input was reviewed. */
+  notReviewed?: NotReviewed[]
 }
 
 export type StepStatus = 'ok' | 'failed' | 'skipped'

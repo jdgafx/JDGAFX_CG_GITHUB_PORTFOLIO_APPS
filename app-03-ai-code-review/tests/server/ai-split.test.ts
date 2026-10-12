@@ -365,7 +365,7 @@ describe('billed usage in the totals and the rows', () => {
 // Each read request takes at most four comments (the whole numbered file goes with every request), and each read fans out into
 // one request per batch. Pass 1 sets the batches and signs them with the comments.
 describe('batches of four comments per read request', () => {
-  const FILE = { code: Array.from({ length: 300 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
+  const FILE = { code: Array.from({ length: 200 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
   const comment = (n: number) => ({ line: n, quote: `value_${n} = compute(${n})`, severity: 'warning', message: `The value on line ${n} is used before it is validated.`, suggestion: `Validate value_${n} before using it.`, issue: true })
   const comments = (count: number) => Array.from({ length: count }, (_, i) => comment(i + 1))
   const verdictsFor = (ids: number[]) => ids.map((id) => keep(id, id, `value_${id} = compute(${id})`))
@@ -395,7 +395,7 @@ describe('batches of four comments per read request', () => {
     for (const id of [1, 4, 9]) expect(sent).not.toContain(`"id": ${id},`)
     // The whole file, not the batch's lines.
     expect(sent).toContain('1\t| value_1 = compute(1)')
-    expect(sent).toContain('300\t| value_300 = compute(300)')
+    expect(sent).toContain('200\t| value_200 = compute(200)')
     expect(payload.trace[0].name).toBe('Pass 2: verify (read 1, batch 2 of 3)')
   })
 
@@ -463,7 +463,7 @@ describe('batches of four comments per read request', () => {
   }
 
   it('counts a review once against the read limit, whatever batch comes first, and throttles replays with a ceiling', async () => {
-    const send = sender('192.0.2.99', reviews(20))
+    const send = sender('192.0.2.99', reviews(19))
     script({ read1: Array.from({ length: 400 }, () => reply(verdictJson(verdictsFor([1, 2, 3, 4])))) })
     // Twenty reviews, the last batch of each arriving before its first.
     for (let review = 0; review < 20; review += 1) for (const b of [4, 0]) expect((await send(b, review)).status).toBe(200)
@@ -498,7 +498,7 @@ describe('batches of four comments per read request', () => {
 })
 
 describe('the review id in the query is the hand-off\'s own', () => {
-  const FILE = { code: Array.from({ length: 300 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
+  const FILE = { code: Array.from({ length: 200 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
   const comment = (n: number) => ({ line: n, quote: `value_${n} = compute(${n})`, severity: 'warning', message: `The value on line ${n} is used before it is validated.`, suggestion: `Validate value_${n} before using it.`, issue: true })
 
   it('refuses a valid hand-off B sent with the id of another admitted review A, with no model call', async () => {
@@ -521,7 +521,7 @@ describe('the review id in the query is the hand-off\'s own', () => {
 })
 
 describe('the hand-off expires and is bound to its stage and batch', () => {
-  const FILE = { code: Array.from({ length: 300 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
+  const FILE = { code: Array.from({ length: 200 }, (_, i) => `value_${i + 1} = compute(${i + 1})`).join('\n'), language: 'python' }
   const comment = (n: number) => ({ line: n, quote: `value_${n} = compute(${n})`, severity: 'warning', message: `The value on line ${n} is used before it is validated.`, suggestion: `Validate value_${n} before using it.`, issue: true })
   const nine = Array.from({ length: 9 }, (_, i) => comment(i + 1))
 

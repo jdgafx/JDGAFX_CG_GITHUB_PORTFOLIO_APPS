@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MS_PER_TOKEN_WORST, PASS1_LIMIT_MS } from '../../netlify/shared/budget'
 import { MAX_OUTPUT_TOKENS, chatBody, replyEnding, replyText } from '../../netlify/shared/provider'
 
 interface SentBody {
@@ -18,7 +19,9 @@ describe('chatBody', () => {
     expect(body).not.toHaveProperty('temperature')
     expect(body.provider).toEqual({ require_parameters: true })
     expect(body.max_tokens).toBe(MAX_OUTPUT_TOKENS)
-    expect(body.max_tokens).toBeGreaterThanOrEqual(4096 + 1500)
+    // Room for about 2,500 tokens of thinking and 2,000 of JSON, and no more than the pass 1 time limit can write.
+    expect(body.max_tokens).toBeGreaterThanOrEqual(4500)
+    expect(body.max_tokens * MS_PER_TOKEN_WORST + 2_000).toBeLessThanOrEqual(PASS1_LIMIT_MS)
     expect(body.reasoning?.enabled).not.toBe(false)
     expect(body).not.toHaveProperty('reasoning')
     expect(body.usage).toEqual({ include: true })

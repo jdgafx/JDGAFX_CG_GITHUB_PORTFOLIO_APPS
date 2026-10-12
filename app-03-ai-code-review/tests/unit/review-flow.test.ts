@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { commentBudget } from '../../netlify/shared/review'
+import { planShards } from '../../netlify/shared/shards'
 import { ReviewError, reviewCode, reviewPullRequest } from '../../src/lib/api'
 import type { ReviewRun } from '../../src/types'
 
@@ -387,5 +389,130 @@ describe('batches of four comments per read request', () => {
     await reviewCode(CODE, 'python')
     expect(fetchStub).toHaveBeenCalledTimes(3)
     expect(ids([1])).toEqual([1])
+  })
+})
+
+describe('a large file is reviewed in shards', () => {
+  const BIG_LINES = Array.from({ length: 450 }, (_, i) => (i % 30 === 0 ? `func f${i / 30}() {` : i % 30 === 28 ? '}' : i % 30 === 29 ? '' : `\tstep_${i + 1}()`))
+  const BIG = BIG_LINES.join('\n')
+  const PLAN = planShards(BIG_LINES, null, commentBudget(450))
+  const shardOk = (i: number, extra: Record<string, unknown> = {}) =>
+    json({ success: true, stage: 'review', shard: i, of: 3, record: { text: `text-${i}`, seal: `seal-${i}` }, unreportedCalls: 0, ...SUMMARY([step(`Pass 1: review (lines ${PLAN[i].from}-${PLAN[i].to})`, { ms: 15_000, at: 5 })], extra) })
+  const shardFails = (status: number, error: string, extra: Record<string, unknown> = {}) =>
+    json({ success: false, error, unreportedCalls: 1, ...SUMMARY([step('Pass 1: review', { status: 'failed', ms: 24_000 })], { usage: null, ...extra }) }, status)
+  const mergeOk = () =>
+    json({
+      success: true, stage: 'merge', unreportedCalls: 0,
+      result: { ...RESULT, lineCount: 450 }, candidates: [CANDIDATE], dropped: [DROP], batches: [[1]], handoff: handoffOf(1),
+      ...SUMMARY([step('Merge shards', { ms: 20 }), step('Checks', { ms: 5 })], { usage: null, model: null, modelCheck: 'not-reported', servedModels: [] }),
+    })
+  const route = (shard: (i: number) => Response | Promise<Response>, merge: () => Response | Promise<Response> = mergeOk) =>
+    fetchStub.mockImplementation(async (url) => {
+      const path = url.split('?')[0]
+      if (path === '/api/ai') return shard(Number(new URL(`http://x${url}`).searchParams.get('shard')))
+      if (path === '/api/ai/merge') return merge()
+      return readOk(path === '/api/ai/read-1' ? 1 : 2, [path === '/api/ai/read-1' ? keptRow : standsRow])
+    })
+
+  it('sends a request for each shard at once, then one merge with every record, then the reads', async () => {
+    const gates: Array<() => void> = []
+    fetchStub.mockImplementation(async (url, init) => {
+      const path = url.split('?')[0]
+      if (path === '/api/ai') {
+        const i = Number(new URL(`http://x${url}`).searchParams.get('shard'))
+        expect(bodyOf(init)).toEqual({ code: BIG, language: 'go' })
+        return new Promise<Response>((resolve) => gates.push(() => resolve(shardOk(i))))
+      }
+      if (path === '/api/ai/merge') return mergeOk()
+      return readOk(path === '/api/ai/read-1' ? 1 : 2, [path === '/api/ai/read-1' ? keptRow : standsRow])
+    })
+    const pending = reviewCode(BIG, 'go')
+    await vi.waitFor(() => expect(gates).toHaveLength(3))
+    expect(fetchStub.mock.calls.map(([u]) => u)).toEqual([0, 1, 2].map((i) => `/api/ai?shard=${i}&of=3`))
+    gates.forEach((open) => open())
+    const run = await pending
+    const calls = fetchStub.mock.calls.map(([u]) => u.split('?')[0])
+    expect(calls).toEqual(['/api/ai', '/api/ai', '/api/ai', '/api/ai/merge', '/api/ai/read-1', '/api/ai/read-2'])
+    expect(bodyOf(fetchStub.mock.calls[3][1])).toEqual({ code: BIG, language: 'go', shards: [0, 1, 2].map((i) => ({ text: `text-${i}`, seal: `seal-${i}` })) })
+    expect(run.result.verified).toBe(true)
+    expect(run.result.notReviewed).toEqual([])
+    expect(run.result.comments[0].verdict).toBe('kept')
+  })
+
+  it('goes on without a shard that failed, sends null for it, and names its lines on the result', async () => {
+    route((i) => (i === 1 ? shardFails(504, 'The AI provider did not answer in time.') : shardOk(i)))
+    const run = await reviewCode(BIG, 'go')
+    const merge = fetchStub.mock.calls.find(([u]) => u === '/api/ai/merge') as [string, RequestInit]
+    expect((bodyOf(merge[1]).shards as unknown[])[1]).toBeNull()
+    expect(run.result.notReviewed).toEqual([{ from: PLAN[1].from, to: PLAN[1].to, label: `lines ${PLAN[1].from}-${PLAN[1].to}`, reason: 'The AI provider did not answer in time.' }])
+    expect(run.result.verified).toBe(true)
+    expect(run.unreportedCalls).toBe(1)
+  })
+
+  it('shows the not-reviewed ranges as soon as the first pass is back', async () => {
+    route((i) => (i === 2 ? shardFails(502, 'The AI ran out of reply length before it finished the review. Try a shorter snippet.') : shardOk(i)))
+    const seen: ReviewRun[] = []
+    await reviewCode(BIG, 'go', undefined, (r) => seen.push(r))
+    expect(seen).toHaveLength(1)
+    expect(seen[0].result.notReviewed?.map((n) => n.label)).toEqual([`lines ${PLAN[2].from}-${PLAN[2].to}`])
+    expect(seen[0].result.verified).toBe(false)
+  })
+
+  it('fails the review, with the shards\' usage and unreported calls, when every shard fails; and calls neither merge nor reads', async () => {
+    route(() => shardFails(504, 'The AI provider did not answer in time.', { usage: { total_tokens: 100, cost: 0.001 } }))
+    const err = (await reviewCode(BIG, 'go').catch((e: unknown) => e)) as ReviewError
+    expect(err).toBeInstanceOf(ReviewError)
+    expect(err.message).toBe('The AI provider did not answer in time.')
+    expect(err.summary.usage).toEqual({ total_tokens: 300, cost: 0.003 })
+    expect(err.summary.unreportedCalls).toBe(3)
+    expect(fetchStub).toHaveBeenCalledTimes(3)
+  })
+
+  it('fails the review, with the shards\' usage, when the merge fails', async () => {
+    route((i) => shardOk(i), () => json({ success: false, error: 'The first pass does not match this code.', unreportedCalls: 0, ...SUMMARY([step('Check request', { status: 'failed' })], { usage: null }) }, 400))
+    const err = (await reviewCode(BIG, 'go').catch((e: unknown) => e)) as ReviewError
+    expect(err).toBeInstanceOf(ReviewError)
+    expect(err.message).toBe('The first pass does not match this code.')
+    expect(err.summary.usage).toEqual({ total_tokens: 300, cost: 0.003 })
+    expect(fetchStub).toHaveBeenCalledTimes(4)
+  })
+
+  it('places the merge after the shards on the trace and adds the shards\' usage to the totals', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    route((i) => { vi.setSystemTime(Date.now() + 5_000); return shardOk(i) })
+    const run = await reviewCode(BIG, 'go')
+    const names = run.trace.map((s) => s.name)
+    expect(names.slice(0, 3)).toEqual(PLAN.map((s) => `Pass 1: review (lines ${s.from}-${s.to})`))
+    expect(names.slice(3, 5)).toEqual(['Merge shards', 'Checks'])
+    expect(run.trace[3].at).toBeGreaterThanOrEqual(15_000)
+    expect(run.usage).toEqual({ total_tokens: 500, cost: 0.005 })
+    expect(run.model).toBe('m1')
+  })
+
+  it('treats a shard reply with no record as a failed shard', async () => {
+    route((i) => (i === 0 ? json({ success: true, stage: 'review', shard: 0, of: 3, ...SUMMARY([step('Pass 1: review')]) }) : shardOk(i)))
+    const run = await reviewCode(BIG, 'go')
+    expect(run.result.notReviewed?.map((n) => n.from)).toEqual([PLAN[0].from])
+  })
+
+  it('uses one plain request for a file that fits in one shard, and says nothing about parts', async () => {
+    answer({ '/api/ai': () => FIRST.clone(), '/api/ai/read-1': () => readOk(1, [keptRow]), '/api/ai/read-2': () => readOk(2, [standsRow]) })
+    await reviewCode(CODE, 'python')
+    expect(fetchStub.mock.calls[0][0]).toBe('/api/ai')
+  })
+
+  it('names the files of a failed range for a pull request', async () => {
+    const patch = (name: string) => ({ path: name, status: 'modified', patch: `@@ -1,50 +1,50 @@\n${Array.from({ length: 50 }, (_, i) => `-old ${i}\n+new ${i}`).join('\n')}` })
+    const files = [patch('a.go'), patch('b.go'), patch('c.go')]
+    fetchStub.mockImplementation(async (url) => {
+      const path = url.split('?')[0]
+      const i = Number(new URL(`http://x${url}`).searchParams.get('shard'))
+      if (path === '/api/ai') return i === 1 ? shardFails(504, 'The AI provider did not answer in time.') : shardOk(i)
+      return mergeOk()
+    })
+    const run = await reviewPullRequest(files).catch((e: unknown) => e)
+    const result = (run as ReviewRun).result
+    expect(result.notReviewed).toHaveLength(1)
+    expect(result.notReviewed?.[0].label).toContain('b.go')
   })
 })

@@ -78,6 +78,11 @@ function Notices({ result, stale, checking }: { result: ReviewResult; stale: boo
           {`Read ${plural(result.pr.filesIncluded, 'file', 'files')}: ${count(result.pr.changedIncluded)} changed lines, ${count(result.pr.charsIncluded)} of ${count(result.pr.charLimit)} characters. Comments sit on changed lines only.`}
         </p>
       )}
+      {(result.notReviewed ?? []).map((part) => (
+        <p key={`${part.from}-${part.to}`} role="status" className="ds-notice ds-notice--warning">
+          {`${result.mode === 'pr' ? `The changes in ${part.label}` : `${part.label.charAt(0).toUpperCase()}${part.label.slice(1)}`} were not reviewed: ${part.reason} No comment was written for them. Run the review again to cover them.`}
+        </p>
+      ))}
       {!checking && !result.verified && (
         <p role="status" className="ds-notice ds-notice--warning">
           The second pass did not finish, so the surviving comments are shown as not confirmed. Only the deterministic checks ran on them. Run the review again to verify them.
@@ -153,7 +158,7 @@ export function ResultCard(props: ResultCardProps) {
   const visible = shown.filter((c) => filters[c.severity])
   const severityCounts: Record<Severity, number> = { critical: 0, warning: 0, info: 0 }
   for (const c of shown) severityCounts[c.severity] += 1
-  const fullyVerified = result.verified && counts.unverified === 0
+  const fullyVerified = result.verified && counts.unverified === 0 && (result.notReviewed ?? []).length === 0
   const heading = checking ? 'Checking each comment…' : fullyVerified ? 'Review checked by a second pass' : 'Review partly checked'
 
   return (

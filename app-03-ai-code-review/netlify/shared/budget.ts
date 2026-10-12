@@ -23,6 +23,11 @@
 //   r1 twice and r2 once; 3 more pass-1 calls at 18.4, 16.2 and 18.7 s, so 11 in all, p50 17.5 s, slowest 22.3 s): 12 batched reads at
 //   7.4, 9.7, 3.4, 3.6, 6.0, 7.7, 12.2, 14.0, 2.5, 4.4, 6.8 and 9.9 s, all finish_reason stop, 209 to 2,220 reasoning tokens.
 //   PASS2 p50 7.1 s, p95 14.0 s (the slowest seen) are those 12 reads. Its limit stays 22 s, as set before batching.
+//   SP2 round 3 (bb776d2): a whole-file pass 1 on mux.go ran past 24 s (replies of up to 4,684 tokens at 4.44 to 4.75 ms a token).
+//   Pass 1 is therefore sharded by line range (shards.ts), and the numbers for PASS1 below are those of one shard. Sharded live proof,
+//   2026-10-12 (.acceptance/dw/es/app-03-sharded-pass1-2026-10-12/, mux.go in 4 shards and createStore.ts in 3): shards at 7.1, 8.2,
+//   8.8, 13.7 s and 12.0, 14.1, 19.6 s (all finish_reason stop, 1,006 to 3,492 reasoning tokens); 12 more reads at 3.2 to 11.1 s. Cap
+//   on one shard's reply: SHARD_MAX_TOKENS below. PASS1 p50 12.0 s, p95 19.6 s (the slowest seen) are those 7 shard calls.
 // A pass 1 may therefore take 24 s and a read 22 s: each is the longest a call may run while the reply is still sent inside 26 s
 // (24 s + the 0.7 s margin + assembling leaves 1.3 s; a read has 3.3 s of margin because it has less to assemble).
 
@@ -49,8 +54,8 @@ export const PASS1_LIMIT_MS = 24_000
 /** The longest one batched read may run, one function request of its own. Source: the slowest of 12 batched reads was 14.0 s (2026-10-12), and the limit stays at the 22 s set for whole-list reads. */
 export const READ_LIMIT_MS = 22_000
 
-/** Pass 1, one request. p50 is the median and p95 the slowest of the 8 measured calls (see the header). */
-export const PASS1: Pass = { p50: 17_500, p95: 22_300, limitMs: PASS1_LIMIT_MS }
+/** One shard of pass 1, one request each. p50 is the median and p95 the slowest of the 7 measured shard calls (see the header). */
+export const PASS1: Pass = { p50: 12_000, p95: 19_600, limitMs: PASS1_LIMIT_MS }
 /** One batched read of pass 2 (at most 4 comments), one request each: the median and the slowest of the 12 measured batched reads. */
 export const PASS2: Pass = { p50: 7_100, p95: 14_000, limitMs: READ_LIMIT_MS }
 
@@ -63,3 +68,13 @@ export function callLimit(pass: Pass, remaining: number): number | null {
   const limit = Math.min(pass.limitMs, available)
   return limit >= pass.p50 ? Math.floor(limit) : null
 }
+
+/**
+ * Pass 1 is sharded by line range (shards.ts) so that no shard has more to write than it can finish inside PASS1_LIMIT_MS.
+ * The measured rate of the model: 4.44 to 4.75 ms per completion token (SP2 round 3, 2026-10-12, replies of up to 4,684 tokens
+ * took 21.5 s). A shard's reply is capped at the number of tokens that rate fits inside the limit, with 2 s kept for the prompt
+ * and the first token: (24,000 - 2,000) / 4.75 = 4,631, rounded down. A reply that reaches the cap is cut off and reported as
+ * such for that shard alone; it is never left to run into the time limit and be lost with nothing to show.
+ */
+export const MS_PER_TOKEN_WORST = 4.75
+export const SHARD_MAX_TOKENS = Math.floor((PASS1_LIMIT_MS - 2_000) / MS_PER_TOKEN_WORST / 100) * 100

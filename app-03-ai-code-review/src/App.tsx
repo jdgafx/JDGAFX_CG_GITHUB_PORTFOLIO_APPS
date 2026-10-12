@@ -90,7 +90,7 @@ export default function App() {
     failed: fetchFailed,
     ownCode: mode === 'file' && code.trim() !== '' && (source === null || code !== source.text),
   })
-  const badge = statusBadge(phase, result?.verified ?? false, counts)
+  const badge = statusBadge(phase, (result?.verified ?? false) && (result?.notReviewed ?? []).length === 0, counts)
   const reviewedLines = useMemo(() => (reviewedCode === null ? null : reviewedCode.split('\n')), [reviewedCode])
   const reviewedUnits = useMemo(() => (reviewedFiles === null ? null : buildDiff(reviewedFiles).units), [reviewedFiles])
   // What the reader acts on: kept and moved comments, and, when a second-pass read failed, the comments left unconfirmed.

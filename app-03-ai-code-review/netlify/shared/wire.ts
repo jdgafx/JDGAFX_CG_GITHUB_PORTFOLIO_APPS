@@ -36,6 +36,13 @@ export interface FirstPassReply {
   handoff: Handoff | null
 }
 
+/** One part of the review, as the signed hand-off records it: the lines it covered and whether it was reviewed. */
+export interface ShardNote {
+  from: number
+  to: number
+  ok: boolean
+}
+
 /** Read 1's verdict on one candidate, already checked against the code by the server. */
 export type FirstRow = Settled & { id: number }
 /** Read 2's answer on one candidate, already checked against the code by the server. */

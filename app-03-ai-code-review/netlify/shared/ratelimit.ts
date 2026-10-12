@@ -39,14 +39,22 @@ export interface Verdict {
 }
 
 /** Counts one request against `key`, unless `review` is one this counter already admitted. */
-function take(key: string, max: number, review: string | null): Verdict {
+function take(key: string, max: number, review: string | null, weight = 1): Verdict {
   const now = Date.now()
   const bucket = bucketFor(key, now)
   if (review !== null && bucket.seen.has(review)) return { allowed: true, retryAfter: 0 }
-  bucket.count += 1
-  if (bucket.count > max) return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) }
+  bucket.count += weight
+  // The tolerance is for the sum of fractions: three shards of a third add up to one review.
+  if (bucket.count > max + 1e-9) return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) }
   if (review !== null) bucket.seen.add(review)
   return { allowed: true, retryAfter: 0 }
+}
+
+/** How many shards the review of a pass 1 request says it has: `?of=3`. One when it says nothing; null for anything else. */
+export function shardCount(req: Request): number | null {
+  const raw = new URL(req.url).searchParams.get('of')
+  if (raw === null) return 1
+  return /^\d{1,2}$/.test(raw) && Number(raw) >= 1 ? Number(raw) : null
 }
 
 /** The review id a read request names in its query string, or null when it names none that could be one. */
@@ -55,9 +63,14 @@ export function reviewId(req: Request): string | null {
   return raw !== null && /^[0-9a-f]{8,64}$/.test(raw) ? raw : null
 }
 
-/** Whether this request may go on: `stage` is the function, `who` the client address, `review` the id of a read's review. */
-export function checkRate(stage: 'review' | 'read-1' | 'read-2', who: string, review: string | null): Verdict {
-  if (stage === 'review') return take(`${stage}:${who}`, RATE_LIMIT_MAX, null)
+/**
+ * Whether this request may go on: `stage` is the function, `who` the client address, `review` the id of a read's review. A request of
+ * pass 1 is one of `shards` that make up its review, and counts a share of it, so a review counts once however many shards it has.
+ * The merge calls no model; it is held to the ceiling alone.
+ */
+export function checkRate(stage: 'review' | 'merge' | 'read-1' | 'read-2', who: string, review: string | null, shards = 1): Verdict {
+  if (stage === 'review') return take(`${stage}:${who}`, RATE_LIMIT_MAX, null, 1 / shards)
+  if (stage === 'merge') return take(`${stage}:${who}`, READ_CEILING, null)
   const counted = take(`${stage}:${who}`, RATE_LIMIT_MAX, review)
   return counted.allowed ? take(`${stage}:all:${who}`, READ_CEILING, null) : counted
 }

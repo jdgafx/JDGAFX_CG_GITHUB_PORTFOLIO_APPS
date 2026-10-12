@@ -3,14 +3,15 @@ import { buildDiff, MAX_DIFF_CHARS, type PrFileInput } from './diff'
 import { diffDoc, fileDoc } from './anchor'
 import { PASS1, PASS2, SAFETY_MS, TOTAL_MS, callLimit } from './budget'
 import { batchesOf } from './batches'
-import { HANDOFF_REFUSED, makeHandoff, type Opened } from './handoff'
+import { HANDOFF_EXPIRED, HANDOFF_REFUSED, makeHandoff, makeShardRecord, openShardRecord, type Opened } from './handoff'
 import { newestModel, servedCheck, waitForNewest } from './newest-model'
 import { callModel, type Attempt } from './model'
 import { MAX_OUTPUT_TOKENS, MODEL, chatBody, replyEnding, replyText, type ProviderReply } from './provider'
 import { buildPrPrompt, buildSystemPrompt, commentBudget, parseReview, precheck } from './review'
 import { noun, record, type Run } from './trace'
 import { buildComments, buildRefutePrompt, buildVerifyPrompt, buildVerifyUser, locatorFor, readVerdicts, settleFirst, settleSecond } from './verify'
-import type { FirstPassReply, FirstRow, SecondRow } from './wire'
+import { mergeComments, planShards, type Shard } from './shards'
+import type { FirstPassReply, FirstRow, SecondRow, ShardNote, Ticket } from './wire'
 
 export type ReviewInput =
   | { kind: 'file'; lang: string; lines: string[] }
@@ -141,31 +142,44 @@ function prepare(input: ReviewInput) {
   return { built, texts, doc, lineCount, maxComments, listing: numbered(texts), locate: locatorFor(texts, built ? built.units : null) }
 }
 
+/** The shards of this input: one for a small file or diff. The browser plans them the same way to know how many requests to send. */
+export function shardsOf(input: ReviewInput): Shard[] {
+  const { texts, built, maxComments } = prepare(input)
+  return planShards(texts, built ? built.units : null, maxComments)
+}
+
+/** The raw comments one shard wrote for its range. */
+type ShardComments = { ok: true; comments: unknown[] } | Failed
+
 /**
- * Request 1: the review. Calls pass 1, reads its reply, runs the deterministic checks and returns the comments that passed them,
- * as a view that confirms nothing, with the signed hand-off the read requests need. A reply cut off at its token cap is never read.
+ * One call of pass 1 for one range of the numbered input. The whole input goes with it, the range is the only part the model is
+ * asked to comment on, and its reply is capped at what the measured token rate fits inside the time limit. A reply that did not end
+ * with finish_reason stop is never read. `many` is true when the review has more than one shard; the rows then name the range.
  */
-export async function runFirstPass(run: Run, input: ReviewInput, apiKey: string): Promise<FirstOutcome> {
-  // One list promise per request, started before the model call so it runs alongside pass 1.
-  run.newest = newestModel()
+async function callShard(run: Run, input: ReviewInput, apiKey: string, shard: Shard, many: boolean): Promise<ShardComments> {
   const buildAt = Date.now()
   const isPr = input.kind === 'pr'
-  const { built, doc, lineCount, maxComments, listing, locate } = prepare(input)
-  const system = isPr ? buildPrPrompt(lineCount, built!.changed, maxComments) : buildSystemPrompt(input.lang, lineCount, maxComments)
+  const { built, lineCount, listing } = prepare(input)
+  const range = many ? { from: shard.from, to: shard.to } : undefined
+  const where = many ? ` (lines ${shard.from}-${shard.to})` : ''
+  const changedHere = built ? built.units.slice(shard.from - 1, shard.to).filter((u) => u.kind === 'add' || u.kind === 'del').length : 0
+  const system = isPr ? buildPrPrompt(lineCount, built!.changed, shard.budget, range) : buildSystemPrompt(input.lang, lineCount, shard.budget, range)
   const user = isPr
-    ? `Review this pull request diff (${noun(lineCount, 'line')}, ${noun(built!.changed, 'changed line')}):\n\n${listing}`
-    : `Review this ${input.lang} file (${noun(lineCount, 'line')}):\n\n${listing}`
+    ? `Review this pull request diff (${noun(lineCount, 'line')}, ${noun(built!.changed, 'changed line')})${many ? `, lines ${shard.from} to ${shard.to} only` : ''}:\n\n${listing}`
+    : `Review this ${input.lang} file (${noun(lineCount, 'line')})${many ? `, lines ${shard.from} to ${shard.to} only` : ''}:\n\n${listing}`
   record(
     run,
-    'Build prompt',
+    `Build prompt${where}`,
     'ok',
     buildAt,
-    isPr
-      ? `Numbered ${noun(lineCount, 'diff line')} (${noun(built!.changed, 'changed line')}) from ${noun(input.files.length, 'file')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, thinking on`
-      : `Numbered ${noun(lineCount, 'line')}, up to ${noun(maxComments, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, thinking on`,
+    (isPr
+      ? `Numbered ${noun(lineCount, 'diff line')} (${noun(built!.changed, 'changed line')}) from ${noun(input.files.length, 'file')}`
+      : `Numbered ${noun(lineCount, 'line')}`) +
+      `${many ? `, reviewing lines ${shard.from} to ${shard.to}${isPr ? ` (${noun(changedHere, 'changed line')})` : ''}` : ''}, up to ${noun(shard.budget, 'comment')}, ${MAX_OUTPUT_TOKENS}-token cap, thinking on`,
   )
 
-  const first = await callWithRetry(run, 'Pass 1: review', PASS1, chatBody(system, user), apiKey, (reply) => {
+  const label = `Pass 1: review${where}`
+  const first = await callWithRetry(run, label, PASS1, chatBody(system, user), apiKey, (reply) => {
     const text = replyText(reply)
     if (!text) return 'empty'
     const cut = unusable(reply)
@@ -174,28 +188,37 @@ export async function runFirstPass(run: Run, input: ReviewInput, apiKey: string)
   })
   if (!first.attempt.ok) return failure(first.attempt)
   const reply = first.attempt.reply
-  run.model = servedOf(reply)
+  // The model that wrote the review: the first shard's reply names it.
+  run.model ??= servedOf(reply)
   const parseAt = Date.now()
   // Only a reply that ended with finish_reason stop is read, however much of any other parses: it is not the whole answer.
   const ending = replyEnding(reply)
   if (ending !== 'complete') {
-    record(run, 'Parse reply', 'failed', parseAt, `The reply ended with finish_reason ${finishOf(reply)}, so it was not read`)
+    record(run, `Parse reply${where}`, 'failed', parseAt, `The reply ended with finish_reason ${finishOf(reply)}, so it was not read`)
     return { ok: false, error: ending === 'length' ? REVIEW_OUT_OF_LENGTH : REVIEW_UNFINISHED, status: 502 }
   }
   const text = replyText(reply)
   if (!text) {
-    record(run, 'Parse reply', 'failed', parseAt, 'The reply had no content')
+    record(run, `Parse reply${where}`, 'failed', parseAt, 'The reply had no content')
     return { ok: false, error: 'The AI returned an empty review. Please try again.', status: 502 }
   }
   const parsed = parseReview(text)
   if (!parsed) {
-    record(run, 'Parse reply', 'failed', parseAt, 'The reply was not a readable JSON object')
+    record(run, `Parse reply${where}`, 'failed', parseAt, 'The reply was not a readable JSON object')
     return { ok: false, error: 'The AI response could not be read. Please try again.', status: 502 }
   }
   const comments = Array.isArray(parsed.comments) ? parsed.comments : []
-  record(run, 'Parse reply', 'ok', parseAt, `Read the JSON review: ${noun(comments.length, 'comment')}`)
+  record(run, `Parse reply${where}`, 'ok', parseAt, `Read the JSON review: ${noun(comments.length, 'comment')}`)
+  return { ok: true, comments }
+}
 
-  // Deterministic checks on the first pass.
+/**
+ * The deterministic checks on the comments of pass 1 (all the shards', merged), and the first view of the review: the comments that
+ * passed, none confirmed, with the signed hand-off the read requests need.
+ */
+function finishFirstPass(run: Run, input: ReviewInput, apiKey: string, comments: unknown[], shards: ShardNote[]): FirstOutcome {
+  const isPr = input.kind === 'pr'
+  const { built, doc, lineCount, maxComments, locate } = prepare(input)
   const checkAt = Date.now()
   const checked = precheck(comments, doc, maxComments + OVERSHOOT)
   const movedByChecks = checked.candidates.filter((c) => c.moveNote).length
@@ -238,8 +261,67 @@ export async function runFirstPass(run: Run, input: ReviewInput, apiKey: string)
     candidates: checked.candidates,
     dropped: checked.dropped,
     batches,
-    handoff: nothingToRead ? null : makeHandoff(apiKey, input, comments, batches),
+    handoff: nothingToRead ? null : makeHandoff(apiKey, input, comments, batches, Date.now(), shards),
   }
+}
+
+/**
+ * Request 1 of a review that is one shard: pass 1, the checks, and the first view with its signed hand-off. A review of more
+ * than one shard is `runShard` for each shard and then `runMerge`.
+ */
+export async function runFirstPass(run: Run, input: ReviewInput, apiKey: string): Promise<FirstOutcome> {
+  // One list promise per request, started before the model call so it runs alongside pass 1.
+  run.newest = newestModel()
+  const [only] = shardsOf(input)
+  const got = await callShard(run, input, apiKey, only, false)
+  if (!got.ok) return got
+  return finishFirstPass(run, input, apiKey, got.comments, [{ from: only.from, to: only.to, ok: true }])
+}
+
+export type ShardOutcome = { ok: true; record: Ticket; model: string | null } | Failed
+
+/** One shard of a review of several: pass 1 for its range, and the signed record of what it wrote, for the merge. */
+export async function runShard(run: Run, input: ReviewInput, apiKey: string, index: number): Promise<ShardOutcome> {
+  run.newest = newestModel()
+  const plan = shardsOf(input)
+  const got = await callShard(run, input, apiKey, plan[index], true)
+  if (!got.ok) return got
+  return { ok: true, record: makeShardRecord(apiKey, input, index, plan.length, got.comments), model: run.model }
+}
+
+/**
+ * The merge of a review of several shards: it opens the records the shards signed (none it did not sign, for this code, within
+ * three minutes), joins their comments, runs the checks on the whole and signs the hand-off the reads need. A shard that has no
+ * record (its request failed) is a range that was not reviewed, and the hand-off says so.
+ */
+export function runMerge(run: Run, input: ReviewInput, apiKey: string, tickets: unknown): FirstOutcome {
+  const plan = shardsOf(input)
+  if (!Array.isArray(tickets) || tickets.length !== plan.length) return { ok: false, error: `This review is made of ${plan.length} parts, and the merge needs the record of each.`, status: 400 }
+  const lists: unknown[][] = []
+  const notes: ShardNote[] = []
+  for (const [i, ticket] of tickets.entries()) {
+    if (ticket === null) {
+      notes.push({ from: plan[i].from, to: plan[i].to, ok: false })
+      continue
+    }
+    const opened = openShardRecord(apiKey, input, ticket, i, plan.length)
+    if (opened === null || opened === 'expired') {
+      return { ok: false, error: opened === null ? HANDOFF_REFUSED : HANDOFF_EXPIRED, status: 400 }
+    }
+    lists.push(opened)
+    notes.push({ from: plan[i].from, to: plan[i].to, ok: true })
+  }
+  if (lists.length === 0) return { ok: false, error: 'Every part of the review failed, so there is nothing to merge.', status: 400 }
+  const mergeAt = Date.now()
+  const merged = mergeComments(lists)
+  record(
+    run,
+    'Merge shards',
+    'ok',
+    mergeAt,
+    `Joined ${noun(lists.length, 'part')} of ${plan.length}: ${noun(merged.comments.length, 'comment')}${merged.duplicates > 0 ? `, ${merged.duplicates} duplicate${merged.duplicates === 1 ? '' : 's'} removed` : ''}${lists.length < plan.length ? `, ${noun(plan.length - lists.length, 'part')} not reviewed` : ''}`,
+  )
+  return finishFirstPass(run, input, apiKey, merged.comments, notes)
 }
 
 /**

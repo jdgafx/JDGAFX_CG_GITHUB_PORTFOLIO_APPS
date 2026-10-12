@@ -1,13 +1,14 @@
 import type { Usage } from '../../src/types'
+import { SHARD_MAX_TOKENS } from './budget'
 
 /** The one chat model this app uses. It is fixed here: the client cannot choose it and no env var changes it. */
 export const MODEL = '~anthropic/claude-haiku-latest'
 
 /**
- * Output ceiling for the review call. Thinking is on, and its tokens count toward the cap, so it is the old 4,096 for the JSON
- * plus 1,904 for thinking (Haiku spends a few hundred to about 500 on these tasks), so a complete JSON reply still has room to finish.
+ * Output ceiling for one pass 1 shard: thinking plus the JSON. It is the number of tokens the measured model rate fits inside the
+ * pass 1 time limit (budget.ts), so a reply that cannot finish in time ends at the cap, cut off and reported, and is never lost to the timeout.
  */
-export const MAX_OUTPUT_TOKENS = 6000
+export const MAX_OUTPUT_TOKENS = SHARD_MAX_TOKENS
 
 export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 

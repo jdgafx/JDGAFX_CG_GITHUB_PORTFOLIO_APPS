@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import type { Handoff, Ticket } from './wire'
+import type { Handoff, ShardNote, Ticket } from './wire'
 import type { ReviewInput } from './pipeline'
 
 // Server only (node:crypto): the browser never imports this file.
@@ -47,10 +47,39 @@ const purposeOf = (stage: ReadStage, batch: number) => `${stage}:${batch}`
  * Signs the raw first-pass comments and the batches of their ids, with the hash of the code they were written for and the time.
  * Returns the text, a seal for each read request (a function and a batch), and an id for the review (for the rate limit).
  */
-export function makeHandoff(apiKey: string, input: ReviewInput, comments: unknown[], batches: number[][], iat = Date.now()): Handoff {
-  const text = JSON.stringify({ v: VERSION, iat, hash: contentHash(input), comments, batches })
+export function makeHandoff(apiKey: string, input: ReviewInput, comments: unknown[], batches: number[][], iat = Date.now(), shards: ShardNote[] = []): Handoff {
+  const text = JSON.stringify({ v: VERSION, iat, hash: contentHash(input), comments, batches, shards })
   const seals = (stage: ReadStage) => batches.map((_, batch) => macOf(apiKey, purposeOf(stage, batch), text))
   return { id: reviewIdOf(apiKey, text), text, seals: { 'read-1': seals('read-1'), 'read-2': seals('read-2') } }
+}
+
+/**
+ * The record of one shard of pass 1, signed for that shard of that review: the raw comments it wrote for its range, the hash of
+ * the code and the time. The merge request carries these back and reads nothing it did not sign.
+ */
+export function makeShardRecord(apiKey: string, input: ReviewInput, index: number, count: number, comments: unknown[], iat = Date.now()): Ticket {
+  const text = JSON.stringify({ v: VERSION, kind: 'shard', iat, hash: contentHash(input), index, count, comments })
+  return { text, seal: macOf(apiKey, `shard:${index}`, text) }
+}
+
+/** The comments of a shard record this server signed for exactly this input and this shard, within three minutes. */
+export function openShardRecord(apiKey: string, input: ReviewInput, value: unknown, index: number, count: number, now = Date.now()): unknown[] | 'expired' | null {
+  const t = value as Partial<Ticket> | null
+  if (!t || typeof t.text !== 'string' || typeof t.seal !== 'string') return null
+  const expected = Buffer.from(macOf(apiKey, `shard:${index}`, t.text), 'hex')
+  const given = Buffer.from(t.seal, 'hex')
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null
+  let body: { v?: unknown; kind?: unknown; iat?: unknown; hash?: unknown; index?: unknown; count?: unknown; comments?: unknown }
+  try {
+    body = JSON.parse(t.text) as typeof body
+  } catch {
+    return null
+  }
+  if (body.v !== VERSION || body.kind !== 'shard' || body.hash !== contentHash(input) || body.index !== index || body.count !== count) return null
+  if (typeof body.iat !== 'number' || !Number.isFinite(body.iat) || body.iat > now + CLOCK_SKEW_MS) return null
+  if (now - body.iat > HANDOFF_MAX_AGE_MS) return 'expired'
+  if (!Array.isArray(body.comments) || body.comments.length > MAX_COMMENTS) return null
+  return body.comments
 }
 
 export interface Opened {

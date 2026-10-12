@@ -61,3 +61,32 @@ describe('the result when the reads did not finish', () => {
     expect(out).not.toContain('Checking each comment')
   })
 })
+
+describe('ranges that were not reviewed', () => {
+  const kept = comment({ verdict: 'kept', decidedBy: 'verifier', reason: 'return a / b has no guard.', evidence: 'return a / b' })
+  const withGap = (mode: 'file' | 'pr', label: string): ReviewResult => ({ ...result([kept], true), mode, notReviewed: [{ from: 201, to: 400, label, reason: 'The AI provider did not answer in time.' }] })
+
+  it('says in words which lines were not reviewed and why, never silently', () => {
+    const out = html('done', withGap('file', 'lines 201-400'), false)
+    expect(out).toContain('Lines 201-400 were not reviewed: The AI provider did not answer in time. No comment was written for them. Run the review again to cover them.')
+  })
+
+  it('names the files of a pull request', () => {
+    expect(html('done', withGap('pr', 'b.go, c.go'), false)).toContain('The changes in b.go, c.go were not reviewed: ')
+  })
+
+  it('never calls a review with a range missing "checked by a second pass", even when every comment it has is confirmed', () => {
+    const out = html('done', withGap('file', 'lines 201-400'), false)
+    expect(out).toContain('Review partly checked')
+    expect(out).not.toContain('Review checked by a second pass')
+  })
+
+  it('shows the note while the reads are still running too', () => {
+    expect(html('running', { ...withGap('file', 'lines 201-400'), verified: false, comments: [comment({})] }, true)).toContain('Lines 201-400 were not reviewed')
+  })
+
+  it('says nothing when the whole input was reviewed', () => {
+    expect(html('done', result([kept], true), false)).not.toContain('not reviewed')
+    expect(html('done', { ...result([kept], true), notReviewed: [] }, false)).not.toContain('not reviewed')
+  })
+})

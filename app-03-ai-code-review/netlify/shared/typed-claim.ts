@@ -87,20 +87,27 @@ function citedLines(claim: TypedClaim, doc: Doc, at: number): string | null {
   return null
 }
 
-/** Shadows: the name the cited line declares must also be an import, or declared in an enclosing block, parameter list or at top level. */
-function shadows(claim: TypedClaim, doc: Doc): string | null {
+/**
+ * Shadows: the name the cited line declares must also be an import, or declared in an enclosing block, parameter list or at top
+ * level. The claim may cite the outer declaration as well as the shadowing one (the live mux.go claim cited both): the shadowing
+ * line is the cited line that declares the name nearest the comment, and every other line is looked at as a possible outer one.
+ */
+function shadows(claim: TypedClaim, doc: Doc, at: number): string | null {
   const name = claim.names[0]
   if (!isIdentifier(name)) return 'Not confirmed: the second pass named no identifier that the cited line declares.'
-  const first = Math.min(...claim.lines)
-  if (!claim.lines.some((n) => declares(doc.texts[n - 1], name))) return `Not confirmed: ${name} is not declared on the cited line, so nothing is shadowed there.`
+  const declaring = claim.lines.filter((n) => declares(doc.texts[n - 1], name))
+  if (declaring.length === 0) return `Not confirmed: ${name} is not declared on the cited line, so nothing is shadowed there.`
   if (importedNames(doc.texts, 1).has(name)) return null
+  const first = declaring.reduce((best, n) => (Math.abs(n - at) < Math.abs(best - at) || (Math.abs(n - at) === Math.abs(best - at) && n > best) ? n : best))
+  const own = indentOf(doc.texts[first - 1])
   const cited = new Set(claim.lines)
   for (let n = 1; n <= doc.texts.length; n += 1) {
-    if (!cited.has(n) && indentOf(doc.texts[n - 1]) === 0 && declares(doc.texts[n - 1], name, false)) return null
+    // A cited line in the same block as the shadowing one redeclares the name; it does not hide behind it.
+    if (n === first || (cited.has(n) && indentOf(doc.texts[n - 1]) >= own)) continue
+    if (indentOf(doc.texts[n - 1]) === 0 && declares(doc.texts[n - 1], name, false)) return null
   }
   // A line outside the cited one is an outer declaration when no line between it and the cited one is indented less than it:
   // a block that has closed hides what it declared.
-  const own = indentOf(doc.texts[first - 1])
   let reach = own
   for (let n = first - 1; n >= 1; n -= 1) {
     const text = doc.texts[n - 1]
@@ -171,7 +178,7 @@ export function checkClaim(claim: TypedClaim, doc: Doc, at: number, support: str
   if (cited !== null) return cited
   switch (claim.kind) {
     case 'shadows':
-      return shadows(claim, doc)
+      return shadows(claim, doc, at)
     case 'missing-comment':
       return missingComment(claim, doc)
     case 'type-mismatch':

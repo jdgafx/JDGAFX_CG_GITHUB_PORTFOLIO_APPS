@@ -58,7 +58,7 @@ export function RunTrace({ phase, summary }: { phase: RunPhase; summary: RunSumm
           Run trace
         </h2>
         <p className="ds-section__sub">
-          Bars show when each stage ran. {`A review is a series of requests, each with its own time budget: pass 1 may take up to ${PASS1.limitMs / 1000} s (measured p95 ${PASS1.p95 / 1000} s), then the two reads of pass 2 run side by side, one request per batch of at most four comments, each up to ${PASS2.limitMs / 1000} s (measured p95 ${PASS2.p95 / 1000} s). A timeout or a dropped connection is retried once if the budget allows.`}
+          Bars show when each stage ran. {`A review is a series of requests, each with its own time budget: pass 1 is one request for each range of about 200 lines, each up to ${PASS1.limitMs / 1000} s (measured p95 ${PASS1.p95 / 1000} s), then the two reads of pass 2 run side by side, one request per batch of at most four comments, each up to ${PASS2.limitMs / 1000} s (measured p95 ${PASS2.p95 / 1000} s). A timeout or a dropped connection is retried once if the budget allows.`}
         </p>
       </div>
       {steps.length > 0 ? (

@@ -71,10 +71,12 @@ export const fetchStub = vi.fn<FetchStub>()
 /** OpenRouter's public model list, answered apart from the provider queues so their order never shifts. */
 export const listStub = vi.fn<FetchStub>()
 const routedFetch: FetchStub = (url, init) => (url === MODEL_LIST_URL ? listStub(url, init) : fetchStub(url, init))
-export const api: { handler: Handler | null; read1: Handler | null; read2: Handler | null } = { handler: null, read1: null, read2: null }
+export const api: { handler: Handler | null; merge: Handler | null; read1: Handler | null; read2: Handler | null } = { handler: null, merge: null, read1: null, read2: null }
 /** The function under test (request 1, pass 1), loaded in beforeAll with the origin allowlist pinned. */
 export const handler: Handler = (req) => (api.handler as Handler)(req)
-/** The two read functions (requests 2 and 3). */
+/** The merge function, which joins the shards of pass 1 of a large file. */
+export const mergeHandler: Handler = (req) => (api.merge as Handler)(req)
+/** The two read functions. */
 export const readHandler = (n: 1 | 2): Handler => (req) => (n === 1 ? (api.read1 as Handler) : (api.read2 as Handler))(req)
 let ipCounter = 0
 
@@ -84,6 +86,7 @@ beforeAll(async () => {
   // The origin allowlist is read once, when the module loads, so pin it before the import.
   vi.stubEnv('ALLOWED_ORIGINS', `${ORIGIN},https://jdgafx-app-03-ai-code-review.netlify.app`)
   api.handler = (await import('../../netlify/functions/ai')).default
+  api.merge = (await import('../../netlify/functions/ai-merge')).default
   api.read1 = (await import('../../netlify/functions/ai-read-1')).default
   api.read2 = (await import('../../netlify/functions/ai-read-2')).default
   vi.unstubAllEnvs()
@@ -216,7 +219,7 @@ export const COMPLETE = ['Check request:ok', 'Build prompt:ok', 'Pass 1: review:
 export async function full(body: Record<string, unknown>, options: { ip?: string } = {}): Promise<Response> {
   const ip = options.ip ?? nextIp()
   let failed: { status: number; headers: Headers } | null = null
-  const route: Record<string, Handler> = { '/api/ai': handler, '/api/ai/read-1': readHandler(1), '/api/ai/read-2': readHandler(2) }
+  const route: Record<string, Handler> = { '/api/ai': handler, '/api/ai/merge': mergeHandler, '/api/ai/read-1': readHandler(1), '/api/ai/read-2': readHandler(2) }
   vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
     const call = route[url.split('?')[0]]
     if (!call) return routedFetch(url, init)
