@@ -5,7 +5,7 @@ set -euo pipefail
 if [[ $# -lt 1 || $# -gt 2 ]]; then echo "usage: $0 <app-dir> [<sha>]" >&2; exit 2; fi
 app=$1
 if [[ ! $app =~ ^app-[0-9]{2}-[^/]+$ ]]; then echo "not an app dir: $app" >&2; exit 2; fi
-root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+root=$(cd "$(dirname "$0")/.." && pwd)  # not git -C: a pre-push hook sets GIT_DIR, which makes --show-toplevel return scripts/
 cd "$root"
 sha=$(git rev-parse --verify "${2:-HEAD}^{commit}")
 path="config/sp2-samples/$app.json"

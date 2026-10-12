@@ -5,7 +5,7 @@ set -euo pipefail
 
 if [[ $# -ne 2 ]]; then echo "usage: $0 <old-sha> <new-sha>" >&2; exit 2; fi
 old=$1
-root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+root=$(cd "$(dirname "$0")/.." && pwd)  # not git -C: a pre-push hook sets GIT_DIR, which makes --show-toplevel return scripts/
 cd "$root"
 # Evidence lives in the main checkout (.acceptance/ is gitignored), also when pushing from a worktree.
 ev=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)

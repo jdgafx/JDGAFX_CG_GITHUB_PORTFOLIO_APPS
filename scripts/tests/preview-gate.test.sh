@@ -161,5 +161,13 @@ evidence app-09-theta "$Z" PASS PASS "$(hash_of app-09-theta "$Z")"
 run_case "sample-only commit with evidence for the new sample passes" 0 "$R" "$Z" \
   '^GATE PASS app-09-theta [0-9a-f]{12} [(]evidence [0-9a-f]{12}, same app tree[)]$'
 
+# A pre-push hook runs with GIT_DIR set (always so from a worktree); the scripts must still find themselves.
+n=$((n + 1))
+if out=$(GIT_DIR="$repo/.git" bash scripts/preview-gate.sh "$R" "$Z" 2>&1) && grep -q "^GATE PASS app-09-theta" <<<"$out"; then
+  echo "PASS $n: gate passes with GIT_DIR set, as in a pre-push hook"
+else
+  echo "FAIL $n: gate with GIT_DIR set"; fails=$((fails + 1)); sed 's/^/    /' <<<"$out"
+fi
+
 echo "$((n - fails))/$n passed"
 [[ $fails -eq 0 ]]
