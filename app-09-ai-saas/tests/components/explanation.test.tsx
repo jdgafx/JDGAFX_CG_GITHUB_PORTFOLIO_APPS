@@ -140,6 +140,40 @@ describe('Explanation region (H1)', () => {
   })
 })
 
+describe('Explanation: model clauses that run together', () => {
+  const compare = (peer: string): Judged => ({
+    seg: { t: 'compare', package: 'd3', peer, metric: 'window_total', relation: 'higher' },
+    verdict: 'checked',
+    rendered: `d3's total for the past month is higher than ${peer}'s`,
+  })
+  it('puts a sentence break between touching compare clauses and around text that touches one', () => {
+    const region = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew'), compare('vite'), compare('zod'), text('Then it dipped.')] } }]).querySelector('p.explanation__text')!
+    expect(region.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's. d3's total for the past month is higher than zod's. Then it dipped.")
+  })
+  it('adds nothing where the model already left a space, and leaves the text segments byte for byte', () => {
+    const region = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew. '), compare('vite'), text(' Then it dipped.')] } }]).querySelector('p.explanation__text')!
+    expect(region.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's Then it dipped.")
+  })
+})
+
+describe('Explanation: a refusal from the function', () => {
+  it('shows the words of the refusal in place of the generic notice, per package and when every call failed', () => {
+    const msg = 'Too many requests. Please wait a minute and try again.'
+    const some = renderRegion([
+      { name: 'd3', outcome: { status: 'error', message: msg } },
+      { name: 'vite', outcome: { status: 'ok', judged: [text('Fine.')] } },
+    ])
+    expect(some.textContent).toContain(msg)
+    expect(some.textContent).not.toContain('did not answer in time')
+    const all = renderRegion([
+      { name: 'd3', outcome: { status: 'error', message: msg } },
+      { name: 'vite', outcome: { status: 'error' } },
+    ])
+    expect(all.querySelectorAll('.ds-state--error')).toHaveLength(1)
+    expect(all.textContent).toContain(msg)
+  })
+})
+
 describe('FigureCheck', () => {
   const figures = [{ paragraph: 0, segment: 1 }, { paragraph: 0, segment: 3 }]
   const rowsByName = { d3: { '2026-09-20': 0, '2026-09-21': 10 }, vite: {} }

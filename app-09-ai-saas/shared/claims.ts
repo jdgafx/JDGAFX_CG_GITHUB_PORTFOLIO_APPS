@@ -77,7 +77,8 @@ export function validateShape(input: unknown): ShapeResult {
 }
 
 /**
- * Digit runs (`\d[\d,.]*`) in a text segment. A tokenizer of digit form with no vocabulary, and the
+ * Digit runs (`\p{Nd}[\p{Nd},.]*`) in a text segment: a digit of any script (Arabic-Indic, fullwidth,
+ * Devanagari and the rest), not only 0-9. A tokenizer of digit form with no vocabulary, and the
  * only pattern applied to model text. Digits inside a selected package's own name (d3) are exempt,
  * by position.
  */
@@ -89,7 +90,7 @@ function undeclaredNumerals(text: string, names: string[]): Array<{ start: numbe
     for (let at = lower.indexOf(n); n !== '' && at !== -1; at = lower.indexOf(n, at + 1)) spans.push([at, at + n.length])
   }
   const runs: Array<{ start: number; end: number }> = []
-  for (const m of text.matchAll(/\d[\d,.]*/g)) {
+  for (const m of text.matchAll(/\p{Nd}[\p{Nd},.]*/gu)) {
     const start = m.index
     const end = start + m[0].length
     const exempt = spans.some(([s, e]) => s <= start && start < e && /^[,.]*$/.test(text.slice(e, end)))

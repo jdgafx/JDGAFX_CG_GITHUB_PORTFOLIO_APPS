@@ -1,4 +1,7 @@
+import { isPackageName } from '../../shared/packageName'
 import type { Day, Release, ReleaseState, Rows } from '../../shared/types'
+
+export { isPackageName }
 
 const RANGE_ENDPOINT = 'https://api.npmjs.org/downloads/range'
 /** RUN_DATE minus 371 days: a 365-day window plus the 7 days npm may lag, inclusive. */
@@ -9,7 +12,6 @@ export const RELEASES_TIMEOUT_MS = 20_000
 export const MAX_NAMES = 4
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
-const NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/
 
 export type FailReason = 'not-found' | 'timeout' | 'network' | 'bad-response'
 export type RangeResult = { name: string; status: 'ok'; rows: Rows } | { name: string; status: 'failed'; reason: FailReason }
@@ -17,11 +19,6 @@ export interface ReleasesResult {
   name: string
   status: ReleaseState
   releases: Release[]
-}
-
-/** A package name as npm writes it (lower case, optional @scope/). Checked before the name reaches a URL. */
-export function isPackageName(name: string): boolean {
-  return name.length > 0 && name.length <= 214 && NAME.test(name)
 }
 
 export function todayUtc(now: Date = new Date()): Day {

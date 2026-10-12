@@ -20,6 +20,8 @@ export interface ExplainRequest { target: string; names: string[]; window: RunWi
   pastRows: Record<string, Array<[Day, number, 'no-data' | 'possible-gap' | null]>>; releaseState: Record<string, ReleaseState> }
 export type ExplainResponse =
   | { ok: true; paragraph: Segment[]; servedModel: string | null; usage: { prompt: number; completion: number; reasoning: number } | null; modelMs: number }
-  | { ok: false; reason: 'model-unavailable' | 'invalid:cut-off' | 'invalid:empty' | 'invalid:not-json' | 'invalid:bad-shape'; servedModel: string | null };
+  | { ok: false; reason: 'model-unavailable' | 'invalid:cut-off' | 'invalid:empty' | 'invalid:not-json' | 'invalid:bad-shape'; servedModel: string | null;
+      /** What OpenRouter reported for the call; a withheld answer was still paid for. Absent or null when none was reported. */
+      usage?: { prompt: number; completion: number; reasoning: number } | null };
 /** What /api/explain actually sends: the response plus what only the function side knows (lead, 2026-10-12). */
 export type ExplainReply = ExplainResponse & { newestModel: string | null; costUsd: number | null };

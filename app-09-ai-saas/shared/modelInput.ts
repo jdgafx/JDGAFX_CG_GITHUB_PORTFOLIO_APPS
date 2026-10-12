@@ -12,7 +12,7 @@ export function SYSTEM_RULES(windowName: string, target: string): string {
     '1. Code formats every claim for display; you only set the claim fields. What code renders: counts with commas; dates as D Mon YYYY; change_pct with one decimal and its % sign, so never write "percent" after it; a compare as a whole clause naming both packages and the period.',
     '2. Growth: change_pct = (A1/A0 - 1) x 100, where A1 and A0 are the given daily averages. Write it to two decimals with its sign (+12.34 or -4.10) and do no further rounding. If the input says growth is not computable, write no change_pct claim and say growth cannot be computed.',
     `3. Every number and every date you write goes in a claim. Text segments contain no digits and no numbers written as words. Name periods in words only: ${windowName} for the whole window, the past month for the last 30 days, the month before for the 30 days before that. Never count days.`,
-    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, the signed two-decimal number for change_pct, YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty.",
+    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, the signed two-decimal number for change_pct, YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.",
     `5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.`,
     "6. One figure per claim: a date and its count are two claims (a date claim, then a day_value claim for that day). At most 8 claims in the paragraph, compare claims included. Cite a peer's figure at most once.",
     '7. Never write ratios, shares, times-larger, differences, combined totals, baselines, counts of days, version numbers or release ids.',
@@ -67,7 +67,8 @@ export function CLAIM_SCHEMA(names: string[]): object {
         items: {
           anyOf: [
             text(),
-            claimBranch(names, ['window_total', 'peak_value'], '^[0-9]+$', '^$'),
+            // A positive count with no leading zero: the model wrote 0 as a placeholder for a total and a peak (Step 0.5).
+            claimBranch(names, ['window_total', 'peak_value'], '^[1-9][0-9]*$', '^$'),
             claimBranch(names, ['day_value'], '^[0-9]+$', DATE),
             claimBranch(names, ['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
             claimBranch(names, ['change_pct'], '^[+-][0-9]+[.][0-9]{2}$', '^$'),
@@ -104,7 +105,7 @@ export function buildUserMessage(req: ExplainRequest): string {
   const w = req.window
   const me = req.facts.find((f) => f.name === req.target)
   if (!me) throw new Error(`no facts for ${req.target}`)
-  const rows = req.pastRows[req.target] ?? []
+  const rows = Object.hasOwn(req.pastRows, req.target) ? req.pastRows[req.target]! : []
   const noData = w.noData.filter((d) => d >= w.start && d <= w.L)
   const lines = [
     `RUN_DATE ${w.runDate}; last published day L ${w.L}; window ${w.start}..${w.L} (${w.name}); past month ${w.past[0]}..${w.past[1]}; month before ${w.before[0]}..${w.before[1]}`,

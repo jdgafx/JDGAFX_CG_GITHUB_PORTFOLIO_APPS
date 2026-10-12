@@ -68,7 +68,7 @@ describe('npmClient', () => {
 
   it('validates package names at the boundary', () => {
     for (const ok of ['react', 'drizzle-orm', '@anthropic-ai/sdk', 'd3', 'lodash.merge']) expect(isPackageName(ok)).toBe(true)
-    for (const bad of ['', ' ', 'Has Space', 'a/b', '../x', '@scope', 'UPPER', 'x'.repeat(215), 'a?b']) expect(isPackageName(bad)).toBe(false)
+    for (const bad of ['', ' ', 'Has Space', 'a/b', '../x', '@scope', 'UPPER', 'x'.repeat(215), 'a?b', '~x', '-x', '@~s/x', '@-s/x']) expect(isPackageName(bad)).toBe(false)
   })
 
   it('reads releases from /api/releases?name= and treats anything else as failed', async () => {

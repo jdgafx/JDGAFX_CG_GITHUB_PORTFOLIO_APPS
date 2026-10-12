@@ -1,3 +1,4 @@
+import { isPackageName } from '../../shared/packageName'
 import type { Day, ExplainRequest, FigureKind, PackageFacts, RunWindow, Segment, UnusualRow, WindowDays } from '../../shared/types'
 
 /** The deployed site. A request's own origin is allowed too, so deploy previews work (SYSTEM.md C11). */
@@ -8,7 +9,6 @@ export const MAX_ROWS = 60
 export const MAX_UNUSUAL = 6
 /** The longest list of days a request may carry: the window is at most 365 days. */
 const MAX_DAYS = 400
-const MAX_NAME_CHARS = 214
 
 type Loose = Record<string, unknown>
 
@@ -21,11 +21,6 @@ export function originAllowed(req: Request): boolean {
   const origin = req.headers.get('origin')
   if (origin === null || origin === PRODUCTION_ORIGIN) return true
   return origin === new URL(req.url).origin
-}
-
-/** A valid npm package name, scoped or not. */
-export function isValidPackageName(name: unknown): name is string {
-  return typeof name === 'string' && name.length <= MAX_NAME_CHARS && /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i.test(name)
 }
 
 export type TextResult = { ok: true; text: string } | { ok: false; message: string }
@@ -108,6 +103,8 @@ function readFacts(value: unknown, name: string): PackageFacts | null {
   const S0 = bigintOf(g.S0)
   if (windowTotal === null || last30Total === null || S1 === null || S0 === null) return null
   if (!isDay(a.peakDay) || !isCount(a.peakValue) || !isCount(g.n1) || !isCount(g.n0) || typeof g.computable !== 'boolean') return null
+  // Growth that claims to be computable divides by n1, n0 and S0 (shared/modelInput fixedDecimal): none may be zero.
+  if (g.computable && (g.n1 === 0 || g.n0 === 0 || S0 === 0n)) return null
   if (!Array.isArray(value.unusual) || value.unusual.length > MAX_UNUSUAL) return null
   const unusual = value.unusual.map(readUnusual)
   const possibleGaps = dayList(value.possibleGaps)
@@ -148,7 +145,7 @@ export function validateExplainRequest(value: unknown): RequestResult {
   if (!isRecord(value)) return refuse('The request must be a JSON object.')
   const { target, names } = value
   if (!Array.isArray(names) || names.length < 1 || names.length > MAX_NAMES) return refuse(`The request needs 1 to ${MAX_NAMES} package names.`)
-  if (!names.every(isValidPackageName) || new Set(names).size !== names.length) return refuse('Each package name must be a distinct, valid npm name.')
+  if (!names.every(isPackageName) || new Set(names.map((n) => n.toLowerCase())).size !== names.length) return refuse('Each package name must be a distinct, valid npm name.')
   if (typeof target !== 'string' || !names.includes(target)) return refuse('The target must be one of the names.')
   const window = readWindow(value.window)
   if (!window) return refuse('The window is not valid.')
@@ -159,16 +156,16 @@ export function validateExplainRequest(value: unknown): RequestResult {
   const pastRows: ExplainRequest['pastRows'] = {}
   const sentRows = isRecord(value.pastRows) ? value.pastRows : {}
   for (const name of names) {
-    if (!(name in sentRows)) continue
+    if (!Object.hasOwn(sentRows, name)) continue
     const rows = readRows(sentRows[name])
     if (!rows) return refuse(`The rows for ${name} are not valid (at most ${MAX_ROWS}, each a day and a whole count of 0 or more).`)
     pastRows[name] = rows
   }
-  if (!pastRows[target]) return refuse('The target needs its rows.')
+  if (!Object.hasOwn(pastRows, target)) return refuse('The target needs its rows.')
   const releaseState: ExplainRequest['releaseState'] = {}
   const sentState = isRecord(value.releaseState) ? value.releaseState : {}
   for (const name of names) {
-    const state = sentState[name]
+    const state = Object.hasOwn(sentState, name) ? sentState[name] : undefined
     if (state !== 'ok' && state !== 'failed') return refuse('Each package needs a release state of ok or failed.')
     releaseState[name] = state
   }

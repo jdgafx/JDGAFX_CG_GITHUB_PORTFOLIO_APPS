@@ -44,15 +44,17 @@ export function formatPct(value: string): string | null {
   if (!m) return null
   const hundredths = BigInt(m[2] as string) * 100n + BigInt(m[3] as string)
   const tenths = (hundredths + 5n) / 10n
-  return `${m[1]}${tenths / 10n}.${tenths % 10n}%`
+  // A negative that rounds to zero is zero: no -0.0%.
+  const sign = tenths === 0n ? '+' : m[1]
+  return `${sign}${tenths / 10n}.${tenths % 10n}%`
 }
 
-/** num/den to `places` decimals, exact, half up (half away from zero when negative). */
+/** num/den to `places` decimals, exact, half up (half away from zero when negative; a negative that rounds to zero has no sign). */
 export function fixedDecimal(num: bigint, den: bigint, places: number): string {
-  const sign = num < 0n ? '-' : ''
   const scale = 10n ** BigInt(places)
   const a = num < 0n ? -num : num
   const q = (a * scale * 2n + den) / (2n * den)
+  const sign = num < 0n && q !== 0n ? '-' : ''
   const frac = (q % scale).toString().padStart(places, '0')
   return `${sign}${q / scale}${places > 0 ? `.${frac}` : ''}`
 }

@@ -1,4 +1,5 @@
-import { isValidPackageName, originAllowed } from '../shared/boundary'
+import { isPackageName } from '../../shared/packageName'
+import { originAllowed } from '../shared/boundary'
 import { withDeadline } from '../shared/deadline'
 import { USER_AGENT } from '../shared/openrouter'
 import { readTime } from '../shared/timeExtractor'
@@ -50,7 +51,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (!originAllowed(req)) return json({ error: 'Origin not allowed.' }, 403, NO_CACHE)
   if (req.method !== 'GET') return json({ error: 'Use GET.' }, 405, NO_CACHE)
   const name = new URL(req.url).searchParams.get('name')
-  if (!isValidPackageName(name)) return json({ error: 'A valid npm package name is required.' }, 400, NO_CACHE)
+  if (!isPackageName(name)) return json({ error: 'A valid npm package name is required.' }, 400, NO_CACHE)
   const failed = () => json({ name, status: 'failed', releases: [] }, 200, NO_CACHE)
   try {
     const time = await withDeadline(TIMEOUT_MS, async (signal) => {

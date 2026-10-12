@@ -130,6 +130,15 @@ describe('numeral pass', () => {
     expect(unchecked('d3 had 5 spikes')).toBe(true)
     expect(unchecked('d33 grew')).toBe(true)
   })
+  it('flags digits of any script: Arabic-Indic, fullwidth, Devanagari and mathematical digits', () => {
+    for (const digits of ['\u0663\u0664', '\uFF13\uFF14', '\u096B', '\u{1D7D9}\u{1D7DA}']) {
+      const s = `It had ${digits} downloads.`
+      const j = verdictOf(text(s))
+      expect(j.verdict, digits).toBe('unchecked')
+      expect(s.slice(j.runs![0]!.start, j.runs![0]!.end), digits).toBe(digits)
+    }
+    expect(verdictOf(text('It had \u0663,\u0664\u0665 downloads.')).runs).toEqual([{ start: 7, end: 11 }])
+  })
   it('a decimal and a trailing full stop form one run', () => {
     const j = verdictOf(text('about 3.5 million in 2026.'))
     expect(j.runs).toEqual([{ start: 6, end: 9 }, { start: 21, end: 26 }])

@@ -103,7 +103,7 @@ function PackageChart({ name, index, window, rows, facts, releases, releaseState
 
 /** One chart per package, each on its own scale: daily downloads with the unusual days, releases, no-data days and gaps marked. */
 export default function Charts({ names, window, rowsByName, facts, releases, releaseState }: ChartsProps) {
-  const shown = names.filter(n => n in rowsByName)
+  const shown = names.filter(n => Object.hasOwn(rowsByName, n))
   return (
     <section className="charts" aria-label="Daily downloads">
       <div className="ds-grid-2">

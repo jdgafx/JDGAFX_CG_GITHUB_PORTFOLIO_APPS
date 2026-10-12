@@ -1,4 +1,4 @@
-// The strict claim schema exactly as spec section 3 (rev 7, N2) writes it, independent of WP1's CLAIM_SCHEMA.
+// The strict claim schema as spec section 3 (rev 7, N2) writes it plus the Step 0.5 totals pattern (a positive count), independent of WP1's CLAIM_SCHEMA.
 const DATE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 
 export function expectedSchema(names: string[]): object {
@@ -21,7 +21,7 @@ export function expectedSchema(names: string[]): object {
         items: {
           anyOf: [
             { type: 'object', additionalProperties: false, required: ['t', 's'], properties: { t: { type: 'string', enum: ['text'] }, s: { type: 'string' } } },
-            claim(['window_total', 'peak_value'], '^[0-9]+$', '^$'),
+            claim(['window_total', 'peak_value'], '^[1-9][0-9]*$', '^$'),
             claim(['day_value'], '^[0-9]+$', DATE),
             claim(['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
             claim(['change_pct'], '^[+-][0-9]+[.][0-9]{2}$', '^$'),

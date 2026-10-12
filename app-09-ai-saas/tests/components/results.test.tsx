@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PackageFacts, UnusualRow } from '../../shared/types'
 import Charts from '../../src/components/Charts'
-import Metrics from '../../src/components/Metrics'
+import Metrics, { changeText } from '../../src/components/Metrics'
 import Notices from '../../src/components/Notices'
 import Readout from '../../src/components/Readout'
 import UnusualTable from '../../src/components/UnusualTable'
@@ -12,6 +12,18 @@ import { stubFacts, stubWindow } from '../ui/stubCore'
 afterEach(cleanup)
 
 const WINDOW = stubWindow('2026-10-12', 30) // 2026-09-12 .. 2026-10-11
+
+describe('Metrics change text', () => {
+  const withGrowth = (S1: bigint, S0: bigint): PackageFacts => {
+    const f = stubFacts('vite', 0)
+    return { ...f, aggregates: { ...f.aggregates, growth: { S1, n1: 30, S0, n0: 30, computable: true } } }
+  }
+  it('a small fall that rounds to zero reads +0.0%, never -0.0%', () => {
+    expect(changeText(withGrowth(999_999n, 1_000_000n))).toBe('+0.0%')
+    expect(changeText(withGrowth(990_000n, 1_000_000n))).toBe('-1.0%')
+    expect(changeText(withGrowth(1_100_000n, 1_000_000n))).toBe('+10.0%')
+  })
+})
 
 describe('Metrics', () => {
   const text = (el: Element) => el.textContent?.replace(/\s+/g, ' ')
@@ -163,6 +175,7 @@ describe('Readout', () => {
     elapsedMs: 15_500,
     reasoningTokens: 2159,
     cost: 0.00160875,
+    costUnreported: 0,
   }
   const text = (run: RunState) => mount(<Readout run={run} />).container.textContent!
 
@@ -179,8 +192,20 @@ describe('Readout', () => {
     expect(text({ ...base, modelOutcome: 'all-failed', servedModel: null, cost: null, reasoningTokens: null })).toContain('model · unavailable')
   })
 
+  it('says at least when some calls reported no cost, and counts them', () => {
+    expect(text({ ...base, costUnreported: 1 })).toContain('at least $0.0016 (1 call not reported)')
+    expect(text({ ...base, costUnreported: 3 })).toContain('at least $0.0016 (3 calls not reported)')
+    expect(text(base)).not.toContain('at least')
+  })
+
+  it('says cost unknown, not $0.0000, when nothing was reported', () => {
+    const t = text({ ...base, cost: null, costUnreported: 2 })
+    expect(t).toContain('cost unknown')
+    expect(t).not.toContain('$')
+  })
+
   it('shows dashes while the run is live', () => {
-    const { container } = mount(<Readout run={{ ...base, phase: 'running', elapsedMs: null, reasoningTokens: null, cost: null, modelOutcome: 'ok' }} />)
+    const { container } = mount(<Readout run={{ ...base, phase: 'running', elapsedMs: null, reasoningTokens: null, cost: null, costUnreported: 0, modelOutcome: 'ok' }} />)
     expect(container.querySelector('.ds-strip--pending')).not.toBeNull()
   })
 })

@@ -26,7 +26,7 @@ export default function App({ deps }: { deps?: Partial<RunDeps> }) {
   const { run, view } = r
   const core = deps?.core ?? CORE
   const snap = run.snapshot
-  const targets = snap ? snap.names.filter(n => n in snap.rowsByName) : []
+  const targets = snap ? snap.names.filter(n => Object.hasOwn(snap.rowsByName, n)) : []
   const packages = targets.map(name => ({ name, outcome: run.outcomes[name] ?? ({ status: 'pending' } as const) }))
   const allFailed = run.phase === 'done' && packages.length > 0 && packages.every(p => p.outcome.status === 'error')
   const phase = run.phase === 'idle' ? 'idle' : run.phase === 'running' ? 'running' : allFailed ? 'failed' : 'done'

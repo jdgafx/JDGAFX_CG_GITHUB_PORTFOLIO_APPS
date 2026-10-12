@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Judged } from '../../shared/claims'
 import type { PackageFacts, RunWindow } from '../../shared/types'
-import { formatDate, joinNames, labelFor, shownList, titleFor, type Figure, type LabelContext, type PackageResult } from '../lib/labels'
+import { formatDate, joinNames, labelFor, separatorBetween, shownList, titleFor, type Figure, type LabelContext, type PackageResult } from '../lib/labels'
 
 interface ExplanationProps {
   names: string[]
@@ -65,6 +65,8 @@ export default function Explanation({ names, window, packages, facts, figures }:
   const ctx: LabelContext = { window, facts }
   const shown = shownList(packages)
   const allFailed = packages.length > 0 && packages.every(p => p.outcome.status === 'error')
+  /** The words of a refusal the function sent (a rate limit); the generic notice otherwise. */
+  const refusal = packages.flatMap(p => (p.outcome.status === 'error' && p.outcome.message ? [p.outcome.message] : []))[0]
   const paragraphIndex = new Map(shown.map((s, i) => [s.name, i]))
   const figureAt = (p: number, s: number) => {
     const i = figures.findIndex(f => f.paragraph === p && f.segment === s)
@@ -79,7 +81,7 @@ export default function Explanation({ names, window, packages, facts, figures }:
       <div className="ds-lead__text">
         {allFailed ? (
           <State kind="error" title="No explanation">
-            {UNAVAILABLE}
+            {refusal ?? UNAVAILABLE}
           </State>
         ) : (
           packages.map(({ name, outcome }) => (
@@ -92,7 +94,7 @@ export default function Explanation({ names, window, packages, facts, figures }:
               )}
               {outcome.status === 'error' && (
                 <State kind="error" title="No explanation">
-                  {UNAVAILABLE}
+                  {outcome.message ?? UNAVAILABLE}
                 </State>
               )}
               {outcome.status === 'withheld' && (
@@ -104,6 +106,7 @@ export default function Explanation({ names, window, packages, facts, figures }:
                 <p className="explanation__text">
                   {outcome.judged.map((j, s) => (
                     <Fragment key={s}>
+                      {s > 0 && separatorBetween(outcome.judged[s - 1]!, j)}
                       {j.seg.t === 'text' ? <TextSegment j={j} /> : <ClaimMark j={j} ctx={ctx} figure={figureAt(paragraphIndex.get(name) ?? -1, s)} />}
                     </Fragment>
                   ))}

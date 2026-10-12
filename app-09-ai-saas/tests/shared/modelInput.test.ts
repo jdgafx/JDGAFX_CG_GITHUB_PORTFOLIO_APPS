@@ -164,12 +164,21 @@ describe('SYSTEM_RULES', () => {
       )
       .replace('the signed one-decimal number for change_pct', 'the signed two-decimal number for change_pct')
       .replace(
+        'else empty.\n',
+        "else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.\n",
+      )
+      .replace(
         "5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind.\n",
         `5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.\n`,
       )
   it('is the live text plus the rev 7 replacements, for a year and a month window', () => {
     expect(SYSTEM_RULES('the past year', 'react')).toBe(rev7(loadGolden('system-rev6-r1-react.txt'), 'the past year'))
     expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev7(loadGolden('system-rev6-r2-vite.txt'), 'the past month'))
+  })
+  it('tells the model to write no total or peak claim for a zero, and to say so in words', () => {
+    const rule = SYSTEM_RULES('the past year', 'react').split('\n').find((l) => l.startsWith('4. '))!
+    expect(rule).toContain('window_total and peak_value are positive whole numbers')
+    expect(rule).toContain('write no claim for it and say in words that it had no downloads')
   })
   it('the replacements all applied', () => {
     const t = SYSTEM_RULES('the past year', 'react')
@@ -187,11 +196,53 @@ describe('CLAIM_SCHEMA', () => {
     const branch = live.properties.paragraph.items.anyOf.find((b) => b.properties.kind?.enum.join() === 'change_pct')!
     expect(branch.properties.value!.pattern).toBe('^[+-][0-9]+[.][0-9]$')
     branch.properties.value!.pattern = '^[+-][0-9]+[.][0-9]{2}$'
+    // Step 0.5: the model wrote 0 as a placeholder for a total and a peak, so those two kinds take a positive integer.
+    const totals = live.properties.paragraph.items.anyOf.find((b) => b.properties.kind?.enum.join() === 'window_total,peak_value')!
+    expect(totals.properties.value!.pattern).toBe('^[0-9]+$')
+    totals.properties.value!.pattern = '^[1-9][0-9]*$'
     expect(CLAIM_SCHEMA(names)).toEqual(live)
+  })
+  it('the window_total and peak_value pattern refuses 0 and a leading zero, and keeps day_value open to 0', () => {
+    const anyOf = (CLAIM_SCHEMA(['a']) as { properties: { paragraph: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } }).properties.paragraph.items.anyOf
+    const re = (kind: string) => new RegExp(anyOf.find((b) => b.properties.kind?.enum.includes(kind))!.properties.value!.pattern)
+    for (const kind of ['window_total', 'peak_value']) {
+      expect(re(kind).test('0'), kind).toBe(false)
+      expect(re(kind).test('007'), kind).toBe(false)
+      for (const good of ['5', '10', '67807579']) expect(re(kind).test(good), `${kind} ${good}`).toBe(true)
+    }
+    expect(re('day_value').test('0')).toBe(true)
   })
   it('has a text branch, four per-kind claim branches and a compare branch', () => {
     const items = (CLAIM_SCHEMA(['a', 'b']) as { properties: { paragraph: { items: { anyOf: unknown[] } } } }).properties.paragraph.items.anyOf
     expect(items).toHaveLength(6)
+  })
+})
+
+describe('a package with no downloads in the window', () => {
+  const rows = { quiet: series('2025-09-01', 400, () => 0), busy: series('2025-09-01', 400, () => 500) }
+  const window = computeWindow(rows, '2026-10-12', 30)
+  const facts = computeFacts(rows, window, {}, { quiet: 'ok', busy: 'ok' })
+  const req = (target: string): ExplainRequest => ({
+    target,
+    names: [target, ...['quiet', 'busy'].filter((n) => n !== target)],
+    window,
+    facts: [target, ...['quiet', 'busy'].filter((n) => n !== target)].map((n) => facts.find((f) => f.name === n)!),
+    pastRows: { [target]: buildPastRows(rows[target as 'quiet'], window, facts.find((f) => f.name === target)!) },
+    releaseState: { quiet: 'ok', busy: 'ok' },
+  })
+  it('has zero totals and a growth that is not computable, as facts', () => {
+    const f = facts.find((x) => x.name === 'quiet')!
+    expect(f.aggregates.windowTotal).toBe(0n)
+    expect(f.aggregates.peakValue).toBe(0)
+    expect(f.aggregates.growth.computable).toBe(false)
+  })
+  it('still gets a user message the model can answer, as target and as peer', () => {
+    const own = buildUserMessage(req('quiet'))
+    expect(own).toContain('window_total(window)=0')
+    expect(own).toContain('growth: not computable')
+    const peer = buildUserMessage(req('busy'))
+    expect(peer).toContain('quiet: window_total(window)=0')
+    expect(peer).toContain('growth not computable')
   })
 })
 

@@ -195,6 +195,17 @@ describe('POST /api/explain', () => {
       expect(r.out.newestModel).toBe('anthropic/claude-haiku-5.5')
       expect(r.out.costUsd).toBe(0.001568457)
     })
+    it('carries the usage on every kind of invalid answer, so the browser can sum it', async () => {
+      const usage = { prompt: 2863, completion: 2596, reasoning: 2068 }
+      expect((await reason(() => jsonResponse(chatBody({ finish: 'length' })))).out.usage).toEqual(usage)
+      expect((await reason(() => jsonResponse(chatBody({ content: '' })))).out.usage).toEqual(usage)
+      expect((await reason(() => jsonResponse(chatBody({ content: 'nope' })))).out.usage).toEqual(usage)
+      expect((await reason(() => jsonResponse(chatBody({ content: '{"paragraph":[]}' })))).out.usage).toEqual(usage)
+    })
+    it('usage on an invalid answer is null when the reply reported none', async () => {
+      const r = await reason(() => jsonResponse(chatBody({ finish: 'length', usage: {} })))
+      expect(r.out.usage).toBeNull()
+    })
   })
 
   describe('upstream failure is 502 model-unavailable', () => {
@@ -208,6 +219,10 @@ describe('POST /api/explain', () => {
       for (const status of [500, 402, 429]) {
         expect(await fail(() => jsonResponse({ error: 'x' }, status)), String(status)).toMatchObject({ status: 502, out: { ok: false, reason: 'model-unavailable', servedModel: null } })
       }
+    })
+    it('with no usage and no cost: nothing was reported', async () => {
+      const r = await fail(() => jsonResponse({ error: 'x' }, 502))
+      expect(r.out).toMatchObject({ usage: null, costUsd: null })
     })
     it('on a network error', async () => {
       expect(await fail(() => Promise.reject(new TypeError('fetch failed')))).toMatchObject({ status: 502, out: { reason: 'model-unavailable' } })
@@ -235,6 +250,107 @@ describe('POST /api/explain', () => {
       expect(res.status).toBe(502)
       expect(await res.json()).toMatchObject({ ok: false, reason: 'model-unavailable' })
       expect(calls.filter((c) => c.url === CHAT_URL)).toHaveLength(0)
+    })
+  })
+
+  describe('a request that cannot be turned into a prompt', () => {
+    const refused = async (mutate: (w: Loose) => void) => {
+      const calls = installFetch(ok())
+      const { handler } = await load()
+      const w = wireRequest() as Loose
+      mutate(w)
+      const res = await handler(explainRequest(w))
+      return { status: res.status, body: (await res.json()) as Loose, calls }
+    }
+    it('answers 400 with the JSON error for growth computable over empty periods, never a thrown 500', async () => {
+      for (const growth of [{ n0: 0 }, { n1: 0 }, { S0: '0' }]) {
+        const r = await refused((w) => { Object.assign(w.facts[0].aggregates.growth, growth) })
+        expect(r.status, JSON.stringify(growth)).toBe(400)
+        expect(typeof r.body.error).toBe('string')
+        expect(r.calls).toHaveLength(0)
+      }
+    })
+    it('answers 400 for a target named like an Object.prototype key whose rows are omitted', async () => {
+      const r = await refused((w) => {
+        w.names = ['constructor']
+        w.target = 'constructor'
+        w.facts = [{ ...w.facts[0], name: 'constructor' }]
+        w.releaseState = { constructor: 'ok' }
+        delete w.pastRows
+      })
+      expect(r.status).toBe(400)
+      expect(r.body.error).toBe('The target needs its rows.')
+    })
+    it('answers a package with no downloads at all: zero totals, growth not computable', async () => {
+      const calls = installFetch(ok())
+      const { handler } = await load()
+      const w = wireRequest() as Loose
+      Object.assign(w.facts[0].aggregates, { windowTotal: '0', last30Total: '0', peakValue: 0 })
+      w.facts[0].aggregates.growth = { S1: '0', n1: 0, S0: '0', n0: 0, computable: false }
+      w.facts[0].unusual = []
+      w.pastRows.react = w.pastRows.react.map(([day]: [string]) => [day, 0, null])
+      const res = await handler(explainRequest(w))
+      expect(res.status).toBe(200)
+      expect(sentBody(calls).messages[1].content).toContain('window_total(window)=0')
+    })
+    it('answers a request with a peer named constructor and no rows for it', async () => {
+      const calls = installFetch(ok())
+      const { handler } = await load()
+      const w = wireRequest() as Loose
+      w.names = ['react', 'constructor']
+      w.facts = [w.facts[0], { ...w.facts[1], name: 'constructor' }]
+      w.releaseState = { react: 'ok', constructor: 'ok' }
+      w.pastRows = { react: w.pastRows.react }
+      const res = await handler(explainRequest(w))
+      expect(res.status).toBe(200)
+      expect(calls.filter((c) => c.url === CHAT_URL)).toHaveLength(1)
+    })
+    it('answers a clear JSON error when building the prompt throws, and makes no upstream call', async () => {
+      const calls = installFetch(ok())
+      vi.resetModules()
+      vi.doMock('../../shared/modelInput', async (orig) => ({
+        ...(await orig<typeof import('../../shared/modelInput')>()),
+        buildUserMessage: () => {
+          throw new RangeError('Division by zero')
+        },
+      }))
+      try {
+        const handler = (await import('../../netlify/functions/explain')).default as Handler
+        const res = await handler(explainRequest(wireRequest()))
+        expect(res.status).toBe(400)
+        expect(res.headers.get('content-type')).toContain('application/json')
+        expect(await res.json()).toEqual({ error: 'The request could not be turned into a prompt.' })
+        expect(calls.filter((c) => c.url === CHAT_URL)).toHaveLength(0)
+      } finally {
+        vi.doUnmock('../../shared/modelInput')
+      }
+    })
+  })
+
+  describe('rate limit', () => {
+    const from = (ip: string) => explainRequest(wireRequest(), { 'x-nf-client-connection-ip': ip })
+    it('answers the 21st request in a minute from one client with 429 and a JSON error, before reading the body or calling the model', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      const calls = installFetch(ok())
+      const { handler } = await load()
+      for (let i = 0; i < 20; i++) expect((await handler(from('203.0.113.7'))).status, `request ${i + 1}`).toBe(200)
+      const chatBefore = calls.filter((c) => c.url === CHAT_URL).length
+      const res = await handler(from('203.0.113.7'))
+      expect(res.status).toBe(429)
+      expect(res.headers.get('content-type')).toContain('application/json')
+      expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
+      expect(((await res.json()) as Loose).error).toMatch(/too many requests/i)
+      expect(calls.filter((c) => c.url === CHAT_URL)).toHaveLength(chatBefore)
+      // another client is not held back, and the first is let in again after the minute
+      expect((await handler(from('203.0.113.8'))).status).toBe(200)
+      vi.setSystemTime(Date.now() + 60_001)
+      expect((await handler(from('203.0.113.7'))).status).toBe(200)
+    })
+    it('counts a request the boundary refuses, so junk cannot be sent for free', async () => {
+      installFetch(ok())
+      const { handler } = await load()
+      for (let i = 0; i < 20; i++) expect((await handler(explainRequest('not json', { 'x-nf-client-connection-ip': '198.51.100.1' }))).status).toBe(400)
+      expect((await handler(explainRequest('not json', { 'x-nf-client-connection-ip': '198.51.100.1' }))).status).toBe(429)
     })
   })
 

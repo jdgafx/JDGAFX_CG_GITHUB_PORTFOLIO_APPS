@@ -69,6 +69,20 @@ export function labelFor(seg: Segment, ctx: LabelContext): string {
   }
 }
 
+/**
+ * What to render between two neighbouring segments when the model left nothing: a compare is a whole clause written by
+ * code with no closing stop, so it is set apart from what touches it. Never touches a text segment's own bytes.
+ */
+export function separatorBetween(a: Judged, b: Judged): string {
+  if (a.seg.t !== 'compare' && b.seg.t !== 'compare') return ''
+  // A claim's visible end is its label, and a compare's is its last word: neither is a space.
+  const end = a.seg.t === 'text' ? a.seg.s.slice(-1) : 'x'
+  const start = b.seg.t === 'text' ? b.seg.s.slice(0, 1) : 'x'
+  if (end === '' || start === '' || /\s/.test(end) || /\s/.test(start) || /[.,;:!?)]/.test(start)) return ''
+  if (a.seg.t === 'compare') return '. '
+  return /[.!?:]/.test(end) ? ' ' : '. '
+}
+
 /** The hover text of a mark: the npm value of a wrong figure, or the release version of an unusual day. Digits live here only. */
 export function titleFor(j: Judged, ctx: LabelContext): string | undefined {
   if (j.verdict === 'wrong') return j.npmValue !== undefined ? `npm: ${j.npmValue}` : j.reason ? `Wrong: ${j.reason}` : 'Differs from npm'
@@ -171,6 +185,16 @@ function howToCheck(seg: Segment, ctx: LabelContext, rows: Rows | undefined): st
   }
 }
 
+/**
+ * The npm value of a claim: npm's own figure when there is one. A wrong claim with none (a no-data day, a possible gap,
+ * out of window, value form, no basis, a day not in the unusual set) shows the reason, never the model's number. A
+ * checked claim with none shows its own value, which npm confirmed.
+ */
+function npmCell(j: Judged, modelValue: string): string {
+  if (j.verdict === 'wrong') return j.npmValue ?? j.reason ?? ''
+  return j.verdict === 'checked' ? (j.npmValue ?? modelValue) : ''
+}
+
 /** One row of the figure-check table per claim, plus one per undeclared number the model wrote in its text. */
 export function checkRows(shown: Shown[], figures: Figure[], ctx: LabelContext, rowsByName: Record<string, Rows>): CheckRow[] {
   const numberAt = new Map(figures.map((f, i) => [`${f.paragraph}:${f.segment}`, i + 1]))
@@ -204,7 +228,7 @@ export function checkRows(shown: Shown[], figures: Figure[], ctx: LabelContext, 
         pkg: seg.package,
         where: compare ? seg.metric : seg.day || seg.span,
         modelValue: compare ? seg.relation : seg.value,
-        npmValue: j.verdict === 'wrong' || j.verdict === 'checked' ? (j.npmValue ?? (compare ? seg.relation : seg.value)) : '',
+        npmValue: npmCell(j, compare ? seg.relation : seg.value),
         howTo: howToCheck(seg, ctx, rowsByName[seg.package]),
         verdict: j.verdict,
       })

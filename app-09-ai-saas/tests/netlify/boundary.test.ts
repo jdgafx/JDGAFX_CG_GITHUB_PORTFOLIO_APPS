@@ -96,6 +96,48 @@ describe('request validation', () => {
     expect(parse((w) => { w.facts[0].unusual[0].release = 3 }).ok).toBe(false)
     expect(parse((w) => { w.facts = [w.facts[1]] }).ok).toBe(false)
   })
+  it('compares names as lower case: a differently-cased duplicate is refused', () => {
+    expect(parse((w) => { w.names = ['react', 'React'] }).ok).toBe(false)
+    expect(parse((w) => { w.names = ['react', '~vite'] }).ok).toBe(false)
+    expect(parse((w) => { w.names = ['react', '-vite'] }).ok).toBe(false)
+  })
+  it('a name that is also an Object.prototype key is an ordinary name, and its missing rows are a refusal', () => {
+    const named = (w: Record<string, any>, name: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      w.names = ['react', name]
+      w.facts = [w.facts[0], { ...w.facts[1], name }]
+      w.releaseState = { react: 'ok', [name]: 'ok' }
+    }
+    // the other Object.prototype names (valueOf, toString, hasOwnProperty, __proto__) are not valid lower-case names
+    for (const name of ['valueOf', 'toString', 'hasOwnProperty', '__proto__']) {
+      expect(parse((w) => { w.names = ['react', name]; w.facts = [w.facts[0], { ...w.facts[1], name }]; w.releaseState = { react: 'ok', [name]: 'ok' } }).ok, name).toBe(false)
+    }
+    for (const name of ['constructor']) {
+      // a peer with no rows of its own is fine: only the target's rows are required
+      expect(parse((w) => named(w, name)).ok, `peer ${name}`).toBe(true)
+      // the target without rows: refused, never read from the prototype
+      const r = parse((w) => { named(w, name); w.target = name; w.pastRows = { react: w.pastRows.react } })
+      expect(r.ok, `target ${name}`).toBe(false)
+      const none = parse((w) => { named(w, name); w.target = name; delete w.pastRows })
+      expect(none.ok, `target ${name}, pastRows omitted`).toBe(false)
+      expect(none.ok ? '' : none.message).toBe('The target needs its rows.')
+    }
+  })
+  it('a name that is an Object.prototype key gets its own release state, not the inherited member', () => {
+    const r = parse((w) => {
+      w.names = ['react', 'constructor']
+      w.facts = [w.facts[0], { ...w.facts[1], name: 'constructor' }]
+      w.releaseState = { react: 'ok' }
+    })
+    expect(r.ok).toBe(false)
+  })
+  it('growth marked computable needs both periods to have days and a positive earlier total', () => {
+    expect(parse((w) => { w.facts[0].aggregates.growth.n0 = 0 }).ok).toBe(false)
+    expect(parse((w) => { w.facts[0].aggregates.growth.n1 = 0 }).ok).toBe(false)
+    expect(parse((w) => { w.facts[0].aggregates.growth.S0 = '0' }).ok).toBe(false)
+    expect(parse((w) => { w.facts[1].aggregates.growth.n0 = 0 }).ok, 'a peer too').toBe(false)
+    // not computable: zeros are the honest state
+    expect(parse((w) => { Object.assign(w.facts[0].aggregates.growth, { computable: false, n0: 0, S0: '0' }) }).ok).toBe(true)
+  })
   it('refuses a non-object body', () => {
     expect(validateExplainRequest(null).ok).toBe(false)
     expect(validateExplainRequest([]).ok).toBe(false)

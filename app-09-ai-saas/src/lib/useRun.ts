@@ -79,7 +79,8 @@ export interface Snapshot {
 export type PkgOutcome =
   | { status: 'pending' }
   | { status: 'ok'; judged: Judged[] }
-  | { status: 'error' }
+  /** `message` is the function's own words for a refusal (a rate limit); absent for a timeout, a network failure or a 502. */
+  | { status: 'error'; message?: string }
   | { status: 'withheld'; reason: string }
 
 export interface RunState {
@@ -92,8 +93,10 @@ export interface RunState {
   modelOutcome: ModelOutcome | null
   elapsedMs: number | null
   reasoningTokens: number | null
-  /** USD, or null for "cost unknown". */
+  /** USD summed over the calls that reported a cost; null when none did ("cost unknown"). */
   cost: number | null
+  /** Calls whose cost is not in `cost`: a timeout, an abort, a 502 or an answer without a cost. */
+  costUnreported: number
 }
 
 const IDLE_RUN: RunState = {
@@ -106,6 +109,7 @@ const IDLE_RUN: RunState = {
   elapsedMs: null,
   reasoningTokens: null,
   cost: null,
+  costUnreported: 0,
 }
 
 const WITHHELD_WORDS: Record<string, string> = {
@@ -131,7 +135,7 @@ export function derive(
     if (slot?.status === 'ok') rowsByName[name] = slot.rows
     else failedNames.push(name)
   }
-  const okNames = names.filter(n => n in rowsByName)
+  const okNames = names.filter(n => Object.hasOwn(rowsByName, n))
   const relMap: Record<string, Release[]> = {}
   const relState: Record<string, ReleaseState> = {}
   for (const name of okNames) {
@@ -153,13 +157,21 @@ export function derive(
 /** The request for one package: it first, its peers after, six unusual rows each, its past-month rows tagged. */
 export function buildRequest(core: Core, snap: Snapshot, target: string): ExplainRequest {
   const window = snap.window!
-  const names = [target, ...snap.names.filter(n => n !== target && n in snap.rowsByName)]
+  const names = [target, ...snap.names.filter(n => n !== target && Object.hasOwn(snap.rowsByName, n))]
   const factsFor = (n: string) => snap.facts.find(f => f.name === n)!
   const facts = names.map(n => ({ ...factsFor(n), unusual: core.topUnusual(factsFor(n).unusual, MAX_UNUSUAL_SENT) }))
   const releaseState: Record<string, ReleaseState> = {}
   for (const n of names) releaseState[n] = snap.releaseState[n] ?? 'failed'
   const pastRows = { [target]: core.buildPastRows(snap.rowsByName[target] ?? {}, window, factsFor(target)) }
   return { target, names, window, facts, pastRows, releaseState }
+}
+
+/** The function turned the request away for rate limiting (429) and said so in its own words. No model call was made. */
+export class ExplainRefused extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ExplainRefused'
+  }
 }
 
 /** The real POST /api/explain. The body is encoded by shared code because the facts carry bigint totals. */
@@ -170,8 +182,11 @@ export async function postExplain(req: ExplainRequest, signal: AbortSignal): Pro
     body: encodeRequest(req),
     signal,
   })
-  const body = (await res.json().catch(() => null)) as ExplainReply | null
-  return body && typeof body === 'object' && 'ok' in body ? body : null
+  const body = (await res.json().catch(() => null)) as ExplainReply | { error?: unknown } | null
+  if (body && typeof body === 'object' && 'ok' in body) return body
+  // Only the rate limit is shown in the function's words: other refusals can carry digits, which the explanation region never prints.
+  if (res.status === 429 && body && typeof body === 'object' && typeof body.error === 'string') throw new ExplainRefused(body.error)
+  return null
 }
 
 interface Data {
@@ -202,6 +217,9 @@ export function useRun(deps: RunDeps) {
   const seq = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const live = useRef(false)
+  const mounted = useRef(true)
+  /** The controllers of the explain requests in flight, so leaving the page cancels them. */
+  const posts = useRef(new Set<AbortController>())
 
   /** Fetches downloads and releases for the selection. Resolves with the settled slots, or null if a newer load replaced it. */
   const fetchAll = useCallback(async (nextNames: string[], date: Day) => {
@@ -251,7 +269,21 @@ export function useRun(deps: RunDeps) {
     [fetchAll, begin],
   )
 
-  useEffect(() => () => controller.current?.abort(), [])
+  useEffect(() => {
+    mounted.current = true
+    const inFlight = posts.current
+    return () => {
+      mounted.current = false
+      // A fetch that settles after this is no longer current, so it writes nothing.
+      seq.current += 1
+      controller.current?.abort()
+      for (const ctl of inFlight) ctl.abort()
+    }
+  }, [])
+  /** setRun that does nothing once the page is gone. */
+  const publishRun = useCallback((next: RunState) => {
+    if (mounted.current) setRun(next)
+  }, [])
 
   const { runDate, downloads, releases } = data
   const dlSlots = names.map(n => downloads[n]?.status ?? 'loading') as Slot[]
@@ -280,24 +312,27 @@ export function useRun(deps: RunDeps) {
         // Explain spikes and Try it always refetch: nothing is cached by the app.
         const loaded = await fetchAll(nextNames, begin(nextNames))
         if (!loaded) {
-          setRun(IDLE_RUN)
+          publishRun(IDLE_RUN)
           return
         }
         const snap = derive(d.core, nextNames, nextDays, loaded.date, loaded.dl, loaded.rel)
         if (snap.error !== null || snap.window === null) {
-          setRun({ ...IDLE_RUN, phase: 'done', snapshot: snap, modelOutcome: null, elapsedMs: now() - startedAt })
+          publishRun({ ...IDLE_RUN, phase: 'done', snapshot: snap, modelOutcome: null, elapsedMs: now() - startedAt })
           return
         }
-        const targets = snap.names.filter(n => n in snap.rowsByName)
+        const targets = snap.names.filter(n => Object.hasOwn(snap.rowsByName, n))
         const outcomes: Record<string, PkgOutcome> = Object.fromEntries(targets.map(n => [n, { status: 'pending' } as PkgOutcome]))
         const markers: ModelMarker[] = []
         const served: Array<string | null> = []
         let answered = 0
         let failed = 0
         let reasoning = 0
-        let cost: number | null = 0
+        let usageSeen = false
+        let cost = 0
+        let costReported = 0
+        let costUnreported = 0
         const publish = (final: boolean) =>
-          setRun({
+          publishRun({
             phase: final ? 'done' : 'running',
             snapshot: snap,
             outcomes: { ...outcomes },
@@ -305,16 +340,28 @@ export function useRun(deps: RunDeps) {
             marker: worstMarker(markers),
             modelOutcome: failed === 0 ? 'ok' : answered === 0 ? 'all-failed' : 'partial',
             elapsedMs: final ? now() - startedAt : null,
-            reasoningTokens: final && answered > 0 ? reasoning : null,
-            cost: final && failed < targets.length ? cost : null,
+            reasoningTokens: final && usageSeen ? reasoning : null,
+            cost: final && costReported > 0 ? cost : null,
+            costUnreported: final ? costUnreported : 0,
           })
         publish(false)
         await Promise.all(
           targets.map(async target => {
             const ctl = new AbortController()
+            posts.current.add(ctl)
             const timer = setTimeout(() => ctl.abort(), EXPLAIN_ABORT_MS)
             try {
               const body = await post(buildRequest(d.core, snap, target), ctl.signal)
+              if (!mounted.current) return
+              // Every call is counted: what it cost if the function knew, else one more call not reported.
+              if (body?.costUsd != null) {
+                cost += body.costUsd
+                costReported += 1
+              } else costUnreported += 1
+              if (body?.usage) {
+                reasoning += body.usage.reasoning
+                usageSeen = true
+              }
               if (!body || (!body.ok && body.reason === 'model-unavailable')) {
                 outcomes[target] = { status: 'error' }
                 failed += 1
@@ -324,7 +371,6 @@ export function useRun(deps: RunDeps) {
                 if (marker === 'mismatch') console.warn(`app-09: the served model ${body.servedModel} is not the newest (${body.newestModel})`)
                 markers.push(marker)
                 served.push(body.servedModel)
-                cost = body.costUsd !== null && cost !== null ? cost + body.costUsd : null
                 if (!body.ok) {
                   outcomes[target] = { status: 'withheld', reason: WITHHELD_WORDS[body.reason] ?? 'the answer was not in the agreed format' }
                 } else {
@@ -332,14 +378,18 @@ export function useRun(deps: RunDeps) {
                   outcomes[target] = shape.ok
                     ? { status: 'ok', judged: d.core.judge(body.paragraph, snap.rowsByName, snap.window!, nextDays) }
                     : { status: 'withheld', reason: shape.reason }
-                  if (body.usage) reasoning += body.usage.reasoning
                 }
               }
-            } catch {
-              outcomes[target] = { status: 'error' }
+            } catch (error) {
+              if (!mounted.current) return
+              outcomes[target] = error instanceof ExplainRefused ? { status: 'error', message: error.message } : { status: 'error' }
               failed += 1
+              // A rate-limited call never reached the model: its cost is known, and it is nothing.
+              if (error instanceof ExplainRefused) costReported += 1
+              else costUnreported += 1
             } finally {
               clearTimeout(timer)
+              posts.current.delete(ctl)
             }
             const last = Object.values(outcomes).every(o => o.status !== 'pending')
             publish(last)
@@ -349,7 +399,7 @@ export function useRun(deps: RunDeps) {
         live.current = false
       }
     },
-    [names, days, fetchAll, begin],
+    [names, days, fetchAll, begin, publishRun],
   )
 
   const addName = useCallback(

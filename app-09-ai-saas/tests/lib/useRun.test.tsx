@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExplainReply, ExplainRequest } from '../../shared/types'
-import { useRun, type RunDeps } from '../../src/lib/useRun'
+import { ExplainRefused, postExplain as realPostExplain, useRun, type RunDeps } from '../../src/lib/useRun'
 import { cleanup, explainFromCapture, flush, mount } from '../ui/helpers'
 import { makeStubCore, stubFacts } from '../ui/stubCore'
 import r1aReact from '../ui/fixtures/response-r1a-react.json'
@@ -270,6 +270,9 @@ describe('useRun explain', () => {
     expect(s.api.run.phase).toBe('done')
     expect(s.api.run.outcomes.vite).toEqual({ status: 'error' })
     expect(s.api.run.outcomes.react?.status).toBe('ok')
+    // the aborted call is a call whose cost nobody saw
+    expect(s.api.run.cost).toBeCloseTo(0.0016, 10)
+    expect(s.api.run.costUnreported).toBe(1)
   })
 
   it('withholds a paragraph the function reports invalid, and one over the shape limits, in words', async () => {
@@ -319,6 +322,61 @@ describe('useRun explain', () => {
     expect(b.api.run.cost).toBeNull()
   })
 
+  describe('cost and usage across every call (C13)', () => {
+    const cutOff = (extra: Partial<ExplainReply> = {}): ExplainReply =>
+      ({ ok: false, reason: 'invalid:cut-off', servedModel: 'm', usage: { prompt: 10, completion: 20, reasoning: 7 }, newestModel: null, costUsd: 0.002, ...extra }) as ExplainReply
+    const twoPackages = async (answer: (target: string) => Promise<ExplainReply>) => {
+      const s = await setup({ postExplain: req => answer(req.target) })
+      await flush()
+      await act(async () => s.api.setPreset(['react', 'vite']))
+      await flush()
+      await act(async () => void s.api.explain())
+      await flush(8)
+      return s
+    }
+    const reactReasoning = (() => {
+      const sent = explainFromCapture(r1aReact)
+      return sent.ok ? sent.usage!.reasoning : 0
+    })()
+
+    it('counts the cost and the reasoning of a cut-off, empty or not-json answer', async () => {
+      const s = await twoPackages(async t => (t === 'react' ? reply(r1aReact, { costUsd: 0.001 }) : cutOff()))
+      expect(s.api.run.outcomes.vite).toEqual({ status: 'withheld', reason: 'the answer was cut off' })
+      expect(s.api.run.cost).toBeCloseTo(0.003, 10)
+      expect(s.api.run.costUnreported).toBe(0)
+      expect(s.api.run.reasoningTokens).toBe(reactReasoning + 7)
+    })
+
+    it('counts a call that threw or timed out as not reported, and keeps the others in the sum', async () => {
+      const s = await twoPackages(async t => (t === 'react' ? reply(r1aReact, { costUsd: 0.001 }) : Promise.reject(new TypeError('fetch failed'))))
+      expect(s.api.run.outcomes.vite).toEqual({ status: 'error' })
+      expect(s.api.run.cost).toBeCloseTo(0.001, 10)
+      expect(s.api.run.costUnreported).toBe(1)
+    })
+
+    it('counts a 502 without cost as not reported, and one that carries cost as reported', async () => {
+      const a = await twoPackages(async t => (t === 'react' ? reply(r1aReact, { costUsd: 0.001 }) : unavailable))
+      expect(a.api.run.cost).toBeCloseTo(0.001, 10)
+      expect(a.api.run.costUnreported).toBe(1)
+      cleanup()
+      const b = await twoPackages(async t => (t === 'react' ? reply(r1aReact, { costUsd: 0.001 }) : { ...unavailable, costUsd: 0.004 }))
+      expect(b.api.run.cost).toBeCloseTo(0.005, 10)
+      expect(b.api.run.costUnreported).toBe(0)
+    })
+
+    it('an answered call with no cost makes the sum a lower bound instead of dropping it', async () => {
+      const s = await twoPackages(async t => (t === 'react' ? reply(r1aReact, { costUsd: 0.001 }) : reply(r1aVite, { costUsd: null })))
+      expect(s.api.run.cost).toBeCloseTo(0.001, 10)
+      expect(s.api.run.costUnreported).toBe(1)
+    })
+
+    it('says nothing is known when no call reported a cost', async () => {
+      const s = await twoPackages(async () => unavailable)
+      expect(s.api.run.cost).toBeNull()
+      expect(s.api.run.costUnreported).toBe(2)
+    })
+  })
+
   it('cuts the unusual rows to the six strongest, in day order', async () => {
     const posts: ExplainRequest[] = []
     const s = await setup({
@@ -335,5 +393,101 @@ describe('useRun explain', () => {
     expect(days).toHaveLength(6)
     expect(days).toEqual([...days].sort())
     expect(days[5]).toBe('2026-09-18')
+  })
+})
+
+describe('useRun unmount and refusals', () => {
+  it('aborts the in-flight explain requests on unmount and ignores an answer that arrives later', async () => {
+    const signals: AbortSignal[] = []
+    const gates = [deferred<ExplainReply>(), deferred<ExplainReply>()]
+    const judge = vi.fn(makeStubCore().judge)
+    const s = await setup({
+      core: makeStubCore({ judge }),
+      postExplain: (req, signal) => {
+        signals.push(signal)
+        return gates[req.target === 'react' ? 0 : 1]!.promise
+      },
+    })
+    await flush()
+    await act(async () => s.api.setPreset(['react', 'vite']))
+    await flush()
+    await act(async () => void s.api.explain())
+    await flush(6)
+    expect(signals).toHaveLength(2)
+    expect(signals.every(sig => !sig.aborted)).toBe(true)
+    cleanup()
+    expect(signals.every(sig => sig.aborted)).toBe(true)
+    // a stub that ignores the abort and answers anyway: nothing is judged or published after unmount
+    await act(async () => gates[0]!.resolve(reply(r1aReact)))
+    await flush(4)
+    expect(judge).not.toHaveBeenCalled()
+  })
+
+  it('starts no explain request when the page is gone before the data arrives', async () => {
+    const range = deferred<{ name: string; status: 'ok'; rows: Record<string, number> }>()
+    const post = vi.fn(async () => reply(r1aReact))
+    const s = await setup({ fetchRange: () => range.promise, postExplain: post })
+    await act(async () => void s.api.explain())
+    cleanup()
+    await act(async () => range.resolve({ name: 'react', status: 'ok', rows: {} }))
+    await flush(6)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('shows the words of a refusal the function sent (a rate limit), and nothing for any other failure', async () => {
+    const answers: Record<string, () => Promise<ExplainReply>> = {
+      react: () => Promise.reject(new ExplainRefused('Too many requests. Please wait a minute and try again.')),
+      vite: () => Promise.reject(new DOMException('aborted', 'AbortError')),
+    }
+    const s = await setup({ postExplain: req => answers[req.target]!() })
+    await flush()
+    await act(async () => s.api.setPreset(['react', 'vite']))
+    await flush()
+    await act(async () => void s.api.explain())
+    await flush(8)
+    expect(s.api.run.outcomes.react).toEqual({ status: 'error', message: 'Too many requests. Please wait a minute and try again.' })
+    expect(s.api.run.outcomes.vite).toEqual({ status: 'error' })
+    // the refused call never reached the model, so it cost nothing; the aborted one is the only unknown
+    expect(s.api.run.costUnreported).toBe(1)
+    expect(s.api.run.cost).toBe(0)
+  })
+
+  it('a run where every call was rate limited costs nothing, not unknown', async () => {
+    const s = await setup({ postExplain: () => Promise.reject(new ExplainRefused('Too many requests. Please wait a minute and try again.')) })
+    await flush()
+    await act(async () => void s.api.explain())
+    await flush(6)
+    expect(s.api.run.cost).toBe(0)
+    expect(s.api.run.costUnreported).toBe(0)
+  })
+})
+
+describe('the real postExplain', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const stub = (body: unknown, status: number) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })))
+  const signal = new AbortController().signal
+  const real = async (): Promise<ExplainRequest> => {
+    const { wireRequest } = await import('../netlify/helpers')
+    const { decodeRequest } = await import('../../shared/modelInput')
+    return decodeRequest(JSON.stringify(wireRequest()))
+  }
+
+  it('throws the own message of the function for a 429', async () => {
+    stub({ error: 'Too many requests. Please wait a minute and try again.' }, 429)
+    await expect(realPostExplain(await real(), signal)).rejects.toThrow(ExplainRefused)
+    await expect(realPostExplain(await real(), signal)).rejects.toThrow('Too many requests. Please wait a minute and try again.')
+  })
+  it('returns null for any other refusal, whose words may carry digits the region never prints', async () => {
+    stub({ error: 'The request needs 1 to 4 package names.' }, 400)
+    expect(await realPostExplain(await real(), signal)).toBeNull()
+    stub({ error: 'Origin not allowed.' }, 403)
+    expect(await realPostExplain(await real(), signal)).toBeNull()
+  })
+  it('returns the reply for a 200 or a 502 model-unavailable reply, and null for an unreadable body', async () => {
+    stub({ ok: false, reason: 'model-unavailable', servedModel: null, newestModel: null, costUsd: null }, 502)
+    expect(await realPostExplain(await real(), signal)).toMatchObject({ ok: false, reason: 'model-unavailable' })
+    stub('<html>', 500)
+    expect(await realPostExplain(await real(), signal)).toBeNull()
   })
 })
