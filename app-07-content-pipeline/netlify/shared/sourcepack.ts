@@ -40,13 +40,16 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
+// What a source with no extract (a Hacker News story) gives a writer: the headline, nothing under it.
+const HEADLINE_ONLY = 'one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up'
+
 export function formatSourcePack(pack: SourcePack): string {
   const blocks = pack.sources.map(source => [
     `[${source.n}] ${KIND_LABELS[source.kind]}: ${oneLine(source.title)}`,
     `URL: ${source.url}`,
     source.points === undefined ? '' : `Points: ${source.points}`,
     source.date ? `Date: ${source.date}` : '',
-    source.summary ? `Summary: ${oneLine(source.summary)}` : '',
+    source.summary ? `Summary: ${oneLine(source.summary)}` : `Text: ${HEADLINE_ONLY}`,
   ].filter(Boolean).join('\n'))
   const notes = pack.notes.map(note => `Note: ${oneLine(note)}`).join('\n')
   return [pack.sources.length === 0 ? NO_SOURCES_LINE : '', ...blocks, notes].filter(Boolean).join('\n\n')
@@ -82,7 +85,9 @@ export function parseSourcePack(text: string): SourcePack {
 
 // Number and title only, for the stages that must keep citations valid but do not need the extracts.
 export function sourceIndex(pack: SourcePack): string {
-  return pack.sources.map(source => `[${source.n}] ${KIND_LABELS[source.kind]}: ${oneLine(source.title)}`).join('\n')
+  return pack.sources
+    .map(source => `[${source.n}] ${KIND_LABELS[source.kind]}: ${oneLine(source.title)}${source.summary ? '' : ` (${HEADLINE_ONLY})`}`)
+    .join('\n')
 }
 
 // A model-written source list is cut off; the real list is built from the lookup instead.

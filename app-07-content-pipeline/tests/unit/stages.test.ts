@@ -116,12 +116,12 @@ describe('buildUserMessage: sources', () => {
 
   it('hands edit and polish only the numbered titles', () => {
     const edit = buildUserMessage('edit', TOPIC, 'Blog Post', { sources: PACK, outline: '- Point', draft: 'Draft [1].' })
-    expect(edit).toContain('## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test\n\n## Outline')
+    expect(edit).toContain('## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)\n\n## Outline')
     expect(edit).not.toContain('Summary:')
     expect(edit).not.toContain('https://')
     const polish = buildUserMessage('polish', TOPIC, 'Blog Post', { sources: PACK, edit: 'Edited [2].' })
     expect(polish).toBe(
-      `## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test\n\n## Edit\nEdited [2].\n\nUsing the material above, polish the Blog Post about: ${TOPIC}`,
+      `## Sources\n[1] Wikipedia: Unit testing\n[2] Hacker News: Multiple assertions are fine in a unit test (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)\n\n## Edit\nEdited [2].\n\nUsing the material above, polish the Blog Post about: ${TOPIC}`,
     )
   })
 

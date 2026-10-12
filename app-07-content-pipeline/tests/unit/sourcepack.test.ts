@@ -30,6 +30,7 @@ describe('formatSourcePack and parseSourcePack', () => {
       'URL: https://o-santi.github.io/blog/rust-is-not-about-memory-safety/',
       'Points: 57',
       'Date: 2024-06-02',
+      'Text: one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up',
       '',
       'Note: Hacker News returned no matching results.',
     ].join('\n'))
@@ -62,7 +63,7 @@ describe('formatSourcePack and parseSourcePack', () => {
   })
 
   it('lists only numbered titles in the index', () => {
-    expect(sourceIndex(PACK)).toBe('[1] Wikipedia: Rust (programming language)\n[2] Hacker News: Rust is not about memory safety')
+    expect(sourceIndex(PACK)).toBe('[1] Wikipedia: Rust (programming language)\n[2] Hacker News: Rust is not about memory safety (one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up)')
   })
 })
 

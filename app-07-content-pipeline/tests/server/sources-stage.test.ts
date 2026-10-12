@@ -65,6 +65,7 @@ describe('Sources stage', () => {
       'URL: https://news.ycombinator.com/item?id=33478000',
       'Points: 319',
       'Date: 2022-11-05',
+      'Text: one headline and nothing else: no article or comment text, so nothing on how often or how widely the topic comes up',
     ].join('\n'))
     expect(body.trace).toHaveLength(1)
     expect(body.trace[0]).toMatchObject({ name: 'Sources', status: 'ok', detail: '3 sources: 2 Wikipedia, 1 Hacker News.' })
