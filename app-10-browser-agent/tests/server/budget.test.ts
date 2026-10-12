@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import aiHandler from '../../netlify/functions/ai'
 import runHandler from '../../netlify/functions/execute'
 import {
-  ACTION_MS, CAPTURE_MS, CLEANUP_MS, CLOSE_MS, DETACH_MS, LAUNCH_MS, OPEN_PAGE_MS, PLAN_BUDGET_MS, PLAN_CLIENT_WAIT_MS, RUN_WORST_MS,
-  SNAPSHOT_MS, STEP_ACTION_MS, STEP_GATE_MS,
+  BODY_TEXT_MS, CAPTURE_MS, CLEANUP_MS, CLOSE_MS, CLOSE_ROW_MS, DETACH_MS, LAUNCH_MS, OPEN_PAGE_MS, PLAN_BUDGET_MS, PLAN_CLIENT_WAIT_MS, RUN_STEPS_END_MS,
+  RUN_WORST_MS, SNAPSHOT_MS, TITLE_MS,
 } from '../../src/lib/budget'
 import type { BotStep } from '../../src/types'
 
-const mocks = vi.hoisted(() => ({ runStep: vi.fn(), pageSnapshot: vi.fn(), tick: (ms: number): void => void ms, newContext: vi.fn() }))
+const mocks = vi.hoisted(() => ({ runStep: vi.fn(), pageSnapshot: vi.fn(), tick: (ms: number): void | Promise<void> => void ms, newContext: vi.fn() }))
 // The browser is not started. Each slow part of a run takes its longest time on the fake clock instead.
 vi.mock('../../netlify/shared/session', () => ({
   launchBrowser: async () => {
-    mocks.tick(LAUNCH_MS)
+    await mocks.tick(LAUNCH_MS)
     return { browser: { newContext: mocks.newContext }, executablePath: '/test-only/no-such-chromium', version: '153.0.8010.0', unpackMs: 0 }
   },
   closeBrowser: async () => {
-    mocks.tick(CLOSE_MS + CLEANUP_MS)
+    await mocks.tick(CLOSE_MS + CLEANUP_MS)
     return { closed: true, diagnostics: {} }
   },
 }))
@@ -80,53 +80,77 @@ describe('planner: the server answers before the page gives up', () => {
 })
 
 describe('run: the step window, the done total and the composed worst case', () => {
-  const tick = (ms: number) => vi.setSystemTime(Date.now() + ms)
-  /** A page picture takes its longest time: the screenshot call advances the clock. */
+  // Time is the fake clock's. A part that "takes" a time waits on it, a part that never answers leaves the window to end it, and
+  // runOf moves the clock from one timer to the next until the run is over.
+  const tick = (ms: number): Promise<void> => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve())
   const cdp = {
     send: async (method: string) => {
       if (method === 'Page.getLayoutMetrics') return { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 960, clientHeight: 549 } }
-      tick(CAPTURE_MS)
+      await tick(costs.capture)
       return { data: Buffer.alloc(1_000, Date.now() % 250).toString('base64') }
     },
-    detach: async () => { tick(DETACH_MS) },
+    detach: async () => { await tick(DETACH_MS) },
   }
   const page = { url: () => 'https://www.google.com/', context: () => ({ newCDPSession: async () => cdp }) }
+  /** What the parts of a run cost. The default is nothing; a test sets the longest each part may take. */
+  const costs = { open: 0, capture: 0, read: 0, readWithRegion: 0 }
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    Object.assign(costs, { open: 0, capture: 0, read: 0, readWithRegion: 0 })
     mocks.tick = tick
-    mocks.newContext.mockResolvedValue({ route: async () => undefined, newPage: async () => { tick(OPEN_PAGE_MS); return page } })
-    mocks.pageSnapshot.mockImplementation(async () => {
-      tick(SNAPSHOT_MS)
+    mocks.newContext.mockResolvedValue({ route: async () => undefined, newPage: async () => { await tick(costs.open); return page } })
+    mocks.pageSnapshot.mockImplementation(async (_page: unknown, selector?: string) => {
+      await tick(selector ? costs.readWithRegion : costs.read)
       return { url: 'https://www.google.com/', title: 'Google', excerpt: 'Google Search' }
     })
   })
 
   type Frame = { type: string; ms?: number; totalMs?: number; message?: string; status?: string; index?: number | null }
-  /** Runs the steps. The first `takes` entries are how long each runStep call takes; later calls take `STEP_ACTION_MS`. */
-  async function runOf(steps: BotStep[], takes: number[]): Promise<{ frames: Frame[]; elapsed: number }> {
+  /** Runs the steps. The first `takes` entries are how long each runStep call takes (`null`: it never answers); later calls take no time. */
+  async function runOf(steps: BotStep[], takes: Array<number | null>): Promise<{ frames: Frame[]; elapsed: number }> {
     const queue = [...takes]
-    mocks.runStep.mockImplementation(async () => { tick(queue.shift() ?? STEP_ACTION_MS); return 'Found page title.' })
+    mocks.runStep.mockImplementation(async () => {
+      const take = queue.length > 0 ? queue.shift() : 0
+      if (take === null) return new Promise<never>(() => undefined)
+      await tick(take ?? 0)
+      return 'Found page title.'
+    })
     const start = Date.now()
-    const text = await (await runHandler(post('/api/execute', { steps }))).text()
+    let over = false
+    const reading = (async () => (await runHandler(post('/api/execute', { steps }))).text())().finally(() => { over = true })
+    while (!over) await vi.advanceTimersToNextTimerAsync()
+    const text = await reading
     const frames = text.split('\n\n').filter((record) => record.startsWith('data: ')).map((record) => JSON.parse(record.slice(6)) as Frame)
     return { frames, elapsed: Date.now() - start }
   }
 
-  it('starts a step that begins inside the window', async () => {
-    const { frames } = await runOf([NAVIGATE, FIND], [STEP_GATE_MS - SNAPSHOT_MS - CAPTURE_MS - 1])
+  const TIME_LIMIT = 'The run reached its time limit before every step finished.'
+  /** The part of the window left when the first step starts, once the browser has started and the page has opened. */
+  const FIRST_STEP_LEFT = RUN_STEPS_END_MS - LAUNCH_MS - OPEN_PAGE_MS
+
+  it('runs every step that finishes inside the window', async () => {
+    const { frames } = await runOf([NAVIGATE, FIND, EXTRACT], [1_000, 1_000, 1_000])
     expect(frames.at(-1)).toMatchObject({ type: 'done' })
-    expect(frames.filter((frame) => frame.type === 'step_complete').map((frame) => frame.status)).toEqual(['ok', 'ok'])
+    expect(frames.filter((frame) => frame.type === 'step_complete').map((frame) => frame.status)).toEqual(['ok', 'ok', 'ok'])
   })
 
-  it('stops before a step that would begin after the window, and says so', async () => {
-    const { frames } = await runOf([NAVIGATE, FIND, EXTRACT], [STEP_GATE_MS])
-    expect(frames.at(-1)).toEqual({ type: 'error', message: 'The run reached its time limit before every step finished.', index: 1 })
+  it('ends a step that is still running when the window ends, says so, and skips the steps after it', async () => {
+    const { frames, elapsed } = await runOf([NAVIGATE, FIND, EXTRACT], [1_000, null])
+    expect(frames.at(-1)).toEqual({ type: 'error', message: TIME_LIMIT, index: 1 })
     expect(frames.filter((frame) => frame.type === 'step_complete').map((frame) => frame.status)).toEqual(['ok', 'failed', 'skipped'])
+    expect(elapsed).toBe(RUN_STEPS_END_MS + CLOSE_ROW_MS)
+  })
+
+  it('does not start a step when the window has already ended', async () => {
+    mocks.tick = (ms) => tick(ms === LAUNCH_MS ? RUN_STEPS_END_MS : ms)
+    const { frames } = await runOf([NAVIGATE, FIND], [])
+    expect(frames.some((frame) => frame.type === 'step_start')).toBe(false)
+    expect(frames.at(-1)).toEqual({ type: 'error', message: TIME_LIMIT, index: 0 })
+    expect(mocks.runStep).not.toHaveBeenCalled()
   })
 
   it('makes the done total the sum of the timed rows', async () => {
-    mocks.pageSnapshot.mockResolvedValue({ url: 'https://www.google.com/', title: 'Google', excerpt: 'Google Search' })
     const { frames } = await runOf([NAVIGATE, FIND, EXTRACT], [1_234, 100, 100])
     const rows = frames.filter((frame) => frame.type === 'stage' || frame.type === 'step_complete' || frame.type === 'result')
     const done = frames.at(-1)
@@ -134,18 +158,26 @@ describe('run: the step window, the done total and the composed worst case', () 
     expect(done?.totalMs).toBe(rows.reduce((sum, frame) => sum + (frame.ms ?? 0), 0))
   })
 
-  it('ends within the worst case the page waits for when every part takes its longest and the window closes on a failed step', async () => {
-    // Step 1 begins one millisecond inside the window and takes its longest. Step 2 then meets the end of the window.
-    const { frames, elapsed } = await runOf([NAVIGATE, FIND, EXTRACT], [STEP_GATE_MS - SNAPSHOT_MS - CAPTURE_MS - 1, STEP_ACTION_MS])
-    expect(frames.at(-1)).toMatchObject({ type: 'error', index: 2 })
-    expect(elapsed).toBeGreaterThan(RUN_WORST_MS - 2_000)
-    expect(elapsed).toBeLessThanOrEqual(RUN_WORST_MS)
-    expect(ACTION_MS).toBeGreaterThan(0)
+  it('ends within the worst case when every part takes its longest and a step is still running at the end of the window', async () => {
+    Object.assign(costs, { open: OPEN_PAGE_MS - 1, capture: CAPTURE_MS, read: Math.max(TITLE_MS, BODY_TEXT_MS), readWithRegion: SNAPSHOT_MS })
+    const { frames, elapsed } = await runOf([NAVIGATE, FIND], [null])
+    expect(frames.at(-1)).toMatchObject({ type: 'error', index: 0 })
+    expect(elapsed).toBe(RUN_WORST_MS)
   })
 
-  it('ends within the worst case when the last step works and the final page is read', async () => {
-    const { frames, elapsed } = await runOf([NAVIGATE, FIND], [STEP_GATE_MS - SNAPSHOT_MS - CAPTURE_MS - 1, STEP_ACTION_MS])
+  it('ends within the worst case when the last step ends at the end of the window and the final page is read with a region', async () => {
+    Object.assign(costs, { open: OPEN_PAGE_MS - 1 })
+    const withRegion: BotStep = { ...EXTRACT, selector: '.titleline > a' }
+    // The steps' own page reads cost nothing here. Only the final read, the one after the window, takes its longest.
+    const instant = async () => ({ url: 'https://www.google.com/', title: 'Google', excerpt: 'Google Search' })
+    mocks.pageSnapshot.mockImplementationOnce(instant).mockImplementationOnce(instant)
+    mocks.pageSnapshot.mockImplementation(async () => {
+      await tick(SNAPSHOT_MS)
+      return { url: 'https://www.google.com/', title: 'Google', excerpt: 'Google Search' }
+    })
+    const { frames, elapsed } = await runOf([NAVIGATE, withRegion], [0, FIRST_STEP_LEFT - 1])
     expect(frames.at(-1)).toMatchObject({ type: 'done' })
     expect(elapsed).toBeLessThanOrEqual(RUN_WORST_MS)
+    expect(elapsed).toBeGreaterThan(RUN_WORST_MS - 2_000)
   })
 })

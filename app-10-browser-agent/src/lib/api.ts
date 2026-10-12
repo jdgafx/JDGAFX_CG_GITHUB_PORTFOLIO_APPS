@@ -10,9 +10,9 @@ const MAX_ERROR_CHARS = 300
 const NETWORK_COPY = 'Could not reach the server. Check your connection and try again.'
 /** No byte from the run stream for this long means it has stalled. The server sends an event at least every few seconds. */
 export const IDLE_LIMIT_MS = 30_000
-/** The whole run stream: the server's worst case for a run plus a margin (src/lib/budget.ts), which stays under the platform's 60 s cut. */
+/** The whole run stream: the server's worst case for a run plus a margin (src/lib/budget.ts), which stays within the platform's 30 s cut. */
 export const OVERALL_LIMIT_MS = RUN_CLIENT_WAIT_MS
-/** Time allowed for the run's response to begin. The first byte comes after the browser starts, which the server ends within 10 s. */
+/** Time allowed for the run's response to begin. The first byte comes after the browser starts, which the server ends within 10 s (src/lib/budget.ts). */
 export const START_LIMIT_MS = 30_000
 const STALLED_COPY = 'The browser run stopped sending updates. Run the plan again.'
 const TOO_LONG_COPY = 'The browser run took longer than expected and was ended. Run the plan again.'

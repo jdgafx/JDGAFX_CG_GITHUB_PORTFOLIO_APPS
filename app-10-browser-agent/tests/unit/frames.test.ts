@@ -73,4 +73,11 @@ describe('FrameRecorder repeats', () => {
     await recorder.capture(1)
     expect('frame' in (await recorder.capture(2))).toBe(true)
   })
+
+  it('does not name a step as its own repeat: a second picture for the same step is sent', async () => {
+    const same = Buffer.alloc(10_000, 1)
+    const recorder = new FrameRecorder(pageShowing(same, same))
+    await recorder.capture(3)
+    expect('frame' in (await recorder.capture(3))).toBe(true)
+  })
 })

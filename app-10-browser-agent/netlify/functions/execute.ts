@@ -1,5 +1,5 @@
 import type { Browser, BrowserContext, Page } from 'playwright-core'
-import { OPEN_PAGE_MS, STEP_GATE_MS } from '../../src/lib/budget'
+import { OPEN_PAGE_MS, RUN_STEPS_END_MS } from '../../src/lib/budget'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep, ObservedPage, RunEvent, StepFrame } from '../../src/types'
 import { browserMessage, currentHost, ExecutionError, pageSnapshot, runStep, withTimeout } from '../shared/browser'
@@ -20,6 +20,8 @@ const MAX_BODY_BYTES = 32_768
 const RUN_VIEWPORT = { width: 960, height: 540 }
 
 type Send = (event: RunEvent) => void
+
+const TIME_LIMIT_COPY = 'The run reached its time limit before every step finished.'
 
 /**
  * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of
@@ -96,7 +98,6 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
   let completed = 0
   let inStep = false
   let outcome: RunEvent
-  let stepsStartedAt: number
 
   try {
     launched = await launchBrowser()
@@ -114,40 +115,42 @@ async function runPlan(sendRaw: Send, isCancelled: () => boolean, steps: BotStep
     recorder = rec
     const cold = launched.unpackMs > 500 ? ` Unpacked in ${launched.unpackMs.toLocaleString('en-US')} ms.` : ''
     send({ type: 'stage', name: stage, status: 'ok', ms: Date.now() - stageStarted, detail: `Headless Chromium ${launched.version} started in this function.${cold}` })
-    stepsStartedAt = Date.now()
 
     for (const [index, step] of steps.entries()) {
       // A step that cannot start (stopped, or out of time) is the one that fails, so it is marked as such.
       inStep = true
       stepStarted = Date.now()
       if (isCancelled()) throw new ExecutionError('The run was stopped.')
-      if (Date.now() - stepsStartedAt > STEP_GATE_MS) {
-        throw new ExecutionError('The run reached its time limit before every step finished.')
-      }
+      // The window runs from the start of the run, so a step that is still going when it ends is ended too.
+      const windowLeft = startedAt + RUN_STEPS_END_MS - Date.now()
+      if (windowLeft <= 0) throw new ExecutionError(TIME_LIMIT_COPY)
       send({ type: 'step_start', index, name: stepLabel(step) })
-      // Each step starts with a clean slate: only a navigation this step caused counts.
-      blockedHost = undefined
-      let stepDetail: string
-      try {
-        stepDetail = await runStep(activePage, step)
-      } catch (error) {
-        // A navigation the browser refused to make is reported as the move it was.
+      const { detail, observed, shot } = await withTimeout((async () => {
+        // Each step starts with a clean slate: only a navigation this step caused counts.
+        blockedHost = undefined
+        let stepDetail: string
+        try {
+          stepDetail = await runStep(activePage, step)
+        } catch (error) {
+          // A navigation the browser refused to make is reported as the move it was.
+          if (blockedHost) throw movedOffSite(blockedHost)
+          throw error
+        }
+        // A click can start a navigation to another site and still return. The refused move is reported here.
         if (blockedHost) throw movedOffSite(blockedHost)
-        throw error
-      }
-      // A click can start a navigation to another site and still return. The refused move is reported here.
-      if (blockedHost) throw movedOffSite(blockedHost)
-      // After every step, the host is checked before the page is read.
-      const observed = await observeAllowed(activePage, domains, step.selector)
-      const detail = step.selector
-        ? `${stepDetail} ${observed.region ? `Read the text of ${step.selector}.` : `Nothing matched ${step.selector}, so the page text is shown.`}`
-        : stepDetail
-      if ((step.action === 'extract' || step.action === 'verify') && !observed.excerpt) {
-        throw new ExecutionError('The page returned no readable text to extract.')
-      }
-      // The picture is taken right after the text was read, so both show the same moment of the page.
-      const hostNow = currentHost(activePage)
-      const shot = hostNow !== null && isAllowedHost(hostNow, domains) ? await rec.capture(index) : { note: 'No picture: the page moved while it was read.' }
+        // After every step, the host is checked before the page is read.
+        const seen = await observeAllowed(activePage, domains, step.selector)
+        const note = step.selector
+          ? `${stepDetail} ${seen.region ? `Read the text of ${step.selector}.` : `Nothing matched ${step.selector}, so the page text is shown.`}`
+          : stepDetail
+        if ((step.action === 'extract' || step.action === 'verify') && !seen.excerpt) {
+          throw new ExecutionError('The page returned no readable text to extract.')
+        }
+        // The picture is taken right after the text was read, so both show the same moment of the page.
+        const hostNow = currentHost(activePage)
+        const picture = hostNow !== null && isAllowedHost(hostNow, domains) ? await rec.capture(index) : { note: 'No picture: the page moved while it was read.' }
+        return { detail: note, observed: seen, shot: picture }
+      })(), windowLeft, TIME_LIMIT_COPY)
       inStep = false
       completed = index + 1
       send({ type: 'step_complete', index, name: stepLabel(step), status: 'ok', ms: Date.now() - stepStarted, detail, observed, ...frameFields(shot) })

@@ -88,7 +88,8 @@ export class FrameRecorder {
     try {
       const outcome = await withTimeout(fitFrame((quality) => this.shoot(quality), limit), CAPTURE_MS, 'The picture took too long.')
       if (!('frame' in outcome)) return outcome
-      if (this.last?.data === outcome.frame.data) return { sameAs: this.last.index }
+      // A picture of this same step that nobody received (the step's window ended while it was taken) is not an earlier step.
+      if (this.last?.data === outcome.frame.data && this.last.index !== index) return { sameAs: this.last.index }
       this.spent += outcome.frame.bytes
       this.last = { data: outcome.frame.data, index }
       return outcome
