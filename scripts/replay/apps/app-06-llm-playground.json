@@ -1,0 +1,20 @@
+{
+  "url": "https://jdgafx-app-06-llm-playground.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/judge",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "expect": [
+    { "path": "/api/compare", "field": "blind", "equals": true, "message": "compare did not return blind answers" },
+    { "path": "/api/compare", "field": "answers", "minLength": 2, "message": "compare did not return blind answers" },
+    { "path": "/api/compare", "field": "answers.*.ok", "equals": true, "message": "a panel did not answer" },
+    { "path": "/api/compare", "field": "answers.*.text", "nonEmpty": true, "message": "a panel did not answer" },
+    { "path": "/api/judge", "field": "ok", "equals": true, "message": "the judge did not give a verdict" }
+  ],
+  "reported": {
+    "model": { "path": "/api/judge", "field": "model" },
+    "modelRole": "judge",
+    "costUsd": { "path": "/api/judge", "field": "cost.usd" },
+    "costScope": "judge call"
+  }
+}

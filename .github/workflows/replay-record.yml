@@ -2,15 +2,16 @@ name: Record replay
 
 # Once a day, opens the PRODUCTION app in a headless browser, runs its built-in example as a visitor would, and stores the
 # recorded requests and replies on the orphan `replays` branch. The app reads that file to replay a real run on load.
-# A recorder failure fails this job (GitHub emails the failed run) and leaves the last recording untouched.
+# The daily run records every app that has a config file in scripts/replay/apps/, one after another. An app that fails does
+# not stop the others and keeps its last recording; the run still fails at the end (GitHub emails the failed run).
 on:
   schedule:
     - cron: '17 5 * * *'
   workflow_dispatch:
     inputs:
       app:
-        description: App to record
-        default: app-06-llm-playground
+        description: App to record (an app with a config file, or all)
+        default: all
         required: false
 
 permissions:
@@ -22,11 +23,11 @@ concurrency:
 
 jobs:
   record:
-    name: record ${{ inputs.app || 'app-06-llm-playground' }}
+    name: record ${{ inputs.app || 'all' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
-      APP: ${{ inputs.app || 'app-06-llm-playground' }}
+      APP: ${{ inputs.app || 'all' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,12 +35,6 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: scripts/replay/package-lock.json
-      - name: Resolve the production URL
-        run: |
-          case "$APP" in
-            app-06-llm-playground) echo "URL=https://jdgafx-app-06-llm-playground.netlify.app/" >> "$GITHUB_ENV" ;;
-            *) echo "::error::No production URL is configured for '$APP'"; exit 1 ;;
-          esac
       - name: Install the recorder
         working-directory: scripts/replay
         run: |
@@ -49,10 +44,17 @@ jobs:
         working-directory: scripts/replay
         run: npm test
       - name: Record one run from production
+        id: record
+        continue-on-error: true
         working-directory: scripts/replay
-        run: node record.mjs --app "$APP" --url "$URL" --out "$RUNNER_TEMP/replay-out"
+        run: node record-all.mjs --app "$APP" --out "$RUNNER_TEMP/replay-out"
       - name: Publish to the replays branch
         run: |
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/replay-out/*.json)
+          if [ "${#files[@]}" -eq 0 ]; then echo "Nothing recorded, nothing to publish."; exit 0; fi
+          names=()
+          for f in "${files[@]}"; do names+=("$(basename "$f")"); done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --exit-code --heads origin replays >/dev/null 2>&1; then
@@ -61,7 +63,12 @@ jobs:
           else
             git switch --orphan replays
           fi
-          cp "$RUNNER_TEMP/replay-out/$APP.json" "$APP.json"
-          git add -- "$APP.json"
-          git commit -m "chore(replay): record $APP [skip netlify]"
+          cp "${files[@]}" .
+          git add -- "${names[@]}"
+          git commit -m "chore(replay): record ${names[*]%.json} [skip netlify]"
           git push origin replays
+      - name: Fail the run if any app failed to record
+        if: steps.record.outcome == 'failure'
+        run: |
+          echo "::error::At least one app failed to record; the apps that recorded were published, the others kept their last recording."
+          exit 1
