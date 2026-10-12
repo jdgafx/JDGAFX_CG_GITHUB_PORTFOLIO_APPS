@@ -1,9 +1,10 @@
 {
   "app": "app-13-langgraph-map-reduce",
-  "version": 1,
-  "frozen": "2026-10-11",
+  "version": 2,
+  "frozen": "2026-10-12",
+  "revision": "v2 2026-10-12 (Chris, decision GA.7 = app-13 a): hand check 1 is a per-request bound; the end-to-end total is shown and reported separately, not judged",
   "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it.",
-  "done_sentence": "A live Wikipedia summary completes inside the 30 s platform cut-off (run budget 23 s, `pipeline.ts:15`) with every chunk extracted, and SP2 8 of 8",
+  "done_sentence": "A live Wikipedia summary completes with every /api request inside the 30 s platform cut-off and its own 23 s budget, every chunk extracted, and SP2 8 of 8 (the end-to-end total is shown and reported, not judged)",
   "runs": [
     {
       "id": "r1",
@@ -14,7 +15,7 @@
       "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Apollo+11&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
       "hand_checks": [
         {
-          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "claim": "every /api request of the run has a HAR duration < 30000 ms and stays within its own 23 s budget; the end-to-end total (result.metrics.totalMs, src/components/ReadoutStrip.tsx:82) is recorded and reported separately, not judged",
           "expected": "true",
           "verify_at": "PREVIEW_URL/"
         },
@@ -39,7 +40,7 @@
       "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Photosynthesis&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
       "hand_checks": [
         {
-          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "claim": "every /api request of the run has a HAR duration < 30000 ms and stays within its own 23 s budget; the end-to-end total (result.metrics.totalMs, src/components/ReadoutStrip.tsx:82) is recorded and reported separately, not judged",
           "expected": "true",
           "verify_at": "PREVIEW_URL/"
         },
@@ -64,7 +65,7 @@
       "live_source": "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&origin=%2A&action=query&prop=extracts%7Cpageprops%7Cinfo&titles=Rubber+duck&explaintext=1&redirects=1&ppprop=disambiguation&inprop=url",
       "hand_checks": [
         {
-          "claim": "result.metrics.totalMs (src/components/ReadoutStrip.tsx:82) <= 23000 and the HAR duration of the run request < 30000",
+          "claim": "every /api request of the run has a HAR duration < 30000 ms and stays within its own 23 s budget; the end-to-end total (result.metrics.totalMs, src/components/ReadoutStrip.tsx:82) is recorded and reported separately, not judged",
           "expected": "true",
           "verify_at": "PREVIEW_URL/"
         },
