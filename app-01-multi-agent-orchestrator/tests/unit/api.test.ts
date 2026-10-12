@@ -86,6 +86,16 @@ describe('startResearch', () => {
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ query: 'Why?' })
   })
 
+  it('fails a stream that closes without the end marker instead of finishing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => eventStream(['data: {"type":"agent_chunk","agent":"researcher","content":"Facts"}\n\n'])),
+    )
+    const failure = await failureOf(startResearch('q', () => undefined))
+    expect(failure).toBeInstanceOf(ResearchError)
+    expect(runErrorMessage(failure)).toBe('The connection ended before the report finished. Try again.')
+  })
+
   it('shows the server plain-language error from a JSON body', async () => {
     vi.stubGlobal(
       'fetch',

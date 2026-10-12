@@ -12,6 +12,7 @@ export const OVERALL_TIMEOUT_MS = 60_000
 const UNREACHABLE_MESSAGE = 'Could not reach the server. Check your connection and try again.'
 const STALLED_MESSAGE = 'The server stopped sending data. Try again.'
 const TOO_LONG_MESSAGE = 'The run took longer than expected and was ended. Try again.'
+const CUT_SHORT_MESSAGE = 'The connection ended before the report finished. Try again.'
 const GENERIC_FAILURE = 'The run stopped unexpectedly. Try again.'
 
 /** A failure whose message was written for the visitor. Only these messages are shown as they are. */
@@ -124,7 +125,8 @@ async function readEvents(
       if (processSSELines(lines, onEvent)) return
     }
     if (overran) throw new ResearchError(TOO_LONG_MESSAGE)
-    processSSELines(buffer.split('\n'), onEvent)
+    // A stream that closes without the end marker was cut off (a host limit, a dropped link), not finished.
+    if (!processSSELines(buffer.split('\n'), onEvent) && !signal?.aborted) throw new ResearchError(CUT_SHORT_MESSAGE)
   } catch (err) {
     if (err instanceof ResearchError || isAbortError(err)) throw err
     throw new ResearchError(overran ? TOO_LONG_MESSAGE : UNREACHABLE_MESSAGE, { cause: err })
@@ -135,7 +137,7 @@ async function readEvents(
 }
 
 /**
- * Starts one run and feeds each server event to onEvent. Resolves when the stream ends.
+ * Starts one run and feeds each server event to onEvent. Resolves at the end marker, or when the visitor stops it.
  * Rejects with a ResearchError (safe to show) or an AbortError when the visitor stops it.
  */
 export async function startResearch(
