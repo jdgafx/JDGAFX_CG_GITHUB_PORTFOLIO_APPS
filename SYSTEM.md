@@ -1,6 +1,6 @@
 # SYSTEM: the portfolio, its failures, and the fix set
 
-Status: **DRAFT for supervisor approval.** No fix round starts until the supervisor approves this plan. Written 2026-10-11 from evidence in this repo and in `~/dev/CC-MAESTRO/reviews/portfolio-review/` (the earlier analysis). Every claim names its source. Items marked **[unverified]** are analyst estimates, not measured here.
+Status: **APPROVED and in force** (Chris FA/EZ/FM.1, 2026-10-11); fix-set steps 1-5 implemented; SP2-gated merges under way (section 2). Refreshed 2026-10-12. Written 2026-10-11 from evidence in this repo and in `~/dev/CC-MAESTRO/reviews/portfolio-review/` (the earlier analysis). Every claim names its source. Items marked **[unverified]** are analyst estimates, not measured here.
 
 ## 1. Goal (2 lines)
 
@@ -16,19 +16,19 @@ Each row is one checkable sentence. "On file" means the evidence exists in `.acc
 | app-01 AgentFlow | The citation audit's verdict on each cited claim matches a hand verdict written into the evidence file before the run (3 claims per live run), and SP2 8 of 8 | No SP2 evidence. Last verifier FAIL (8 FAIL reports) |
 | app-02 DocMind | Live Wikipedia or arXiv question returns cited answers whose markers match the passages shown, and SP2 8 of 8 | No SP2 evidence |
 | app-03 CodeLens | Live GitHub file review flags only claims the file can confirm: zero false claims on the frozen sample (file list and count fixed in `config/sp2-samples/app-03-ai-code-review.json` before any run), and SP2 8 of 8 | No SP2 evidence. Last FAIL on record (3 of 45 wrong) |
-| app-04 VoxAI | A typed or spoken question gets a live weather or Wikipedia answer with no "Let me check" text and no empty answer, and SP2 8 of 8 | Parked on `wip/app-04` (db3f045). Step-4 PR #29, SP1 on preview. Fails SP2 by construction until the 'Let me check' prompt (`ai.ts:28`) is fixed |
-| app-05 DataPilot | Live USGS or Open-Meteo question returns the value the source gives (checked by hand), and SP2 8 of 8 | **Accepted under SP2 8 of 8** (`.acceptance/dw/es/app-05-sp2/`, `app-05-fix3-2026-10-10/`) |
+| app-04 VoxAI | A typed or spoken question gets a live weather or Wikipedia answer with no "Let me check" text and no empty answer, and SP2 8 of 8 | **Merged** via the gate (42f5254, PR #29): SP2 round 2 PASS 8/8 with thinking ON (`.acceptance/dw/es/app-04-voice-ai-assistant-sp2r2-2026-10-11/`, gate `ba67aea`) |
+| app-05 DataPilot | Live USGS or Open-Meteo question returns the value the source gives (checked by hand), and SP2 8 of 8 | **Merged** via the gate (9a914b1, PR #36), SP2 8/8. Thinking-ON follow-up PR #42 in SP2 |
 | app-06 ModelArena | Votes are stored one record each, the leaderboard matches them, no test votes remain in production (read-only check, section 8), and SP2 8 of 8 | 0 votes in production (read-only 2026-10-11: 7 keys, runs 6, leaderboard 1; `.acceptance/dw/es/app-06-prod-readonly-2026-10-11/`). Previews isolated (`blobs-deploy`). Step-4 PR #39, SP1 on preview |
 | app-07 ContentForge | Every citation in a generated piece links to a live source that says it, no 404 source, no auto-run on first load, and SP2 8 of 8 | Parked on `wip/app-07` (18bb493). Step-4 PR #40, SP1 on preview (no model call before a click on the capture). Auto-run cause not found |
-| app-08 VisionLab | Commons picks load and the pick error clears on a new image, and SP2 8 of 8 | No SP2 evidence |
-| app-09 InsightHub | Every figure in a summary matches the npm data by hand, the figure check's verdicts match the hand check on the frozen sample, and SP2 8 of 8 | Parked on `wip/app-09` (6033197). Step-4 PR #30, SP1 on preview |
+| app-08 VisionLab | Commons picks load and the pick error clears on a new image, and SP2 8 of 8 | **Merged** via the gate (31cad9a, PR #41), SP2 8/8. Thinking-ON follow-up PR #43 in SP2 |
+| app-09 InsightHub | Every figure in a summary matches the npm data by hand, the figure check's verdicts match the hand check on the frozen sample, and SP2 8 of 8 | **Rewrite from scratch** (Decision FP) on `rewrite/app-09`, design under option C (FU.1: code computes totals, averages and window sums; the model, thinking ON, does comparisons, growth and spike explanations; every model figure recomputed and marked). Spec rev 5 in progress. Old PR #30 untouched until the rewrite passes SP2 |
 | app-10 BrowseBot | The trace total equals the sum of its rows, the idle chip names the providers, the run is repeated 10 times with no failure, and SP2 8 of 8 (10 runs in item 7) | Parked on `wip/app-10` (ffe3e8c). Step-4 PR #32, SP1 on preview (trace total = sum of rows) |
 | app-11 GraphScout | A live run cites every answer sentence, the served model is the newest Haiku, and SP2 8 of 8 | Tool-choice fix and guard committed `7aca059`; one live round of 5 runs on file in `.acceptance/dw/es/app-11-toolchoice-2026-10-11/`. Still **REJECT** on its earlier Lows |
 | app-12 GraphGate | Live GitHub issues triage, the approval card fits 390 px, the public thread list shows no test fixtures (read-only check, section 8), and SP2 8 of 8 | Parked on `wip/app-12` (56254ec). Purge done (88 verifier-probe threads, `~/backups/portfolio-purge-2026-10-11/after.json`); GITHUB_TOKEN set (authenticated tier); works without it too. Previews isolated. Step-4 PR #31, SP1 on preview |
 | app-13 GraphSwarm | A live Wikipedia summary completes inside the 30 s platform cut-off (run budget 23 s, `pipeline.ts:15`) with every chunk extracted, and SP2 8 of 8 | Price logic verified by hand; six Lows open. **REJECT** |
 | n8n workflows 01 to 05 | Each live workflow's model call names the newest Haiku or Sonnet in its response (checked against the dated list snapshot), and the run's output fields match a fixture written before the run | Files and live instance synced (`96fbf04`). Captured ids for 01, 02 (both nodes), 03 and 05 are the newest. **Live runs not done**: the n8n OpenRouter credential returns 402 (`Insufficient credits`) |
 
-Count: **one** app (05) is accepted. Everything else is not done.
+Count: **three** apps merged through the gate (05, 08, 04). Everything else is not done.
 
 **Definitions used by the checks** (apply to every row):
 - **Newest model:** the `alias_target` of `~anthropic/claude-haiku-latest` (or `-sonnet-latest`) in OpenRouter's public list, saved as a dated copy (`openrouter-models-<date>.json`) in each run's evidence folder. A run without the copy is not evidence.
@@ -87,6 +87,8 @@ Verifier history from `~/dev/CC-MAESTRO/reviews/portfolio-review/c-incidents.md`
 **C12 (found 2026-10-11, SP2 round 1): UI changes proven only in jsdom, broken in a real browser.** Evidence: the step-4 "· newest" marker clipped in app-05 (390 px: "claude-haiku-5.5 · n") and app-02 (1280/1440), found by SP2 item 8 screenshots; every unit test passed. Mechanism: `.ds-chip` is nowrap and `.ds-strip__value` kept `min-width: auto` inside an overflow-hidden grid (shared components.css). Fix: two shared rules (`.ds-strip__value { min-width: 0 }`, `.ds-chip--wrap`) byte-identical in all 13 apps, plus the class on each model chip, each measured in a real browser at 390/1280/1440 for every marker state. Rule: any UI change is measured in a real browser before its PR goes to SP2.
 
 **SP2 round 1 (2026-10-11, 4 apps, $0.0399 OpenRouter-reported):** 05 FAIL item 8 (C12); 02 FAIL items 4/5/8 (C12; a marker matched the whole sentence, not its clause; sample r1 hc2 stricter than the done sentence: decision with Chris); 08 FAIL items 5/6 (ambiguous Commons titles; Try-it failure left the chip idle); 09 FAIL done row (a wrong total under a green "all match" badge; two correct figures falsely flagged; model arithmetic errors shown even though flagged). All 8 checklist items were otherwise green; fixes in progress. A worker cleanup killed the user session at 16:12 (Decision FO): kill only recorded own pids.
+
+**SP2 round 2 (2026-10-11 to 12):** 05 and 08 passed and merged before thinking ON; 04 PASS 8/8 with thinking ON and merged. Thinking ON (Decision FS) is committed on all 12 open branches. Round 2 now runs on 05 (#42), 08 (#43), 01 (#33), 03 (#34); then 06, 07, 10, 11, 12, 13. 02 waits on Chris's sample v2 decision. OpenRouter-reported spend before this wave: about $0.166 of the $1.50 stop.
 
 ## 6. The SP2 checklist (the one acceptance bar)
 
