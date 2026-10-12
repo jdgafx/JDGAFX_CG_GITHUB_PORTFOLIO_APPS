@@ -1,0 +1,12 @@
+{
+  "name": "replay-recorder",
+  "private": true,
+  "type": "module",
+  "description": "Records a real run of an app's built-in example for the page replay. Not part of any app.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "playwright": "1.62.0"
+  }
+}

@@ -1,0 +1,67 @@
+name: Record replay
+
+# Once a day, opens the PRODUCTION app in a headless browser, runs its built-in example as a visitor would, and stores the
+# recorded requests and replies on the orphan `replays` branch. The app reads that file to replay a real run on load.
+# A recorder failure fails this job (GitHub emails the failed run) and leaves the last recording untouched.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App to record
+        default: app-06-llm-playground
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: replay-record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: record ${{ inputs.app || 'app-06-llm-playground' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP: ${{ inputs.app || 'app-06-llm-playground' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/replay/package-lock.json
+      - name: Resolve the production URL
+        run: |
+          case "$APP" in
+            app-06-llm-playground) echo "URL=https://jdgafx-app-06-llm-playground.netlify.app/" >> "$GITHUB_ENV" ;;
+            *) echo "::error::No production URL is configured for '$APP'"; exit 1 ;;
+          esac
+      - name: Install the recorder
+        working-directory: scripts/replay
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Test the recorder
+        working-directory: scripts/replay
+        run: npm test
+      - name: Record one run from production
+        working-directory: scripts/replay
+        run: node record.mjs --app "$APP" --url "$URL" --out "$RUNNER_TEMP/replay-out"
+      - name: Publish to the replays branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin replays >/dev/null 2>&1; then
+            git fetch --depth=1 origin replays
+            git switch --force -C replays FETCH_HEAD
+          else
+            git switch --orphan replays
+          fi
+          cp "$RUNNER_TEMP/replay-out/$APP.json" "$APP.json"
+          git add -- "$APP.json"
+          git commit -m "chore(replay): record $APP [skip netlify]"
+          git push origin replays
