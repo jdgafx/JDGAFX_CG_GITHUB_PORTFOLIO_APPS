@@ -40,10 +40,19 @@ interface Pass {
   limitMs: number
 }
 
+/**
+ * The longest pass 1 may run, one function request of its own. Source: 24 s is under the 26 s platform cut-off less the 0.7 s
+ * margin (above), and above the slowest of 11 measured thinking-on calls, 22.3 s (2026-10-12 live proofs). It is the one place
+ * to change if cold starts need a wider margin.
+ */
+export const PASS1_LIMIT_MS = 24_000
+/** The longest one batched read may run, one function request of its own. Source: the slowest of 12 batched reads was 14.0 s (2026-10-12), and the limit stays at the 22 s set for whole-list reads. */
+export const READ_LIMIT_MS = 22_000
+
 /** Pass 1, one request. p50 is the median and p95 the slowest of the 8 measured calls (see the header). */
-export const PASS1: Pass = { p50: 17_500, p95: 22_300, limitMs: 24_000 }
+export const PASS1: Pass = { p50: 17_500, p95: 22_300, limitMs: PASS1_LIMIT_MS }
 /** One batched read of pass 2 (at most 4 comments), one request each: the median and the slowest of the 12 measured batched reads. */
-export const PASS2: Pass = { p50: 7_100, p95: 14_000, limitMs: 22_000 }
+export const PASS2: Pass = { p50: 7_100, p95: 14_000, limitMs: READ_LIMIT_MS }
 
 /**
  * The limit for the next call, or null when it cannot be a useful attempt.

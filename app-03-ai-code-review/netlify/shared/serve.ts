@@ -1,7 +1,7 @@
 import { MAX_CODE_LENGTH, OVER_LIMIT_MESSAGE } from '../../src/lib/limits'
 import { buildDiff, MAX_DIFF_CHARS, type PrFileInput } from './diff'
-import { MAX_BATCHES } from './batches'
-import { HANDOFF_REFUSED, openHandoff } from './handoff'
+import { HANDOFF_EXPIRED, HANDOFF_REFUSED, openHandoff } from './handoff'
+import { checkRate, reviewId } from './ratelimit'
 import { runFirstPass, runRead, settleModel, type ReviewInput } from './pipeline'
 import { PIPELINE, noun, padSkipped, record, sumUsage, type Run } from './trace'
 
@@ -21,38 +21,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.
 
 // JSON escaping can roughly double a payload, so allow headroom over MAX_CODE_LENGTH.
 const MAX_BODY_BYTES = 256 * 1024
-// Each of the three functions (pass 1 and the two reads) counts its own requests, as it does in production where Netlify bundles
-// them apart. A review is counted once: pass 1 counts one request, and a read function counts only the first of a review's batch
-// requests (batch 0) against this limit, so a review that fans out into several batches costs each counter one. Every read
-// request, batches included, also counts against a ceiling of this many reviews' worth of the most batches a review can make, so a
-// hand-off replayed on the later batches is still throttled.
-const RATE_LIMIT_MAX = 20
-const READ_CEILING = RATE_LIMIT_MAX * MAX_BATCHES
-const RATE_LIMIT_WINDOW_MS = 60_000
-
-// Best effort only: each warm function instance keeps its own counter, so the
-// effective limit scales with instance count. Enough to blunt casual abuse of an
-// unauthenticated demo endpoint; a shared store would be needed for a real quota.
-const rateBuckets = new Map<string, { count: number; resetAt: number }>()
-
 const SERVER_ERROR = 'Something went wrong on the server. Please try again.'
-
-function rateLimit(key: string, max = RATE_LIMIT_MAX): { allowed: boolean; retryAfter: number } {
-  const now = Date.now()
-  const bucket = rateBuckets.get(key)
-  if (!bucket || bucket.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
-    if (rateBuckets.size > 5000) {
-      for (const [k, v] of rateBuckets) if (v.resetAt <= now) rateBuckets.delete(k)
-    }
-    return { allowed: true, retryAfter: 0 }
-  }
-  bucket.count += 1
-  if (bucket.count > max) {
-    return { allowed: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) }
-  }
-  return { allowed: true, retryAfter: 0 }
-}
 
 function clientKey(req: Request): string {
   return (
@@ -118,17 +87,13 @@ function readBatch(req: Request): number | null {
 }
 
 async function checkRequest(req: Request, stage: Stage): Promise<Checked> {
-  const who = clientKey(req)
-  const batchOf = readBatch(req)
-  const counted = stage === 'review' || batchOf === 0
-  const limit = counted ? rateLimit(`${stage}:${who}`) : { allowed: true, retryAfter: 0 }
-  const ceiling = stage === 'review' ? limit : rateLimit(`${stage}:all:${who}`, READ_CEILING)
-  if (!limit.allowed || !ceiling.allowed) {
+  const limit = checkRate(stage, clientKey(req), reviewId(req))
+  if (!limit.allowed) {
     return {
       ok: false,
       status: 429,
       error: 'Too many reviews from this address. Please wait a moment and try again.',
-      headers: { 'Retry-After': String(limit.allowed ? ceiling.retryAfter : limit.retryAfter) },
+      headers: { 'Retry-After': String(limit.retryAfter) },
     }
   }
 
@@ -202,11 +167,24 @@ async function handle(req: Request, run: Run, stage: Stage): Promise<Response> {
     return endWithError(run, stage, checked.error, checked.status, checked.headers)
   }
   // A read works from the first pass's comments, which came through the browser: only the server's own signed record, made for
-  // exactly this code, is accepted. Anything else is refused before any model is called.
-  const opened = stage === 'review' ? { comments: [], batches: [] } : openHandoff(checked.apiKey, checked.input, checked.handoff)
-  if (opened === null) {
+  // exactly this code, this function and this batch, and made within the last three minutes, is accepted. Anything else is
+  // refused before any model is called.
+  const batch = stage === 'review' ? 0 : readBatch(req)
+  if (batch === null) {
+    record(run, 'Check request', 'failed', checkAt, 'A read needs the number of its batch.')
+    return endWithError(run, stage, 'A read needs the number of its batch.', 400)
+  }
+  const opened = stage === 'review' ? { id: '', comments: [], batches: [] } : openHandoff(checked.apiKey, checked.input, checked.handoff, stage, batch)
+  // The rate limit counted this request under the id in the query string, before the hand-off could be read. That id must be the
+  // hand-off's own, or one admitted review could front for the hand-offs of others and skip their count.
+  if (stage !== 'review' && opened !== null && opened !== 'expired' && reviewId(req) !== opened.id) {
     record(run, 'Check request', 'failed', checkAt, HANDOFF_REFUSED)
     return endWithError(run, stage, HANDOFF_REFUSED, 400)
+  }
+  if (opened === null || opened === 'expired') {
+    const why = opened === null ? HANDOFF_REFUSED : HANDOFF_EXPIRED
+    record(run, 'Check request', 'failed', checkAt, why)
+    return endWithError(run, stage, why, 400)
   }
   // A read's trace is its model call alone: the review's own trace already holds the one Check request row.
   if (stage === 'review') record(run, 'Check request', 'ok', checkAt, checked.summary)
@@ -218,8 +196,6 @@ async function handle(req: Request, run: Run, stage: Stage): Promise<Response> {
     const { result, candidates, dropped, batches, handoff, model } = outcome
     return json({ success: true, stage, result, candidates, dropped, batches, handoff, trace: run.trace, usage: sumUsage(run.usages), unreportedCalls: run.unreported, model, ...settled, totalMs: Date.now() - run.started }, 200, run.headers)
   }
-  const batch = readBatch(req)
-  if (batch === null) return endWithError(run, stage, 'A read needs the number of its batch.', 400)
   const outcome = await runRead(run, checked.input, checked.apiKey, stage === 'read-1' ? 1 : 2, opened, batch)
   if (!outcome.ok) return endWithError(run, stage, outcome.error, outcome.status, outcome.headers)
   const settled = await settleModel(run)

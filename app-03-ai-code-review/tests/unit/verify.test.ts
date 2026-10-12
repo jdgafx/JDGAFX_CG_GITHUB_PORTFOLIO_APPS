@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { anchorLine, diffDoc, fileDoc } from '../../netlify/shared/anchor'
 import type { Candidate } from '../../netlify/shared/review'
-import { assemble, buildVerifyUser, combineReads, findEvidence, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
+import { assemble } from './assemble-helper'
+import { buildVerifyUser, combineReads, findEvidence, readVerdicts, settle, settleRebuttal, translateLines, type RawVerdict } from '../../netlify/shared/verify'
 
 // gorilla/mux v1.8.1 mux.go lines 375 to 392, copied verbatim. Line 1 here is line 375 there.
 const WALK = [

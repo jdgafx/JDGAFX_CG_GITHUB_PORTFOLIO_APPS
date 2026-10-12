@@ -6,7 +6,7 @@ import { batchesOf } from './batches'
 import { HANDOFF_REFUSED, makeHandoff, type Opened } from './handoff'
 import { newestModel, servedCheck, waitForNewest } from './newest-model'
 import { callModel, type Attempt } from './model'
-import { MAX_OUTPUT_TOKENS, MODEL, chatBody, replyCutShort, replyText, type ProviderReply } from './provider'
+import { MAX_OUTPUT_TOKENS, MODEL, chatBody, replyEnding, replyText, type ProviderReply } from './provider'
 import { buildPrPrompt, buildSystemPrompt, commentBudget, parseReview, precheck } from './review'
 import { noun, record, type Run } from './trace'
 import { buildComments, buildRefutePrompt, buildVerifyPrompt, buildVerifyUser, locatorFor, readVerdicts, settleFirst, settleSecond } from './verify'
@@ -31,6 +31,16 @@ const numbered = (texts: string[]) => texts.map((text, i) => `${i + 1}\t| ${text
 /** Shown when a reply ends at its token cap: thinking plus the answer used all the room, so what came back is not the whole answer. */
 export const REVIEW_OUT_OF_LENGTH = 'The AI ran out of reply length before it finished the review. Try a shorter snippet.'
 export const READ_OUT_OF_LENGTH = 'The AI ran out of reply length before it finished checking the comments. Try a shorter snippet.'
+/** A reply that did not end with finish_reason stop, and did not run out of length either (none given, a filter, a tool call). */
+export const REVIEW_UNFINISHED = 'The AI did not finish its reply. Please try again.'
+export const READ_UNFINISHED = 'The AI did not finish checking the comments. Please try again.'
+
+/** Why a reply is not read, or null when it ended with finish_reason stop. */
+const unusable = (reply: ProviderReply): string | null => {
+  const ending = replyEnding(reply)
+  return ending === 'complete' ? null : ending === 'length' ? 'cut short' : 'not finished'
+}
+const finishOf = (reply: ProviderReply) => reply.choices?.[0]?.finish_reason ?? 'none'
 
 /** The model a reply names, or null. Never a model from another call: a reply that names none is not reported. */
 const servedOf = (reply: ProviderReply): string | null => (typeof reply.model === 'string' && reply.model !== '' ? reply.model : null)
@@ -158,17 +168,19 @@ export async function runFirstPass(run: Run, input: ReviewInput, apiKey: string)
   const first = await callWithRetry(run, 'Pass 1: review', PASS1, chatBody(system, user), apiKey, (reply) => {
     const text = replyText(reply)
     if (!text) return 'empty'
-    if (replyCutShort(reply)) return 'cut short'
+    const cut = unusable(reply)
+    if (cut) return cut
     return parseReview(text) === null ? 'not a readable JSON review' : null
   })
   if (!first.attempt.ok) return failure(first.attempt)
   const reply = first.attempt.reply
   run.model = servedOf(reply)
   const parseAt = Date.now()
-  // A cut-off reply is not read, however much of it parses: it is not the whole answer.
-  if (replyCutShort(reply)) {
-    record(run, 'Parse reply', 'failed', parseAt, 'The reply ended at its token limit (finish_reason length), so it was not read')
-    return { ok: false, error: REVIEW_OUT_OF_LENGTH, status: 502 }
+  // Only a reply that ended with finish_reason stop is read, however much of any other parses: it is not the whole answer.
+  const ending = replyEnding(reply)
+  if (ending !== 'complete') {
+    record(run, 'Parse reply', 'failed', parseAt, `The reply ended with finish_reason ${finishOf(reply)}, so it was not read`)
+    return { ok: false, error: ending === 'length' ? REVIEW_OUT_OF_LENGTH : REVIEW_UNFINISHED, status: 502 }
   }
   const text = replyText(reply)
   if (!text) {
@@ -256,7 +268,8 @@ export async function runRead(run: Run, input: ReviewInput, apiKey: string, n: 1
     chatBody(n === 1 ? buildVerifyPrompt(input.kind, lineCount) : buildRefutePrompt(input.kind, lineCount), buildVerifyUser(listing, order, texts, doc.texts), PASS2_MAX_TOKENS),
     apiKey,
     (reply) => {
-      if (replyCutShort(reply)) return 'cut short'
+      const cut = unusable(reply)
+      if (cut) return cut
       const read = readVerdicts(replyText(reply))
       if (read === null) return 'not a readable list of verdicts'
       const missing = mine.filter((c) => !read.has(c.id)).length
@@ -265,9 +278,10 @@ export async function runRead(run: Run, input: ReviewInput, apiKey: string, n: 1
   )
   if (!attempt.attempt.ok) return failure(attempt.attempt)
   const reply = attempt.attempt.reply
-  if (replyCutShort(reply)) {
+  const ending = replyEnding(reply)
+  if (ending !== 'complete') {
     failLastRow(run, label)
-    return { ok: false, error: READ_OUT_OF_LENGTH, status: 502 }
+    return { ok: false, error: ending === 'length' ? READ_OUT_OF_LENGTH : READ_UNFINISHED, status: 502 }
   }
   const read = readVerdicts(replyText(reply))
   // Both tries gave a reply that is not a list of verdicts: the read failed, and its last row says so.

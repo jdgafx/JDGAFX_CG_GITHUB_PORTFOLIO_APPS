@@ -25,7 +25,7 @@ export interface Payload {
   success: boolean
   error?: string
   candidates?: Array<{ id: number; line: number; fromLine: number; quote: string; message: string }>
-  handoff?: { text: string; seal: string } | null
+  handoff?: { id: string; text: string; seals: { 'read-1': string[]; 'read-2': string[] } } | null
   rows?: Array<Record<string, unknown>>
   result?: {
     comments: Array<{ id: number; line: number; fromLine: number; severity: string; message: string; suggestion: string; verdict: string; decidedBy: string; reason: string; evidence: string | null; code: string; where: { file: string; line: number; side: string } | null }>

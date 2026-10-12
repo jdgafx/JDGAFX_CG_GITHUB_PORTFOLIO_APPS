@@ -3,17 +3,8 @@ import type { ProviderReply } from './provider'
 
 const USAGE_FIELDS = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const
 
-/** Every stage a run passes, in order. A run that stops early lists the stages it never reached as skipped. */
-export const PIPELINE = [
-  'Check request',
-  'Build prompt',
-  'Pass 1: review',
-  'Parse reply',
-  'Checks',
-  'Pass 2: verify (read 1)',
-  'Pass 2: verify (read 2, adversary)',
-  'Re-validate',
-] as const
+/** Every stage request 1 passes, in order. A run that stops early lists the stages it never reached as skipped. The reads are requests of their own. */
+export const PIPELINE = ['Check request', 'Build prompt', 'Pass 1: review', 'Parse reply', 'Checks'] as const
 
 export interface Run {
   headers: Record<string, string>

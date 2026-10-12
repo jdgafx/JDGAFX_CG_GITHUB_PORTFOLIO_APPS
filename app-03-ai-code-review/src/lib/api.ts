@@ -210,7 +210,9 @@ function withDropped(summary: RunSummary, dropped: TraceStep | null): RunSummary
   return dropped ? { ...summary, trace: [dropped, ...summary.trace], unreportedCalls: summary.unreportedCalls + 1 } : summary
 }
 
-const isHandoff = (value: unknown): value is Handoff => isRecord(value) && typeof value.text === 'string' && typeof value.seal === 'string'
+const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string')
+const isHandoff = (value: unknown): value is Handoff =>
+  isRecord(value) && typeof value.id === 'string' && typeof value.text === 'string' && isRecord(value.seals) && isStrings(value.seals['read-1']) && isStrings(value.seals['read-2'])
 const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
 const isNullableNumber = (value: unknown): value is number | null => value === null || isNumber(value)
 
@@ -242,6 +244,8 @@ function acceptFirst(data: Record<string, unknown>): FirstPassReply | null {
   const batches = data.batches
   if (!Array.isArray(batches) || !batches.every((b) => Array.isArray(b) && b.every(isNumber))) return null
   if (JSON.stringify(batches) !== JSON.stringify(batchesOf(data.candidates.map((c: Candidate) => c.id)))) return null
+  // One seal for each read request.
+  if (data.handoff !== null && (data.handoff.seals['read-1'].length !== batches.length || data.handoff.seals['read-2'].length !== batches.length)) return null
   return { result: data.result, candidates: data.candidates, dropped: data.dropped, batches: batches as number[][], handoff: data.handoff }
 }
 
@@ -260,12 +264,23 @@ const isSettled = (value: unknown): value is FirstRow =>
 const isRebuttal = (value: unknown): value is SecondRow =>
   isRecord(value) && isNumber(value.id) && (value.state === 'stands' || value.state === 'refuted' || value.state === 'unsure') && typeof value.reason === 'string' && isNullableString(value.quote)
 
-/** A read's rows, when there is exactly one for every comment that went to be read. */
+/** What a read gave back for its batch: the rows it settled, and how many of the batch's comments it left without one. */
+interface ReadRows<R> {
+  rows: Map<number, R>
+  missing: number
+}
+
+/**
+ * A read's rows. Rows for only some of the batch's comments are kept (the others have no verdict, and come out not confirmed);
+ * a row for a comment the batch does not hold, a repeated row, or a row that is not the shape promised is not a reply to use.
+ */
 function acceptRows<R extends { id: number }>(candidates: readonly Candidate[], check: (row: unknown) => row is R) {
-  return (data: Record<string, unknown>): Map<number, R> | null => {
+  return (data: Record<string, unknown>): ReadRows<R> | null => {
     if (!Array.isArray(data.rows) || !data.rows.every(check)) return null
     const rows = new Map(data.rows.map((row: R) => [row.id, row]))
-    return rows.size === candidates.length && candidates.every((c) => rows.has(c.id)) ? rows : null
+    const held = new Set(candidates.map((c) => c.id))
+    if (rows.size !== data.rows.length || [...rows.keys()].some((id) => !held.has(id))) return null
+    return { rows, missing: candidates.filter((c) => !rows.has(c.id)).length }
   }
 }
 
@@ -292,23 +307,27 @@ async function review(payload: object, locate: (line: number) => Located, inPull
   onFirstPass?.(afterFirst)
 
   const readsAt = Date.now() - startedAt
-  const withHandoff = { ...payload, handoff }
-  // Each read is one request per batch of at most four comments, all at once, each with the whole input.
-  type Batched<R> = Array<PromiseSettledResult<{ value: Map<number, R> } & RunSummary>>
-  const fanOut = <R extends { id: number }>(path: string, check: (row: unknown) => row is R): Promise<Batched<R>> =>
+  // Each read is one request per batch of at most four comments, all at once, each with the whole input and its own ticket.
+  type Batched<R> = Array<PromiseSettledResult<{ value: ReadRows<R> } & RunSummary>>
+  const fanOut = <R extends { id: number }>(stage: 'read-1' | 'read-2', check: (row: unknown) => row is R): Promise<Batched<R>> =>
     Promise.allSettled(
       batches.map((ids, i) =>
-        postStage(`${path}?batch=${i}`, withHandoff, signal, acceptRows(candidates.filter((c) => ids.includes(c.id)), check)),
+        postStage(
+          `/api/ai/${stage}?batch=${i}&review=${handoff.id}`,
+          { ...payload, handoff: { text: handoff.text, seal: handoff.seals[stage][i] } },
+          signal,
+          acceptRows(candidates.filter((c) => ids.includes(c.id)), check),
+        ),
       ),
     )
-  const [ones, twos] = await Promise.all([fanOut('/api/ai/read-1', isSettled), fanOut('/api/ai/read-2', isRebuttal)])
+  const [ones, twos] = await Promise.all([fanOut('read-1', isSettled), fanOut('read-2', isRebuttal)])
   // A stopped or replaced review never reports reads: the caller drops the run on its own abort.
   if (signal?.aborted) throw signal.reason ?? new DOMException('The review was stopped.', 'AbortError')
 
   const combineAt = Date.now()
   // A batch that did not finish leaves its comments without a row; those come out not confirmed. A read is whole only when every batch is.
-  const merged = <R,>(parts: Batched<R>): Map<number, R> => new Map(parts.flatMap((p) => (p.status === 'fulfilled' ? [...p.value.value] : [])))
-  const verified = [...ones, ...twos].every((p) => p.status === 'fulfilled')
+  const merged = <R,>(parts: Batched<R>): Map<number, R> => new Map(parts.flatMap((p) => (p.status === 'fulfilled' ? [...p.value.value.rows] : [])))
+  const verified = [...ones, ...twos].every((p) => p.status === 'fulfilled' && p.value.value.missing === 0)
   const firsts = merged(ones) as Map<number, Settled>
   const seconds = merged(twos) as Map<number, Rebuttal>
   const comments = buildComments(candidates, dropped, firsts, seconds, locate, inPullRequest)

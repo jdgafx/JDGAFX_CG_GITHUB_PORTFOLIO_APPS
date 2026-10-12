@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { fileDoc } from '../../netlify/shared/anchor'
 import type { Candidate } from '../../netlify/shared/review'
-import { assemble, readVerdicts } from '../../netlify/shared/verify'
+import { assemble } from './assemble-helper'
+import { readVerdicts } from '../../netlify/shared/verify'
 
 // The three false or inconsistent claims of the 2026-10-11 SP2 run (app-03-ai-code-review-sp2-2026-10-11), replayed from the
 // saved file text at the pinned tag and the second pass's captured answer. The second pass now types each claim; the code

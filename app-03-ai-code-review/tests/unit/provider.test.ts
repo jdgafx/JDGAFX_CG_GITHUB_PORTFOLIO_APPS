@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_OUTPUT_TOKENS, chatBody, replyCutShort, replyText } from '../../netlify/shared/provider'
+import { MAX_OUTPUT_TOKENS, chatBody, replyEnding, replyText } from '../../netlify/shared/provider'
 
 interface SentBody {
   model: string
@@ -42,15 +42,21 @@ describe('replyText', () => {
   })
 })
 
-describe('replyCutShort', () => {
-  it('is true when the provider stopped at the token ceiling', () => {
-    expect(replyCutShort({ choices: [{ finish_reason: 'length' }] })).toBe(true)
-    expect(replyCutShort({ choices: [{ finish_reason: 'max_tokens' }] })).toBe(true)
+describe('replyEnding', () => {
+  it('is "complete" only for finish_reason stop', () => {
+    expect(replyEnding({ choices: [{ finish_reason: 'stop' }] })).toBe('complete')
   })
 
-  it('is false for a normal stop or when no finish reason is given', () => {
-    expect(replyCutShort({ choices: [{ finish_reason: 'stop' }] })).toBe(false)
-    expect(replyCutShort({ choices: [{ finish_reason: null }] })).toBe(false)
-    expect(replyCutShort({})).toBe(false)
+  it('is "length" when the provider stopped at the token ceiling', () => {
+    expect(replyEnding({ choices: [{ finish_reason: 'length' }] })).toBe('length')
+    expect(replyEnding({ choices: [{ finish_reason: 'max_tokens' }] })).toBe('length')
+  })
+
+  it('is "unfinished" for a missing or null finish_reason and for any other reason: only "stop" is a reply that ended', () => {
+    expect(replyEnding({ choices: [{ finish_reason: null }] })).toBe('unfinished')
+    expect(replyEnding({ choices: [{}] })).toBe('unfinished')
+    expect(replyEnding({ choices: [] })).toBe('unfinished')
+    expect(replyEnding({})).toBe('unfinished')
+    for (const reason of ['content_filter', 'tool_calls', 'error', 'STOP', '']) expect(replyEnding({ choices: [{ finish_reason: reason }] })).toBe('unfinished')
   })
 })

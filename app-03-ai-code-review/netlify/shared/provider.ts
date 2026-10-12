@@ -41,7 +41,15 @@ export function replyText(reply: ProviderReply): string {
   return reply.choices?.[0]?.message?.content?.trim() ?? ''
 }
 
-export function replyCutShort(reply: ProviderReply): boolean {
+/**
+ * How a reply ended. Only finish_reason "stop" is a reply that ended: "length" (or "max_tokens") ran out of room for thinking
+ * plus the answer, and anything else (nothing at all, a content filter, a tool call, an error) is a reply that was not finished.
+ * Neither is read, however much of it parses.
+ */
+export type Ending = 'complete' | 'length' | 'unfinished'
+
+export function replyEnding(reply: ProviderReply): Ending {
   const reason = reply.choices?.[0]?.finish_reason
-  return reason === 'length' || reason === 'max_tokens'
+  if (reason === 'stop') return 'complete'
+  return reason === 'length' || reason === 'max_tokens' ? 'length' : 'unfinished'
 }

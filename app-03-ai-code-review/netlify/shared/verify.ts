@@ -366,15 +366,3 @@ export function buildComments(
   )
   return [...settled, ...dropped].sort((a, b) => a.id - b.id)
 }
-
-export function assemble(
-  candidates: Candidate[],
-  checkedDrops: CheckedDrop[],
-  /** The first read, then the adversarial read; a read that did not finish is null. */
-  reads: readonly [Map<number, RawVerdict> | null, Map<number, RawVerdict> | null],
-  doc: Doc,
-  locate: (line: number) => Located,
-  inPullRequest = false,
-): ReviewComment[] {
-  return buildComments(candidates, checkedDrops, settleFirst(candidates, reads[0], doc), settleSecond(candidates, reads[1], doc), locate, inPullRequest)
-}

@@ -23,7 +23,13 @@ afterEach(() => {
 
 const json = (payload: unknown, status = 200): Response => new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
 const CODE = 'def divide(a, b):\n    return a / b'
-const HANDOFF = { text: '{"v":1,"hash":"h","comments":[]}', seal: 'abc123' }
+const HANDOFF_TEXT = '{"v":2,"iat":1,"hash":"h","comments":[],"batches":[]}'
+/** What pass 1 hands the browser for a review of `batches` batches: one seal for each read request. */
+const handoffOf = (batches: number) => ({ id: 'a'.repeat(32), text: HANDOFF_TEXT, seals: { 'read-1': Array.from({ length: batches }, (_, i) => `s1-${i}`), 'read-2': Array.from({ length: batches }, (_, i) => `s2-${i}`) } })
+const HANDOFF = handoffOf(1)
+/** The ticket a read request carries for one batch, and its review id in the URL. */
+const ticket = (n: 1 | 2, batch: number) => ({ text: HANDOFF_TEXT, seal: `s${n}-${batch}` })
+const reviewQuery = `review=${'a'.repeat(32)}`
 
 const CANDIDATE = { id: 1, line: 2, fromLine: 2, quote: 'return a / b', severity: 'critical', message: 'Dividing by zero raises ZeroDivisionError.', suggestion: 'Check b first.', moveNote: null, loweredFrom: null }
 const DROP = { id: 2, line: 1, fromLine: 1, severity: 'info', message: 'Name is vague.', suggestion: 'Rename it.', reason: 'The code it quotes is not nearby.' }
@@ -57,9 +63,9 @@ describe('a review is three requests: pass 1, then the two reads side by side', 
   it('posts the code to pass 1, then posts the code and the unchanged hand-off to both reads, and shows the result both reads agree on', async () => {
     answer({ '/api/ai': () => FIRST.clone(), '/api/ai/read-1': () => readOk(1, [keptRow]), '/api/ai/read-2': () => readOk(2, [standsRow]) })
     const run = await reviewCode(CODE, 'python')
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual(['/api/ai', '/api/ai/read-1?batch=0', '/api/ai/read-2?batch=0'])
+    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual(['/api/ai', `/api/ai/read-1?batch=0&${reviewQuery}`, `/api/ai/read-2?batch=0&${reviewQuery}`])
     expect(bodyOf(fetchStub.mock.calls[0][1])).toEqual({ code: CODE, language: 'python' })
-    for (const call of [1, 2]) expect(bodyOf(fetchStub.mock.calls[call][1])).toEqual({ code: CODE, language: 'python', handoff: HANDOFF })
+    for (const call of [1, 2] as const) expect(bodyOf(fetchStub.mock.calls[call][1])).toEqual({ code: CODE, language: 'python', handoff: ticket(call, 0) })
     expect(run.result.verified).toBe(true)
     expect(run.result.comments.map((c) => [c.id, c.verdict])).toEqual([[1, 'kept'], [2, 'dropped']])
     expect(run.result.comments[0]).toMatchObject({ decidedBy: 'verifier', evidence: 'return a / b', code: '    return a / b' })
@@ -128,7 +134,7 @@ describe('a review is three requests: pass 1, then the two reads side by side', 
       '/api/ai/read-2': () => readOk(2, [standsRow]),
     })
     const run = await reviewPullRequest(files)
-    expect(bodyOf(fetchStub.mock.calls[1][1])).toEqual({ mode: 'pr', files, handoff: HANDOFF })
+    expect(bodyOf(fetchStub.mock.calls[1][1])).toEqual({ mode: 'pr', files, handoff: ticket(1, 0) })
     expect(run.result.comments[0].where).toEqual({ file: 'a.go', line: 1, side: 'new' })
   })
 })
@@ -277,7 +283,7 @@ describe('batches of four comments per read request', () => {
     json({
       success: true, stage: 'review', unreportedCalls: 0,
       result: { ...RESULT, comments: Array.from({ length: count }, (_, i) => waiting(i + 1, 'Waiting')) },
-      candidates: Array.from({ length: count }, (_, i) => cand(i + 1)), dropped: [], handoff: HANDOFF, batches,
+      candidates: Array.from({ length: count }, (_, i) => cand(i + 1)), dropped: [], handoff: handoffOf(batches.length), batches,
       ...SUMMARY([step('Check request')]),
     })
   const ids = (batch: number[]) => batch
@@ -290,13 +296,14 @@ describe('batches of four comments per read request', () => {
     fetchStub.mockImplementation(async (url, init) => {
       if (url === '/api/ai') return firstWith(9, BATCHES)
       started.push(url)
-      expect(bodyOf(init)).toEqual({ code: CODE, language: 'python', handoff: HANDOFF })
+      const batch = Number(new URL(`http://x${url}`).searchParams.get('batch'))
+      expect(bodyOf(init)).toEqual({ code: CODE, language: 'python', handoff: ticket(url.startsWith('/api/ai/read-1') ? 1 : 2, batch) })
       const read1 = urlOf(url) === '/api/ai/read-1'
       return readOk(read1 ? 1 : 2, rowsFor(url, read1 ? keptFor : standsFor, BATCHES))
     })
     const run = await reviewCode(CODE, 'python')
     expect(fetchStub).toHaveBeenCalledTimes(7)
-    expect(started.sort()).toEqual(['/api/ai/read-1?batch=0', '/api/ai/read-1?batch=1', '/api/ai/read-1?batch=2', '/api/ai/read-2?batch=0', '/api/ai/read-2?batch=1', '/api/ai/read-2?batch=2'])
+    expect(started.sort()).toEqual([0, 1, 2].map((b) => `/api/ai/read-1?batch=${b}&${reviewQuery}`).concat([0, 1, 2].map((b) => `/api/ai/read-2?batch=${b}&${reviewQuery}`)))
     expect(run.result.verified).toBe(true)
     expect(run.result.comments.map((c) => c.verdict)).toEqual(Array(9).fill('kept'))
     expect(run.unreportedCalls).toBe(0)
@@ -318,7 +325,7 @@ describe('batches of four comments per read request', () => {
   it('leaves only the comments of a failed batch not confirmed, with the existing note, and keeps the others', async () => {
     fetchStub.mockImplementation(async (url) => {
       if (url === '/api/ai') return firstWith(9, BATCHES)
-      if (url === '/api/ai/read-1?batch=1') return json({ success: false, error: 'The AI provider did not answer in time.', unreportedCalls: 1, ...SUMMARY([step('Pass 2: verify (read 1, batch 2 of 3)', { status: 'failed', ms: 22000 })], { usage: null }) }, 504)
+      if (url.startsWith('/api/ai/read-1?batch=1')) return json({ success: false, error: 'The AI provider did not answer in time.', unreportedCalls: 1, ...SUMMARY([step('Pass 2: verify (read 1, batch 2 of 3)', { status: 'failed', ms: 22000 })], { usage: null }) }, 504)
       const read1 = urlOf(url) === '/api/ai/read-1'
       return readOk(read1 ? 1 : 2, rowsFor(url, read1 ? keptFor : standsFor, BATCHES))
     })
@@ -336,12 +343,39 @@ describe('batches of four comments per read request', () => {
       if (url === '/api/ai') return firstWith(5, [[1, 2, 3, 4], [5]])
       const read1 = urlOf(url) === '/api/ai/read-1'
       // Batch 1 (comment 5 alone) answers with the rows of batch 0 instead of its own.
-      const ids = url.endsWith('batch=0') ? [1, 2, 3, 4] : [1]
+      const ids = url.includes('batch=0') ? [1, 2, 3, 4] : [1]
       return readOk(read1 ? 1 : 2, ids.map((id) => (read1 ? keptFor(id) : standsFor(id))))
     })
     const run = await reviewCode(CODE, 'python')
     expect(run.result.comments[4].verdict).toBe('unverified')
     expect(run.result.verified).toBe(false)
+  })
+
+  it('keeps the verdicts a batch did settle when its read answered for only some of the comments, and leaves the rest not confirmed', async () => {
+    fetchStub.mockImplementation(async (url) => {
+      if (url === '/api/ai') return firstWith(4, [[1, 2, 3, 4]])
+      const read1 = urlOf(url) === '/api/ai/read-1'
+      // Read 1 settled comments 1 and 2 only.
+      return readOk(read1 ? 1 : 2, (read1 ? [1, 2] : [1, 2, 3, 4]).map((id) => (read1 ? keptFor(id) : standsFor(id))))
+    })
+    const run = await reviewCode(CODE, 'python')
+    expect(run.result.comments.map((c) => c.verdict)).toEqual(['kept', 'kept', 'unverified', 'unverified'])
+    expect(run.result.comments[2].reason).toMatch(/did not finish/)
+    expect(run.result.verified).toBe(false)
+  })
+
+  it('refuses rows that name a comment the batch does not hold, or repeat one', async () => {
+    for (const rows of [[1, 2, 3, 4, 5], [1, 1, 2, 3]]) {
+      fetchStub.mockReset()
+      fetchStub.mockImplementation(async (url) => {
+        if (url === '/api/ai') return firstWith(4, [[1, 2, 3, 4]])
+        const read1 = urlOf(url) === '/api/ai/read-1'
+        return readOk(read1 ? 1 : 2, (read1 ? rows : [1, 2, 3, 4]).map((id) => (read1 ? keptFor(id) : standsFor(id))))
+      })
+      const run = await reviewCode(CODE, 'python')
+      expect(run.result.verified).toBe(false)
+      expect(run.result.comments.map((c) => c.verdict)).toEqual(['unverified', 'unverified', 'unverified', 'unverified'])
+    }
   })
 
   it('uses one request per read when the comments fit in a batch, and none when there are none', async () => {

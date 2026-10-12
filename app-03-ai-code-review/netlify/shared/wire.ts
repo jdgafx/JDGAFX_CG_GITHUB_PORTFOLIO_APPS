@@ -6,10 +6,20 @@ import type { Rebuttal, Settled } from './verify'
 
 /**
  * The first pass's account of itself, signed by the server. The browser carries it to the read requests and returns it
- * unchanged; it never reads it. `text` is the exact JSON the server signed (the content hash and the raw first-pass comments)
- * and `seal` is its HMAC, so a read request can tell a hand-off the server made, for this exact code, from anything else.
+ * unchanged, a ticket for each request; it never reads it. `text` is the exact JSON the server signed (the time, the content
+ * hash, the raw first-pass comments and the batches) and each seal is its HMAC for one function and batch, so a read request can
+ * tell a hand-off the server made, recently, for this exact code and this exact request, from anything else.
  */
 export interface Handoff {
+  /** Names the review for the rate limit: the first 32 hex digits of a MAC of `text`. */
+  id: string
+  text: string
+  /** One seal per read request, for each function and each batch, so a ticket opens that request and no other. */
+  seals: { 'read-1': string[]; 'read-2': string[] }
+}
+
+/** What one read request carries: the signed text and the seal made for that function and batch. */
+export interface Ticket {
   text: string
   seal: string
 }
