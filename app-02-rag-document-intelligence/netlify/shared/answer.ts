@@ -83,6 +83,7 @@ const STEP_RETRY = 'Retry model call'
 const STEP_PARSE = 'Parse and validate'
 
 const EMPTY_REPLY = 'The model returned an empty response. Please try again.'
+const CUT_OFF_REPLY = 'The AI reply was cut off before the answer finished. Try a narrower question.'
 
 const SYSTEM_PROMPT = `You are DocMind, an intelligent document Q&A assistant. You answer questions based ONLY on the provided document chunks.
 
@@ -288,6 +289,11 @@ export async function runAnswer(
       return fail(second.status, second.message, [STEP_PARSE])
     }
     replies.push(second)
+    // The last attempt gets the same check as the first: a reply stopped at the token cap is never parsed, even when its JSON closes.
+    if (second.finishReason === 'length') {
+      record(STEP_RETRY, retried, 'failed', 'The retried reply was cut off at the output limit.', costOf(second))
+      return fail(502, CUT_OFF_REPLY, [STEP_PARSE])
+    }
     attempt = second
     record(STEP_RETRY, retried, 'ok', `Retried once because ${reason}. ${servedBy(second)}`, costOf(second))
   }

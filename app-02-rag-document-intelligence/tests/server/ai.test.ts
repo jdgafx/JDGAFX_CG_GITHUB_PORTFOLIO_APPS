@@ -152,6 +152,49 @@ describe('ai function: retries', () => {
     expect(mock).toHaveBeenCalledTimes(2)
   })
 
+  it('ends with a cut-off error when the retry is cut off but its JSON still parses, and shows no answer', async () => {
+    // A lost tail can close the JSON by itself: the answer text is whole-looking, but a cut-off reply is never used.
+    const closed = '{"answer":"Opened in 1987 [Chunk 3].","source_chunk_indices":[3],"confidence":0.9}'
+    const mock = stubProvider(
+      () => jsonReply(chatBody('{"answer":"The Harbor', { finish: 'length' })),
+      () => jsonReply(chatBody(closed, { finish: 'length' })),
+    )
+    const { frames } = await readFrames(await handler(request(VALID)))
+    const last = frames.at(-1)
+    expect(last).toMatchObject({ type: 'error', error: 'The AI reply was cut off before the answer finished. Try a narrower question.' })
+    expect(frames.some(frame => frame.type === 'result')).toBe(false)
+    expect(last?.trace?.map(step => [step.name, step.status])).toEqual([
+      ['Accept request', 'ok'],
+      ['Build prompt', 'ok'],
+      ['Call model', 'failed'],
+      ['Retry model call', 'failed'],
+      ['Parse and validate', 'skipped'],
+    ])
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('ends with a cut-off error when the retry after a timeout is cut off but its JSON still parses', async () => {
+    let calls = 0
+    const mock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => {
+      calls += 1
+      if (calls === 1) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+      return jsonReply(chatBody('{"answer":"Opened in 1987.","source_chunk_indices":[3],"confidence":0.9}', { finish: 'length' }))
+    })
+    vi.stubGlobal('fetch', mock)
+    const last = await finalFrame(await handler(request(VALID)))
+    expect(last).toMatchObject({ type: 'error', error: 'The AI reply was cut off before the answer finished. Try a narrower question.' })
+    expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('names the cut-off, not an empty reply, when the retry used the whole token cap on thinking', async () => {
+    stubProvider(
+      () => jsonReply(chatBody('', { finish: 'length' })),
+      () => jsonReply(chatBody('', { finish: 'length' })),
+    )
+    const last = await finalFrame(await handler(request(VALID)))
+    expect(last).toMatchObject({ type: 'error', error: 'The AI reply was cut off before the answer finished. Try a narrower question.' })
+  })
+
   it('does not retry a provider error', async () => {
     const mock = stubProvider(() => jsonReply({ error: { message: 'Insufficient credits for acct_123' } }, 402))
     expect((await finalFrame(await handler(request(VALID)))).type).toBe('error')
