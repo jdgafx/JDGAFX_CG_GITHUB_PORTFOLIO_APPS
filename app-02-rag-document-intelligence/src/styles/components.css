@@ -129,10 +129,10 @@
 .ds-g-arrow--taken { fill: var(--ds-accent); }
 
 /* The cited result: the one editorial block on the page. A lead paragraph, numbered citations, one footnote line */
-.ds-lead { display: grid; gap: 16px; padding: 24px 24px; background: var(--ds-surface); border: 1px solid var(--ds-accent-dim); border-radius: var(--ds-radius); min-width: 0; }
+.ds-lead { display: grid; gap: 16px; padding: 24px 32px; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius); min-width: 0; }
 .ds-lead__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.ds-lead__text { display: grid; gap: 12px; max-width: 62ch; font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; }
-.ds-lead__text > p:first-child { font-size: 22px; line-height: 1.45; letter-spacing: -0.01em; }
+.ds-lead__text { display: grid; gap: 16px; max-width: 62ch; font-family: var(--ds-serif); font-size: 20px; line-height: 1.65; overflow-wrap: anywhere; }
+.ds-lead__text > p:first-child { font-size: 22px; line-height: 1.55; }
 .ds-lead__foot { font-size: 13px; color: var(--ds-text-muted); }
 .ds-cite { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ds-border); }
 .ds-cite li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--ds-border); }
@@ -250,3 +250,8 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Disabled controls stay readable (4.5:1): they go flat and muted instead of fading. */
+.ds-button:disabled, .ds-button--primary:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); border-color: var(--ds-border); }
+.ds-choice:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); }
+.ds-choice:disabled .ds-choice__text { color: var(--ds-text-muted); }

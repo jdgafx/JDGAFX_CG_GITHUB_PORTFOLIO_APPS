@@ -155,7 +155,7 @@ function TurnCard({ turn, doc, lead, selection, onSelect, onClose }: TurnCardPro
                   {index + 1}
                 </button>
                 <span className="ds-cite__title docmind-cite__where">{where(doc, index)}</span>
-                <span className="ds-cite__url">{support ? `“${support.sentence.text}”` : 'No sentence stands out in this passage.'}</span>
+                <span className="ds-cite__url">{support ? <mark className="docmind-quote">{`“${support.sentence.text}”`}</mark> : 'No sentence stands out in this passage.'}</span>
               </li>
             )
           })}
