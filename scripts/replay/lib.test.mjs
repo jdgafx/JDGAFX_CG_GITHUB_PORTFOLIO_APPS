@@ -194,3 +194,55 @@ test("take 'all' hands every kept frame to expect/reported as an array", () => {
   refused(streamInput(['data: [DONE]\n\n'], undefined, cfg), /never sent a frame/)
   refused(streamInput([frame({ result: {} }), 'data: nope\n\n'], undefined, cfg), /not JSON/)
 })
+
+// app-13 style: /api/run streams 24 node_end frames carrying cost, /api/synthesize streams one result frame with metrics.totalCost.
+const nodeCosts = Array.from({ length: 24 }, (_, i) => 0.0005 * (i + 1))
+const runFrames = [...nodeCosts.map((cost, i) => frame({ servedModel: `v/m${i}`, node: i, cost })), 'data: [DONE]\n\n']
+const synthFrames = [frame({ progress: 1 }), frame({ result: { model: 'v/synth', metrics: { totalCost: 0.0125 } } }), 'data: [DONE]\n\n']
+const twoRequests = (cfg, run = runFrames, synth = synthFrames) => {
+  const sseHeaders = [['content-type', 'text/event-stream']]
+  const ex = (path, t, chunks) => exchange(path, t, null, { headers: sseHeaders, chunks: chunks.map((text, i) => ({ t: t + 1 + i, text })), t_end: t + 1 + chunks.length })
+  return { app: 'two', config: cfg, url: 'https://example.test/', recordedAt: 'x', t0: 1, exchanges: [ex('/api/run', 10, run), ex('/api/synthesize', 500, synth)] }
+}
+const pathRules = { '/api/run': { frame: { has: 'servedModel' }, take: 'all' }, '/api/synthesize': { frame: { has: 'result' }, take: 'last' } }
+const twoConfig = (sseRule, costUsd) => ({
+  ...config, finishPath: '/api/synthesize', sse: sseRule,
+  expect: [{ path: '/api/run', field: '*.servedModel', nonEmpty: true }, { path: '/api/synthesize', field: 'result.metrics.totalCost', equals: 0.0125 }],
+  reported: { model: { path: '/api/synthesize', field: 'result.model' }, modelRole: 'synthesizer', costUsd, costScope: 'whole run' },
+})
+const summed = [{ path: '/api/run', field: '*.cost' }, { path: '/api/synthesize', field: 'result.metrics.totalCost' }]
+
+test('sse rules can be keyed by request path, and the cost of both requests is summed', () => {
+  const expected = nodeCosts.reduce((a, b) => a + b, 0) + 0.0125 // hand total: 0.0005 * (24 * 25 / 2) + 0.0125 = 0.1625
+  assert.ok(Math.abs(expected - 0.1625) < 1e-12)
+  const rec = buildRecording(twoRequests(twoConfig(pathRules, summed)))
+  assert.ok(Math.abs(rec.reported.cost_usd - 0.1625) < 1e-12)
+  assert.equal(rec.reported.model, 'v/synth')
+  assert.equal(rec.exchanges.length, 2)
+  assert.equal(rec.exchanges[0].chunks.map(c => c.text).join(''), runFrames.join(''))
+})
+
+test('a path without an sse rule is refused, and a rule map is validated rule by rule', () => {
+  refused(twoRequests(twoConfig({ '/api/run': pathRules['/api/run'] }, summed)), /no sse rule for that path/)
+  const write = rule => tempDir({ 'a.json': { ...config, sse: rule } })
+  assert.deepEqual(loadAppConfig('a', write(pathRules)).sse, pathRules)
+  configError(() => loadAppConfig('a', write({ '/api/run': { take: 'middle' } })), /sse\['\/api\/run'\]\.take/)
+  configError(() => loadAppConfig('a', write({ '/api/run': 'x' })), /must be an object/)
+})
+
+test('summed cost refuses a missing or non-numeric value, a missing request and a bad spec list', () => {
+  const noCost = frameNo => runFrames.map((t, i) => (i === frameNo ? frame({ servedModel: 'v/x', node: i }) : t))
+  refused(twoRequests(twoConfig(pathRules, summed), noCost(7)), /reports no cost at \*\.cost/)
+  refused(twoRequests(twoConfig(pathRules, summed), runFrames.map((t, i) => (i === 3 ? frame({ servedModel: 'v/x', cost: '0.1' }) : t))), /reports no cost/)
+  refused(twoRequests({ ...twoConfig(pathRules, summed), expect: [] }, runFrames, [frame({ result: { model: 'v/synth', metrics: {} } })]), /reports no cost at result.metrics.totalCost/)
+  refused(twoRequests(twoConfig(pathRules, [...summed, { path: '/api/other', field: 'cost' }])), /never reached \/api\/other/)
+  const write = costUsd => tempDir({ 'a.json': { ...config, reported: { ...config.reported, costUsd } } })
+  configError(() => loadAppConfig('a', write([])), /reported needs/)
+  configError(() => loadAppConfig('a', write([{ path: '/api/x' }])), /reported needs/)
+  assert.equal(loadAppConfig('a', write(summed)).reported.costUsd.length, 2)
+})
+
+test('the single cost spec still reads only its first value', () => {
+  const cfg = twoConfig(pathRules, { path: '/api/run', field: '*.cost' })
+  assert.equal(buildRecording(twoRequests(cfg)).reported.cost_usd, 0.0005)
+})
