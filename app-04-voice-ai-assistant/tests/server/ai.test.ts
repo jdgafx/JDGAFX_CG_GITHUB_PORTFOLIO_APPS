@@ -117,6 +117,20 @@ describe('ai function', () => {
     expect(system).toContain('Call a tool without saying anything before it')
   })
 
+  it("puts today's date from the server clock in the system prompt on every request", async () => {
+    const mock = route([() => sseResponse(fixtureChunks('plain'))])
+    const systemOf = (call: number) => (JSON.parse(String(chatCallsOf(mock)[call][1]?.body)) as { messages: Array<{ role: string; content: string }> }).messages[0].content
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-12T09:30:00Z'))
+    await (await handler(request(URL_AI, { json: { message: 'hi' } }))).text()
+    vi.setSystemTime(new Date('2027-01-03T23:59:00Z'))
+    await (await handler(request(URL_AI, { json: { message: 'hi' } }))).text()
+    expect(systemOf(0)).toContain("Today's date is 2026-10-12.")
+    expect(systemOf(1)).toContain("Today's date is 2027-01-03.")
+    expect(systemOf(1)).not.toContain('2026-10-12')
+    expect(systemOf(0)).toContain("only when the user's question names one")
+  })
+
   it('sends only the final answer text as the done result when the first reply wrote text before its tool call', async () => {
     const preTool = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Let me check the weather in Lisbon.' } }] })}\n\n`
     route([() => sseResponse([preTool, ...fixtureChunks('weather')]), () => sseResponse(fixtureChunks('answer'))])

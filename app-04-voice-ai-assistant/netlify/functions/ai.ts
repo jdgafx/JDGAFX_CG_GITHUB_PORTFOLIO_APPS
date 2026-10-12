@@ -25,6 +25,15 @@ const SYSTEM_PROMPT =
   'Your words are read aloud: write plain sentences with no markdown, lists or emoji. ' +
   'Call a tool without saying anything before it, then answer from its result.'
 
+// The date is read from the server clock on every request, never once at load, so a warm function
+// does not carry yesterday's date past midnight.
+function systemPrompt(now: Date = new Date()): string {
+  return (
+    `${SYSTEM_PROMPT} Today's date is ${now.toISOString().slice(0, 10)}. ` +
+    "Add a year to a tool query only when the user's question names one."
+  )
+}
+
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
 // Earlier turns come from the browser, so each one must be a {role, content} pair.
@@ -158,7 +167,7 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const turns: Turn[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt() },
       ...earlier,
       { role: 'user', content: message },
     ]
