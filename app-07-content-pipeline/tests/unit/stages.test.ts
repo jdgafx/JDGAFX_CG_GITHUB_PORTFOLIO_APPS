@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { wordCount } from '../../netlify/shared/contract'
 import { formatSourcePack } from '../../netlify/shared/sourcepack'
 import {
@@ -158,6 +158,21 @@ describe('buildUserMessage: sources', () => {
     const section = buildUserMessage('draft', TOPIC, 'Blog Post', { sources, research: 'r', outline: 'o' }).split('\n\n## Research')[0] ?? ''
     expect(section.endsWith('\n...[truncated]')).toBe(true)
     expect(section.length).toBeLessThanOrEqual('## Sources\n'.length + 3_600 + '\n...[truncated]'.length)
+  })
+})
+
+describe("buildSystemPrompt: today's date", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('comes from the clock each time the prompt is built, for every stage', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-12T09:30:00Z'))
+    const first = (['research', 'outline', 'draft', 'edit', 'polish'] as const).map(stage => buildSystemPrompt(stage, TOPIC, 'Blog Post', 0))
+    vi.setSystemTime(new Date('2027-01-03T23:59:00Z'))
+    const second = buildSystemPrompt('draft', TOPIC, 'Blog Post', 3)
+    expect(first.every(prompt => prompt.includes("Today's date is 2026-10-12."))).toBe(true)
+    expect(second).toContain("Today's date is 2027-01-03.")
+    expect(second).not.toContain('2026-10-12')
   })
 })
 
