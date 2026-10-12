@@ -16,6 +16,7 @@ function summaryWith(overrides: Partial<RunSummary>): RunSummary {
     modelCheck: 'match',
     mismatchedModel: null,
     totalMs: 1_200,
+    unreportedCalls: 0,
     ...overrides,
   }
 }
@@ -61,5 +62,41 @@ describe('ReadoutStrip served-model chip', () => {
     expect(html).toContain('not reported')
     expect(html).toContain('Named in the provider reply <span class="ds-badge--warning">· not newest</span>')
     expect(html).toContain(`title="${OTHER}, newest: ${NEWEST}"`)
+  })
+})
+
+describe('ReadoutStrip totals', () => {
+  const usage = { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cost: 0.0012 }
+  const html = (summary: RunSummary, status: 'complete' | 'failed' = 'complete') =>
+    renderToStaticMarkup(createElement(ReadoutStrip, { status, steps: [], summary }))
+
+  it('shows the totals as they are when every call reported', () => {
+    const out = html(summaryWith({ usage }))
+    expect(out).toContain('1,200')
+    expect(out).toContain('$0.001200')
+    expect(out).toContain('As the provider reports it')
+    expect(out).not.toContain('at least')
+  })
+
+  it('shows "at least" and how many calls did not report when the total is partial', () => {
+    const out = html(summaryWith({ usage, unreportedCalls: 1 }))
+    expect(out).toContain('at least 1,200')
+    expect(out).toContain('at least $0.001200')
+    expect(out).toContain('1 call not reported')
+    expect(out).not.toContain('As the provider reports it')
+    expect(html(summaryWith({ usage, unreportedCalls: 2 }))).toContain('2 calls not reported')
+  })
+
+  it('keeps the partial wording on a failed run, with the spent-before-failing hint', () => {
+    const out = html(summaryWith({ usage, unreportedCalls: 1 }), 'failed')
+    expect(out).toContain('at least $0.001200')
+    expect(out).toContain('1 call not reported')
+  })
+
+  it('shows not reported, not "at least", when no call reported anything', () => {
+    const out = html(summaryWith({ usage: null, unreportedCalls: 2 }))
+    expect(out).toContain('not reported')
+    expect(out).not.toContain('at least')
+    expect(out).toContain('2 calls not reported')
   })
 })

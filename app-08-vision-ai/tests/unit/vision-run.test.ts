@@ -117,6 +117,7 @@ describe('streamVisionRun happy path', () => {
         newestModel: NEWEST,
         modelCheck: 'match',
         mismatchedModel: null,
+        usageNotReported: 0,
         totalMs: expect.any(Number),
       },
     ])
@@ -169,6 +170,7 @@ describe('streamVisionRun content and token checks', () => {
       newestModel: NEWEST,
       modelCheck: 'mismatch',
       mismatchedModel: 'openai/content-safety-guard',
+      usageNotReported: 1,
       totalMs: expect.any(Number),
     })
   })
@@ -604,6 +606,148 @@ describe('streamVisionRun keep-alive liveness', () => {
       truncated: false,
       totalMs: 25_000,
     })
+  })
+})
+
+describe('streamVisionRun billed usage', () => {
+  const USAGE = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.0002 }
+  const MODEL_NAMED = { model: 'anthropic/claude-haiku-5.5' }
+  const usageOnly = (usage = USAGE) => ({ choices: [], usage })
+  const encoder = new TextEncoder()
+  const stepNamed = (frames: Record<string, unknown>[], name: string, status: string) =>
+    frames.find(frame => frame.stage === 'step' && (frame.step as TraceStep).name === name && (frame.step as TraceStep).status === status)
+      ?.step as TraceStep | undefined
+
+  it('counts a reply cut off by the token limit: totals and the model row carry the billed usage', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'The sign' } }] }, { choices: [{ delta: {}, finish_reason: 'length' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', truncated: true, usage: USAGE, usageNotReported: 0 })
+    expect(stepNamed(frames, 'Model call', 'ok')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('counts a call where thinking used the whole limit and no answer was written', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: '', reasoning: 'Thinking' }, finish_reason: 'length' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 0 })
+    expect(stepNamed(frames, 'Model call', 'ok')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('counts an empty reply', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: {}, finish_reason: 'stop' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 0 })
+    expect(stepNamed(frames, 'Model call', 'ok')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('counts a reply the provider filtered', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'x' }, finish_reason: 'content_filter' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 0 })
+  })
+
+  it('counts a comparison that failed the three-part check', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: '## Similarities\n- a' }, finish_reason: 'stop' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun({ mode: 'compare' })))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 0 })
+    expect(stepNamed(frames, 'Model call', 'ok')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('puts the usage on the failed model row when the provider ends the stream with an error after it reported usage', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'Hi' } }] }, usageOnly(), { error: { message: 'upstream broke' } }]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 0 })
+    expect(stepNamed(frames, 'Model call', 'failed')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('reports a normal run with every call counted', async () => {
+    stubFetch(async () => sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'A sign.' }, finish_reason: 'stop' }] }, usageOnly()]))
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'complete', usage: USAGE, usageNotReported: 0 })
+  })
+
+  it('counts every attempt of a retry: the first try reported usage before it dropped, the second answered', async () => {
+    let calls = 0
+    stubFetch(async () => {
+      if (++calls > 1) return sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'A sign.' }, finish_reason: 'stop' }] }, usageOnly({ ...USAGE, total_tokens: 300, cost: 0.0005 })])
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(usageOnly())}\n\n`))
+        },
+        pull(controller) {
+          controller.error(new TypeError('socket closed'))
+        },
+      })
+      return new Response(body, { status: 200 })
+    })
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({
+      stage: 'complete',
+      usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 450, cost: 0.0007 },
+      usageNotReported: 0,
+    })
+    expect(stepNamed(frames, 'Model call (first try)', 'failed')).toMatchObject({ tokens: 150, cost: 0.0002 })
+  })
+
+  it('marks the total partial when a retried first try never reported: its row says so and the second try is counted', async () => {
+    let calls = 0
+    stubFetch(async () => {
+      if (++calls === 1) throw new TypeError('fetch failed')
+      return sseReply([{ ...MODEL_NAMED, choices: [{ delta: { content: 'Part' }, finish_reason: 'length' }] }, usageOnly()])
+    })
+    const frames = await framesOf(streamVisionRun(makeRun()))
+    expect(frames.at(-1)).toMatchObject({ stage: 'failed', usage: USAGE, usageNotReported: 1 })
+    expect(stepNamed(frames, 'Model call (first try)', 'failed')).toMatchObject({ detail: expect.stringContaining('usage not reported') })
+  })
+
+  it('shows not reported, and a partial count, when nothing ever answers: the one try is unknown', async () => {
+    vi.useFakeTimers()
+    stubFetch(() => new Promise<Response>(() => {}))
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    expect((await done).at(-1)).toMatchObject({ stage: 'failed', usage: null, usageNotReported: 1 })
+  })
+
+  it('counts both tries as not reported when a fast failure is retried and fails again', async () => {
+    stubFetch(async () => {
+      throw new TypeError('fetch failed')
+    })
+    expect((await framesOf(streamVisionRun(makeRun()))).at(-1)).toMatchObject({ stage: 'failed', usage: null, usageNotReported: 2 })
+  })
+
+  it('marks the total partial when the stream is cut at the deadline after some text and before any usage', async () => {
+    vi.useFakeTimers()
+    stubFetch(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Part"}}]}\n\n'))
+            },
+          }),
+          { status: 200 },
+        ),
+    )
+    const done = framesOf(streamVisionRun(makeRun()))
+    await vi.advanceTimersByTimeAsync(UPSTREAM_BUDGET_MS)
+    expect((await done).at(-1)).toMatchObject({ stage: 'failed', truncated: true, usage: null, usageNotReported: 1 })
+  })
+
+  it('marks the total partial when the connection drops mid-answer before the usage chunk', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'))
+      },
+      pull(controller) {
+        controller.error(new TypeError('socket closed'))
+      },
+    })
+    stubFetch(async () => new Response(body, { status: 200 }))
+    expect((await framesOf(streamVisionRun(makeRun()))).at(-1)).toMatchObject({ stage: 'failed', usage: null, usageNotReported: 1 })
+  })
+
+  it('does not call a refused request partial: an HTTP 402 from the provider billed nothing', async () => {
+    stubFetch(async () => new Response('{"error":"no credit"}', { status: 402 }))
+    expect((await framesOf(streamVisionRun(makeRun()))).at(-1)).toMatchObject({ stage: 'failed', usage: null, usageNotReported: 0 })
   })
 })
 

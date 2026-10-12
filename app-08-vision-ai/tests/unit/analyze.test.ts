@@ -75,6 +75,7 @@ describe('analyzeImage with a streamed reply', () => {
           newestModel: 'anthropic/claude-haiku-5.5',
           modelCheck: 'match',
           mismatchedModel: null,
+          usageNotReported: 1,
           totalMs: 1200,
         },
       ]),
@@ -100,6 +101,7 @@ describe('analyzeImage with a streamed reply', () => {
         modelCheck: 'match',
         mismatchedModel: null,
         totalMs: 1200,
+        unreportedCalls: 1,
       },
     })
     expect(texts).toEqual(['A red ', 'sign.'])
@@ -203,6 +205,7 @@ describe('analyzeImage request failures', () => {
         modelCheck: 'not-reported',
         mismatchedModel: null,
         totalMs: expect.any(Number),
+        unreportedCalls: 0,
       },
     })
   })

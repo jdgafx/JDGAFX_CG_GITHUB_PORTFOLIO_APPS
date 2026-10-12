@@ -38,6 +38,8 @@ export interface RunSummary {
   /** The served model of the call that failed the check, when one did. */
   mismatchedModel: string | null
   totalMs: number
+  /** Calls of the run whose usage never arrived. When above 0 the usage is a minimum, not the whole bill. */
+  unreportedCalls: number
 }
 
 const MODEL_CHECKS: readonly ModelCheck[] = ['match', 'mismatch', 'unchecked', 'not-reported']
@@ -108,6 +110,7 @@ function localSummary(trace: Trace): RunSummary {
     modelCheck: 'not-reported',
     mismatchedModel: null,
     totalMs: Date.now() - trace.startedAt,
+    unreportedCalls: 0,
   }
 }
 
@@ -388,6 +391,7 @@ function summaryFrom(frame: Record<string, unknown>, trace: Trace): RunSummary {
     modelCheck: MODEL_CHECKS.find(check => check === frame.modelCheck) ?? 'not-reported',
     mismatchedModel: typeof frame.mismatchedModel === 'string' ? frame.mismatchedModel : null,
     totalMs: typeof frame.totalMs === 'number' ? frame.totalMs : localSummary(trace).totalMs,
+    unreportedCalls: typeof frame.usageNotReported === 'number' ? frame.usageNotReported : 0,
   }
 }
 

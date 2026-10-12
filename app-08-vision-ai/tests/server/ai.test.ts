@@ -125,6 +125,7 @@ describe('POST /api/ai streamed analysis', () => {
       newestModel: 'anthropic/claude-haiku-5.5',
       modelCheck: 'match',
       mismatchedModel: null,
+      usageNotReported: 0,
       totalMs: expect.any(Number),
     })
   })

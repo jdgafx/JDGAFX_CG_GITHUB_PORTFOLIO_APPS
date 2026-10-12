@@ -4,6 +4,7 @@ import {
   newState,
   providerMessage,
   readUsage,
+  totalUsage,
   validate,
   type ReadState,
 } from '../../netlify/shared/upstream'
@@ -156,5 +157,34 @@ describe('providerMessage', () => {
     [400, 'The AI provider could not process this image.'],
   ])('maps HTTP %i to plain words', (status, message) => {
     expect(providerMessage(status)).toBe(message)
+  })
+})
+
+describe('totalUsage', () => {
+  const used = (total: number, cost?: number): Partial<ReadState> => ({
+    usage: { prompt_tokens: total - 10, completion_tokens: 10, total_tokens: total, cost },
+  })
+
+  it('adds every attempt that reported usage and counts none as not reported', () => {
+    expect(totalUsage([stateWith(used(100, 0.001)), stateWith(used(200, 0.002))])).toEqual({
+      usage: { prompt_tokens: 280, completion_tokens: 20, total_tokens: 300, cost: 0.003 },
+      notReported: 0,
+    })
+  })
+
+  it('counts an attempt with no usage as not reported, and keeps the others', () => {
+    expect(totalUsage([stateWith({}), stateWith(used(100, 0.001))])).toEqual({
+      usage: { prompt_tokens: 90, completion_tokens: 10, total_tokens: 100, cost: 0.001 },
+      notReported: 1,
+    })
+  })
+
+  it('has no usage when none was reported, and skips a refused request because it billed nothing', () => {
+    expect(totalUsage([stateWith({}), stateWith({ refused: true })])).toEqual({ usage: null, notReported: 1 })
+    expect(totalUsage([stateWith({ refused: true })])).toEqual({ usage: null, notReported: 0 })
+  })
+
+  it('leaves the cost out when no attempt reported one', () => {
+    expect(totalUsage([stateWith(used(100))]).usage).toEqual({ prompt_tokens: 90, completion_tokens: 10, total_tokens: 100 })
   })
 })

@@ -11,6 +11,7 @@ import {
   absorb,
   newState,
   providerMessage,
+  totalUsage,
   validate,
   type Emit,
   type ReadState,
@@ -51,6 +52,7 @@ export const UPSTREAM_BUDGET_MS = 25_000
 export const FIRST_TEXT_LIMIT_MS = 12_000
 export const RETRY_MIN_LEFT_MS = 16_000
 const MODEL_STEP = 'Model call'
+const FIRST_TRY_STEP = 'Model call (first try)'
 const VALIDATE_STEP = 'Parse and validate'
 const EMPTY_MESSAGE = 'The AI provider returned an empty response. Try again in a moment.'
 const UNEXPECTED_MESSAGE = 'The analysis stopped unexpectedly. Please retry with the same image.'
@@ -66,7 +68,7 @@ export function streamVisionRun(run: VisionRun): Response {
   let upstreamAbort = new AbortController()
   const deadline = run.startedAt + UPSTREAM_BUDGET_MS
   const trace: TraceStep[] = []
-  // Every provider answer of this run, retry included. A call that never got an answer has nothing to check.
+  // Every attempt of this run, retry included. A try that never got an answer has nothing to check, but its usage still counts as not reported.
   const calls: ReadState[] = []
   // One list read per run, started before the first model call and awaited only when the run ends.
   const newestP = (run.newest ?? newestModel)()
@@ -90,10 +92,12 @@ export function streamVisionRun(run: VisionRun): Response {
         for (const call of checked) {
           if (call.check === 'mismatch') console.warn(`model mismatch: served ${call.served}, newest ${newest}, requested ${MODEL}`)
         }
+        const billed = totalUsage(calls)
         emit({
           ...frame,
           trace,
-          usage: state?.usage ?? null,
+          usage: billed.usage,
+          usageNotReported: billed.notReported,
           servedModel: state?.served ?? null,
           newestModel: newest,
           modelCheck: checked.length === 0 ? 'not-reported' : worstCheck(checked.map(call => call.check)),
@@ -106,8 +110,9 @@ export function streamVisionRun(run: VisionRun): Response {
       // every other ending has already been written to the trace and the terminal frame.
       const attempt = async (callStart: number, retried: boolean): Promise<'hang' | 'finished'> => {
         const state = newState()
+        calls.push(state)
         const fail = async (stepDetail: string, message: string, truncated: boolean): Promise<'finished'> => {
-          finish({ name: MODEL_STEP, status: 'failed', ms: Date.now() - callStart, detail: stepDetail })
+          finish({ name: MODEL_STEP, status: 'failed', ms: Date.now() - callStart, detail: stepDetail, tokens: state.usage?.total_tokens, cost: state.usage?.cost })
           finish({ name: VALIDATE_STEP, status: 'skipped', detail: 'Skipped because the model call did not finish' })
           await conclude({ stage: 'failed', error: message, truncated }, state)
           return 'finished'
@@ -165,9 +170,9 @@ export function streamVisionRun(run: VisionRun): Response {
             return hangOrFail('Could not reach the AI provider', UNREACHABLE_MESSAGE)
           }
 
-          calls.push(state)
           if (!upstream.ok || !upstream.body) {
             void upstream.body?.cancel().catch(() => undefined)
+            if (!upstream.ok) state.refused = true
             const message = upstream.ok ? EMPTY_MESSAGE : providerMessage(upstream.status)
             console.error('AI provider returned HTTP', upstream.status)
             return fail(message, message, false)
@@ -227,6 +232,16 @@ export function streamVisionRun(run: VisionRun): Response {
         emit({ stage: 'step', step: { name: MODEL_STEP, status: 'running', detail: 'Request sent to the vision model' } })
         if ((await attempt(callStart, false)) !== 'hang') return
         console.error('Upstream gave no answer; retrying once')
+        // The first try keeps its own row, with whatever usage it reported, so a retry never hides what it cost.
+        const first = calls[0]
+        finish({
+          name: FIRST_TRY_STEP,
+          status: 'failed',
+          ms: Date.now() - callStart,
+          detail: `The first try got no answer; usage ${first?.usage ? 'as reported' : 'not reported'}`,
+          tokens: first?.usage?.total_tokens,
+          cost: first?.usage?.cost,
+        })
         emit({
           stage: 'step',
           step: { name: MODEL_STEP, status: 'running', detail: 'The first try got no answer. Retried once' },

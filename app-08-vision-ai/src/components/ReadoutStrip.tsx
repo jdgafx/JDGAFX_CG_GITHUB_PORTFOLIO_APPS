@@ -90,8 +90,12 @@ export default function ReadoutStrip({ status, steps, summary }: ReadoutStripPro
   const tone = running ? ' ds-strip--live' : summary ? '' : ' ds-strip--pending'
   const spent = cut ? (status === 'failed' ? 'Before it failed' : 'Before it stopped') : ''
   const usage = summary?.usage
-  const tokens = summary ? formatCount(usage?.total_tokens) : NONE
-  const cost = summary ? formatUsd(usage?.cost) : NONE
+  // When a call of the run never reported, what is shown is a minimum, and it says so.
+  const missing = summary?.unreportedCalls ?? 0
+  const atLeast = (shown: string) => (missing > 0 && shown !== NOT_REPORTED ? `at least ${shown}` : shown)
+  const missingHint = missing > 0 ? `${missing} ${missing === 1 ? 'call' : 'calls'} not reported` : ''
+  const tokens = summary ? atLeast(formatCount(usage?.total_tokens)) : NONE
+  const cost = summary ? atLeast(formatUsd(usage?.cost)) : NONE
 
   return (
     <section className="ds-section ds-run__readout" aria-label="Run totals">
@@ -99,10 +103,10 @@ export default function ReadoutStrip({ status, steps, summary }: ReadoutStripPro
         <Cell label="Time" hint={running ? 'Running now' : spent || 'Start to answer'}>
           {running ? <LiveClock /> : summary ? formatMs(summary.totalMs) : NONE}
         </Cell>
-        <Cell label="Tokens" hint={spent || (usage ? `${formatCount(usage.prompt_tokens)} in, ${formatCount(usage.completion_tokens)} out` : 'Prompt plus answer')} small={tokens === NOT_REPORTED}>
+        <Cell label="Tokens" hint={missingHint || spent || (usage ? `${formatCount(usage.prompt_tokens)} in, ${formatCount(usage.completion_tokens)} out` : 'Prompt plus answer')} small={tokens === NOT_REPORTED}>
           {tokens}
         </Cell>
-        <Cell label="Cost (USD)" hint={spent || 'As the provider reports it'} small={cost === NOT_REPORTED}>
+        <Cell label="Cost (USD)" hint={missingHint || spent || 'As the provider reports it'} small={cost === NOT_REPORTED}>
           {cost}
         </Cell>
         {running ? (

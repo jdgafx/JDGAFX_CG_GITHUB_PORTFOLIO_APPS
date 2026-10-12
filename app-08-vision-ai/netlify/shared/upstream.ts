@@ -20,12 +20,42 @@ export interface ReadState {
   usage: Usage | null
   moderated: boolean
   providerError: boolean
+  /** The provider answered with an HTTP error status: the request was refused, so nothing was billed. */
+  refused: boolean
 }
 
 interface Problem {
   detail: string
   message: string
   truncated: boolean
+}
+
+export interface UsageTotal {
+  usage: Usage | null
+  /** Attempts whose usage never arrived (no answer, a stream cut before its usage chunk). The total is then a minimum. */
+  notReported: number
+}
+
+/** The billed usage of every attempt of a run, retries included. A refused request billed nothing and is not counted as missing. */
+export function totalUsage(states: ReadState[]): UsageTotal {
+  let usage: Usage | null = null
+  let notReported = 0
+  const add = (a: number | undefined, b: number | undefined) => (a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0))
+  for (const state of states) {
+    if (!state.usage) {
+      if (!state.refused) notReported += 1
+      continue
+    }
+    const sum = (key: keyof Usage) => add(usage?.[key], state.usage?.[key])
+    const cost = sum('cost')
+    usage = {
+      prompt_tokens: sum('prompt_tokens'),
+      completion_tokens: sum('completion_tokens'),
+      total_tokens: sum('total_tokens'),
+      ...(cost === undefined ? {} : { cost: Math.round(cost * 1e9) / 1e9 }),
+    }
+  }
+  return { usage, notReported }
 }
 
 export type Emit = (frame: Record<string, unknown>) => void
@@ -47,7 +77,7 @@ const RATE_LIMIT_MESSAGE = 'Rate limited, try again in a minute.'
 const REFUSED_IMAGE_MESSAGE = 'The AI provider could not process this image.'
 
 export function newState(): ReadState {
-  return { text: '', chunks: 0, reasoningChunks: 0, finishReason: null, served: null, usage: null, moderated: false, providerError: false }
+  return { text: '', chunks: 0, reasoningChunks: 0, finishReason: null, served: null, usage: null, moderated: false, providerError: false, refused: false }
 }
 
 // Absorbs one line of the stream. Text deltas are emitted as they arrive; the moderation
