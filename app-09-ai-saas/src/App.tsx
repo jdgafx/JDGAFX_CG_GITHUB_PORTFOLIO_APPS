@@ -28,7 +28,8 @@ export default function App({ deps }: { deps?: Partial<RunDeps> }) {
   const snap = run.snapshot
   const targets = snap ? snap.names.filter(n => Object.hasOwn(snap.rowsByName, n)) : []
   const packages = targets.map(name => ({ name, outcome: run.outcomes[name] ?? ({ status: 'pending' } as const) }))
-  const allFailed = run.phase === 'done' && packages.length > 0 && packages.every(p => p.outcome.status === 'error')
+  // No explanation could be asked for (no window: npm blocked, no recent days) is a failed run as much as every call failing.
+  const allFailed = run.phase === 'done' && (snap?.window == null || (packages.length > 0 && packages.every(p => p.outcome.status === 'error')))
   const phase = run.phase === 'idle' ? 'idle' : run.phase === 'running' ? 'running' : allFailed ? 'failed' : 'done'
 
   // When a run ends, focus moves to the explanation heading.
@@ -58,7 +59,8 @@ export default function App({ deps }: { deps?: Partial<RunDeps> }) {
             onExplain={r.explain}
           />
           <div className="ds-run">
-            {run.phase !== 'idle' && snap && (
+            {run.phase !== 'idle' && snap && (snap.window || view === null) && (
+              // With no window the same notices already show below, from the view: the run's copy only stands in until it exists.
               <div className="ds-run__result ds-stack">
                 {snap.window ? (
                   <>

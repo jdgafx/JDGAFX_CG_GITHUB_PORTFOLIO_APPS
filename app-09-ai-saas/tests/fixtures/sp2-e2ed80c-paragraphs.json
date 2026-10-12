@@ -1,0 +1,3554 @@
+[
+ {
+  "run": "r1-1",
+  "target": "react",
+  "names": [
+   "react",
+   "vite",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "react's downloads for the past year total "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "5785166702"
+   },
+   {
+    "t": "text",
+    "s": ", with its busiest day on "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " reaching "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "38105740"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Over the past month, downloads rose "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "react",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": " against the month before. "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "38105740"
+   },
+   {
+    "t": "text",
+    "s": ""
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "2026-02-22"
+   },
+   {
+    "t": "text",
+    "s": " was an unusual spike, with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "react",
+    "span": "window",
+    "day": "2026-02-22",
+    "value": "9818293"
+   },
+   {
+    "t": "text",
+    "s": " downloads well above its usual weekday level. The data does not show a release cause for it. Days marked as npm gaps are missing data, not drops, and are not described as unusual."
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "react",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   }
+  ]
+ },
+ {
+  "run": "r1-1",
+  "target": "@anthropic-ai/sdk",
+  "names": [
+   "@anthropic-ai/sdk",
+   "react",
+   "vite",
+   "zod"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Across the past year, @anthropic-ai/sdk logged "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "861769643"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth over the past month rose, with a change of "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "@anthropic-ai/sdk",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day in the window was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "9780976"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Days with missing npm data are not drops. A sharp spike appeared on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-04-14"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "2026-04-14",
+    "value": "2952408"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and a release landed that same day. "
+   },
+   {
+    "t": "compare",
+    "package": "@anthropic-ai/sdk",
+    "peer": "zod",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r1-1",
+  "target": "zod",
+  "names": [
+   "zod",
+   "react",
+   "vite",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "zod had downloads totalling "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "8040771064"
+   },
+   {
+    "t": "text",
+    "s": " over the past year. Its busiest day in that window was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "67807579"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose over the past month, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "zod",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". On "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "2026-01-01"
+   },
+   {
+    "t": "text",
+    "s": " downloads fell to "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "zod",
+    "span": "window",
+    "day": "2026-01-01",
+    "value": "4640109"
+   },
+   {
+    "t": "text",
+    "s": ", a drop that may follow a release landed shortly before that day. Days with no npm data are gaps, not drops. "
+   },
+   {
+    "t": "compare",
+    "package": "zod",
+    "peer": "react",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r1-1",
+  "target": "vite",
+  "names": [
+   "vite",
+   "react",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Vite's downloads for the past year total "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "5270117263"
+   },
+   {
+    "t": "text",
+    "s": ". The highest day in the past year was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Over the past month, vite's downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". On "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-02-21"
+   },
+   {
+    "t": "text",
+    "s": " vite had "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "vite",
+    "span": "window",
+    "day": "2026-02-21",
+    "value": "6458089"
+   },
+   {
+    "t": "text",
+    "s": " downloads, well above its usual level for that weekday. The data does not show a release as the cause. Some days have no data because of npm gaps, and these are not counted as drops. "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "react",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "zod",
+    "metric": "last30_total"
+   }
+  ]
+ },
+ {
+  "run": "r1-2",
+  "target": "react",
+  "names": [
+   "react",
+   "vite",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "react's total downloads for the past year were "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "5785166702"
+   },
+   {
+    "t": "text",
+    "s": ". Over the past month, react's downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "react",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day in the past year was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "react",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "38105740"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The unusual spike on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "react",
+    "span": "window",
+    "day": "2026-02-22",
+    "value": "2026-02-22"
+   },
+   {
+    "t": "text",
+    "s": " had "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "react",
+    "span": "window",
+    "day": "2026-02-22",
+    "value": "9818293"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The data does not show a cause for this spike. "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "react",
+    "span": "window",
+    "day": "2026-02-22",
+    "value": "2026-02-22"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "react",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". Days marked as npm gaps are missing data, not drops."
+   }
+  ]
+ },
+ {
+  "run": "r1-2",
+  "target": "vite",
+  "names": [
+   "vite",
+   "react",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past year, vite's total downloads were "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "5270117263"
+   },
+   {
+    "t": "text",
+    "s": ". Downloads rose over the past month compared with the month before, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day in the past year was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. A spike on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-02-21"
+   },
+   {
+    "t": "text",
+    "s": " reached "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "vite",
+    "span": "window",
+    "day": "2026-02-21",
+    "value": "6458089"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and no release came within 2 days, so the data does not show a cause. "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "react",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " Days with no npm data are gaps, not drops."
+   }
+  ]
+ },
+ {
+  "run": "r1-2",
+  "target": "@anthropic-ai/sdk",
+  "names": [
+   "@anthropic-ai/sdk",
+   "react",
+   "vite",
+   "zod"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "@anthropic-ai/sdk had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "861769643"
+   },
+   {
+    "t": "text",
+    "s": " downloads over the past year. Growth over the past month rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "@anthropic-ai/sdk",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": " against the month before. A few days in the past month had npm data gaps, which are not drops. The busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "9780976"
+   },
+   {
+    "t": "text",
+    "s": " downloads. "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "9780976"
+   },
+   {
+    "t": "text",
+    "s": ""
+   },
+   {
+    "t": "compare",
+    "package": "@anthropic-ai/sdk",
+    "peer": "zod",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " The unusual spike on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-04-14"
+   },
+   {
+    "t": "text",
+    "s": " reached "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "2026-04-14",
+    "value": "2952408"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and a release on the same day may explain it. The unusual drops around the turn of the year had no release within 2 days, so the data does not show a cause."
+   }
+  ]
+ },
+ {
+  "run": "r1-2",
+  "target": "zod",
+  "names": [
+   "zod",
+   "react",
+   "vite",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "In the past year zod had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "8040771064"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "zod",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ". Downloads rose over the past month compared with the month before, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "zod",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "zod",
+    "span": "none",
+    "day": "2026-03-26",
+    "value": "2026-03-26"
+   },
+   {
+    "t": "text",
+    "s": " downloads reached "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "zod",
+    "span": "none",
+    "day": "2026-03-26",
+    "value": "29696229"
+   },
+   {
+    "t": "text",
+    "s": ", well above the usual level for that weekday; the data does not show a release as the cause. "
+   },
+   {
+    "t": "text",
+    "s": "On "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "zod",
+    "span": "none",
+    "day": "2026-01-01",
+    "value": "2026-01-01"
+   },
+   {
+    "t": "text",
+    "s": " downloads fell to "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "zod",
+    "span": "none",
+    "day": "2026-01-01",
+    "value": "4640109"
+   },
+   {
+    "t": "text",
+    "s": ", well below the usual level for that weekday, and a zod release came the day before. Days with no npm data are missing data, not drops."
+   }
+  ]
+ },
+ {
+  "run": "r1-3",
+  "target": "react",
+  "names": [
+   "react",
+   "vite",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past year react was downloaded "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "5785166702"
+   },
+   {
+    "t": "text",
+    "s": " times. "
+   },
+   {
+    "t": "compare",
+    "package": "react",
+    "peer": "zod",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". Over the past month, downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "react",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The peak day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "react",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "react",
+    "span": "window",
+    "day": "",
+    "value": "38105740"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Several past-month days have no npm data and are not counted as drops. On "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "react",
+    "span": "window",
+    "day": "2025-12-07",
+    "value": "2025-12-07"
+   },
+   {
+    "t": "text",
+    "s": ", downloads were "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "react",
+    "span": "window",
+    "day": "2025-12-07",
+    "value": "5631112"
+   },
+   {
+    "t": "text",
+    "s": " in a spike; the data does not show a release behind it. "
+   },
+   {
+    "t": "compare",
+    "package": "react",
+    "peer": "vite",
+    "metric": "last30_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "r1-3",
+  "target": "@anthropic-ai/sdk",
+  "names": [
+   "@anthropic-ai/sdk",
+   "react",
+   "vite",
+   "zod"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past year, @anthropic-ai/sdk had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "861769643"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and in the past month it had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "@anthropic-ai/sdk",
+    "span": "last30",
+    "day": "",
+    "value": "190081229"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose over the past month, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "@anthropic-ai/sdk",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "9780976"
+   },
+   {
+    "t": "text",
+    "s": " downloads. One unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "",
+    "value": "2026-04-14"
+   },
+   {
+    "t": "text",
+    "s": ", a spike with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "@anthropic-ai/sdk",
+    "span": "window",
+    "day": "2026-04-14",
+    "value": "2952408"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and a release came out that same day, so it may explain the spike. Several days had no npm data at all; those are gaps, not drops. "
+   },
+   {
+    "t": "compare",
+    "package": "@anthropic-ai/sdk",
+    "peer": "zod",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r1-3",
+  "target": "zod",
+  "names": [
+   "zod",
+   "react",
+   "vite",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past year zod had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "8040771064"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Over the past month downloads rose, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "zod",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its peak day in the past year was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "67807579"
+   },
+   {
+    "t": "text",
+    "s": " downloads. One unusual drop fell on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "zod",
+    "span": "window",
+    "day": "",
+    "value": "2026-01-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "zod",
+    "span": "window",
+    "day": "2026-01-01",
+    "value": "4640109"
+   },
+   {
+    "t": "text",
+    "s": " downloads against the usual level for that weekday. A release came just before it, so it may explain the drop. Days with no npm data are gaps, not drops, and the possible gap in early June is not a drop either. "
+   },
+   {
+    "t": "compare",
+    "package": "react",
+    "peer": "zod",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   }
+  ]
+ },
+ {
+  "run": "r1-3",
+  "target": "vite",
+  "names": [
+   "vite",
+   "react",
+   "zod",
+   "@anthropic-ai/sdk"
+  ],
+  "days": 365,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Vite's downloads for the past year came to "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "5270117263"
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose over the past month compared with the month before, and the growth figure is "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Unusual activity stood out on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "vite",
+    "span": "window",
+    "day": "2026-02-21",
+    "value": "2026-02-21"
+   },
+   {
+    "t": "text",
+    "s": ", a spike with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "vite",
+    "span": "window",
+    "day": "2026-02-21",
+    "value": "6458089"
+   },
+   {
+    "t": "text",
+    "s": " downloads and no release near that day, so the data does not show a cause. Days with no npm data are gaps in the record, not real drops, and they are not counted as unusual. "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "react",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r2-1r",
+  "target": "esbuild",
+  "names": [
+   "esbuild",
+   "vite",
+   "webpack"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "esbuild's downloads rose over the last 30 days, "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "esbuild",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The total for the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "1293758671"
+   },
+   {
+    "t": "text",
+    "s": ". The peak day in the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "61925741"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Two days in the window had no npm data and are not drops. No day in the window was flagged as unusual. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "1293758671"
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "webpack",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r2-1r",
+  "target": "vite",
+  "names": [
+   "vite",
+   "webpack",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month, vite had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "837275395"
+   },
+   {
+    "t": "text",
+    "s": " downloads in total. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Vite's downloads rose over the last 30 days, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". No unusual days were found in the window. Some days have no npm data and are not counted as drops. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "837275395"
+   },
+   {
+    "t": "text",
+    "s": " "
+   }
+  ]
+ },
+ {
+  "run": "r2-1r",
+  "target": "webpack",
+  "names": [
+   "webpack",
+   "vite",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "In the past month, webpack had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " downloads in total. Its highest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "12326693"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth for the past month for the last 30 days rose, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "webpack",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-20"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "2026-09-20",
+    "value": "6207792"
+   },
+   {
+    "t": "text",
+    "s": " downloads, an unusually high figure. A release was published shortly before that day, so it may explain the spike. Days with missing npm data are gaps, not drops, and are not counted as unusual. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "none",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "esbuild",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r2-2",
+  "target": "vite",
+  "names": [
+   "vite",
+   "webpack",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Vite's downloads over the past month totalled "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "837275395"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. No unusual days were found in the window. Growth for the last 30 days, set against the month before, rose "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The no-data days in the window are gaps in npm's records, not drops, so they are not treated as unusual. Against the peers over the past month: "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "webpack",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "esbuild",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "r2-2",
+  "target": "esbuild",
+  "names": [
+   "esbuild",
+   "vite",
+   "webpack"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "esbuild's downloads for the past month total "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "1293758671"
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day in the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "61925741"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Over the past month, downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "esbuild",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". No unusual days were flagged in the past month. A few days have no npm data because of gaps, so they are not drops and are not counted as unusual. "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "webpack",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   }
+  ]
+ },
+ {
+  "run": "r2-2",
+  "target": "webpack",
+  "names": [
+   "webpack",
+   "vite",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "webpack had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " downloads over the past month, and growth over the past month rose: "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "webpack",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its peak day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "12326693"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-20"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "2026-09-20",
+    "value": "6207792"
+   },
+   {
+    "t": "text",
+    "s": " downloads, a spike well above its usual level. A release landed before that day, so it may explain the spike. Days with missing npm data are gaps, not drops, and are not counted as unusual. "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "webpack",
+    "span": "none",
+    "day": "",
+    "value": "1"
+   },
+   {
+    "t": "text",
+    "s": ""
+   }
+  ]
+ },
+ {
+  "run": "r2-3",
+  "target": "vite",
+  "names": [
+   "vite",
+   "webpack",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Vite's downloads over the past month totalled "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "837275395"
+   },
+   {
+    "t": "text",
+    "s": ". Its peak day in the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Against the month before, vite's downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ", measured over the past month for the last 30 days. Some days in the past month had no npm data, which are gaps rather than real drops, and no unusual days were found. "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "webpack",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "esbuild",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "r2-3",
+  "target": "esbuild",
+  "names": [
+   "esbuild",
+   "vite",
+   "webpack"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "esbuild's downloads for the past month total "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "1293758671"
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "esbuild",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "61925741"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose across the past month, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "esbuild",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". No unusual days stood out in the window. Some days show no npm data, which is a gap in the records rather than a drop in downloads. "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "webpack",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "r2-3",
+  "target": "webpack",
+  "names": [
+   "webpack",
+   "vite",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month webpack had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " downloads in total, with a peak of "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "12326693"
+   },
+   {
+    "t": "text",
+    "s": " on "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ". Over the last 30 days downloads rose compared with the month before, at "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "webpack",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The one unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-20"
+   },
+   {
+    "t": "text",
+    "s": ", a spike to "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "webpack",
+    "span": "none",
+    "day": "2026-09-20",
+    "value": "6207792"
+   },
+   {
+    "t": "text",
+    "s": " downloads. A release came shortly before that day and may have contributed. Some days have no npm data; those are gaps, not drops. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "esbuild",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "target": "prisma",
+  "names": [
+   "prisma",
+   "drizzle-orm",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Prisma's total for the past month is "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "79492618"
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day in the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "3906850"
+   },
+   {
+    "t": "text",
+    "s": " downloads. No unusual days were flagged. Days with npm data gaps are excluded and are not drops. Growth over the past month rose: "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "prisma",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "typeorm",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "target": "typeorm",
+  "names": [
+   "typeorm",
+   "prisma",
+   "drizzle-orm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month typeorm had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "23200365"
+   },
+   {
+    "t": "text",
+    "s": " downloads in total, and downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "typeorm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": " across the period. The highest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "1248656"
+   },
+   {
+    "t": "text",
+    "s": " downloads. A spike stands out on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-26"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "2026-09-26",
+    "value": "438449"
+   },
+   {
+    "t": "text",
+    "s": " downloads, well above the usual level for that weekday. The release data does not show a cause for it. Some days in the past month have no npm data, so they are gaps rather than drops. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "1"
+   },
+   {
+    "t": "text",
+    "s": ""
+   }
+  ]
+ },
+ {
+  "run": "r3-1",
+  "target": "drizzle-orm",
+  "names": [
+   "drizzle-orm",
+   "prisma",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month, drizzle-orm's downloads totalled "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "5533018"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth over the last 30 days rose, at "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "drizzle-orm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Downloads on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " ran unusually high at "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "5174124"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and the data does not show a release behind it. Some days in the window are missing npm data and are not counted as drops. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " "
+   }
+  ]
+ },
+ {
+  "run": "r3-2",
+  "target": "prisma",
+  "names": [
+   "prisma",
+   "drizzle-orm",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month prisma recorded "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "79492618"
+   },
+   {
+    "t": "text",
+    "s": " downloads, and its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "3906850"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Comparing the last 30 days with the month before, prisma's downloads rose "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "prisma",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". No day in the window was flagged as unusual. Two days had no npm data, so they are gaps rather than drops. "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "typeorm",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r3-2",
+  "target": "typeorm",
+  "names": [
+   "typeorm",
+   "prisma",
+   "drizzle-orm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Over the past month, typeorm recorded a total of "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "23200365"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth against the month before rose, at "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "typeorm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The peak day in the past month was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "1248656"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The unusual spike was on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-26"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "2026-09-26",
+    "value": "438449"
+   },
+   {
+    "t": "text",
+    "s": " downloads. No release fell within 2 days of that day, so the data does not show a cause. "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "typeorm",
+    "span": "none",
+    "day": "2026-09-26",
+    "value": "0"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "prisma",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". Days with no npm data are gaps, not drops, so they are not treated as unusual."
+   }
+  ]
+ },
+ {
+  "run": "r3-2",
+  "target": "drizzle-orm",
+  "names": [
+   "drizzle-orm",
+   "prisma",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Drizzle-orm had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " downloads over the past month. Its peak day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "5533018"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth over the past month rose, at "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "drizzle-orm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Some days had missing npm data, which is not a drop. The unusual spike on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " had "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "5174124"
+   },
+   {
+    "t": "text",
+    "s": " downloads. No release is recorded near that day, so the data does not show a cause. "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "drizzle-orm",
+    "span": "none",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "drizzle-orm",
+    "peer": "prisma",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "drizzle-orm",
+    "peer": "typeorm",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "r3-3",
+  "target": "drizzle-orm",
+  "names": [
+   "drizzle-orm",
+   "prisma",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Drizzle-orm had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " downloads in the past month. Over the last 30 days, downloads rose "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "drizzle-orm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The highest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "5533018"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Spikes ran through the past month, including "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "5174124"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The data does not show a release as the cause of these unusual days. Days with missing npm data are not drops and are left out. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " "
+   }
+  ]
+ },
+ {
+  "run": "r3-3",
+  "target": "prisma",
+  "names": [
+   "prisma",
+   "drizzle-orm",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "In the past month, prisma logged "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "79492618"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "prisma",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "3906850"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Some days in the window have no npm data; those are gaps, not drops, and no day stands out as unusual. Growth compares the past month for the last 30 days with the month before, and prisma's growth rose "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "prisma",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "typeorm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "r3-3",
+  "target": "typeorm",
+  "names": [
+   "typeorm",
+   "prisma",
+   "drizzle-orm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "In the past month, typeorm had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "23200365"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "1248656"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Across the last 30 days compared with the month before, downloads rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "typeorm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Some days in the window have missing npm data, which is not a drop. One day stood out as unusual: "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-26"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "2026-09-26",
+    "value": "438449"
+   },
+   {
+    "t": "text",
+    "s": " downloads. The data does not show a release that explains it. "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "prisma",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "item7-double",
+  "target": "vite",
+  "names": [
+   "vite",
+   "webpack",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Vite's downloads for the past month totalled "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "837275395"
+   },
+   {
+    "t": "text",
+    "s": ". Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "vite",
+    "span": "window",
+    "day": "",
+    "value": "39379494"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth across the past month for the last 30 days rose: "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "vite",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". No unusual days were found in the past month. Some days have no npm data, which is a gap in the records rather than a drop. "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "webpack",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "vite",
+    "peer": "esbuild",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "item7-double",
+  "target": "esbuild",
+  "names": [
+   "esbuild",
+   "vite",
+   "webpack"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "In the past month esbuild had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "1293758671"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Its busiest day in that period was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "esbuild",
+    "span": "window",
+    "day": "",
+    "value": "61925741"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose over the last 30 days, by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "esbuild",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Some days in the past month have no npm data, which is a gap in the records rather than a fall in downloads. No unusual days were found. "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "esbuild",
+    "peer": "webpack",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "item7-double",
+  "target": "webpack",
+  "names": [
+   "webpack",
+   "vite",
+   "esbuild"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "webpack had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "249306528"
+   },
+   {
+    "t": "text",
+    "s": " downloads over the past month, with its peak on "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "2026-10-08",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " at "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "",
+    "value": "12326693"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Downloads rose against the month before: "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "webpack",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". The unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "webpack",
+    "span": "window",
+    "day": "2026-09-20",
+    "value": "2026-09-20"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "webpack",
+    "span": "window",
+    "day": "2026-09-20",
+    "value": "6207792"
+   },
+   {
+    "t": "text",
+    "s": " downloads, a spike. A release came out earlier in the window, so it may be a possible cause. Some days in the window are missing npm data and are not drops. "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "vite",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "webpack",
+    "peer": "esbuild",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "item8-390-dark-run",
+  "target": "prisma",
+  "names": [
+   "prisma",
+   "drizzle-orm",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "Prisma had "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "79492618"
+   },
+   {
+    "t": "text",
+    "s": " downloads over the past month. Its busiest day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "prisma",
+    "span": "window",
+    "day": "",
+    "value": "3906850"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Growth over the last 30 days against the 30 days before that is shown as "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "prisma",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ", and downloads rose. No day in the past month was unusual. Days with no npm data are gaps, not drops, so they are not counted as unusual. "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "prisma",
+    "span": "none",
+    "day": "",
+    "value": "1"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "prisma",
+    "peer": "typeorm",
+    "metric": "window_total"
+   }
+  ]
+ },
+ {
+  "run": "item8-390-dark-run",
+  "target": "typeorm",
+  "names": [
+   "typeorm",
+   "prisma",
+   "drizzle-orm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "typeorm's downloads over the past month totalled "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "23200365"
+   },
+   {
+    "t": "text",
+    "s": ". Growth over the past month rose, at "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "typeorm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Its peak day was "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "1248656"
+   },
+   {
+    "t": "text",
+    "s": " downloads. Some days in the past month are missing npm data rather than real drops, so they are not treated as unusual. One unusual day was "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "2026-09-26"
+   },
+   {
+    "t": "text",
+    "s": " with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "typeorm",
+    "span": "window",
+    "day": "2026-09-26",
+    "value": "438449"
+   },
+   {
+    "t": "text",
+    "s": " downloads, a spike well above the usual level for that weekday. No release landed shortly before it, so the data does not show a cause. "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "typeorm",
+    "span": "window",
+    "day": "",
+    "value": "23200365"
+   },
+   {
+    "t": "text",
+    "s": " "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "prisma",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": ". "
+   },
+   {
+    "t": "compare",
+    "package": "typeorm",
+    "peer": "drizzle-orm",
+    "metric": "window_total"
+   },
+   {
+    "t": "text",
+    "s": "."
+   }
+  ]
+ },
+ {
+  "run": "item8-390-dark-run",
+  "target": "drizzle-orm",
+  "names": [
+   "drizzle-orm",
+   "prisma",
+   "typeorm"
+  ],
+  "days": 30,
+  "paragraph": [
+   {
+    "t": "text",
+    "s": "drizzle-orm had downloads over the past month totalling "
+   },
+   {
+    "t": "claim",
+    "kind": "window_total",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "111985314"
+   },
+   {
+    "t": "text",
+    "s": " and peaked at "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "5533018"
+   },
+   {
+    "t": "text",
+    "s": " on "
+   },
+   {
+    "t": "claim",
+    "kind": "peak_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-08"
+   },
+   {
+    "t": "text",
+    "s": ". Growth over the past month rose by "
+   },
+   {
+    "t": "claim",
+    "kind": "change_pct",
+    "package": "drizzle-orm",
+    "span": "last30",
+    "day": "",
+    "value": ""
+   },
+   {
+    "t": "text",
+    "s": ". Days with missing npm data are gaps, not real drops, so they are not called unusual. The unusual spike was on "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": ", with "
+   },
+   {
+    "t": "claim",
+    "kind": "day_value",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "2026-10-01",
+    "value": "5174124"
+   },
+   {
+    "t": "text",
+    "s": " downloads. No release within 2 days is recorded, so the data does not show a cause for it. "
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   },
+   {
+    "t": "text",
+    "s": " is the only spike cited here."
+   },
+   {
+    "t": "claim",
+    "kind": "unusual_day",
+    "package": "drizzle-orm",
+    "span": "window",
+    "day": "",
+    "value": "2026-10-01"
+   }
+  ]
+ }
+]

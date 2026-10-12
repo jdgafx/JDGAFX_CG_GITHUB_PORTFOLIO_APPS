@@ -52,6 +52,8 @@ export function labelFor(seg: Segment, ctx: LabelContext): string {
   switch (seg.kind) {
     case 'window_total':
       return `${who} · total${seg.span === 'last30' ? ', past month' : seg.span === 'window' ? `, ${periodWords(ctx.window)}` : ''}`
+    case 'window_days':
+      return `${who} · days in ${seg.span === 'last30' ? 'the past month' : ctx.window.name}`
     case 'peak_value':
       return `${who} · downloads on busiest day`
     case 'peak_day':
@@ -71,17 +73,25 @@ export function labelFor(seg: Segment, ctx: LabelContext): string {
 
 /**
  * What to render between two neighbouring segments when the model left nothing: a compare is a whole clause written by
- * code with no closing stop, so it is set apart from what touches it. Never touches a text segment's own bytes.
+ * code with no closing stop, so it is closed after and set apart before. Never touches a text segment's own bytes.
  */
 export function separatorBetween(a: Judged, b: Judged): string {
-  if (a.seg.t !== 'compare' && b.seg.t !== 'compare') return ''
-  // A claim's visible end is its label, and a compare's is its last word: neither is a space.
+  if (a.seg.t === 'compare') {
+    // The clause needs its stop unless the next text brings one; text that starts with a space already supplies the space.
+    if (b.seg.t !== 'text') return '. '
+    const start = b.seg.s.slice(0, 1)
+    if (/[.,;:!?)]/.test(start)) return ''
+    return start !== '' && /\s/.test(start) ? '.' : '. '
+  }
+  if (b.seg.t !== 'compare') return ''
+  // A claim's visible end is its label: neither is a space.
   const end = a.seg.t === 'text' ? a.seg.s.slice(-1) : 'x'
-  const start = b.seg.t === 'text' ? b.seg.s.slice(0, 1) : 'x'
-  if (end === '' || start === '' || /\s/.test(end) || /\s/.test(start) || /[.,;:!?)]/.test(start)) return ''
-  if (a.seg.t === 'compare') return '. '
+  if (end === '' || /\s/.test(end)) return ''
   return /[.!?:]/.test(end) ? ' ' : '. '
 }
+
+/** The stop after the last segment: a paragraph that ends on a compare clause has none of its own. */
+export const closingStop = (last: Judged | undefined): string => (last?.seg.t === 'compare' ? '.' : '')
 
 /** The hover text of a mark: the npm value of a wrong figure, or the release version of an unusual day. Digits live here only. */
 export function titleFor(j: Judged, ctx: LabelContext): string | undefined {
@@ -170,6 +180,10 @@ function howToCheck(seg: Segment, ctx: LabelContext, rows: Rows | undefined): st
       return seg.span === 'last30'
         ? `Add the daily downloads from ${window.past[0]} to ${window.past[1]}.`
         : `Add the daily downloads from ${window.start} to ${window.L}.`
+    case 'window_days':
+      return seg.span === 'last30'
+        ? `Count the days from ${window.past[0]} to ${window.past[1]}.`
+        : `Count the days from ${window.start} to ${window.L}.`
     case 'peak_value':
       return `The largest daily value from ${window.start} to ${window.L}.`
     case 'peak_day':

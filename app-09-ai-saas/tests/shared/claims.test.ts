@@ -207,6 +207,29 @@ describe('N4: figure numbering', () => {
   })
 })
 
+describe('rev 8.3: window_days claims', () => {
+  const days = (value: string, span: 'window' | 'last30', pkg = 'vite') => claim('window_days', pkg, value, { span })
+  it('renders as a count and is a numbered figure, in reading order', () => {
+    expect(renderClaim(days('30', 'last30') as never)).toBe('30')
+    const p: Segment[] = [text('Over the last '), days('30', 'last30'), text(' days vite had '), claim('window_total', 'vite', '844053932', { span: 'last30' })]
+    expect(figureNumbers([p])).toEqual([
+      { paragraph: 0, segment: 1 },
+      { paragraph: 0, segment: 3 },
+    ])
+  })
+  it('is accepted by validateShape and judged: a correct window length checked, a wrong one wrong', () => {
+    expect(validateShape([days('30', 'last30')])).toEqual({ ok: true })
+    expect(verdictOf(days('30', 'last30'))).toMatchObject({ verdict: 'checked', rendered: '30' })
+    expect(verdictOf(days('31', 'last30'))).toMatchObject({ verdict: 'wrong', rendered: '31', npmValue: '30' })
+  })
+  it('with the claim declared, the "30" is no undeclared numeral: only a digit left in text is unchecked', () => {
+    const declared = judge([text('vite rose over the last '), days('30', 'last30'), text(' days.')], r2.rows, w2, r2.days)
+    expect(declared.map((j) => j.verdict)).toEqual(['neutral', 'checked', 'neutral'])
+    const undeclared = judge([text('vite rose over the last 30 days.')], r2.rows, w2, r2.days)
+    expect(undeclared[0]!.verdict).toBe('unchecked')
+  })
+})
+
 describe('G1/G2 fillCode: code supplies the growth figure and the comparison relation', () => {
   const factsOf = (s: typeof r1, w: ReturnType<typeof computeWindow>): PackageFacts[] =>
     computeFacts(s.rows, w, s.releases, Object.fromEntries(s.names.map((n) => [n, 'ok' as const])))

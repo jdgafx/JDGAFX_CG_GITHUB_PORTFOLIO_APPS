@@ -22,8 +22,8 @@ export const NO_VALUE = '(no value)'
 const MAX_TEXT = 1500
 const MAX_CLAIMS = 12
 const WINDOW_NAMES: Record<WindowDays, string> = { 30: 'the past month', 90: 'the past three months', 365: 'the past year' }
-const COUNT_KINDS: FigureKind[] = ['day_value', 'window_total', 'peak_value']
-const KINDS: FigureKind[] = ['day_value', 'window_total', 'peak_value', 'peak_day', 'change_pct', 'unusual_day', 'day']
+const COUNT_KINDS: FigureKind[] = ['day_value', 'window_total', 'window_days', 'peak_value']
+const KINDS: FigureKind[] = ['day_value', 'window_total', 'window_days', 'peak_value', 'peak_day', 'change_pct', 'unusual_day', 'day']
 const METRICS = ['window_total', 'last30_total', 'change_pct', 'peak_value']
 
 /** The text a claim mark shows, built from its value only. A value in the wrong form shows (no value). */

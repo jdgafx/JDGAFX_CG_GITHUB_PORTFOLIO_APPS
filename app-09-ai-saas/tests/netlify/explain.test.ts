@@ -117,6 +117,28 @@ describe('POST /api/explain', () => {
     expect(withoutList.costUsd).toBeNull()
   })
 
+  it('rev 8.3: the paragraph sent back is the target\'s own figures once, with the model\'s text untouched', async () => {
+    const content = JSON.stringify({
+      paragraph: [
+        { t: 'text', s: 'react totals ' },
+        { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
+        { t: 'text', s: '. ' },
+        { t: 'compare', package: 'react', peer: 'vite', metric: 'window_total' },
+        { t: 'text', s: '' },
+        { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
+        { t: 'claim', kind: 'window_total', package: 'vite', span: 'window', day: '', value: '1' },
+      ],
+    })
+    installFetch({ chat: () => jsonResponse(chatBody({ content })), list: () => jsonResponse(listBody()) })
+    const out = (await (await (await load()).handler(explainRequest(wireRequest()))).json()) as Loose
+    expect(out.paragraph).toEqual([
+      { t: 'text', s: 'react totals ' },
+      { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
+      { t: 'text', s: '. ' },
+      { t: 'compare', package: 'react', peer: 'vite', metric: 'window_total' },
+    ])
+  })
+
   it('takes the target in any position among the names', async () => {
     installFetch(ok())
     const w = wireRequest() as Loose
@@ -224,6 +246,13 @@ describe('POST /api/explain', () => {
       const r = await fail(() => jsonResponse({ error: 'x' }, 502))
       expect(r.out).toMatchObject({ usage: null, costUsd: null })
     })
+    it('rev 8.3 cost: a request the provider refuses (401, 402, 403, 429) ran no model and costs 0; a 5xx, 408, timeout or network failure is unknown', async () => {
+      for (const status of [401, 402, 403, 429]) {
+        expect((await fail(() => jsonResponse({ error: 'x' }, status))).out, String(status)).toMatchObject({ ok: false, reason: 'model-unavailable', usage: null, costUsd: 0 })
+      }
+      for (const status of [408, 500, 502, 503]) expect((await fail(() => jsonResponse({ error: 'x' }, status))).out.costUsd, String(status)).toBeNull()
+      expect((await fail(() => Promise.reject(new TypeError('fetch failed')))).out.costUsd).toBeNull()
+    })
     it('on a network error', async () => {
       expect(await fail(() => Promise.reject(new TypeError('fetch failed')))).toMatchObject({ status: 502, out: { reason: 'model-unavailable' } })
     })
@@ -248,7 +277,7 @@ describe('POST /api/explain', () => {
       process.env.OPENROUTER_API_KEY = ''
       const res = await handler(explainRequest(wireRequest()))
       expect(res.status).toBe(502)
-      expect(await res.json()).toMatchObject({ ok: false, reason: 'model-unavailable' })
+      expect(await res.json()).toMatchObject({ ok: false, reason: 'model-unavailable', costUsd: 0 }) // rev 8.3: no call was made, so nothing was charged
       expect(calls.filter((c) => c.url === CHAT_URL)).toHaveLength(0)
     })
   })

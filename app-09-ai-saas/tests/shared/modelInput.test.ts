@@ -221,9 +221,32 @@ describe('SYSTEM_RULES', () => {
         "5. Every comparison between packages is a compare claim {package, peer, metric, relation}; code writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind.\n",
         `5. Every comparison between packages is a compare claim {package, peer, metric}; code decides higher or lower and writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.\n`,
       )
-  it('is the live text plus the rev 7 and rev 8 replacements, for a year and a month window', () => {
-    expect(SYSTEM_RULES('the past year', 'react')).toBe(loadGolden('system-rev8.txt')) // the capture, Step 0.5
-    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'))
+  // Rev 8.3 (SP2 fixes): a window length is a window_days claim, and figure claims are about the target only.
+  const rev83 = (rules: string, target: string): string =>
+    rules
+      .replace(
+        'Never count days.\n',
+        'Where you say how many days a period covers, write a window_days claim (span window for the whole window, last30 for the past month), never digits or a number word in text.\n',
+      )
+      .replace(
+        'window_total (span window or last30; copy the given total), ',
+        'window_total (span window or last30; copy the given total), window_days (span window or last30; the number of days that period covers, digits only), ',
+      )
+      .replace(
+        "Cite a peer's figure at most once.\n",
+        `Write figure claims only about ${target}; peers appear only in compare claims. State each figure once.\n`,
+      )
+      .replace('baselines, counts of days, version', 'baselines, counts of days other than a window length (a window_days claim), version')
+  it('is the live text plus the rev 7, rev 8 and rev 8.3 replacements, for a year and a month window', () => {
+    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev83(loadGolden('system-rev8.txt'), 'react')) // the capture, Step 0.5
+    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev83(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'), 'vite'))
+  })
+  it('rev 8.3: the rules ask for window_days and no longer say "Never count days" or "Cite a peer\'s figure"', () => {
+    const t = SYSTEM_RULES('the past month', 'vite')
+    expect(t).toContain('write a window_days claim')
+    expect(t).not.toContain('Never count days.')
+    expect(t).toContain('Write figure claims only about vite; peers appear only in compare claims')
+    expect(t).not.toContain("Cite a peer's figure")
   })
   it('tells the model to write no total or peak claim for a zero, and to say so in words', () => {
     const rule = SYSTEM_RULES('the past year', 'react').split('\n').find((l) => l.startsWith('4. '))!
@@ -248,8 +271,31 @@ describe('SYSTEM_RULES', () => {
 })
 
 describe('CLAIM_SCHEMA', () => {
-  it('is the rev 8 schema accepted live (Step 0.5, r1 react)', () => {
-    expect(CLAIM_SCHEMA(['react', 'vite', 'zod', '@anthropic-ai/sdk'])).toEqual(loadGoldenJson('schema-rev8-react.json'))
+  type Branch = { properties: { kind?: { enum: string[] }; span?: { enum: string[] }; value?: { pattern: string } } }
+  const branches = (names: string[]) => (CLAIM_SCHEMA(names) as { properties: { paragraph: { items: { anyOf: Branch[] } } } }).properties.paragraph.items.anyOf
+  it('is the rev 8 schema accepted live (Step 0.5, r1 react), with the rev 8.3 branches: window_total and window_days take no span none', () => {
+    const live = loadGoldenJson<{ properties: { paragraph: { items: { anyOf: Array<Record<string, any>> } } } }>('schema-rev8-react.json') // eslint-disable-line @typescript-eslint/no-explicit-any
+    const items = live.properties.paragraph.items.anyOf
+    const totals = items.find((b) => b.properties.kind?.enum.includes('window_total'))!
+    const peak = structuredClone(totals)
+    peak.properties.kind.enum = ['peak_value']
+    totals.properties.kind.enum = ['window_total', 'window_days']
+    totals.properties.span.enum = ['window', 'last30']
+    items.splice(items.indexOf(totals) + 1, 0, peak)
+    expect(CLAIM_SCHEMA(['react', 'vite', 'zod', '@anthropic-ai/sdk'])).toEqual(live)
+  })
+  it('rev 8.3: span none is refused for window_total and window_days, and kept for the kinds that need no span', () => {
+    const b = branches(['a'])
+    const spans = (kind: string) => b.find((x) => x.properties.kind?.enum.includes(kind))!.properties.span!.enum
+    expect(spans('window_total')).toEqual(['window', 'last30'])
+    expect(spans('window_days')).toEqual(['window', 'last30'])
+    expect(spans('day_value')).toContain('none')
+    expect(spans('peak_value')).toContain('none')
+  })
+  it('rev 8.3: a window_days value is a positive whole number', () => {
+    const re = new RegExp(branches(['a']).find((x) => x.properties.kind?.enum.includes('window_days'))!.properties.value!.pattern)
+    for (const bad of ['0', '007', '', '3.5']) expect(re.test(bad), bad).toBe(false)
+    for (const good of ['30', '90', '365']) expect(re.test(good), good).toBe(true)
   })
   it('the window_total and peak_value pattern refuses 0 and a leading zero, and keeps day_value open to 0', () => {
     const anyOf = (CLAIM_SCHEMA(['a']) as { properties: { paragraph: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } }).properties.paragraph.items.anyOf
@@ -261,9 +307,9 @@ describe('CLAIM_SCHEMA', () => {
     }
     expect(re('day_value').test('0')).toBe(true)
   })
-  it('has a text branch, four per-kind claim branches and a compare branch', () => {
+  it('has a text branch, five per-kind claim branches and a compare branch', () => {
     const items = (CLAIM_SCHEMA(['a', 'b']) as { properties: { paragraph: { items: { anyOf: unknown[] } } } }).properties.paragraph.items.anyOf
-    expect(items).toHaveLength(6)
+    expect(items).toHaveLength(7)
   })
 })
 

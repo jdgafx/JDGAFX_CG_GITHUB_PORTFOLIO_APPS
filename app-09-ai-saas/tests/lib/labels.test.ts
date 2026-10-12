@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Judged } from '../../shared/claims'
 import type { Segment } from '../../shared/types'
-import { checkRows, separatorBetween, type Shown } from '../../src/lib/labels'
+import { parseParagraph } from '../../netlify/shared/boundary'
+import { checkRows, closingStop, labelFor, separatorBetween, type Shown } from '../../src/lib/labels'
+import captured from '../fixtures/sp2-e2ed80c-paragraphs.json'
 import { stubFacts, stubWindow } from '../ui/stubCore'
 
 const claim = (kind: string, value: string, extra: Partial<Extract<Segment, { t: 'claim' }>> = {}): Segment =>
@@ -51,7 +53,6 @@ describe('separatorBetween: a space or sentence break where the model left none'
   it('adds nothing when the text already carries the break', () => {
     expect(separatorBetween(textJ('A sentence. '), compareJ())).toBe('')
     expect(separatorBetween(textJ('A sentence.'), textJ(' More'))).toBe('')
-    expect(separatorBetween(compareJ(), textJ(' More text'))).toBe('')
     expect(separatorBetween(textJ('Total is '), claimJ())).toBe('')
     expect(separatorBetween(compareJ(), textJ('. More'))).toBe('')
     expect(separatorBetween(textJ('a\n'), compareJ())).toBe('')
@@ -64,6 +65,13 @@ describe('separatorBetween: a space or sentence break where the model left none'
     expect(separatorBetween(textJ('It grew'), compareJ())).toBe('. ')
     expect(separatorBetween(claimJ(), compareJ())).toBe('. ')
   })
+  it('rev 8.3: a compare is closed with a full stop when the model\'s next text starts with a space, or is only a space', () => {
+    expect(separatorBetween(compareJ(), textJ(' More text'))).toBe('.')
+    expect(separatorBetween(compareJ(), textJ(' '))).toBe('.')
+    expect(separatorBetween(compareJ(), textJ('\nMore'))).toBe('.')
+    expect(separatorBetween(compareJ(), textJ(''))).toBe('. ')
+    for (const closed of ['. More', ', and more', '; more', ') more', '!']) expect(separatorBetween(compareJ(), textJ(closed)), closed).toBe('')
+  })
   it('puts a break after a compare that runs into the next text or figure', () => {
     expect(separatorBetween(compareJ(), textJ('Then it dipped.'))).toBe('. ')
     expect(separatorBetween(compareJ(), claimJ())).toBe('. ')
@@ -74,5 +82,42 @@ describe('separatorBetween: a space or sentence break where the model left none'
   })
   it('never writes a digit', () => {
     for (const a of [textJ('x'), claimJ(), compareJ()]) for (const b of [textJ('y'), claimJ(), compareJ()]) expect(separatorBetween(a, b)).not.toMatch(/\d/)
+  })
+})
+
+describe('rev 8.3: no comparison clause runs into what follows, in the 36 captured paragraphs', () => {
+  const shownText = (judged: Judged[]): string =>
+    judged.map((j, i) => (i > 0 ? separatorBetween(judged[i - 1]!, j) : '') + (j.seg.t === 'text' ? j.seg.s : j.seg.t === 'compare' ? '<CMP>' : '<CLAIM> label')).join('')
+  const rendered = (captured as Array<{ names: string[]; target: string; paragraph: Segment[] }>).map((c) => ({
+    ...c,
+    text: shownText(parseParagraph({ paragraph: c.paragraph }, c.names, c.target)!.map((seg): Judged => ({ seg, verdict: 'neutral', rendered: '' }))),
+  }))
+  it('every compare is followed by a stop, a comma or the end, and preceded by the start or a stop', () => {
+    expect(rendered.filter((r) => r.text.includes('<CMP>')).length).toBeGreaterThan(20)
+    for (const { target, text } of rendered) {
+      for (const m of text.matchAll(/<CMP>/g)) {
+        const after = text.slice(m.index + 5)
+        expect(after === '' || /^[.,;:!?)]/.test(after), `${target}: ${text}`).toBe(true)
+        const before = text.slice(0, m.index).trimEnd()
+        expect(before === '' || /[.!?:;]$/.test(before), `${target}: ${text}`).toBe(true)
+      }
+    }
+  })
+})
+
+describe('rev 8.3: a paragraph that ends on a compare clause is closed with a full stop', () => {
+  it('only a compare needs it; text and a claim end as the model left them', () => {
+    expect(closingStop(compareJ())).toBe('.')
+    expect(closingStop(textJ('Done.'))).toBe('')
+    expect(closingStop(claimJ())).toBe('')
+    expect(closingStop(undefined)).toBe('')
+  })
+})
+
+describe('rev 8.3: a window_days mark is labelled in words', () => {
+  it('names the period and holds no digit', () => {
+    const seg = claim('window_days', '30', { span: 'last30' })
+    expect(labelFor(seg, ctx)).toBe('vite · days in the past month')
+    expect(labelFor(claim('window_days', '30', { span: 'window' }), ctx)).toMatch(/^vite · days in the past (month|year|three months)$/)
   })
 })

@@ -2,7 +2,7 @@ import { CLAIM_SCHEMA, SYSTEM_RULES, buildUserMessage, decodeRequest } from '../
 import type { ExplainReply, ExplainResponse } from '../../shared/types'
 import { originAllowed, parseParagraph, readText, validateExplainRequest } from '../shared/boundary'
 import { clientKey, createRateLimiter } from '../shared/rateLimit'
-import { buildChatBody, callModel, costOf, liveModelList, type ModelReply } from '../shared/openrouter'
+import { UpstreamError, buildChatBody, callModel, costOf, liveModelList, type ModelReply } from '../shared/openrouter'
 
 export const config = { path: '/api/explain' }
 
@@ -16,7 +16,7 @@ const rateLimit = createRateLimiter()
 type Failure = Extract<ExplainResponse, { ok: false }>['reason']
 
 /** Turns the model's reply into the answer. Structure only: the figures are judged in the browser. */
-function interpret(reply: ModelReply, names: string[], modelMs: number): ExplainResponse {
+function interpret(reply: ModelReply, names: string[], target: string, modelMs: number): ExplainResponse {
   const { promptTokens, completionTokens, reasoningTokens } = reply
   // On every reply, ok or not: a cut-off or malformed answer was still paid for.
   const usage = promptTokens !== null && completionTokens !== null && reasoningTokens !== null
@@ -32,7 +32,7 @@ function interpret(reply: ModelReply, names: string[], modelMs: number): Explain
   } catch {
     return fail('invalid:not-json')
   }
-  const paragraph = parseParagraph(decoded, names)
+  const paragraph = parseParagraph(decoded, names, target)
   if (!paragraph) return fail('invalid:bad-shape')
   return { ok: true, paragraph, servedModel: reply.model, usage, modelMs }
 }
@@ -66,26 +66,31 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ error: 'The request could not be turned into a prompt.' }, 400)
   }
 
-  const unavailable = (newestModel: string | null): Response => {
-    const reply: ExplainReply = { ok: false, reason: 'model-unavailable', servedModel: null, usage: null, newestModel, costUsd: null }
+  // `costUsd` 0 where no model ran (no key, or the provider refused the request with a 4xx), null where a call may have been charged.
+  const unavailable = (newestModel: string | null, costUsd: 0 | null = null): Response => {
+    const reply: ExplainReply = { ok: false, reason: 'model-unavailable', servedModel: null, usage: null, newestModel, costUsd }
     return json(reply, 502)
   }
   const apiKey = process.env.OPENROUTER_API_KEY
-  if (!apiKey) return unavailable(null)
+  if (!apiKey) return unavailable(null, 0)
 
   const listed = liveModelList()
   // The model's own time, not the longer of the model and the list.
   const started = Date.now()
+  let refused = false
   const [reply, list] = await Promise.all([
     callModel(chat, apiKey).then(
       (value) => ({ value, modelMs: Date.now() - started }),
-      () => null,
+      (error: unknown) => {
+        refused = error instanceof UpstreamError && error.status >= 400 && error.status < 500 && error.status !== 408
+        return null
+      },
     ),
     listed,
   ])
-  if (!reply) return unavailable(list?.newest ?? null)
+  if (!reply) return unavailable(list?.newest ?? null, refused ? 0 : null)
   const answer: ExplainReply = {
-    ...interpret(reply.value, request.names, reply.modelMs),
+    ...interpret(reply.value, request.names, request.target, reply.modelMs),
     newestModel: list?.newest ?? null,
     costUsd: costOf(reply.value, list),
   }

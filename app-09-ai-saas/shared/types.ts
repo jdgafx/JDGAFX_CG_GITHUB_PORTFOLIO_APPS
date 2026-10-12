@@ -10,7 +10,7 @@ export interface Aggregates { windowTotal: bigint; last30Total: bigint; peakDay:
 export interface UnusualRow { day: Day; value: number; median: number; kind: 'spike' | 'drop';
   release: 0 | 1 | 2 | 'none' | 'unavailable'; version?: string }
 export interface PackageFacts { name: string; aggregates: Aggregates; unusual: UnusualRow[]; possibleGaps: Day[]; notAssessed: Day[] }
-export type FigureKind = 'day_value' | 'window_total' | 'peak_value' | 'peak_day' | 'change_pct' | 'unusual_day' | 'day';
+export type FigureKind = 'day_value' | 'window_total' | 'window_days' | 'peak_value' | 'peak_day' | 'change_pct' | 'unusual_day' | 'day';
 export type Segment =
   | { t: 'text'; s: string }
   | { t: 'claim'; kind: FigureKind; package: string; span: 'window' | 'last30' | 'none'; day: string; value: string }

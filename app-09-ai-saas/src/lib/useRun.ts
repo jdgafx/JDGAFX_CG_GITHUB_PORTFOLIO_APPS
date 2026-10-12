@@ -319,7 +319,8 @@ export function useRun(deps: RunDeps) {
         }
         const snap = derive(d.core, nextNames, nextDays, loaded.date, loaded.dl, loaded.rel)
         if (snap.error !== null || snap.window === null) {
-          publishRun({ ...IDLE_RUN, phase: 'done', snapshot: snap, modelOutcome: null, elapsedMs: now() - startedAt })
+          // No model call was made, so the run cost nothing.
+          publishRun({ ...IDLE_RUN, phase: 'done', snapshot: snap, modelOutcome: null, elapsedMs: now() - startedAt, cost: 0 })
           return
         }
         const targets = snap.names.filter(n => Object.hasOwn(snap.rowsByName, n))

@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Judged } from '../../shared/claims'
 import type { PackageFacts, RunWindow } from '../../shared/types'
-import { formatDate, joinNames, labelFor, separatorBetween, shownList, titleFor, type Figure, type LabelContext, type PackageResult } from '../lib/labels'
+import { closingStop, formatDate, joinNames, labelFor, separatorBetween, shownList, titleFor, type Figure, type LabelContext, type PackageResult } from '../lib/labels'
 
 interface ExplanationProps {
   names: string[]
@@ -110,6 +110,7 @@ export default function Explanation({ names, window, packages, facts, figures }:
                       {j.seg.t === 'text' ? <TextSegment j={j} /> : <ClaimMark j={j} ctx={ctx} figure={figureAt(paragraphIndex.get(name) ?? -1, s)} />}
                     </Fragment>
                   ))}
+                  {closingStop(outcome.judged.at(-1))}
                 </p>
               )}
             </article>

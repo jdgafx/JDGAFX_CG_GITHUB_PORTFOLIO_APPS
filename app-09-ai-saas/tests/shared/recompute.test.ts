@@ -59,6 +59,31 @@ describe('independence', () => {
   })
 })
 
+describe('rev 8.3: a window length is a declared window_days claim, checked against the request window', () => {
+  const month = rc('2026-10-12', 'r2') // 30-day window
+  const year = rc('2026-10-12', 'r1') // 365-day window
+  const days = (value: string, span: 'window' | 'last30' | 'none', pkg = 'vite') => claim('window_days', pkg, value, { span })
+  it('the past month is 30 days whatever the window: "last 30 days" is checked in a month and in a year run', () => {
+    expect(checkSegment(days('30', 'last30'), month)).toMatchObject({ verdict: 'checked', npm: '30' })
+    expect(checkSegment(days('30', 'last30', 'react'), year)).toMatchObject({ verdict: 'checked', npm: '30' })
+  })
+  it('the whole window is the request window: 30, 90 or 365 as the run chose', () => {
+    expect(checkSegment(days('30', 'window'), month).verdict).toBe('checked')
+    expect(checkSegment(days('365', 'window', 'react'), year)).toMatchObject({ verdict: 'checked', npm: '365' })
+  })
+  it('a wrong length is wrong with the npm value beside it', () => {
+    expect(checkSegment(days('31', 'last30'), month)).toMatchObject({ verdict: 'wrong', npm: '30' })
+    expect(checkSegment(days('30', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
+    expect(checkSegment(days('364', 'window', 'react'), year)).toMatchObject({ verdict: 'wrong', npm: '365' })
+  })
+  it('span none, a value in the wrong form and an unknown package are wrong', () => {
+    expect(checkSegment(days('30', 'none'), month).verdict).toBe('wrong')
+    expect(checkSegment(days('', 'last30'), month)).toMatchObject({ verdict: 'wrong', reason: 'value form' })
+    expect(checkSegment(days('thirty', 'last30'), month).verdict).toBe('wrong')
+    expect(checkSegment(days('30', 'last30', 'nope'), month)).toMatchObject({ verdict: 'wrong', reason: 'unknown package' })
+  })
+})
+
 describe('window totals and peaks', () => {
   const r2 = rc('2026-10-12', 'r2')
   const s2 = loadScenario('2026-10-12', 'r2')

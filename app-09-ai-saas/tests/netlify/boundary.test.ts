@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_BODY_BYTES, originAllowed, readText, validateExplainRequest } from '../../netlify/shared/boundary'
+import { MAX_BODY_BYTES, originAllowed, parseParagraph, readText, validateExplainRequest } from '../../netlify/shared/boundary'
+import type { Segment } from '../../shared/types'
+import captured from '../fixtures/sp2-e2ed80c-paragraphs.json'
 import { wireRequest } from './helpers'
 import { decodeRequest } from '../../shared/modelInput'
 
@@ -142,5 +144,95 @@ describe('request validation', () => {
     expect(validateExplainRequest(null).ok).toBe(false)
     expect(validateExplainRequest([]).ok).toBe(false)
     expect(validateExplainRequest('x').ok).toBe(false)
+  })
+})
+
+type Claim = Extract<Segment, { t: 'claim' }>
+const text = (s: string): Segment => ({ t: 'text', s })
+const claim = (kind: Claim['kind'], pkg: string, value: string, over: Partial<Claim> = {}): Segment => ({ t: 'claim', kind, package: pkg, span: 'window', day: '', value, ...over })
+const cmp = (pkg: string, peer: string, metric: 'window_total' | 'last30_total' = 'window_total'): Segment => ({ t: 'compare', package: pkg, peer, metric })
+const NAMES = ['vite', 'webpack', 'esbuild']
+const tidy = (paragraph: Segment[], target = 'vite') => parseParagraph({ paragraph }, NAMES, target)
+
+describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s own figures once, with words around it', () => {
+  it('drops a repeat of a claim, keeping the first, and the model\'s text byte for byte', () => {
+    const out = tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again '), claim('window_total', 'vite', '837275395')])
+    expect(out).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again ')])
+  })
+  it('a figure stated again with another value or span is still the same figure: the first stays (placeholders 1 and 0, span none)', () => {
+    const peak = claim('peak_value', 'webpack', '12326693')
+    expect(tidy([text('Peak '), peak, text(' downloads. '), claim('peak_value', 'webpack', '1', { span: 'none' }), text('')], 'webpack')).toEqual([text('Peak '), peak, text(' downloads. ')])
+    const d = claim('day_value', 'vite', '438449', { span: 'none', day: '2026-09-26' })
+    expect(tidy([text('On that day '), d, text(' downloads. '), claim('day_value', 'vite', '0', { span: 'none', day: '2026-09-26' }), text(' ')])).toEqual([text('On that day '), d, text(' downloads. '), text(' ')])
+  })
+  it('different figures are all kept: two totals of different spans, two unusual days, a day and its count', () => {
+    const p = [
+      text('Past year '), claim('window_total', 'vite', '5270117263'), text(' and past month '), claim('window_total', 'vite', '837275395', { span: 'last30' }),
+      text(' on '), claim('unusual_day', 'vite', '2026-02-21'), text(' and '), claim('unusual_day', 'vite', '2026-02-22'), text(' with '), claim('day_value', 'vite', '6458089', { day: '2026-02-21' }),
+    ]
+    expect(tidy(p)).toEqual(p)
+  })
+  it('drops a figure claim about another package', () => {
+    expect(tidy([text('Vite had '), claim('window_total', 'vite', '837275395'), text(' downloads. '), claim('window_total', 'webpack', '1')])).toEqual([text('Vite had '), claim('window_total', 'vite', '837275395'), text(' downloads. ')])
+  })
+  it('keeps a compare that names the target as package or as peer, drops one that names neither, and drops a repeated compare', () => {
+    const p = [text('x. '), cmp('vite', 'webpack'), text('. '), cmp('webpack', 'vite'), text('. '), cmp('webpack', 'esbuild'), text('. '), cmp('vite', 'webpack'), text('.')]
+    expect(tidy(p)).toEqual([text('x. '), cmp('vite', 'webpack'), text('. '), cmp('webpack', 'vite'), text('. '), text('. '), text('.')])
+  })
+  it('drops a claim with no words on either side (blank text, a compare or the paragraph edge) and keeps one with words on one side', () => {
+    expect(tidy([text('Words. '), cmp('vite', 'webpack'), text(' '), claim('peak_value', 'vite', '5'), text(' '), cmp('vite', 'esbuild')])).toEqual([text('Words. '), cmp('vite', 'webpack'), text(' '), text(' '), cmp('vite', 'esbuild')])
+    expect(tidy([text('Words. '), cmp('vite', 'webpack'), claim('peak_value', 'vite', '5')])).toEqual([text('Words. '), cmp('vite', 'webpack')])
+    expect(tidy([text('Words '), claim('peak_value', 'vite', '5'), cmp('vite', 'webpack')])).toHaveLength(3) // words on one side: part of a sentence
+    expect(tidy([claim('peak_value', 'vite', '5')])).toBeNull() // nothing else left
+    const kept = [text('Peak '), claim('peak_day', 'vite', '2026-10-01'), claim('peak_value', 'vite', '39379494'), text(' downloads')]
+    expect(tidy(kept)).toEqual(kept) // two claims side by side are one phrase
+  })
+  it('drops empty text segments and nothing else of the text', () => {
+    expect(tidy([text(''), text(' '), text('a'), text('')])).toEqual([text(' '), text('a')])
+  })
+  it('accepts a window_days claim and still refuses an unknown kind or package', () => {
+    const ok = [text('Over the last '), claim('window_days', 'vite', '30', { span: 'last30' }), text(' days.')]
+    expect(tidy(ok)).toEqual(ok)
+    expect(parseParagraph({ paragraph: [claim('window_total', 'react', '1')] }, NAMES, 'vite')).toBeNull()
+    expect(parseParagraph({ paragraph: [{ t: 'claim', kind: 'nope', package: 'vite', span: 'window', day: '', value: '1' }] }, NAMES, 'vite')).toBeNull()
+  })
+
+  describe('the 36 paragraphs the SP2 verifier captured (e2ed80c)', () => {
+    const all = captured as Array<{ run: string; target: string; names: string[]; paragraph: Segment[] }>
+    const figureKey = (c: Claim): string => `${c.kind}|${c.package}|${c.kind === 'day_value' ? c.day : c.kind === 'unusual_day' || c.kind === 'day' ? c.value : c.kind === 'window_total' || c.kind === 'window_days' ? String(c.span === 'last30') : ''}`
+    const cleaned = all.map((c) => ({ ...c, out: parseParagraph({ paragraph: c.paragraph }, c.names, c.target)! }))
+    it('every one still parses', () => {
+      expect(all).toHaveLength(36)
+      for (const c of cleaned) expect(c.out, c.run + c.target).not.toBeNull()
+    })
+    it('none shows a claim about another package, a repeat or a stray claim with no words around it', () => {
+      for (const { run, target, out } of cleaned) {
+        const seen = new Set<string>()
+        out.forEach((seg, i) => {
+          if (seg.t === 'text') return expect(seg.s, `${run} ${target}`).not.toBe('')
+          const about = seg.t === 'compare' ? seg.package === target || seg.peer === target : seg.package === target
+          expect(about, `${run} ${target} #${i}`).toBe(true)
+          const key = seg.t === 'compare' ? `${seg.package}|${seg.peer}|${seg.metric}` : figureKey(seg)
+          expect(seen.has(key), `${run} ${target} #${i} repeats ${key}`).toBe(false)
+          seen.add(key)
+          if (seg.t === 'claim') {
+            const around = (s: Segment | undefined) => s?.t === 'claim' || (s?.t === 'text' && s.s.trim() !== '')
+            expect(around(out[i - 1]) || around(out[i + 1]), `${run} ${target} #${i} has no words around it`).toBe(true)
+          }
+        })
+      }
+    })
+    it('removes exactly the stray claims: 19 claims in 16 paragraphs, and no text byte', () => {
+      let dropped = 0
+      let changed = 0
+      for (const { paragraph, out } of cleaned) {
+        const before = paragraph.filter((s) => s.t !== 'text').length
+        const after = out.filter((s) => s.t !== 'text').length
+        dropped += before - after
+        if (before !== after) changed += 1
+        expect(out.filter((s) => s.t === 'text').map((s) => (s as { s: string }).s).join('|')).toBe(paragraph.filter((s) => s.t === 'text' && s.s !== '').map((s) => (s as { s: string }).s).join('|'))
+      }
+      expect({ dropped, changed }).toEqual({ dropped: 19, changed: 16 })
+    })
   })
 })

@@ -12,11 +12,11 @@ export function SYSTEM_RULES(windowName: string, target: string): string {
     'Rules:',
     '1. Code formats every claim for display; you only set the claim fields. What code renders: counts with commas; dates as D Mon YYYY; change_pct with one decimal and its % sign, so never write "percent" after it; a compare as a whole clause naming both packages and the period.',
     '2. Growth is a change_pct claim with an empty value; code shows the figure. Never write a growth figure. Say rose, fell or flat only as the input states it. If the input says growth is not computable, write no change_pct claim and say growth cannot be computed.',
-    `3. Every number and every date you write goes in a claim. Text segments contain no digits and no numbers written as words. Name periods in words only: ${windowName} for the whole window, the past month for the last 30 days, the month before for the 30 days before that. Never count days.`,
-    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, empty for change_pct (code fills it), YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.",
+    `3. Every number and every date you write goes in a claim. Text segments contain no digits and no numbers written as words. Name periods in words only: ${windowName} for the whole window, the past month for the last 30 days, the month before for the 30 days before that. Where you say how many days a period covers, write a window_days claim (span window for the whole window, last30 for the past month), never digits or a number word in text.`,
+    "4. Figure claims: day_value (one day's downloads from the rows given), window_total (span window or last30; copy the given total), window_days (span window or last30; the number of days that period covers, digits only), peak_value and peak_day (span window), change_pct (span last30), unusual_day (only days listed as unusual), day (any other date in the window). value is digits only for counts, empty for change_pct (code fills it), YYYY-MM-DD for peak_day, unusual_day and day. day is YYYY-MM-DD for day_value and the date kinds, else empty. window_total and peak_value are positive whole numbers: where a package's total or peak is zero, write no claim for it and say in words that it had no downloads.",
     `5. Every comparison between packages is a compare claim {package, peer, metric}; code decides higher or lower and writes its words. Text segments never say which package is larger, smaller, faster, slower, ahead or behind. A compare is a complete clause written by code (for example "react's total for ${windowName} is higher than zod's"): put it in its own sentence, with nothing around it that repeats its sense, and never add a figure claim to stand for a comparison.`,
-    "6. One figure per claim: a date and its count are two claims (a date claim, then a day_value claim for that day). At most 8 claims in the paragraph, compare claims included. Cite a peer's figure at most once.",
-    '7. Never write ratios, shares, times-larger, differences, combined totals, baselines, counts of days, version numbers or release ids.',
+    `6. One figure per claim: a date and its count are two claims (a date claim, then a day_value claim for that day). At most 8 claims in the paragraph, compare claims included. Write figure claims only about ${target}; peers appear only in compare claims. State each figure once.`,
+    '7. Never write ratios, shares, times-larger, differences, combined totals, baselines, counts of days other than a window length (a window_days claim), version numbers or release ids.',
     '8. Rows marked no-data or possible-gap are missing npm data, not real drops. Do not call them unusual and do not quote their value.',
     '9. Releases: name a release as a possible cause of an unusual day only where its row says release same day or release N day(s) before; say so in words (code adds the version). Where the row says no release within 2 days, say the data does not show a cause. Where it says release data unavailable, say the release history could not be loaded; never say there was no release.',
     `10. Write one paragraph about ${target}, at most 120 words, comparing it with the peer packages where useful.`,
@@ -30,7 +30,7 @@ const text = (): object => ({
   required: ['t', 's'],
   properties: { t: { type: 'string', enum: ['text'] }, s: { type: 'string' } },
 })
-const claimBranch = (names: string[], kinds: string[], valuePattern: string, dayPattern: string): object => ({
+const claimBranch = (names: string[], kinds: string[], valuePattern: string, dayPattern: string, spans = ['window', 'last30', 'none']): object => ({
   type: 'object',
   additionalProperties: false,
   required: ['t', 'kind', 'package', 'span', 'day', 'value'],
@@ -38,7 +38,7 @@ const claimBranch = (names: string[], kinds: string[], valuePattern: string, day
     t: { type: 'string', enum: ['claim'] },
     kind: { type: 'string', enum: kinds },
     package: { type: 'string', enum: names },
-    span: { type: 'string', enum: ['window', 'last30', 'none'] },
+    span: { type: 'string', enum: spans },
     day: { type: 'string', pattern: dayPattern },
     value: { type: 'string', pattern: valuePattern },
   },
@@ -68,7 +68,9 @@ export function CLAIM_SCHEMA(names: string[]): object {
           anyOf: [
             text(),
             // A positive count with no leading zero: the model wrote 0 as a placeholder for a total and a peak (Step 0.5).
-            claimBranch(names, ['window_total', 'peak_value'], '^[1-9][0-9]*$', '^$'),
+            // A total and a window length need a span: a correct total with span none was shown "differs from npm" (SP2 item 5).
+            claimBranch(names, ['window_total', 'window_days'], '^[1-9][0-9]*$', '^$', ['window', 'last30']),
+            claimBranch(names, ['peak_value'], '^[1-9][0-9]*$', '^$'),
             claimBranch(names, ['day_value'], '^[0-9]+$', DATE),
             claimBranch(names, ['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
             claimBranch(names, ['change_pct'], '^$', '^$'),

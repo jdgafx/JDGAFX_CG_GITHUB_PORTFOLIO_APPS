@@ -195,6 +195,29 @@ describe('useRun explain', () => {
     expect(s.api.run.phase).toBe('done')
   })
 
+  it('rev 8.3: a run that makes no model call (npm blocked) costs 0, not unknown', async () => {
+    const calls: string[] = []
+    const s = await setup({ fetchRange: async name => ({ name, status: 'failed', reason: 'network' }), postExplain: async req => (calls.push(req.target), reply(r1aReact)) })
+    await flush()
+    await act(async () => void s.api.tryIt())
+    await flush(6)
+    expect(calls).toEqual([])
+    expect(s.api.run.phase).toBe('done')
+    expect(s.api.run.cost).toBe(0)
+    expect(s.api.run.costUnreported).toBe(0)
+  })
+
+  it('rev 8.3: calls the function answered with cost 0 (the key was refused) cost 0; a call with no cost is still unknown', async () => {
+    const refused: ExplainReply = { ...unavailable, costUsd: 0 }
+    const s = await setup({ postExplain: async () => refused })
+    await flush()
+    await act(async () => void s.api.explain())
+    await flush(6)
+    expect(s.api.run.modelOutcome).toBe('all-failed')
+    expect(s.api.run.cost).toBe(0)
+    expect(s.api.run.costUnreported).toBe(0)
+  })
+
   it('shows the worst marker across calls and warns on a model that is not the newest', async () => {
     const answers = {
       react: reply(r1aReact),

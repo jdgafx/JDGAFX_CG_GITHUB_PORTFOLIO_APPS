@@ -198,6 +198,15 @@ describe('Readout', () => {
     expect(text(base)).not.toContain('at least')
   })
 
+  it('rev 8.3: a run that made no model call, or whose calls were all refused, costs $0; a call that reported nothing stays unknown', () => {
+    const none = text({ ...base, cost: 0, costUnreported: 0, modelOutcome: null, servedModel: null, reasoningTokens: null })
+    expect(none).toContain('$0')
+    expect(none).not.toContain('$0.')
+    expect(none).not.toContain('cost unknown')
+    expect(text({ ...base, cost: 0, costUnreported: 1 })).toContain('at least $0 (1 call not reported)')
+    expect(text({ ...base, cost: null, costUnreported: 1 })).toContain('cost unknown')
+  })
+
   it('says cost unknown, not $0.0000, when nothing was reported', () => {
     const t = text({ ...base, cost: null, costUnreported: 2 })
     expect(t).toContain('cost unknown')
@@ -232,6 +241,13 @@ describe('Notices', () => {
     expect(t).toContain('release history')
     expect(t).toContain('2026-09-14')
     expect(t).toContain('2026-09-28')
+  })
+
+  it('rev 8.3: "The other packages are shown." only when some package is shown', () => {
+    expect(text(snap({ failedNames: ['zod'] }))).toContain('The other packages are shown.')
+    const none = text(snap({ names: ['vite', 'zod'], failedNames: ['vite', 'zod'], rowsByName: {}, window: null, facts: [], error: 'npm did not answer for these packages.' }))
+    expect(none).toContain('npm did not return downloads for vite, zod')
+    expect(none).not.toContain('The other packages are shown')
   })
 
   it('shows the window error as an error notice', () => {

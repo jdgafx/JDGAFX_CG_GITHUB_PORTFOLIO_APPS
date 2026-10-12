@@ -210,6 +210,13 @@ export function checkSegment(seg: Segment, rc: Recomputed): Check {
       if (seg.kind === 'peak_value' && seg.span === 'last30') return wrong('span', npm)
       return BigInt(seg.value) === total ? { verdict: 'checked', npm } : wrong('differs', npm)
     }
+    case 'window_days': {
+      // The past month is always 30 days; the whole window is the days the run asked for.
+      const npm = String(seg.span === 'last30' ? 30 : rc.days)
+      if (!countOk) return wrong('value form')
+      if (seg.span === 'none') return wrong('span', npm)
+      return seg.value === npm ? { verdict: 'checked', npm } : wrong('differs', npm)
+    }
     case 'peak_day':
     case 'unusual_day':
     case 'day': {

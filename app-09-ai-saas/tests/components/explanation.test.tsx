@@ -150,9 +150,15 @@ describe('Explanation: model clauses that run together', () => {
     const region = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew'), compare('vite'), compare('zod'), text('Then it dipped.')] } }]).querySelector('p.explanation__text')!
     expect(region.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's. d3's total for the past month is higher than zod's. Then it dipped.")
   })
-  it('adds nothing where the model already left a space, and leaves the text segments byte for byte', () => {
+  it('rev 8.3: closes a paragraph that ends on a compare clause, and leaves one that ends on text alone', () => {
+    const ends = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew. '), compare('vite')] } }]).querySelector('p.explanation__text')!
+    expect(ends.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's.")
+    const text_ = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew. '), compare('vite'), text('. Then it dipped.')] } }]).querySelector('p.explanation__text')!
+    expect(text_.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's. Then it dipped.")
+  })
+  it('adds nothing before a compare that follows a finished sentence, closes it with a stop before a space-led text (rev 8.3), and leaves the text segments byte for byte', () => {
     const region = renderRegion([{ name: 'd3', outcome: { status: 'ok', judged: [text('d3 grew. '), compare('vite'), text(' Then it dipped.')] } }]).querySelector('p.explanation__text')!
-    expect(region.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's Then it dipped.")
+    expect(region.textContent).toBe("d3 grew. d3's total for the past month is higher than vite's. Then it dipped.")
   })
 })
 

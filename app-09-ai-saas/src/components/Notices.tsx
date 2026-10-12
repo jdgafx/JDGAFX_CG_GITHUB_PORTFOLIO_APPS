@@ -15,7 +15,8 @@ export default function Notices({ view }: { view: Snapshot }) {
       )}
       {view.failedNames.length > 0 && (
         <p className="ds-notice ds-notice--warning">
-          npm did not return downloads for {view.failedNames.join(', ')}. The other packages are shown.
+          npm did not return downloads for {view.failedNames.join(', ')}.
+          {view.failedNames.length < view.names.length && ' The other packages are shown.'}
         </p>
       )}
       {releaseFailed.length > 0 && (

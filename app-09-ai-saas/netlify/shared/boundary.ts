@@ -172,15 +172,42 @@ export function validateExplainRequest(value: unknown): RequestResult {
   return { ok: true, request: { target, names: names as string[], window, facts: facts as PackageFacts[], pastRows, releaseState } }
 }
 
-const KINDS = ['day_value', 'window_total', 'peak_value', 'peak_day', 'change_pct', 'unusual_day', 'day']
+const KINDS = ['day_value', 'window_total', 'window_days', 'peak_value', 'peak_day', 'change_pct', 'unusual_day', 'day']
 const SPANS = ['window', 'last30', 'none']
 const METRICS = ['window_total', 'last30_total', 'change_pct', 'peak_value']
+
+/** What a figure claim states, whatever value or span the model wrote for it: two claims with one key say the same thing. */
+function figureKey(seg: Exclude<Segment, { t: 'text' }>): string {
+  if (seg.t === 'compare') return `${seg.package}|${seg.peer}|${seg.metric}`
+  // the past month is its own figure; any other span is the whole window
+  const part = seg.kind === 'day_value' ? seg.day : seg.kind === 'unusual_day' || seg.kind === 'day' ? seg.value : seg.kind === 'window_total' || seg.kind === 'window_days' ? String(seg.span === 'last30') : ''
+  return `${seg.kind}|${seg.package}|${part}`
+}
+
+/**
+ * The paragraph a package is shown with (rev 8.3). Nothing is added and no text is changed; these are dropped: an empty
+ * text segment, a claim about a package other than `target` (a compare must name it), a claim that states a figure
+ * already stated (the first stays, whatever value the later one carries), and a figure claim with no text of words and
+ * no other claim on either side. Every later step (figure numbers, checks, the figure table) sees only what is kept.
+ */
+function tidy(segments: Segment[], target: string): Segment[] {
+  const seen = new Set<string>()
+  const kept = segments.filter((seg) => {
+    if (seg.t === 'text') return seg.s !== ''
+    if (seg.t === 'compare' ? seg.package !== target && seg.peer !== target : seg.package !== target) return false
+    const key = figureKey(seg)
+    return !seen.has(key) && !!seen.add(key)
+  })
+  const anchored = (seg: Segment | undefined): boolean => seg?.t === 'claim' || (seg?.t === 'text' && seg.s.trim() !== '')
+  return kept.filter((seg, i) => seg.t !== 'claim' || anchored(kept[i - 1]) || anchored(kept[i + 1]))
+}
 
 /**
  * The model's decoded answer as segments, or null when it is not a non-empty list of well-formed segments naming
  * only the requested packages. This checks structure, never the prose or the figures: judging is the browser's.
+ * What the browser is shown is `tidy`'d for `target`.
  */
-export function parseParagraph(value: unknown, names: string[]): Segment[] | null {
+export function parseParagraph(value: unknown, names: string[], target: string): Segment[] | null {
   if (!isRecord(value) || !Array.isArray(value.paragraph) || value.paragraph.length === 0) return null
   const known = (v: unknown): v is string => typeof v === 'string' && names.includes(v)
   const out: Segment[] = []
@@ -196,5 +223,6 @@ export function parseParagraph(value: unknown, names: string[]): Segment[] | nul
       return null
     }
   }
-  return out
+  const shown = tidy(out, target)
+  return shown.length > 0 ? shown : null
 }

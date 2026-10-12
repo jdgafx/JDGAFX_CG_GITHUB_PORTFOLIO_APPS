@@ -2,10 +2,13 @@ import { formatCount } from '../../shared/format'
 import type { RunState } from '../lib/useRun'
 import ModelChip from './ModelChip'
 
-/** Every call's cost is summed; calls that reported none are counted, so the figure is never passed off as the whole. */
+/**
+ * Every call's cost is summed; calls that reported none are counted, so the figure is never passed off as the whole.
+ * No model call, or only refused ones, is `$0`: nothing ran. A call that reported nothing is "cost unknown".
+ */
 function costText({ cost, costUnreported }: RunState): string {
   if (cost === null) return 'cost unknown'
-  const usd = `$${cost.toFixed(4)}`
+  const usd = cost === 0 ? '$0' : `$${cost.toFixed(4)}`
   return costUnreported === 0 ? usd : `at least ${usd} (${costUnreported} ${costUnreported === 1 ? 'call' : 'calls'} not reported)`
 }
 

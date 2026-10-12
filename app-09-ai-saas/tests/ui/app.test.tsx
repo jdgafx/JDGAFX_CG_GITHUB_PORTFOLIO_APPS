@@ -109,6 +109,33 @@ describe('App', () => {
     expect((byText(container, 'button', 'Explain spikes') as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('rev 8.3: Try it with npm blocked ends as a failed run: no green Explained, one notice each, no "other packages", no model call, cost $0', async () => {
+    const post = vi.fn(async () => unavailable)
+    const { container } = mount(<App deps={deps({ fetchRange: async name => ({ name, status: 'failed', reason: 'network' }), postExplain: post })} />)
+    await flush()
+    await click(byText(container, 'button', 'Try it'))
+    await flush(10)
+    expect(post).not.toHaveBeenCalled()
+    expect(container.querySelector('.ds-app')?.getAttribute('data-run')).toBe('failed')
+    expect(container.querySelector('.ds-header .ds-badge')?.textContent).toBe('Run failed')
+    expect(container.querySelector('.ds-badge--success')).toBeNull()
+    expect(container.querySelectorAll('.ds-notice--error')).toHaveLength(1)
+    expect(container.querySelectorAll('.ds-notice--warning')).toHaveLength(1)
+    expect(container.textContent).not.toContain('The other packages are shown')
+    const cost = Array.from(container.querySelectorAll('.ds-strip__item')).find(i => i.textContent?.startsWith('Cost'))!
+    expect(cost.textContent).toBe('Cost$0')
+  })
+
+  it('rev 8.3: with some packages missing, the run is done and the notice keeps "The other packages are shown."', async () => {
+    const { container } = mount(<App deps={deps({ fetchRange: async name => (name === 'zod' ? { name, status: 'failed', reason: 'network' } : { name, status: 'ok', rows: {} }), postExplain: async req => reply(CAPTURES[req.target]!) })} />)
+    await flush()
+    await click(byText(container, 'button', 'Try it'))
+    await flush(10)
+    expect(container.querySelector('.ds-app')?.getAttribute('data-run')).not.toBe('failed')
+    expect(container.textContent).toContain('npm did not return downloads for zod. The other packages are shown.')
+    expect(container.querySelectorAll('.ds-notice--warning')).toHaveLength(1)
+  })
+
   it('releases failing with downloads ok: chip "· releases unavailable", a warning, the run still goes', async () => {
     const { container } = mount(<App deps={deps({ fetchReleases: async name => ({ name, status: 'failed', releases: [] }) })} />)
     await flush()
