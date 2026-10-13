@@ -112,7 +112,12 @@ export function useReplay({ idle, start, clear }: ReplayDeps) {
     shim.current = null
   }
 
+  /** True while the recording is still answering this page's /api/ calls. */
+  function active(): boolean {
+    return shim.current?.active ?? false
+  }
+
   /** What the label needs, for the caller to show while its own run is the replayed one. */
   const info: ReplayInfo | null = recording ? { recording, speed: playbackSpeed(recording), startedAt: loadedAt } : null
-  return { info, stop }
+  return { info, stop, active }
 }

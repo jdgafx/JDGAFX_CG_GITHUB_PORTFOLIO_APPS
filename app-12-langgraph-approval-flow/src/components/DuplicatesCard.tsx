@@ -1,6 +1,10 @@
+import { JUDGE_COUNT, JUDGE_MIN_SCORE } from '../../netlify/shared/duplicate-rank'
 import { formatAge } from '../lib/format'
 import type { DuplicateCandidate, DuplicateJudgement, DuplicateReport } from '../types'
 import { Md } from './Md'
+
+/** Who the model is asked about: the same limits the server applies, so the card never promises more than a run does. */
+export const JUDGE_NOTE = `The model judges up to ${JUDGE_COUNT} of the best matches: only candidates that score at least ${JUDGE_MIN_SCORE} and share at least two rare words.`
 
 const VERDICT: Record<DuplicateJudgement['verdict'], { word: string; tone: string }> = {
   duplicate: { word: 'Duplicate', tone: 'ds-badge ds-badge--accent' },
@@ -121,7 +125,7 @@ export function DuplicatesCard({ report, searching }: DuplicatesCardProps) {
         </h2>
         <p className="ds-section__sub">
           Candidates come from a GitHub search of this repository, open and closed issues. Similarity is the share of rare words two
-          issues have in common, from 0 to 1 (the bar is full at 0.5). The model judges the top three. A duplicate counts only when
+          issues have in common, from 0 to 1 (the bar is full at 0.5). {JUDGE_NOTE} A duplicate counts only when
           both of its quotes are found in the issue texts.
         </p>
       </div>
