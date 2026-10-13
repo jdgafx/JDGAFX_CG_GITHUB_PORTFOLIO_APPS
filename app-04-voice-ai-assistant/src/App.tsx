@@ -74,7 +74,7 @@ export default function App() {
   }
 
   return (
-    <div className="ds-app" data-run={run.outcome}>
+    <div className="ds-app" data-run={run.outcome} data-replay={run.replay ? 'true' : undefined}>
       <Header badge={badgeFor(run, hasMic)} live={liveData(run.replay ? [] : run.steps, run.arrivedAt)} />
 
       <main className="ds-main">

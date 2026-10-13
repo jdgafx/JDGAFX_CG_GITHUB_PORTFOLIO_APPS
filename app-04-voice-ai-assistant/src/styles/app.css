@@ -374,3 +374,9 @@
 .vox-try__question { color: var(--ds-text); font-size: 18px; }
 .vox-try__question .vox-asked__label { margin-right: 8px; }
 .ds-state--empty .ds-state__actions { margin-top: 12px; }
+
+/* On a narrow screen the replayed run leads, ahead of the microphone strip and the question form, so it is on the first screen. */
+@media (max-width: 999px) {
+  .ds-app[data-replay] .vox-studio { order: 1; }
+  .ds-app[data-replay] .ds-run { order: -1; }
+}
