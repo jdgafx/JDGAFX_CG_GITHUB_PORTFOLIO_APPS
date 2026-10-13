@@ -149,4 +149,19 @@ describe('a replay that cannot be played through', () => {
     expect(page.file).toBeNull()
     expect(page.summary).toBeNull()
   })
+
+  it('shows nothing even when the discarded run still finishes, because the page no longer takes its result', async () => {
+    const running = startReplay()
+    // This fetch ignores the page's abort, so the recorded run reaches its end after the replay was discarded.
+    const shimFetch = globalThis.fetch
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => shimFetch(input, { ...init, signal: undefined })) as typeof fetch
+    await new Promise(resolve => setTimeout(resolve, 25))
+    hook().discardReplay()
+    await running
+    const page = hook()
+    expect(page.status).toBe('idle')
+    expect(page.result).toBe('')
+    expect(page.summary).toBeNull()
+    expect(page.gallery).toHaveLength(0)
+  })
 })

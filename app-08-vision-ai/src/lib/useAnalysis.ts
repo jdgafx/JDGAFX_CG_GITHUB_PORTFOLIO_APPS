@@ -362,13 +362,17 @@ export function useAnalysis() {
       onCrop: crop => {
         if (entryId) patchRegion(entryId, { rect: crop.rect, cropUrl: URL.createObjectURL(crop.file) })
       },
-      onStep: step => setSteps(current => upsertStep(current, step)),
+      // A run the page has moved on from (a discarded replay) no longer writes to the screen, not even a late chunk.
+      onStep: step => {
+        if (gen === runGen.current) setSteps(current => upsertStep(current, step))
+      },
       onText: text => {
+        if (gen !== runGen.current) return
         resultRef.current += text
         setResult(resultRef.current)
       },
     })
-    abortRef.current = null
+    if (abortRef.current === controller) abortRef.current = null
     // The replay was discarded while this run was in flight: whatever it ended with is not shown.
     if (gen !== runGen.current) return
     // A recording that could not be played through is not shown as a run; the page goes back to its empty state.
