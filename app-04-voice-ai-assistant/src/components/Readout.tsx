@@ -78,9 +78,20 @@ export default function Readout({ run }: { run: RunState }) {
   const barCells = cells.filter(s => s.key !== 'firstSentence')
   const total = barCells.reduce((sum, s) => sum + (parts[s.key] ?? 0), 0)
 
+  if (!started) {
+    return (
+      <section className="ds-section ds-run__readout vox-readout" aria-label="Time to first audio">
+        <p className="vox-readout__empty">
+          <strong>Time to first audio</strong> appears here once you ask: the wait from the end of your question to the first spoken word, split into first token,
+          first sentence and speech start. Nothing is measured until you press Ask.
+        </p>
+      </section>
+    )
+  }
+
   return (
     <section className="ds-section ds-run__readout vox-readout" aria-label="Time to first audio">
-      <dl className={`ds-strip${tone}`}>
+      <dl className={`ds-strip${tone}`} style={{ '--vox-cols': cells.length } as React.CSSProperties}>
         <Cell label={headLabel} hint={headHint}>
           {headline}
         </Cell>

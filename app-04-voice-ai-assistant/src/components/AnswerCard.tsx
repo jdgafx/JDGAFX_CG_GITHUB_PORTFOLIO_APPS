@@ -134,6 +134,7 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
             {run.modelCheck !== undefined && (
               <span className="ds-chip ds-chip--wrap" title={chip.title}>
                 {chip.label}
+                {chip.marker && ' '}
                 {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}>{chip.marker}</span>}
               </span>
             )}

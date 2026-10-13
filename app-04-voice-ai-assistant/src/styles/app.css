@@ -310,10 +310,14 @@
   .vox-studio .vox-level { height: 96px; }
   .vox-studio .ds-media { padding: 16px 20px; }
   .ds-main { padding-top: 20px; gap: 20px; }
+  /* The rail grows with its content, so an open example list is never cut off. */
+  .ds-controls { position: static; max-height: none; overflow: visible; }
+  .ds-controls::after { display: none; }
+  .ds-actions { position: static; box-shadow: none; }
 }
 
 /* A disabled control keeps full-strength muted text (never opacity), a dashed edge and the not-allowed cursor. */
-.ds-button:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-bg); border: 1px dashed var(--ds-border-strong); }
+.ds-button:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); border: 1px solid var(--ds-border); }
 .ds-choice:disabled { opacity: 1; background: var(--ds-bg); border-style: dashed; border-color: var(--ds-border-strong); }
 .ds-choice:disabled .ds-choice__label, .ds-choice:disabled .ds-choice__text { color: var(--ds-text-muted); }
 
@@ -341,12 +345,17 @@
 .vox-asked__label { font-family: var(--ds-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ds-accent); }
 
 /* The readout: numerals set like a meter. */
+.vox-readout .ds-strip { grid-template-columns: repeat(var(--vox-cols, 4), minmax(0, 1fr)); }
 .vox-readout .ds-strip__item:first-child { grid-column: 1 / -1; }
+.vox-readout__empty { max-width: 62ch; padding: 16px; font-size: 15px; color: var(--ds-text-muted); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.vox-readout__empty strong { color: var(--ds-text); font-weight: 650; }
+.vox-foot p { font-size: 14px; color: var(--ds-text); }
 .vox-readout .ds-strip__item:first-child .ds-strip__value { font-size: 44px; line-height: 1.1; color: var(--ds-accent); }
 .vox-readout .ds-strip--pending .ds-strip__item:first-child .ds-strip__value { color: var(--ds-text-muted); }
 .vox-readout .ds-strip--live .ds-strip__item:first-child .ds-strip__value { color: var(--ds-accent); }
 
 @media (max-width: 720px) {
+  .vox-readout .ds-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vox-studio .ds-media { padding: 12px; }
   .vox-studio .ds-media .ds-row { gap: 12px; }
   .vox-studio .ds-rec { width: 56px; height: 56px; }

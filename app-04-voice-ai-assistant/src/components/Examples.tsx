@@ -1,12 +1,15 @@
 import { useState } from 'react'
 
 // Examples that fill the box. `source` names the live data the question draws on.
-const EXAMPLES = [
+export const EXAMPLES = [
   { question: "What's the weather in Lisbon right now?", source: 'Live weather from Open-Meteo' },
   { question: 'Who was Ada Lovelace?', source: 'Wikipedia summary' },
   { question: 'Is it warmer in Tokyo or in Oslo today?', source: 'Two live weather lookups' },
   { question: 'How does a voice assistant turn speech into an answer?', source: 'No tools, the model alone' },
 ] as const
+
+/** The question the box starts with, so the first screen holds a ready question and a lit Ask button. Nothing is sent until the visitor presses Ask. */
+export const FIRST_QUESTION: string = EXAMPLES[0].question
 
 interface ExamplesProps {
   onPick: (question: string) => void

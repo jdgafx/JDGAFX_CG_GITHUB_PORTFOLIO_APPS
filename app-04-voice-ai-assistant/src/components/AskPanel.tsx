@@ -40,6 +40,7 @@ export default function AskPanel({ value, onChange, onSubmit, disabled }: AskPan
           value={value}
           disabled={disabled}
           autoComplete="off"
+          placeholder="Type a question, or press Record"
           aria-describedby={tooLong ? 'vox-text-help vox-text-count vox-text-over' : 'vox-text-help vox-text-count'}
           aria-invalid={tooLong ? true : undefined}
           onChange={event => onChange(event.target.value)}

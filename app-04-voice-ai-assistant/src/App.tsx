@@ -2,7 +2,7 @@ import { useState } from 'react'
 import AnswerCard from './components/AnswerCard'
 import AskPanel from './components/AskPanel'
 import Dock from './components/Dock'
-import Examples from './components/Examples'
+import Examples, { FIRST_QUESTION } from './components/Examples'
 import Header from './components/Header'
 import History from './components/History'
 import Notice from './components/Notice'
@@ -29,7 +29,7 @@ const PHASE: Record<Stage, RunPhase> = {
 
 export default function App() {
   const assistant = useAssistant()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(FIRST_QUESTION)
   const [collapseKey, setCollapseKey] = useState(0)
   const { run, busy, recording, hasMic } = assistant
   const phase = PHASE[run.stage]
@@ -81,7 +81,7 @@ export default function App() {
           <div className="ds-run">
             <AnswerCard run={run} onRetry={() => ask(run.question)} />
             <Readout run={run} />
-            <Pipeline view={pipelineView(phase, steps, run.voice === 'speaking' && run.outcome === 'running')} model={run.model} />
+            <Pipeline view={pipelineView(phase, steps, run.voice === 'speaking' && run.outcome === 'running')} model={run.model} idle={run.outcome === 'idle'} />
             <Trace run={run} live={run.outcome === 'running' ? liveStep(phase, steps) : null} />
             <History messages={assistant.messages} clearDisabled={busy} onClear={assistant.clearConversation} />
           </div>

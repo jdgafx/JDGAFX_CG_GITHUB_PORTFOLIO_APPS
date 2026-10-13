@@ -52,7 +52,7 @@ function useNarrow() {
   return { ref, narrow }
 }
 
-function Node({ box, title, sub, stage }: { box: Box; title: string; sub: string; stage: StageView }) {
+function Node({ box, title, sub, stage, idle }: { box: Box; title: string; sub: string; stage: StageView; idle?: boolean }) {
   return (
     <g>
       {stage.state === 'running' && <rect className="ds-g-halo" x={box.x - 5} y={box.y - 5} width={box.w + 10} height={box.h + 10} rx={11} />}
@@ -65,7 +65,7 @@ function Node({ box, title, sub, stage }: { box: Box; title: string; sub: string
       </text>
       <circle className={`ds-g-dot ${DOT[stage.state]}`} cx={box.x + 16} cy={box.y + 70} r={4.5} />
       <text className={stage.state === 'running' ? 'ds-g-state ds-g-state--active' : 'ds-g-state'} x={box.x + 26} y={box.y + 74}>
-        {WORD[stage.state]}
+        {idle && stage.state === 'waiting' ? 'Ready' : WORD[stage.state]}
         {stage.ms !== undefined ? `, ${formatMs(stage.ms)}` : ''}
       </text>
     </g>
@@ -75,9 +75,11 @@ function Node({ box, title, sub, stage }: { box: Box; title: string; sub: string
 interface PipelineProps {
   view: PipelineView
   model: string | undefined
+  /** No question asked yet: a stage that has not run says Ready instead of Waiting. */
+  idle?: boolean
 }
 
-export default function Pipeline({ view, model }: PipelineProps) {
+export default function Pipeline({ view, model, idle }: PipelineProps) {
   const { ref, narrow } = useNarrow()
   const layout = narrow ? TALL : WIDE
   const [a, b, c] = layout.boxes
@@ -118,9 +120,9 @@ export default function Pipeline({ view, model }: PipelineProps) {
           <text className={view.replyPassed ? 'ds-g-label ds-g-label--taken' : 'ds-g-label'} x={second.x} y={second.y} textAnchor={second.anchor}>
             sentences
           </text>
-          <Node box={a} title="Listen" sub={view.listen.note ? 'Typed question' : 'Deepgram nova-3'} stage={view.listen} />
-          <Node box={b} title="Think" sub={thinkSub} stage={view.think} />
-          <Node box={c} title="Speak" sub="Browser voice" stage={view.speak} />
+          <Node box={a} title="Listen" sub={view.listen.note ? 'Typed question' : 'Deepgram nova-3'} stage={view.listen} idle={idle} />
+          <Node box={b} title="Think" sub={thinkSub} stage={view.think} idle={idle} />
+          <Node box={c} title="Speak" sub="Browser voice" stage={view.speak} idle={idle} />
         </svg>
       </div>
     </section>
