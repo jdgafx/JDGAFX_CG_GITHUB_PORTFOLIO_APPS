@@ -1,0 +1,18 @@
+{
+  "url": "https://deploy-preview-73--jdgafx-app-04-voice-ai-assistant.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/ai",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": { "/api/ai": { "frame": { "field": "type", "equals": "done" }, "take": "last" } },
+  "expect": [
+    { "path": "/api/ai", "field": "result", "nonEmpty": true, "message": "the run wrote no answer" },
+    { "path": "/api/ai", "field": "model", "nonEmpty": true, "message": "the answer names no model" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "model" },
+    "modelRole": "answered by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "whole run"
+  }
+}

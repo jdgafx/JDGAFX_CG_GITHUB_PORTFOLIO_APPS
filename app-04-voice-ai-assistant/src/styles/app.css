@@ -310,8 +310,8 @@
   .vox-studio .vox-level { height: 96px; }
   .vox-studio .ds-media { padding: 16px 20px; }
   .ds-main { padding-top: 20px; gap: 20px; }
-  /* The rail grows with its content, so an open example list is never cut off. */
-  .ds-controls { position: static; max-height: none; overflow: visible; }
+  /* The rail stays in view beside a long answer and is as tall as the screen allows, so an open example list is not cut off. */
+  .ds-controls { top: 16px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
   .ds-controls::after { display: none; }
   .ds-actions { position: static; box-shadow: none; }
 }
@@ -347,7 +347,7 @@
 /* The readout: numerals set like a meter. */
 .vox-readout .ds-strip { grid-template-columns: repeat(var(--vox-cols, 4), minmax(0, 1fr)); }
 .vox-readout .ds-strip__item:first-child { grid-column: 1 / -1; }
-.vox-readout__empty { max-width: 62ch; padding: 16px; font-size: 15px; color: var(--ds-text-muted); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.vox-readout__empty { max-width: none; padding: 16px; font-size: 15px; color: var(--ds-text-muted); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
 .vox-readout__empty strong { color: var(--ds-text); font-weight: 650; }
 .vox-foot p { font-size: 14px; color: var(--ds-text); }
 .vox-readout .ds-strip__item:first-child .ds-strip__value { font-size: 44px; line-height: 1.1; color: var(--ds-accent); }
@@ -365,3 +365,12 @@
   .vox-readout .ds-strip__item:first-child .ds-strip__value { font-size: 32px; }
   .vox-readout .ds-strip__item:last-child:nth-child(even) { grid-column: 1 / -1; }
 }
+
+/* Replay label: a recorded run is played back on load; this says so, with the figures from the recording. */
+.replay-label { order: -10; display: grid; gap: 4px; padding: 12px 16px; min-width: 0; background: var(--ds-accent-soft); border-color: var(--ds-accent-dim); }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; max-width: none; overflow-wrap: anywhere; }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }
+.vox-try__question { color: var(--ds-text); font-size: 18px; }
+.vox-try__question .vox-asked__label { margin-right: 8px; }
+.ds-state--empty .ds-state__actions { margin-top: 12px; }

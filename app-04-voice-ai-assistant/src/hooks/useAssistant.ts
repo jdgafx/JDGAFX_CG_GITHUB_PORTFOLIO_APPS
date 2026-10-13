@@ -14,6 +14,7 @@ import { chat } from '../lib/chatStream'
 import { UserFacingError } from '../lib/errors'
 import { historyFor, markUnsent } from '../lib/history'
 import { createReplyVoice, type ReplyVoice } from '../lib/replyVoice'
+import { browserUtterance } from '../lib/speechQueue'
 import { IDLE_RUN, runReducer, type RunState } from '../lib/run'
 import { isLikelySilence } from '../lib/transcript'
 import { useRecorder } from './useRecorder'
@@ -71,9 +72,9 @@ export function useAssistant() {
     setMessages(next)
   }, [])
 
-  const begin = useCallback((via: 'voice' | 'text', question: string) => {
+  const begin = useCallback((via: 'voice' | 'text', question: string, replay = false) => {
     runCounter += 1
-    dispatch({ type: 'start', id: runCounter, via, question, now: now() })
+    dispatch({ type: 'start', id: runCounter, via, question, now: now(), replay })
     return runCounter
   }, [])
 
@@ -84,12 +85,13 @@ export function useAssistant() {
 
   // The model turn: send the question with recent history; the answer streams in and is spoken as it goes.
   const ask = useCallback(
-    async (text: string, serverMs: number, controller: AbortController) => {
+    async (text: string, serverMs: number, controller: AbortController, silent = false) => {
       const history = historyFor(messagesRef.current)
       const question = newMessage('user', text)
       pendingQuestionRef.current = question.id
       commitMessages([...messagesRef.current, question])
-      const voice = createReplyVoice(dispatch)
+      // A replay is text only: it is given no voice, so nothing is spoken when the page loads.
+      const voice = createReplyVoice(dispatch, silent ? { synth: null, makeUtterance: browserUtterance, now } : undefined)
       voiceRef.current = voice
       try {
         const done = await chat(
@@ -238,14 +240,14 @@ export function useAssistant() {
 
   // Typed path: the same ask-and-speak steps, without the speech to text step.
   const sendText = useCallback(
-    (text: string) => {
+    (text: string, options: { replay?: boolean } = {}) => {
       if (sendingRef.current) return
       setNotice(null)
-      begin('text', text)
+      begin('text', text, options.replay === true)
       const controller = new AbortController()
       abortRef.current = controller
       sendingRef.current = controller
-      void ask(text, 0, controller)
+      void ask(text, 0, controller, options.replay === true)
         .catch(() => fail(UNEXPECTED))
         .finally(() => {
           if (abortRef.current === controller) abortRef.current = null

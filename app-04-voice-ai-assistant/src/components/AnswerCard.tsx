@@ -3,6 +3,7 @@ import { parseInline } from '../lib/markdown'
 import { answerText, type RunState } from '../lib/run'
 import { drawSentences, modelChip, readingNote } from '../lib/view'
 import { formatMs, usageBits } from '../lib/format'
+import { FIRST_QUESTION } from './Examples'
 
 function Inline({ text }: { text: string }) {
   return (
@@ -15,6 +16,7 @@ function Inline({ text }: { text: string }) {
 }
 
 function voiceWord(run: RunState): string {
+  if (run.replay) return 'Replay: text only'
   if (run.steps.at(-1)?.detail === 'Stopped by you') return 'Voice stopped by you'
   if (run.outcome === 'failed' || run.outcome === 'stopped') return run.voice === 'none' ? 'Text only, no voice here' : 'Voice stopped'
   if (run.voice === 'none') return 'Text only, no voice here'
@@ -34,9 +36,11 @@ interface AnswerCardProps {
   run: RunState
   /** Extra line of help, e.g. the weather drift explanation. */
   onRetry: () => void
+  /** Runs the example question for real, with one click. */
+  onTry: () => void
 }
 
-export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
+export default function AnswerCard({ run, onRetry, onTry }: AnswerCardProps) {
   const text = answerText(run)
   const started = run.outcome !== 'idle'
   const waiting = run.outcome === 'running' && text === ''
@@ -53,6 +57,14 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
             Ask a question
           </h2>
           <p className="ds-state__body">Record it, type it or pick an example. The answer streams in here and is read aloud sentence by sentence.</p>
+          <p className="ds-state__body vox-try__question">
+            <span className="vox-asked__label">Example</span> {FIRST_QUESTION}
+          </p>
+          <div className="ds-state__actions">
+            <button type="button" className="ds-button ds-button--primary" onClick={onTry}>
+              Try it
+            </button>
+          </div>
         </div>
       </section>
     )
@@ -83,10 +95,7 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
   const ended = run.outcome === 'failed' || run.outcome === 'stopped'
   const spent = usageBits(run.usage)
   const chip = modelChip(run)
-  const footBits = [
-    run.totalMs !== undefined ? `Server time ${formatMs(run.totalMs)}` : null,
-    ...spent,
-  ].filter(Boolean)
+  const costBits = [run.totalMs !== undefined ? `Server time ${formatMs(run.totalMs)}` : null, ...spent].filter((bit): bit is string => bit !== null)
 
   return (
     <section className="ds-run__result" aria-labelledby="answer-title">
@@ -138,6 +147,11 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
                 {chip.marker && <span className={chip.warn ? 'ds-badge ds-badge--warning' : undefined}>{chip.marker}</span>}
               </span>
             )}
+            {costBits.map(bit => (
+              <span key={bit} className="ds-chip ds-chip--wrap" data-cost-chip>
+                {bit}
+              </span>
+            ))}
           </div>
           <p className="vox-asked">
             <span className="vox-asked__label">You asked</span> {run.question || 'a spoken question'}
@@ -169,7 +183,6 @@ export default function AnswerCard({ run, onRetry }: AnswerCardProps) {
                 </p>
               </details>
             )}
-            {footBits.length > 0 && <p>{footBits.join(', ')}</p>}
           </div>
         </div>
       )}

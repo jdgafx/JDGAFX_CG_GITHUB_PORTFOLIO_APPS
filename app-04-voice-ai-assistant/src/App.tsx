@@ -13,7 +13,9 @@ import VoiceCapture from './components/VoiceCapture'
 import { useAssistant } from './hooks/useAssistant'
 import { liveStep, pipelineView, type RunPhase } from './lib/pipeline'
 import type { Stage } from './lib/run'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus } from './replay'
+import { ReplayLabel } from './components/ReplayLabel'
+import { useReplay } from './lib/useReplay'
 import { liveData } from './lib/liveData'
 import { badgeFor, statusLine } from './lib/view'
 
@@ -29,7 +31,7 @@ const PHASE: Record<Stage, RunPhase> = {
 
 export default function App() {
   const assistant = useAssistant()
-  const [text, setText] = useState(FIRST_QUESTION)
+  const [text, setText] = useState('')
   const [collapseKey, setCollapseKey] = useState(0)
   const { run, busy, recording, hasMic } = assistant
   const phase = PHASE[run.stage]
@@ -37,17 +39,43 @@ export default function App() {
   const asked = text.trim()
 
   // On a phone the answer sits below the controls: the hook scrolls it into view and focuses its heading when a run ends.
-  useResultFocus(run.outcome, { onRunStart: narrow => narrow && setCollapseKey(n => n + 1) })
+  useResultFocus(run.outcome, { onRunStart: narrow => narrow && setCollapseKey(n => n + 1), replay: run.replay === true })
+
+  // On load the recorded run of the example plays back through this same page code (text only), if it is fresh.
+  const replay = useReplay({
+    question: FIRST_QUESTION,
+    canStart: () => !busy && run.outcome === 'idle' && text === '' && assistant.messages.length === 0,
+    begin: question => assistant.sendText(question, { replay: true }),
+    clear: assistant.clearConversation,
+  })
+  // Any run the visitor starts leaves the replay first: its label goes, its turns leave the conversation, a replay still playing is stopped.
+  const leaveReplay = () => {
+    if (!replay.info) return
+    replay.stop()
+    if (busy) assistant.stopRun()
+    assistant.clearConversation()
+  }
 
   const ask = (question: string) => {
     if (!question || busy) return
+    leaveReplay()
     setText('')
     assistant.sendText(question)
+  }
+  const tryIt = () => {
+    if (busy && !run.replay) return
+    leaveReplay()
+    setText('')
+    assistant.sendText(FIRST_QUESTION)
+  }
+  const record = () => {
+    leaveReplay()
+    void assistant.startRecording()
   }
 
   return (
     <div className="ds-app" data-run={run.outcome}>
-      <Header badge={badgeFor(run, hasMic)} live={liveData(run.steps, run.arrivedAt)} />
+      <Header badge={badgeFor(run, hasMic)} live={liveData(run.replay ? [] : run.steps, run.arrivedAt)} />
 
       <main className="ds-main">
         <VoiceCapture
@@ -56,7 +84,7 @@ export default function App() {
           disabled={busy && !recording}
           msLeft={assistant.msLeft}
           analyserRef={assistant.analyserRef}
-          onToggle={recording ? assistant.finishRecording : assistant.startRecording}
+          onToggle={recording ? assistant.finishRecording : record}
         />
 
         <div className="ds-bench">
@@ -69,7 +97,7 @@ export default function App() {
               hasMic={hasMic}
               canAsk={asked.length > 0}
               onFinishRecording={assistant.finishRecording}
-              onRecord={assistant.startRecording}
+              onRecord={record}
               onStop={assistant.stopRun}
             />
             <p className="ds-help vox-status" role="status">
@@ -79,7 +107,8 @@ export default function App() {
           </div>
 
           <div className="ds-run">
-            <AnswerCard run={run} onRetry={() => ask(run.question)} />
+            {replay.info && <ReplayLabel info={replay.info} onRunLive={tryIt} />}
+            <AnswerCard run={run} onRetry={() => ask(run.question)} onTry={tryIt} />
             <Readout run={run} />
             <Pipeline view={pipelineView(phase, steps, run.voice === 'speaking' && run.outcome === 'running')} model={run.model} idle={run.outcome === 'idle'} />
             <Trace run={run} live={run.outcome === 'running' ? liveStep(phase, steps) : null} />

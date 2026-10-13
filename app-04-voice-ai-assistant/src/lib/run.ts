@@ -39,6 +39,8 @@ export interface RunState {
   marks: Marks
   /** Wall-clock time each trace step arrived, by step index, for the live-data chip. */
   arrivedAt: Record<number, number>
+  /** The run is the load-time replay of a recorded run, played back through this same code. It never speaks. */
+  replay?: boolean
 }
 
 export const IDLE_RUN: RunState = {
@@ -59,7 +61,7 @@ export const IDLE_RUN: RunState = {
 }
 
 export type RunAction =
-  | { type: 'start'; id: number; via: 'voice' | 'text'; question: string; now: number }
+  | { type: 'start'; id: number; via: 'voice' | 'text'; question: string; now: number; replay?: boolean }
   | { type: 'heard'; now: number }
   | { type: 'step'; step: TraceStep; now: number; wall?: number }
   | { type: 'transcript'; text: string; now: number }
@@ -75,6 +77,7 @@ export type RunAction =
   | { type: 'clear' }
 
 const NO_VOICE_NOTE = 'This browser has no voice installed, so the reply is text only.'
+const REPLAY_NOTE = 'A replay is text only: it never speaks.'
 
 /** The whole answer as text: finished sentences, then the tail. */
 export function answerText(run: Pick<RunState, 'sentences' | 'rest'>): string {
@@ -113,6 +116,7 @@ export function runReducer(run: RunState, action: RunAction): RunState {
         via: action.via,
         question: action.question,
         marks: { origin: action.now },
+        replay: action.replay === true ? true : undefined,
       }
     // The visitor stopped talking: the clock for time to first audio starts here.
     case 'heard':
@@ -154,7 +158,7 @@ export function runReducer(run: RunState, action: RunAction): RunState {
     case 'voice-idle':
       return settle({ ...run, voice: 'done', active: -1 }, action.now)
     case 'no-voice':
-      return settle({ ...run, voice: 'none', voiceNote: NO_VOICE_NOTE, active: -1 }, action.now)
+      return settle({ ...run, voice: 'none', voiceNote: run.replay ? REPLAY_NOTE : NO_VOICE_NOTE, active: -1 }, action.now)
     case 'voice-failed':
       return settle({ ...run, voice: 'failed', voiceNote: action.message, active: -1 }, action.now)
     case 'stream-done':

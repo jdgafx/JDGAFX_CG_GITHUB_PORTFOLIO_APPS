@@ -63,7 +63,7 @@ export default function Readout({ run }: { run: RunState }) {
   } else if (noVoice && figures.toFirstSentence !== undefined) {
     headline = formatMs(figures.toFirstSentence)
     headLabel = 'Time to first sentence'
-    headHint = 'No voice on this device, so no audio to time'
+    headHint = run.replay ? 'A replay is text only, so no audio to time' : 'No voice on this device, so no audio to time'
   } else if (run.stage === 'recording') {
     headHint = 'Starts when you stop speaking'
   } else if (waitingForAudio && started) {
