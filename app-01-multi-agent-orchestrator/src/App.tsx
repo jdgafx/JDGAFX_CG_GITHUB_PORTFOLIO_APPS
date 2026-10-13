@@ -26,7 +26,7 @@ import { buildTraceRows } from './lib/traceRows'
 import { settleAudit } from './lib/auditState'
 import { useAudit } from './lib/useAudit'
 import { useReplay } from './lib/useReplay'
-import { useResultFocus, type RunPhase as FocusPhase } from './replay'
+import { replayLabel, useResultFocus, type RunPhase as FocusPhase } from './replay'
 import { sumUsage } from './lib/usage'
 import type { AgentRole, AgentState, RunSummary, Source, StreamEvent } from './types'
 
@@ -321,8 +321,8 @@ export default function App() {
   const exportState: ExportState = isRunning ? 'running' : !hasAnyOutput ? 'empty' : phase === 'complete' ? 'complete' : 'partial'
 
   return (
-    <div className="ds-app" data-run={FOCUS_PHASE[phase]}>
-      <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt)} />
+    <div className="ds-app" data-run={FOCUS_PHASE[phase]} data-replay={replaying && replay.info ? 'true' : undefined}>
+      <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt, replaying && replay.info ? replayLabel(replay.info.recording, replay.info.startedAt, replay.info.speed).age : null)} />
 
       <main className="ds-main">
         <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready'} hint={HOWTO_HINT} />

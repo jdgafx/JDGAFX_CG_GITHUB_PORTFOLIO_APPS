@@ -3,7 +3,7 @@
   "version": 3,
   "frozen": "2026-10-12",
   "revision": "v3 2026-10-12 (Chris GH.3, sized per GJ.3): known-false claims are planted and sent once each through the preview's real citation audit; caught = partly, unsupported or unverified (each visibly not confirmed to the user); the three controls must show supported; the second judge and borderline rule are gone. ",
-  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it. PLANTED_POST: the verifier POSTs the frozen planted report and sources to PREVIEW_URL/.netlify/functions/audit (the request the browser's requestAudit sends) and saves request, status and body. CAUGHT: a planted claim whose audit verdict is 'partly' or 'unsupported'. Any other verdict, a missing claim or a non-200 is NOT caught.",
+  "tokens": "READ_AT_RUN: read from verify_at during the run and save the copy with the evidence. WRITE_BEFORE_RUN: the verifier writes the hand verdict into the evidence before the run. HAND_CHECK_AT_RUN: a human judgement from the output plus verify_at. PREVIEW_URL: the PR deploy preview under test, the same value as preview_url in the gate evidence. READ_AT_RUN compares against the response the app itself received (HAR for browser fetches; the app's trace or tool output for server fetches). A separate verifier fetch is allowed only for server-side fetches, within 60 s, with the source timestamp recorded. repeat N: each run id is run N times in a row, unless repeat_by_run overrides it. PLANTED_POST: the verifier POSTs the frozen planted report and sources to PREVIEW_URL/api/audit (the request the browser's requestAudit sends) and saves request, status and body. CAUGHT: a planted claim whose audit verdict is 'partly' or 'unsupported'. Any other verdict, a missing claim or a non-200 is NOT caught.",
   "done_sentence": "Every known-false claim planted in a report sent to the preview's real citation audit is flagged (partly, unsupported or unverified) and the three plain-true controls show supported; on the 3 live runs (once each) each cited claim shows a verdict and none the verifier judges wrong is shown as supported",
   "runs": [
     {
@@ -89,7 +89,7 @@
       "sources_copied_from": "r1-1-SEALED-audit.json (request.sources, byte for byte)",
       "request": {
         "method": "POST",
-        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "url": "PREVIEW_URL/api/audit",
         "headers": {
           "Content-Type": "application/json"
         },
@@ -179,7 +179,7 @@
       "sources_copied_from": "r2-1-SEALED-audit.json (request.sources, byte for byte)",
       "request": {
         "method": "POST",
-        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "url": "PREVIEW_URL/api/audit",
         "headers": {
           "Content-Type": "application/json"
         },
@@ -269,7 +269,7 @@
       "sources_copied_from": "r3-1-SEALED-audit.json (request.sources, byte for byte)",
       "request": {
         "method": "POST",
-        "url": "PREVIEW_URL/.netlify/functions/audit",
+        "url": "PREVIEW_URL/api/audit",
         "headers": {
           "Content-Type": "application/json"
         },

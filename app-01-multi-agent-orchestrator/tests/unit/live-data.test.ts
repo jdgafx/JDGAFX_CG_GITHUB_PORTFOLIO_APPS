@@ -19,6 +19,11 @@ describe('liveDataView', () => {
     expect(liveDataView({ status: 'complete', sources: [wiki] }, at).text).toBe('Live data: Wikipedia · fetched 14:05')
   })
 
+  it('says how long ago the sources were fetched, not a fetch time, while a replay shows', () => {
+    expect(liveDataView({ status: 'complete', sources: [wiki, hn] }, at, '3 h ago')).toMatchObject({ state: 'idle', text: 'Recorded data: Wikipedia + Hacker News · fetched 3 h ago' })
+    expect(liveDataView({ status: 'working' }, null, '3 h ago').text).toBe('Live data: Wikipedia + Hacker News')
+  })
+
   it('fails on an error or when nothing was found', () => {
     expect(liveDataView({ status: 'error' }, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
     expect(liveDataView({ status: 'complete', sources: [] }, at).state).toBe('failed')

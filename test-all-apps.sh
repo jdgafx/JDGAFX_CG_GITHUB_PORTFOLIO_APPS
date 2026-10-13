@@ -152,9 +152,9 @@ reject_checks() {
 ###############################################################################
 
 app_01() {
-  reject_checks /.netlify/functions/ai
-  expect "POST {} /.netlify/functions/ai error is Missing query." '.error == "Missing query."'
-  call POST "$BASE/.netlify/functions/ai" 60 '{"query":"In two sentences, compare SSE and WebSockets for streaming LLM output."}'
+  reject_checks /api/ai
+  expect "POST {} /api/ai error is Missing query." '.error == "Missing query."'
+  call POST "$BASE/api/ai" 60 '{"query":"In two sentences, compare SSE and WebSockets for streaming LLM output."}'
   expect_status "agent pipeline returns 200" 200
   expect_type text/event-stream
   expect_sse "four agent_complete events" '[sse_frames[] | select(.type == "agent_complete")] | length == 4'
