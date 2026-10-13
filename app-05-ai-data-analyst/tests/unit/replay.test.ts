@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { replayTrace } from '../../src/lib/analysis'
 import { glanceFor } from '../../src/lib/liveGlance'
 import { parseEarthquakeCsv } from '../../src/lib/liveData/parse'
 import { TRY_QUESTION } from '../../src/lib/howto'
@@ -66,5 +67,19 @@ describe('glanceFor', () => {
     const data = { headers: ['time', 'mag', 'place'], rows: [{ time: '2026-10-01T01:00:00Z', mag: '1', place: 'a' }, { time: '2026-10-03T01:00:00Z', mag: '2', place: 'b' }] }
     expect(glanceFor(data)?.days).toEqual([{ label: '2026-10-01', count: 1 }, { label: '2026-10-02', count: 0 }, { label: '2026-10-03', count: 1 }])
     expect(glanceFor({ headers: ['date', 'temp'], rows: [{ date: '2026-10-01', temp: '1' }] })).toBeNull()
+  })
+})
+
+describe('replayTrace', () => {
+  it('restates the recorded row count with the rows on screen and leaves other steps alone', () => {
+    const data = parseEarthquakeCsv(USGS_WEEK_EXCERPT)
+    const recorded = [
+      { name: 'Build request', status: 'ok' as const, ms: 1, detail: 'Sending 5 sample rows and 23 column names from a dataset of 2025 rows.' },
+      { name: 'Model call', status: 'ok' as const, ms: 2, detail: 'Served by m.' },
+    ]
+    const shown = replayTrace(recorded, data)
+    expect(shown[0]?.detail).toContain(`holds ${data.rows.length} rows`)
+    expect(shown[0]?.detail).not.toContain('2025')
+    expect(shown[1]).toEqual(recorded[1])
   })
 })

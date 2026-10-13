@@ -14,6 +14,24 @@ export interface StepRequest {
   vocab?: Vocabulary
   /** Set on a follow-up: the result the new plan refines. */
   previous?: AnalysisResult
+  /** True when the reply comes from a recording: its trace text about the data is then restated for the rows on screen. */
+  replayed?: boolean
+}
+
+/**
+ * The trace of a recorded reply, with the one step that states a data figure ("Build request": the rows of the dataset the
+ * run was made on) restated for the rows on screen now. Nothing was sent in a replay, and the feed has moved since the recording.
+ */
+export function replayTrace(trace: RunStep[], data: ParsedData): RunStep[] {
+  const sample = sampleFor(data).length
+  return trace.map((step) =>
+    step.name === 'Build request'
+      ? {
+          ...step,
+          detail: `Replay: nothing was sent. The recorded run planned from ${sample} sample rows and ${data.headers.length} column names; the dataset on screen now holds ${data.rows.length.toLocaleString('en-US')} rows.`,
+        }
+      : step,
+  )
 }
 
 /** What one run produced. A failed plan check carries the run so far; every other failure is thrown by askData. */
@@ -43,7 +61,7 @@ function groupsDetail(engine: EngineResult, direction: 'highest' | 'lowest', top
  * visitor stops and AnalysisRunError when the request fails, both from askData.
  */
 export async function planAndRun(request: StepRequest, signal: AbortSignal): Promise<StepOutcome> {
-  const { question, data, dataset, previous } = request
+  const { question, data, dataset, previous, replayed } = request
   const vocab = request.vocab ?? RAW_VOCABULARY
   const response = await askData(
     {
@@ -55,6 +73,7 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
     },
     { signal },
   )
+  const trace = replayed ? replayTrace(response.trace, data) : response.trace
   const summary = {
     usage: response.usage,
     model: response.model,
@@ -70,7 +89,7 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
   const validation = validateQueryPlan(response.result, data.headers)
   if (!validation.ok) {
     const step: RunStep = { name: 'Check plan in the browser', status: 'failed', ms: Date.now() - checkAt, detail: validation.error }
-    return { kind: 'invalid', error: validation.error, run: { ...summary, trace: [...response.trace, step], outcome: 'failed' } }
+    return { kind: 'invalid', error: validation.error, run: { ...summary, trace: [...trace, step], outcome: 'failed' } }
   }
 
   if (previous && validation.plan.cannotApply) {
@@ -84,7 +103,7 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
       kind: 'not-applied',
       reason: validation.plan.cannotApply,
       result: previous,
-      run: { ...summary, trace: [...response.trace, step], outcome: 'done' },
+      run: { ...summary, trace: [...trace, step], outcome: 'done' },
     }
   }
 
@@ -104,7 +123,7 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
       ms: 0,
       detail: 'Not run: the model reported that the question is not about this dataset, so there is nothing to compute.',
     }
-    return { kind: 'unanswered', message: unansweredMessage(names, vocab), run: { ...summary, trace: [...response.trace, step], outcome: 'done' } }
+    return { kind: 'unanswered', message: unansweredMessage(names, vocab), run: { ...summary, trace: [...trace, step], outcome: 'done' } }
   }
 
   const asked = dropUnaskedLimit(validation.plan, question, previous?.queryPlan.limit)
@@ -128,6 +147,6 @@ export async function planAndRun(request: StepRequest, signal: AbortSignal): Pro
     kind: 'done',
     result,
     changes: previous ? diffPlans(previous.queryPlan, plan, vocab) : [],
-    run: { ...summary, trace: [...response.trace, runStep], outcome: 'done' },
+    run: { ...summary, trace: [...trace, runStep], outcome: 'done' },
   }
 }

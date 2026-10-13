@@ -12,7 +12,7 @@ import { USGS_WEEK_EXCERPT } from '../fixtures/usgsWeek'
 const FEED_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.csv'
 const headers = parseEarthquakeCsv(USGS_WEEK_EXCERPT).headers
 const PLAN = { chartType: 'bar', groupBy: 'region', aggregate: { field: 'id', fn: 'count' }, title: 'Earthquakes by region', explanation: '', sortBy: { field: 'id', dir: 'desc' } }
-const REPLY = { result: PLAN, trace: [{ name: 'Ask the model', status: 'ok', ms: 5, detail: 'plan' }], usage: { cost: 0.0012 }, model: 'test/recorded-model', newestModel: null, modelCheck: 'not-reported', checkedModel: null, totalMs: 5 }
+const REPLY = { result: PLAN, trace: [{ name: 'Build request', status: 'ok', ms: 1, detail: 'Sending 5 sample rows and 23 column names from a dataset of 2025 rows.' }, { name: 'Ask the model', status: 'ok', ms: 5, detail: 'plan' }], usage: { cost: 0.0012 }, model: 'test/recorded-model', newestModel: null, modelCheck: 'not-reported', checkedModel: null, totalMs: 5 }
 
 function recording(overrides: Record<string, unknown> = {}) {
   return {
@@ -89,6 +89,16 @@ describe('the load-time replay', () => {
     expect(apiCalls(network)).toEqual([])
   })
 
+  it('states the rows on screen in the replayed trace, never the recorded row count', async () => {
+    stubNetwork(recording())
+    await act(async () => root.render(<App />))
+    await vi.waitFor(() => expect(text()).toMatch(/California has the highest number of earthquakes: 20/))
+    const trace = container.querySelector('.ds-trace')?.textContent ?? ''
+    expect(trace).toContain('the dataset on screen now holds 59 rows')
+    expect(trace).not.toContain('2025')
+    expect(text()).not.toContain('2025 rows')
+  })
+
   it('Run it live clears the replay and makes a real request', async () => {
     const network = stubNetwork(recording())
     await act(async () => root.render(<App />))
@@ -98,6 +108,11 @@ describe('the load-time replay', () => {
     await vi.waitFor(() => expect(apiCalls(network)).toEqual(['/api/ai']))
     await vi.waitFor(() => expect(container.querySelector('[data-replay-label]')).toBeNull())
     expect(container.querySelectorAll('.app-replay-tag')).toHaveLength(0)
+    // The live run keeps its own label, with the model and cost it reported; the trace of a live run is the server's own text.
+    await vi.waitFor(() => expect(container.querySelector('[data-live-label]')).not.toBeNull())
+    expect(container.querySelector('[data-live-model]')?.textContent).toBe('served by recorded-model')
+    expect(container.querySelector('[data-live-cost]')?.textContent).toBe('whole run $0.001200')
+    expect(container.querySelector('.ds-trace')?.textContent).toContain('2025 rows')
   })
 
   it.each([

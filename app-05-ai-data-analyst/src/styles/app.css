@@ -459,7 +459,6 @@ body { word-spacing: 0.05em; }
   .app-glance__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app-glance__stats > div { padding: 8px 12px; }
   .app-glance__stats dd.ds-num { font-size: 20px; }
-  .app-glance__sub { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
   .ds-chart__head b { font-size: 18px; }
   .ds-showcase { padding: 8px 12px; }
 }

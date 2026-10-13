@@ -49,6 +49,8 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   /** True while the result on screen is the replay of a recording, until Run it live or a run of the visitor's own replaces it. */
   const [replaying, setReplaying] = useState(false)
+  /** True once Run it live has made a real run, until the rows change: its model and cost stay labelled on screen. */
+  const [ranLive, setRanLive] = useState(false)
   const [examplesOpen, setExamplesOpen] = useState<boolean>(() => window.matchMedia('(min-width: 1000px)').matches)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -77,6 +79,7 @@ export default function App() {
   const clearResult = () => {
     close()
     setReplaying(false)
+    setRanLive(false)
     setFileError(null)
     setNotice(null)
   }
@@ -214,6 +217,7 @@ export default function App() {
     replay.stop()
     analysis.dropReplayed()
     setReplaying(false)
+    setRanLive(true)
     void ask(TRY_QUESTION, 'new')
   }
 
@@ -285,6 +289,7 @@ export default function App() {
             onAskFollowUp={(text) => void ask(text, 'follow-up')}
             onRetry={() => lastAsk && void ask(lastAsk.question, lastAsk.mode)}
             replay={replaying ? replay.info : null}
+            liveRun={ranLive && !replaying && !analysis.pending && analysis.step?.replayed !== true && analysis.run?.outcome === 'done' && analysis.run.model ? analysis.run : null}
             onRunLive={runLive}
           />
         </div>

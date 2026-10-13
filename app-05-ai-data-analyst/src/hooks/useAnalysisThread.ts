@@ -84,7 +84,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       let outcome: StepOutcome | null = null
       try {
         outcome = await planAndRun(
-          { question: asked, data, dataset, vocab, ...(base ? { previous: base.result } : {}) },
+          { question: asked, data, dataset, vocab, ...(base ? { previous: base.result } : {}), ...(replayed ? { replayed } : {}) },
           controller.signal,
         )
       } catch (err) {

@@ -1,5 +1,7 @@
 import { replayLabel } from '../replay'
+import { formatCost, shortModel } from '../lib/format'
 import type { ReplayInfo } from '../lib/useReplay'
+import type { RunView } from '../types'
 
 interface ReplayLabelProps {
   info: ReplayInfo
@@ -27,6 +29,22 @@ export function ReplayLabel({ info, onRunLive, disabled }: ReplayLabelProps) {
       </p>
       {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote}</p>}
       <p className="ds-help">The plan is the one the model wrote in that run. The chart is computed now, in this browser, from the live rows just fetched.</p>
+    </div>
+  )
+}
+
+/** After Run it live: the label of the real run on screen, with the model and cost that run reported. */
+export function LiveRunLabel({ run }: { run: RunView }) {
+  return (
+    <div className="replay-label ds-card" role="status" data-live-label>
+      <p className="replay-label__line">
+        <strong>Live run</strong>
+        <span aria-hidden="true"> · </span>
+        <span data-live-model>{run.model ? `served by ${shortModel(run.model)}` : 'model not reported'}</span>
+        <span aria-hidden="true"> · </span>
+        <span data-live-cost>{run.usage.cost === undefined ? 'cost not reported' : `whole run ${formatCost(run.usage.cost)}`}</span>
+      </p>
+      <p className="ds-help">A real request made just now, not a recording.</p>
     </div>
   )
 }

@@ -1,10 +1,10 @@
 import type { AnalysisThreadState } from '../hooks/useAnalysisThread'
 import { useMemo } from 'react'
 import { glanceFor } from '../lib/liveGlance'
-import type { DataSourceInfo, ParsedData } from '../types'
+import type { DataSourceInfo, ParsedData, RunView } from '../types'
 import DataPreview from './DataPreview'
 import LiveGlance from './LiveGlance'
-import { ReplayLabel } from './ReplayLabel'
+import { LiveRunLabel, ReplayLabel } from './ReplayLabel'
 import type { ReplayInfo } from '../lib/useReplay'
 import HistoryList from './HistoryList'
 import ReadoutStrip from './ReadoutStrip'
@@ -22,6 +22,8 @@ interface RunColumnProps {
   onRetry: () => void
   /** Set while the run on screen is the replay of a recording. */
   replay: ReplayInfo | null
+  /** The real run that Run it live made, while it is the one on screen. */
+  liveRun: RunView | null
   onRunLive: () => void
 }
 
@@ -35,7 +37,7 @@ function emptyText(parsedData: ParsedData | null): { title: string; body: string
 }
 
 /** The run column, in the order of the ended state: the thread, the chart, the figures, the trace, then the rest. */
-export default function RunColumn({ parsedData, source, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry, replay, onRunLive }: RunColumnProps) {
+export default function RunColumn({ parsedData, source, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry, replay, liveRun, onRunLive }: RunColumnProps) {
   const { thread, run, pending, error, unanswered } = state
   const running = pending !== null
   const freshRun = pending?.mode === 'new'
@@ -46,6 +48,7 @@ export default function RunColumn({ parsedData, source, datasetLabel, state, las
   return (
     <div className="ds-run">
       {replay && <ReplayLabel info={replay} onRunLive={onRunLive} disabled={running} />}
+      {!replay && liveRun && <LiveRunLabel run={liveRun} />}
       {glance && source && <LiveGlance glance={glance} source={source} />}
 
       <div className="ds-run__result app-result">
