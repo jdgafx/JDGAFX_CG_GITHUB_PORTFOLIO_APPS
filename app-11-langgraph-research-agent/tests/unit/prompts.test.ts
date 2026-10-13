@@ -33,4 +33,13 @@ describe('prompts', () => {
     expect(agentSystem(3, true)).toContain(sentence)
     expect(agentSystem(3, false)).not.toContain(sentence)
   })
+
+  it('tell the draft and the critic to never present the older of two differing values as the current one', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'When the sources give different values for the same current fact - a version, a price, a score - say what each source shows and never present the older value as the current one.',
+    )
+    expect(CRITIC_SYSTEM).toContain(
+      'Set ok to false for a claim that calls a value current or latest when another source shows a newer value for the same fact.',
+    )
+  })
 })
