@@ -81,7 +81,7 @@ describe('startResearch', () => {
       { type: 'agent_chunk', agent: 'researcher', content: 'Facts' },
     ])
     const call = fetchMock.mock.calls[0]
-    expect(call?.[0]).toBe('/.netlify/functions/ai')
+    expect(call?.[0]).toBe('/api/ai')
     expect(call?.[1]?.method).toBe('POST')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ query: 'Why?' })
   })

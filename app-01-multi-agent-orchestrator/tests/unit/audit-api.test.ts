@@ -22,7 +22,7 @@ describe('requestAudit', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     expect(await requestAudit('Fact [1].', SOURCES)).toEqual(RESULT)
-    expect(fetchMock).toHaveBeenCalledWith('/.netlify/functions/audit', expect.objectContaining({ method: 'POST' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/audit', expect.objectContaining({ method: 'POST' }))
   })
 
   it('shows the server message for a failed audit and never a raw body', async () => {

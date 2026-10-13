@@ -236,7 +236,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
+.ds-badge .ds-dot:not([class*="ds-dot--"]) { background: currentColor; }
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }

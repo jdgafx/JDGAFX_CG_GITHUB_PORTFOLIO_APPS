@@ -4,7 +4,7 @@ import { AUDIT_AGENT, AUDIT_BUDGET_MS, auditMessage, parseJudgments, readAuditRe
 import { extractClaims } from '../../src/lib/audit'
 
 function post(body: unknown): Request {
-  return new Request('https://site.example/.netlify/functions/audit', { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })
+  return new Request('https://site.example/api/audit', { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })
 }
 
 const SOURCE = { n: 1, title: 'T', site: 'Wikipedia', snippet: 'Text of the source.' }

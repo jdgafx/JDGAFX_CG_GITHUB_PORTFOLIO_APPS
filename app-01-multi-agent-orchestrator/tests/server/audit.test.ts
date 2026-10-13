@@ -381,7 +381,7 @@ describe('audit function', () => {
   })
 
   it('serves a deploy preview whose Origin is the origin of its own URL', async () => {
-    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/.netlify/functions/audit` }))
+    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/api/audit` }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Missing report.' })
   })

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 
 export const SITE = 'https://site.example'
-export const ENDPOINT = `${SITE}/.netlify/functions/ai`
+export const ENDPOINT = `${SITE}/api/ai`
 export const KEY = 'test-only-placeholder'
 export const SERVED = 'anthropic/claude-haiku-5.5'
 export const FIXED_MODEL = '~anthropic/claude-haiku-latest'

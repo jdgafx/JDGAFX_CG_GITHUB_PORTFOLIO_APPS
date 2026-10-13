@@ -269,6 +269,8 @@ async function handle(req: Request): Promise<Response> {
   })
 }
 
+export const config = { path: '/api/ai' }
+
 /** Every request gets a response. Unexpected failures become a generic 500 JSON body. */
 export default async (req: Request): Promise<Response> => {
   try {

@@ -1,0 +1,22 @@
+{
+  "url": "https://jdgafx-app-01-multi-agent-orchestrator.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/audit",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": { "/api/ai": { "frame": { "field": "type", "equals": "session_complete" }, "take": "last" } },
+  "expect": [
+    { "path": "/api/ai", "field": "result", "nonEmpty": true, "message": "the run wrote no report" },
+    { "path": "/api/ai", "field": "model.servedModel", "nonEmpty": true, "message": "the report names no model" },
+    { "path": "/api/audit", "field": "claims", "minLength": 1, "message": "the audit checked no sentence" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "model.servedModel" },
+    "modelRole": "written by",
+    "costUsd": [
+      { "path": "/api/ai", "field": "usage.cost" },
+      { "path": "/api/audit", "field": "usage.cost" }
+    ],
+    "costScope": "research and audit"
+  }
+}

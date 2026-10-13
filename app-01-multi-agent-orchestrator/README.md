@@ -23,7 +23,7 @@ Thinking is on, so each token ceiling holds the model's thinking as well as its 
 
 ### Citation audit
 
-The Audit runs after the Synthesizer, as its own request to `/.netlify/functions/audit` with its own 26 second budget, so it never shortens the research run. The page sends the finished report and the sources it holds, shows "Auditing" while the request is out, and fills in the verdicts when it answers.
+The Audit runs after the Synthesizer, as its own request to `/api/audit` with its own 26 second budget, so it never shortens the research run. The page sends the finished report and the sources it holds, shows "Auditing" while the request is out, and fills in the verdicts when it answers.
 
 1. **Claims.** Every sentence of the report body (the Sources section is left out) that carries a [n] marker is one claim. Sentences are cut at full stops, with a marker after the stop kept with its sentence, and not at abbreviations or decimals. The server and the page run the same code, so they agree on the claim numbers without sending claims back and forth. At most 20 claims are checked; any further ones are listed as not checked and the page says how many.
 2. **Pre-pass (no model).** For each claim the code counts the share of its content words found in the text of the sources it cites (the title, the extract and the counts line), and checks that every number in the claim appears in that text (1,200 and 1200 are the same) and that every capitalised name does (a name counts as found when any of its words is there, and months are ignored). A claim that cites a source that is not in the list, or shares no content word with the source it cites, is decided here as not supported, without the model.
@@ -58,7 +58,7 @@ The page follows the portfolio's design system (instrument-bench masthead with t
 
 ```
 Browser (React, Vite, SVG graph)
-  -> POST /.netlify/functions/ai        body: { "query": "..." }
+  -> POST /api/ai        body: { "query": "..." }
        Netlify Function (netlify/functions/ai.ts)
          -> Wikipedia and Hacker News search APIs, in parallel (Retrieve)
          -> OpenRouter chat completions, one request per stage
@@ -70,7 +70,7 @@ Browser (React, Vite, SVG graph)
 
 ```
 Browser, when the report is done
-  -> POST /.netlify/functions/audit     body: { "report": "...", "sources": [...] }
+  -> POST /api/audit     body: { "report": "...", "sources": [...] }
        Netlify Function (netlify/functions/audit.ts)
          -> pre-pass (src/lib/audit.ts), then one OpenRouter call for the claims it cannot decide
   <- one JSON body: claims with verdicts and verified quotes, summary, usage, model, time
@@ -123,7 +123,7 @@ Environment variable names. Set the values in your own shell or in the Netlify s
 
 ```bash
 npm ci
-npm run dev        # UI only. Vite proxies /.netlify/functions to localhost:8888, so research runs fail here.
+npm run dev        # UI only. Vite proxies /api to localhost:8888, so research runs fail here.
 npx netlify dev    # UI and functions together on localhost:8888. Needs the Netlify CLI.
 ```
 

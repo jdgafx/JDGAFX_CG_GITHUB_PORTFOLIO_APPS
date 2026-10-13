@@ -231,7 +231,7 @@ describe('ai function: request handling', () => {
   })
 
   it('serves a deploy preview whose Origin is the origin of its own URL', async () => {
-    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/.netlify/functions/ai` }))
+    const res = await handler(request('{}', { origin: PREVIEW, url: `${PREVIEW}/api/ai` }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Missing query.' })
   })

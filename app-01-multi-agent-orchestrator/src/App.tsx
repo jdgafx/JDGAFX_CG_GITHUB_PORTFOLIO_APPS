@@ -7,6 +7,7 @@ import { HowTo } from './components/HowTo'
 import { QueryBar } from './components/QueryBar'
 import { ReadoutStrip, type ReadoutState } from './components/ReadoutStrip'
 import { ReportCard } from './components/ReportCard'
+import { ReplayLabel } from './components/ReplayLabel'
 import { RunTrace } from './components/RunTrace'
 import { StageOutputs } from './components/StageOutputs'
 import {
@@ -24,7 +25,8 @@ import { derivePhase, failInFlight, keepFirstError, settleAgents, type RunPhase 
 import { buildTraceRows } from './lib/traceRows'
 import { settleAudit } from './lib/auditState'
 import { useAudit } from './lib/useAudit'
-import { useResultFocus, type RunPhase as FocusPhase } from './lib/useResultFocus'
+import { useReplay } from './lib/useReplay'
+import { useResultFocus, type RunPhase as FocusPhase } from './replay'
 import { sumUsage } from './lib/usage'
 import type { AgentRole, AgentState, RunSummary, Source, StreamEvent } from './types'
 
@@ -62,10 +64,17 @@ export default function App() {
   const [noticesHidden, setNoticesHidden] = useState(false)
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
   const [exporting, setExporting] = useState<ExportKind | null>(null)
+  /** True while the run on screen is the replayed one, until Run it live or a run of the visitor's own replaces it. */
+  const [replaying, setReplaying] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stoppedRef = useRef(false)
+  /** The run in flight, so Run it live can wait for a replayed run to end before it starts its own. */
+  const runRef = useRef<Promise<void> | null>(null)
+  const busyRef = useRef(false)
+  /** Set when a replay could not be answered from its recording: the failure that follows is not the visitor's, so the screen resets instead. */
+  const divergedRef = useRef(false)
   const sourcesRef = useRef<Source[]>([])
   const audit = useAudit()
 
@@ -136,9 +145,10 @@ export default function App() {
   )
 
   const startRun = useCallback(
-    async (raw: string) => {
+    async (raw: string, replayRun = false) => {
       const text = raw.trim()
-      if (!text || text.length > MAX_QUERY_CHARS || isRunning) return
+      if (!text || text.length > MAX_QUERY_CHARS || busyRef.current) return
+      busyRef.current = true
 
       audit.reset()
       sourcesRef.current = []
@@ -152,6 +162,7 @@ export default function App() {
       setWasStopped(false)
       setPipelineError(null)
       setNoticesHidden(false)
+      setReplaying(replayRun)
       setActiveTab('retriever')
       setAnnouncement('Research started. Sources are fetched first, then four stages run in order, then the report is audited.')
       stoppedRef.current = false
@@ -166,23 +177,64 @@ export default function App() {
       try {
         await startResearch(text, handleEvent, controller.signal)
       } catch (err) {
-        if (!isAbortError(err)) {
+        if (!isAbortError(err) && !divergedRef.current) {
           failure = runErrorMessage(err)
           setPipelineError(failure)
         }
       } finally {
+        busyRef.current = false
         setIsRunning(false)
         if (timerRef.current) {
           clearInterval(timerRef.current)
           timerRef.current = null
         }
-        setWasStopped(stoppedRef.current)
-        setAgents(prev => settleAgents(prev, stoppedRef.current))
-        setAnnouncement(stoppedRef.current ? 'Research stopped.' : failure ? `Research failed. ${failure}` : 'Research finished.')
+        if (divergedRef.current) {
+          divergedRef.current = false
+        } else {
+          setWasStopped(stoppedRef.current)
+          setAgents(prev => settleAgents(prev, stoppedRef.current))
+          setAnnouncement(stoppedRef.current ? 'Research stopped.' : failure ? `Research failed. ${failure}` : 'Research finished.')
+        }
       }
     },
-    [isRunning, handleEvent, audit],
+    [handleEvent, audit],
   )
+
+  // On load, plays back the stored real run of the Try it question through the code above, if it is fresh and the page is still empty.
+  const replay = useReplay({
+    question: TRY_IT.question,
+    canStart: () => !busyRef.current && query === '' && AGENT_ORDER.every(role => agents[role].status === 'idle'),
+    begin: question => {
+      setQuery(question)
+      runRef.current = startRun(question, true)
+    },
+    clear: () => {
+      // A run still reading the stream fails on its own; its failure is not the visitor's, so it must not show.
+      divergedRef.current = busyRef.current
+      audit.reset()
+      sourcesRef.current = []
+      setReplaying(false)
+      setFetchedAt(null)
+      setAgents(createAgents())
+      setQuery('')
+      setRanQuery('')
+      setSummary(null)
+      setElapsedMs(0)
+      setIsRunning(false)
+      setWasStopped(false)
+      setPipelineError(null)
+      setAnnouncement('')
+    },
+  })
+
+  /** Run it live: ends the replay, then asks the same question with real requests. */
+  async function runLive(): Promise<void> {
+    replay.stop()
+    abortRef.current?.abort()
+    audit.reset()
+    await runRef.current
+    runRef.current = startRun(TRY_IT.question)
+  }
 
   const handleStart = useCallback(() => void startRun(query), [startRun, query])
 
@@ -242,7 +294,7 @@ export default function App() {
         ? { label: 'Auditing', tone: 'accent' as BadgeTone }
         : BADGE[phase]
 
-  useResultFocus(FOCUS_PHASE[phase])
+  useResultFocus(FOCUS_PHASE[phase], { replay: replaying })
 
   const readoutState: ReadoutState = isRunning ? 'running' : hasStarted ? 'done' : 'idle'
   const stageMsTotal = AGENT_ORDER.reduce((sum, role) => sum + (agents[role].ms ?? 0), 0)
@@ -292,6 +344,7 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
             <ReportCard
               key={runId}
               phase={phase}

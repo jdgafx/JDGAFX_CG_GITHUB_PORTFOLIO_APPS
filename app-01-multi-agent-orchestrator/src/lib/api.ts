@@ -1,6 +1,6 @@
 import type { StreamEvent } from '../types'
 
-const API_URL = '/.netlify/functions/ai'
+const API_URL = '/api/ai'
 
 /** The server must answer the request within 15 s. */
 const CONNECT_TIMEOUT_MS = 15_000

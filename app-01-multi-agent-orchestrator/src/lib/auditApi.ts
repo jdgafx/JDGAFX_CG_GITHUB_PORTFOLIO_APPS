@@ -1,7 +1,7 @@
 import type { AuditResult, Source, StageUsage } from '../types'
 import { isAbortError, serverMessage } from './api'
 
-const AUDIT_URL = '/.netlify/functions/audit'
+const AUDIT_URL = '/api/audit'
 /** The server's audit budget is 26 s; the browser waits a wide margin past it, body read included. */
 export const AUDIT_TIMEOUT_MS = 45_000
 
