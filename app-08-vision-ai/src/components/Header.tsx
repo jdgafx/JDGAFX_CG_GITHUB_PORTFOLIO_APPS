@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { LiveIndicator } from '../lib/liveData'
 import type { RunStatus } from '../lib/useAnalysis'
 
@@ -12,6 +13,8 @@ const STATUS_DISPLAY: Record<RunStatus, { label: string; badge: string; dot: str
 
 export default function Header({ status, live }: { status: RunStatus; live: LiveIndicator }) {
   const display = STATUS_DISPLAY[status]
+  // The showcase note is open on a wide screen and folded on a phone, so the picture and its answer sit near the top there.
+  const [noteOpen, setNoteOpen] = useState(() => window.matchMedia('(min-width: 1000px)').matches)
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -20,7 +23,9 @@ export default function Header({ status, live }: { status: RunStatus; live: Live
             <span className="ds-plate" role="img" aria-label="App 08">
               08
             </span>
-            <h1 className="ds-title">VisionLab</h1>
+            <h1 className="ds-title">
+              Vision<span className="vl-title__lab">Lab</span>
+            </h1>
             <span className={`ds-badge ${display.badge}`}>
               <span className={`ds-dot ${display.dot}`} aria-hidden="true" />
               {display.label}
@@ -28,14 +33,18 @@ export default function Header({ status, live }: { status: RunStatus; live: Live
           </div>
           <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
             <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+            {live.state === 'failed' ? <span aria-hidden="true">! </span> : null}
             {live.label}
           </p>
           <p className="ds-subtitle">Ask about a whole picture, a box you draw on it, or two pictures side by side.</p>
         </div>
-        <p className="ds-showcase">
-          <strong>What this showcases:</strong> a multimodal call on a crop cut in the browser at full resolution, and a
-          two-image comparison, each streamed and checked for completeness before it is marked done.
-        </p>
+        <details className="ds-showcase" open={noteOpen} onToggle={event => setNoteOpen(event.currentTarget.open)}>
+          <summary>What this showcases: a crop cut in the browser and a two-image comparison</summary>
+          <p>
+            A multimodal call on a crop cut in the browser at full resolution, and a two-image comparison, each streamed and
+            checked for completeness before it is marked done.
+          </p>
+        </details>
       </div>
     </header>
   )

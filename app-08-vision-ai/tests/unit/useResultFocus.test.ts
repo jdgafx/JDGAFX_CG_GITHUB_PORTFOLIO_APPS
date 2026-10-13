@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isScrollKey, shouldBringIntoView } from '../../src/lib/useResultFocus'
+import { isScrollKey, shouldBringIntoView } from '../../src/replay'
 
 describe('shouldBringIntoView', () => {
   it('scrolls only on a narrow screen and only when the visitor did not scroll', () => {

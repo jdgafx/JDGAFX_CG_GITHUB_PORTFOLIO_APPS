@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CommonsImage } from '../lib/commons'
 import { ACCEPTED_LABEL, ACCEPTED_TYPES, MAX_FILE_SIZE } from '../lib/image'
@@ -62,13 +62,18 @@ interface ImagePickerProps {
   onFile: (file: File, credit: CommonsImage | null, slot: Slot) => void
   onRemove: (slot: Slot) => void
   onCommonsFailure: (failed: boolean) => void
+  /** The Commons search to run once on load, so the picker opens with live pictures. */
+  autoQuery?: string
+  onListed?: (listing: { count: number; at: number }) => void
 }
 
-export default function ImagePicker({ comparing, a, b, disabled, uploadError, onFile, onRemove, onCommonsFailure }: ImagePickerProps) {
+export default function ImagePicker({ comparing, a, b, disabled, uploadError, onFile, onRemove, onCommonsFailure, autoQuery, onListed }: ImagePickerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const slotRef = useRef<Slot>('a')
   // Where a Commons pick goes while comparing. It moves to B after A is filled.
   const [pickInto, setPickInto] = useState<Slot>('a')
+  const [autoPending, setAutoPending] = useState(true)
+  const autoDone = useCallback(() => setAutoPending(false), [])
   const target: Slot = comparing ? (a && !b ? 'b' : pickInto) : 'a'
 
   const choose = (slot: Slot) => {
@@ -133,6 +138,9 @@ export default function ImagePicker({ comparing, a, b, disabled, uploadError, on
         key={comparing ? 'pair' : 'single'}
         disabled={disabled}
         onFailure={onCommonsFailure}
+        autoQuery={autoPending ? autoQuery : undefined}
+        onAutoSearched={autoDone}
+        onListed={onListed}
         loaded={`${a?.url ?? ''}|${b?.url ?? ''}`}
         slotsLeft={(a ? 0 : 1) + (comparing && !b ? 1 : 0)}
         label={comparing ? `Image ${target.toUpperCase()}` : ''}

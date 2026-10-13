@@ -1,4 +1,5 @@
 import type { ModelCheck } from '../../netlify/shared/newest-model'
+import type { CommonsImage } from './commons'
 import { isRecord } from './guards'
 import { cropRegion, fileProblem, fitForCompare, parseDataUrl, type CropResult, type DataUrlParts } from './image'
 import { describeRect, isSmallCrop, type Box } from './region'
@@ -56,6 +57,8 @@ interface AnalyzeOptions {
   onCrop?: (crop: CropResult) => void
   /** Compare mode: the second image. */
   fileB?: File
+  /** The Commons credit of `file`. It travels with the request so the stored recording of a run can show the picture's credit; the server ignores it. */
+  credit?: CommonsImage | null
   signal?: AbortSignal
   onStep: (step: TraceStep) => void
   onText: (text: string) => void
@@ -243,6 +246,7 @@ async function runRequest(opts: AnalyzeOptions, trace: Trace, signal: AbortSigna
         image2: encodedB?.data,
         mediaType2: encodedB?.mediaType,
         region: prepared.region,
+        credit: opts.credit ?? undefined,
       }),
     })
   } catch (err) {

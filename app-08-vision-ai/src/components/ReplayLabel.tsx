@@ -1,0 +1,33 @@
+import { replayLabel } from '../replay'
+import type { ReplayInfo } from '../lib/useReplay'
+
+interface ReplayLabelProps {
+  info: ReplayInfo
+  onRunLive: () => void
+  disabled: boolean
+}
+
+// Says plainly that the run on screen is a recording, with the age, model and cost taken from that recording.
+export function ReplayLabel({ info, onRunLive, disabled }: ReplayLabelProps) {
+  const label = replayLabel(info.recording, info.startedAt, info.speed)
+  return (
+    <div className="replay-label ds-run__replay" role="status" data-replay-label>
+      <div className="replay-label__text">
+        <p className="replay-label__line">
+          <strong>Replay of a real run</strong>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-age>{label.age}</span>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-model>{label.model}</span>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-cost>{label.cost}</span>
+        </p>
+        {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote} The time readout below counts the replay.</p>}
+        <p className="ds-help">Recorded from the live site, picture included. The replay itself sends nothing: no server call and no model call until you run it live.</p>
+      </div>
+      <button type="button" className="ds-button replay-label__live" disabled={disabled} onClick={onRunLive}>
+        Run it live
+      </button>
+    </div>
+  )
+}

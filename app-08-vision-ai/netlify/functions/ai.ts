@@ -7,6 +7,7 @@ import {
   checkedDetail,
   maxTokensFor,
 } from '../shared/request'
+import { withToday } from '../shared/today'
 import { streamVisionRun, type TraceStep } from '../shared/vision-run'
 
 export const config = { path: '/api/ai' }
@@ -64,7 +65,8 @@ async function respond(req: Request, startedAt: number): Promise<Response> {
   }
   return streamVisionRun({
     provider,
-    messages: buildMessages(request),
+    // The date comes from the server's clock at the moment the request arrived.
+    messages: withToday(buildMessages(request), new Date(startedAt)),
     maxTokens: maxTokensFor(request.mode),
     startedAt,
     checked: checkedStep,

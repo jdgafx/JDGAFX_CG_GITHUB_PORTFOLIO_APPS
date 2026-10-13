@@ -1,0 +1,24 @@
+{
+  "url": "https://jdgafx-app-08-vision-ai.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/ai",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": {
+    "/api/ai": {
+      "frame": { "field": "stage", "equals": "complete" },
+      "take": "last"
+    }
+  },
+  "expect": [
+    { "path": "/api/ai", "field": "stage", "equals": "complete", "message": "the analysis did not finish" },
+    { "path": "/api/ai", "field": "result", "nonEmpty": true, "message": "the model returned no description" },
+    { "path": "/api/ai", "field": "servedModel", "nonEmpty": true, "message": "the model call named no model" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "servedModel" },
+    "modelRole": "described by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "model call"
+  }
+}
