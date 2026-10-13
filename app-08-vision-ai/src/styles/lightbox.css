@@ -2,6 +2,11 @@
    instruments (the picture stage, the readout, the film edge, the replay slate) that stay dark in both colour schemes,
    marked in safelight orange. Imported last. Colours come from tokens.css; spacing follows the shared scale. */
 
+/* The film edge: matte in light; in dark a lighter film so the page-coloured holes and the edge itself still show against the dark page. */
+:root { --vl-film: var(--vl-matte); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --vl-film: #343050; } }
+:root[data-theme="dark"] { --vl-film: #343050; }
+
 html, body { background: var(--ds-bg); }
 body { background: radial-gradient(120% 420px at 50% 0, var(--ds-surface) 0, var(--ds-bg) 100%) no-repeat, var(--ds-bg); }
 h1, h2, h3, .ds-title { font-family: var(--vl-display); }
@@ -16,7 +21,7 @@ code, kbd, pre, .ds-mono { font-family: var(--ds-mono); }
 .ds-header::after {
   content: ""; position: absolute; inset: auto 0 0; height: 20px;
   /* one hole every 28px: the hole is the page colour, the film is the matte */
-  background: repeating-linear-gradient(90deg, transparent 0 8px, var(--ds-bg) 8px 18px, transparent 18px 28px) 0 7px / 100% 6px no-repeat, var(--vl-matte);
+  background: repeating-linear-gradient(90deg, transparent 0 8px, var(--ds-bg) 8px 18px, transparent 18px 28px) 0 7px / 100% 6px no-repeat, var(--vl-film);
 }
 .ds-plate {
   min-width: 54px; height: 54px; padding: 0; border-radius: 50%; font-size: 20px; font-weight: 700; letter-spacing: 0; color: var(--vl-safelight); background: var(--vl-matte);
@@ -56,6 +61,8 @@ code, kbd, pre, .ds-mono { font-family: var(--ds-mono); }
 .ds-button--primary:disabled { box-shadow: none; }
 .ds-seg { padding: 4px; background: var(--ds-surface-2); border-color: var(--ds-border-strong); border-radius: 3px; }
 .ds-seg > button[aria-selected="true"], .ds-seg > button[aria-pressed="true"] { color: var(--vl-safelight); background: var(--vl-matte); box-shadow: none; }
+/* A run disables the segments; the chosen one keeps its fill so it never reads as unselected. */
+.vl-scope > button[aria-pressed="true"]:disabled { opacity: 1; cursor: not-allowed; }
 .ds-drop { background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
 .mode-option.is-selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
 
@@ -109,9 +116,12 @@ code, kbd, pre, .ds-mono { font-family: var(--ds-mono); }
 /* Wide enough, the picture and its answer sit side by side, so the answer, the failure or the stop note is on the first screen and not
    under a 600px photograph. Comparing keeps its own two-picture layout and stacks the answer below. */
 @container (min-width: 760px) {
-  .vl-hero__grid:not(.vl-hero__grid--pair) { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); align-items: start; gap: 24px; }
-  .vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(60vh, 460px); }
+  .vl-hero__grid:not(.vl-hero__grid--pair) { grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); align-items: start; gap: 24px; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(48vh, 380px); }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame.ds-frame { padding: 16px; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-figure { gap: 8px; }
 }
+@media (min-width: 1000px) { .ds-main { padding-top: 16px; } }
 
 /* Recent analyses and Commons results are strips of small frames. */
 .history__item img, .commons__card img, .commons__card--placeholder { background: var(--vl-matte); border: 1px solid var(--vl-matte-line); border-radius: 2px; padding: 4px; object-fit: contain; }
@@ -142,7 +152,9 @@ code, kbd, pre, .ds-mono { font-family: var(--ds-mono); }
   .ds-app[data-replay] .howto { order: 2; }
 }
 @media (max-width: 720px) {
-  .ds-title { font-size: 36px; }
+  .ds-title { font-size: 34px; }
+  .ds-subtitle { display: none; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(30vh, 240px); }
   .ds-header { padding-bottom: 20px; }
   .vl-frame.ds-frame { padding: 16px; }
   .vl-hero__title { font-size: 22px; }
