@@ -11,21 +11,22 @@ export function ReplayLabel({ info, onRunLive }: ReplayLabelProps) {
   const label = replayLabel(info.recording, info.startedAt, info.speed)
   return (
     <div className="replay-label ds-run__replay" role="status" data-replay-label>
-      <p className="replay-label__line">
-        <strong>Replay of a real run</strong>
-        <span aria-hidden="true"> · </span>
-        <span data-replay-age>{label.age}</span>
-        <span aria-hidden="true"> · </span>
-        <span data-replay-model>{label.model}</span>
-        <span aria-hidden="true"> · </span>
-        <span data-replay-cost>{label.cost}</span>
-        <span aria-hidden="true"> · </span>
-        <button type="button" className="ds-button replay-label__live" onClick={onRunLive}>
-          Run it live
-        </button>
-      </p>
-      {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote} The time readout below counts the replay.</p>}
-      <p className="ds-help">Recorded from the live site. The decision buttons are off in a replay: nothing is sent to the server until you run it live.</p>
+      <div className="replay-label__text">
+        <p className="replay-label__line">
+          <strong>Replay of a real run</strong>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-age>{label.age}</span>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-model>{label.model}</span>
+          <span aria-hidden="true"> · </span>
+          <span data-replay-cost>{label.cost}</span>
+        </p>
+        {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote} The time readout below counts the replay.</p>}
+        <p className="ds-help">Recorded from the live site. The decision buttons are off in a replay: nothing is sent to the server until you run it live.</p>
+      </div>
+      <button type="button" className="ds-button replay-label__live" onClick={onRunLive}>
+        Run it live
+      </button>
     </div>
   )
 }

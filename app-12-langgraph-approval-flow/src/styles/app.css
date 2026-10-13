@@ -385,7 +385,17 @@ h1, h2, h3, .ds-title { font-family: var(--ds-font); }
 .ds-card, .ds-lead, .ds-approval, .ds-state, .ds-controls, .ds-strip, .ds-trace, .ds-chart, .gg-banner, .gg-note-box {
   box-shadow: var(--ds-shadow);
 }
-.ds-showcase { background: var(--ds-surface-2); border: 1px dashed var(--ds-border-strong); box-shadow: none; }
+.ds-showcase { display: block; padding: 0 16px; background: var(--ds-surface-2); border: 1px dashed var(--ds-border-strong); box-shadow: none; }
+.ds-showcase > summary { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; font-weight: 700; cursor: pointer; list-style: none; }
+.ds-showcase > summary::-webkit-details-marker { display: none; }
+.ds-showcase > summary::after { content: ""; flex: none; margin-left: auto; width: 8px; height: 8px; border: solid var(--ds-text-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.ds-showcase[open] > summary::after { transform: rotate(225deg); }
+.ds-showcase > p { padding-bottom: 12px; font-size: 15px; }
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 8px 32px; align-items: end; }
+  .ds-showcase { grid-column: auto; align-self: end; }
+}
+.ds-main { padding-top: 16px; }
 
 /* The plate is the form number, a square ink tab */
 .ds-plate { border-radius: 2px; font-family: var(--ds-mono); font-weight: 700; box-shadow: none; }
@@ -398,7 +408,9 @@ h1, h2, h3, .ds-title { font-family: var(--ds-font); }
 .gg-approve:hover:not(:disabled) { background: color-mix(in srgb, var(--gg-approve) 86%, #000); border-color: var(--gg-approve); }
 .gg-reject { min-height: 52px; font-weight: 800; color: var(--ds-danger); background: var(--ds-surface); border: 2px solid var(--ds-danger); }
 .gg-reject:hover:not(:disabled) { background: var(--ds-danger-soft); border-color: var(--ds-danger); }
-.gg-approve:disabled, .gg-reject:disabled { border-width: 1px; }
+.gg-approve:disabled, .gg-reject:disabled { border-width: 1px; border-style: dashed; }
+.gg-approve:disabled, .gg-approve:disabled:hover { color: var(--ds-success); background: var(--ds-success-soft); border-color: var(--ds-success); }
+.gg-reject:disabled, .gg-reject:disabled:hover { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: var(--ds-danger); }
 
 /* Rubber stamps: the gate while it waits, and the outcome once it is decided */
 .gg-stamp {
@@ -471,17 +483,19 @@ h1, h2, h3, .ds-title { font-family: var(--ds-font); }
 /* Replay label: the slip pinned above the replayed sheet. It leads the run column in every state. */
 .ds-run__replay { order: -3; }
 .replay-label {
-  display: grid; gap: 4px; padding: 12px 16px; margin-bottom: 20px; background: var(--ds-warning-soft); color: var(--ds-text);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 12px 16px; margin-bottom: 20px; background: var(--ds-warning-soft); color: var(--ds-text);
   border: 1px dashed var(--ds-warning); border-radius: var(--ds-radius);
 }
 .replay-label__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: none; font-size: 15px; }
 .replay-label__line strong { font-weight: 800; }
-.replay-label__line [data-replay-model], .replay-label__line [data-replay-cost] { font-family: var(--ds-mono); font-weight: 700; font-size: 14px; }
+.replay-label__line [data-replay-model], .replay-label__line [data-replay-cost] { font-weight: 700; }
 .replay-label .ds-help { color: var(--ds-text); }
-.replay-label__live { min-height: 44px; padding: 0 16px; }
+.replay-label__text { display: grid; gap: 4px; flex: 1 1 360px; min-width: 0; }
+.replay-label__live { flex: none; min-height: 44px; padding: 0 20px; color: var(--ds-text); background: var(--ds-surface); border: 2px solid var(--ds-text); }
 
 /* On a narrow screen the replayed run leads, ahead of the issue picker, so it is on the first screen. */
 @media (max-width: 999px) {
   .ds-app[data-replay] .ds-controls { order: 1; }
   .ds-app[data-replay] .ds-run { order: -1; }
+  .ds-app[data-replay] .howto { order: 2; }
 }
