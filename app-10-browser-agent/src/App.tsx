@@ -76,12 +76,12 @@ export default function App() {
 
       <main className="ds-main">
         <div className="ds-intro">
-          <HnPanel page={frontPage.page} onReload={frontPage.reload} />
           <HowTo
             phase={state.phase}
             runId={state.runId}
             onTry={ownRun(() => void runExample(setTask, planAndRun))}
           />
+          <HnPanel page={frontPage.page} onReload={frontPage.reload} />
         </div>
         <div className="ds-bench">
           <div className="ds-controls" data-scrolled={railScrolled ? 'true' : undefined} onScroll={(event) => setRailScrolled(event.currentTarget.scrollTop > 4)}>

@@ -30,11 +30,11 @@ export default function Header({ state, replaying }: { state: RunState; replayin
           <p className="ds-subtitle">
             A model plans browser steps. A headless Chromium runs them on allowed sites, and you replay each step as a picture of the real page.
           </p>
-          <p className="live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
-            <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
-            {live.text}
-          </p>
         </div>
+        <p className="live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+          <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
+          {live.text}
+        </p>
       </div>
     </header>
   )

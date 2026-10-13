@@ -25,7 +25,7 @@
   --ds-warning: #7a4e00;
   --ds-warning-soft: #f6e6bd;
   --ds-danger: #a3261c;
-  --ds-danger-soft: #f1dccb;
+  --ds-danger-soft: #f3e0c3;
   --ds-focus: var(--ds-accent);
   --ds-series-2: #574d35; --ds-series-3: #a3591a; --ds-series-4: #2f2b8f; /* chart series after the accent, 3:1 or better */
   --ds-radius: 4px;

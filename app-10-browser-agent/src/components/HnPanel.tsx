@@ -21,10 +21,17 @@ export default function HnPanel({ page, onReload }: HnPanelProps) {
     <section className="hn" aria-labelledby="hn-title" data-state={page.status}>
       <div className="hn__head">
         <h2 className="hn__title" id="hn-title">Hacker News front page</h2>
-        <span className={`ds-badge ${badge}`.trim()} role="status">
-          <span className={dot} aria-hidden="true" />
-          {word}
-        </span>
+        <div className="hn__tools">
+          <span className={`ds-badge ${badge}`.trim()} role="status">
+            <span className={dot} aria-hidden="true" />
+            {word}
+          </span>
+          {page.status === 'ready' && stories.length > PHONE_COUNT ? (
+            <button type="button" className="ds-button hn__more" aria-expanded={all} onClick={() => setAll((v) => !v)}>
+              {all ? 'Show fewer' : `Show all ${stories.length}`}
+            </button>
+          ) : null}
+        </div>
       </div>
       {page.status === 'failed' ? (
         <div className="hn__fail">
@@ -39,21 +46,16 @@ export default function HnPanel({ page, onReload }: HnPanelProps) {
               <li key={story.id} className="hn__item" data-extra={i >= PHONE_COUNT ? 'true' : undefined}>
                 <span className="hn__rank ds-mono">{i + 1}</span>
                 <div className="hn__story">
-                  <a href={story.href} target="_blank" rel="noopener noreferrer" className="hn__link">{story.title}</a>
+                  <a href={story.href} target="_blank" rel="noopener noreferrer" className="hn__link" title={story.host ?? 'news.ycombinator.com'}>{story.title}</a>
                   <span className="hn__meta">
-                    {story.host ?? 'news.ycombinator.com'} · {story.score.toLocaleString('en-US')} points · {story.comments.toLocaleString('en-US')} comments
+                    {story.score.toLocaleString('en-US')} points · {story.comments.toLocaleString('en-US')} comments
                   </span>
                 </div>
               </li>
             ))}
         </ol>
       )}
-      {page.status === 'ready' && stories.length > PHONE_COUNT ? (
-        <button type="button" className="ds-button hn__more" aria-expanded={all} onClick={() => setAll((v) => !v)}>
-          {all ? 'Show fewer' : `Show all ${stories.length}`}
-        </button>
-      ) : null}
-      <p className="ds-help">Read now from the official Hacker News API in your browser, with no model call. Try it sends the agent to read this same page.</p>
+      <p className="ds-help">Official Hacker News API, read in your browser. No model call. Try it sends the agent to this same page.</p>
     </section>
   )
 }
