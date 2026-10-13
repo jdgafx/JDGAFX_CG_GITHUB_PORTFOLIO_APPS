@@ -4,7 +4,11 @@ import type { ChangeNote } from '../netlify/shared/changes'
 import { UNEXPECTED_MESSAGE, runPipeline, type CallRecord, type PipelineOutcome } from './lib/api'
 import type { ChangeStage } from './lib/compare'
 import { buildTrace, stageViews, summarize, type Phase, type RunEnd, type TraceLine } from './lib/run'
-import { useResultFocus } from './lib/useResultFocus'
+import { useResultFocus } from './replay'
+import { useReplay } from './lib/useReplay'
+import { useWikipediaLead } from './lib/useWikipediaLead'
+import { ReplayLabel } from './components/ReplayLabel'
+import WireCard from './components/WireCard'
 import Brief, { EXAMPLES } from './components/Brief'
 import Header from './components/Header'
 import { HowTo } from './components/HowTo'
@@ -55,15 +59,22 @@ export default function App() {
   const [sourcesAt, setSourcesAt] = useState<number | null>(null)
   const [copyNote, setCopyNote] = useState('')
   const [check, setCheck] = useState<PieceCheck | null>(null)
+  // True while the run on screen is the load-time replay of a recorded run, until Run it live, Stop or a run of the visitor's own.
+  const [replaying, setReplaying] = useState(false)
   const runKeyRef = useRef('')
   const outputsRef = useRef<StageOutputs>({})
   const notesRef = useRef<Partial<Record<ChangeStage, ChangeNote[]>>>({})
   const abortRef = useRef<AbortController | null>(null)
   const checkAbortRef = useRef<AbortController | null>(null)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Counts the runs started. A run that is no longer the latest (a replay ended by Run it live or Stop) finishes without touching the page.
+  const runIdRef = useRef(0)
+  const latest = useRef({ tryIt: () => {} })
+
+  const wire = useWikipediaLead(FIRST?.topic ?? '')
 
   const phase: Phase = running ? 'running' : outcome ? (outcome.kind === 'complete' ? 'done' : outcome.kind) : 'idle'
-  useResultFocus(phase)
+  useResultFocus(phase, { replay: replaying })
 
   // Abort an in-flight run and clear the copy note timer when the view goes away.
   useEffect(() => () => {
@@ -93,10 +104,13 @@ export default function App() {
     if (outcome.records.length > 0) setCalls(previous => [...previous, ...outcome.records])
   }
 
-  async function start(resume: boolean, brief?: { topic: string; type: ContentType }) {
+  async function start(resume: boolean, brief?: { topic: string; type: ContentType }, replayRun = false) {
     const trimmed = (brief?.topic ?? topic).trim()
     const type = brief?.type ?? contentType
     if (!trimmed || running || trimmed.length > MAX_TOPIC_CHARS) return
+    const runId = ++runIdRef.current
+    const current = () => runId === runIdRef.current
+    setReplaying(replayRun)
 
     // Finished stages are reused only when a resume continues the same topic and format.
     const runKey = `${trimmed}\n${type}`
@@ -132,8 +146,11 @@ export default function App() {
             stage = next
             setRunningStage(next)
           },
-          onCall: record => setCalls(previous => [...previous, record]),
+          onCall: record => {
+            if (current()) setCalls(previous => [...previous, record])
+          },
           onStageDone: (done, content, stageNotes) => {
+            if (!current()) return
             outputsRef.current = { ...outputsRef.current, [done]: content }
             if (done === 'sources') setSourcesAt(Date.now())
             setOutputs(outputsRef.current)
@@ -149,13 +166,51 @@ export default function App() {
         ? { kind: 'stopped', stage }
         : { kind: 'failed', stage, message: UNEXPECTED_MESSAGE }
     } finally {
-      abortRef.current = null
-      setRunningStage(null)
-      setRunning(false)
+      if (current()) {
+        abortRef.current = null
+        setRunningStage(null)
+        setRunning(false)
+      }
     }
+    if (!current()) return
     setOutcome(result)
     const polished = outputsRef.current.polish
     if (result.kind === 'complete' && polished) await checkFinished(polished, outputsRef.current.sources ?? '')
+  }
+
+  // Takes a replayed run off the screen and returns to the empty state, as before replays existed.
+  function clearReplay() {
+    runIdRef.current += 1
+    abortRef.current?.abort()
+    checkAbortRef.current?.abort()
+    runKeyRef.current = ''
+    outputsRef.current = {}
+    notesRef.current = {}
+    setReplaying(false)
+    setRunning(false)
+    setRunningStage(null)
+    setOutcome(null)
+    setOutputs({})
+    setNotes({})
+    setCalls([])
+    setSourcesAt(null)
+    setCheck(null)
+  }
+
+  const replay = useReplay({
+    topic,
+    contentType,
+    idle: phase === 'idle' && Object.keys(outputs).length === 0,
+    start: () => (FIRST ? start(false, { topic: FIRST.topic, type: FIRST.type }, true) : Promise.resolve()),
+    clear: clearReplay,
+  })
+
+  // Run it live: ends the replay, then makes the real requests for the example brief.
+  async function runLive() {
+    replay.stop()
+    clearReplay()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    latest.current.tryIt()
   }
 
   // Try it: the first example brief, run end to end on live sources and the model.
@@ -166,7 +221,17 @@ export default function App() {
     void start(false, { topic: FIRST.topic, type: FIRST.type })
   }
 
-  const stop = () => abortRef.current?.abort()
+  // Stopping a replay ends it and clears it; stopping a live run keeps the steps that finished.
+  const stop = () => {
+    if (replaying) {
+      replay.stop()
+      clearReplay()
+    } else abortRef.current?.abort()
+  }
+
+  useEffect(() => {
+    latest.current = { tryIt }
+  })
 
   function note(text: string) {
     setCopyNote(text)
@@ -223,6 +288,7 @@ export default function App() {
 
       <main className="ds-main">
         <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running || !FIRST} hasResult={outcome !== null || Object.keys(outputs).length > 0} />
+        <WireCard lead={wire} />
         <div className="ds-bench">
           <div className="ds-controls">
             <Brief
@@ -246,6 +312,7 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
             <Piece
               topic={topic}
               outputs={outputs}

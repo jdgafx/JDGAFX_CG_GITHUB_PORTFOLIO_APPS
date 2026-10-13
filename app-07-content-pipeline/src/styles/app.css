@@ -151,3 +151,141 @@ button.ds-chain__button:hover { background: var(--ds-surface-2); }
 .cite[data-cite="checking"] { text-decoration: underline dashed var(--ds-accent) 1px; text-underline-offset: 4px; }
 .cite-note { display: block; margin: 2px 0 6px; font-size: 14px; line-height: 1.45; color: var(--ds-text-muted); max-width: 62ch; }
 .cite-line { margin: 0; }
+
+/* ===== Editorial newsroom skin (Q6). Newsprint ground, ink headlines in a condensed face, forest green for finished steps and
+   Confirmed, the editor's red pencil for Not confirmed. Colour and the two faces come from tokens.css; this block sets the shapes. ===== */
+
+/* Masthead: a nameplate over a double rule. The 4px rail on top is still the run signal. */
+.ds-header { border-bottom: 4px double var(--ds-text); }
+.ds-header__inner { padding-top: 28px; padding-bottom: 20px; gap: 16px; }
+.ds-brand__row { gap: 12px 20px; }
+.ds-title { font-family: var(--ds-head); font-size: 72px; font-weight: 700; letter-spacing: -0.01em; line-height: 0.92; }
+.ds-plate {
+  min-width: 0; height: auto; padding: 4px 10px 2px; font-family: var(--ds-head); font-size: 26px; font-weight: 600; letter-spacing: 0;
+  color: var(--ds-text); background: transparent; border: 2px solid var(--ds-text); border-radius: 0; box-shadow: none;
+}
+.ds-plate::before { content: "No. "; font-size: 16px; font-weight: 500; margin-right: 4px; align-self: center; }
+.ds-plate { display: inline-flex; align-items: baseline; }
+.ds-subtitle { font-size: 18px; font-style: italic; max-width: 52ch; }
+.ds-showcase {
+  padding: 12px 0; font-size: 16px; line-height: 1.55; background: transparent; border: 0;
+  border-top: 1px solid var(--ds-border-strong); border-bottom: 1px solid var(--ds-border-strong); border-radius: 0;
+}
+.ds-showcase strong { font-family: var(--ds-head); font-size: 18px; font-weight: 700; letter-spacing: 0.01em; margin-right: 4px; }
+.ds-footer { font-family: var(--ds-head); font-size: 16px; border-top: 1px solid var(--ds-text); }
+
+/* Labels, buttons, badges and chips speak in the headline face. */
+.ds-button, .ds-badge, .ds-seg > button, .ds-label, .ds-strip__label, .ds-trace__name, .ds-trace__state, .ds-choice__label, .ds-disclosure > summary { font-family: var(--ds-head); }
+.ds-button { font-size: 19px; font-weight: 600; letter-spacing: 0.01em; padding: 0 20px; }
+.ds-badge { font-size: 16px; font-weight: 600; padding: 2px 12px; border-radius: 2px; }
+.ds-label { font-size: 18px; font-weight: 600; }
+.ds-seg > button { font-size: 18px; font-weight: 600; }
+.ds-strip__label { font-size: 16px; }
+.ds-trace__name { font-size: 18px; font-weight: 600; }
+.ds-trace__state { font-size: 15px; }
+.ds-choice__label { font-size: 19px; font-weight: 600; }
+.ds-chip { border-radius: 2px; }
+.ds-section__title, .ds-card__title, .howto__title, .stage-panel__title, .trend__title { font-family: var(--ds-head); font-size: 26px; font-weight: 700; letter-spacing: 0; line-height: 1.1; }
+.howto__title { font-size: 24px; }
+.stage-panel__title { font-size: 22px; }
+.trend__title { font-size: 19px; font-weight: 600; }
+.ds-help, .ds-section__sub, .ds-hint { font-size: 14px; }
+.ds-card, .ds-controls { box-shadow: none; }
+.ds-strip, .ds-trace { border-color: var(--ds-border-strong); }
+.ds-strip__value { font-size: 24px; }
+
+/* The wire: what Wikipedia says about the example topic, drawn on load. The title sits over the rail column, the copy beside it. */
+.wire { display: grid; gap: 12px; padding: 16px 20px; }
+.wire__head { display: flex; align-items: center; gap: 12px; }
+.wire__tag { font-family: var(--ds-head); font-size: 16px; font-weight: 600; background: transparent; }
+.wire__body { display: grid; gap: 4px 32px; min-width: 0; align-content: start; }
+.wire__title { margin: 0; font-family: var(--ds-head); font-size: 34px; font-weight: 700; line-height: 1.02; }
+.wire__title a { color: var(--ds-text); text-decoration-color: var(--ds-border-strong); text-underline-offset: 4px; }
+.wire__title a:hover { text-decoration-color: var(--ds-accent); }
+.wire__desc { margin: 0; font-style: italic; color: var(--ds-text-muted); }
+.wire__extract { margin: 0; font-size: 16px; line-height: 1.6; max-width: 70ch; overflow-wrap: anywhere; }
+@media (min-width: 1000px) {
+  .wire__body { grid-template-columns: 288px minmax(0, 1fr); grid-template-rows: min-content min-content 1fr; }
+  .wire__title, .wire__desc { grid-column: 1; }
+  .wire__extract { grid-column: 2; grid-row: 1 / span 3; }
+}
+@media (max-width: 639px) {
+  .wire__title { font-size: 28px; }
+  .wire__extract { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+}
+
+/* How to use: a standing note, quieter than the wire. */
+.howto { border-radius: var(--ds-radius); }
+.howto__what { font-size: 17px; }
+.howto__steps { font-size: 16px; }
+.howto__hint { font-size: 14px; }
+
+/* Replay label: first thing in the run column while a recording is on screen. */
+.replay-label { order: -10; display: grid; gap: 4px; padding: 12px 16px; min-width: 0; border-color: var(--ds-accent); border-width: 2px; }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 16px; overflow-wrap: anywhere; max-width: none; }
+.replay-label__line strong { font-family: var(--ds-head); font-size: 20px; font-weight: 700; color: var(--ds-accent); }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }
+
+/* The piece reads as a column of type: a ruled sheet, a headline face for its headings, a book face for its sentences. */
+.ds-lead { padding: 28px 32px; border: 1px solid var(--ds-border-strong); container: lead / inline-size; }
+.ds-lead__meta { padding-bottom: 12px; border-bottom: 1px solid var(--ds-text); }
+.ds-lead__foot { font-size: 14px; }
+.prose { line-height: 1.65; }
+.prose--lead { font-size: 19px; max-width: 64ch; }
+.prose:not(.prose--lead) { font-size: 16px; }
+.prose h3, .prose h4, .prose h5, .prose h6 { font-family: var(--ds-head); font-weight: 700; letter-spacing: 0; line-height: 1.08; margin-top: 12px; }
+.prose h3 { font-size: 40px; margin-top: 0; }
+.prose h4 { font-size: 28px; }
+.prose h5, .prose h6 { font-size: 22px; }
+.prose code { background: var(--ds-surface-2); border-radius: 2px; }
+.prose a { color: var(--ds-accent); text-underline-offset: 3px; }
+.diff { font-size: 17px; border-radius: 2px; }
+.diff-h { font-family: var(--ds-head); font-size: 24px; font-weight: 700; }
+.ds-cite__n { color: var(--ds-accent); }
+.ds-cite__title { font-size: 16px; }
+.ds-cite li { border-bottom-color: var(--ds-border); }
+.ds-cite { border-top-color: var(--ds-text); }
+
+/* The pipeline: six columns of a press sheet. A finished step is filled forest green on its edge and its name. */
+.ds-chain__stage { border-radius: 2px; background: var(--ds-surface); }
+.ds-chain__stage--done { border-color: var(--ds-accent); background: var(--ds-accent-soft); }
+.ds-chain__name { font-family: var(--ds-head); font-size: 24px; font-weight: 700; line-height: 1.05; }
+.ds-chain__stage--done .ds-chain__name { color: var(--ds-accent); }
+.ds-chain__figure { font-size: 17px; }
+.ds-chain__state { font-family: var(--ds-head); font-size: 16px; }
+.source-card { border-radius: 2px; border: 1px solid var(--ds-border); }
+.source-card__title { color: var(--ds-text); }
+.stage-panel { border-radius: 2px; }
+
+/* Citation marks. A mark is a stamp after its sentence: a check, a cross, a dash or a dashed ring, with its word.
+   On a wide sheet the stamp and its reason move into the right margin beside the line they belong to; on a narrow one they stay in the line. */
+.cite-badge { gap: 4px; padding: 0 8px; font-size: 15px; font-weight: 600; line-height: 1.5; border-radius: 2px; background: transparent; border: 1.5px solid currentColor; }
+.cite-badge.ds-badge--success { color: var(--ds-success); background: var(--ds-success-soft); border-color: var(--ds-success); }
+.cite-badge.ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: var(--ds-danger); }
+.cite-badge[data-cite="not_checked"] { border-style: dashed; }
+.cite-badge[data-cite="checking"] { border-style: dashed; color: var(--ds-accent); }
+.cite[data-cite="not_confirmed"] { background: color-mix(in srgb, var(--ds-danger) 11%, transparent); text-decoration-thickness: 1.5px; }
+.cite-note { font-size: 14px; font-style: italic; }
+@container lead (min-width: 740px) {
+  .prose--lead { max-width: min(64ch, calc(100% - 196px)); }
+  .prose--lead .cite-badge, .prose--lead .cite-note { float: right; clear: right; width: 176px; margin-right: -196px; }
+  .prose--lead .cite-badge { margin-top: 2px; }
+  .prose--lead .cite-note { margin-top: 4px; margin-bottom: 4px; max-width: none; line-height: 1.35; }
+  .prose--lead .cite-badge { white-space: nowrap; }
+}
+
+@media (max-width: 720px) {
+  .ds-title { font-size: 52px; }
+  .ds-plate { font-size: 22px; }
+  .ds-subtitle { font-size: 17px; }
+  .ds-showcase { font-size: 15px; line-height: 1.45; padding: 8px 0; }
+  .ds-lead { padding: 16px; }
+  .prose--lead { font-size: 18px; }
+  .prose h3 { font-size: 32px; }
+  .ds-button { font-size: 19px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-header::before { animation: none; }
+}

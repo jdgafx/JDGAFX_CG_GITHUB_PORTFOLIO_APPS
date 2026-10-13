@@ -38,6 +38,8 @@ interface PipelineCallbacks {
 }
 
 const API_PATH = '/api/ai'
+// The stage rides on the URL too, so each step's reply is its own entry in a recording of the run. The server ignores the query.
+const stagePath = (stage: StageId): string => `${API_PATH}?stage=${stage}`
 // The browser retries a stage once, and only when the server says its output was empty or cut short.
 const RETRY_LIMIT = 1
 
@@ -135,7 +137,7 @@ async function postStage(
   })
   let response: Response
   try {
-    response = await fetch(API_PATH, {
+    response = await fetch(stagePath(stage), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },

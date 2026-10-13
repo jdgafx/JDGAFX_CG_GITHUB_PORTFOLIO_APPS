@@ -109,6 +109,7 @@ describe('runPipeline sequencing', () => {
     expect(h.calls[1].usage).toEqual(USAGE)
     expect(h.calls[1].model).toBe(MODEL)
     expect(sent.map(call => call.body.stage)).toEqual(order)
+    expect(sent.map(call => call.url)).toEqual(order.map(id => `/api/ai?stage=${id}`))
     expect(sent[0].body.context).toEqual({})
     expect(sent[2].body.context).toEqual({ sources: 'sources text', research: 'research text' })
     expect(sent[5].body.context).toEqual({
@@ -128,7 +129,7 @@ describe('runPipeline sequencing', () => {
     const sent = serve([() => stageOk('r')])
     await runPipeline(request(), harness().callbacks)
     expect(Object.keys(sent[0].body)).toEqual(['topic', 'contentType', 'stage', 'context'])
-    expect(sent[0].url).toBe('/api/ai')
+    expect(sent[0].url).toBe('/api/ai?stage=sources')
   })
 
   it('resumes after the finished stages without calling them again', async () => {

@@ -1,0 +1,27 @@
+{
+  "url": "https://jdgafx-app-07-content-pipeline.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/check",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "expect": [
+    { "path": "/api/ai?stage=sources", "field": "result", "nonEmpty": true, "message": "the Sources step found nothing" },
+    { "path": "/api/ai?stage=polish", "field": "result", "nonEmpty": true, "message": "the run wrote no polished piece" },
+    { "path": "/api/ai?stage=polish", "field": "model", "nonEmpty": true, "message": "the Polish step named no model" },
+    { "path": "/api/check", "field": "claims", "minLength": 1, "message": "the citation check marked no sentence" },
+    { "path": "/api/check", "field": "claims.*.verdict", "nonEmpty": true, "message": "the citation check left a sentence without a verdict" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai?stage=polish", "field": "model" },
+    "modelRole": "written by",
+    "costUsd": [
+      { "path": "/api/ai?stage=research", "field": "usage.cost" },
+      { "path": "/api/ai?stage=outline", "field": "usage.cost" },
+      { "path": "/api/ai?stage=draft", "field": "usage.cost" },
+      { "path": "/api/ai?stage=edit", "field": "usage.cost" },
+      { "path": "/api/ai?stage=polish", "field": "usage.cost" },
+      { "path": "/api/check", "field": "calls.*.usage.cost" }
+    ],
+    "costScope": "whole run"
+  }
+}

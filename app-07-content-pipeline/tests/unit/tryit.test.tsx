@@ -51,6 +51,8 @@ const stopHere = () => json({
 function serve(first: () => Response): Sent[] {
   const sent: Sent[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    // The page's own load-time reads (the stored replay, the Wikipedia lead) are not the run: they find nothing here.
+    if (!String(input).startsWith('/api/')) return new Response('', { status: 404 })
     sent.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> })
     return sent.length === 1 ? first() : stopHere()
   }))
@@ -115,7 +117,7 @@ describe('Try it', () => {
 
     await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0))
     expect(sent[0]).toMatchObject({
-      url: '/api/ai',
+      url: '/api/ai?stage=sources',
       body: { stage: 'sources', topic: FIRST.topic, contentType: FIRST.type },
     })
     expect(sent[0].body.topic).not.toBe(OTHER_TOPIC)

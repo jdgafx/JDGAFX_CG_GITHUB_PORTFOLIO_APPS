@@ -40,6 +40,8 @@ const checkAnswer = () => json({
 function serve(check: () => Response): string[] {
   const urls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    // The page's own load-time reads (the stored replay, the Wikipedia lead) are not the run: they find nothing here.
+    if (!String(input).startsWith('/api/')) return new Response('', { status: 404 })
     urls.push(String(input))
     if (String(input) === '/api/check') return check()
     const stage = (JSON.parse(String(init?.body)) as { stage: string }).stage
