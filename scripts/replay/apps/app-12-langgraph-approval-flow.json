@@ -38,10 +38,12 @@
       "field": "0.model"
     },
     "modelRole": "triaged with",
-    "costUsd": {
-      "path": "/api/start",
-      "field": "*.cost"
-    },
+    "costUsd": [
+      {
+        "path": "/api/start",
+        "field": "*.cost"
+      }
+    ],
     "costScope": "up to the approval gate"
   }
 }
