@@ -6,6 +6,7 @@ import { HowTo } from './components/HowTo'
 import { IssueList, keyOf, type IssuesState } from './components/IssueList'
 import { Readout } from './components/Readout'
 import { RepoPicker } from './components/RepoPicker'
+import { ReplayLabel } from './components/ReplayLabel'
 import { RunBoundary } from './components/RunBoundary'
 import { ResultCard } from './components/ResultCard'
 import { ThreadsCard, type ThreadsState } from './components/ThreadsCard'
@@ -14,9 +15,11 @@ import { outcomeOf } from './components/TriageCard'
 import { failureText, fetchThread, fetchThreads, type ThreadResponse as ThreadViewResponse, isAbortError, resumeThread, retryThread, startIssue } from './lib/api'
 import { getIssue, GitHubError, listOpenIssues, parseIssueRef, parseRepoInput, slugOf } from './lib/github'
 import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT_ISSUE } from './lib/howto'
+import { discardReplayedRead, singleFlight } from './lib/flow'
 import { liveDataOf } from './lib/live-data'
 import { runAttr } from './lib/phase'
-import { useResultFocus } from './lib/useResultFocus'
+import { useReplay } from './lib/useReplay'
+import { useResultFocus } from './replay'
 import { outcomeAfterFailure } from './lib/resume-failure'
 import { applyEvent, emptyRun, runFromView, settleRunning, type Phase, type RunView } from './lib/run-state'
 import { NO_STREAM, runningLine, type StreamFlow } from './lib/stream-view'
@@ -84,10 +87,11 @@ export default function App() {
   const stoppedRef = useRef<AbortController | null>(null)
   const [selected, setSelected] = useState<IssueInput | null>(null)
   const [listOpen, setListOpen] = useState(true)
-  const [startedAt, setStartedAt] = useState<number | null>(null)
   /** When GitHub last answered an issue fetch and it parsed. Only a real answer sets it. */
   const [fetchedAt, setFetchedAt] = useState<number | null>(null)
   const [opened, setOpened] = useState(0)
+  /** True while the run on screen is the replayed one, until Run it live or a run of the visitor's own replaces it. */
+  const [replaying, setReplaying] = useState(false)
   // The thread id of the run on the page, readable inside stream() whatever render it was created in.
   const threadOf = useRef<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -155,7 +159,9 @@ export default function App() {
   )
 
   /** Runs one stream (a new issue or a resume) and folds its events into the page. */
-  const stream = async (open: Stream, resuming = false) => {
+  const stream = async (open: Stream, resuming = false, replayRun = false) => {
+    // A run of the visitor's own ends any replay first, so its requests go to the server and not to the recording.
+    if (!replayRun) endReplay()
     streamRef.current?.abort()
     const controller = new AbortController()
     streamRef.current = controller
@@ -165,7 +171,6 @@ export default function App() {
     setNotice(null)
     stopWatching()
     setFlow({ resuming, eventsArrived: false })
-    setStartedAt(Date.now())
     setPhase('running')
     // Stop takes focus through a ref, without scrolling the page.
     requestAnimationFrame(() => stopRef.current?.focus({ preventScroll: true }))
@@ -191,13 +196,19 @@ export default function App() {
       await open(onEvent, controller.signal)
       if (controller.signal.aborted) {
         if (stoppedRef.current === controller) stopRun()
+      } else if (replayRun && outcome.phase === 'failed') {
+        // The recording ended in an error: nothing recorded is shown as a run.
+        dropReplay()
       } else if (outcome.phase === null) {
         setRequestError('The run ended without an answer. Try again.')
         setRun((prev) => settleRunning(prev, 'failed'))
         setPhase('failed')
       }
     } catch (err) {
-      if (isAbortError(err) || controller.signal.aborted) {
+      if (replayRun) {
+        // The recording could not answer the page's own client, so the failure is not the visitor's: back to the empty screen.
+        if (!controller.signal.aborted) dropReplay()
+      } else if (isAbortError(err) || controller.signal.aborted) {
         if (stoppedRef.current === controller) stopRun()
       } else {
         const after = outcomeAfterFailure({ from, eventsArrived, resuming, error: err })
@@ -215,7 +226,9 @@ export default function App() {
         streamRef.current = null
         setFlow(NO_STREAM)
       }
-      void loadThreads()
+      // A replay's saved-threads reply is the recorded list: use it up, keep nothing, then load the server's own.
+      if (replayRun && replay.active()) void discardReplayedRead(() => fetchThreads(), () => void loadThreads())
+      else void loadThreads()
     }
   }
 
@@ -225,29 +238,69 @@ export default function App() {
     setPhase('stopped')
   }
 
-  const triage = (issue: IssueInput) => {
+  const triage = (issue: IssueInput, replayRun = false) => {
     const { repo, number, title, htmlUrl } = issue
     setRun(emptyRun({ repo, number, title, htmlUrl }))
-    void stream((onEvent, signal) => startIssue(issue, onEvent, signal))
+    setReplaying(replayRun)
+    return stream((onEvent, signal) => startIssue(issue, onEvent, signal), false, replayRun)
   }
 
+  /** The replay is over: the page's own fetch is back, and the recorded run is no longer on screen as a replay. */
+  const endReplay = () => {
+    replay.stop()
+    setReplaying(false)
+  }
+
+  /** The recording could not be played through: the screen goes back to today's empty state. */
+  const dropReplay = () => {
+    endReplay()
+    setRun(emptyRun())
+    setPhase('idle')
+    setRequestError(null)
+    setNotice(null)
+  }
+
+  const replay = useReplay({
+    idle: phase === 'idle' && run.threadId === null && !selected,
+    start: (issue) => triage(issue, true),
+    clear: dropReplay,
+  })
+
+  /** Run it live: ends the replay, then makes the real requests for the same example. */
+  const runLive = async () => {
+    dropReplay()
+    await handleTry()
+  }
+
+  // Triage and Try it start a run from a press: a second press in the same tick, before the button has re-rendered as disabled, starts nothing.
+  const startOnce = useRef(singleFlight((begin: () => Promise<void>) => begin())).current
+
   const handleTriage = () => {
-    if (selected) triage(selected)
+    if (selected) void startOnce(() => triage(selected))
   }
 
   /** Try it: a real open issue, fetched live, goes through the same Triage path and stops at the approval card. */
-  const handleTry = async () => {
-    const [issue] = (await loadIssues(TRY_IT_ISSUE)) ?? []
-    if (issue) triage(issue)
-  }
+  const handleTry = () =>
+    startOnce(async () => {
+      const [issue] = (await loadIssues(TRY_IT_ISSUE)) ?? []
+      if (issue) await triage(issue)
+    })
 
   /** The visitor stops waiting. The server keeps its own claim on the thread and may still finish it. */
   const handleStop = () => {
+    if (replaying) {
+      // A replay sent nothing, so there is nothing on the server to wait for: stopping it clears the screen.
+      streamRef.current?.abort()
+      dropReplay()
+      return
+    }
     stoppedRef.current = streamRef.current
     streamRef.current?.abort()
   }
 
   const handleDecide = (decision: HumanDecision) => {
+    // A replay never sends a decision: its thread belongs to the recorded run.
+    if (replaying) return
     const threadId = run.threadId
     if (!threadId) {
       setRequestError('This thread has no id, so it cannot be resumed. Open it again from the list.')
@@ -299,6 +352,7 @@ export default function App() {
   }
 
   const handleOpen = async (threadId: string, note: string | null = null) => {
+    endReplay()
     setRequestError(null)
     setNotice(null)
     try {
@@ -314,7 +368,7 @@ export default function App() {
   }
 
   threadOf.current = run.threadId
-  useResultFocus(runAttr(phase), { onRunStart: (narrow) => narrow && setListOpen(false) })
+  useResultFocus(runAttr(phase), { onRunStart: (narrow) => narrow && setListOpen(false), replay: replaying })
 
   const busy = phase === 'running'
   const current = phase === 'running' ? (NODES.find((node) => run.nodes[node] === 'running') ?? null) : null
@@ -322,7 +376,7 @@ export default function App() {
   const triageLabel = selected ? `Triage #${selected.number}` : 'Triage'
 
   return (
-    <div className="ds-app" data-run={runAttr(phase)}>
+    <div className="ds-app" data-run={runAttr(phase)} data-replay={replaying ? '' : undefined}>
       <Header phase={phase} live={liveDataOf({ loading: issues.loading, issuesError: issues.error, fetchedAt, duplicates: run.duplicates })} />
 
       <main className="ds-main">
@@ -378,7 +432,9 @@ export default function App() {
                 setPhase('idle')
               }}
             >
+            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
             <ResultCard
+              replay={replaying}
               run={run}
               phase={phase}
               flow={flow}
@@ -393,7 +449,7 @@ export default function App() {
               }}
               onRefreshThreads={handleRefresh}
             />
-            <Readout run={run} phase={phase} startedAt={startedAt} />
+            <Readout run={run} phase={phase} />
             <GraphView run={run} />
             <TraceCard run={run} current={current} phase={phase} />
             </RunBoundary>

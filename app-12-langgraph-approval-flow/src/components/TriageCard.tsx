@@ -35,7 +35,6 @@ function PathSteps({ path }: { path: RunResult['path'] }) {
 
 /** The final triage card: what was decided, the drafted comment, and how the decision was reached. */
 export function TriageCard({ result }: { result: RunResult }) {
-  const rejected = result.outcome === 'rejected'
   const original = result.action === 'close_duplicate' ? result.triage.duplicateOf : null
   return (
     <section className="ds-lead" aria-labelledby="triage-heading">
@@ -43,10 +42,7 @@ export function TriageCard({ result }: { result: RunResult }) {
         <h2 id="triage-heading" className="ds-section__title" tabIndex={-1} data-result-focus>
           Triage card
         </h2>
-        <span className={rejected ? 'ds-badge' : 'ds-badge ds-badge--success'}>
-          <span className={rejected ? 'ds-dot ds-dot--skipped' : 'ds-dot ds-dot--ok'} aria-hidden="true" />
-          {outcomeOf(result)}
-        </span>
+        <span className={`gg-stamp gg-stamp--${result.outcome}`}>{outcomeOf(result)}</span>
       </div>
 
       {original ? (

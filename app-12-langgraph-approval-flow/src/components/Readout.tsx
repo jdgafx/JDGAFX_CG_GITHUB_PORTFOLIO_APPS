@@ -1,23 +1,27 @@
 import { useEffect, useState } from 'react'
+import { stepClockMs } from '../lib/flow'
 import { formatMs, formatTotalCost, formatTotalTokens } from '../lib/format'
 import type { Phase, RunView } from '../lib/run-state'
 import { totalsOf } from '../lib/totals'
 
-/** Counts up from the press of Triage while it is on screen. */
-function LiveClock({ since }: { since: number }) {
-  const [now, setNow] = useState(() => Date.now())
+/**
+ * Counts up while the run is on screen: the time of the steps that have ended, as the run reports them, plus the step that is
+ * running now. It restarts from zero for each step (the caller keys it on the steps that have ended), so it can never read
+ * more than the total the finished run shows, which is the sum of the steps.
+ */
+function LiveClock({ endedStepMs }: { endedStepMs: readonly number[] }) {
+  const [since] = useState(() => Date.now())
+  const [now, setNow] = useState(since)
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 100)
     return () => window.clearInterval(id)
   }, [])
-  return <>{formatMs(Math.round((now - since) / 100) * 100)}</>
+  return <>{formatMs(Math.round(stepClockMs(endedStepMs, now - since) / 100) * 100)}</>
 }
 
 interface ReadoutProps {
   run: RunView
   phase: Phase
-  /** When the stream on screen began, or null. */
-  startedAt: number | null
 }
 
 function Cell({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
@@ -31,7 +35,7 @@ function Cell({ label, hint, children }: { label: string; hint: string; children
 }
 
 /** The run's figures: live while it runs, the totals of the steps that ran once it ends, dashes before any step. */
-export function Readout({ run, phase, startedAt }: ReadoutProps) {
+export function Readout({ run, phase }: ReadoutProps) {
   const totals = run.result?.totals ?? totalsOf([...run.trace, ...run.spent])
   const running = phase === 'running'
   const partial = totals.unreportedCalls > 0
@@ -45,7 +49,7 @@ export function Readout({ run, phase, startedAt }: ReadoutProps) {
     <section className="ds-section ds-run__readout" aria-label="Run totals">
       <dl className={`ds-strip${tone}`}>
         <Cell label="Step time" hint={running ? 'Running now' : (sofar ?? (show ? 'Sum of the steps that ran' : 'Shown while it runs'))}>
-          {running && startedAt !== null ? <LiveClock since={startedAt} /> : show ? formatMs(totals.nodeMs) : none}
+          {running ? <LiveClock key={run.trace.length} endedStepMs={run.trace.map((row) => row.ms)} /> : show ? formatMs(totals.nodeMs) : none}
         </Cell>
         <Cell label="Tokens" hint={sofar ?? (partial ? 'Partial: some calls did not report' : show ? 'Prompt plus completion, all calls' : 'All model calls')}>
           {show ? formatTotalTokens(totals) : none}

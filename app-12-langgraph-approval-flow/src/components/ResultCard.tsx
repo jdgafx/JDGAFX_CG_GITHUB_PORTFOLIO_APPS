@@ -61,6 +61,8 @@ interface ResultCardProps {
   phase: Phase
   flow: StreamFlow
   busy: boolean
+  /** True while the run on screen is a replay: its approval card is shown but cannot be answered. */
+  replay: boolean
   /** The step running now, or null. */
   searching: boolean
   onDecide: (decision: HumanDecision) => void
@@ -70,10 +72,10 @@ interface ResultCardProps {
 }
 
 /** The result leads the run column once a run has ended: the card to answer, the finished triage, or why there is none. */
-export function ResultCard({ run, phase, flow, busy, searching, onDecide, onRetry, onAgain, onRefreshThreads }: ResultCardProps) {
+export function ResultCard({ run, phase, flow, busy, replay, searching, onDecide, onRetry, onAgain, onRefreshThreads }: ResultCardProps) {
   let main: React.ReactNode
   if (approvalVisible(phase, flow, run.proposal !== null) && run.proposal) {
-    main = <ApprovalCard key={run.threadId ?? 'proposal'} proposal={run.proposal} busy={busy} onDecide={onDecide} />
+    main = <ApprovalCard key={run.threadId ?? 'proposal'} proposal={run.proposal} busy={busy} replay={replay} onDecide={onDecide} />
   } else if (run.result) {
     main = <TriageCard result={run.result} />
   } else if (phase === 'failed') {

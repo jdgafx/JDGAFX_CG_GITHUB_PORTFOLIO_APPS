@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { PHASE_BADGE } from '../lib/phase'
 import { LIVE_DATA_HOSTS, type LiveData } from '../lib/live-data'
 import type { Phase } from '../lib/run-state'
@@ -5,6 +6,8 @@ import type { Phase } from '../lib/run-state'
 /** The masthead: the app, one line on what it does, the showcase band, and the state of the run. */
 export function Header({ phase, live }: { phase: Phase; live: LiveData }) {
   const badge = PHASE_BADGE[phase]
+  // The showcase note is open on a wide screen and folded on a phone, so the result is near the top there.
+  const [noteOpen, setNoteOpen] = useState(() => window.matchMedia('(min-width: 1000px)').matches)
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -29,11 +32,14 @@ export function Header({ phase, live }: { phase: Phase; live: LiveData }) {
             and pauses for a maintainer before anything is final. Drafts only: nothing is posted to GitHub.
           </p>
         </div>
-        <p className="ds-showcase">
-          <strong>What this showcases:</strong> duplicate detection that shows its evidence. Candidates are ranked by rare shared
-          words, the model judges the top few, and a duplicate counts only when both of its quotes are found in the issue texts.
-          The run pauses with <code>interrupt()</code>, saves its checkpoint, and resumes after a reload.
-        </p>
+        <details className="ds-showcase" open={noteOpen} onToggle={(event) => setNoteOpen(event.currentTarget.open)}>
+          <summary>What this showcases: duplicate detection that shows its evidence</summary>
+          <p>
+            Candidates are ranked by rare shared words, the model judges the top few, and a duplicate counts only when both of its
+            quotes are found in the issue texts. The run pauses with <code>interrupt()</code>, saves its checkpoint, and resumes
+            after a reload.
+          </p>
+        </details>
       </div>
     </header>
   )

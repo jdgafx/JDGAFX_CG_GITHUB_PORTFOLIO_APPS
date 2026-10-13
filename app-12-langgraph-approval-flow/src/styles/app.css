@@ -370,3 +370,132 @@ code {
   .howto__what, .howto__steps { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
 }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Approvals desk (Q6). Stone-grey desk, paper sheets with a soft edge, ink type, a green Approve and a burnt-orange
+   Reject. Each graph step reads as a line on a routing form; the approval gate and the outcome are rubber stamps.
+   --------------------------------------------------------------------------------------------------------------- */
+
+h1, h2, h3, .ds-title { font-family: var(--ds-font); }
+.ds-title { font-weight: 800; letter-spacing: -0.035em; }
+.ds-section__title, .ds-card__title, .howto__title { letter-spacing: 0; }
+
+/* Paper sheets lie on the desk */
+.ds-header { box-shadow: var(--ds-shadow); }
+.ds-card, .ds-lead, .ds-approval, .ds-state, .ds-controls, .ds-strip, .ds-trace, .ds-chart, .gg-banner, .gg-note-box {
+  box-shadow: var(--ds-shadow);
+}
+.ds-showcase { display: block; padding: 0 16px; background: var(--ds-surface-2); border: 1px dashed var(--ds-border-strong); box-shadow: none; }
+.ds-showcase > summary { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; font-weight: 700; cursor: pointer; list-style: none; }
+.ds-showcase > summary::-webkit-details-marker { display: none; }
+.ds-showcase > summary::after { content: ""; flex: none; margin-left: auto; width: 8px; height: 8px; border: solid var(--ds-text-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.ds-showcase[open] > summary::after { transform: rotate(225deg); }
+.ds-showcase > p { padding-bottom: 12px; font-size: 15px; }
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 8px 32px; align-items: end; }
+  .ds-showcase { grid-column: auto; align-self: end; }
+}
+.ds-main { padding-top: 16px; }
+
+/* The plate is the form number, a square ink tab */
+.ds-plate { border-radius: 2px; font-family: var(--ds-mono); font-weight: 700; box-shadow: none; }
+
+/* Buttons */
+.ds-button { border-radius: 2px; border-color: var(--ds-border-strong); }
+.ds-button--primary:hover:not(:disabled) { filter: none; background: color-mix(in srgb, var(--ds-accent) 82%, var(--ds-surface)); }
+.ds-button:disabled, .ds-button:disabled:hover { opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); border-color: var(--ds-border); }
+.gg-approve { min-height: 52px; padding: 0 24px; font-size: 17px; font-weight: 800; color: var(--gg-approve-text); background: var(--gg-approve); border-color: var(--gg-approve); }
+.gg-approve:hover:not(:disabled) { background: color-mix(in srgb, var(--gg-approve) 86%, #000); border-color: var(--gg-approve); }
+.gg-reject { min-height: 52px; font-weight: 800; color: var(--ds-danger); background: var(--ds-surface); border: 2px solid var(--ds-danger); }
+.gg-reject:hover:not(:disabled) { background: var(--ds-danger-soft); border-color: var(--ds-danger); }
+.gg-approve:disabled, .gg-reject:disabled { border-width: 1px; border-style: dashed; }
+.gg-approve:disabled, .gg-approve:disabled:hover { color: var(--ds-success); background: var(--ds-success-soft); border-color: var(--ds-success); }
+.gg-reject:disabled, .gg-reject:disabled:hover { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: var(--ds-danger); }
+
+/* Rubber stamps: the gate while it waits, and the outcome once it is decided */
+.gg-stamp {
+  display: inline-block; max-width: 100%; padding: 4px 12px; font-size: 13px; font-weight: 800; line-height: 1.25; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ds-text-muted); border: 3px double currentColor; border-radius: 3px; transform: rotate(-2.5deg); transform-origin: 20% 60%;
+  animation: gg-stamp-down 320ms var(--ds-ease) both;
+}
+.gg-stamp--pending { color: var(--ds-warning); }
+.gg-stamp--approved { color: var(--gg-approve); }
+.gg-stamp--edited { color: var(--ds-text); }
+.gg-stamp--rejected { color: var(--ds-danger); }
+.gg-stamp--auto { color: var(--ds-text-muted); }
+@keyframes gg-stamp-down {
+  0% { opacity: 0; transform: rotate(-2.5deg) scale(1.6); }
+  62% { opacity: 1; transform: rotate(-2.5deg) scale(0.95); }
+  100% { opacity: 1; transform: rotate(-2.5deg) scale(1); }
+}
+
+/* The approval sheet: ruled in ink, with the decision as a signature block */
+.ds-approval { padding: 20px; border: 2px solid var(--ds-text); background: var(--ds-surface); }
+.ds-approval__head { padding-bottom: 12px; border-bottom: 1px solid var(--ds-border-strong); }
+.ds-approval__head .ds-section__title { font-size: 22px; font-weight: 800; letter-spacing: -0.015em; }
+.ds-approval__actions { align-items: center; padding: 16px; margin: 0 -4px; background: var(--ds-surface-2); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.ds-approval__actions .ds-button--danger, .ds-approval__actions .gg-reject { margin-left: auto; }
+.gg-proposal { background: var(--ds-surface-2); border: 1px solid var(--ds-border-strong); }
+.gg-proposal a { color: var(--ds-text); text-decoration-color: var(--ds-border-strong); text-underline-offset: 3px; }
+
+/* The finished triage card is the filed copy */
+.ds-lead { border: 2px solid var(--ds-text); }
+.ds-lead__meta { justify-content: space-between; }
+.ds-lead .ds-section__title { font-size: 22px; font-weight: 800; letter-spacing: -0.015em; }
+.ds-kv dt { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ds-text-muted); }
+
+/* Routing slip: every graph step is a ruled line with a numbered box */
+.ds-trace__step { padding: 12px 16px; }
+.ds-trace__index { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; color: var(--ds-text); font-weight: 700; border: 1px solid var(--ds-border-strong); border-radius: 2px; }
+.ds-trace__name { font-family: var(--ds-mono); font-size: 15px; font-weight: 700; letter-spacing: 0; }
+.ds-trace__state { text-transform: uppercase; letter-spacing: 0.07em; font-size: 12px; }
+.ds-trace__bar { border-radius: 1px; }
+.ds-trace__lane { border-radius: 1px; }
+
+/* The graph is a ruled sheet; steps are boxes on it */
+.ds-stage { background: repeating-linear-gradient(transparent 0 23px, color-mix(in srgb, var(--ds-border) 70%, transparent) 23px 24px), var(--ds-surface-2); }
+.ds-g-node, .ds-g-halo { rx: 3px; }
+.ds-g-node { fill: var(--ds-surface); stroke: var(--ds-text); stroke-width: 1.5; }
+.ds-g-node--active { fill: var(--ds-accent-soft); stroke: var(--ds-accent); stroke-width: 3; }
+.ds-g-node--done { stroke: var(--ds-text); }
+.ds-g-node--skipped { stroke: var(--ds-border-strong); }
+.ds-g-title { font-family: var(--ds-mono); font-weight: 700; font-size: 17px; }
+.ds-g-label--taken, .ds-g-state--active { fill: var(--ds-text); }
+.ds-g-dot--done { fill: var(--gg-approve); }
+[data-run="running"] .ds-header::before { background: linear-gradient(90deg, var(--ds-accent-dim) 0, var(--ds-accent) 35%, var(--ds-accent-dim) 70%) 0 0 / 220% 100%; }
+
+/* The readout is a ledger line */
+.ds-strip { border-radius: 2px; }
+.ds-strip__label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
+.ds-strip__value { font-family: var(--ds-mono); font-weight: 700; }
+.ds-strip--live .ds-strip__value { color: var(--ds-text); }
+.ds-chip { border-radius: 2px; font-weight: 700; }
+
+/* Forms: ruled inputs on paper */
+.ds-input, .ds-select, .ds-textarea { background: #fffdf8; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { .ds-input, .ds-select, .ds-textarea { background: var(--ds-surface-2); } }
+.ds-disclosure > summary { text-transform: none; }
+.gg-preset { border-radius: 2px; }
+.ds-badge { border-radius: 2px; text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; font-weight: 700; }
+.ds-dot { border-radius: 1px; transform: rotate(45deg); width: 8px; height: 8px; }
+.live-data { border-radius: 2px; }
+
+/* Replay label: the slip pinned above the replayed sheet. It leads the run column in every state. */
+.ds-run__replay { order: -3; }
+.replay-label {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 12px 16px; margin-bottom: 20px; background: var(--ds-warning-soft); color: var(--ds-text);
+  border: 1px dashed var(--ds-warning); border-radius: var(--ds-radius);
+}
+.replay-label__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: none; font-size: 15px; }
+.replay-label__line strong { font-weight: 800; }
+.replay-label__line [data-replay-model], .replay-label__line [data-replay-cost] { font-weight: 700; }
+.replay-label .ds-help { color: var(--ds-text); }
+.replay-label__text { display: grid; gap: 4px; flex: 1 1 360px; min-width: 0; }
+.replay-label__live { flex: none; min-height: 44px; padding: 0 20px; color: var(--ds-text); background: var(--ds-surface); border: 2px solid var(--ds-text); }
+
+/* On a narrow screen the replayed run leads, ahead of the issue picker, so it is on the first screen. */
+@media (max-width: 999px) {
+  .ds-app[data-replay] .ds-controls { order: 1; }
+  .ds-app[data-replay] .ds-run { order: -1; }
+  .ds-app[data-replay] .howto { order: 2; }
+}
