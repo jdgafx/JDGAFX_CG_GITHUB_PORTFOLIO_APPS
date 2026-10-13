@@ -38,10 +38,11 @@ function ClaimMark({ j, ctx, figure }: { j: Judged; ctx: LabelContext; figure: n
   const label = labelFor(j.seg, ctx)
   return (
     <>
-      <mark className={`claim claim--${j.verdict}`} title={titleFor(j, ctx)} id={figure === undefined ? undefined : `fig-${figure}`}>
+      <mark className={`claim claim--${j.verdict}`} title={[titleFor(j, ctx), label].filter(Boolean).join(' · ') || undefined} id={figure === undefined ? undefined : `fig-${figure}`}>
         {j.rendered}
       </mark>
-      {label && <span className="claim-label"> {label}</span>}
+      {/* The claim's name is in the mark's tooltip and the figure check; inline it would break the sentence. */}
+      {label && <span className="ds-sr-only"> {label}</span>}
       {j.verdict === 'wrong' && <span className="claim-note"> (differs from npm)</span>}
     </>
   )

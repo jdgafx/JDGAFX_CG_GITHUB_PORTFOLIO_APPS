@@ -33,40 +33,43 @@ export default function FigureCheck({ window, packages, facts, figures, rowsByNa
         {shown.length} of {packages.length} package explanations shown
       </p>
       {rows.length > 0 && (
-        <div className="ds-scroll-x">
-          <table className="data-table ledger">
-            <thead>
-              <tr>
-                <th scope="col">#</th>
-                <th scope="col">Text</th>
-                <th scope="col">Kind</th>
-                <th scope="col">Package</th>
-                <th scope="col">Span or day</th>
-                <th scope="col">Model value</th>
-                <th scope="col">npm value</th>
-                <th scope="col">How to check</th>
-                <th scope="col">Verdict</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <tr key={row.key}>
-                  <td className="fc-n ds-num">{row.number === null ? '' : <a href={`#fig-${row.number}`}>{row.number}</a>}</td>
-                  <td className="fc-text">{row.text}</td>
-                  <td className="fc-kind" data-label="Kind">{row.kind}</td>
-                  <td className="fc-pkg" data-label="Package">{row.pkg}</td>
-                  <td className="fc-where" data-label="Span or day">{row.where}</td>
-                  <td className="fc-model ds-num" data-label="Model value">{row.modelValue}</td>
-                  <td className="fc-npm ds-num" data-label="npm value">{row.npmValue}</td>
-                  <td className="fc-how" data-label="How to check">{row.howTo}</td>
-                  <td className="fc-verdict">
-                    <span className={BADGE[row.verdict].cls}>{BADGE[row.verdict].word}</span>
-                  </td>
+        <details className="figure-check__rows">
+          <summary>Show every figure ({rows.length})</summary>
+          <div className="ds-scroll-x">
+            <table className="data-table ledger">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Text</th>
+                  <th scope="col">Kind</th>
+                  <th scope="col">Package</th>
+                  <th scope="col">Span or day</th>
+                  <th scope="col">Model value</th>
+                  <th scope="col">npm value</th>
+                  <th scope="col">How to check</th>
+                  <th scope="col">Verdict</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map(row => (
+                  <tr key={row.key}>
+                    <td className="fc-n ds-num">{row.number === null ? '' : <a href={`#fig-${row.number}`}>{row.number}</a>}</td>
+                    <td className="fc-text">{row.text}</td>
+                    <td className="fc-kind" data-label="Kind">{row.kind}</td>
+                    <td className="fc-pkg" data-label="Package">{row.pkg}</td>
+                    <td className="fc-where" data-label="Span or day">{row.where}</td>
+                    <td className="fc-model ds-num" data-label="Model value">{row.modelValue}</td>
+                    <td className="fc-npm ds-num" data-label="npm value">{row.npmValue}</td>
+                    <td className="fc-how" data-label="How to check">{row.howTo}</td>
+                    <td className="fc-verdict">
+                      <span className={BADGE[row.verdict].cls}>{BADGE[row.verdict].word}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
     </section>
   )

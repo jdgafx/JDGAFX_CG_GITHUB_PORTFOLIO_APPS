@@ -71,6 +71,11 @@
 .replay-label__live { min-height: 36px; padding: 0 16px; margin-left: 8px; }
 .replay-label .ds-help { color: var(--ds-text-muted); }
 
+.figure-check__rows > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-family: var(--ds-mono); font-size: 14px; font-weight: 500; color: var(--ds-accent); }
+.figure-check__rows[open] > summary { margin-bottom: 8px; }
+.live-label { padding: 12px 16px; }
+.live-label .replay-label__line strong { color: var(--ds-accent); font-weight: 600; }
+
 /* Explanation: the reading block. Prose in Instrument Sans, every figure a mono mark that carries its verdict */
 .ds-lead { border-radius: var(--ds-radius); gap: 20px; }
 .explanation__title { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
@@ -194,15 +199,19 @@
 .ds-state--loading .ds-state__title { font-family: var(--ds-mono); }
 .ds-footer { font-family: var(--ds-mono); }
 
-/* Results column. While no result is shown the charts lead the stage; what the data did not give follows them, except a failure,
-   which stays on top. */
+/* Results column. The run's banner (replay or live) leads, then the charts, then the explanation and its figure check, then the
+   readout, the figures per package and the unusual days. What the data did not give follows them, except a failure, which
+   stays on top. The stage dissolves into the column so each of its parts can take its place. */
 .ds-run { gap: 20px; }
-.notices { display: contents; }
-.ds-run__stage .ds-notice { order: 4; }
-.ds-run__stage .ds-notice--error, .ds-run__stage .ds-notice--warning { order: -1; }
-.ds-run__stage .charts { order: 1; }
-.ds-run__stage .metrics { order: 2; }
-.ds-run__stage .unusual { order: 3; }
+.ds-run__stage, .notices { display: contents; }
+.ds-app .ds-run > .replay-label, .ds-app .ds-run > .live-label { order: -5; }
+.ds-app .ds-run .charts { order: -4; }
+.ds-app .ds-run__result { order: -3; }
+.ds-app .ds-run__readout { order: -2; }
+.ds-app .ds-run .metrics { order: -1; }
+.ds-app .ds-run .unusual { order: 1; }
+.ds-app .ds-run .ds-notice { order: 2; }
+.ds-app .ds-run .ds-notice--error, .ds-app .ds-run .ds-notice--warning { order: -6; }
 .ds-run__stage, .ds-run__result, .ds-run__readout { min-width: 0; }
 
 /* On a phone the run leads and the controls follow it; the Try it button stays in the how-to above */
@@ -211,7 +220,7 @@
   .ds-run { order: 1; }
 }
 @media (max-width: 720px) {
-  .replay-label__line { display: grid; justify-items: start; gap: 4px; }
+  .replay-label__line { font-size: 13px; gap: 4px 10px; }
   .replay-label__line > span[aria-hidden="true"] { display: none; }
   .replay-label__live { margin-left: 0; margin-top: 4px; }
   .ds-title { font-size: 28px; }

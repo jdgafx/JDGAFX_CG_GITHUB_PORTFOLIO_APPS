@@ -127,10 +127,18 @@ describe('App replay on load', () => {
     const label = container.querySelector('[data-replay-label]')
     expect(label?.querySelector('strong')?.textContent).toBe('Replay of a real run')
     expect(label?.querySelector('[data-replay-age]')?.textContent).toBe('2 h ago')
-    expect(label?.querySelector('[data-replay-model]')?.textContent).toBe('explained by anthropic/claude-haiku-5.5')
+    expect(label?.querySelector('[data-replay-model]')?.textContent).toBe('explained by claude-haiku-5.5')
+    expect(label?.querySelector('[data-replay-model]')?.getAttribute('title')).toBe('anthropic/claude-haiku-5.5')
     expect(label?.querySelector('[data-replay-cost]')?.textContent).toBe('cost $0.0064')
     expect(container.querySelectorAll('section.explanation article')).toHaveLength(4)
     expect(container.querySelector('.ds-app')?.getAttribute('data-run')).toBe('done')
+    // the label carries the model and cost, so the readout tiles (which would count the sped-up replay) are not shown
+    expect(container.querySelector('.ds-run__readout')).toBeNull()
+    expect(container.querySelector('[data-live-label]')).toBeNull()
+    // the figure check is a summary line with the table folded away until asked for
+    expect(container.querySelector('details.figure-check__rows')?.hasAttribute('open')).toBe(false)
+    // inline, a claim is its mark only; its name is in the tooltip
+    expect(container.querySelector('.claim-label')).toBeNull()
     // the live view of the load was drawn for today, the replay for the recorded day
     expect(d.days[0]).toBe('2026-10-13')
     expect(d.days.at(-1)).toBe(RECORDED_DAY)
@@ -149,6 +157,11 @@ describe('App replay on load', () => {
     await click(byText(container, 'button', 'Run it live'))
     await flush(12)
     expect(container.querySelector('[data-replay-label]')).toBeNull()
+    // the live run keeps a banner with its model and cost where the replay label was
+    expect(container.querySelector('[data-live-label]')?.textContent).toContain('Live run')
+    expect(container.querySelector('[data-live-label]')?.textContent).toContain('claude-haiku-5.5')
+    expect(container.querySelector('[data-live-label]')?.textContent).toContain('$0.0064')
+    expect(container.querySelector('.ds-run__readout')).not.toBeNull()
     expect(d.days.at(-1)).toBe('2026-10-13')
     expect(api.filter(a => a.method === 'POST' && a.path === '/api/explain')).toHaveLength(4)
   })

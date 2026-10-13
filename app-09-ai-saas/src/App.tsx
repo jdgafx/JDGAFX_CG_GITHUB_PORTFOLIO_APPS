@@ -15,7 +15,7 @@ import { liveState } from './components/LiveChip'
 import Metrics from './components/Metrics'
 import Notices from './components/Notices'
 import Readout from './components/Readout'
-import { ReplayLabel } from './components/ReplayLabel'
+import { LiveRunLabel, ReplayLabel } from './components/ReplayLabel'
 import UnusualTable from './components/UnusualTable'
 import { shownList } from './lib/labels'
 import { todayUtc } from './lib/npmClient'
@@ -122,7 +122,8 @@ export default function App({ deps }: { deps?: Partial<RunDeps> }) {
                 )}
               </div>
             )}
-            {run.phase !== 'idle' && (
+            {run.phase === 'done' && !replaying && run.modelOutcome !== null && <LiveRunLabel run={run} />}
+            {run.phase !== 'idle' && !replaying && (
               <div className="ds-run__readout">
                 <Readout run={run} />
               </div>
