@@ -9,6 +9,15 @@ export const FORMAT_VERSION = 1
 // Thrown when the run must not be saved: it errored, did not finish, or did not report what the label needs.
 export class RefusedRun extends Error {}
 
+// A RefusedRun because an app request answered 5xx: the one kind of refusal worth a second try, since it is the provider's hiccup, not the run.
+export class ServerErrorRun extends RefusedRun {
+  constructor(method, path, status) {
+    super(`${method} ${path} answered ${status}`)
+    this.path = path
+    this.status = status
+  }
+}
+
 const round = ms => Math.round(ms * 10) / 10
 
 // Per-app knowledge lives in apps/<app>.json, never in code: what the built-in example is, which reply ends it, what a
@@ -102,6 +111,24 @@ export async function recordApps(apps, record) {
     ;(success ? ok : failed).push(app)
   }
   return { ok, failed }
+}
+
+/**
+ * Runs attempt() (one whole recording run, returning the recording or throwing) and, if it was refused for a 5xx reply, waits
+ * delayMs and runs it once more from scratch. Any other failure, and a 5xx on the second run, is thrown as is.
+ * The retry is a second real run against the production app, which costs a few cents.
+ */
+export async function recordWithRetry(attempt, { wait = ms => new Promise(r => setTimeout(r, ms)), log = console.log, delayMs = 15_000 } = {}) {
+  try {
+    return await attempt()
+  } catch (err) {
+    if (!(err instanceof ServerErrorRun)) throw err
+    log(`retrying after 5xx ${err.path} ${err.status}: waiting ${delayMs / 1000} s, then one whole new run (a second real run, costs a few cents)`)
+  }
+  await wait(delayMs)
+  const recording = await attempt()
+  log('retry run was clean')
+  return recording
 }
 
 // Values at a dotted path; a * segment fans out over an array. A missing step yields undefined.
@@ -199,6 +226,7 @@ export function buildRecording({ app, config, url, recordedAt, t0, exchanges }) 
   const out = after.map(e => {
     if (e.error) throw new RefusedRun(`${e.method} ${e.path} failed: ${e.error}`)
     if (!e.done) throw new RefusedRun(`${e.method} ${e.path} did not finish`)
+    if (Number.isInteger(e.status) && e.status >= 500 && e.status <= 599) throw new ServerErrorRun(e.method, e.path, e.status)
     if (!Number.isInteger(e.status) || e.status < 200 || e.status > 299) throw new RefusedRun(`${e.method} ${e.path} answered ${e.status}`)
     const text = e.chunks.map(c => c.text).join('')
     if (isEventStream(e.headers)) {

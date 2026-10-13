@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { buildRecording, ConfigError, listApps, loadAppConfig, recordApps, RefusedRun } from './lib.mjs'
+import { buildRecording, ConfigError, listApps, loadAppConfig, recordApps, recordWithRetry, RefusedRun, ServerErrorRun } from './lib.mjs'
 
 const app = 'app-06-llm-playground'
 const config = loadAppConfig(app)
@@ -245,4 +245,56 @@ test('summed cost refuses a missing or non-numeric value, a missing request and 
 test('the single cost spec still reads only its first value', () => {
   const cfg = twoConfig(pathRules, { path: '/api/run', field: '*.cost' })
   assert.equal(buildRecording(twoRequests(cfg)).reported.cost_usd, 0.0005)
+})
+
+test('a 5xx reply is refused as a server error carrying its path and status; a 4xx is a plain refusal', () => {
+  const withStatus = status => ({ ...base(), exchanges: base().exchanges.map(e => (e.path === '/api/judge' ? { ...e, status } : e)) })
+  assert.throws(() => buildRecording(withStatus(502)), e => e instanceof ServerErrorRun && e.path === '/api/judge' && e.status === 502 && /answered 502/.test(e.message))
+  assert.throws(() => buildRecording(withStatus(400)), e => e instanceof RefusedRun && !(e instanceof ServerErrorRun))
+})
+
+const retryHarness = outcomes => {
+  const calls = { attempts: 0, waits: [], logs: [] }
+  const attempt = async () => {
+    const outcome = outcomes[calls.attempts++]
+    if (outcome instanceof Error) throw outcome
+    return outcome
+  }
+  return { calls, run: () => recordWithRetry(attempt, { wait: async ms => calls.waits.push(ms), log: m => calls.logs.push(m), delayMs: 15_000 }) }
+}
+const serverError = () => new ServerErrorRun('POST', '/api/ai?stage=edit', 502)
+
+test('a first run with a 5xx is redone once after a wait and the clean second run is the one returned', async () => {
+  const { calls, run } = retryHarness([serverError(), { clean: true }])
+  assert.deepEqual(await run(), { clean: true })
+  assert.equal(calls.attempts, 2)
+  assert.deepEqual(calls.waits, [15_000])
+  assert.match(calls.logs[0], /retrying after 5xx \/api\/ai\?stage=edit 502/)
+  assert.match(calls.logs[0], /second real run/)
+  assert.match(calls.logs[1], /retry run was clean/)
+})
+
+test('two runs with a 5xx fail after exactly two attempts, returning nothing to save', async () => {
+  const { calls, run } = retryHarness([serverError(), serverError()])
+  await assert.rejects(run(), e => e instanceof ServerErrorRun && e.status === 502)
+  assert.equal(calls.attempts, 2)
+})
+
+test('a clean first run is not redone, and a 4xx or any other refusal is not retried', async () => {
+  const clean = retryHarness([{ clean: true }])
+  assert.deepEqual(await clean.run(), { clean: true })
+  assert.equal(clean.calls.attempts, 1)
+  for (const err of [new RefusedRun('POST /api/ai answered 422'), new RefusedRun('the run never reached /api/judge'), new Error('boom')]) {
+    const { calls, run } = retryHarness([err, { clean: true }])
+    await assert.rejects(run(), e => e === err)
+    assert.equal(calls.attempts, 1)
+    assert.deepEqual(calls.waits, [])
+  }
+})
+
+test('a second-run refusal that is not a 5xx is thrown as is', async () => {
+  const other = new RefusedRun('the run never reached /api/judge')
+  const { calls, run } = retryHarness([serverError(), other])
+  await assert.rejects(run(), e => e === other)
+  assert.equal(calls.attempts, 2)
 })

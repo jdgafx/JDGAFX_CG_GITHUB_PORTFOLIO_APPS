@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Records one real run of an app's built-in example as a visitor would start it, and writes <app>.json.
 // Usage: node record.mjs --app app-06-llm-playground [--out dir]   (everything else comes from apps/<app>.json)
-// Exits non-zero, writing nothing, if the run errored or did not finish.
+// Exits non-zero, writing nothing, if the run errored or did not finish. A run that saw a 5xx reply is redone once, whole.
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { chromium } from 'playwright'
-import { buildRecording, ConfigError, loadAppConfig } from './lib.mjs'
+import { buildRecording, ConfigError, loadAppConfig, recordWithRetry } from './lib.mjs'
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []))
 const app = args.app
@@ -65,28 +65,35 @@ function installLogger(apiPrefix) {
   }
 }
 
-const browser = await chromium.launch({ headless: true })
+// One whole run in its own browser: a fresh page, a live example, the recording or a thrown refusal.
+async function recordOnce() {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const context = await browser.newContext({ userAgent: 'jdgafx-portfolio-bot/1.0', viewport: { width: 1440, height: 900 } })
+    const page = await context.newPage()
+    await page.addInitScript(installLogger, config.apiPrefix)
+    // ?replay=off: the page must make a live run, never play a recording back, or the recording would record itself.
+    await page.goto(`${target.origin}${target.pathname}?replay=off`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.getByRole('button', { name: config.tryButton, exact: true }).click({ timeout: 60_000 })
+    await page.waitForFunction(
+      finishPath => window.__replayLog.some(e => e.error || (e.done && e.path === finishPath) || (e.done && (e.status < 200 || e.status > 299))),
+      config.finishPath,
+      { timeout: RUN_TIMEOUT_MS },
+    )
+    if (config.settleMs) await page.waitForTimeout(config.settleMs)
+    const { t0, exchanges } = await page.evaluate(() => ({ t0: window.__replayT0, exchanges: window.__replayLog }))
+    return buildRecording({ app, config, url: target.href, recordedAt: new Date().toISOString(), t0, exchanges })
+  } finally {
+    await browser.close()
+  }
+}
+
 let recording
 try {
-  const context = await browser.newContext({ userAgent: 'jdgafx-portfolio-bot/1.0', viewport: { width: 1440, height: 900 } })
-  const page = await context.newPage()
-  await page.addInitScript(installLogger, config.apiPrefix)
-  // ?replay=off: the page must make a live run, never play a recording back, or the recording would record itself.
-  await page.goto(`${target.origin}${target.pathname}?replay=off`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-  await page.getByRole('button', { name: config.tryButton, exact: true }).click({ timeout: 60_000 })
-  await page.waitForFunction(
-    finishPath => window.__replayLog.some(e => e.error || (e.done && e.path === finishPath) || (e.done && (e.status < 200 || e.status > 299))),
-    config.finishPath,
-    { timeout: RUN_TIMEOUT_MS },
-  )
-  if (config.settleMs) await page.waitForTimeout(config.settleMs)
-  const { t0, exchanges } = await page.evaluate(() => ({ t0: window.__replayT0, exchanges: window.__replayLog }))
-  recording = buildRecording({ app, config, url: target.href, recordedAt: new Date().toISOString(), t0, exchanges })
+  recording = await recordWithRetry(recordOnce)
 } catch (err) {
   console.error(`REFUSED to save a recording of ${app}: ${err instanceof Error ? err.message : err}`)
   process.exitCode = 1
-} finally {
-  await browser.close()
 }
 
 if (recording) {
