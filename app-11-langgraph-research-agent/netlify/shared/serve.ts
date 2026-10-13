@@ -4,12 +4,11 @@ import { allowedOrigins, clientKey, corsHeaders, createRateLimiter, originAllowe
 import { BUDGET_MESSAGE, NOT_CONFIGURED_MESSAGE } from './openrouter'
 
 /**
- * One budget for every model and tool call in a run. The docs give synchronous functions 60 seconds, so the
- * run ends itself at 40 s: that leaves room for the corroborating read the graph asks for (IY.3) and stays
- * under the platform limit. The earlier observation of streams closing near 30 s predates the 5 s heartbeat;
- * a run longer than 30 s is re-checked on the preview after this change.
+ * One budget for every model and tool call in a run. The platform cut streams near 30 s, re-confirmed on the
+ * preview on 2026-10-13: two runs with a 40 s budget were cut mid-critic at 26 to 27 s of run time, with no
+ * final frame. 25 s ends runs gracefully before that.
  */
-export const RUN_BUDGET_MS = 40_000
+export const RUN_BUDGET_MS = 25_000
 
 /** If the run has not returned this long after its budget aborted, the stream is closed with the budget message anyway. */
 export const HARD_STOP_GRACE_MS = 2_000

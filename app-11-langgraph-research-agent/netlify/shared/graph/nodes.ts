@@ -217,7 +217,9 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
       !state.corroborated &&
       state.evidence.length === 1 &&
       !state.evidence[0].url.includes('wikipedia.org')
-    if (singleWebPage && roundsLeft > 0 && timeLeft(ctx) >= NEEDS.tools + NEEDS.agent + NEEDS.draft + NEEDS.critic) {
+    // The corroborating read must fit (the tools, the extra ask and a draft). The critic is not counted:
+    // it skips gracefully on its own timeLeft guard if the budget ends first.
+    if (singleWebPage && roundsLeft > 0 && timeLeft(ctx) >= NEEDS.tools + NEEDS.agent + NEEDS.draft) {
       return {
         update: { corroborated: true, messages: [{ role: 'user', content: CORROBORATE }] },
         detail: 'One web page read: asking for one corroborating page before the draft.',

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RUN_BUDGET_MS } from '../../netlify/functions/run'
-import type { Frame, NodeEndFrame, ResultFrame } from '../../netlify/shared/events'
+import type { Frame, NodeEndFrame } from '../../netlify/shared/events'
 import { NODE_MODEL } from '../../netlify/shared/models'
 import { MODEL_LIST_URL } from '../../netlify/shared/pricing'
 import { roleOf } from '../helpers/roles'
@@ -348,7 +348,7 @@ describe('POST /api/run', () => {
     try {
       // Every provider call takes its scripted time, all inside the per-call limit, so only the budget for the whole run can stop the chain.
       const answers = sampleOpenRouter()
-      const delays = [8_000, 8_200, 6_500]
+      const delays = [8_000, 7_500, 11_000]
       let modelCalls = 0
       const fetchStub = vi.fn(
         (input: string | URL | Request, init?: RequestInit) =>
@@ -374,16 +374,12 @@ describe('POST /api/run', () => {
       await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + 1_000)
       const { frames, lastRecord } = await reading
 
-      expect(RUN_BUDGET_MS).toBeLessThan(60_000)
+      expect(RUN_BUDGET_MS).toBeLessThan(30_000)
       expect(lastRecord).toBe('data: [DONE]')
-      // Plan, the two agent turns and the draft took 31.7 s; the 9 s critic call ran into the budget at 40 s.
-      const result = frames.find((frame): frame is ResultFrame => frame.type === 'result')
-      expect(result).toMatchObject({
-        answer: ANSWER,
-        ending: { kind: 'partial', message: 'Unreviewed: the time limit ended the review.' },
-      })
+      // Plan and agent took 15.5 s: the 9.5 s left covered the tools (9 s with a draft) but not another agent turn, and the 11 s draft hit the budget.
+      expect(frames.at(-1)).toMatchObject({ type: 'result', answer: '', ending: { kind: 'no_answer' } })
       const stopped = frames.find((frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.status === 'failed')
-      expect(stopped).toMatchObject({ node: 'critic', detail: BUDGET_MESSAGE })
+      expect(stopped).toMatchObject({ node: 'draft', detail: BUDGET_MESSAGE })
     } finally {
       vi.useRealTimers()
     }
