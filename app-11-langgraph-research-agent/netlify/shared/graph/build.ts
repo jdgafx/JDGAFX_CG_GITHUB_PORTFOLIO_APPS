@@ -137,7 +137,7 @@ export function buildGraph(deps: GraphDeps) {
     .addNode('final', wrap('final', finalStep))
     .addEdge(START, 'plan')
     .addEdge('plan', 'agent')
-    .addConditionalEdges('agent', routeAfter, ['tools', 'draft'])
+    .addConditionalEdges('agent', routeAfter, ['tools', 'agent', 'draft'])
     .addEdge('tools', 'agent')
     .addEdge('draft', 'critic')
     .addConditionalEdges('critic', routeAfter, ['draft', 'final'])

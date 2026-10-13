@@ -42,4 +42,13 @@ describe('prompts', () => {
       'Set ok to false for a claim that calls a value current or latest when another source shows a newer value for the same fact.',
     )
   })
+
+  it('tell the draft and the critic that a single-source current value is not confirmed', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'When the question asks for a latest or current value and only one source carries it, do not state it as the current value: say the sources cannot confirm it, and name what would settle it.',
+    )
+    expect(CRITIC_SYSTEM).toContain(
+      'Set ok to false for a claim that states a latest or current value, carried by a single source, as current or confirmed.',
+    )
+  })
 })

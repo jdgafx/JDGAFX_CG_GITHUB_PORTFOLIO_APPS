@@ -171,6 +171,10 @@ export async function planStep(state: ResearchValues, ctx: NodeContext): Promise
   return { update: { searchQueries: queries }, detail: `Planned searches: ${queries.join('; ')}`, call }
 }
 
+/** The one extra ask the graph makes when a web answer would rest on a single page. */
+const CORROBORATE =
+  'Read at least one more page from a different source that could carry the answer before you finish: a current value should not rest on a single page.'
+
 /**
  * The tool-calling agent. With no tool budget left it routes to the draft without a model
  * call. Otherwise it either asks for tools or, with none to ask for, moves on to the draft.
@@ -208,6 +212,19 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
 
   const { text, toolCalls: requested } = call.reply
   if (requested.length === 0) {
+    const singleWebPage =
+      ctx.web != null &&
+      !state.corroborated &&
+      state.evidence.length === 1 &&
+      !state.evidence[0].url.includes('wikipedia.org')
+    if (singleWebPage && roundsLeft > 0 && timeLeft(ctx) >= NEEDS.tools + NEEDS.agent + NEEDS.draft + NEEDS.critic) {
+      return {
+        update: { corroborated: true, messages: [{ role: 'user', content: CORROBORATE }] },
+        detail: 'One web page read: asking for one corroborating page before the draft.',
+        route: { to: 'agent', label: 'agent (corroborating read)' },
+        call,
+      }
+    }
     return {
       update: {},
       detail: 'No tool call. Moving to the draft.',
