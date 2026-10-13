@@ -32,7 +32,7 @@ export interface Layout {
 const NODE_TEXT: Record<NodeName, { title: string; sub: string }> = {
   plan: { title: 'plan', sub: 'search queries' },
   agent: { title: 'agent', sub: 'decides on tools' },
-  tools: { title: 'tools', sub: 'Wikipedia' },
+  tools: { title: 'tools', sub: 'searches' },
   draft: { title: 'draft', sub: 'cited answer' },
   critic: { title: 'critic', sub: 'accept or revise' },
   final: { title: 'final', sub: 'sources listed' },

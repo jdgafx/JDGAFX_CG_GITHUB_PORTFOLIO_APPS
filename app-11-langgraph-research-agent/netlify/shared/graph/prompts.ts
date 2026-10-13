@@ -1,28 +1,45 @@
 import type { Evidence } from '../citations'
 
-export const PLAN_SYSTEM = [
-  'You plan Wikipedia research for a factual question.',
-  'Reply with JSON only, in this shape: {"queries": ["..."]}.',
-  'Give one to three short English search queries, most specific first.',
-  'Put a year in a query only when the question names that year. Never add the current year or a month on your own.',
-].join(' ')
+/** The plan prompt. With the web search configured it may plan web queries too, for anything current. */
+export function planSystem(web: boolean): string {
+  return [
+    web
+      ? 'You plan Wikipedia and current-web research for a factual question.'
+      : 'You plan Wikipedia research for a factual question.',
+    'Reply with JSON only, in this shape: {"queries": ["..."]}.',
+    'Give one to three short English search queries, most specific first.',
+    web
+      ? 'An encyclopedia holds established facts and history; the web holds anything current (news, prices, releases, events). Plan the queries the question needs, of either kind.'
+      : '',
+    'Put a year in a query only when the question names that year. Never add the current year or a month on your own.',
+  ]
+    .filter((line) => line !== '')
+    .join(' ')
+}
 
 /** The date line every model call carries. `today` is read from the clock at call time, never kept at load. */
 export function todayLine(today: string): string {
   return `Today's date is ${today}.`
 }
 
-export function agentSystem(roundsLeft: number): string {
+export function agentSystem(roundsLeft: number, web: boolean): string {
   const rounds = `${roundsLeft} tool round${roundsLeft === 1 ? '' : 's'}`
   return [
-    'You research a factual question with two tools.',
+    `You research a factual question with ${web ? 'four' : 'two'} tools.`,
     'wikipedia_search finds page titles. wikipedia_page reads the start of one page and numbers it as a source.',
-    'A search result is not a source: only a page you read with wikipedia_page counts. After a search, read the page that best fits the question.',
+    web
+      ? 'web_search finds current web pages, for anything an encyclopedia does not carry. web_page reads one by its address and numbers it as a source.'
+      : '',
+    web
+      ? 'A search result is not a source: only a page you read counts. After a search, read the page that best fits the question.'
+      : 'A search result is not a source: only a page you read with wikipedia_page counts. After a search, read the page that best fits the question.',
     `You have ${rounds} left.`,
     'Read a page for each person, place or work the question names before you stop.',
     'Put a year in a search query only when the question names that year. Never add the current year or a month on your own.',
     'Stop, with one short sentence and no tool call, only when the pages you read state every fact the question asks for. If a fact is missing, read the page that has it.',
-  ].join(' ')
+  ]
+    .filter((line) => line !== '')
+    .join(' ')
 }
 
 export const DRAFT_SYSTEM = [

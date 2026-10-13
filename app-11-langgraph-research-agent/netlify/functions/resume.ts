@@ -5,6 +5,7 @@ import { isRecord } from '../shared/json'
 import { chat } from '../shared/openrouter'
 import { livePriceBook } from '../shared/pricing'
 import { fail, gate, streamRun } from '../shared/serve'
+import { WEB_KEY_ENV, webTools } from '../shared/websearch'
 import { liveWiki } from '../shared/wikipedia'
 
 /** Continues a finished run from a saved point with the visitor's edit. The token is the state, signed by this server. */
@@ -24,7 +25,12 @@ export default async (req: Request): Promise<Response> => {
 
     return streamRun(
       (signal, deadline, emit) =>
-        resumeResearch(snapshot, rewind.value, { chat, wiki: liveWiki, signal, deadline, priceBook: livePriceBook() }, emit),
+        resumeResearch(
+          snapshot,
+          rewind.value,
+          { chat, wiki: liveWiki, web: webTools(process.env[WEB_KEY_ENV]), signal, deadline, priceBook: livePriceBook() },
+          emit,
+        ),
       headers,
     )
   } catch (err) {

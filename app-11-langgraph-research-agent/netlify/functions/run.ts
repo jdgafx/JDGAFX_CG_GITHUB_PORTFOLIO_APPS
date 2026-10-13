@@ -4,6 +4,7 @@ import { MAX_BODY_BYTES, validateQuestion } from '../shared/guard'
 import { chat } from '../shared/openrouter'
 import { livePriceBook } from '../shared/pricing'
 import { fail, gate, HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS, streamRun } from '../shared/serve'
+import { WEB_KEY_ENV, webTools } from '../shared/websearch'
 import { liveWiki } from '../shared/wikipedia'
 
 export { HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS }
@@ -20,7 +21,11 @@ export default async (req: Request): Promise<Response> => {
     const secret = process.env.OPENROUTER_API_KEY
     return streamRun(
       (signal, deadline, emit) =>
-        runResearch(checked.question, { chat, wiki: liveWiki, signal, deadline, secret, priceBook: livePriceBook() }, emit),
+        runResearch(
+          checked.question,
+          { chat, wiki: liveWiki, web: webTools(process.env[WEB_KEY_ENV]), signal, deadline, secret, priceBook: livePriceBook() },
+          emit,
+        ),
       headers,
     )
   } catch (err) {

@@ -101,14 +101,17 @@ const WIKI: WikiTools = {
   },
 }
 
+/** The tools a call reads from: these tests run with no web search key. */
+const BOX = (wiki: WikiTools) => ({ wiki, web: null })
+
 describe('runToolCall', () => {
   it('reads a page and hands it back for numbering', async () => {
-    const outcome = await runToolCall(call('c1', 'wikipedia_page', { title: 'Expo 98' }), WIKI, SIGNAL)
+    const outcome = await runToolCall(call('c1', 'wikipedia_page', { title: 'Expo 98' }), BOX(WIKI), SIGNAL)
     expect(outcome).toMatchObject({ ok: true, note: 'Read "Expo 98".', page: { title: 'Expo 98' } })
   })
 
   it('searches and returns numbered titles, without reading a page', async () => {
-    const outcome = await runToolCall(call('c2', 'wikipedia_search', { query: 'Lisbon' }), WIKI, SIGNAL)
+    const outcome = await runToolCall(call('c2', 'wikipedia_search', { query: 'Lisbon' }), BOX(WIKI), SIGNAL)
     expect(outcome).toMatchObject({
       ok: true,
       content: '1. Expo 98: hit for Lisbon',
@@ -119,20 +122,20 @@ describe('runToolCall', () => {
 
   it('refuses arguments that are not JSON and never calls Wikipedia', async () => {
     const wiki = { search: vi.fn(async () => []), page: vi.fn(async () => WIKI.page('Expo 98', SIGNAL)) }
-    const outcome = await runToolCall(call('c3', 'wikipedia_page', '{"title":'), wiki, SIGNAL)
+    const outcome = await runToolCall(call('c3', 'wikipedia_page', '{"title":'), BOX(wiki), SIGNAL)
     expect(outcome).toMatchObject({ ok: false, content: 'Invalid arguments: send a JSON object.' })
     expect(wiki.page).not.toHaveBeenCalled()
   })
 
   it('refuses a search with a blank query and a page call with no title, in plain words', async () => {
-    const blank = await runToolCall(call('c4', 'wikipedia_search', { query: '   ' }), WIKI, SIGNAL)
+    const blank = await runToolCall(call('c4', 'wikipedia_search', { query: '   ' }), BOX(WIKI), SIGNAL)
     expect(blank.content).toBe('Invalid arguments: wikipedia_search needs a query of 1 to 120 characters.')
-    const untitled = await runToolCall(call('c5', 'wikipedia_page', {}), WIKI, SIGNAL)
+    const untitled = await runToolCall(call('c5', 'wikipedia_page', {}), BOX(WIKI), SIGNAL)
     expect(untitled.content).toBe('Invalid arguments: wikipedia_page needs a title.')
   })
 
   it('turns a failed lookup into a plain note with no page', async () => {
-    const outcome = await runToolCall(call('c6', 'wikipedia_page', { title: 'Nope' }), WIKI, SIGNAL)
+    const outcome = await runToolCall(call('c6', 'wikipedia_page', { title: 'Nope' }), BOX(WIKI), SIGNAL)
     expect(outcome).toEqual({
       call: call('c6', 'wikipedia_page', { title: 'Nope' }),
       ok: false,
@@ -152,8 +155,8 @@ describe('runToolCall', () => {
         throw new WikiError(504, 'The page read timed out.')
       },
     }
-    expect((await runToolCall(call('c7', 'wikipedia_search', { query: 'x' }), down, SIGNAL)).unreachable).toBe(true)
-    const page = await runToolCall(call('c8', 'wikipedia_page', { title: 'x' }), down, SIGNAL)
+    expect((await runToolCall(call('c7', 'wikipedia_search', { query: 'x' }), BOX(down), SIGNAL)).unreachable).toBe(true)
+    const page = await runToolCall(call('c8', 'wikipedia_page', { title: 'x' }), BOX(down), SIGNAL)
     expect(page).toMatchObject({ unreachable: true, lookup: 'page "x"', note: 'The page read timed out.' })
   })
 
@@ -164,13 +167,13 @@ describe('runToolCall', () => {
       },
       page: WIKI.page,
     }
-    const outcome = await runToolCall(call('c7', 'wikipedia_search', { query: 'Lisbon' }), broken, SIGNAL)
+    const outcome = await runToolCall(call('c7', 'wikipedia_search', { query: 'Lisbon' }), BOX(broken), SIGNAL)
     expect(outcome.content).toBe('The Wikipedia lookup failed.')
   })
 
   it('answers an unknown tool name plainly', async () => {
-    const outcome = await runToolCall(call('c8', 'wikipedia_fetch', { url: 'x' }), WIKI, SIGNAL)
-    expect(outcome.content).toBe('Unknown tool. Use wikipedia_search or wikipedia_page.')
+    const outcome = await runToolCall(call('c8', 'wikipedia_fetch', { url: 'x' }), BOX(WIKI), SIGNAL)
+    expect(outcome.content).toBe('Unknown tool. Use one of the tools you were given.')
   })
 })
 

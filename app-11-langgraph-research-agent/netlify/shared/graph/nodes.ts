@@ -13,6 +13,7 @@ import {
   type ChatRequest,
   type ToolCall,
 } from '../openrouter'
+import type { WebTools } from '../websearch'
 import type { WikiTools } from '../wikipedia'
 import { groundedIssues, issueNotes, parseCritic, parseQueries, type CriticIssue } from './parse'
 import { yearGapIssues } from './yearcheck'
@@ -23,15 +24,17 @@ import {
   DRAFT_SYSTEM,
   draftUserText,
   introText,
-  PLAN_SYSTEM,
+  planSystem,
   todayLine,
 } from './prompts'
 import { MAX_REVISIONS, MAX_TOOL_ROUNDS, type FailedLookup, type ResearchValues, type Route } from './state'
-import { MAX_CALLS_PER_REPLY, numberSources, runToolCall, TOOL_DEFINITIONS, type ToolOutcome } from './tools'
+import { MAX_CALLS_PER_REPLY, numberSources, runToolCall, toolDefinitions, type ToolOutcome } from './tools'
 
 export interface NodeContext {
   chat: ChatFn
   wiki: WikiTools
+  /** The current web, or null when no search key is set. Null keeps the run on Wikipedia alone. */
+  web?: WebTools | null
   signal: AbortSignal
   /** When the run budget ends, as a Date.now() value. Unset means no limit. */
   deadline?: number
@@ -107,7 +110,7 @@ async function callModel(ctx: NodeContext, options: CallOptions): Promise<NodeCa
     max_tokens: options.maxTokens,
   }
   if (options.tools) {
-    request.tools = TOOL_DEFINITIONS
+    request.tools = toolDefinitions(ctx.web != null)
     request.tool_choice = 'auto'
   }
   if (options.json) request.response_format = { type: 'json_object' }
@@ -152,7 +155,7 @@ export async function planStep(state: ResearchValues, ctx: NodeContext): Promise
     maxTokens: MAX_TOKENS.plan,
     retryNeedsMs: NEEDS.plan + NEEDS.agent + NEEDS.tools + NEEDS.draft,
     messages: [
-      { role: 'system', content: PLAN_SYSTEM },
+      { role: 'system', content: planSystem(ctx.web != null) },
       { role: 'user', content: `Question: ${state.question}` },
     ],
     json: true,
@@ -199,7 +202,7 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
   const call = await callModel(ctx, {
     maxTokens: MAX_TOKENS.agent,
     retryNeedsMs: NEEDS.agent + NEEDS.draft,
-    messages: [{ role: 'system', content: agentSystem(roundsLeft) }, ...state.messages, ...intro],
+    messages: [{ role: 'system', content: agentSystem(roundsLeft, ctx.web != null) }, ...state.messages, ...intro],
     tools: true,
   })
 
@@ -248,7 +251,7 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
 /** Runs the agent's tool calls in parallel. A failed call adds no source and the loop continues. */
 export async function toolsStep(state: ResearchValues, ctx: NodeContext): Promise<NodeResult> {
   const outcomes: ToolOutcome[] = await Promise.all(
-    state.pendingCalls.map((call) => runToolCall(call, ctx.wiki, ctx.signal)),
+    state.pendingCalls.map((call) => runToolCall(call, { wiki: ctx.wiki, web: ctx.web ?? null }, ctx.signal)),
   )
   const { added, messages } = numberSources(outcomes, state.evidence)
   const found =
@@ -398,12 +401,16 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
 
 const LOOKUPS_NAMED_MAX = 4
 
-/** Says which lookups Wikipedia did not answer, for an answer built from the pages that were read. Empty when none failed. */
+/**
+ * Says which lookups did not answer, for an answer built from the pages that were read. Empty when none failed.
+ * A failed web lookup is named as a search, so the note never blames Wikipedia for a web lookup it never made.
+ */
 export function lookupNote(failed: FailedLookup[]): string {
   if (failed.length === 0) return ''
   const named = failed.slice(0, LOOKUPS_NAMED_MAX).map(({ lookup, reason }) => `${lookup} (${reason.replace(/\.$/, '')})`)
   const more = failed.length > LOOKUPS_NAMED_MAX ? ` and ${failed.length - LOOKUPS_NAMED_MAX} more` : ''
-  return `Wikipedia did not answer ${failed.length === 1 ? 'this lookup' : 'these lookups'}: ${named.join('; ')}${more}. The answer uses only the pages that were read.`
+  const who = failed.some((item) => item.lookup.startsWith('web ')) ? 'A search' : 'Wikipedia'
+  return `${who} did not answer ${failed.length === 1 ? 'this lookup' : 'these lookups'}: ${named.join('; ')}${more}. The answer uses only the pages that were read.`
 }
 
 /** Adds the failed-lookup note to how the run ended. A run that would have been complete becomes partial. */

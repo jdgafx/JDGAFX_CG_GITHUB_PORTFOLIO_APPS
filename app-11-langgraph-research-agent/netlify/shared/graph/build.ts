@@ -3,6 +3,7 @@ import { PlainError, plainMessageOf, SERVER_ERROR, spentOf } from '../errors'
 import type { NodeName } from '../events'
 import type { ChatFn } from '../openrouter'
 import { costFor, newestModel, type PriceBook } from '../pricing'
+import type { WebTools } from '../websearch'
 import type { WikiTools } from '../wikipedia'
 import {
   agentStep,
@@ -20,6 +21,8 @@ import { ResearchState, type ResearchValues, type Target, type TraceRow } from '
 export interface GraphDeps {
   chat: ChatFn
   wiki: WikiTools
+  /** The current web, or null when no search key is set. Null keeps the run on Wikipedia alone. */
+  web?: WebTools | null
   /** One signal for the whole run. Aborting it ends the run's in-flight call. */
   signal: AbortSignal
   /** When the run budget ends, as a Date.now() value. The steps skip work that no longer fits. */
