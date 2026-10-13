@@ -19,7 +19,7 @@
 .ds-state { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 2px 12px; align-items: start; padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
 .ds-state__mark { grid-row: 1 / span 3; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ds-text-muted); border: 1.5px solid currentColor; border-radius: 50%; }
 .ds-state__mark::before { content: ""; width: 10px; height: 10px; border: 1.5px solid currentColor; border-radius: 50%; }
-.ds-state__title { font-size: 15px; font-weight: 650; line-height: 1.4; padding-top: 4px; }
+.ds-state__title { font-size: 15px; font-weight: 600; line-height: 1.4; padding-top: 4px; }
 .ds-state__body { font-size: 15px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
 .ds-state__actions { grid-column: 2; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .ds-state--empty, .ds-empty { background: transparent; border-style: dashed; }
@@ -74,8 +74,8 @@
 .ds-trace__step--stopped { background: var(--ds-warning-soft); }
 .ds-trace__index { padding-top: 2px; font-family: var(--ds-mono); font-size: 13px; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
 .ds-trace__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
-.ds-trace__name { font-size: 15px; font-weight: 650; }
-.ds-trace__state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--ds-text-muted); }
+.ds-trace__name { font-size: 15px; font-weight: 600; }
+.ds-trace__state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ds-text-muted); }
 .ds-trace__state--running { color: var(--ds-accent); }
 .ds-trace__state--ok { color: var(--ds-success); }
 .ds-trace__state--failed { color: var(--ds-danger); }
@@ -110,12 +110,12 @@
 .ds-g-node--skipped { stroke-dasharray: 5 4; }
 .ds-g-halo { fill: none; stroke: var(--ds-accent); stroke-width: 2; animation: ds-halo 1.6s ease-in-out infinite; }
 @keyframes ds-halo { 0%, 100% { opacity: 0.85; } 50% { opacity: 0.15; } }
-.ds-g-title { fill: var(--ds-text); font-family: var(--ds-font); font-size: 18px; font-weight: 650; }
+.ds-g-title { fill: var(--ds-text); font-family: var(--ds-font); font-size: 18px; font-weight: 600; }
 .ds-g-sub, .ds-g-label { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; }
 .ds-g-label { paint-order: stroke; stroke: var(--ds-surface-2); stroke-width: 6px; stroke-linejoin: round; }
-.ds-g-state { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
+.ds-g-state { fill: var(--ds-text-muted); font-family: var(--ds-font); font-size: 13px; font-weight: 600; }
 .ds-g-state--active, .ds-g-label--taken { fill: var(--ds-accent); }
-.ds-g-label--taken { font-weight: 650; }
+.ds-g-label--taken { font-weight: 600; }
 .ds-g-dot--idle, .ds-g-dot--skipped { fill: none; stroke: var(--ds-text-muted); stroke-width: 1.5; }
 .ds-g-dot--active { fill: var(--ds-accent); }
 .ds-g-dot--done { fill: var(--ds-success); }
@@ -137,20 +137,20 @@
 .ds-cite { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ds-border); }
 .ds-cite li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--ds-border); }
 .ds-cite__n { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; color: var(--ds-accent); font-variant-numeric: tabular-nums; }
-.ds-cite__title { color: var(--ds-text); font-weight: 650; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--ds-border-strong); text-underline-offset: 3px; }
+.ds-cite__title { color: var(--ds-text); font-weight: 600; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--ds-border-strong); text-underline-offset: 3px; }
 .ds-cite__title:hover { text-decoration-color: var(--ds-accent); }
 .ds-cite__url { grid-column: 2; font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
 
 /* Family components. Segmented control and tabs */
 .ds-seg { display: inline-flex; gap: 2px; padding: 4px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
-.ds-seg > button { min-height: 40px; padding: 0 16px; font: inherit; font-weight: 650; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
+.ds-seg > button { min-height: 40px; padding: 0 16px; font: inherit; font-weight: 600; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer; }
 .ds-seg > button[aria-selected="true"], .ds-seg > button[aria-pressed="true"] { color: var(--ds-text); background: var(--ds-surface); box-shadow: 0 0 0 1px var(--ds-border), inset 0 -3px 0 var(--ds-accent); }
 /* Toast and dialog */
 .ds-toast { display: flex; align-items: center; gap: 12px; max-width: 420px; padding: 12px 16px; color: var(--ds-bg); background: var(--ds-text); border-radius: var(--ds-radius); }
 .ds-toast::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ds-accent-dim); }
 .ds-toast--error::before { background: var(--ds-danger); }
 .ds-dialog { display: grid; gap: 12px; max-width: 440px; padding: 24px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 12px; box-shadow: 0 18px 48px -18px color-mix(in srgb, var(--ds-text) 45%, transparent); }
-.ds-dialog__title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.ds-dialog__title { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .ds-dialog__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 /* Key-value list */
 .ds-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 20px; margin: 0; }
@@ -173,7 +173,7 @@
 .ds-code__line--error::after { content: "x"; }
 /* A review comment on a line: sits under the line it is about, in the severity colour */
 .ds-code__comment { display: block; margin: 4px 16px 8px 80px; padding: 8px 12px; font-family: var(--ds-font); font-size: 13px; line-height: 1.5; white-space: normal; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-warning); border-radius: var(--ds-radius-sm); }
-.ds-code__comment b { font-weight: 650; }
+.ds-code__comment b { font-weight: 600; }
 /* Chart frame: series 1 is the app accent, then graphite, then the two fixed series colours; label series directly at the
    line ends, right-aligned and 6px above the line. Collision rule: end labels are at least 14px apart vertically; when two
    end values are closer, nudge the lower label down and join it to its line with a 1px leader. */
@@ -187,7 +187,7 @@
 .ds-c-s2 { stroke: var(--ds-series-2); fill: var(--ds-series-2); }
 .ds-c-s3 { stroke: var(--ds-series-3); fill: var(--ds-series-3); }
 .ds-c-s4 { stroke: var(--ds-series-4); fill: var(--ds-series-4); }
-.ds-c-label { stroke: var(--ds-surface); stroke-width: 4px; paint-order: stroke; font-family: var(--ds-font); font-size: 13px; font-weight: 650; }
+.ds-c-label { stroke: var(--ds-surface); stroke-width: 4px; paint-order: stroke; font-family: var(--ds-font); font-size: 13px; font-weight: 600; }
 .ds-c-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 /* Horizontal bar chart for many categories (more than about 8; scrolls past 20): one row per category, sorted by value,
    label left, bar and value right. Set the bar length with --w (0 to 100 percent); bars are series 1, the accent. */

@@ -19,7 +19,6 @@ export function ReplayLabel({ info, onRunLive }: ReplayLabelProps) {
         <span data-replay-model>{label.model}</span>
         <span aria-hidden="true"> · </span>
         <span data-replay-cost>{label.cost}</span>
-        <span aria-hidden="true"> · </span>
         <button type="button" className="ds-button replay-label__live" onClick={onRunLive}>
           Run it live
         </button>
