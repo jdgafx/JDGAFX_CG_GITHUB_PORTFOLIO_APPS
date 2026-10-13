@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CRITIC_SYSTEM, DRAFT_SYSTEM, draftUserText } from '../../netlify/shared/graph/prompts'
+import { CRITIC_SYSTEM, DRAFT_SYSTEM, agentSystem, draftUserText } from '../../netlify/shared/graph/prompts'
 
 describe('prompts', () => {
   it('forbid the draft to talk about the review, and never name a reviewer when asking for a revision', () => {
@@ -25,5 +25,12 @@ describe('prompts', () => {
     expect(CRITIC_SYSTEM).toContain('The default verdict is accept.')
     expect(CRITIC_SYSTEM).toContain('A part the draft says the sources do not cover counts as answered')
     expect(CRITIC_SYSTEM).toContain('unless the sources do contain the answer')
+  })
+
+  it('tell the agent to cross-check a latest or current value on two pages, only with web search', () => {
+    const sentence =
+      'When the question asks for a latest or current value - a version, a price, a score - read at least two different pages that could carry it, and if they disagree, follow the one whose content is newest.'
+    expect(agentSystem(3, true)).toContain(sentence)
+    expect(agentSystem(3, false)).not.toContain(sentence)
   })
 })

@@ -33,6 +33,9 @@ export function agentSystem(roundsLeft: number, web: boolean): string {
     web
       ? 'A search result is not a source: only a page you read counts. After a search, read the page that best fits the question.'
       : 'A search result is not a source: only a page you read with wikipedia_page counts. After a search, read the page that best fits the question.',
+    web
+      ? 'When the question asks for a latest or current value - a version, a price, a score - read at least two different pages that could carry it, and if they disagree, follow the one whose content is newest.'
+      : '',
     `You have ${rounds} left.`,
     'Read a page for each person, place or work the question names before you stop.',
     'Put a year in a search query only when the question names that year. Never add the current year or a month on your own.',
