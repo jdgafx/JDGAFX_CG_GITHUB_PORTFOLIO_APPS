@@ -4,6 +4,7 @@ import './styles/tokens.css'
 import './styles/components.css'
 import './styles/app.css'
 import './styles/replay.css'
+import './styles/field.css'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(

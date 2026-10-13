@@ -9,12 +9,12 @@ const BADGE: Record<Phase, { label: string; tone: string; dot: string }> = {
   running: { label: 'Running', tone: 'ds-badge--accent', dot: 'ds-dot ds-dot--running' },
   complete: { label: 'Complete', tone: 'ds-badge--success', dot: 'ds-dot ds-dot--ok' },
   failed: { label: 'Failed', tone: 'ds-badge--danger', dot: 'ds-dot ds-dot--failed' },
-  stopped: { label: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot ds-dot--skipped' },
+  stopped: { label: 'Stopped', tone: 'ds-badge--warning', dot: 'ds-dot ds-dot--stopped' },
 }
 
-export default function Header({ state }: { state: RunState }) {
+export default function Header({ state, replaying }: { state: RunState; replaying: boolean }) {
   const badge = BADGE[state.phase]
-  const live = liveDataOf(state)
+  const live = liveDataOf(state, replaying)
   return (
     <header className="ds-header">
       <div className="ds-header__inner">
@@ -35,10 +35,6 @@ export default function Header({ state }: { state: RunState }) {
             {live.text}
           </p>
         </div>
-        <p className="ds-showcase">
-          <strong>What this showcases:</strong> a planner that acts on the live web inside a bounded, allowlisted browser.
-          After every step the server captures the page, so the replay shows what the browser saw, beside the text it read, and a failed step shows the page it failed on.
-        </p>
       </div>
     </header>
   )

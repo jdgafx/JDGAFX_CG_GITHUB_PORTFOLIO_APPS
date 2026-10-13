@@ -21,7 +21,7 @@ const RUN_VIEWPORT = { width: 960, height: 540 }
 
 type Send = (event: RunEvent) => void
 
-const TIME_LIMIT_COPY = 'The run reached its time limit before every step finished.'
+const TIME_LIMIT_COPY = `The run used its ${RUN_STEPS_END_MS / 1000} second limit before every step finished. Steps that finished keep their pictures. Try a task with fewer steps, or run the plan again.`
 
 /**
  * Snapshots the page only while it sits on an allowed host. Otherwise the run stops before any of

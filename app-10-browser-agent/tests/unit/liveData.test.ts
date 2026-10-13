@@ -77,3 +77,13 @@ describe('no canned results', () => {
     expect(hits).toEqual([])
   })
 })
+
+describe('live-data indicator during a replay', () => {
+  it('never claims a fetch of its own', () => {
+    const live = after(planned, FIRST_PAGE)
+    const chip = liveDataOf(live, true)
+    expect(chip.state).toBe('idle')
+    expect(chip.text).toMatch(/Recorded run/)
+    expect(chip.text).not.toMatch(/fetched/)
+  })
+})

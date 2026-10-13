@@ -34,6 +34,10 @@ export default function HowTo({ phase, runId, onTry }: HowToProps) {
             <li>Press <strong>Plan and run</strong>. A real browser opens each page, which takes about 10 seconds.</li>
             <li>Step through the replay: select a step in the strip, drag the scrub bar, or use the left and right arrow keys.</li>
           </ol>
+          <p className="howto__showcase">
+            <strong>What this showcases:</strong> a planner that acts on the live web inside a bounded, allowlisted browser.
+            After every step the server captures the page, so the replay shows what the browser saw, beside the text it read, and a failed step shows the page it failed on.
+          </p>
           <button type="button" className="ds-button ds-button--primary howto__try" disabled={busy} onClick={onTry}>
             Try it: Hacker News top stories
           </button>

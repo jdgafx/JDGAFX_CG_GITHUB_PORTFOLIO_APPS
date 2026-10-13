@@ -33,7 +33,11 @@ export function clock(at: number): string {
  * Idle until the browser has really read a page. Live from the first step that finished with a page
  * (the source is that page's host). Failed when the run failed before any page was read.
  */
-export function liveDataOf(state: RunState): LiveData {
+export function liveDataOf(state: RunState, replaying = false): LiveData {
+  // A replay shows pages the browser read when the run was recorded, so it never claims a fetch of its own.
+  if (replaying) {
+    return { state: 'idle', text: 'Recorded run: these pages were read when it was recorded', title: 'The replay plays back a stored run of the example. The browser reads no page now.' }
+  }
   const planned = plannedHosts(state)
   const where = planned.join(', ') || 'allowed sites'
   const title = `A headless Chromium started inside the Netlify function reads the page. Host: ${where}.`

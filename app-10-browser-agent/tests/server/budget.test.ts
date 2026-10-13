@@ -125,7 +125,7 @@ describe('run: the step window, the done total and the composed worst case', () 
     return { frames, elapsed: Date.now() - start }
   }
 
-  const TIME_LIMIT = 'The run reached its time limit before every step finished.'
+  const TIME_LIMIT = `The run used its ${RUN_STEPS_END_MS / 1000} second limit before every step finished. Steps that finished keep their pictures. Try a task with fewer steps, or run the plan again.`
   /** The part of the window left when the first step starts, once the browser has started and the page has opened. */
   const FIRST_STEP_LEFT = RUN_STEPS_END_MS - LAUNCH_MS - OPEN_PAGE_MS
 
