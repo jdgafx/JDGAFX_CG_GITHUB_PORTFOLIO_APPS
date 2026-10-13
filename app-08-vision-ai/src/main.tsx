@@ -4,6 +4,7 @@ import './styles/tokens.css'
 import './styles/components.css'
 import './styles/commons.css'
 import './styles/app.css'
+import './styles/lightbox.css'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(

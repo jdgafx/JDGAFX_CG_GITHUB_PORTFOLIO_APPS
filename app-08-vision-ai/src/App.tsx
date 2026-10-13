@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadTryExample } from './lib/tryExample'
 import { formatSeconds } from './lib/format'
 import { HOWTO_STEPS, HOWTO_WHAT, TRY_PRESET } from './lib/howto'
-import { liveIndicator } from './lib/liveData'
+import { liveIndicator, loadedSlots } from './lib/liveData'
 import { scopeOf } from './lib/modes'
 import { useAnalysis } from './lib/useAnalysis'
 import type { RunStatus } from './lib/useAnalysis'
 import { useNarrow } from './lib/useNarrow'
-import { useResultFocus, type RunPhase } from './lib/useResultFocus'
+import { useReplay, type RecordedPicture } from './lib/useReplay'
+import { useResultFocus, type RunPhase } from './replay'
 import type { TraceStep } from './lib/api'
-import type { CommonsImage } from './lib/commons'
 import ActionDock from './components/ActionDock'
 import AskPanel from './components/AskPanel'
 import Header from './components/Header'
@@ -20,6 +20,7 @@ import ImagePicker from './components/ImagePicker'
 import PictureStage, { type Picture } from './components/PictureStage'
 import ReadoutStrip from './components/ReadoutStrip'
 import RegionList from './components/RegionList'
+import { ReplayLabel } from './components/ReplayLabel'
 import RunTrace from './components/RunTrace'
 import ZoomOverlay from './components/ZoomOverlay'
 
@@ -55,12 +56,14 @@ export default function App() {
   const hasB = vision.imageUrlB !== ''
   const narrow = useNarrow()
   const [commonsFailed, setCommonsFailed] = useState(false)
+  // The live Commons listing the picker shows on load: how many pictures, and when they came back.
+  const [listing, setListing] = useState<{ count: number; at: number } | null>(null)
   // Try it: a live Commons search and download, then a describe run once the picture is shown.
   const [fetchingExample, setFetchingExample] = useState(false)
   const [tryError, setTryError] = useState<string | null>(null)
-  const runAfterLoad = useRef(false)
+  const runAfterLoad = useRef<'live' | 'replay' | null>(null)
 
-  useResultFocus(PHASE[status])
+  useResultFocus(PHASE[status], { replay: vision.replay })
 
   // Pasting a screenshot anywhere on the page loads it as the image. While comparing it fills the empty slot.
   useEffect(() => {
@@ -79,13 +82,42 @@ export default function App() {
   }, [chooseFile, comparing, hasB, vision.file])
 
   const running = status === 'running'
-  const { run: startRun, file: loadedFile } = vision
+  const { run: startRun, runReplay, loadRecorded, discardReplay, file: loadedFile } = vision
   useEffect(() => {
     if (runAfterLoad.current && loadedFile && !running) {
-      runAfterLoad.current = false
-      void startRun()
+      const replayRun = runAfterLoad.current === 'replay'
+      runAfterLoad.current = null
+      void (replayRun ? runReplay() : startRun())
     }
-  }, [loadedFile, running, startRun])
+  }, [loadedFile, running, startRun, runReplay])
+
+  const hasImage = vision.imageUrl !== ''
+  // The recorded run starts only from the empty screen: no picture, no result, nothing being fetched.
+  const replayCtl = useReplay({
+    idle: status === 'idle' && !hasImage && !fetchingExample,
+    start: (picture: RecordedPicture) => {
+      runAfterLoad.current = 'replay'
+      loadRecorded(picture.file, picture.credit)
+    },
+    clear: discardReplay,
+  })
+
+  // Stop on a replay clears it: it sent nothing, so there is no request to wait for. On a live run it ends the request as before.
+  const handleStop = () => {
+    if (vision.replay) {
+      replayCtl.stop()
+      discardReplay()
+      return
+    }
+    vision.cancel()
+  }
+
+  // Run it live: the replay is over and the example runs for real, with a fresh Commons search.
+  const runLive = () => {
+    replayCtl.stop()
+    discardReplay()
+    void tryIt()
+  }
 
   const tryIt = async () => {
     if (!TRY_PRESET || running || fetchingExample) return
@@ -99,13 +131,12 @@ export default function App() {
         return
       }
       if (vision.mode !== 'describe') vision.changeMode('describe')
-      runAfterLoad.current = true
+      runAfterLoad.current = 'live'
       chooseFile(outcome.file, outcome.image, 'a')
     } finally {
       setFetchingExample(false)
     }
   }
-  const hasImage = vision.imageUrl !== ''
   const a: Picture | null = hasImage
     ? { url: vision.imageUrl, name: vision.file?.name ?? '', credit: vision.source }
     : null
@@ -124,13 +155,15 @@ export default function App() {
   else if (comparing && !hasB) reason = 'Choose a second image to compare.'
 
   return (
-    <div className="ds-app" data-run={PHASE[status]}>
+    <div className="ds-app" data-run={PHASE[status]} data-replay={vision.replay ? '' : undefined}>
       <Header
         status={status}
         live={liveIndicator({
-          loaded: [hasImage ? vision.source : undefined, hasB ? vision.sourceB : undefined].filter((slot): slot is CommonsImage | null => slot !== undefined),
+          // A picture out of a recording was not fetched now, so it never lights the chip as live data.
+          loaded: loadedSlots({ hasA: hasImage, hasB, sourceA: vision.source, sourceB: vision.sourceB, recordedA: vision.recorded }),
           at: vision.loadedAt,
           commonsFailed,
+          listing,
         })}
       />
 
@@ -154,6 +187,8 @@ export default function App() {
               onFile={chooseFile}
               onRemove={vision.removeImage}
               onCommonsFailure={setCommonsFailed}
+              autoQuery={TRY_PRESET?.query}
+              onListed={setListing}
             />
             <AskPanel
               mode={mode}
@@ -189,11 +224,12 @@ export default function App() {
               reason={reason}
               statusText={statusLine(status, vision.steps, vision.summary?.totalMs, hasImage)}
               onRun={vision.run}
-              onCancel={vision.cancel}
+              onCancel={handleStop}
             />
           </div>
 
           <div className="ds-run">
+            {vision.replay && replayCtl.info ? <ReplayLabel info={replayCtl.info} disabled={running || fetchingExample} onRunLive={runLive} /> : null}
             <Hero
               mode={mode}
               status={status}

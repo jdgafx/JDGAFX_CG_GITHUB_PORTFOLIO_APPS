@@ -73,7 +73,13 @@ export function useAnalysis() {
   const [notice, setNotice] = useState('')
   const [gallery, setGallery] = useState<GalleryItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  // True while the result on screen is the load-time replay of a recorded run, until the visitor does anything of their own.
+  const [replay, setReplay] = useState(false)
+  // True while the first picture is the one the recording carried, not one fetched or chosen on this page.
+  const [recorded, setRecorded] = useState(false)
 
+  // Each run takes a number; discarding a replay moves the counter on, so a run that ends afterwards shows nothing.
+  const runGen = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const resultRef = useRef('')
   const urlsRef = useRef<Record<Slot, string>>({ a: '', b: '' })
@@ -113,12 +119,14 @@ export function useAnalysis() {
     setBox(null)
   }, [updateRegions])
 
-  const showImage = useCallback((slot: Slot, next: File, credit: CommonsImage | null) => {
+  const showImage = useCallback((slot: Slot, next: File, credit: CommonsImage | null, fromRecording = false) => {
     if (urlsRef.current[slot]) URL.revokeObjectURL(urlsRef.current[slot])
     const url = URL.createObjectURL(next)
     urlsRef.current[slot] = url
-    setLoadedAt(Date.now())
+    // A picture out of a recording was not fetched now, so it sets no load time.
+    setLoadedAt(fromRecording ? null : Date.now())
     if (slot === 'a') {
+      setRecorded(fromRecording)
       setImageUrl(url)
       setFile(next)
       setSource(credit)
@@ -137,6 +145,7 @@ export function useAnalysis() {
     setSteps([])
     setSummary(null)
     setStatus('idle')
+    setReplay(false)
   }, [])
 
   // An uploaded, dropped or pasted file has no credit; a Commons pick passes its own.
@@ -164,6 +173,7 @@ export function useAnalysis() {
         setImageUrl('')
         setFile(null)
         setSource(null)
+        setRecorded(false)
         dropRegions()
       } else {
         setImageUrlB('')
@@ -255,7 +265,45 @@ export function useAnalysis() {
     setActiveId(null)
   }, [])
 
-  const run = useCallback(async () => {
+  // A picture out of the stored recording of a run. It is not a visitor's pick, so it neither sets a load time nor counts as live data.
+  const loadRecorded = useCallback(
+    (next: File, credit: CommonsImage | null) => {
+      if (running) return
+      showImage('a', next, credit, true)
+      dropRegions()
+      clearResult()
+      setQuestionError('')
+      setUploadError('')
+      setActiveId(null)
+    },
+    [running, showImage, clearResult, dropRegions],
+  )
+
+  // Takes a replayed run off the page entirely: the picture, the answer, the readout. A run still in flight is ended and shows nothing.
+  const discardReplay = useCallback(() => {
+    runGen.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
+    for (const slot of ['a', 'b'] as const) {
+      if (urlsRef.current[slot]) URL.revokeObjectURL(urlsRef.current[slot])
+      urlsRef.current[slot] = ''
+    }
+    setImageUrl('')
+    setFile(null)
+    setSource(null)
+    setImageUrlB('')
+    setFileB(null)
+    setSourceB(null)
+    setRecorded(false)
+    setLoadedAt(null)
+    setUploadError('')
+    setQuestionError('')
+    setActiveId(null)
+    dropRegions()
+    clearResult()
+  }, [dropRegions, clearResult])
+
+  const execute = useCallback(async (replayRun: boolean) => {
     if (!file || running) return
     const asked = question.trim()
     const needsQuestion = mode === 'qa' || mode === 'region'
@@ -274,6 +322,7 @@ export function useAnalysis() {
     setQuestionError('')
     setUploadError('')
     clearResult()
+    setReplay(replayRun)
     setStatus('running')
 
     let entryId: string | null = null
@@ -301,9 +350,11 @@ export function useAnalysis() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    const gen = ++runGen.current
     const outcome = await analyzeImage({
       file,
       mode,
+      credit: WHOLE_MODES.includes(mode) ? source : undefined,
       question: asked || undefined,
       box: mode === 'region' ? (box ?? undefined) : undefined,
       fileB: mode === 'compare' ? (fileB ?? undefined) : undefined,
@@ -311,13 +362,24 @@ export function useAnalysis() {
       onCrop: crop => {
         if (entryId) patchRegion(entryId, { rect: crop.rect, cropUrl: URL.createObjectURL(crop.file) })
       },
-      onStep: step => setSteps(current => upsertStep(current, step)),
+      // A run the page has moved on from (a discarded replay) no longer writes to the screen, not even a late chunk.
+      onStep: step => {
+        if (gen === runGen.current) setSteps(current => upsertStep(current, step))
+      },
       onText: text => {
+        if (gen !== runGen.current) return
         resultRef.current += text
         setResult(resultRef.current)
       },
     })
-    abortRef.current = null
+    if (abortRef.current === controller) abortRef.current = null
+    // The replay was discarded while this run was in flight: whatever it ended with is not shown.
+    if (gen !== runGen.current) return
+    // A recording that could not be played through is not shown as a run; the page goes back to its empty state.
+    if (replayRun && outcome.status !== 'complete') {
+      discardReplay()
+      return
+    }
     setSteps(outcome.summary.trace)
     setSummary(outcome.summary)
 
@@ -330,6 +392,8 @@ export function useAnalysis() {
         setBox(null)
         return
       }
+      // A replayed answer is a recording, not one of this visitor's analyses: it never enters the history strip.
+      if (replayRun) return
       // A history thumbnail that cannot be made must not change the answer shown above.
       addToGallery({
         file,
@@ -360,7 +424,10 @@ export function useAnalysis() {
         summary: outcome.summary,
       })
     }
-  }, [file, fileB, source, sourceB, box, mode, question, running, addToGallery, clearResult, patchRegion, updateRegions])
+  }, [file, fileB, source, sourceB, box, mode, question, running, addToGallery, clearResult, patchRegion, updateRegions, discardReplay])
+
+  const run = useCallback(() => execute(false), [execute])
+  const runReplay = useCallback(() => execute(true), [execute])
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -423,6 +490,11 @@ export function useAnalysis() {
     startBox,
     selectRegion,
     run,
+    runReplay,
+    loadRecorded,
+    discardReplay,
+    replay,
+    recorded,
     cancel,
     reopen,
     clearGallery,

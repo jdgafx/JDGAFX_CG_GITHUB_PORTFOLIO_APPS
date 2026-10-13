@@ -1,0 +1,161 @@
+/* VisionLab's own look (Q6): a light table. Cool white paper, ink-violet type, one violet action colour, and dark matte
+   instruments (the picture stage, the readout, the film edge, the replay slate) that stay dark in both colour schemes,
+   marked in safelight orange. Imported last. Colours come from tokens.css; spacing follows the shared scale. */
+
+/* The film edge: matte in light; in dark a lighter film so the page-coloured holes and the edge itself still show against the dark page. */
+:root { --vl-film: var(--vl-matte); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --vl-film: #343050; } }
+:root[data-theme="dark"] { --vl-film: #343050; }
+
+html, body { background: var(--ds-bg); }
+body { background: radial-gradient(120% 420px at 50% 0, var(--ds-surface) 0, var(--ds-bg) 100%) no-repeat, var(--ds-bg); }
+h1, h2, h3, .ds-title { font-family: var(--vl-display); }
+.ds-title { font-weight: 800; letter-spacing: -0.04em; font-size: 44px; font-variation-settings: "opsz" 72; }
+.vl-title__lab { color: var(--ds-accent); }
+.ds-section__title, .ds-card__title, .howto__title, .vl-hero__title { font-family: var(--vl-display); letter-spacing: -0.01em; font-weight: 700; }
+.vl-hero__title { font-size: 28px; line-height: 1.1; }
+code, kbd, pre, .ds-mono { font-family: var(--ds-mono); }
+
+/* Masthead: the title on paper, and under it a strip of film with its sprocket holes. */
+.ds-header { padding-bottom: 20px; background: var(--ds-surface); border-bottom: 0; }
+.ds-header::after {
+  content: ""; position: absolute; inset: auto 0 0; height: 20px;
+  /* one hole every 28px: the hole is the page colour, the film is the matte */
+  background: repeating-linear-gradient(90deg, transparent 0 8px, var(--ds-bg) 8px 18px, transparent 18px 28px) 0 7px / 100% 6px no-repeat, var(--vl-film);
+}
+.ds-plate {
+  min-width: 54px; height: 54px; padding: 0; border-radius: 50%; font-size: 20px; font-weight: 700; letter-spacing: 0; color: var(--vl-safelight); background: var(--vl-matte);
+  box-shadow: inset 0 0 0 4px var(--vl-matte-2), inset 0 0 0 5px var(--vl-matte-line), 0 0 0 1px var(--vl-matte);
+}
+.ds-subtitle { color: var(--ds-text-muted); }
+.ds-badge { border-radius: 3px; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.ds-badge:not([class*="ds-badge--"]) { border-color: var(--ds-border-strong); }
+.ds-dot--skipped { box-shadow: inset 0 0 0 1.5px var(--ds-text-muted); }
+.live-data { font-family: var(--ds-mono); font-size: 13px; font-weight: 500; border-radius: 3px; background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
+.live-data[data-state="failed"] { background: var(--ds-danger-soft); }
+.live-data { align-items: flex-start; }
+.live-data .ds-dot { margin-top: 0.45em; flex: none; }
+
+.ds-showcase { display: block; grid-column: 1 / -1; padding: 0 16px; background: var(--ds-surface-2); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.ds-showcase > summary { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; font-weight: 700; cursor: pointer; list-style: none; }
+.ds-showcase > summary::-webkit-details-marker { display: none; }
+.ds-showcase > summary::after { content: ""; flex: none; margin-left: auto; width: 8px; height: 8px; border: solid var(--ds-text-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.ds-showcase[open] > summary::after { transform: rotate(225deg); }
+.ds-showcase > p { padding-bottom: 12px; font-size: 15px; }
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); gap: 8px 32px; align-items: end; }
+  .ds-showcase { grid-column: auto; align-self: end; }
+}
+.ds-main { padding-top: 24px; }
+
+/* Cards and rails sit on the table as flat sheets. */
+.ds-card, .ds-lead, .ds-state, .ds-controls, .commons, .vl-col { border-radius: var(--ds-radius); }
+.ds-controls { background: var(--ds-surface); }
+.howto { background: var(--ds-surface); }
+.ds-label, .vl-label { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.vl-label::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; background: var(--ds-accent); border-radius: 1px; vertical-align: 0; }
+
+/* Buttons: the shutter is a pill; the rest keep a small radius. */
+.ds-button { border-radius: 3px; font-weight: 700; }
+.ds-button--primary { border-radius: 999px; padding: 0 24px; box-shadow: 0 0 0 3px var(--ds-accent-soft); }
+.ds-button--primary:disabled { box-shadow: none; }
+.ds-seg { padding: 4px; background: var(--ds-surface-2); border-color: var(--ds-border-strong); border-radius: 3px; }
+.ds-seg > button[aria-selected="true"], .ds-seg > button[aria-pressed="true"] { color: var(--vl-safelight); background: var(--vl-matte); box-shadow: none; }
+/* A run disables the segments; the chosen one keeps its fill so it never reads as unselected. */
+.vl-scope > button[aria-pressed="true"]:disabled { opacity: 1; cursor: not-allowed; }
+.ds-drop { background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
+.mode-option.is-selected { background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+
+/* The picture stage: the picture on a dark matte with crop marks, numbered like a frame on a contact sheet. */
+.vl-pictures { counter-reset: frame; }
+.vl-figure { counter-increment: frame; gap: 12px; }
+.vl-figure::before { content: "Frame " counter(frame, decimal-leading-zero); justify-self: start; padding: 0 8px; font-family: var(--ds-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vl-safelight-text); background: var(--vl-safelight); border-radius: 2px; }
+.vl-frame.ds-frame { position: relative; padding: 24px; background: var(--vl-matte); border: 1px solid var(--vl-matte-line); border-radius: var(--ds-radius); }
+.vl-frame.ds-frame::before {
+  content: ""; position: absolute; inset: 8px; pointer-events: none; --mark: var(--vl-matte-muted);
+  background:
+    linear-gradient(var(--mark), var(--mark)) 0 0 / 12px 1px no-repeat, linear-gradient(var(--mark), var(--mark)) 0 0 / 1px 12px no-repeat,
+    linear-gradient(var(--mark), var(--mark)) 100% 0 / 12px 1px no-repeat, linear-gradient(var(--mark), var(--mark)) 100% 0 / 1px 12px no-repeat,
+    linear-gradient(var(--mark), var(--mark)) 0 100% / 12px 1px no-repeat, linear-gradient(var(--mark), var(--mark)) 0 100% / 1px 12px no-repeat,
+    linear-gradient(var(--mark), var(--mark)) 100% 100% / 12px 1px no-repeat, linear-gradient(var(--mark), var(--mark)) 100% 100% / 1px 12px no-repeat;
+}
+.vl-frame__inner { box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1), 0 18px 32px -20px rgb(0 0 0 / 0.8); }
+.vl-frame__inner.is-editable:focus-visible { outline: 2px solid var(--vl-safelight); outline-offset: 6px; }
+.picture__name, .picture__credit { font-size: 13px; }
+.picture__credit a { color: var(--ds-accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+/* A drawn box is a grease-pencil mark: safelight orange with a dark edge so it reads on any photograph. */
+.ds-box { border: 2px solid var(--vl-safelight); border-radius: 2px; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(0 0 0 / 0.45); }
+.ds-box__tag { color: var(--vl-safelight-text); background: var(--vl-safelight); border-radius: 2px 2px 0 0; }
+.vl-box--active { border-width: 3px; background: color-mix(in srgb, var(--vl-safelight) 14%, transparent); }
+.vl-box--draft { background: color-mix(in srgb, var(--vl-safelight) 18%, transparent); }
+.vl-box--draft .ds-box__tag { color: var(--vl-safelight-text); background: var(--vl-safelight); border: 0; }
+
+/* The readout is an instrument panel: dark matte cells, mono figures, the live one in safelight. */
+.ds-strip { background: var(--vl-matte-line); border-color: var(--vl-matte-line); border-radius: var(--ds-radius); }
+.ds-strip__item { background: var(--vl-matte); }
+.ds-strip__label, .ds-strip__hint { color: var(--vl-matte-muted); }
+.ds-strip__label { font-family: var(--ds-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.ds-strip__value { color: var(--vl-matte-text); }
+.ds-strip--pending .ds-strip__value { color: var(--vl-matte-muted); }
+.ds-strip--live { border-color: var(--vl-safelight); }
+.ds-strip--live .ds-strip__value, .ds-strip--live .ds-chip--live { color: var(--vl-safelight); }
+.ds-strip--live .ds-strip__item { background: var(--vl-matte); }
+.ds-strip .ds-chip { color: var(--vl-matte-text); background: var(--vl-matte-2); border-color: var(--vl-matte-line); }
+.ds-strip .ds-chip--live { color: var(--vl-safelight); }
+.ds-strip .ds-badge--warning { color: #f2bf5e; background: transparent; padding: 0; }
+
+/* The answer: a caption set large under the frame. */
+.ds-lead.vl-lead { background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius); }
+.vl-prose { font-size: 17px; }
+.vl-prose > p:first-child { font-size: 20px; line-height: 1.5; letter-spacing: -0.005em; font-weight: 500; }
+.vl-prose.is-streaming > :last-child::after { background: var(--ds-accent); }
+.vl-prose h3, .vl-prose h4 { font-family: var(--vl-display); }
+.vl-col__title { font-family: var(--vl-display); }
+
+/* Wide enough, the picture and its answer sit side by side, so the answer, the failure or the stop note is on the first screen and not
+   under a 600px photograph. Comparing keeps its own two-picture layout and stacks the answer below. */
+@container (min-width: 760px) {
+  .vl-hero__grid:not(.vl-hero__grid--pair) { grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); align-items: start; gap: 24px; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(48vh, 380px); }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame.ds-frame { padding: 16px; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-figure { gap: 8px; }
+}
+@media (min-width: 1000px) { .ds-main { padding-top: 16px; } }
+
+/* Recent analyses and Commons results are strips of small frames. */
+.history__item img, .commons__card img, .commons__card--placeholder { background: var(--vl-matte); border: 1px solid var(--vl-matte-line); border-radius: 2px; padding: 4px; object-fit: contain; }
+.history__item[aria-current='true'] img { outline-color: var(--vl-safelight); }
+.commons__card:hover:not(:disabled) img { border-color: var(--ds-accent); }
+.commons__preset { border-radius: 3px; }
+.commons__preset-label { font-family: var(--vl-display); }
+
+/* Replay label: the slate shown before a recorded take. Dark matte, a safelight tag, Run it live to leave the recording. */
+.ds-run__replay { order: -4; }
+.replay-label {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 16px;
+  color: var(--vl-matte-text); background: var(--vl-matte); border: 1px solid var(--vl-matte-line); border-radius: var(--ds-radius);
+}
+.replay-label__text { display: grid; gap: 4px; flex: 1 1 320px; min-width: 0; }
+.replay-label__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: none; font-size: 15px; }
+.replay-label__line strong { padding: 0 8px; font-family: var(--ds-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vl-safelight-text); background: var(--vl-safelight); border-radius: 2px; }
+.replay-label__line [data-replay-model], .replay-label__line [data-replay-cost] { font-family: var(--ds-mono); font-size: 13px; font-weight: 500; }
+.replay-label .ds-help { color: var(--vl-matte-muted); max-width: none; }
+.replay-label__live { flex: none; min-height: 44px; padding: 0 20px; color: var(--vl-matte-text); background: transparent; border: 1px solid var(--vl-matte-text); }
+.replay-label__live:hover:not(:disabled) { color: var(--vl-matte); background: var(--vl-matte-text); border-color: var(--vl-matte-text); }
+.replay-label__live:disabled { opacity: 1; color: var(--vl-matte-muted); border-color: var(--vl-matte-line); }
+
+/* A replay is the first thing on a narrow screen: ahead of the pickers, which come after the run. */
+@media (max-width: 999px) {
+  .ds-app[data-replay] .ds-controls { order: 1; }
+  .ds-app[data-replay] .ds-run { order: -1; }
+  .ds-app[data-replay] .howto { order: 2; }
+}
+@media (max-width: 720px) {
+  .ds-title { font-size: 34px; }
+  .ds-subtitle { display: none; }
+  .vl-pictures:not(.vl-pictures--pair) .vl-frame__inner img { max-height: min(30vh, 240px); }
+  .ds-header { padding-bottom: 20px; }
+  .vl-frame.ds-frame { padding: 16px; }
+  .vl-hero__title { font-size: 22px; }
+}

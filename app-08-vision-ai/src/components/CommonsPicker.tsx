@@ -16,6 +16,12 @@ interface CommonsPickerProps {
   onPick: (file: File, image: CommonsImage) => void
   /** Reports whether the last search or download failed, for the live-data chip. */
   onFailure: (failed: boolean) => void
+  /** Searched once when the picker first shows, so live Commons pictures are listed before the visitor asks for any. */
+  autoQuery?: string
+  /** Called when the picker has used its autoQuery, so a remount does not search again. */
+  onAutoSearched?: () => void
+  /** Reports a search that came back with pictures: how many, and when. */
+  onListed?: (listing: { count: number; at: number }) => void
 }
 
 const PLACEHOLDER_CARDS = Array.from({ length: 6 }, (_, index) => index)
@@ -23,9 +29,9 @@ const PICK_FAILED = 'The image could not be loaded. Try again or pick another.'
 
 // "Pick a public image": search Wikimedia Commons, choose a result, and the thumbnail is downloaded
 // in the browser and handed to the same pipeline as an upload.
-export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPick, onFailure }: CommonsPickerProps) {
+export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPick, onFailure, autoQuery, onAutoSearched, onListed }: CommonsPickerProps) {
   const { state, search } = useCommonsSearch()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(autoQuery ?? '')
   const [open, setOpen] = useState(slotsLeft > 0)
   const [picking, setPicking] = useState<CommonsImage | null>(null)
   const [pickError, setPickError] = useState<PickError | null>(null)
@@ -37,6 +43,18 @@ export default function CommonsPicker({ disabled, slotsLeft, loaded, label, onPi
 
   const failed = state.status === 'error' || pickError !== null
   useEffect(() => onFailure(failed), [failed, onFailure])
+
+  // The load-time search. It runs when the picker first shows; the page keeps the flag, so a remount does not repeat it.
+  const [initialQuery] = useState(autoQuery)
+  useEffect(() => {
+    if (!initialQuery) return
+    onAutoSearched?.()
+    void search(initialQuery)
+  }, [initialQuery, search, onAutoSearched])
+
+  useEffect(() => {
+    if (state.status === 'ready' && state.images.length > 0) onListed?.({ count: state.images.length, at: Date.now() })
+  }, [state, onListed])
 
 
   const runSearch = (query: string) => {
