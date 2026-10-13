@@ -12,7 +12,7 @@ interface ChartsProps {
 
 const W = 480
 const H = 240
-const M = { l: 52, r: 12, t: 12, b: 44 }
+const M = { l: 60, r: 12, t: 12, b: 44 }
 const PW = W - M.l - M.r
 const PH = H - M.t - M.b
 

@@ -45,6 +45,9 @@ async function runPreset(tweak: (target: string) => (r: ExplainReply) => Explain
   }
   const { container } = mount(<App deps={deps} />)
   await flush()
+  // the page opens on the Try it year; these captures are the past month
+  await click(byText(container, '.ds-seg > button', '30 days'))
+  await flush()
   await click(byText(container, '.ds-choice', 'Vite vs webpack vs esbuild'))
   await flush(6)
   await click(byText(container, 'button', 'Explain spikes'))
@@ -60,6 +63,9 @@ describe('UI with the real core', () => {
       fetchReleases: async (name: string) => ({ name, status: 'ok' as const, releases: RELEASES[name]! }),
     }
     const { container } = mount(<App deps={deps} />)
+    await flush()
+    // the page opens on the Try it year; these captures are the past month
+    await click(byText(container, '.ds-seg > button', '30 days'))
     await flush()
     await click(byText(container, '.ds-choice', 'Vite vs webpack vs esbuild'))
     await flush(6)
@@ -134,6 +140,9 @@ describe('UI with the real core', () => {
     // read the change the page itself shows for vite, then have the model write the claim with an empty value, which code fills (G1)
     const probe = mount(<App deps={base} />)
     await flush()
+    // the page opens on the Try it year; these captures are the past month
+    await click(byText(probe.container, '.ds-seg > button', '30 days'))
+    await flush()
     await click(byText(probe.container, '.ds-choice', 'Vite vs webpack vs esbuild'))
     await flush(6)
     const card = Array.from(probe.container.querySelectorAll('.metrics__package')).find(c => c.textContent?.startsWith('vite'))!
@@ -155,6 +164,9 @@ describe('UI with the real core', () => {
       ],
     })
     const { container } = mount(<App deps={{ ...base, postExplain }} />)
+    await flush()
+    // the page opens on the Try it year; these captures are the past month
+    await click(byText(container, '.ds-seg > button', '30 days'))
     await flush()
     await click(byText(container, '.ds-choice', 'Vite vs webpack vs esbuild'))
     await flush(6)

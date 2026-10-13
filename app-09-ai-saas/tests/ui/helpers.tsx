@@ -9,6 +9,10 @@ import releasesWebpack from './fixtures/releases-webpack.json'
 import releasesEsbuild from './fixtures/releases-esbuild.json'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+// jsdom has no matchMedia; the shared result-focus hook asks it whether the screen is narrow (the test screen is not).
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({ matches: query.includes('min-width'), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+}
 
 export interface Mounted {
   container: HTMLElement

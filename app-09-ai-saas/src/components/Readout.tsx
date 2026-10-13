@@ -6,10 +6,14 @@ import ModelChip from './ModelChip'
  * Every call's cost is summed; calls that reported none are counted, so the figure is never passed off as the whole.
  * No model call, or only refused ones, is `$0`: nothing ran. A call that reported nothing is "cost unknown".
  */
-function costText({ cost, costUnreported }: RunState): string {
+export function costLabel(cost: number | null, costUnreported: number): string {
   if (cost === null) return 'cost unknown'
   const usd = cost === 0 ? '$0' : `$${cost.toFixed(4)}`
   return costUnreported === 0 ? usd : `at least ${usd} (${costUnreported} ${costUnreported === 1 ? 'call' : 'calls'} not reported)`
+}
+
+function costText({ cost, costUnreported }: RunState): string {
+  return costLabel(cost, costUnreported)
 }
 
 /** The run's readout: the model, the time from click to the last paragraph, reasoning tokens and cost. */

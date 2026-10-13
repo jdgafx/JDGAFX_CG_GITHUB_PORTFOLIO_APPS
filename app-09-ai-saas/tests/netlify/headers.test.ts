@@ -16,7 +16,7 @@ describe('Content-Security-Policy in netlify.toml', () => {
     expect(directives.get('script-src')).toEqual(["'self'"])
     expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'])
     expect(directives.get('font-src')).toEqual(["'self'", 'https://fonts.gstatic.com'])
-    expect(directives.get('connect-src')).toEqual(["'self'", 'https://api.npmjs.org'])
+    expect(directives.get('connect-src')).toEqual(["'self'", 'https://api.npmjs.org', 'https://raw.githubusercontent.com'])
   })
   it('lets no script run from anywhere but the app itself', () => {
     expect(csp).not.toContain("'unsafe-eval'")

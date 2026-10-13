@@ -1,33 +1,86 @@
-/* app-09 InsightHub. Tokens and shared components come first; this file holds only what this app adds. */
+/* app-09 InsightHub, the registry terminal. Tokens and shared components come first; this file holds what this app adds and
+   where it overrides them: mono numerals everywhere a figure is shown, the ledger for the figure check, series colours that
+   follow a package from its chip to its chart and its card. */
 
-/* How to use */
+/* Masthead */
+.ds-header__inner, .ds-main, .ds-footer__inner { max-width: 1360px; }
+.ds-header { background: var(--ds-bg); }
+.ds-header__inner { padding-top: 20px; padding-bottom: 16px; gap: 8px; }
+.ds-subtitle { max-width: 100ch; }
+.ds-brand__row { gap: 12px 16px; }
+.ds-plate {
+  min-width: 48px; height: 48px; font-size: 20px; font-weight: 500; letter-spacing: 0; box-shadow: none;
+  color: var(--ds-accent); background: var(--ds-accent-soft); border: 1px solid var(--ds-accent-dim); border-radius: var(--ds-radius);
+}
+.ds-title { font-family: var(--ds-mono); font-size: 32px; font-weight: 600; letter-spacing: -0.03em; }
+.ds-badge { font-family: var(--ds-mono); font-weight: 500; border-radius: var(--ds-radius); }
+.ds-badge--success, .ds-badge--warning, .ds-badge--danger, .ds-badge--accent { border: 1px solid color-mix(in srgb, currentColor 35%, transparent); }
+.live-chip { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; margin: 0; padding: 2px 12px; border-radius: var(--ds-radius); }
+.live-chip.ds-chip--live::before, .live-chip.ds-chip--muted::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.live-chip.ds-chip--live { border: 1px solid var(--ds-accent-dim); }
+
+/* How to use: three steps in a row beside Try it */
+.howto { padding: 12px 20px; border-radius: var(--ds-radius); }
 .howto__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.howto__title { font-size: 18px; font-weight: 650; }
-.howto__body { display: grid; gap: 12px; margin-top: 12px; }
-.howto__steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.howto__title { font-family: var(--ds-mono); font-size: 15px; font-weight: 600; }
+.howto__body { display: grid; gap: 8px 32px; margin-top: 8px; }
+.howto__what { font-size: 18px; color: var(--ds-text); }
+.howto__steps { display: grid; gap: 8px 24px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.howto__steps li { position: relative; padding-left: 32px; color: var(--ds-text-muted); counter-increment: step; }
+.howto__steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 24px; font-family: var(--ds-mono); font-weight: 600; color: var(--ds-accent); }
 .howto__try { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .howto__try .ds-button { min-width: 120px; }
+@media (min-width: 1000px) {
+  .howto__body { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .howto__what { grid-column: 1; }
+  .howto__steps { grid-column: 1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .howto__try { grid-column: 2; grid-row: 1 / span 2; }
+  .howto__body > .ds-notice { grid-column: 1 / -1; }
+}
 
-/* Masthead chip: it may wrap on a narrow screen instead of being clipped */
-.live-chip { margin: 0; width: fit-content; }
-.readout__chip { font-size: 15px; }
-
-/* Controls */
-.add-input { flex: 1 1 160px; width: auto; min-width: 0; }
+/* Controls: package names are typed in mono; each chip carries its series colour, the same one its chart and card use */
+.add-input { flex: 1 1 160px; width: auto; min-width: 0; font-family: var(--ds-mono); font-size: 15px; }
+.ds-controls { border-radius: var(--ds-radius); }
+.ds-label { font-family: var(--ds-mono); font-size: 14px; font-weight: 600; }
+.ds-chips .ds-chip { gap: 8px; padding: 2px 8px 2px 12px; border-radius: var(--ds-radius); }
+.ds-chips .ds-chip::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--ds-accent); }
+.ds-chips .ds-chip:nth-child(4n + 2)::before { background: var(--ds-series-2); }
+.ds-chips .ds-chip:nth-child(4n + 3)::before { background: var(--ds-series-3); }
+.ds-chips .ds-chip:nth-child(4n + 4)::before { background: var(--ds-series-4); }
 .chip-remove {
   display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: -4px; padding: 0;
-  font: inherit; font-size: 15px; line-height: 1; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 16px; line-height: 1; color: var(--ds-text-muted); background: transparent; border: 0; border-radius: var(--ds-radius-sm); cursor: pointer;
 }
-.chip-remove:hover:not(:disabled) { color: var(--ds-text); background: var(--ds-surface); }
+.chip-remove:hover:not(:disabled) { color: var(--ds-text); background: var(--ds-border); }
 .chip-remove:disabled { opacity: 0.45; cursor: not-allowed; }
-.ds-controls .ds-seg { width: fit-content; max-width: 100%; }
+.ds-controls .ds-seg { width: fit-content; max-width: 100%; border-radius: var(--ds-radius); }
+.ds-seg > button { padding: 0 8px; font-family: var(--ds-mono); font-weight: 500; font-size: 14px; white-space: nowrap; }
+.ds-input { background: var(--ds-bg); }
+.ds-button { font-family: var(--ds-mono); font-weight: 500; font-size: 14px; border-radius: var(--ds-radius); }
+.ds-button--primary { font-weight: 600; }
+.ds-button--primary:hover:not(:disabled) { filter: brightness(1.12); }
+.ds-choice { border-radius: var(--ds-radius); }
+.ds-choice__label { font-family: var(--ds-mono); font-size: 14px; font-weight: 500; }
+.ds-empty { font-family: var(--ds-mono); font-size: 14px; }
 
-/* Explanation region */
-.explanation__title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
-.explanation__package { display: grid; gap: 8px; min-width: 0; }
+/* The replay label leads the run column: a status line, not a card */
+.replay-label { order: -3; display: grid; gap: 4px; padding: 12px 16px; background: var(--ds-accent-soft); border-color: var(--ds-accent-dim); }
+.replay-label__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: none; font-family: var(--ds-mono); font-size: 14px; }
+.replay-label__line strong { color: var(--ds-accent); font-weight: 600; }
+.replay-label__line > span[aria-hidden="true"]:last-of-type { display: none; }
+.replay-label__live { min-height: 36px; padding: 0 16px; margin-left: 8px; }
+.replay-label .ds-help { color: var(--ds-text-muted); }
+
+/* Explanation: the reading block. Prose in Instrument Sans, every figure a mono mark that carries its verdict */
+.ds-lead { border-radius: var(--ds-radius); gap: 20px; }
+.explanation__title { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.ds-lead__text { max-width: 66ch; gap: 20px; }
+.explanation__package { display: grid; gap: 8px; min-width: 0; padding-top: 16px; border-top: 1px solid var(--ds-border); }
+.explanation__package:first-child { padding-top: 0; border-top: 0; }
+.explanation__package .ds-section__title { font-family: var(--ds-mono); font-size: 15px; font-weight: 600; color: var(--ds-accent); }
 .explanation__text { font-size: 18px; line-height: 1.7; overflow-wrap: anywhere; }
 .ds-lead__text > .ds-state { font-size: 15px; }
-.claim { padding: 0 4px; font-family: var(--ds-mono); font-size: 0.93em; font-style: normal; color: var(--ds-text); background: var(--ds-surface-2); border-radius: 4px; }
+.claim { padding: 1px 6px; font-family: var(--ds-mono); font-size: 0.9em; font-style: normal; color: var(--ds-text); background: var(--ds-surface-2); border-radius: var(--ds-radius-sm); }
 .claim::after { margin-left: 4px; font-family: var(--ds-font); font-weight: 800; }
 .claim--checked { background: var(--ds-success-soft); box-shadow: inset 0 -2px 0 var(--ds-success); }
 .claim--checked::after { content: "\2713"; color: var(--ds-success); }
@@ -36,39 +89,132 @@
 .claim--unchecked { background: var(--ds-warning-soft); box-shadow: inset 0 -2px 0 var(--ds-warning); }
 .claim--unchecked::after { content: "?"; color: var(--ds-warning); }
 .claim--neutral { background: var(--ds-surface-2); box-shadow: inset 0 -1px 0 var(--ds-border-strong); }
-.claim-label { font-size: 13px; color: var(--ds-text-muted); }
-.claim-note { font-size: 13px; font-weight: 650; color: var(--ds-danger); }
+.claim-label { font-size: 14px; color: var(--ds-text-muted); }
+.claim-note { font-size: 14px; font-weight: 600; color: var(--ds-danger); }
 .date-mark { font-family: var(--ds-mono); }
 .ds-lead .ds-state { box-shadow: none; }
 
-/* Tables */
-.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.data-table th, .data-table td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ds-border); }
-.data-table th { font-weight: 650; color: var(--ds-text-muted); white-space: nowrap; }
+/* Readout: the run's four figures in ruled mono cells */
+.ds-strip { border-radius: var(--ds-radius); }
+.ds-strip__label { font-family: var(--ds-mono); font-size: 13px; }
+.ds-strip__value { font-size: 20px; font-weight: 500; }
+.readout__chip { font-size: 15px; }
+
+/* Ledgers: the figure check and the unusual days. Mono numerals, dotted rules, no zebra */
+.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.data-table th, .data-table td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px dotted var(--ds-border-strong); }
+.data-table th { font-family: var(--ds-mono); font-size: 13px; font-weight: 500; color: var(--ds-text-muted); white-space: nowrap; border-bottom: 1px solid var(--ds-border-strong); }
 .data-table td.ds-num { font-family: var(--ds-mono); white-space: nowrap; }
-.figure-check { display: grid; gap: 12px; }
-.figure-check__summary { font-size: 15px; font-weight: 650; }
-.unusual { display: grid; gap: 12px; }
+.data-table td:first-child, .data-table th:first-child { padding-left: 0; }
+.figure-check, .unusual { display: grid; gap: 12px; border-radius: var(--ds-radius); }
+.figure-check__summary { font-family: var(--ds-mono); font-size: 15px; font-weight: 500; }
+.figure-check .ds-hint { margin-top: -8px; }
 
-/* Metrics */
+/* The figure check, one entry per claim. Narrow: the claim and its verdict, then the values with their names, then how to check it.
+   Wide (1280 and up): a ruled ledger with column heads and the same entry under each row. */
+.ledger thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.ledger, .ledger tbody { display: block; }
+.ledger tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; padding: 12px 0; border-bottom: 1px dotted var(--ds-border-strong); }
+.ledger tr::after { content: ""; order: 4; flex-basis: 100%; height: 0; }
+.ledger td { display: block; min-width: 0; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
+.ledger td[data-label]::before { content: attr(data-label) ": "; font-family: var(--ds-font); font-size: 13px; color: var(--ds-text-muted); }
+.ledger td.ds-num { white-space: normal; }
+.fc-n { order: 1; flex: none; width: 28px; font-family: var(--ds-mono); color: var(--ds-text-muted); }
+.fc-n a { color: var(--ds-accent); }
+.fc-text { order: 2; flex: 1 1 200px; font-family: var(--ds-mono); font-weight: 600; font-size: 15px; }
+.fc-verdict { order: 3; margin-left: auto; }
+.fc-model { order: 5; margin-left: 48px; }
+.fc-npm { order: 5; }
+.fc-kind, .fc-pkg, .fc-where { order: 6; }
+.fc-model, .fc-npm { font-family: var(--ds-mono); }
+.fc-how { order: 7; flex-basis: 100%; padding-left: 48px; color: var(--ds-text-muted); }
+.fc-how:empty, .fc-where:empty, .fc-npm:empty { display: none; }
+.ledger .ds-badge { font-size: 13px; padding: 2px 12px; }
+.ledger .ds-badge--success::before { content: "\2713"; }
+.ledger .ds-badge--danger::before { content: "!"; }
+.ledger .ds-badge--warning::before { content: "?"; }
+@media (max-width: 720px) {
+  .fc-model, .fc-how { margin-left: 0; padding-left: 0; }
+  .fc-n { width: 24px; }
+  .fc-text { flex-basis: 120px; }
+}
+@media (min-width: 1280px) {
+  .ledger thead { display: block; position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .ledger thead tr, .ledger tbody tr { display: grid; grid-template-columns: 28px minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1.05fr) minmax(0, 1.05fr) 96px; gap: 4px 12px; align-items: start; }
+  .ledger thead tr { padding: 0 0 8px; border-bottom: 1px solid var(--ds-border-strong); }
+  .ledger thead th { padding: 0; border: 0; }
+  .ledger thead th:nth-child(8) { display: none; }
+  .ledger thead th:nth-child(9) { grid-column: 8; }
+  .ledger tr::after { display: none; }
+  .ledger td[data-label]:not(.fc-how)::before { display: none; }
+  .fc-n, .fc-text, .fc-kind, .fc-pkg, .fc-where, .fc-model, .fc-npm, .fc-verdict { order: 0; margin: 0; width: auto; }
+  .fc-n { grid-column: 1; }
+  .fc-text { grid-column: 2; }
+  .fc-kind { grid-column: 3; }
+  .fc-pkg { grid-column: 4; }
+  .fc-where { grid-column: 5; }
+  .fc-model { grid-column: 6; }
+  .fc-npm { grid-column: 7; }
+  .fc-verdict { grid-column: 8; justify-self: start; }
+  .fc-how { grid-column: 2 / -1; padding-left: 0; }
+  .fc-where:empty, .fc-npm:empty { display: block; }
+}
+
+/* Metrics: one card per package, its colour the same as its chip and chart */
 .metrics { display: grid; gap: 16px; }
-.metrics__combined { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; }
-.metrics__combined strong { font-family: var(--ds-mono); font-size: 22px; font-weight: 600; }
-.metrics__swatch { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 3px; vertical-align: -1px; }
-.metrics__package .ds-card__title { font-size: 18px; font-weight: 650; }
-
-/* Charts: hand-written SVG; the shapes and not only the colours tell the marks apart */
-.charts { display: grid; gap: 12px; }
-.chart-nodata { fill: var(--ds-border); opacity: 0.7; }
-.chart-release { stroke: var(--ds-text-muted); stroke-width: 2; }
-.chart-gap { stroke: var(--ds-text); stroke-width: 2; }
-.chart-dot { stroke: var(--ds-surface); stroke-width: 1.5; }
-.chart-dot--drop { fill-opacity: 0.35; stroke-width: 2; }
-
-/* Results column */
-.ds-run__stage, .ds-run__result, .ds-run__readout { min-width: 0; }
-.notices:empty { display: none; }
+.metrics__combined { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; max-width: none; color: var(--ds-text-muted); }
+.metrics__combined strong { font-family: var(--ds-mono); font-size: 22px; font-weight: 500; color: var(--ds-text); }
+.metrics__package { border-radius: var(--ds-radius); }
+.metrics__package .ds-card__title { display: flex; align-items: center; margin-bottom: 12px; font-family: var(--ds-mono); font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.metrics__swatch { flex: none; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 2px; }
 .metrics__swatch.ds-c-s1 { background: var(--ds-accent); }
 .metrics__swatch.ds-c-s2 { background: var(--ds-series-2); }
 .metrics__swatch.ds-c-s3 { background: var(--ds-series-3); }
 .metrics__swatch.ds-c-s4 { background: var(--ds-series-4); }
+.ds-kv { gap: 4px 20px; }
+.ds-kv dt { font-size: 14px; }
+.ds-kv dd { font-size: 15px; text-align: right; }
+
+/* Charts: hand-written SVG; the shapes and not only the colours tell the marks apart */
+.charts { display: grid; gap: 12px; }
+.ds-chart { border-radius: var(--ds-radius); background: var(--ds-surface); }
+.ds-chart__head .ds-card__title { font-family: var(--ds-mono); font-size: 15px; font-weight: 600; }
+.ds-chart__head .ds-hint { font-family: var(--ds-mono); }
+.ds-c-tick { font-family: var(--ds-mono); font-size: 14px; fill: var(--ds-text-muted); }
+.ds-c-line { stroke-width: 2.25; }
+.chart-nodata { fill: var(--ds-border); opacity: 0.8; }
+.chart-release { stroke: var(--ds-text-muted); stroke-width: 2; }
+.chart-gap { stroke: var(--ds-text); stroke-width: 2; }
+.chart-dot { stroke: var(--ds-bg); stroke-width: 1.5; }
+.chart-dot--drop { fill-opacity: 0.35; stroke-width: 2; }
+.ds-legend { font-size: 14px; }
+
+/* States and notices on the dark bench */
+.ds-state, .ds-notice { border-radius: var(--ds-radius); }
+.ds-state--loading .ds-state__title { font-family: var(--ds-mono); }
+.ds-footer { font-family: var(--ds-mono); }
+
+/* Results column. While no result is shown the charts lead the stage; what the data did not give follows them, except a failure,
+   which stays on top. */
+.ds-run { gap: 20px; }
+.notices { display: contents; }
+.ds-run__stage .ds-notice { order: 4; }
+.ds-run__stage .ds-notice--error, .ds-run__stage .ds-notice--warning { order: -1; }
+.ds-run__stage .charts { order: 1; }
+.ds-run__stage .metrics { order: 2; }
+.ds-run__stage .unusual { order: 3; }
+.ds-run__stage, .ds-run__result, .ds-run__readout { min-width: 0; }
+
+/* On a phone the run leads and the controls follow it; the Try it button stays in the how-to above */
+@media (max-width: 999px) {
+  .ds-controls { order: 2; }
+  .ds-run { order: 1; }
+}
+@media (max-width: 720px) {
+  .replay-label__line { display: grid; justify-items: start; gap: 4px; }
+  .replay-label__line > span[aria-hidden="true"] { display: none; }
+  .replay-label__live { margin-left: 0; margin-top: 4px; }
+  .ds-title { font-size: 28px; }
+  .howto { padding: 12px 16px; }
+  .howto__what { font-size: 16px; }
+}

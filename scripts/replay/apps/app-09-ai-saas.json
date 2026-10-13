@@ -1,0 +1,17 @@
+{
+  "url": "https://jdgafx-app-09-ai-saas.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/explain",
+  "apiPrefix": "/api/",
+  "settleMs": 30000,
+  "expect": [
+    { "path": "/api/explain", "field": "ok", "equals": true, "message": "the last explanation was not accepted" },
+    { "path": "/api/explain", "field": "paragraph", "minLength": 1, "message": "the last explanation wrote nothing" }
+  ],
+  "reported": {
+    "model": { "path": "/api/explain", "field": "servedModel" },
+    "modelRole": "explained by",
+    "costUsd": { "path": "/api/explain", "field": "costUsd" },
+    "costScope": "one explanation call"
+  }
+}

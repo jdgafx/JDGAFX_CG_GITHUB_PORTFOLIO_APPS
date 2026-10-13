@@ -20,9 +20,9 @@ import { MAX_NAMES, fetchRange, fetchReleases, isPackageName, todayUtc, type Ran
 
 /** Try it: four packages over a year, one of them with releases that match its spikes. Every figure is fetched live. */
 export const TRY_IT = { names: ['react', 'vite', 'zod', '@anthropic-ai/sdk'], days: 365 as WindowDays }
-/** A cold visit selects nothing: names come from Try it, a ready-made comparison or typing. */
-export const DEFAULT_NAMES: string[] = []
-export const DEFAULT_DAYS: WindowDays = 30
+/** A cold visit draws the Try it comparison from npm at once (free data, no model call); Try it then runs the explanation on top. */
+export const DEFAULT_NAMES: string[] = [...TRY_IT.names]
+export const DEFAULT_DAYS: WindowDays = TRY_IT.days
 /** The browser gives up on one package's explanation here; the function's own model timeout is 26 s. */
 export const EXPLAIN_ABORT_MS = 29_000
 const MAX_UNUSUAL_SENT = 6
@@ -217,6 +217,7 @@ export function useRun(deps: RunDeps) {
   const [run, setRun] = useState<RunState>(IDLE_RUN)
 
   const seq = useRef(0)
+  const firstDate = useRef<Day>(data.runDate)
   const controller = useRef<AbortController | null>(null)
   const live = useRef(false)
   const mounted = useRef(true)
@@ -270,6 +271,11 @@ export function useRun(deps: RunDeps) {
     },
     [fetchAll, begin],
   )
+
+  // On load: the downloads and releases of the starting comparison, drawn as they arrive. No explanation is asked for.
+  useEffect(() => {
+    if (DEFAULT_NAMES.length > 0) void fetchAll(DEFAULT_NAMES, firstDate.current)
+  }, [fetchAll])
 
   useEffect(() => {
     mounted.current = true
@@ -405,6 +411,12 @@ export function useRun(deps: RunDeps) {
     [names, days, fetchAll, begin, publishRun],
   )
 
+  /** Takes the result off the screen and draws the current selection again from npm. Used when a replay could not be completed. */
+  const reset = useCallback(() => {
+    setRun(IDLE_RUN)
+    void fetchAll(names, begin(names))
+  }, [names, fetchAll, begin])
+
   const addName = useCallback(
     (raw: string): string | null => {
       const name = raw.trim().toLowerCase()
@@ -427,6 +439,7 @@ export function useRun(deps: RunDeps) {
     settled,
     liveSlots: { downloads: dlSlots, releases: relSlots },
     addName,
+    reset,
     removeName: (name: string) => select(names.filter(n => n !== name), days),
     setPreset: (next: string[]) => select(next, days),
     setDays: (next: WindowDays) => select(names, next),

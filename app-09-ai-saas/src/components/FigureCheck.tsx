@@ -34,7 +34,7 @@ export default function FigureCheck({ window, packages, facts, figures, rowsByNa
       </p>
       {rows.length > 0 && (
         <div className="ds-scroll-x">
-          <table className="data-table">
+          <table className="data-table ledger">
             <thead>
               <tr>
                 <th scope="col">#</th>
@@ -51,15 +51,15 @@ export default function FigureCheck({ window, packages, facts, figures, rowsByNa
             <tbody>
               {rows.map(row => (
                 <tr key={row.key}>
-                  <td className="ds-num">{row.number === null ? '' : <a href={`#fig-${row.number}`}>{row.number}</a>}</td>
-                  <td>{row.text}</td>
-                  <td>{row.kind}</td>
-                  <td>{row.pkg}</td>
-                  <td>{row.where}</td>
-                  <td className="ds-num">{row.modelValue}</td>
-                  <td className="ds-num">{row.npmValue}</td>
-                  <td>{row.howTo}</td>
-                  <td>
+                  <td className="fc-n ds-num">{row.number === null ? '' : <a href={`#fig-${row.number}`}>{row.number}</a>}</td>
+                  <td className="fc-text">{row.text}</td>
+                  <td className="fc-kind" data-label="Kind">{row.kind}</td>
+                  <td className="fc-pkg" data-label="Package">{row.pkg}</td>
+                  <td className="fc-where" data-label="Span or day">{row.where}</td>
+                  <td className="fc-model ds-num" data-label="Model value">{row.modelValue}</td>
+                  <td className="fc-npm ds-num" data-label="npm value">{row.npmValue}</td>
+                  <td className="fc-how" data-label="How to check">{row.howTo}</td>
+                  <td className="fc-verdict">
                     <span className={BADGE[row.verdict].cls}>{BADGE[row.verdict].word}</span>
                   </td>
                 </tr>

@@ -39,11 +39,11 @@ describe('App', () => {
   it('shows the masthead chip, the how-to with Try it, and the three controls', async () => {
     const { container } = mount(<App deps={deps()} />)
     await flush()
-    // a cold visit selects nothing: idle chip, Try it ready, Explain spikes gated
+    // a cold visit draws the Try it comparison from npm at once: the chip is lit, no explanation is asked for
     expect(chipText(container)).toBe('Live data: npm registry')
-    expect(container.querySelector('.live-chip')?.classList.contains('ds-chip--muted')).toBe(true)
-    expect(container.querySelectorAll('.ds-chips .ds-chip')).toHaveLength(0)
-    expect((byText(container, 'button', 'Explain spikes') as HTMLButtonElement).disabled).toBe(true)
+    expect(container.querySelector('.live-chip')?.classList.contains('ds-chip--live')).toBe(true)
+    expect(Array.from(container.querySelectorAll('.ds-chips .ds-chip')).map(c => c.textContent?.replace('×', ''))).toEqual(['react', 'vite', 'zod', '@anthropic-ai/sdk'])
+    expect(container.querySelector('.ds-run__result')).toBeNull()
     expect((byText(container, 'button', 'Try it') as HTMLButtonElement).disabled).toBe(false)
     await pick(container)
     expect(container.querySelector('.live-chip')?.classList.contains('ds-chip--live')).toBe(true)
@@ -56,14 +56,14 @@ describe('App', () => {
     expect(order[1]!.compareDocumentPosition(order[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('defaults to 30 days and a preset click sets names only', async () => {
+  it('defaults to 365 days and a preset click sets names only', async () => {
     const { container } = mount(<App deps={deps()} />)
     await flush()
-    expect(container.querySelector('.ds-seg > button[aria-pressed="true"]')?.textContent).toBe('30 days')
+    expect(container.querySelector('.ds-seg > button[aria-pressed="true"]')?.textContent).toBe('365 days')
     await click(byText(container, '.ds-choice', 'Vite vs webpack vs esbuild'))
     await flush()
     expect(Array.from(container.querySelectorAll('.ds-chips .ds-chip')).map(c => c.textContent?.replace('×', ''))).toEqual(['vite', 'webpack', 'esbuild'])
-    expect(container.querySelector('.ds-seg > button[aria-pressed="true"]')?.textContent).toBe('30 days')
+    expect(container.querySelector('.ds-seg > button[aria-pressed="true"]')?.textContent).toBe('365 days')
   })
 
   it('Try it selects the four names and 365, runs, shows every paragraph and focuses the explanation heading', async () => {
