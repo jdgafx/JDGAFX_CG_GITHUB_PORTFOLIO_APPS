@@ -234,6 +234,7 @@ export default function ChartSvg(props: ChartSvgProps) {
               width={barW}
               height={Math.max(2, Math.abs(zero - y(value)))}
               rx={3}
+              {...(index === top ? { className: 'app-bar__top' } : {})}
             >
               <title>{hover(index)}</title>
             </rect>

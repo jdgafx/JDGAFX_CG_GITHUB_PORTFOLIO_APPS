@@ -27,7 +27,7 @@ function plural(word: string): string {
 const exact = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 })
 
 /** The width of an element, kept current as it resizes. */
-function useWidth() {
+export function useWidth() {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   useLayoutEffect(() => {

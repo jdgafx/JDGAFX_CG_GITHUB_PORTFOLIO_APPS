@@ -47,6 +47,8 @@ function stubNetwork(): Network {
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === FEED_URL) return network.feed()
+      // The stored replay is not there in these tests: the page shows its ordinary empty state.
+      if (String(input).startsWith('https://raw.githubusercontent.com/')) return new Response('', { status: 404 })
       network.api.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       return network.reply()
     }),

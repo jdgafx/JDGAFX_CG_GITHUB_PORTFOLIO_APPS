@@ -127,8 +127,11 @@ function StepRow({ step, index, active, disabled, refines, onOpen, onSuggest }: 
       >
         <span className="ds-trace__index" aria-hidden="true">{index}</span>
         <span className="app-step__question">{step.question}</span>
-        <span className={step.notApplied ? 'ds-badge ds-badge--warning' : 'ds-badge'}>
-          {step.notApplied ? 'Not applied' : step.kind === 'ask' ? 'Question' : 'Follow-up'}
+        <span className="app-step__tags">
+          {step.replayed && <span className="ds-badge app-replay-tag">Replay</span>}
+          <span className={step.notApplied ? 'ds-badge ds-badge--warning' : 'ds-badge'}>
+            {step.notApplied ? 'Not applied' : step.kind === 'ask' ? 'Question' : 'Follow-up'}
+          </span>
         </span>
       </button>
       {refines !== null && <p className="ds-help app-step__from">Refines step {refines}</p>}

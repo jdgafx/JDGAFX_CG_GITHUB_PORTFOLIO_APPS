@@ -28,12 +28,15 @@ export interface AnalysisThreadState {
   unanswered: { question: string; message: string } | null
   /** True when the loaded rows are the ones the on-screen thread was computed from. */
   canFollowUp: boolean
-  ask: (question: string, mode: AskMode) => Promise<boolean>
+  /** `replayed` marks a step whose reply came from a recording, so it is never shown as a live answer. */
+  ask: (question: string, mode: AskMode, replayed?: boolean) => Promise<boolean>
   stop: () => void
   openStep: (id: string) => void
   openThread: (id: string) => void
   /** Puts the thread away without losing it, for when the rows change under it. */
   close: () => void
+  /** Puts away every thread that holds a replayed step: Run it live replaces the recording with a real run. */
+  dropReplayed: () => void
   /** Clears a failed or unanswered run: its message and box, so the page falls back to the open step's own run. */
   dismissError: () => void
 }
@@ -66,7 +69,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
   const canFollowUp = Boolean(thread && step && data && thread.dataset === dataset)
 
   const ask = useCallback(
-    async (question: string, mode: AskMode): Promise<boolean> => {
+    async (question: string, mode: AskMode, replayed = false): Promise<boolean> => {
       const asked = question.trim()
       if (!data || !asked || abortRef.current) return false
       const base = mode === 'follow-up' && thread && step && thread.dataset === dataset ? step : null
@@ -117,6 +120,7 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
         changes: outcome.kind === 'done' ? outcome.changes : [],
         ...(outcome.kind === 'not-applied' ? { notApplied: outcome.reason } : {}),
         ...(base ? { basedOn: base.id } : {}),
+        ...(replayed ? { replayed: true } : {}),
         result: outcome.result,
         run: outcome.run,
         timestamp: new Date(),
@@ -161,6 +165,14 @@ export function useAnalysisThread({ data, dataset, vocab }: Source): AnalysisThr
       setUnanswered(null)
     },
     close: () => {
+      setThreadId(null)
+      setStepId(null)
+      setEnded(null)
+      setError(null)
+      setUnanswered(null)
+    },
+    dropReplayed: () => {
+      setThreads((all) => all.filter((item) => !item.steps.some((made) => made.replayed)))
       setThreadId(null)
       setStepId(null)
       setEnded(null)

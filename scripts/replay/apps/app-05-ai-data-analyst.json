@@ -1,0 +1,19 @@
+{
+  "url": "https://jdgafx-app-05-ai-data-analyst.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/ai",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "expect": [
+    { "path": "/api/ai", "field": "result.groupBy", "nonEmpty": true, "message": "the model wrote no plan" },
+    { "path": "/api/ai", "field": "result.title", "nonEmpty": true, "message": "the model wrote no chart title" },
+    { "path": "/api/ai", "field": "trace", "minLength": 1, "message": "the reply carried no run trace" },
+    { "path": "/api/ai", "field": "model", "nonEmpty": true, "message": "the reply named no model" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "model" },
+    "modelRole": "served by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "whole run"
+  }
+}

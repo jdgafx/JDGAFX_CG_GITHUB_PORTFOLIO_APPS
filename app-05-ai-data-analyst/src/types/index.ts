@@ -204,6 +204,8 @@ export interface ThreadStep {
   basedOn?: string
   /** Set when the follow-up could not be applied. The result is then the previous step's. */
   notApplied?: string
+  /** True when the reply came from a recording of a real run, not from a request the visitor made. */
+  replayed?: true
   result: AnalysisResult
   run: RunView
   timestamp: Date

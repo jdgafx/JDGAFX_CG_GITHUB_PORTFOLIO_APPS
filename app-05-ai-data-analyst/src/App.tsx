@@ -8,8 +8,9 @@ import { indicatorFor } from './lib/liveData/indicator'
 import { MAX_ROWS } from './lib/limits'
 import { plainText } from './lib/prose'
 import { decodeText, notTextMessage } from './lib/upload'
-import { useResultFocus } from './lib/useResultFocus'
+import { useReplay } from './lib/useReplay'
 import { RAW_VOCABULARY } from './lib/vocabulary'
+import { useResultFocus } from './replay'
 import { useAnalysisThread, type AnalysisThreadState, type AskMode } from './hooks/useAnalysisThread'
 import { useLiveDataset, type DatasetState } from './hooks/useLiveDataset'
 import { HowTo } from './components/HowTo'
@@ -46,6 +47,8 @@ export default function App() {
   const [lastAsk, setLastAsk] = useState<{ question: string; mode: AskMode } | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  /** True while the result on screen is the replay of a recording, until Run it live or a run of the visitor's own replaces it. */
+  const [replaying, setReplaying] = useState(false)
   const [examplesOpen, setExamplesOpen] = useState<boolean>(() => window.matchMedia('(min-width: 1000px)').matches)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -73,6 +76,7 @@ export default function App() {
   // A result belongs to the rows it was computed from, so it is put away when those rows change.
   const clearResult = () => {
     close()
+    setReplaying(false)
     setFileError(null)
     setNotice(null)
   }
@@ -166,9 +170,10 @@ export default function App() {
     reader.readAsArrayBuffer(file)
   }
 
-  const ask = (text: string, mode: AskMode) => {
+  const ask = (text: string, mode: AskMode, replayRun = false): Promise<boolean> => {
     setLastAsk({ question: text, mode })
-    void analysis.ask(text, mode)
+    setReplaying(replayRun)
+    return analysis.ask(text, mode, replayRun)
   }
 
   // Try it: the live USGS week feed is chosen, the example question typed, and the run starts once its rows are parsed.
@@ -194,9 +199,27 @@ export default function App() {
     startTry()
   })
 
+  // On load the stored run of the example is played back through the page's own client, only from the empty screen.
+  const replay = useReplay({
+    headers: selectedDataset === DEFAULT_DATASET && parsedData ? parsedData.headers : null,
+    idle: analysis.run === null && !isLoading && question === '',
+    start: () => {
+      setQuestion(TRY_QUESTION)
+      return ask(TRY_QUESTION, 'new', true)
+    },
+    clear: clearResult,
+  })
+  // Run it live: ends the replay, puts its result away, then asks the same question for real.
+  const runLive = () => {
+    replay.stop()
+    analysis.dropReplayed()
+    setReplaying(false)
+    void ask(TRY_QUESTION, 'new')
+  }
+
   const phase: HeaderStatus = isLoading ? 'running' : analysis.run ? analysis.run.outcome : 'idle'
   // On a phone the examples would push the run down, so they close when a run starts; the result is then brought into view.
-  useResultFocus(phase, { onRunStart: (narrow) => narrow && setExamplesOpen(false) })
+  useResultFocus(phase, { onRunStart: (narrow) => narrow && setExamplesOpen(false), replay: replaying })
   const suggestions = choice?.questions ?? []
   const statusText = statusMessage(analysis, parsedData !== null)
 
@@ -255,11 +278,14 @@ export default function App() {
 
           <RunColumn
             parsedData={parsedData}
+            source={loaded?.source ?? null}
             datasetLabel={datasetLabel}
             state={analysis}
             lastQuestion={lastAsk?.question ?? ''}
-            onAskFollowUp={(text) => ask(text, 'follow-up')}
-            onRetry={() => lastAsk && ask(lastAsk.question, lastAsk.mode)}
+            onAskFollowUp={(text) => void ask(text, 'follow-up')}
+            onRetry={() => lastAsk && void ask(lastAsk.question, lastAsk.mode)}
+            replay={replaying ? replay.info : null}
+            onRunLive={runLive}
           />
         </div>
       </main>

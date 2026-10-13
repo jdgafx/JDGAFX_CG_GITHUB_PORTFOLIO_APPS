@@ -1,6 +1,11 @@
 import type { AnalysisThreadState } from '../hooks/useAnalysisThread'
-import type { ParsedData } from '../types'
+import { useMemo } from 'react'
+import { glanceFor } from '../lib/liveGlance'
+import type { DataSourceInfo, ParsedData } from '../types'
 import DataPreview from './DataPreview'
+import LiveGlance from './LiveGlance'
+import { ReplayLabel } from './ReplayLabel'
+import type { ReplayInfo } from '../lib/useReplay'
 import HistoryList from './HistoryList'
 import ReadoutStrip from './ReadoutStrip'
 import RunTrace from './RunTrace'
@@ -8,11 +13,16 @@ import ThreadPanel from './ThreadPanel'
 
 interface RunColumnProps {
   parsedData: ParsedData | null
+  /** Where the loaded rows came from; the live earthquake rows are drawn at once, before any question. */
+  source: DataSourceInfo | null
   datasetLabel: string
   state: AnalysisThreadState
   lastQuestion: string
   onAskFollowUp: (question: string) => void
   onRetry: () => void
+  /** Set while the run on screen is the replay of a recording. */
+  replay: ReplayInfo | null
+  onRunLive: () => void
 }
 
 /** What the result block says when there is no thread to show. */
@@ -25,15 +35,19 @@ function emptyText(parsedData: ParsedData | null): { title: string; body: string
 }
 
 /** The run column, in the order of the ended state: the thread, the chart, the figures, the trace, then the rest. */
-export default function RunColumn({ parsedData, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry }: RunColumnProps) {
+export default function RunColumn({ parsedData, source, datasetLabel, state, lastQuestion, onAskFollowUp, onRetry, replay, onRunLive }: RunColumnProps) {
   const { thread, run, pending, error, unanswered } = state
   const running = pending !== null
   const freshRun = pending?.mode === 'new'
   const earlier = state.threads.filter((item) => item.id !== thread?.id)
   const empty = emptyText(parsedData)
+  const glance = useMemo(() => (parsedData && source?.kind === 'live' ? glanceFor(parsedData) : null), [parsedData, source])
 
   return (
     <div className="ds-run">
+      {replay && <ReplayLabel info={replay} onRunLive={onRunLive} disabled={running} />}
+      {glance && source && <LiveGlance glance={glance} source={source} />}
+
       <div className="ds-run__result app-result">
         {freshRun && (
           <div className="ds-state ds-state--loading" role="status" aria-busy="true">

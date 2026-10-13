@@ -6,41 +6,41 @@
  * Slot 8 is spare; a pie chart shows seven groups and "Other" in grey.
  */
 :root {
-  --viz-1: #2a78d6;
-  --viz-2: #eb6834;
-  --viz-3: #1baf7a;
-  --viz-4: #eda100;
-  --viz-5: #e87ba4;
-  --viz-6: #008300;
-  --viz-7: #4a3aa7;
-  --viz-8: #e34948;
-  --viz-other: #898781;
+  --viz-1: #1f56d6;
+  --viz-2: #d9570f;
+  --viz-3: #0e8f78;
+  --viz-4: #e0a100;
+  --viz-5: #7d52cc;
+  --viz-6: #2e8a1f;
+  --viz-7: #26337f;
+  --viz-8: #c4382b;
+  --viz-other: #7b8496;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --viz-1: #3987e5;
-    --viz-2: #d95926;
-    --viz-3: #199e70;
-    --viz-4: #c98500;
-    --viz-5: #d55181;
-    --viz-6: #008300;
-    --viz-7: #9085e9;
-    --viz-8: #e66767;
-    --viz-other: #898781;
+    --viz-1: #6f98ff;
+    --viz-2: #f07a36;
+    --viz-3: #2cc1a6;
+    --viz-4: #e8b13a;
+    --viz-5: #a98af0;
+    --viz-6: #6cc45a;
+    --viz-7: #8e9be8;
+    --viz-8: #ee6a5c;
+    --viz-other: #7b8496;
   }
 }
 
 :root[data-theme="dark"] {
-  --viz-1: #3987e5;
-  --viz-2: #d95926;
-  --viz-3: #199e70;
-  --viz-4: #c98500;
-  --viz-5: #d55181;
-  --viz-6: #008300;
-  --viz-7: #9085e9;
-  --viz-8: #e66767;
-  --viz-other: #898781;
+  --viz-1: #6f98ff;
+  --viz-2: #f07a36;
+  --viz-3: #2cc1a6;
+  --viz-4: #e8b13a;
+  --viz-5: #a98af0;
+  --viz-6: #6cc45a;
+  --viz-7: #8e9be8;
+  --viz-8: #ee6a5c;
+  --viz-other: #7b8496;
 }
 
 /* Run column order: while a run is live the thread with its pending step leads. */
@@ -368,4 +368,98 @@
   .howto__body { grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; align-items: start; }
   .howto__what, .howto__steps, .howto .ds-notice { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
+}
+
+/* ===== Lab notebook: the masthead as a title block, sheets on graph paper, charts as the hero ===== */
+.ds-header { background: transparent; border-bottom: 1px solid var(--ds-border-strong); }
+.ds-title { font-size: 40px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; }
+.ds-plate { background: transparent; color: var(--ds-accent); border: 1.5px solid var(--ds-accent); box-shadow: none; border-radius: var(--ds-radius); font-weight: 500; }
+.ds-subtitle { font-size: 15px; color: var(--ds-text); }
+.ds-showcase { font-size: 13px; padding: 12px 16px; background: var(--ds-surface); border: 1px dashed var(--ds-border-strong); border-radius: var(--ds-radius); }
+.ds-showcase strong { color: var(--ds-hi); font-weight: 800; }
+.live-data { background: var(--ds-surface); }
+.ds-badge { background: var(--ds-surface); border-color: var(--ds-border-strong); font-family: var(--ds-mono); font-weight: 500; }
+.ds-badge--success, .ds-badge--warning, .ds-badge--danger, .ds-badge--accent { border-color: transparent; }
+.ds-badge--success { background: var(--ds-success-soft); }
+.ds-badge--warning { background: var(--ds-warning-soft); }
+.ds-badge--danger { background: var(--ds-danger-soft); }
+.ds-badge--accent { background: var(--ds-accent-soft); }
+.ds-state--empty { background: var(--ds-surface); }
+.ds-section__title, .ds-card__title, .howto__title { font-weight: 800; letter-spacing: -0.01em; }
+.ds-strip__label, .ds-metric__label, .app-glance__stats dt { font-family: var(--ds-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ds-text-muted); }
+.ds-strip__value { font-weight: 500; }
+.ds-strip, .ds-trace, .ds-state { border-color: var(--ds-border-strong); }
+.ds-card, .ds-lead { border-color: var(--ds-border-strong); }
+.ds-lead { border-top-width: 1px; }
+.ds-button--primary { font-weight: 800; letter-spacing: 0.01em; }
+.app-bar rect.app-bar__top { fill: var(--ds-hi); }
+.ds-chart__head b { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+
+/* The live feed, drawn on load: the page's first figure. It leads before a run and while the replay is playing. */
+[data-run="idle"] .ds-run__stage, [data-run="running"] .ds-run__stage { order: -3; }
+.app-glance { display: grid; gap: 16px; padding: 20px; min-width: 0; background: var(--ds-surface); border: 1px solid var(--ds-border-strong); border-radius: var(--ds-radius); }
+.app-glance__head { display: grid; gap: 4px; }
+.app-glance__title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+.app-glance__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--ds-border); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); overflow: hidden; }
+.app-glance__stats > div { display: grid; gap: 2px; align-content: start; min-width: 0; padding: 12px 16px; background: var(--ds-surface); }
+.app-glance__stats dd { margin: 0; }
+.app-glance__stats dd.ds-num { font-family: var(--ds-mono); font-size: 28px; font-weight: 500; line-height: 1.15; letter-spacing: -0.03em; color: var(--ds-accent); }
+.app-glance__stats dd.app-glance__hi { color: var(--ds-hi); }
+.app-glance__sub { font-size: 13px; color: var(--ds-text-muted); overflow-wrap: anywhere; }
+
+/* The replay label: the one honesty cue, so it carries the highlight colour. */
+.replay-label { order: -10; display: grid; gap: 4px; padding: 12px 16px; min-width: 0; border-color: var(--ds-hi); }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; overflow-wrap: anywhere; max-width: none; }
+.replay-label__line strong { font-size: 18px; font-weight: 800; color: var(--ds-hi); }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }
+.app-step__tags { display: inline-flex; align-items: center; gap: 8px; }
+.app-replay-tag { color: var(--ds-hi); border-color: var(--ds-hi); background: var(--ds-hi-soft); }
+
+/* How to use: compact, so the figure starts high on the page. */
+.howto { border-color: var(--ds-border-strong); }
+
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); column-gap: 32px; align-items: end; padding-top: 20px; padding-bottom: 20px; }
+  .ds-header__inner > .ds-brand { grid-column: 1; }
+  .ds-showcase { grid-column: 2; grid-row: 1; }
+}
+.ds-brand__row .ds-badge { margin-left: 0; }
+.ds-subtitle { max-width: none; }
+body { word-spacing: 0.05em; }
+.howto__steps { list-style: none; padding-left: 0; counter-reset: step; }
+.howto__steps li { counter-increment: step; display: grid; grid-template-columns: 28px minmax(0, 1fr); }
+.howto__steps li::before { content: counter(step, decimal-leading-zero); font-family: var(--ds-mono); font-size: 13px; line-height: 22px; color: var(--ds-hi); font-weight: 500; }
+
+@media (min-width: 1000px) {
+  .howto__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 24px; }
+}
+@media (max-width: 999px) {
+  /* On a phone the bench and the run column dissolve into the page, so the live figure and the result can lead and the
+     question form follows: idle = figure, how to use; running = figure, result, readout; ended = result, readout, figure. */
+  .ds-bench, .ds-run { display: contents; }
+  [data-run="idle"] .ds-run__stage, [data-run="running"] .ds-run__stage { order: -5; }
+  [data-run="idle"] .howto { order: -4; }
+  [data-run="running"] .ds-run__result { order: -4; }
+  [data-run="running"] .ds-run__readout { order: -3; }
+  [data-run="running"] .howto { order: -2; }
+  [data-run="done"] .ds-run__result, [data-run="failed"] .ds-run__result, [data-run="stopped"] .ds-run__result { order: -5; }
+  [data-run="done"] .ds-run__readout, [data-run="failed"] .ds-run__readout, [data-run="stopped"] .ds-run__readout { order: -4; }
+  [data-run="done"] .ds-run__stage, [data-run="failed"] .ds-run__stage, [data-run="stopped"] .ds-run__stage { order: -3; }
+  [data-run="done"] .howto, [data-run="failed"] .howto, [data-run="stopped"] .howto { order: -2; }
+}
+@media (max-width: 720px) {
+  .ds-title { font-size: 32px; }
+  .app-glance { padding: 12px; }
+  .app-step__head { grid-template-columns: 24px minmax(0, 1fr); }
+  .app-step__tags { grid-column: 2; }
+  .app-step__summary, .app-step__from, .app-changes { padding-left: 36px; }
+  .app-step__body { padding-left: 0; }
+  .app-step__chart, .app-step__body > .app-details { margin-left: 0; }
+  .app-glance__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-glance__stats > div { padding: 8px 12px; }
+  .app-glance__stats dd.ds-num { font-size: 20px; }
+  .app-glance__sub { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .ds-chart__head b { font-size: 18px; }
+  .ds-showcase { padding: 8px 12px; }
 }
