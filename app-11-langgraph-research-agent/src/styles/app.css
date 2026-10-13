@@ -68,3 +68,112 @@
   .howto__what, .howto__steps { grid-column: 1; }
   .howto__try { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; align-items: stretch; text-align: center; }
 }
+
+/* ---- Observatory reading room: the look of GraphScout. Tokens carry the colour; this layer carries the shapes. ---- */
+
+/* The night sky: a few fixed stars behind everything, and a lamp-gold glow high on the right. */
+body {
+  background:
+    radial-gradient(1.5px 1.5px at 24px 36px, rgb(239 234 252 / 0.55) 50%, transparent 52%),
+    radial-gradient(1px 1px at 150px 96px, rgb(239 234 252 / 0.4) 50%, transparent 52%),
+    radial-gradient(1px 1px at 262px 22px, rgb(239 234 252 / 0.35) 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 96px 188px, rgb(243 201 105 / 0.5) 50%, transparent 52%),
+    radial-gradient(1px 1px at 300px 160px, rgb(239 234 252 / 0.3) 50%, transparent 52%),
+    var(--ds-bg);
+  background-size: 340px 220px, 340px 220px, 340px 220px, 340px 220px, 340px 220px, auto;
+}
+.ds-title, .ds-section__title, .ds-card__title, .howto__title, .replay-label__line strong, .ds-lead__text, .ds-state__title {
+  font-family: var(--ds-serif);
+}
+.ds-title { font-size: 40px; font-weight: 600; letter-spacing: -0.015em; }
+.ds-section__title { font-size: 20px; font-weight: 600; letter-spacing: 0; }
+
+/* Masthead: a dome of violet with the lamp-gold rail along the top edge. */
+.ds-header {
+  background:
+    radial-gradient(720px 220px at 88% -30%, rgb(243 201 105 / 0.16), transparent 70%),
+    linear-gradient(180deg, #1c1547, #120d2e);
+  border-bottom-color: var(--ds-border);
+}
+.ds-plate {
+  min-width: 54px; border-radius: 50%; color: var(--ds-accent); background: transparent;
+  border: 2px solid var(--ds-accent); box-shadow: 0 0 18px -4px rgb(243 201 105 / 0.55), inset 0 0 0 4px #1c1547;
+  font-family: var(--ds-serif); font-size: 22px; font-weight: 600;
+}
+.ds-showcase { background: color-mix(in srgb, var(--ds-surface-2) 70%, transparent); border-color: var(--ds-border); font-size: 15px; }
+.ds-showcase strong { color: var(--ds-accent); }
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr); column-gap: 32px; align-items: center; }
+  .ds-showcase { grid-column: 2; grid-row: 1; }
+}
+.live-data { background: color-mix(in srgb, var(--ds-surface) 80%, transparent); }
+
+/* The cited answer is the page's lamp: set in a serif, framed in gold, the one lit surface. */
+.ds-lead { border-color: var(--ds-accent-dim); background: linear-gradient(180deg, color-mix(in srgb, var(--ds-accent) 6%, var(--ds-surface)), var(--ds-surface) 40%); box-shadow: 0 18px 48px -28px rgb(243 201 105 / 0.45); }
+.ds-lead__text { font-weight: 400; line-height: 1.65; }
+.ds-lead__text > p:first-child { font-size: 24px; line-height: 1.4; letter-spacing: -0.005em; }
+.ds-cite__n { font-size: 13px; }
+.ds-cite__title { text-decoration-color: var(--ds-accent-dim); }
+.ds-cite__title:hover { text-decoration-color: var(--ds-accent); color: var(--ds-accent); }
+
+/* Readout: figures read like dial plates. */
+.ds-strip__value { font-weight: 600; }
+.ds-strip__item { background: color-mix(in srgb, var(--ds-surface) 92%, var(--ds-accent)); }
+
+/* The graph is a small constellation: nodes are stars that light as the run reaches them, the taken path is gold. */
+.ds-stage {
+  border-color: var(--ds-border);
+  background:
+    radial-gradient(1.5px 1.5px at 30px 24px, rgb(239 234 252 / 0.5) 50%, transparent 52%),
+    radial-gradient(1px 1px at 110px 70px, rgb(239 234 252 / 0.35) 50%, transparent 52%),
+    radial-gradient(1px 1px at 190px 20px, rgb(239 234 252 / 0.3) 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 70px 120px, rgb(239 234 252 / 0.4) 50%, transparent 52%),
+    #0f0a29;
+  background-size: 230px 150px, 230px 150px, 230px 150px, 230px 150px, auto;
+}
+.ds-g-node { fill: #171139; stroke: var(--ds-border-strong); }
+.ds-g-node--done { stroke: var(--ds-text-muted); }
+.ds-g-node--active { fill: color-mix(in srgb, var(--ds-accent) 14%, #171139); stroke: var(--ds-accent); }
+.ds-g-edge { stroke: var(--ds-border-strong); stroke-width: 1.25; }
+.ds-g-arrow { fill: var(--ds-border-strong); }
+.ds-g-edge--taken { stroke: var(--ds-accent); stroke-width: 2.5; filter: drop-shadow(0 0 3px rgb(243 201 105 / 0.7)); }
+.ds-g-dot--done { filter: drop-shadow(0 0 4px var(--ds-success)); }
+.ds-g-dot--active { filter: drop-shadow(0 0 5px var(--ds-accent)); }
+.ds-g-label { stroke: #0f0a29; }
+.g-node--reused { fill: #171139; }
+.g-pick:hover .ds-g-node, .g-pick:focus-visible .ds-g-node { stroke: var(--ds-accent); }
+
+/* Buttons and chips pick up the lamp. */
+.ds-button--primary { font-weight: 700; box-shadow: 0 0 22px -8px rgb(243 201 105 / 0.7); }
+.ds-button--primary:disabled { box-shadow: none; opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
+.ds-chip { background: color-mix(in srgb, var(--ds-surface-2) 85%, var(--ds-accent)); }
+.ds-textarea, .ds-input { background: #0f0a29; }
+
+/* Replay label: a plain statement that the run on screen is a recording, with its age, model and cost. */
+.replay-label { order: -10; display: grid; gap: 4px; padding: 12px 16px; min-width: 0; background: var(--ds-accent-soft); border-color: var(--ds-accent-dim); }
+.replay-label__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; overflow-wrap: anywhere; max-width: none; }
+.replay-label__line strong { font-size: 18px; font-weight: 600; color: var(--ds-accent); }
+.replay-label__live { min-height: 36px; padding: 0 12px; }
+.replay-label .ds-help { margin: 0; }
+
+/* Page leads: the live Wikipedia shelf for the example question. It leads the empty state, and follows the graph once a run is on screen. */
+.ds-run__pages { order: 2; }
+[data-run="idle"] .ds-run__pages { order: 0; }
+.leads { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { .leads { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.leads__item { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 12px 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
+.leads__title { font-family: var(--ds-serif); font-size: 18px; font-weight: 600; color: var(--ds-text); text-decoration: underline; text-decoration-color: var(--ds-accent-dim); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.leads__title:hover { color: var(--ds-accent); text-decoration-color: var(--ds-accent); }
+.leads__desc { font-size: 13px; color: var(--ds-text-muted); }
+.leads__text { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* On a phone the replayed run leads, ahead of the question rail. */
+@media (max-width: 999px) { [data-replay="on"] .ds-bench > .ds-run { order: -1; } }
+@media (max-width: 720px) {
+  .ds-title { font-size: 28px; }
+  .ds-lead__text > p:first-child { font-size: 20px; }
+  .ds-showcase { font-size: 13px; padding: 8px 12px; }
+  .ds-header__inner { gap: 8px; }
+}
+
+.howto__title { font-size: 18px; font-weight: 600; }

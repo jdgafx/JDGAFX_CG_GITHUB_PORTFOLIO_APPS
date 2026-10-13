@@ -16,30 +16,31 @@
    exception is the 4px rail along the page's top edge, which is the run signal for the whole page, not a card edge.
    Spacing scale: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48 (plus 1 and 2 for hairline offsets); no other values in padding, margin or gap. */
 
+/* GraphScout "observatory reading room" (app 11 only): one midnight-violet theme, gold for citations, the taken path and
+   the critic's marks. Dark only, so color-scheme is fixed. Text pairs measured on --ds-surface: text 15.5:1, muted 8.5:1,
+   gold 11.6:1, success 10.5:1, warning 9.1:1, danger 7.1:1; the form-control border is 4.8:1. */
 :root {
-  color-scheme: light dark;
-  --ds-font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+  --ds-font: "Hanken Grotesk", "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
   --ds-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ds-serif: "Fraunces", "Iowan Old Style", Georgia, serif;
 
-  --ds-bg: #f3f5f8;          /* paper */
-  --ds-surface: #ffffff;     /* panel face */
-  --ds-surface-2: #ebeff4;   /* bench: the tinted work surface */
-  --ds-border: #d5dce6;      /* hairline rule */
-  --ds-border-strong: #7d8aa0; /* form controls and graph strokes: 3:1 against the surfaces */
-  --ds-text: #0e1b2b;
-  --ds-text-muted: #4d5a70;
-  --ds-accent: var(--app-l, #047172);   /* the app's signal: action fill, active node, taken path */
-  --ds-accent-text: #ffffff;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 12%, var(--ds-surface));
-  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 38%, var(--ds-surface));
-  --ds-success: #1a6e3c;
-  --ds-success-soft: #e3f3e8;
-  --ds-warning: #8a5a00;
-  --ds-warning-soft: #fdf2d8;
-  --ds-danger: #b3261e;
-  --ds-danger-soft: #fbe9e7;
+  --ds-bg: #0c0920;          /* night sky */
+  --ds-surface: #151032;     /* panel face */
+  --ds-surface-2: #1d1745;   /* the tinted work surface */
+  --ds-border: #322a66;      /* hairline rule */
+  --ds-border-strong: #8479c4; /* form controls and graph strokes: 3:1 or better against the surfaces */
+  --ds-text: #efeafc;
+  --ds-text-muted: #b3acd9;
+  --ds-accent: #f3c969;      /* lamp gold */
+  --ds-accent-text: #1a1235;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 13%, var(--ds-surface));
+  --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 40%, var(--ds-surface));
+  --ds-success: #68d9a8; --ds-success-soft: #0f2b2a;
+  --ds-warning: #ffa24d; --ds-warning-soft: #35210f;
+  --ds-danger: #ff7a5c; --ds-danger-soft: #3a1713;
   --ds-focus: var(--ds-accent);
-  --ds-series-2: #4d5a70; --ds-series-3: #b4580f; --ds-series-4: #6d4fc9; /* chart series after the accent, 3:1 or better */
+  --ds-series-2: #b3acd9; --ds-series-3: #ffa24d; --ds-series-4: #8fb4ff;
   --ds-radius: 8px;
   --ds-radius-sm: 6px;
   --ds-shadow: none;
@@ -47,44 +48,8 @@
   --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-    --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-    --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-    --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-    --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-    --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
-  }
-}
 
-:root[data-theme="dark"] {
-  --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-  --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-  --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-  --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-  --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
-}
-
-/* The 13-step signal palette: app number to hue. --app-l is the accent in light mode (5.6:1 on white), --app-d in dark
-   (7:1 on the dark bench). Hues sit at least 20 degrees apart in OKLCH and stay off the warning amber (60-100) and the
-   danger red (20-35); app 8 (green) sits near the success green, so its done state keeps a word and a check shape. */
-[data-app="1"] { --app-l: #5259c8; --app-d: #97a5fe; }
-[data-app="2"] { --app-l: #754ebf; --app-d: #b79aff; }
-[data-app="3"] { --app-l: #9044ac; --app-d: #d591f0; }
-[data-app="4"] { --app-l: #a43b90; --app-d: #eb8ad5; }
-[data-app="5"] { --app-l: #b2346f; --app-d: #fa86b4; }
-[data-app="6"] { --app-l: #b73259; --app-d: #ff859e; }
-[data-app="7"] { --app-l: #516f03; --app-d: #90b844; }
-[data-app="8"] { --app-l: #047534; --app-d: #54c072; }
-[data-app="9"] { --app-l: #057361; --app-d: #0cc1a3; }
-[data-app="10"] { --app-l: #036f83; --app-d: #0ebbdb; }
-[data-app="11"] { --app-l: #047172; --app-d: #0fbebf; }
-[data-app="12"] { --app-l: #016c99; --app-d: #24b6fa; }
-[data-app="13"] { --app-l: #0963c5; --app-d: #70adfe; }
+/* App 11 takes its signal from --ds-accent above; no per-app hue table is needed. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -236,7 +201,8 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
+/* A dot inside a badge keeps its own state colour (ok, failed, running, stopped); only a bare dot follows the badge text. */
+.ds-badge .ds-dot:not([class*="ds-dot--"]) { background: currentColor; }
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }

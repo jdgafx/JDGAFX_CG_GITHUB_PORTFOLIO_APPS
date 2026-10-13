@@ -1,0 +1,20 @@
+{
+  "url": "https://jdgafx-app-11-langgraph-research-agent.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/run",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": { "/api/run": { "frame": { "field": "type", "equals": "result" }, "take": "last" } },
+  "expect": [
+    { "path": "/api/run", "field": "answer", "nonEmpty": true, "message": "the run wrote no answer" },
+    { "path": "/api/run", "field": "sources", "minLength": 1, "message": "the answer cites no page" },
+    { "path": "/api/run", "field": "models", "minLength": 1, "message": "the replies named no model" },
+    { "path": "/api/run", "field": "ending.kind", "equals": "complete", "message": "the run did not finish all its steps" }
+  ],
+  "reported": {
+    "model": { "path": "/api/run", "field": "models.0" },
+    "modelRole": "answered by",
+    "costUsd": { "path": "/api/run", "field": "totals.cost" },
+    "costScope": "whole run"
+  }
+}

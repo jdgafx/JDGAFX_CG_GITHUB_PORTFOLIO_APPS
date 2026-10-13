@@ -44,7 +44,7 @@ function Verdict({ result }: { result: ResultFrame }) {
   const badge = badgeFor(result)
   return (
     <span className={`ds-badge ${badge.tone} fork__badge`}>
-      <span className="ds-dot" aria-hidden="true" />
+      <span className={`ds-dot ${badge.dot}`} aria-hidden="true" />
       {badge.text}
     </span>
   )

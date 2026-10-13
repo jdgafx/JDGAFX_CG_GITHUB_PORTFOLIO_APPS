@@ -6,12 +6,16 @@ import { offerKey, RewindPanel, type Edit } from './components/RewindPanel'
 import { GraphView } from './components/GraphView'
 import { Header } from './components/Header'
 import { HowTo } from './components/HowTo'
+import { PageLeads } from './components/PageLeads'
 import { QuestionForm } from './components/QuestionForm'
+import { ReplayLabel } from './components/ReplayLabel'
 import { ReadoutStrip } from './components/ReadoutStrip'
 import { RunTrace } from './components/RunTrace'
-import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
+import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT, TRY_IT_PAGES } from './lib/howto'
+import { usePageLeads } from './lib/pageLeads'
 import { useForkReveal } from './lib/useForkReveal'
-import { useResultFocus } from './lib/useResultFocus'
+import { useReplay } from './lib/useReplay'
+import { useResultFocus } from './replay'
 import { INTERRUPTED_MESSAGE, streamResearch, streamResume } from './lib/research'
 import { applyFrame, emptyRun, failRun, researchStatus, startRun, stopRun, type RunView } from './lib/runState'
 
@@ -45,15 +49,19 @@ export default function App() {
   const [base, dispatchBase] = useReducer(reducer, undefined, emptyRun)
   const [fork, dispatchFork] = useReducer(reducer, undefined, emptyRun)
   const [picked, setPicked] = useState<string | null>(null)
+  /** True while the run on screen is the replayed one, until Run it live or a run of the visitor's own replaces it. */
+  const [replaying, setReplaying] = useState(false)
+  const pages = usePageLeads(TRY_IT_PAGES)
   const abortRef = useRef<AbortController | null>(null)
   // Once a rewind has started, the page shows that run; the original stays in `base` for the side-by-side.
   const forking = fork.phase !== 'idle'
   const view = forking ? fork : base
   const dispatch = forking ? dispatchFork : dispatchBase
   const running = view.phase === 'running'
-  const offers = base.checkpoints
+  // A replay's saved points are from an old run and its token has expired, so a rewind needs a live run.
+  const offers = replaying ? [] : base.checkpoints
 
-  useResultFocus(view.phase)
+  useResultFocus(view.phase, { replay: replaying })
   useForkReveal(fork.phase)
 
   // Leaving the page ends the run, so no request keeps billing after the visitor is gone.
@@ -61,9 +69,12 @@ export default function App() {
     return () => abortRef.current?.abort()
   }, [])
 
-  const submit = async (value: string = question) => {
+  /** `replayRun` marks the load-time replay; `force` is for Run it live, which starts while the replay's own state is still on screen. */
+  const submit = async (value: string = question, replayRun = false, force = false) => {
     const text = value.trim()
-    if (text === '' || running) return
+    if (text === '' || (running && !force)) return
+    if (!replayRun) replay.stop()
+    setReplaying(replayRun)
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -128,15 +139,41 @@ export default function App() {
     void submit(TRY_IT.question)
   }
 
+  // On load, plays back the stored real run of the example question through the code above, if it is fresh and is of this question.
+  const replay = useReplay({
+    question: TRY_IT.question,
+    idle: base.phase === 'idle' && fork.phase === 'idle',
+    start: (text) => {
+      setQuestion(text)
+      return submit(text, true)
+    },
+    clear: () => {
+      // The recording could not answer: end the run quietly, so no connection message follows a failure that was not the visitor's.
+      abortRef.current?.abort()
+      setReplaying(false)
+      dispatchBase({ type: 'reset' })
+    },
+  })
+
+  /** Run it live: ends the replay, then makes the real request for the same question. */
+  const runLive = async () => {
+    replay.stop()
+    setReplaying(false)
+    abortRef.current?.abort()
+    await submit(TRY_IT.question, false, true)
+  }
+
   const loadSample = (sample: string) => {
+    replay.stop()
+    setReplaying(false)
     setQuestion(sample)
     dispatchFork({ type: 'reset' })
     dispatchBase({ type: 'reset' })
   }
 
   return (
-    <div className="ds-app" data-run={view.phase}>
-      <Header view={view} earlierLiveAt={forking ? base.liveAt : null} />
+    <div className="ds-app" data-run={view.phase} data-replay={replaying ? 'on' : undefined}>
+      <Header view={view} earlierLiveAt={forking ? base.liveAt : null} pages={pages} replaying={replaying} />
 
       <main className="ds-main">
         <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running} hasResult={view.phase !== 'idle'} hint={HOWTO_HINT} />
@@ -162,6 +199,7 @@ export default function App() {
           </div>
 
           <div className="ds-run">
+            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
             {forking && base.result ? (
               <ForkCompare original={base.result} fork={fork} onBack={backToOriginal} />
             ) : (
@@ -174,6 +212,7 @@ export default function App() {
               />
             )}
             <ReadoutStrip view={view} />
+            <PageLeads state={pages} />
             <GraphView view={view} pickable={running ? new Set() : pickable} onPick={pickNode} />
             <RunTrace view={view} offers={running ? [] : offers} onRewind={(offer) => pick(offerKey(offer))} />
             <div className="ds-run__rewind">

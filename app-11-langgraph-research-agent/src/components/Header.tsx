@@ -1,3 +1,4 @@
+import type { PageLeadsState } from '../lib/pageLeads'
 import { liveData, statusText, type RunView } from '../lib/runState'
 
 interface Tone {
@@ -27,13 +28,25 @@ interface HeaderProps {
   view: RunView
   /** When the original run first read a page, for a re-run that reads none of its own. */
   earlierLiveAt: number | null
+  /** The page leads fetched from Wikipedia on load. They light the chip before a run has read a page. */
+  pages: PageLeadsState
+  /** True while the run on screen is a replay: its steps are a recording, so only the page's own fetch counts as live data. */
+  replaying: boolean
 }
 
 const clock = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
-export function Header({ view, earlierLiveAt }: HeaderProps) {
+export function Header({ view, earlierLiveAt, pages, replaying }: HeaderProps) {
   const tone = toneFor(view)
-  const live = liveData(view, earlierLiveAt)
+  const run = replaying ? { state: 'idle' as const, at: null } : liveData(view, earlierLiveAt)
+  const live =
+    run.state !== 'idle'
+      ? run
+      : pages.status === 'ready'
+        ? { state: 'live' as const, at: pages.at }
+        : pages.status === 'failed' && view.phase === 'idle'
+          ? { state: 'failed' as const, at: null }
+          : run
   const dot = live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'
   return (
     <header className="ds-header">
