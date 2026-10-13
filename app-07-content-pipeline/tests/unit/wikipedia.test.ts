@@ -7,6 +7,8 @@ const summary = {
   description: 'General-purpose programming language',
   extract: 'Rust is a general-purpose programming language.',
   content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Rust_(programming_language)' } },
+  thumbnail: { source: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Rust.png' },
+  timestamp: '2026-10-12T08:30:00Z',
 }
 
 describe('searchKey', () => {
@@ -28,7 +30,14 @@ describe('leadFrom', () => {
       description: 'General-purpose programming language',
       extract: 'Rust is a general-purpose programming language.',
       url: 'https://en.wikipedia.org/wiki/Rust_(programming_language)',
+      image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Rust.png',
+      edited: '2026-10-12',
     })
+  })
+
+  it('drops an image that is not on a Wikimedia image host', () => {
+    expect(leadFrom({ ...summary, thumbnail: { source: 'https://evil.example/x.png' } })?.image).toBeNull()
+    expect(leadFrom({ ...summary, thumbnail: undefined, timestamp: undefined })).toMatchObject({ image: null, edited: null })
   })
 
   it('refuses a disambiguation page, an empty extract and a link that is not on en.wikipedia.org', () => {

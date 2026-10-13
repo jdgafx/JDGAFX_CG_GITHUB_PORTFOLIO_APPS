@@ -74,17 +74,18 @@ describe('served-model readout for a run', () => {
     expect(html).toContain(`title="${OTHER}, newest: ${NEWEST}"`)
   })
 
-  it('shows "newest" when every writing call matched, and leaves the Sources lookup out of the check', () => {
+  it('shows the id alone, with a plain note under it, when every writing call matched, and leaves the Sources lookup out of the check', () => {
     const sources = { ...call('sources', null, 'not-reported'), row: { name: 'Sources', status: 'ok' as const, ms: 400, detail: 'd' }, usage: null }
     const html = readoutHtml([sources, call('research', NEWEST, 'match')])
     expect(html).toContain('>claude-haiku-5.5 <')
-    expect(html).toContain('· newest')
+    expect(html).not.toContain('· newest')
+    expect(html).toContain('Newest Haiku, as named in the provider replies')
   })
 
-  it('shows "newest" when the model calls matched, though a call the browser made when the server sent no answer has no check', () => {
+  it('treats the model calls as matched, though a call the browser made when the server sent no answer has no check', () => {
     const watchdog = call('outline', null, null, 'failed')
     const html = readoutHtml([call('research', NEWEST, 'match'), watchdog])
-    expect(html).toContain('· newest')
+    expect(html).toContain('Newest Haiku, as named in the provider replies')
   })
 
   it('shows "unchecked" when the list could not be read', () => {

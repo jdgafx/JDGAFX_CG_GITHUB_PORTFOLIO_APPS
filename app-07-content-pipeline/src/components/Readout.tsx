@@ -78,12 +78,12 @@ export default function Readout({ phase, totals, runningStage, startedAt }: Read
             <span className="ds-chips"><span className="ds-chip ds-chip--live">{runningStage ? STAGE_LABELS[runningStage] : 'starting'}</span></span>
           </Cell>
         ) : (
-          <Cell label="Model" hint="Named in the provider replies" small>
+          <Cell label="Model" hint={totals?.modelCheck === 'match' ? 'Newest Haiku, as named in the provider replies' : 'Named in the provider replies'} small>
             {totals && modelCalls > 0 ? (
               <span className="ds-chips">
                 <span className="ds-chip ds-chip--wrap" title={totals.mismatch ? modelTitle(totals.mismatch.model, totals.mismatch.newestModel, 'mismatch') : modelTitle(totals.replyModel, null, null)}>
                   {totals.replyModel ? shortModel(totals.replyModel) : 'not reported'}{' '}
-                  {totals.modelCheck && CHECK_LABEL[totals.modelCheck] && (
+                  {totals.modelCheck && totals.modelCheck !== 'match' && CHECK_LABEL[totals.modelCheck] && (
                     <span className={totals.modelCheck === 'mismatch' ? 'ds-trace__state--stopped' : undefined}>{CHECK_LABEL[totals.modelCheck]}</span>
                   )}
                 </span>

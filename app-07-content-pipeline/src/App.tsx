@@ -269,6 +269,8 @@ export default function App() {
       }]
     : []
   const totals = calls.length > 0 ? summarize(calls) : null
+  // Once a run has started the brief and the wire fold away, so the piece is on the first screen.
+  const started = running || outcome !== null || Object.keys(outputs).length > 0
   const resume = !running && outcome && outcome.kind !== 'complete'
     ? { label: `${outcome.kind === 'failed' ? 'Try again' : 'Resume'} from ${STAGE_LABELS[outcome.stage]}` }
     : null
@@ -287,8 +289,8 @@ export default function App() {
       />
 
       <main className="ds-main">
-        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running || !FIRST} hasResult={outcome !== null || Object.keys(outputs).length > 0} />
-        <WireCard lead={wire} />
+        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={tryIt} disabled={running || !FIRST} hasResult={started} />
+        <WireCard lead={wire} compact={started} />
         <div className="ds-bench">
           <div className="ds-controls">
             <Brief

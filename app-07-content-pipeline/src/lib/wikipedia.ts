@@ -9,11 +9,16 @@ export interface WikiLead {
   extract: string
   /** The article on en.wikipedia.org. */
   url: string
+  /** The article's lead image on Wikimedia's image hosts, when it has one. */
+  image: string | null
+  /** The day the article was last edited (YYYY-MM-DD), when Wikipedia says. */
+  edited: string | null
 }
 
 const SEARCH_URL = 'https://en.wikipedia.org/w/rest.php/v1/search/page'
 const SUMMARY_URL = 'https://en.wikipedia.org/api/rest_v1/page/summary/'
 const ARTICLE_PREFIX = 'https://en.wikipedia.org/wiki/'
+const IMAGE_HOSTS = ['https://upload.wikimedia.org/', 'https://thumb.wikimedia.org/']
 export const WIKI_TIMEOUT_MS = 8_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -34,7 +39,16 @@ export function leadFrom(reply: unknown): WikiLead | null {
   if (typeof title !== 'string' || title === '' || typeof extract !== 'string' || extract.trim() === '') return null
   const urls = isRecord(reply.content_urls) && isRecord(reply.content_urls.desktop) ? reply.content_urls.desktop.page : undefined
   const url = typeof urls === 'string' && urls.startsWith(ARTICLE_PREFIX) ? urls : `${ARTICLE_PREFIX}${encodeURIComponent(title.replace(/ /g, '_'))}`
-  return { title, description: typeof description === 'string' ? description : '', extract: extract.trim(), url }
+  const thumb = isRecord(reply.thumbnail) ? reply.thumbnail.source : undefined
+  const stamp = typeof reply.timestamp === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(reply.timestamp) ? reply.timestamp.slice(0, 10) : null
+  return {
+    title,
+    description: typeof description === 'string' ? description : '',
+    extract: extract.trim(),
+    url,
+    image: typeof thumb === 'string' && IMAGE_HOSTS.some(host => thumb.startsWith(host)) ? thumb : null,
+    edited: stamp,
+  }
 }
 
 async function getJson(url: string, signal: AbortSignal, fetchImpl: typeof fetch): Promise<unknown> {
