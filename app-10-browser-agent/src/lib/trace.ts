@@ -205,6 +205,26 @@ export function expectationOf(steps: BotStep[]): string | null {
   return last ? [last.target, last.value].filter(Boolean).join(': ') : null
 }
 
+/** How far into the run each row began, in ms: the time of the measured rows before it. A row that has not run yet has none. */
+export function startsFor(rows: TraceRow[]): Array<number | null> {
+  let before = 0
+  return rows.map((row) => {
+    const measured = (row.status === 'ok' || row.status === 'failed' || row.status === 'running') && (row.ms !== null || row.status === 'running')
+    if (!measured) return null
+    const start = before
+    before += row.ms ?? 0
+    return start
+  })
+}
+
+/** A logbook time: minutes, seconds and tenths since the run began, such as +00:03.2. */
+export function logTime(ms: number): string {
+  const tenths = Math.floor(ms / 100)
+  const minutes = Math.floor(tenths / 600)
+  const seconds = Math.floor((tenths % 600) / 10)
+  return `+${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths % 10}`
+}
+
 /** Where a row's bar sits on the trace lane, in percent. Rows run one after another, so each starts where the last measured row ended. */
 export function lanesFor(rows: TraceRow[]): Array<{ left: number; width: number } | null> {
   const timed = rows.map((row) => ((row.status === 'ok' || row.status === 'failed') && row.ms !== null ? row.ms : null))

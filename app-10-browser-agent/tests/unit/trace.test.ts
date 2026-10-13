@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialRunState, type RunState } from '../../src/lib/runState'
-import { buildTraceRows, expectationOf, formatMs, planItems, readoutFor, statusSummary, usageLine, type ReadoutCell } from '../../src/lib/trace'
+import { buildTraceRows, expectationOf, formatMs, logTime, planItems, readoutFor, startsFor, statusSummary, usageLine, type ReadoutCell, type TraceRow } from '../../src/lib/trace'
 import { stepLabel } from '../../src/lib/shared'
 import type { BotStep } from '../../src/types'
 
@@ -298,3 +298,21 @@ describe('expectationOf', () => {
   })
 })
 
+
+describe('logbook times', () => {
+  const row = (status: TraceRow['status'], ms: number | null): TraceRow => ({ key: `${status}-${ms}`, name: 'Step', status, ms, detail: '' })
+
+  it('starts each row where the measured rows before it ended', () => {
+    expect(startsFor([row('ok', 1200), row('ok', 800), row('failed', 500), row('skipped', null), row('waiting', null)])).toEqual([0, 1200, 2000, null, null])
+  })
+
+  it('gives a running row the start it has reached', () => {
+    expect(startsFor([row('ok', 1500), row('running', null)])).toEqual([0, 1500])
+  })
+
+  it('writes minutes, seconds and tenths', () => {
+    expect(logTime(0)).toBe('+00:00.0')
+    expect(logTime(3250)).toBe('+00:03.2')
+    expect(logTime(75_900)).toBe('+01:15.9')
+  })
+})

@@ -1,47 +1,35 @@
-/* Shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule; v3.3: neutral changed chip everywhere, no focus ring on programmatic headings). Copy tokens.css and components.css
-   verbatim to src/styles/ and import both first, in that order. Never edit them per app.
-   One line per app selects the identity: <html lang="en" data-app="11"> sets the signal hue from the 13-step palette
-   below; neutrals, type, spacing, radii and components are shared. Set data-run (idle, running, done, failed, stopped)
-   on the .ds-app root to light the masthead rail while a run is live and to let the result lead once it has ended.
-   Fonts: Atkinson Hyperlegible Next (text) and JetBrains Mono (numerals, code, model ids) from a Google Fonts <link>.
-   Type scale 13 / 15 / 18 / 22 / 28 / 36; weights 400, 650, 760. v2 class names still work.
-   Danger rule (matters most for the warm accents, apps 04, 05 and 06): a destructive action is outline-only
-   (.ds-button--danger), never filled, and never sits directly beside a filled accent button (put it at the far end of
-   the row or in the dialog's secondary slot). Failed and error states always carry the "!" mark and the word, so they
-   never rely on red against a warm accent. In the warm-accent apps (04, 05, 06) crimson never means live, good or moved:
-   components.css draws running states (badge, dot, live chip, readout, trace row and bar, loading mark, active graph node)
-   in graphite, and the "~ changed" chip is neutral in every app; only failed, error and removed states use the danger red. Motion budget while a run is live: the rail sweep, the active-node halo, the
-   live trace bar and the ticking readout; nothing else animates.
-   Craft floor: no coloured side or top stripes on cards, bands or rows (use a full 1px border and a tint). The one recorded
-   exception is the 4px rail along the page's top edge, which is the run signal for the whole page, not a card edge.
-   Spacing scale: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48 (plus 1 and 2 for hairline offsets); no other values in padding, margin or gap. */
+/* BrowseBot (app 10) field-log identity: sand and khaki paper, brown-black ink, a deep indigo signal, Zilla Slab for headings and
+   JetBrains Mono for the log's times and addresses. Edited for this app only; the other apps keep their own copy.
+   Type scale 13 / 15 / 18 / 22 / 28 / 36; spacing scale 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48. Failed and error states always carry the "!" mark
+   and the word. Craft floor: no coloured side or top stripes on cards (the 4px rail along the page's top edge is the one exception). */
 
 :root {
   color-scheme: light dark;
   --ds-font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --ds-display: "Zilla Slab", "Rockwell", "Roboto Slab", Georgia, serif;
   --ds-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
-  --ds-bg: #f3f5f8;          /* paper */
-  --ds-surface: #ffffff;     /* panel face */
-  --ds-surface-2: #ebeff4;   /* bench: the tinted work surface */
-  --ds-border: #d5dce6;      /* hairline rule */
-  --ds-border-strong: #7d8aa0; /* form controls and graph strokes: 3:1 against the surfaces */
-  --ds-text: #0e1b2b;
-  --ds-text-muted: #4d5a70;
+  --ds-bg: #efe7d3;          /* sand paper */
+  --ds-surface: #fbf7ec;     /* page of the log */
+  --ds-surface-2: #e6dcc0;   /* khaki: the tinted work surface */
+  --ds-border: #d2c5a2;      /* hairline rule */
+  --ds-border-strong: #857550; /* form controls: 3:1 against the surfaces */
+  --ds-text: #241f12;
+  --ds-text-muted: #574d35;
   --ds-accent: var(--app-l, #047172);   /* the app's signal: action fill, active node, taken path */
   --ds-accent-text: #ffffff;
   --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 12%, var(--ds-surface));
   --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 38%, var(--ds-surface));
-  --ds-success: #1a6e3c;
-  --ds-success-soft: #e3f3e8;
-  --ds-warning: #8a5a00;
-  --ds-warning-soft: #fdf2d8;
-  --ds-danger: #b3261e;
-  --ds-danger-soft: #fbe9e7;
+  --ds-success: #2b6a2e;
+  --ds-success-soft: #e1ecd4;
+  --ds-warning: #7a4e00;
+  --ds-warning-soft: #f6e6bd;
+  --ds-danger: #a3261c;
+  --ds-danger-soft: #f3e0c3;
   --ds-focus: var(--ds-accent);
-  --ds-series-2: #4d5a70; --ds-series-3: #b4580f; --ds-series-4: #6d4fc9; /* chart series after the accent, 3:1 or better */
-  --ds-radius: 8px;
-  --ds-radius-sm: 6px;
+  --ds-series-2: #574d35; --ds-series-3: #a3591a; --ds-series-4: #2f2b8f; /* chart series after the accent, 3:1 or better */
+  --ds-radius: 4px;
+  --ds-radius-sm: 3px;
   --ds-shadow: none;
   --ds-measure: 68ch;
   --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -49,24 +37,24 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-    --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
+    --ds-bg: #15140f; --ds-surface: #1f1d15; --ds-surface-2: #292619; --ds-border: #3b3724; --ds-border-strong: #8f876a;
+    --ds-text: #efe8d4; --ds-text-muted: #bdb497;
+    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #15140f;
     --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-    --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-    --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-    --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
+    --ds-success: #a3d68e; --ds-success-soft: #1c2a17; --ds-warning: #f0c36a; --ds-warning-soft: #2f2610;
+    --ds-danger: #ff9f7e; --ds-danger-soft: #38200f;
+    --ds-series-2: #bdb497; --ds-series-3: #e8944a; --ds-series-4: #b3b5ff;
   }
 }
 
 :root[data-theme="dark"] {
-  --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-  --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
+  --ds-bg: #15140f; --ds-surface: #1f1d15; --ds-surface-2: #292619; --ds-border: #3b3724; --ds-border-strong: #8f876a;
+  --ds-text: #efe8d4; --ds-text-muted: #bdb497;
+  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #15140f;
   --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-  --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-  --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-  --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
+  --ds-success: #a3d68e; --ds-success-soft: #1c2a17; --ds-warning: #f0c36a; --ds-warning-soft: #2f2610;
+  --ds-danger: #ff9f7e; --ds-danger-soft: #38200f;
+  --ds-series-2: #bdb497; --ds-series-3: #e8944a; --ds-series-4: #b3b5ff;
 }
 
 /* The 13-step signal palette: app number to hue. --app-l is the accent in light mode (5.6:1 on white), --app-d in dark
@@ -81,7 +69,7 @@
 [data-app="7"] { --app-l: #516f03; --app-d: #90b844; }
 [data-app="8"] { --app-l: #047534; --app-d: #54c072; }
 [data-app="9"] { --app-l: #057361; --app-d: #0cc1a3; }
-[data-app="10"] { --app-l: #036f83; --app-d: #0ebbdb; }
+[data-app="10"] { --app-l: #2f2b8f; --app-d: #b3b5ff; }
 [data-app="11"] { --app-l: #047172; --app-d: #0fbebf; }
 [data-app="12"] { --app-l: #016c99; --app-d: #24b6fa; }
 [data-app="13"] { --app-l: #0963c5; --app-d: #70adfe; }
@@ -236,7 +224,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
+.ds-badge .ds-dot:not([class*="ds-dot--"]) { background: currentColor; } /* a plain dot follows the badge text; a state dot keeps its own colour */
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }

@@ -14,12 +14,14 @@ const SHOWING_RESULT: ReadonlySet<Phase> = new Set<Phase>(['complete', 'failed',
 
 /**
  * The directions: what the app does, three numbered steps that name the controls as they appear, and a button that runs
- * a real example. Open on the first visit, and folded away while a result is shown, so the result keeps its place.
+ * a real example. Open on the first visit on a narrow screen, and folded away while a result is shown, so the result keeps its place.
  */
 export default function HowTo({ phase, runId, onTry }: HowToProps) {
+  // On a wide screen the page is already showing a run or the live front page, so the directions start as one line; Try it stays beside it.
+  const [wide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1000px)').matches)
   const [choice, setChoice] = useState<{ runId: number; open: boolean } | null>(null)
   const busy = phase === 'planning' || phase === 'running'
-  const open = choice && choice.runId === runId ? choice.open : !SHOWING_RESULT.has(phase)
+  const open = choice && choice.runId === runId ? choice.open : !SHOWING_RESULT.has(phase) && !wide
 
   return (
     <section className="howto" aria-labelledby="howto-title">
@@ -34,11 +36,17 @@ export default function HowTo({ phase, runId, onTry }: HowToProps) {
             <li>Press <strong>Plan and run</strong>. A real browser opens each page, which takes about 10 seconds.</li>
             <li>Step through the replay: select a step in the strip, drag the scrub bar, or use the left and right arrow keys.</li>
           </ol>
-          <button type="button" className="ds-button ds-button--primary howto__try" disabled={busy} onClick={onTry}>
-            Try it: Hacker News top stories
-          </button>
+          <p className="howto__showcase">
+            <strong>What this showcases:</strong> a planner that acts on the live web inside a bounded, allowlisted browser.
+            After every step the server captures the page, so the replay shows what the browser saw, beside the text it read, and a failed step shows the page it failed on.
+          </p>
         </div>
       </details>
+      <div className="howto__cta">
+        <button type="button" className="ds-button ds-button--primary howto__try" disabled={busy} onClick={onTry}>
+          Try it: Hacker News top stories
+        </button>
+      </div>
     </section>
   )
 }

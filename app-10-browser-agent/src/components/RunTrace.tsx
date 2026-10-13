@@ -1,4 +1,4 @@
-import { formatMs, lanesFor, usageLine, type TraceRow } from '../lib/trace'
+import { formatMs, lanesFor, logTime, startsFor, usageLine, type TraceRow } from '../lib/trace'
 
 const DOT: Record<TraceRow['status'], string> = {
   ok: 'ds-dot ds-dot--ok',
@@ -24,11 +24,12 @@ interface RunTraceProps {
 /** The run as a numbered sequence: planner stages first, then the browser stages and steps. */
 export default function RunTrace({ rows, summary }: RunTraceProps) {
   const lanes = lanesFor(rows)
+  const starts = startsFor(rows)
   return (
     <section className="ds-section ds-run__trace" aria-labelledby="trace-heading">
       <div className="ds-section__head ds-section__head--bare">
         <h2 className="ds-section__title" id="trace-heading">Run trace</h2>
-        <p className="ds-section__sub">Bars show how long each step took, in the order they ran. Times are measured on the server.</p>
+        <p className="ds-section__sub">The log of the run, one entry per step: when it began, what the agent did and the page it touched. Bars show how long each step took. Times are measured on the server.</p>
       </div>
       {rows.length > 0 && <p className="bb-status" role="status" aria-live="polite">{summary}</p>}
       {rows.length === 0 ? (
@@ -48,6 +49,7 @@ export default function RunTrace({ rows, summary }: RunTraceProps) {
             return (
               <li key={row.key} className={classes.join(' ')}>
                 <span className="ds-trace__index">{i + 1}</span>
+                <span className="bb-log-time ds-mono" title="Time since the run began, from the measured steps before this one.">{starts[i] === null ? '—' : logTime(starts[i] ?? 0)}</span>
                 <div>
                   <div className="ds-trace__head">
                     <span className="ds-trace__name">{row.name}</span>
@@ -58,7 +60,7 @@ export default function RunTrace({ rows, summary }: RunTraceProps) {
                   </div>
                   <div className="ds-trace__detail">{row.detail}</div>
                   {row.usage !== undefined && <div className="ds-trace__detail ds-mono">{usageLine(row.usage)}</div>}
-                  {row.observed && <div className="ds-trace__detail ds-mono">Page: {row.observed.url}</div>}
+                  {row.observed && <div className="ds-trace__detail bb-log-page ds-mono"><span className="bb-log-page__tag">Page</span> {row.observed.url}</div>}
                 </div>
                 <div className="ds-trace__meta">
                   <span>{measured && row.ms !== null ? formatMs(row.ms) : '—'}</span>

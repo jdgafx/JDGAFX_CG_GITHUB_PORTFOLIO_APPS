@@ -1,0 +1,19 @@
+{
+  "url": "https://jdgafx-app-10-browser-agent.netlify.app/",
+  "tryButton": "Try it: Hacker News top stories",
+  "finishPath": "/api/execute",
+  "apiPrefix": "/api/",
+  "settleMs": 0,
+  "sse": { "/api/execute": { "frame": { "field": "type", "equals": "done" }, "take": "last" } },
+  "expect": [
+    { "path": "/api/ai", "field": "result.steps", "minLength": 1, "message": "the planner made no steps" },
+    { "path": "/api/ai", "field": "model", "nonEmpty": true, "message": "the planner named no model" },
+    { "path": "/api/execute", "field": "type", "equals": "done", "message": "the browser run did not finish" }
+  ],
+  "reported": {
+    "model": { "path": "/api/ai", "field": "model" },
+    "modelRole": "planned by",
+    "costUsd": { "path": "/api/ai", "field": "usage.cost" },
+    "costScope": "planner call"
+  }
+}
