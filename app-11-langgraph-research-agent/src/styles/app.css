@@ -145,7 +145,7 @@ body {
 
 /* Buttons and chips pick up the lamp. */
 .ds-button--primary { font-weight: 700; box-shadow: 0 0 22px -8px rgb(243 201 105 / 0.7); }
-.ds-button--primary:disabled { box-shadow: none; }
+.ds-button--primary:disabled { box-shadow: none; opacity: 1; color: var(--ds-text-muted); background: var(--ds-surface-2); border-color: var(--ds-border-strong); }
 .ds-chip { background: color-mix(in srgb, var(--ds-surface-2) 85%, var(--ds-accent)); }
 .ds-textarea, .ds-input { background: #0f0a29; }
 
@@ -156,10 +156,9 @@ body {
 .replay-label__live { min-height: 36px; padding: 0 12px; }
 .replay-label .ds-help { margin: 0; }
 
-/* Page leads: the live Wikipedia shelf for the example question. Sits right under the readout in every state. */
-.ds-run__pages { order: 3; }
-[data-run="running"] .ds-run__pages { order: 0; }
-[data-run="done"] .ds-run__pages, [data-run="failed"] .ds-run__pages, [data-run="stopped"] .ds-run__pages { order: -1; }
+/* Page leads: the live Wikipedia shelf for the example question. It leads the empty state, and follows the graph once a run is on screen. */
+.ds-run__pages { order: 2; }
+[data-run="idle"] .ds-run__pages { order: 0; }
 .leads { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 720px) { .leads { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .leads__item { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 12px 16px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); }
@@ -171,8 +170,10 @@ body {
 /* On a phone the replayed run leads, ahead of the question rail. */
 @media (max-width: 999px) { [data-replay="on"] .ds-bench > .ds-run { order: -1; } }
 @media (max-width: 720px) {
-  .ds-title { font-size: 32px; }
+  .ds-title { font-size: 28px; }
   .ds-lead__text > p:first-child { font-size: 20px; }
   .ds-showcase { font-size: 13px; padding: 8px 12px; }
   .ds-header__inner { gap: 8px; }
 }
+
+.howto__title { font-size: 18px; font-weight: 600; }

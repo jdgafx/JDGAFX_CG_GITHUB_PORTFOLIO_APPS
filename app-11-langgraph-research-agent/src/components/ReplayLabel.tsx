@@ -25,7 +25,7 @@ export function ReplayLabel({ info, onRunLive }: ReplayLabelProps) {
         </button>
       </p>
       {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote} The time readout below counts the replay.</p>}
-      <p className="ds-help">Recorded from the live site. The page leads below were fetched from Wikipedia when this page loaded. Rewinding needs a live run.</p>
+      <p className="ds-help">Recorded from the live site. Rewinding needs a live run.</p>
     </div>
   )
 }
