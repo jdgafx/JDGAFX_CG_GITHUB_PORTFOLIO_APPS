@@ -121,10 +121,10 @@ describe('buildMessages', () => {
 
 describe('maxTokensFor', () => {
   it('gives extraction the larger output budget', () => {
-    expect(maxTokensFor('extract')).toBe(8192)
-    expect(maxTokensFor('describe')).toBe(4096)
-    expect(maxTokensFor('analyze')).toBe(4096)
-    expect(maxTokensFor('qa')).toBe(4096)
+    expect(maxTokensFor('extract')).toBe(11264)
+    expect(maxTokensFor('describe')).toBe(6144)
+    expect(maxTokensFor('analyze')).toBe(6144)
+    expect(maxTokensFor('qa')).toBe(6144)
   })
 })
 
@@ -153,7 +153,7 @@ describe('region requests', () => {
     expect(rejection(input)).toBe(message)
   })
 
-  it('tells the model the image is a crop, with its size and position, and gives it a 2048 token budget', () => {
+  it('tells the model the image is a crop, with its size and position, and gives it a 4096 token budget (answer plus thinking)', () => {
     const checked = checkBody(regionBody)
     if (!checked.ok) throw new Error('expected a valid request')
     const [system, user] = buildMessages(checked.value)
@@ -161,7 +161,7 @@ describe('region requests', () => {
     expect(system.content).toContain('larger picture of 1280 by 853 pixels')
     expect(system.content).toContain('top-left corner was at 180, 96')
     expect(user.role === 'user' && user.content).toHaveLength(2)
-    expect(maxTokensFor('region')).toBe(2048)
+    expect(maxTokensFor('region')).toBe(4096)
   })
 })
 
@@ -183,7 +183,7 @@ describe('compare requests', () => {
       'data:image/jpeg;base64',
       'Question to answer in the verdict: Which is sharper?',
     ])
-    expect(maxTokensFor('compare')).toBe(3072)
+    expect(maxTokensFor('compare')).toBe(5120)
   })
 
   it('allows a comparison without a question', () => {

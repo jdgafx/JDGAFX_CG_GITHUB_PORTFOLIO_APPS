@@ -22,17 +22,17 @@ export function getProvider(): Provider | null {
   return { url: OPENROUTER_URL, apiKey }
 }
 
-// Every call sets max_tokens, turns reasoning off so a reasoning-capable model cannot
-// spend the output budget before any visible text is written, and asks for usage
-// (tokens and cost) on the response so the trace can show what the call cost. No temperature
-// is sent: Haiku 5.5 rejects it, and with require_parameters that is a 404.
+// Every call sets max_tokens and asks for usage (tokens and cost) on the response so the
+// trace can show what the call cost. No reasoning override is sent: the model thinks as it
+// does by default, and its thinking tokens count toward max_tokens, so the caps in request.ts
+// leave room for thinking plus the answer. No temperature is sent: Haiku 5.5 rejects it, and
+// with require_parameters that is a 404.
 export function chatBody(messages: ChatMessage[], maxTokens: number): Record<string, unknown> {
   return {
     model: MODEL,
     messages,
     stream: true,
     max_tokens: maxTokens,
-    reasoning: { enabled: false },
     provider: { require_parameters: true },
     usage: { include: true },
   }

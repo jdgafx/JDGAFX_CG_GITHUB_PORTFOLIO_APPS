@@ -11,6 +11,7 @@ import {
   absorb,
   newState,
   providerMessage,
+  totalUsage,
   validate,
   type Emit,
   type ReadState,
@@ -38,13 +39,20 @@ export interface VisionRun {
 }
 
 // One deadline covers the whole run, connecting and reading the answer alike, retry included.
-// It is counted from the start of the request and stays well under Netlify's 60-second limit.
+// It is counted from the start of the request and stays under Netlify's 30-second cut-off, leaving 5 seconds to close the stream.
 export const UPSTREAM_BUDGET_MS = 25_000
-// A healthy call starts to answer within about 6 seconds; 9 seconds without a first word is a hang.
-// The one retry only starts when it still has RETRY_MIN_LEFT_MS of the budget to work with.
-export const FIRST_TEXT_LIMIT_MS = 9_000
-export const RETRY_MIN_LEFT_MS = 10_000
+// The model thinks before it writes, and its reasoning arrives as one signed item at the end of thinking. While it works the
+// provider sends a comment line (": OPENROUTER PROCESSING") about every 0.4 seconds. Any byte on the stream, those comments
+// included, shows the call is alive and ends the first-word watch, so a long think is never cut short and never retried.
+// Only 12 seconds of nothing at all (no response, or a stream with no bytes) is a hang. The 25-second budget is the real limit.
+// The one retry only starts when the budget left can hold a whole call: RETRY_MIN_LEFT_MS is the slowest of 20 measured
+// thinking-on single-image calls (13,293 ms, an Extract replay; the SP2 browser runs and replays were 8 to 11.4 s) plus a 20% margin.
+// After a 12-second wait only 13 seconds are left, so a call that says nothing is not retried and ends with the timeout message
+// at the deadline; a call that fails at once (no connection) still has about 25 seconds and is retried.
+export const FIRST_TEXT_LIMIT_MS = 12_000
+export const RETRY_MIN_LEFT_MS = 16_000
 const MODEL_STEP = 'Model call'
+const FIRST_TRY_STEP = 'Model call (first try)'
 const VALIDATE_STEP = 'Parse and validate'
 const EMPTY_MESSAGE = 'The AI provider returned an empty response. Try again in a moment.'
 const UNEXPECTED_MESSAGE = 'The analysis stopped unexpectedly. Please retry with the same image.'
@@ -60,7 +68,7 @@ export function streamVisionRun(run: VisionRun): Response {
   let upstreamAbort = new AbortController()
   const deadline = run.startedAt + UPSTREAM_BUDGET_MS
   const trace: TraceStep[] = []
-  // Every provider answer of this run, retry included. A call that never got an answer has nothing to check.
+  // Every attempt of this run, retry included. A try that never got an answer has nothing to check, but its usage still counts as not reported.
   const calls: ReadState[] = []
   // One list read per run, started before the first model call and awaited only when the run ends.
   const newestP = (run.newest ?? newestModel)()
@@ -84,10 +92,12 @@ export function streamVisionRun(run: VisionRun): Response {
         for (const call of checked) {
           if (call.check === 'mismatch') console.warn(`model mismatch: served ${call.served}, newest ${newest}, requested ${MODEL}`)
         }
+        const billed = totalUsage(calls)
         emit({
           ...frame,
           trace,
-          usage: state?.usage ?? null,
+          usage: billed.usage,
+          usageNotReported: billed.notReported,
           servedModel: state?.served ?? null,
           newestModel: newest,
           modelCheck: checked.length === 0 ? 'not-reported' : worstCheck(checked.map(call => call.check)),
@@ -98,10 +108,11 @@ export function streamVisionRun(run: VisionRun): Response {
 
       // One try at the call. Returns 'hang' only when nothing was shown yet and the caller may try again;
       // every other ending has already been written to the trace and the terminal frame.
-      const attempt = async (callStart: number, retried: boolean, mayRetry: boolean): Promise<'hang' | 'finished'> => {
+      const attempt = async (callStart: number, retried: boolean): Promise<'hang' | 'finished'> => {
         const state = newState()
+        calls.push(state)
         const fail = async (stepDetail: string, message: string, truncated: boolean): Promise<'finished'> => {
-          finish({ name: MODEL_STEP, status: 'failed', ms: Date.now() - callStart, detail: stepDetail })
+          finish({ name: MODEL_STEP, status: 'failed', ms: Date.now() - callStart, detail: stepDetail, tokens: state.usage?.total_tokens, cost: state.usage?.cost })
           finish({ name: VALIDATE_STEP, status: 'skipped', detail: 'Skipped because the model call did not finish' })
           await conclude({ stage: 'failed', error: message, truncated }, state)
           return 'finished'
@@ -110,7 +121,9 @@ export function streamVisionRun(run: VisionRun): Response {
         const signal = upstreamAbort.signal
         let hung = false
         const deadlineTimer = setTimeout(() => upstreamAbort.abort(), Math.max(0, deadline - Date.now()))
-        const firstTimer = mayRetry
+        // The first-word watch only runs when a retry started after it would still fit the budget.
+        const watching = !retried && deadline - Date.now() - FIRST_TEXT_LIMIT_MS >= RETRY_MIN_LEFT_MS
+        const firstTimer = watching
           ? setTimeout(() => {
               hung = true
               upstreamAbort.abort()
@@ -124,9 +137,13 @@ export function streamVisionRun(run: VisionRun): Response {
           if (typeof frame.text === 'string') clearTimeout(firstTimer)
           emit(frame)
         }
+        // A reasoning delta shows the model is working on the answer, so the first-word watch ends there too.
+        const heard = () => {
+          if (state.reasoningChunks > 0 || state.chunks > 0) clearTimeout(firstTimer)
+        }
         // A first try that heard nothing is retried; one that was stopped by the visitor or the deadline is not.
         const hangOrFail = async (stepDetail: string, message: string): Promise<'hang' | 'finished'> =>
-          mayRetry && open && state.chunks === 0 && Date.now() < deadline ? 'hang' : fail(stepDetail, message, false)
+          !retried && open && state.chunks === 0 && deadline - Date.now() >= RETRY_MIN_LEFT_MS ? 'hang' : fail(stepDetail, message, false)
 
         try {
           let upstream: Response
@@ -153,18 +170,20 @@ export function streamVisionRun(run: VisionRun): Response {
             return hangOrFail('Could not reach the AI provider', UNREACHABLE_MESSAGE)
           }
 
-          calls.push(state)
           if (!upstream.ok || !upstream.body) {
             void upstream.body?.cancel().catch(() => undefined)
+            if (!upstream.ok) state.refused = true
             const message = upstream.ok ? EMPTY_MESSAGE : providerMessage(upstream.status)
             console.error('AI provider returned HTTP', upstream.status)
             return fail(message, message, false)
           }
 
-          const outcome = await readUpstream(upstream.body, deadline, signal, state, emitText)
+          const outcome = await readUpstream(upstream.body, deadline, signal, state, emitText, heard, () => clearTimeout(firstTimer))
           if (!open) return 'finished'
           if (outcome === 'aborted' || outcome === 'watchdog') {
             if (hung && state.chunks === 0) return hangOrFail('No answer from the AI provider', TIMEOUT_MESSAGE)
+            // Nothing was ever written, so there is no partial answer to point at.
+            if (state.chunks === 0) return fail('No answer from the AI provider within the time limit', TIMEOUT_MESSAGE, false)
             const detail = `Stopped at the ${UPSTREAM_BUDGET_MS / 1000}-second limit; partial output kept`
             return fail(detail, PARTIAL_TIMEOUT_MESSAGE, true)
           }
@@ -211,14 +230,23 @@ export function streamVisionRun(run: VisionRun): Response {
       const runCall = async (): Promise<void> => {
         const callStart = Date.now()
         emit({ stage: 'step', step: { name: MODEL_STEP, status: 'running', detail: 'Request sent to the vision model' } })
-        const mayRetry = deadline - Date.now() - FIRST_TEXT_LIMIT_MS >= RETRY_MIN_LEFT_MS
-        if ((await attempt(callStart, false, mayRetry)) !== 'hang') return
+        if ((await attempt(callStart, false)) !== 'hang') return
         console.error('Upstream gave no answer; retrying once')
+        // The first try keeps its own row, with whatever usage it reported, so a retry never hides what it cost.
+        const first = calls[0]
+        finish({
+          name: FIRST_TRY_STEP,
+          status: 'failed',
+          ms: Date.now() - callStart,
+          detail: `The first try got no answer; usage ${first?.usage ? 'as reported' : 'not reported'}`,
+          tokens: first?.usage?.total_tokens,
+          cost: first?.usage?.cost,
+        })
         emit({
           stage: 'step',
-          step: { name: MODEL_STEP, status: 'running', detail: `No answer within ${FIRST_TEXT_LIMIT_MS / 1000} seconds. Retried once` },
+          step: { name: MODEL_STEP, status: 'running', detail: 'The first try got no answer. Retried once' },
         })
-        await attempt(callStart, true, false)
+        await attempt(callStart, true)
       }
 
       try {
@@ -260,6 +288,8 @@ async function readUpstream(
   signal: AbortSignal,
   state: ReadState,
   emit: Emit,
+  heard: () => void,
+  alive: () => void,
 ): Promise<'ended' | 'watchdog' | 'dropped' | 'aborted'> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -296,11 +326,14 @@ async function readUpstream(
       if (chunk === 'watchdog') return 'watchdog'
       if (chunk === 'aborted') return 'aborted'
       if (chunk.done) break
+      // Any bytes, comment lines included, show the provider is still working.
+      if (chunk.value.length > 0) alive()
       buffer += decoder.decode(chunk.value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
         absorb(line, state, emit)
+        heard()
         if (state.moderated || state.providerError) return 'ended'
       }
     }

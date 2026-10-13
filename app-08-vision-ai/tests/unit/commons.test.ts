@@ -99,7 +99,7 @@ const FIXTURE = {
 }
 
 describe('buildSearchUrl', () => {
-  it('asks for file-namespace bitmap search results with a 1280 px thumbnail and only the metadata the app reads', () => {
+  it('asks for file-namespace bitmap search results with a 1920 px thumbnail and only the metadata the app reads', () => {
     const url = new URL(buildSearchUrl('  road sign '))
 
     expect(url.origin + url.pathname).toBe('https://commons.wikimedia.org/w/api.php')
@@ -114,7 +114,7 @@ describe('buildSearchUrl', () => {
       gsrlimit: '24',
       prop: 'imageinfo',
       iiprop: 'url|size|mime|extmetadata',
-      iiurlwidth: '1280',
+      iiurlwidth: '1920',
       iiextmetadatafilter: 'ObjectName|Artist|LicenseShortName|LicenseUrl',
     })
   })
@@ -255,7 +255,7 @@ describe('gridThumbUrl', () => {
 })
 
 describe('downloadUrls', () => {
-  it('uses the 1280 px thumbnail the API sent for a wide picture', () => {
+  it('uses the thumbnail the API sent for a picture wider than 1920 px', () => {
     expect(downloadUrls({ thumbUrl: SCALED, width: 2200 })).toEqual([SCALED])
   })
 
@@ -265,6 +265,10 @@ describe('downloadUrls', () => {
     expect(urls[1]).toBe(ORIGINAL)
     expect(downloadUrls({ thumbUrl: ORIGINAL, width: 640 })[0]).toMatch(/\/500px-/)
     expect(downloadUrls({ thumbUrl: ORIGINAL, width: 1280 })[0]).toMatch(/\/1280px-/)
+  })
+
+  it('sends the address the API gave, the original itself, for a picture between 1280 and 1920 px wide', () => {
+    expect(downloadUrls({ thumbUrl: ORIGINAL, width: 1820 })).toEqual([ORIGINAL])
   })
 
   it('goes straight to the original for a picture narrower than the smallest thumbnail', () => {
