@@ -9,6 +9,8 @@ import { Md } from './Md'
 interface ApprovalCardProps {
   proposal: ReviewPayload
   busy: boolean
+  /** A replay shows the card as recorded. Every answer is off: a replay never sends a decision. */
+  replay?: boolean
   onDecide: (decision: HumanDecision) => void
 }
 
@@ -18,7 +20,8 @@ function labelChoices(proposed: readonly string[]): string[] {
 }
 
 /** The proposal the graph paused on, with the three answers a maintainer can give. */
-export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
+export function ApprovalCard({ proposal, busy, replay = false, onDecide }: ApprovalCardProps) {
+  const off = busy || replay
   const { classification, triage } = proposal
   const original = triage.action === 'close_duplicate' ? triage.duplicateOf : null
   const judgement = original ? (proposal.duplicates?.candidates.find((candidate) => candidate.number === original.number)?.judgement ?? null) : null
@@ -34,6 +37,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
 
   const submitEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (replay) return
     if (labels.length < 1 || labels.length > EDIT_LABELS_MAX) {
       setProblem(`Pick 1 to ${EDIT_LABELS_MAX} labels. To apply none, reject instead.`)
       return
@@ -48,13 +52,12 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
         <h2 id="approval-heading" className="ds-section__title" tabIndex={-1} data-result-focus>
           {original ? `Close as duplicate of #${original.number}?` : 'Maintainer review needed'}
         </h2>
-        <span className="ds-badge ds-badge--warning">
-          <span className="ds-dot ds-dot--paused" aria-hidden="true" />
-          Paused at review
-        </span>
+        <span className="gg-stamp gg-stamp--pending">Paused at review</span>
       </div>
       <p className="ds-help">
-        Paused and saved: reload and come back, the run waits. Nothing is posted to GitHub.
+        {replay
+          ? 'This is the recorded run, paused where the graph asked for a maintainer. A replay cannot be answered: run it live to decide on a fresh thread.'
+          : 'Paused and saved: reload and come back, the run waits. Nothing is posted to GitHub.'}
       </p>
 
       {original ? (
@@ -83,7 +86,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
             className="ds-textarea gg-note"
             maxLength={NOTE_MAX_LENGTH}
             value={note}
-            disabled={busy}
+            disabled={off}
             onChange={(event) => setNote(event.target.value)}
             aria-describedby="review-note-help"
           />
@@ -94,13 +97,13 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
       </details>
 
       <div className="ds-approval__actions" role="group" aria-label="Your decision" aria-describedby="decision-help">
-        <button type="button" className="ds-button ds-button--primary" disabled={busy} onClick={() => onDecide({ action: 'approve', note: note.trim() || undefined })}>
+        <button type="button" className="ds-button gg-approve" disabled={off} onClick={() => onDecide({ action: 'approve', note: note.trim() || undefined })}>
           {original ? `Approve: close as duplicate of #${original.number}` : 'Approve'}
         </button>
-        <button type="button" className="ds-button" disabled={busy} aria-expanded={editing} aria-controls="edit-triage-form" onClick={() => { setProblem(null); setEditing((open) => !open) }}>
+        <button type="button" className="ds-button" disabled={off} aria-expanded={editing} aria-controls="edit-triage-form" onClick={() => { setProblem(null); setEditing((open) => !open) }}>
           Edit labels and priority
         </button>
-        <button type="button" className="ds-button ds-button--danger" disabled={busy} onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}>
+        <button type="button" className="ds-button gg-reject" disabled={off} onClick={() => onDecide({ action: 'reject', note: note.trim() || undefined })}>
           Reject
         </button>
       </div>
@@ -116,7 +119,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
 
       {editing ? (
         <form id="edit-triage-form" className="gg-edit" onSubmit={submitEdit} noValidate>
-          <fieldset className="gg-labels" disabled={busy} aria-describedby="edit-labels-help">
+          <fieldset className="gg-labels" disabled={off} aria-describedby="edit-labels-help">
             <legend className="ds-label">Labels</legend>
             <div className="gg-labels__grid">
               {labelChoices(triage.labels).map((label) => (
@@ -139,7 +142,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
               id="edit-priority"
               className="ds-select"
               value={priority}
-              disabled={busy}
+              disabled={off}
               onChange={(event) => setPriority(event.target.value as Priority)}
               aria-describedby="edit-priority-help"
             >
@@ -153,7 +156,7 @@ export function ApprovalCard({ proposal, busy, onDecide }: ApprovalCardProps) {
               How soon a maintainer should look at it.
             </p>
           </div>
-          <button type="submit" className="ds-button ds-button--primary" disabled={busy}>
+          <button type="submit" className="ds-button ds-button--primary" disabled={off}>
             Apply the edited triage
           </button>
         </form>

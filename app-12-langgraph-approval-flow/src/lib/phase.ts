@@ -1,4 +1,4 @@
-import type { RunPhase } from './useResultFocus'
+import type { RunPhase } from '../replay'
 import type { Phase } from './run-state'
 
 /**

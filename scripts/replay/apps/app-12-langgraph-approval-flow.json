@@ -1,0 +1,47 @@
+{
+  "url": "https://jdgafx-app-12-langgraph-approval-flow.netlify.app/",
+  "tryButton": "Try it",
+  "finishPath": "/api/start",
+  "apiPrefix": "/api/",
+  "settleMs": 2000,
+  "sse": {
+    "/api/start": {
+      "frame": {
+        "has": "cost"
+      },
+      "take": "all"
+    }
+  },
+  "expect": [
+    {
+      "path": "/api/start",
+      "field": "*.model",
+      "nonEmpty": true,
+      "message": "a costed step named no model"
+    },
+    {
+      "path": "/api/start",
+      "field": "*.status",
+      "equals": "ok",
+      "message": "a step that used the model did not finish"
+    },
+    {
+      "path": "/api/threads",
+      "field": "success",
+      "equals": true,
+      "message": "the saved-threads list was not read after the run"
+    }
+  ],
+  "reported": {
+    "model": {
+      "path": "/api/start",
+      "field": "0.model"
+    },
+    "modelRole": "triaged with",
+    "costUsd": {
+      "path": "/api/start",
+      "field": "*.cost"
+    },
+    "costScope": "up to the approval gate"
+  }
+}

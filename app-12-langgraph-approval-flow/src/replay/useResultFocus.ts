@@ -14,14 +14,21 @@ export function isScrollKey(key: string, target: EventTarget | null): boolean {
   return !(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element?.isContentEditable)
 }
 
-/** The decision when a run ends: bring the result into view only on a narrow screen and only if the visitor stayed put. */
-export function shouldBringIntoView(narrow: boolean, visitorScrolled: boolean): boolean {
-  return narrow && !visitorScrolled
+/** The decision when a run ends: bring the result into view only on a narrow screen, only if the visitor stayed put and only if the heading is not already on screen. */
+export function shouldBringIntoView(narrow: boolean, visitorScrolled: boolean, alreadyInView = false): boolean {
+  return narrow && !visitorScrolled && !alreadyInView
+}
+
+/** True when the element sits fully inside the viewport. */
+export function isInView(rect: Pick<DOMRect, 'top' | 'bottom'>, viewportHeight: number): boolean {
+  return rect.top >= 0 && rect.bottom <= viewportHeight
 }
 
 interface Options {
   /** Called when a run starts; use it to close open example or preset lists on a narrow screen. */
   onRunStart?: (narrow: boolean) => void
+  /** True while the run on screen is the load-time replay of a recorded run: it never scrolls the page. Focus handling is unchanged. */
+  replay?: boolean
 }
 
 /**
@@ -29,14 +36,17 @@ interface Options {
  * result's heading, with `tabIndex={-1}`) into view at the top of its result block `.ds-run__result`, unless the
  * visitor scrolled during the run; then move focus to it when focus has fallen to the page, without scrolling.
  * The visitor's intent is read from wheel, touch and scroll-key events, never from the scroll position, because the
- * browser and focus changes also move the page. Reduced motion gets an instant scroll.
+ * browser and focus changes also move the page. Reduced motion gets an instant scroll. No scroll happens when the
+ * heading is already fully in view, or when the run was the load-time replay (`options.replay`).
  */
 export function useResultFocus(phase: RunPhase, options: Options = {}): void {
   const previous = useRef<RunPhase>(phase)
   const scrolled = useRef(false)
   const onRunStart = useRef(options.onRunStart)
+  const replay = useRef(options.replay === true)
   useEffect(() => {
     onRunStart.current = options.onRunStart
+    replay.current = options.replay === true
   })
 
   useEffect(() => {
@@ -66,7 +76,7 @@ export function useResultFocus(phase: RunPhase, options: Options = {}): void {
     const target = document.querySelector<HTMLElement>('[data-result-focus]')
     if (!target) return
     const narrow = !window.matchMedia(WIDE).matches
-    if (shouldBringIntoView(narrow, scrolled.current)) {
+    if (!replay.current && shouldBringIntoView(narrow, scrolled.current, isInView(target.getBoundingClientRect(), window.innerHeight))) {
       const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       target.closest('.ds-run__result')?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
     }

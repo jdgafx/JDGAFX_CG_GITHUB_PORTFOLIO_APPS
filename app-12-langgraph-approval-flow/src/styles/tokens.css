@@ -1,4 +1,6 @@
-/* Shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule; v3.3: neutral changed chip everywhere, no focus ring on programmatic headings). Copy tokens.css and components.css
+/* App 12 (GraphGate) keeps its own copy of this file since Q6: an approvals-desk skin (stone-grey paper, ink-black type, a green
+   Approve and a burnt-orange Reject; Public Sans and Courier Prime), the badge-dot fix, and no change to the structure. Original header follows.
+   Shared design system v3.2 "instrument bench", for the 13 portfolio apps (v3.2: warm-accent running tones, see the danger rule; v3.3: neutral changed chip everywhere, no focus ring on programmatic headings). Copy tokens.css and components.css
    verbatim to src/styles/ and import both first, in that order. Never edit them per app.
    One line per app selects the identity: <html lang="en" data-app="11"> sets the signal hue from the 13-step palette
    below; neutrals, type, spacing, radii and components are shared. Set data-run (idle, running, done, failed, stopped)
@@ -18,55 +20,61 @@
 
 :root {
   color-scheme: light dark;
-  --ds-font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
-  --ds-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ds-font: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --ds-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
 
-  --ds-bg: #f3f5f8;          /* paper */
-  --ds-surface: #ffffff;     /* panel face */
-  --ds-surface-2: #ebeff4;   /* bench: the tinted work surface */
-  --ds-border: #d5dce6;      /* hairline rule */
-  --ds-border-strong: #7d8aa0; /* form controls and graph strokes: 3:1 against the surfaces */
-  --ds-text: #0e1b2b;
-  --ds-text-muted: #4d5a70;
-  --ds-accent: var(--app-l, #047172);   /* the app's signal: action fill, active node, taken path */
-  --ds-accent-text: #ffffff;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 12%, var(--ds-surface));
+  --ds-bg: #d8d3c6;          /* the desk: stone-grey */
+  --ds-surface: #f5f2ea;     /* paper */
+  --ds-surface-2: #e8e3d6;   /* the form tint */
+  --ds-border: #cbc4b2;      /* hairline rule */
+  --ds-border-strong: #6e6857; /* form controls and graph strokes: 3:1 against the surfaces */
+  --ds-text: #1a1814;        /* ink */
+  --ds-text-muted: #4b473c;
+  --ds-accent: #1d1b16;      /* ink: action fill, active node, taken path */
+  --ds-accent-text: #f5f2ea;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 9%, var(--ds-surface));
   --ds-accent-dim: color-mix(in srgb, var(--ds-accent) 38%, var(--ds-surface));
-  --ds-success: #1a6e3c;
-  --ds-success-soft: #e3f3e8;
-  --ds-warning: #8a5a00;
-  --ds-warning-soft: #fdf2d8;
-  --ds-danger: #b3261e;
-  --ds-danger-soft: #fbe9e7;
+  --ds-success: #17623a;     /* Approve */
+  --ds-success-soft: #d7e9d9;
+  --ds-warning: #7a4c00;     /* waiting for a maintainer */
+  --ds-warning-soft: #f1dfac;
+  --ds-danger: #a23d08;      /* Reject, failed: burnt orange, never pink */
+  --ds-danger-soft: #f5dcc9;
+  --gg-approve: #17622a;
+  --gg-approve-text: #ffffff;
   --ds-focus: var(--ds-accent);
-  --ds-series-2: #4d5a70; --ds-series-3: #b4580f; --ds-series-4: #6d4fc9; /* chart series after the accent, 3:1 or better */
-  --ds-radius: 8px;
-  --ds-radius-sm: 6px;
-  --ds-shadow: none;
+  --ds-series-2: #4b473c; --ds-series-3: #a23d08; --ds-series-4: #4f5f8a; /* chart series after the accent, 3:1 or better */
+  --ds-radius: 3px;
+  --ds-radius-sm: 2px;
+  --ds-shadow: 0 1px 0 rgb(40 30 10 / 0.07), 0 10px 18px -16px rgb(40 30 10 / 0.5);
   --ds-measure: 68ch;
   --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-    --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-    --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-    --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-    --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-    --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-    --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
+    --ds-bg: #14130f; --ds-surface: #1e1d18; --ds-surface-2: #282620; --ds-border: #3a372d; --ds-border-strong: #8d8775;
+    --ds-text: #ede9dd; --ds-text-muted: #bab4a2;
+    --ds-accent: #ede9dd; --ds-accent-text: #14130f;
+    --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 11%, var(--ds-surface));
+    --ds-success: #86d39d; --ds-success-soft: #15291b; --ds-warning: #ebc15f; --ds-warning-soft: #2d2510;
+    --ds-danger: #ff9f68; --ds-danger-soft: #35210f;
+    --gg-approve: #86d39d; --gg-approve-text: #0d1a11;
+    --ds-series-2: #bab4a2; --ds-series-3: #ff9f68; --ds-series-4: #a9b7e6;
+    --ds-shadow: none;
   }
 }
 
 :root[data-theme="dark"] {
-  --ds-bg: #0b1118; --ds-surface: #111923; --ds-surface-2: #172130; --ds-border: #263142; --ds-border-strong: #6f7d93;
-  --ds-text: #e8edf4; --ds-text-muted: #a3afc1;
-  --ds-accent: var(--app-d, #0fbebf); --ds-accent-text: #0b1118;
-  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 18%, var(--ds-surface));
-  --ds-success: #6fd394; --ds-success-soft: #122a1c; --ds-warning: #f2bf5e; --ds-warning-soft: #2c2311;
-  --ds-danger: #ff8f86; --ds-danger-soft: #35181a;
-  --ds-series-2: #a3afc1; --ds-series-3: #e8944a; --ds-series-4: #a58af0;
+  --ds-bg: #14130f; --ds-surface: #1e1d18; --ds-surface-2: #282620; --ds-border: #3a372d; --ds-border-strong: #8d8775;
+  --ds-text: #ede9dd; --ds-text-muted: #bab4a2;
+  --ds-accent: #ede9dd; --ds-accent-text: #14130f;
+  --ds-accent-soft: color-mix(in srgb, var(--ds-accent) 11%, var(--ds-surface));
+  --ds-success: #86d39d; --ds-success-soft: #15291b; --ds-warning: #ebc15f; --ds-warning-soft: #2d2510;
+  --ds-danger: #ff9f68; --ds-danger-soft: #35210f;
+  --gg-approve: #86d39d; --gg-approve-text: #0d1a11;
+  --ds-series-2: #bab4a2; --ds-series-3: #ff9f68; --ds-series-4: #a9b7e6;
+  --ds-shadow: none;
 }
 
 /* The 13-step signal palette: app number to hue. --app-l is the accent in light mode (5.6:1 on white), --app-d in dark
@@ -236,7 +244,7 @@ pre { max-width: none; overflow-x: auto; }
 .ds-badge--warning { color: var(--ds-warning); background: var(--ds-warning-soft); border-color: transparent; }
 .ds-badge--danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-badge--accent { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: transparent; }
-.ds-badge .ds-dot { background: currentColor; }
+.ds-badge .ds-dot:not([class*="ds-dot--"]) { background: currentColor; }
 .ds-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ds-text-muted); vertical-align: middle; }
 .ds-dot--ok { background: var(--ds-success); }
 .ds-dot--failed { background: var(--ds-danger); }
