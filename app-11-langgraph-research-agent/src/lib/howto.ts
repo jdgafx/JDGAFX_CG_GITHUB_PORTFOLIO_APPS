@@ -13,4 +13,7 @@ export const HOWTO_STEPS: readonly string[] = [
 /** The question "Try it" runs: two pages and a sum, so the critic has something to check. It is one of the Examples. */
 export const TRY_IT = SAMPLE_QUESTIONS[2]
 
+/** The two Wikipedia pages that question needs. They are fetched live on load, with no model call, to show what the agent will read. */
+export const TRY_IT_PAGES: readonly string[] = ['Eiffel Tower', 'Empire State Building']
+
 export const HOWTO_HINT = 'Asks the Eiffel Tower question on live Wikipedia. Under a minute.'

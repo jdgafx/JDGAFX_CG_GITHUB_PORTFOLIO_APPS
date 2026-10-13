@@ -3,12 +3,12 @@ import { plural } from '../lib/format'
 import { parseInline } from '../lib/markdown'
 import type { Phase } from '../lib/runState'
 
-export function badgeFor(result: ResultFrame): { text: string; tone: string } {
-  if (result.ending.kind === 'no_answer') return { text: 'No answer written', tone: 'ds-badge--warning' }
-  if (result.citation.uncited.length > 0) return { text: 'Not fully cited', tone: 'ds-badge--warning' }
-  if (!result.critic.reviewed) return { text: 'Not reviewed', tone: 'ds-badge--warning' }
-  if (result.critic.verdict === 'accept') return { text: 'Critic accepted', tone: 'ds-badge--success' }
-  return { text: 'Critic asked for changes', tone: 'ds-badge--warning' }
+export function badgeFor(result: ResultFrame): { text: string; tone: string; dot: string } {
+  if (result.ending.kind === 'no_answer') return { text: 'No answer written', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+  if (result.citation.uncited.length > 0) return { text: 'Not fully cited', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+  if (!result.critic.reviewed) return { text: 'Not reviewed', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
+  if (result.critic.verdict === 'accept') return { text: 'Critic accepted', tone: 'ds-badge--success', dot: 'ds-dot--ok' }
+  return { text: 'Critic asked for changes', tone: 'ds-badge--warning', dot: 'ds-dot--stopped' }
 }
 
 function Inline({ line }: { line: string }) {
@@ -123,7 +123,7 @@ export function AnswerCard({ result, phase, error, hasSteps, onRetry }: AnswerCa
             {noAnswer ? 'Pages read' : 'Answer'}
           </h2>
           <span className={`ds-badge ${badge.tone}`}>
-            <span className="ds-dot" aria-hidden="true" />
+            <span className={`ds-dot ${badge.dot}`} aria-hidden="true" />
             {badge.text}
           </span>
         </div>
