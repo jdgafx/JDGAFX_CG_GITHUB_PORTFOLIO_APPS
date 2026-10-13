@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatMs } from '../lib/format'
 import type { RunState } from '../lib/run'
-import { ttfa, type Parts } from '../lib/ttfa'
+import { readoutParts, ttfa, type Parts } from '../lib/ttfa'
 
 const NONE = '—'
 
@@ -11,7 +11,7 @@ const SEGMENTS: Array<{ key: PartKey; label: string; hint: string }> = [
   { key: 'transcribe', label: 'Transcribe', hint: 'Stop speaking to transcript' },
   { key: 'tools', label: 'Tools', hint: 'Weather or Wikipedia lookups' },
   { key: 'firstToken', label: 'First token', hint: 'Until the model writes' },
-  { key: 'firstSentence', label: 'First sentence', hint: 'Until a sentence is complete' },
+  { key: 'firstSentence', label: 'First sentence', hint: 'Start to a complete sentence' },
   { key: 'speechStart', label: 'Speech start', hint: 'Voice engine starts' },
 ]
 
@@ -47,7 +47,7 @@ export default function Readout({ run }: { run: RunState }) {
   const running = run.outcome === 'running'
   const started = run.outcome !== 'idle'
   const figures = ttfa(run.marks)
-  const parts = figures.parts
+  const parts = readoutParts(run.marks)
   const waitingForAudio = running && figures.total === undefined && run.voice !== 'none'
   const noVoice = run.voice === 'none' || run.voice === 'failed'
   const voiced = run.via === 'voice'
@@ -74,7 +74,9 @@ export default function Readout({ run }: { run: RunState }) {
   }
 
   const cells = SEGMENTS.filter(s => (s.key !== 'transcribe' || voiced) && (s.key !== 'tools' || parts.tools !== undefined))
-  const total = cells.reduce((sum, s) => sum + (parts[s.key] ?? 0), 0)
+  // The bar shows the parts that add up to the headline; the first-sentence figure runs from the start, so it is not one of them.
+  const barCells = cells.filter(s => s.key !== 'firstSentence')
+  const total = barCells.reduce((sum, s) => sum + (parts[s.key] ?? 0), 0)
 
   return (
     <section className="ds-section ds-run__readout vox-readout" aria-label="Time to first audio">
@@ -83,14 +85,14 @@ export default function Readout({ run }: { run: RunState }) {
           {headline}
         </Cell>
         {cells.map(s => (
-          <Cell key={s.key} label={s.label} hint={s.hint} swatch={s.key}>
+          <Cell key={s.key} label={s.label} hint={s.hint} swatch={s.key === 'firstSentence' ? undefined : s.key}>
             {parts[s.key] !== undefined ? formatMs(parts[s.key]) : NONE}
           </Cell>
         ))}
       </dl>
       {total > 0 && (
-        <div className="vox-bar" role="img" aria-label={`Parts of the time to first audio: ${cells.map(s => `${s.label} ${formatMs(parts[s.key])}`).join(', ')}`}>
-          {cells.map(s => (
+        <div className="vox-bar" role="img" aria-label={`Parts of the time to first audio: ${barCells.map(s => `${s.label} ${formatMs(parts[s.key])}`).join(', ')}`}>
+          {barCells.map(s => (
             <span key={s.key} className={`vox-bar__part vox-swatch--${s.key}`} style={{ flexGrow: Math.max(1, parts[s.key] ?? 0) }} />
           ))}
         </div>

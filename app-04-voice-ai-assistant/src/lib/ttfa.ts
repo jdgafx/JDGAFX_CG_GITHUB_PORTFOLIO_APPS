@@ -58,3 +58,13 @@ export function ttfa(marks: Marks): Ttfa {
     toFirstSentence: gap(marks.origin, marks.firstSentenceAt),
   }
 }
+
+/**
+ * The figures the readout shows. The parts are gaps between marks, and the first sentence often completes in the
+ * same chunk as the first word, so its gap is 0 ms even in a real run. The readout instead shows the measured time
+ * from the start to the first complete sentence, or nothing when no sentence was measured.
+ */
+export function readoutParts(marks: Marks): Parts {
+  const { parts, toFirstSentence } = ttfa(marks)
+  return { ...parts, firstSentence: toFirstSentence }
+}

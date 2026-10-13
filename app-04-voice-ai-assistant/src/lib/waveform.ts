@@ -1,8 +1,10 @@
 // Canvas bar meter. Bars are drawn in CSS pixels on a backing store scaled by
 // devicePixelRatio, and the store is re-synced to the element's box on every draw.
 
-const BAR_COUNT = 48
-const FALLBACK_ACCENT = '#0e7c86'
+// About one bar per 9 CSS pixels, so the wide studio strip stays fine-grained and a phone still gets a readable row.
+const BAR_SLOT_PX = 9
+const MIN_BARS = 24
+const FALLBACK_ACCENT = '#c8ff3a'
 
 // Resizes the backing store to match the element's CSS box at the current
 // device pixel ratio. Returns false when the canvas has no layout yet.
@@ -36,6 +38,7 @@ export function drawWaveform(canvas: HTMLCanvasElement, levels: Uint8Array | nul
   const accent = getComputedStyle(canvas).getPropertyValue('--ds-accent').trim() || FALLBACK_ACCENT
   ctx.fillStyle = accent
 
+  const BAR_COUNT = Math.max(MIN_BARS, Math.floor(width / BAR_SLOT_PX))
   const slot = width / BAR_COUNT
   const barWidth = slot * 0.6
   const centerY = height / 2

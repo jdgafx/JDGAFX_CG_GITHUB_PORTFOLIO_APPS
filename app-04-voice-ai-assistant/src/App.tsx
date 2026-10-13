@@ -50,17 +50,18 @@ export default function App() {
       <Header badge={badgeFor(run, hasMic)} live={liveData(run.steps, run.arrivedAt)} />
 
       <main className="ds-main">
+        <VoiceCapture
+          hasMic={hasMic}
+          recording={recording}
+          disabled={busy && !recording}
+          msLeft={assistant.msLeft}
+          analyserRef={assistant.analyserRef}
+          onToggle={recording ? assistant.finishRecording : assistant.startRecording}
+        />
+
         <div className="ds-bench">
           <div className="ds-controls">
             <Notice message={assistant.notice} onDismiss={assistant.dismissNotice} />
-            <VoiceCapture
-              hasMic={hasMic}
-              recording={recording}
-              disabled={busy && !recording}
-              msLeft={assistant.msLeft}
-              analyserRef={assistant.analyserRef}
-              onToggle={recording ? assistant.finishRecording : assistant.startRecording}
-            />
             <AskPanel value={text} onChange={setText} onSubmit={() => ask(asked)} disabled={busy} />
             <Dock
               recording={recording}

@@ -20,7 +20,7 @@ export default function VoiceCapture({ hasMic, recording, disabled, msLeft, anal
   useWaveform(canvasRef, analyserRef, recording)
   const unavailable = !hasMic && !recording
   return (
-    <section className="ds-section" aria-labelledby="voice-title">
+    <section className="ds-section vox-studio" aria-labelledby="voice-title">
       <div className="ds-section__head ds-section__head--bare">
         <h2 id="voice-title" className="ds-section__title">
           Ask by voice

@@ -1,5 +1,5 @@
 /* App-specific styles, layered on tokens.css and components.css. Shared pieces live there; this file keeps
-   only what is local to VoxAI: the sentence highlight, the time-to-first-audio bar and the tool rows. */
+   only what is local to VoxAI: the studio look, the sentence highlight, the time-to-first-audio bar and the tool rows. */
 
 .sr-only {
   position: absolute;
@@ -293,4 +293,66 @@
   color: var(--ds-danger);
   border-color: var(--ds-danger);
   background: var(--ds-danger-soft);
+}
+
+/* Studio look: a charcoal room, a wide level meter as the hero, the transcript set large. */
+.ds-header { background: var(--ds-bg); }
+.ds-title { font-family: var(--ds-display); font-weight: 700; letter-spacing: -0.03em; }
+.ds-plate { font-family: var(--ds-mono); border-radius: var(--ds-radius-sm); box-shadow: none; }
+.ds-section__title, .ds-card__title { font-family: var(--ds-display); letter-spacing: -0.01em; }
+.ds-showcase { background: var(--ds-surface); border-color: var(--ds-border); }
+.ds-button--primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Wide screens: the title block and the showcase note sit side by side, so the meter and the question box are on the first screen. */
+@media (min-width: 1000px) {
+  .ds-header__inner { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; align-items: center; padding-top: 20px; padding-bottom: 20px; }
+  .ds-showcase { grid-column: auto; }
+  .vox-studio .vox-level { height: 96px; }
+  .vox-studio .ds-media { padding: 16px 20px; }
+  .ds-main { padding-top: 20px; gap: 20px; }
+}
+
+/* A disabled control keeps full-strength muted text (never opacity), a dashed edge and the not-allowed cursor. */
+.ds-button:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-bg); border: 1px dashed var(--ds-border-strong); }
+.ds-choice:disabled { opacity: 1; background: var(--ds-bg); border-style: dashed; border-color: var(--ds-border-strong); }
+.ds-choice:disabled .ds-choice__label, .ds-choice:disabled .ds-choice__text { color: var(--ds-text-muted); }
+
+/* The hero strip: record control, level meter and clock across the full width, above the bench. */
+.vox-studio { gap: 12px; }
+.vox-studio .ds-media { padding: 20px; background: #090a08; border-color: var(--ds-border); gap: 12px; }
+.vox-studio .ds-media .ds-row { flex-wrap: nowrap; gap: 20px; }
+.vox-studio .ds-rec { width: 72px; height: 72px; background: var(--ds-surface-2); }
+.vox-studio .ds-rec::before { width: 28px; height: 28px; }
+.vox-studio .vox-level {
+  height: 112px;
+  background:
+    linear-gradient(var(--ds-border), var(--ds-border)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--ds-border) 0 1px, transparent 1px 8.333%);
+  border-radius: var(--ds-radius-sm);
+}
+.vox-studio .vox-clock { min-width: 64px; font-size: 22px; font-weight: 600; color: var(--ds-text); }
+.vox-studio .ds-help { color: var(--ds-text-muted); }
+
+/* The transcript: the answer is what the visitor reads, so it takes the large type. */
+.ds-lead { background: var(--ds-surface); border-color: var(--ds-accent-dim); }
+.ds-lead__text { max-width: 34em; }
+.ds-lead__text > p:first-child { font-size: clamp(24px, 2.4vw, 34px); line-height: 1.32; letter-spacing: -0.015em; font-weight: 500; }
+.vox-s--active { background: color-mix(in srgb, var(--ds-accent) 24%, var(--ds-surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ds-accent) 24%, var(--ds-surface)); text-decoration-color: var(--ds-accent); }
+.vox-asked__label { font-family: var(--ds-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ds-accent); }
+
+/* The readout: numerals set like a meter. */
+.vox-readout .ds-strip__item:first-child { grid-column: 1 / -1; }
+.vox-readout .ds-strip__item:first-child .ds-strip__value { font-size: 44px; line-height: 1.1; color: var(--ds-accent); }
+.vox-readout .ds-strip--pending .ds-strip__item:first-child .ds-strip__value { color: var(--ds-text-muted); }
+.vox-readout .ds-strip--live .ds-strip__item:first-child .ds-strip__value { color: var(--ds-accent); }
+
+@media (max-width: 720px) {
+  .vox-studio .ds-media { padding: 12px; }
+  .vox-studio .ds-media .ds-row { gap: 12px; }
+  .vox-studio .ds-rec { width: 56px; height: 56px; }
+  .vox-studio .vox-level { height: 72px; }
+  .vox-studio .vox-clock { min-width: 48px; font-size: 18px; }
+  .ds-lead__text > p:first-child { font-size: 24px; }
+  .vox-readout .ds-strip__item:first-child .ds-strip__value { font-size: 32px; }
+  .vox-readout .ds-strip__item:last-child:nth-child(even) { grid-column: 1 / -1; }
 }
