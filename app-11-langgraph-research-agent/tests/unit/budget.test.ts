@@ -419,7 +419,7 @@ describe('a run that stops keeps what it has', () => {
     expect(out.ends.find((end) => end.node === 'critic')).toMatchObject({ status: 'failed', detail: SLOW_MESSAGE })
   })
 
-  it('shows the reviewed draft when the revision times out', async () => {
+  it('withholds the rejected draft when the revision times out', async () => {
     const out = await run({
       script: { critic: [revise(QUOTE, 'Cite the theme.')] },
       toolsOnAgentCall: [1],
@@ -427,12 +427,13 @@ describe('a run that stops keeps what it has', () => {
     })
     expect(out.last).toMatchObject({
       type: 'result',
-      answer: DRAFT,
-      critic: { verdict: 'revise', reviewed: true, notes: `"${QUOTE}": Cite the theme.` },
+      answer: '',
       ending: {
-        kind: 'partial',
-        message: 'Reviewed once: the critic asked for changes, but the time limit ended the revision. This is the reviewed draft.',
+        kind: 'no_answer',
+        message:
+          'No answer was confirmed: the critic asked for changes, but the time limit ended the revision, so the draft is not shown as an answer. The agent read 1 page, listed below.',
       },
+      sources: [{ url: PAGE.url }],
     })
   })
 

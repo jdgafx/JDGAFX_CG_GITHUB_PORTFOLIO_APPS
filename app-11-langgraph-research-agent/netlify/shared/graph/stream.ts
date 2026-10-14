@@ -154,10 +154,13 @@ function causeOf(message: string): string {
 /**
  * Builds the result a stopped run still owes the visitor: the last draft with its cited sources and a
  * plain label of how far the review got, or, with no draft, the pages read. Null when nothing was found.
+ * A draft the critic already sent back (verdict `revise`) is not shown as an answer: a rejected draft
+ * must never ship, so the visitor gets the honest no-answer ending with the pages that were read.
  */
 export function partialResult(values: ResearchValues, ms: number, message: string, skip = 0, failed: TraceRow | null = null): ResultFrame | null {
   const cause = causeOf(message)
-  if (values.draftText !== '') {
+  const rejected = values.draftReviewed && values.critique?.verdict === 'revise'
+  if (values.draftText !== '' && !rejected) {
     const { text: answer, sources, citation } = finishAnswer(values.draftText, values.evidence, values.revisions > 0)
     // A draft that cites none of the sources read is not shown, even as a partial answer.
     if (values.evidence.length > 0 && sources.length === 0) return null
@@ -175,7 +178,10 @@ export function partialResult(values: ResearchValues, ms: number, message: strin
   }
   if (values.evidence.length === 0) return null
   const pages = values.evidence.map(({ n, title, url }) => ({ n, title, url }))
-  const text = `No answer was written: ${cause} the run. The agent read ${values.evidence.length === 1 ? '1 page' : `${values.evidence.length} pages`}, listed below.`
+  const read = `The agent read ${values.evidence.length === 1 ? '1 page' : `${values.evidence.length} pages`}, listed below.`
+  const text = rejected
+    ? `No answer was confirmed: the critic asked for changes, but ${cause} the revision, so the draft is not shown as an answer. ${read}`
+    : `No answer was written: ${cause} the run. ${read}`
   return frameFor(values, ms, skip, '', pages, { verdict: 'accept', notes: text, reviewed: false }, false, withLookupNote({ kind: 'no_answer', message: text }, values.failedLookups), { sentences: 0, uncited: [] }, failed)
 }
 
