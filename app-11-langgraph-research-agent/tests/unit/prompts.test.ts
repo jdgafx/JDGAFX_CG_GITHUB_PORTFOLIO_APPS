@@ -39,8 +39,16 @@ describe('prompts', () => {
       'When the sources give different values for the same current fact - a version, a price, a score - say what each source shows and never present the older value as the current one.',
     )
     expect(CRITIC_SYSTEM).toContain(
-      'Set ok to false for a claim that calls a value current or latest when another source shows a newer value for the same fact.',
+      'Set ok to false for a claim that calls a value current or latest when any retrieved source shows a higher version or value for the same fact than the value the claim calls current or latest.',
     )
+  })
+
+  it('tell the draft to present the higher value or say it cannot confirm, never the lower one as latest', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'If any source shows a higher version or value for the same fact than the value you call the latest or current one, either present the higher value or say the sources cannot confirm which is latest: never present the lower value as the latest or current one.',
+    )
+    // The critic fails the claim whenever any retrieved source shows a higher value, not only a dated "newer" one.
+    expect(CRITIC_SYSTEM).not.toContain('when another source shows a newer value for the same fact.')
   })
 
   it('tell the draft and the critic that a single-source current value is not confirmed', () => {

@@ -4,11 +4,12 @@ import { allowedOrigins, clientKey, corsHeaders, createRateLimiter, originAllowe
 import { BUDGET_MESSAGE, NOT_CONFIGURED_MESSAGE } from './openrouter'
 
 /**
- * One budget for every model and tool call in a run. The platform cut streams near 30 s, re-confirmed on the
- * preview on 2026-10-13: two runs with a 40 s budget were cut mid-critic at 26 to 27 s of run time, with no
- * final frame. 25 s ends runs gracefully before that.
+ * One budget for every model and tool call in a run. Raised to 40 s for acceptance round 4 (Chris's
+ * decision KH.3, 2026-10-14). The platform closes SSE streams near 30 s of wall time (re-confirmed on
+ * the preview on 2026-10-13: a 40 s run was cut mid-critic with no final frame), so whether a 40 s run
+ * survives that cut is measured live on the preview, not assumed here.
  */
-export const RUN_BUDGET_MS = 25_000
+export const RUN_BUDGET_MS = 40_000
 
 /** If the run has not returned this long after its budget aborted, the stream is closed with the budget message anyway. */
 export const HARD_STOP_GRACE_MS = 2_000

@@ -1,4 +1,4 @@
-import { citedNumbers, finishAnswer } from '../citations'
+import { citedNumbers, finishAnswer, type Evidence } from '../citations'
 import type { EndingView, NodeStatus } from '../events'
 import { PlainError, type Spent } from '../errors'
 import { MAX_TOKENS, NODE_MODEL, STEP_NEEDS_MS } from '../models'
@@ -171,9 +171,28 @@ export async function planStep(state: ResearchValues, ctx: NodeContext): Promise
   return { update: { searchQueries: queries }, detail: `Planned searches: ${queries.join('; ')}`, call }
 }
 
-/** The one extra ask the graph makes when a web answer would rest on a single page. */
+/** The host of a read page: lowercased, with a leading `www.` stripped, or null when the URL has no host. */
+export function pageHost(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Cross-host corroboration: the pages read span at least two hosts, a leading `www.` stripped. Hostnames
+ * are compared as they stand otherwise, so a subdomain counts as a different host. Two pages from one
+ * host are one source and do not corroborate each other, however they agree.
+ */
+export function crossHostCorroboration(evidence: Evidence[]): boolean {
+  const hosts = new Set(evidence.map((item) => pageHost(item.url)).filter((host): host is string => host !== null))
+  return hosts.size >= 2
+}
+
+/** The one extra ask the graph makes when a web answer would rest on a single host. */
 const CORROBORATE =
-  'Read at least one more page from a different source that could carry the answer before you finish: a current value should not rest on a single page.'
+  'Read at least one more page from a different website host that could carry the answer before you finish: a current value should not rest on a single host, and two pages from the same host are one source.'
 
 /**
  * The tool-calling agent. With no tool budget left it routes to the draft without a model
@@ -212,17 +231,18 @@ export async function agentStep(state: ResearchValues, ctx: NodeContext): Promis
 
   const { text, toolCalls: requested } = call.reply
   if (requested.length === 0) {
-    const singleWebPage =
-      ctx.web != null &&
-      !state.corroborated &&
-      state.evidence.length === 1 &&
-      !state.evidence[0].url.includes('wikipedia.org')
+    // A page worth corroborating is a web page: Wikipedia alone needs no second read. Corroboration is
+    // cross-host only (two pages from one host are one source), and it is asked for only after a tool
+    // round since the last ask, so a stop that read nothing new goes to the draft instead of asking again.
+    const hasWebPage = state.evidence.some((item) => !item.url.includes('wikipedia.org'))
+    const needsCrossHost = ctx.web != null && hasWebPage && !crossHostCorroboration(state.evidence)
+    const readSinceAsk = state.toolRounds > state.corroborateAtRound
     // The corroborating read must fit (the tools, the extra ask and a draft). The critic is not counted:
     // it skips gracefully on its own timeLeft guard if the budget ends first.
-    if (singleWebPage && roundsLeft > 0 && timeLeft(ctx) >= NEEDS.tools + NEEDS.agent + NEEDS.draft) {
+    if (needsCrossHost && readSinceAsk && roundsLeft > 0 && timeLeft(ctx) >= NEEDS.tools + NEEDS.agent + NEEDS.draft) {
       return {
-        update: { corroborated: true, messages: [{ role: 'user', content: CORROBORATE }] },
-        detail: 'One web page read: asking for one corroborating page before the draft.',
+        update: { corroborateAtRound: state.toolRounds, messages: [{ role: 'user', content: CORROBORATE }] },
+        detail: `${state.evidence.length} page(s), one host only: asking for a corroborating page from a different host before the draft.`,
         route: { to: 'agent', label: 'agent (corroborating read)' },
         call,
       }

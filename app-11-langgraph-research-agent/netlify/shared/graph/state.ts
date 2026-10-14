@@ -75,8 +75,8 @@ export const ResearchState = Annotation.Root({
   messages: appended<ChatMessage>(),
   pendingCalls: last<ToolCall[]>(() => []),
   toolRounds: last(() => 0),
-  /** True once the graph has asked for one corroborating read after a single-page web stop. */
-  corroborated: last(() => false),
+  /** The tool round in which the graph last asked for a cross-host corroborating read; 0 when it never asked. */
+  corroborateAtRound: last(() => 0),
   /** Lookups that failed because Wikipedia did not answer (not a missing page), each update appends. */
   failedLookups: appended<FailedLookup>(),
   /** Pages the agent read, numbered in order. Each update appends the new pages only. */

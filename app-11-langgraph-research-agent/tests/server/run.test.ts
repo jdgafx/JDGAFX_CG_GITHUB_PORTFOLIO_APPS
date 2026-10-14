@@ -343,7 +343,7 @@ describe('POST /api/run', () => {
     expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
   })
 
-  it('ends a run that outlasts the run budget with the pages read, the budget message and [DONE], before the platform cut-off', async () => {
+  it('ends a run that outlasts the run budget with the draft, the budget message and [DONE]', async () => {
     vi.useFakeTimers()
     try {
       // Every provider call takes its scripted time, all inside the per-call limit, so only the budget for the whole run can stop the chain.
@@ -374,12 +374,17 @@ describe('POST /api/run', () => {
       await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + 1_000)
       const { frames, lastRecord } = await reading
 
-      expect(RUN_BUDGET_MS).toBeLessThan(30_000)
+      expect(RUN_BUDGET_MS).toBe(40_000)
       expect(lastRecord).toBe('data: [DONE]')
-      // Plan and agent took 15.5 s: the 9.5 s left covered the tools (9 s with a draft) but not another agent turn, and the 11 s draft hit the budget.
-      expect(frames.at(-1)).toMatchObject({ type: 'result', answer: '', ending: { kind: 'no_answer' } })
+      // Plan (8 s), the agent turns (7.5 s + 11 s) and the 9 s draft ended at 35.5 s of the 40 s budget: the
+      // 4.5 s left covered the review start, so the critic's own 9 s call ran into the budget at 40 s.
+      expect(frames.at(-1)).toMatchObject({
+        type: 'result',
+        answer: ANSWER,
+        ending: { kind: 'partial', message: 'Unreviewed: the time limit ended the review.' },
+      })
       const stopped = frames.find((frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.status === 'failed')
-      expect(stopped).toMatchObject({ node: 'draft', detail: BUDGET_MESSAGE })
+      expect(stopped).toMatchObject({ node: 'critic', detail: BUDGET_MESSAGE })
     } finally {
       vi.useRealTimers()
     }
