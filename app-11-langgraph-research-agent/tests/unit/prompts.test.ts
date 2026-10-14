@@ -21,6 +21,12 @@ describe('prompts', () => {
     expect(DRAFT_SYSTEM).toContain('cite the sources you read')
   })
 
+  it('tell the draft never to attribute a value to another package without a source saying so', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'Never attribute a value to a different package, product or subject unless a source explicitly says the value belongs to it.',
+    )
+  })
+
   it('tell the critic that an honest "the sources do not say" draft passes, and that accept is the default', () => {
     expect(CRITIC_SYSTEM).toContain('The default verdict is accept.')
     expect(CRITIC_SYSTEM).toContain('A part the draft says the sources do not cover counts as answered')

@@ -461,6 +461,29 @@ export function withLookupNote(ending: EndingView, failed: FailedLookup[]): Endi
 
 /** Drops citation markers that name no source and lists the sources the answer cites. No model call. */
 export function finalStep(state: ResearchValues): NodeResult {
+  // A draft the critic sent back was never accepted — at the revision cap or for lack of time. It must
+  // not ship as the answer: the run ends no_answer with the pages read and what the critic asked for.
+  if (state.critique?.verdict === 'revise') {
+    const read = state.evidence.length === 0
+      ? ''
+      : ` The agent read ${state.evidence.length === 1 ? '1 page' : `${state.evidence.length} pages`}, listed below.`
+    const message = `No answer was confirmed: the critic asked for changes, but the run ended before they were applied, so the draft is not shown as an answer.${read} The critic asked for: ${state.critique.notes}`
+    const pages = state.evidence.map(({ n, title, url }) => ({ n, title, url }))
+    return {
+      update: {
+        finalAnswer: {
+          answer: '',
+          sources: pages,
+          truncated: false,
+          ending: withLookupNote({ kind: 'no_answer', message }, state.failedLookups),
+          citation: { sentences: 0, uncited: [] },
+        },
+      },
+      detail:
+        'Withheld: the critic asked for changes and the run ended before they were applied.' +
+        (state.evidence.length > 0 ? ` ${state.evidence.length} page(s) read.` : ''),
+    }
+  }
   // Only a revised draft has seen the reviewer's issues, so only it can speak about them.
   const finished = finishAnswer(state.draftText, state.evidence, state.revisions > 0)
   const { text: answer, sources, citation } = finished

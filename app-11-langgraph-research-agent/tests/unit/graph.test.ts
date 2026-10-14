@@ -354,10 +354,13 @@ describe('graph: the path taken', () => {
       'final (revision limit reached)',
     ])
     expect(out.result).toMatchObject({
-      answer: 'Third draft.',
+      answer: '',
       revisions: 2,
       critic: { verdict: 'revise', reviewed: true, notes: '"Third draft": Still not enough.' },
+      ending: { kind: 'no_answer' },
     })
+    expect(out.result?.ending.message).toContain('the critic asked for changes')
+    expect(out.result?.ending.message).toContain('Still not enough.')
   })
 
   it('(f) an unreadable critic reply goes out unreviewed, and is labelled that way', async () => {

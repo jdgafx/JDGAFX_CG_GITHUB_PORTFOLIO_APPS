@@ -159,11 +159,15 @@ describe('time-aware edges', () => {
     })
     expect(out.edges).toEqual(['draft (no more searches)', 'final (out of time)'])
     expect(out.counts.draft).toBe(1)
+    // The critic sent the draft back and there was no time to fix it: the draft is withheld, not shipped.
     expect(out.result).toMatchObject({
       revisions: 0,
+      answer: '',
       critic: { verdict: 'revise', reviewed: true, notes: `"${QUOTE}": State the theme.` },
-      ending: { kind: 'partial', message: 'The critic asked for changes, but there was no time left for a revision.' },
+      ending: { kind: 'no_answer' },
     })
+    expect(out.result?.ending.message).toContain('the critic asked for changes')
+    expect(out.result?.ending.message).toContain('State the theme.')
   })
 
   it('revises when the time allows it, so the check above is what stopped the revision', async () => {
