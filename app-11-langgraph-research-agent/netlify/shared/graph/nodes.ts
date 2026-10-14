@@ -68,6 +68,31 @@ function uncitedIssues(draft: string, evidence: ResearchValues['evidence'], revi
     .map((quote) => ({ quote, fix: 'Cite the source number that supports this sentence, like [1], or the sources of every input it uses.' }))
 }
 
+/** Sentences that hedge the claim already are honest; only assertive single-source latest claims are issues. */
+const HEDGED_CLAIM =
+  /cannot (fully )?confirm|not confirmed|do(es)? not say|would confirm|to confirm|could settle|would settle|settle it|check (the|it|directly)|no answer|may be/i
+
+/**
+ * A sentence that states a latest/current/newest value on the authority of exactly one source is not
+ * confirmed, whatever the model critic decides: one page can be a stale cache snapshot (it was, on
+ * endoflife.date/nodejs, twice). Two markers in the sentence, or an honest hedge, or no marker at all
+ * (uncitedIssues handles those) are fine.
+ */
+export function singleSourceLatestIssues(draft: string): CriticIssue[] {
+  return draft
+    .split(/(?<=\.)\s+/)
+    .filter((sentence) => {
+      if (!/\b(latest|current|currently|newest|most recent)\b/i.test(sentence)) return false
+      const markers = new Set(sentence.match(/\[\d+\]/g) ?? [])
+      if (markers.size !== 1) return false
+      return !HEDGED_CLAIM.test(sentence)
+    })
+    .map((quote) => ({
+      quote,
+      fix: 'One source does not confirm what is latest: say the sources cannot confirm it and name what would settle it, or cite a second source.',
+    }))
+}
+
 /** Milliseconds left in the run budget. */
 export function timeLeft(ctx: NodeContext): number {
   return ctx.deadline === undefined ? Infinity : ctx.deadline - (ctx.now ?? Date.now)()
@@ -350,16 +375,18 @@ export async function criticStep(state: ResearchValues, ctx: NodeContext): Promi
       route: { to: 'final', label: `final (${OUT_OF_TIME})` },
     }
   }
-  // Checks in code first: a year gap worked out from the wrong year of a range, or a sentence with no source
-  // marker, goes back without a model call.
+  // Checks in code first: a year gap worked out from the wrong year of a range, a sentence with no source
+  // marker, or a latest/current value resting on one source, goes back without a model call.
   const gapIssues = yearGapIssues(state.question, state.draftText, state.evidence)
-  const codeIssues = [...gapIssues, ...uncitedIssues(state.draftText, state.evidence, state.revisions > 0)]
+  const singleIssues = singleSourceLatestIssues(state.draftText)
+  const codeIssues = [...gapIssues, ...uncitedIssues(state.draftText, state.evidence, state.revisions > 0), ...singleIssues]
   if (codeIssues.length > 0 && state.revisions < MAX_REVISIONS && timeLeft(ctx) >= NEEDS.draft + NEEDS.critic) {
     const notes = issueNotes(codeIssues)
     const revisions = state.revisions + 1
     return {
       update: { critique: { verdict: 'revise', notes, reviewed: true }, revisions, draftReviewed: true },
-      detail: `${gapIssues.length > 0 ? 'Checked the year gap against the sources.' : 'Checked that every sentence cites a source.'} ${notes}`,
+      detail:
+        `${gapIssues.length > 0 ? 'Checked the year gap against the sources.' : singleIssues.length > 0 ? 'Checked that a latest value rests on more than one source.' : 'Checked that every sentence cites a source.'} ${notes}`,
       route: { to: 'draft', label: `revise (${revisions} of ${MAX_REVISIONS})` },
     }
   }
