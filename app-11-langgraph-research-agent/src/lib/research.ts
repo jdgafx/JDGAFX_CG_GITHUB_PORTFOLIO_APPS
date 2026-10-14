@@ -24,7 +24,7 @@ async function refusalMessage(response: Response): Promise<string> {
   return `The server could not start the run (HTTP ${response.status}).`
 }
 
-/** How long the page waits on the server: for the next byte, and for the whole run. The server's own budget is 25 s and it closes a hung stream at 27 s, so the 60 s cap covers a slow network, not a slow server. */
+/** How long the page waits on the server: for the next byte, and for the whole run. The server's run budget is 40 s, it finalizes at its 27 s stream-cut guard (the platform cuts near 30 s) and it closes a hung stream at 42 s, so the 60 s cap covers a slow network, not a slow server. */
 export const WATCHDOG = { idleMs: 30_000, totalMs: 60_000 }
 /** The page adds "Press Start research to try again." under every error, so the message does not repeat it. */
 export const STALLED_MESSAGE = 'The server stopped responding.'

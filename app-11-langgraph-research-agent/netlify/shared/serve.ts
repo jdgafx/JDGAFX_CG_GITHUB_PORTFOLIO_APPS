@@ -5,11 +5,17 @@ import { BUDGET_MESSAGE, NOT_CONFIGURED_MESSAGE } from './openrouter'
 
 /**
  * One budget for every model and tool call in a run. Raised to 40 s for acceptance round 4 (Chris's
- * decision KH.3, 2026-10-14). The platform closes SSE streams near 30 s of wall time (re-confirmed on
- * the preview on 2026-10-13: a 40 s run was cut mid-critic with no final frame), so whether a 40 s run
- * survives that cut is measured live on the preview, not assumed here.
+ * decision KH.3, 2026-10-14). The graph plans its steps against this deadline.
  */
 export const RUN_BUDGET_MS = 40_000
+
+/**
+ * The platform closes SSE streams near 30 s of wall time: measured at 30.2 and 30.8 s on the preview on
+ * 2026-10-14, and a run cut there dies mid-step with no final frame and no [DONE]. The run budget is
+ * 40 s, so this guard aborts the run at 27 s instead: the abort ends the run's own partial-result path,
+ * which sends the answer so far with a time-limit notice, then [DONE], before the platform cut.
+ */
+export const STREAM_CUT_GUARD_MS = 27_000
 
 /** If the run has not returned this long after its budget aborted, the stream is closed with the budget message anyway. */
 export const HARD_STOP_GRACE_MS = 2_000
@@ -33,6 +39,9 @@ export function streamRun(
   const deadline = startedAt + RUN_BUDGET_MS
   const runId = crypto.randomUUID().slice(0, 8)
   const timer = setTimeout(() => budget.abort(), RUN_BUDGET_MS)
+  // The platform's stream cut comes before the run budget: abort early enough that the run's own
+  // finalization (a result or error frame, then [DONE]) reaches the visitor before the platform kills it.
+  const streamGuard = setTimeout(() => budget.abort(), STREAM_CUT_GUARD_MS)
   let hardStop: ReturnType<typeof setTimeout> | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
   let closed = false
@@ -49,6 +58,7 @@ export function streamRun(
   }
   const stopTimers = () => {
     clearTimeout(timer)
+    clearTimeout(streamGuard)
     clearTimeout(hardStop)
     clearInterval(heartbeat)
   }

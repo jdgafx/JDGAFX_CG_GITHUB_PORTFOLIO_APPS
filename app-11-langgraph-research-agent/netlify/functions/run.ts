@@ -3,11 +3,11 @@ import { runResearch } from '../shared/graph/stream'
 import { MAX_BODY_BYTES, validateQuestion } from '../shared/guard'
 import { chat } from '../shared/openrouter'
 import { livePriceBook } from '../shared/pricing'
-import { fail, gate, HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS, streamRun } from '../shared/serve'
+import { fail, gate, HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS, STREAM_CUT_GUARD_MS, streamRun } from '../shared/serve'
 import { WEB_KEY_ENV, webTools } from '../shared/websearch'
 import { liveWiki } from '../shared/wikipedia'
 
-export { HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS }
+export { HARD_STOP_GRACE_MS, HEARTBEAT_MS, RUN_BUDGET_MS, STREAM_CUT_GUARD_MS }
 
 export default async (req: Request): Promise<Response> => {
   let headers: Record<string, string> = {}
