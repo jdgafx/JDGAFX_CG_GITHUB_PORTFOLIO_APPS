@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RUN_BUDGET_MS } from '../../netlify/functions/run'
+import { RUN_BUDGET_MS, STREAM_CUT_GUARD_MS } from '../../netlify/functions/run'
 import type { Frame, NodeEndFrame } from '../../netlify/shared/events'
 import { NODE_MODEL } from '../../netlify/shared/models'
 import { MODEL_LIST_URL } from '../../netlify/shared/pricing'
@@ -343,12 +343,12 @@ describe('POST /api/run', () => {
     expect(frames.at(-1)).toEqual({ type: 'error', message: PROVIDER_SLOW })
   })
 
-  it('ends a run that outlasts the run budget with the pages read, the budget message and [DONE], before the platform cut-off', async () => {
+  it('ends a run that outlasts the stream-cut guard with the pages read, the time-limit notice and [DONE], before the platform cut-off', async () => {
     vi.useFakeTimers()
     try {
-      // Every provider call takes 8 to 9 s, inside the per-call limit, so only the budget for the whole run can stop the chain.
+      // Every provider call takes its scripted time, all inside the per-call limit, so only the guard can stop the chain.
       const answers = sampleOpenRouter()
-      const delays = [8_000, 8_200]
+      const delays = [8_000, 7_500, 11_000]
       let modelCalls = 0
       const fetchStub = vi.fn(
         (input: string | URL | Request, init?: RequestInit) =>
@@ -374,10 +374,19 @@ describe('POST /api/run', () => {
       await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + 1_000)
       const { frames, lastRecord } = await reading
 
-      expect(RUN_BUDGET_MS).toBeLessThan(30_000)
+      // The ordered 40 s run budget plans the steps; the 27 s guard aborts first, before the platform's ~30 s cut.
+      expect(RUN_BUDGET_MS).toBe(40_000)
+      expect(STREAM_CUT_GUARD_MS).toBe(27_000)
+      expect(STREAM_CUT_GUARD_MS).toBeLessThan(30_000)
+      expect(STREAM_CUT_GUARD_MS).toBeLessThan(RUN_BUDGET_MS)
       expect(lastRecord).toBe('data: [DONE]')
-      // Plan and agent took 16.2 s: the 8.8 s left covered the tools (8.5 s with a draft) but not another agent turn, and the 9 s draft hit the budget.
-      expect(frames.at(-1)).toMatchObject({ type: 'result', answer: '', ending: { kind: 'no_answer' } })
+      // Plan (8 s) and the agent turns (7.5 s + 11 s) ended at 26.5 s, when the draft started; the guard
+      // aborted that draft call at 27 s, so the run finalizes with the pages read instead of dying at ~30 s.
+      expect(frames.at(-1)).toMatchObject({
+        type: 'result',
+        answer: '',
+        ending: { kind: 'no_answer', message: 'No answer was written: the time limit ended the run. The agent read 1 page, listed below.' },
+      })
       const stopped = frames.find((frame): frame is NodeEndFrame => frame.type === 'node_end' && frame.status === 'failed')
       expect(stopped).toMatchObject({ node: 'draft', detail: BUDGET_MESSAGE })
     } finally {

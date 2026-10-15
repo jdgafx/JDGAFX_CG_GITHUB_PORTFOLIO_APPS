@@ -48,12 +48,12 @@ const logs = (spy: { mock: { calls: unknown[][] } }) =>
   spy.mock.calls.map((call) => `${String(call[0])} ${String(call[1] ?? '')}`)
 
 describe('the hard stop', () => {
-  it('closes a hung run with the budget message and [DONE], before 30 seconds', async () => {
+  it('closes a hung run with the budget message and [DONE] when the budget and its grace run out', async () => {
     const reading = (await start()).text()
     await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + HARD_STOP_GRACE_MS)
 
     const text = await reading
-    expect(RUN_BUDGET_MS + HARD_STOP_GRACE_MS).toBeLessThan(30_000)
+    expect(RUN_BUDGET_MS).toBe(40_000)
     expect(text.endsWith(`data: ${JSON.stringify({ type: 'error', message: BUDGET_MESSAGE })}\n\ndata: [DONE]\n\n`)).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -135,7 +135,7 @@ describe('the run log', () => {
     const reading = (await start()).text()
     await vi.advanceTimersByTimeAsync(RUN_BUDGET_MS + HARD_STOP_GRACE_MS)
     await reading
-    expect(logs(spy)[1]).toMatch(/"outcome":"hard-stop","totalMs":27000,"frames":2\}$/)
+    expect(logs(spy)[1]).toMatch(/"outcome":"hard-stop","totalMs":42000,"frames":2\}$/)
 
     spy.mockClear()
     const reader = (await start()).body?.getReader()

@@ -107,7 +107,7 @@ const UNCHECKED = ' The served model was not checked: the price list was unavail
 
 describe('time-aware edges', () => {
   it('skips a tool round the time left cannot cover, with the reason on the edge and in the trace', async () => {
-    // 8.4 s left at the first agent turn: a round needs 8.5 s (the tools and a draft), so the agent goes to the draft.
+    // 8.4 s left at the first agent turn: a round needs 9 s (the tools and a draft), so the agent goes to the draft.
     const out = await run({ script: {}, toolsOnAgentCall: [1], step: 0, deadline: 8_400 })
     expect(out.path).toEqual(['plan', 'agent', 'draft', 'critic', 'final'])
     expect(out.edges).toEqual(['draft (out of time)', 'final (accepted)'])
@@ -123,23 +123,23 @@ describe('time-aware edges', () => {
   })
 
   it('skips the next agent turn once a page is read and the time left cannot cover a draft and its review', async () => {
-    // Each call takes 3 s of a 20 s budget. After plan and agent, 14 s are left: enough for the tools, not for another turn (19.5 s).
-    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 3_000, deadline: 20_000 })
+    // Each call takes 3 s of a 19 s budget. After plan and agent, 13 s are left: enough for the tools, not for another turn (13.5 s).
+    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 3_000, deadline: 19_000 })
     expect(out.path).toEqual(['plan', 'agent', 'tools', 'agent', 'draft', 'critic', 'final'])
     const secondAgent = out.ends.filter((end) => end.node === 'agent')[1]
     expect(secondAgent).toMatchObject({
       status: 'skipped',
-      detail: 'Time left 14 s: finishing with the 1 page(s) already read.',
+      detail: 'Time left 13 s: finishing with the 1 page(s) already read.',
     })
     expect(secondAgent?.model).toBeUndefined()
     expect(out.counts.agent).toBe(1)
   })
 
   it('skips the review when the time left is under what the critic needs, and labels the answer unreviewed', async () => {
-    // Each call takes 7.5 s of a 28.8 s budget: 13.8 s are left for the draft (13.5 s needed), 6.3 s after it (6.5 s needed).
-    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 7_500, deadline: 28_800 })
+    // Each call takes 5 s of a 19.4 s budget: after plan and agent, 9.4 s are left, enough for the tools (9 s with a draft) but not another turn (13.5 s); the 5 s draft leaves 4.4 s, under the 4.5 s the review needs.
+    const out = await run({ script: {}, toolsOnAgentCall: [1], step: 5_000, deadline: 19_400 })
     const criticEnd = out.ends.find((end) => end.node === 'critic')
-    expect(criticEnd).toMatchObject({ status: 'skipped', detail: 'Time left 6 s: skipping the review. The draft goes out unreviewed.' })
+    expect(criticEnd).toMatchObject({ status: 'skipped', detail: 'Time left 4 s: skipping the review. The draft goes out unreviewed.' })
     expect(out.edges).toEqual(['tools (round 1 of 4)', 'draft (out of time)', 'final (out of time)'])
     expect(out.counts.critic).toBe(0)
     expect(out.result).toMatchObject({
@@ -151,7 +151,7 @@ describe('time-aware edges', () => {
   })
 
   it('goes to final instead of a revision when the time left cannot cover a draft and a review', async () => {
-    // 6.5 s a call, 30 s budget: after the critic 4 s are left, a revision needs 13.5 s.
+    // 6.5 s a call, 30 s budget: after the critic 4 s are left, a revision needs 9.5 s.
     const out = await run({
       script: { critic: [revise(QUOTE, 'State the theme.')] },
       step: 6_500,
@@ -159,11 +159,15 @@ describe('time-aware edges', () => {
     })
     expect(out.edges).toEqual(['draft (no more searches)', 'final (out of time)'])
     expect(out.counts.draft).toBe(1)
+    // The critic sent the draft back and there was no time to fix it: the draft is withheld, not shipped.
     expect(out.result).toMatchObject({
       revisions: 0,
+      answer: '',
       critic: { verdict: 'revise', reviewed: true, notes: `"${QUOTE}": State the theme.` },
-      ending: { kind: 'partial', message: 'The critic asked for changes, but there was no time left for a revision.' },
+      ending: { kind: 'no_answer' },
     })
+    expect(out.result?.ending.message).toContain('the critic asked for changes')
+    expect(out.result?.ending.message).toContain('State the theme.')
   })
 
   it('revises when the time allows it, so the check above is what stopped the revision', async () => {
@@ -419,7 +423,7 @@ describe('a run that stops keeps what it has', () => {
     expect(out.ends.find((end) => end.node === 'critic')).toMatchObject({ status: 'failed', detail: SLOW_MESSAGE })
   })
 
-  it('shows the reviewed draft when the revision times out', async () => {
+  it('withholds the rejected draft when the revision times out', async () => {
     const out = await run({
       script: { critic: [revise(QUOTE, 'Cite the theme.')] },
       toolsOnAgentCall: [1],
@@ -427,12 +431,13 @@ describe('a run that stops keeps what it has', () => {
     })
     expect(out.last).toMatchObject({
       type: 'result',
-      answer: DRAFT,
-      critic: { verdict: 'revise', reviewed: true, notes: `"${QUOTE}": Cite the theme.` },
+      answer: '',
       ending: {
-        kind: 'partial',
-        message: 'Reviewed once: the critic asked for changes, but the time limit ended the revision. This is the reviewed draft.',
+        kind: 'no_answer',
+        message:
+          'No answer was confirmed: the critic asked for changes, but the time limit ended the revision, so the draft is not shown as an answer. The agent read 1 page, listed below.',
       },
+      sources: [{ url: PAGE.url }],
     })
   })
 

@@ -15,6 +15,12 @@ export const USER_AGENT = 'GraphScout/1.0 (+https://jdgafx-app-11-langgraph-rese
 export interface SearchHit {
   title: string
   snippet: string
+  /**
+   * Where the result lives, when the search knows it. Wikipedia reads a page by title, so it leaves
+   * this unset; the web search fills it, because its page tool reads a URL. Cleaned snippets and
+   * titles are shared, so both searches answer in one shape.
+   */
+  url?: string
 }
 
 export interface PageText {

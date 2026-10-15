@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CRITIC_SYSTEM, DRAFT_SYSTEM, draftUserText } from '../../netlify/shared/graph/prompts'
+import { CRITIC_SYSTEM, DRAFT_SYSTEM, agentSystem, draftUserText } from '../../netlify/shared/graph/prompts'
 
 describe('prompts', () => {
   it('forbid the draft to talk about the review, and never name a reviewer when asking for a revision', () => {
@@ -21,9 +21,49 @@ describe('prompts', () => {
     expect(DRAFT_SYSTEM).toContain('cite the sources you read')
   })
 
+  it('tell the draft never to attribute a value to another package without a source saying so', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'Never attribute a value to a different package, product or subject unless a source explicitly says the value belongs to it.',
+    )
+  })
+
   it('tell the critic that an honest "the sources do not say" draft passes, and that accept is the default', () => {
     expect(CRITIC_SYSTEM).toContain('The default verdict is accept.')
     expect(CRITIC_SYSTEM).toContain('A part the draft says the sources do not cover counts as answered')
     expect(CRITIC_SYSTEM).toContain('unless the sources do contain the answer')
+  })
+
+  it('tell the agent to cross-check a latest or current value on two pages, only with web search', () => {
+    const sentence =
+      'When the question asks for a latest or current value - a version, a price, a score - read at least two different pages that could carry it, and if they disagree, follow the one whose content is newest.'
+    expect(agentSystem(3, true)).toContain(sentence)
+    expect(agentSystem(3, false)).not.toContain(sentence)
+  })
+
+  it('tell the draft and the critic to never present the older of two differing values as the current one', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'When the sources give different values for the same current fact - a version, a price, a score - say what each source shows and never present the older value as the current one.',
+    )
+    expect(CRITIC_SYSTEM).toContain(
+      'Set ok to false for a claim that calls a value current or latest when any retrieved source shows a higher version or value for the same fact than the value the claim calls current or latest.',
+    )
+  })
+
+  it('tell the draft to present the higher value or say it cannot confirm, never the lower one as latest', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'If any source shows a higher version or value for the same fact than the value you call the latest or current one, either present the higher value or say the sources cannot confirm which is latest: never present the lower value as the latest or current one.',
+    )
+    // The critic fails the claim whenever any retrieved source shows a higher value, not only a dated "newer" one.
+    expect(CRITIC_SYSTEM).not.toContain('when another source shows a newer value for the same fact.')
+  })
+
+  it('tell the draft and the critic that a single-source current value is not confirmed', () => {
+    expect(DRAFT_SYSTEM).toContain(
+      'When the question asks for a latest or current value and only one source carries it, do not state it as the current value: say the sources cannot confirm it, and name what would settle it.',
+    )
+    expect(DRAFT_SYSTEM).toContain('The sentence that says what the sources cannot confirm cites the sources it read, like [1][2].')
+    expect(CRITIC_SYSTEM).toContain(
+      'Set ok to false for a claim that states a latest or current value, carried by a single source, as current or confirmed.',
+    )
   })
 })

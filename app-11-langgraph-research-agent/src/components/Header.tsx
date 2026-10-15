@@ -71,7 +71,7 @@ export function Header({ view, earlierLiveAt, pages, replaying }: HeaderProps) {
                 : 'Live data: Wikipedia'}
           </p>
           <p className="ds-subtitle">
-            Ask a factual question. An agent searches Wikipedia, drafts a cited answer, and a critic checks it.
+            Ask a factual question. An agent searches for sources, drafts a cited answer, and a critic checks it.
           </p>
         </div>
         <p className="ds-showcase">

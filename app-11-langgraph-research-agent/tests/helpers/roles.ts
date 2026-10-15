@@ -1,4 +1,7 @@
-import { CRITIC_SYSTEM, PLAN_SYSTEM } from '../../netlify/shared/graph/prompts'
+import { CRITIC_SYSTEM, planSystem } from '../../netlify/shared/graph/prompts'
+
+/** The plan prompt the scripts here run without a web search key. */
+const PLAN_SYSTEM = planSystem(false)
 
 export type Role = 'plan' | 'agent' | 'draft' | 'critic'
 

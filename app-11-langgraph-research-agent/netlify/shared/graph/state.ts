@@ -9,7 +9,7 @@ export const MAX_TOOL_ROUNDS = 4
 export const MAX_REVISIONS = 2
 
 /** The nodes a conditional edge can lead to. */
-export type Target = 'tools' | 'draft' | 'final'
+export type Target = 'tools' | 'draft' | 'final' | 'agent'
 
 /** One visit to one node, as the trace shows it. */
 export interface TraceRow {
@@ -75,6 +75,8 @@ export const ResearchState = Annotation.Root({
   messages: appended<ChatMessage>(),
   pendingCalls: last<ToolCall[]>(() => []),
   toolRounds: last(() => 0),
+  /** The tool round in which the graph last asked for a cross-host corroborating read; 0 when it never asked. */
+  corroborateAtRound: last(() => 0),
   /** Lookups that failed because Wikipedia did not answer (not a missing page), each update appends. */
   failedLookups: appended<FailedLookup>(),
   /** Pages the agent read, numbered in order. Each update appends the new pages only. */
