@@ -98,7 +98,7 @@ describe('POST /api/explain', () => {
     const out = (await res.json()) as Loose
     expect(out).toMatchObject({
       ok: true,
-      paragraph: PARAGRAPH.paragraph,
+      paragraph: PARAGRAPH.shown,
       servedModel: 'anthropic/claude-haiku-5.5',
       usage: { prompt: 2863, completion: 2596, reasoning: 2068 },
       newestModel: 'anthropic/claude-haiku-5.5',
@@ -117,26 +117,33 @@ describe('POST /api/explain', () => {
     expect(withoutList.costUsd).toBeNull()
   })
 
-  it('rev 8.3: the paragraph sent back is the target\'s own figures once, with the model\'s text untouched', async () => {
+  it('rev 8.5: a sentence with a figure about another package, a repeated figure or no stop goes whole; the rest is sent back flat', async () => {
+    const total = { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' }
     const content = JSON.stringify({
       paragraph: [
-        { t: 'text', s: 'react totals ' },
-        { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
-        { t: 'text', s: '. ' },
-        { t: 'compare', package: 'react', peer: 'vite', metric: 'window_total' },
-        { t: 'text', s: '' },
-        { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
-        { t: 'claim', kind: 'window_total', package: 'vite', span: 'window', day: '', value: '1' },
+        { sentence: [{ t: 'text', s: 'react totals ' }, total, { t: 'text', s: ' downloads.' }] },
+        { sentence: [{ t: 'text', s: 'Vite totals ' }, { ...total, package: 'vite', value: '1' }, { t: 'text', s: ' downloads, and react ' }, { ...total, kind: 'peak_value' }, { t: 'text', s: '.' }] },
+        { sentence: [{ t: 'text', s: 'Again, ' }, { ...total, value: '2' }, { t: 'text', s: ' downloads.' }] },
+        { sentence: [{ t: 'text', s: 'react rose' }] },
+        { sentence: [{ t: 'compare', package: 'react', peer: 'vite', metric: 'window_total' }] },
       ],
     })
     installFetch({ chat: () => jsonResponse(chatBody({ content })), list: () => jsonResponse(listBody()) })
     const out = (await (await (await load()).handler(explainRequest(wireRequest()))).json()) as Loose
     expect(out.paragraph).toEqual([
       { t: 'text', s: 'react totals ' },
-      { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
-      { t: 'text', s: '. ' },
+      total,
+      { t: 'text', s: ' downloads.' },
+      { t: 'text', s: ' ' },
       { t: 'compare', package: 'react', peer: 'vite', metric: 'window_total' },
     ])
+  })
+
+  it('the old flat paragraph (segments, no sentences) is invalid:bad-shape', async () => {
+    const content = JSON.stringify({ paragraph: [{ t: 'text', s: 'react totals.' }] })
+    installFetch({ chat: () => jsonResponse(chatBody({ content })), list: () => jsonResponse(listBody()) })
+    const out = (await (await (await load()).handler(explainRequest(wireRequest()))).json()) as Loose
+    expect(out).toMatchObject({ ok: false, reason: 'invalid:bad-shape' })
   })
 
   it('takes the target in any position among the names', async () => {

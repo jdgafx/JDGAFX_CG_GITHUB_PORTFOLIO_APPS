@@ -3,6 +3,7 @@ import { MAX_BODY_BYTES, originAllowed, parseParagraph, readText, validateExplai
 import type { Segment } from '../../shared/types'
 import captured from '../fixtures/sp2-e2ed80c-paragraphs.json'
 import { wireRequest } from './helpers'
+import { asSentences } from './sentences'
 import { decodeRequest } from '../../shared/modelInput'
 
 /** What explain.ts does: decode the text, then validate. A decode failure is a refusal. */
@@ -152,157 +153,83 @@ const text = (s: string): Segment => ({ t: 'text', s })
 const claim = (kind: Claim['kind'], pkg: string, value: string, over: Partial<Claim> = {}): Segment => ({ t: 'claim', kind, package: pkg, span: 'window', day: '', value, ...over })
 const cmp = (pkg: string, peer: string, metric: 'window_total' | 'last30_total' = 'window_total'): Segment => ({ t: 'compare', package: pkg, peer, metric })
 const NAMES = ['vite', 'webpack', 'esbuild']
-const tidy = (paragraph: Segment[], target = 'vite') => parseParagraph({ paragraph }, NAMES, target)
+/** The model's answer: a list of sentences, each its own segments (rev 8.5). */
+const tidy = (sentences: Segment[][], target = 'vite') => parseParagraph({ paragraph: sentences.map((sentence) => ({ sentence })) }, NAMES, target)
+const total = claim('window_total', 'vite', '837275395')
+const S1 = [text('Vite had '), total, text(' downloads.')]
+const S2 = [text('Its peak was '), claim('peak_value', 'vite', '5'), text('.')]
 
-describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s own figures once, with words around it', () => {
-  it('drops a repeat of a claim, keeping the first, and the model\'s text byte for byte where no sentence is broken', () => {
-    const out = tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again. '), claim('window_total', 'vite', '837275395')])
-    expect(out).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again. ')])
+describe('parseParagraph (rev 8.5): the paragraph is whole sentences; a sentence with any failed figure goes whole', () => {
+  it('keeps whole sentences in order, one space between them, the text inside byte for byte', () => {
+    expect(tidy([S1, S2])).toEqual([...S1, text(' '), ...S2])
+    expect(tidy([[text('  Vite had '), total, text(' downloads.  ')]])).toEqual([text('Vite had '), total, text(' downloads.')])
   })
-  it('a repeat that leaves "Again " with nothing after it takes that half sentence', () => {
-    expect(tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again '), claim('window_total', 'vite', '837275395')])).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. ')])
-  })
-  it('a figure stated again with another value or span is still the same figure: the first stays (placeholders 1 and 0, span none)', () => {
-    const peak = claim('peak_value', 'webpack', '12326693')
-    expect(tidy([text('Peak '), peak, text(' downloads. '), claim('peak_value', 'webpack', '1', { span: 'none' }), text('')], 'webpack')).toEqual([text('Peak '), peak, text(' downloads. ')])
-    const d = claim('day_value', 'vite', '438449', { span: 'none', day: '2026-09-26' })
-    expect(tidy([text('On that day '), d, text(' downloads. '), claim('day_value', 'vite', '0', { span: 'none', day: '2026-09-26' }), text(' ')])).toEqual([text('On that day '), d, text(' downloads. '), text(' ')])
-  })
-  it('different figures are all kept: two totals of different spans, two unusual days, a day and its count', () => {
-    const p = [
-      text('Past year '), claim('window_total', 'vite', '5270117263'), text(' and past month '), claim('window_total', 'vite', '837275395', { span: 'last30' }),
-      text(' on '), claim('unusual_day', 'vite', '2026-02-21'), text(' and '), claim('unusual_day', 'vite', '2026-02-22'), text(' with '), claim('day_value', 'vite', '6458089', { day: '2026-02-21' }),
-    ]
-    expect(tidy(p)).toEqual(p)
-  })
-  it('drops a figure claim about another package', () => {
-    expect(tidy([text('Vite had '), claim('window_total', 'vite', '837275395'), text(' downloads. '), claim('window_total', 'webpack', '1')])).toEqual([text('Vite had '), claim('window_total', 'vite', '837275395'), text(' downloads. ')])
-  })
-  it('keeps a compare that names the target as package or as peer, drops one that names neither, and drops a repeated compare', () => {
-    const p = [text('x. '), cmp('vite', 'webpack'), text('. '), cmp('webpack', 'vite'), text('. '), cmp('webpack', 'esbuild'), text('. '), cmp('vite', 'webpack'), text('.')]
-    expect(tidy(p)).toEqual([text('x. '), cmp('vite', 'webpack'), text('. '), cmp('webpack', 'vite'), text('. '), text('. '), text('.')])
-  })
-  it('drops a claim with no words on either side (blank text, a compare or the paragraph edge) and keeps one with words on one side', () => {
-    expect(tidy([text('Words. '), cmp('vite', 'webpack'), text(' '), claim('peak_value', 'vite', '5'), text(' '), cmp('vite', 'esbuild')])).toEqual([text('Words. '), cmp('vite', 'webpack'), text(' '), text(' '), cmp('vite', 'esbuild')])
-    expect(tidy([text('Words. '), cmp('vite', 'webpack'), claim('peak_value', 'vite', '5')])).toEqual([text('Words. '), cmp('vite', 'webpack')])
-    expect(tidy([text('Words '), claim('peak_value', 'vite', '5'), cmp('vite', 'webpack')])).toHaveLength(3) // words on one side: part of a sentence
-    expect(tidy([claim('peak_value', 'vite', '5')])).toBeNull() // nothing else left
-    const kept = [text('Peak '), claim('peak_day', 'vite', '2026-10-01'), claim('peak_value', 'vite', '39379494'), text(' downloads')]
-    expect(tidy(kept)).toEqual(kept) // two claims side by side are one phrase
-  })
-  it('a dropped claim never leaves half a sentence: the sentence it sat in goes with it (the "Across the past year, is compared below." fragment)', () => {
-    // a compare between two peers is dropped; its words around it would read "Across the past year,  is compared below."
-    expect(tidy([text('Vite grew. Across the past year, '), cmp('webpack', 'esbuild'), text(' is compared below. Vite peaked on '), claim('peak_day', 'vite', '2026-10-01'), text('.')])).toEqual([
-      text('Vite grew. '),
-      text(' Vite peaked on '),
-      claim('peak_day', 'vite', '2026-10-01'),
-      text('.'),
-    ])
-    // a repeated claim in the middle of a sentence takes its whole sentence, kept claims included, and the paragraph ends on a whole sentence
-    const first = claim('window_total', 'vite', '837275395')
-    expect(tidy([text('Total '), first, text('. Again, over the year, '), claim('window_total', 'vite', '837275395'), text(' downloads in all. Peak '), claim('peak_value', 'vite', '5'), text('.')])).toEqual([
-      text('Total '),
-      first,
-      text('. '),
-      text(' Peak '),
-      claim('peak_value', 'vite', '5'),
-      text('.'),
-    ])
-    // the whole paragraph is one broken sentence: nothing whole is left, so nothing is shown
-    expect(tidy([text('Across the past year, '), cmp('webpack', 'esbuild'), text(' is compared below')])).toBeNull()
-    // a drop with no words of its own sentence around it changes nothing
-    expect(tidy([text('Done. '), claim('window_total', 'webpack', '1'), text('. Next.')])).toEqual([text('Done. '), text('. Next.')])
-  })
-  describe('a dropped claim takes its whole sentence wherever it sits (the "On 29,696,229 downloads were a spike" fragment)', () => {
-    const gone = claim('unusual_day', 'webpack', '2026-03-26') // a claim about another package: dropped
+  it('the sentence of a figure about another package goes whole: no half sentence, no floating figure', () => {
+    const other = claim('unusual_day', 'webpack', '2026-03-26')
+    const out = tidy([S1, [text('On '), other, text(', downloads were a spike.')], S2])
+    expect(out).toEqual([...S1, text(' '), ...S2])
+    // the kept figure of the same sentence goes too: it has no sentence left to stand in
     const n = claim('day_value', 'vite', '29696229', { day: '2026-03-26' })
-    const tail = text(' downloads were a spike with no release close to that date. Next, the total.')
-    const after = text(' Next, the total.')
-    it('"On <dropped>, N downloads ..." goes whole, the text before and after it byte for byte', () => {
-      expect(tidy([text('Vite grew. On '), gone, text(', '), n, tail])).toEqual([text('Vite grew. '), after])
-    })
-    it('empty or blank text between the words and the dropped date does not hide the words (the production shape)', () => {
-      expect(tidy([text('Vite grew. On '), text(''), gone, n, tail])).toEqual([text('Vite grew. '), after])
-      expect(tidy([text('Vite grew. On'), text(' '), gone, text(''), text(' '), n, tail])).toEqual([text('Vite grew. '), after])
-      expect(tidy([text('Vite grew. On '), gone, text(''), n, tail])).toEqual([text('Vite grew. '), after])
-    })
-    it('a dropped claim at the start of a sentence, in the middle after a preposition, and at the end', () => {
-      expect(tidy([text('Vite grew. '), gone, text(' was the only spike. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
-      expect(tidy([text('Vite grew. Since '), text(''), gone, text(' it rose, and peaked at '), n, text('. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
-      expect(tidy([text('Vite grew. It peaked on '), text(' '), gone, text('. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
-      expect(tidy([text('Vite grew. By the end, '), text(''), gone, text('')])).toEqual([text('Vite grew. ')])
-    })
-    it('a number with thousands commas, a decimal or an abbreviation in the text is not a sentence end', () => {
-      expect(tidy([text('Vite grew 4.5 percent. In 2026, 29,696,229 was seen on '), text(''), gone, text(', up from 1,234,567 or 1.5 million. Next.')])).toEqual([text('Vite grew 4.5 percent. '), text(' Next.')])
-      expect(tidy([text('Vite grew. Compared with approx. '), text(''), gone, text(' it was e.g. a spike vs. the month before, i.e. odd. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
-      // an abbreviation before the sentence start does not hide the stop that ends the sentence before it
-      expect(tidy([text('Vite grew vs. webpack. In '), text(''), gone, text(' it spiked. Next.')])).toEqual([text('Vite grew vs. webpack. '), text(' Next.')])
-    })
-    it('kept claims inside the cut sentence go with it; kept claims in other sentences stay', () => {
-      const keep = claim('window_total', 'vite', '837275395')
-      const peak = claim('peak_value', 'vite', '5')
-      expect(tidy([text('Total '), keep, text('. On '), text(''), gone, text(' there were '), n, text(' downloads. Peak '), peak, text('.')])).toEqual([text('Total '), keep, text('. '), text(' Peak '), peak, text('.')])
-    })
-    it('a kept claim beside the drop fills the hole, and a drop with no words in its sentence changes nothing', () => {
-      const peak = claim('peak_value', 'vite', '5')
-      expect(tidy([text('Vite grew. Peak '), peak, gone, text('.')])).toEqual([text('Vite grew. Peak '), peak, text('.')])
-      expect(tidy([text('Vite grew. '), text(''), gone, text(' '), text('. Next.')])).toEqual([text('Vite grew. '), text(' '), text('. Next.')])
-    })
+    expect(tidy([S1, [text('On '), other, text(', '), n, text(' downloads were a spike.')], S2])).toEqual([...S1, text(' '), ...S2])
   })
-  it('drops empty text segments and nothing else of the text', () => {
-    expect(tidy([text(''), text(' '), text('a'), text('')])).toEqual([text(' '), text('a')])
+  it('a sentence that states a figure already stated goes whole; the first stays, whatever value or span the later one carries', () => {
+    expect(tidy([S1, [text('Again, '), claim('window_total', 'vite', '1', { span: 'none' }), text(' downloads in all.')], S2])).toEqual([...S1, text(' '), ...S2])
+    // a figure stated twice inside one sentence: the sentence goes
+    expect(tidy([[text('Peak '), claim('peak_value', 'vite', '5'), text(' and '), claim('peak_value', 'vite', '6'), text('.')]])).toBeNull()
+    // a dropped sentence does not mark its figures as stated: they may appear in a later sentence
+    const d = claim('day_value', 'vite', '438449', { span: 'none', day: '2026-09-26' })
+    expect(tidy([[text('On that day '), d, text(' downloads and '), claim('window_total', 'webpack', '1'), text(' for webpack.')], [text('On that day '), d, text(' downloads.')]])).toEqual([text('On that day '), d, text(' downloads.')])
   })
-  it('accepts a window_days claim and still refuses an unknown kind or package', () => {
-    const ok = [text('Over the last '), claim('window_days', 'vite', '30', { span: 'last30' }), text(' days.')]
-    expect(tidy(ok)).toEqual(ok)
-    expect(parseParagraph({ paragraph: [claim('window_total', 'react', '1')] }, NAMES, 'vite')).toBeNull()
-    expect(parseParagraph({ paragraph: [{ t: 'claim', kind: 'nope', package: 'vite', span: 'window', day: '', value: '1' }] }, NAMES, 'vite')).toBeNull()
+  it('keeps a compare that names the target as package or as peer; a sentence with a compare naming neither, or a repeat, goes', () => {
+    const out = tidy([[cmp('vite', 'webpack')], [cmp('webpack', 'vite')], [text('Next: '), cmp('webpack', 'esbuild'), text('.')], [cmp('vite', 'webpack')], S2])
+    expect(out).toEqual([cmp('vite', 'webpack'), text(' '), cmp('webpack', 'vite'), text(' '), ...S2])
+  })
+  it('a sentence with no words of its own, or that does not end whole, goes (a bare figure, "Peak 5", a hanging "On")', () => {
+    expect(tidy([[claim('peak_value', 'vite', '5')], [text(' '), claim('peak_value', 'vite', '5'), text(' ')]])).toBeNull()
+    expect(tidy([S1, [text('Peak '), claim('peak_value', 'vite', '5')]])).toEqual(S1) // ends on a figure
+    expect(tidy([S1, [text('On '), claim('day', 'vite', '2026-03-26'), text(' downloads rose')]])).toEqual(S1) // no stop
+    expect(tidy([S1, [text('Is it flat?')]])).toEqual([...S1, text(' '), text('Is it flat?')])
+    expect(tidy([[text('Vite rose '), claim('change_pct', 'vite', ''), text('.')], [text('Compared with webpack: '), cmp('vite', 'webpack')]])).toHaveLength(6)
+  })
+  it('the stop may be followed by a closing quote or bracket, and a figure may sit before the first words', () => {
+    const q = [claim('peak_value', 'vite', '5'), text(' downloads was the peak (a record).')]
+    expect(tidy([q])).toEqual(q)
+  })
+  it('drops empty text segments inside a sentence and nothing else of it', () => {
+    expect(tidy([[text(''), text('Vite had '), text(''), total, text(' downloads.'), text('')]])).toEqual(S1)
+  })
+  it('accepts a window_days claim and still refuses an unknown kind or package, or a sentence that is not a list', () => {
+    const ok = [text('Over the last '), claim('window_days', 'vite', '30', { span: 'last30' }), text(' days it rose.')]
+    expect(tidy([ok])).toEqual(ok)
+    expect(tidy([[claim('window_total', 'react', '1')]])).toBeNull()
+    expect(tidy([[{ t: 'claim', kind: 'nope', package: 'vite', span: 'window', day: '', value: '1' } as unknown as Segment]])).toBeNull()
+    expect(parseParagraph({ paragraph: [S1] }, NAMES, 'vite')).toBeNull() // the old flat shape: a segment where a sentence belongs
+    expect(parseParagraph({ paragraph: [{ sentence: 'x' }] }, NAMES, 'vite')).toBeNull()
+    expect(parseParagraph({ paragraph: [] }, NAMES, 'vite')).toBeNull()
   })
 
-  describe('the 36 paragraphs the SP2 verifier captured (e2ed80c)', () => {
+  describe('the 36 paragraphs the SP2 verifier captured (e2ed80c), cut into sentences at their stops (tests/netlify/sentences.ts)', () => {
     const all = captured as Array<{ run: string; target: string; names: string[]; paragraph: Segment[] }>
-    const figureKey = (c: Claim): string => `${c.kind}|${c.package}|${c.kind === 'day_value' ? c.day : c.kind === 'unusual_day' || c.kind === 'day' ? c.value : c.kind === 'window_total' || c.kind === 'window_days' ? String(c.span === 'last30') : ''}`
-    const cleaned = all.map((c) => ({ ...c, out: parseParagraph({ paragraph: c.paragraph }, c.names, c.target)! }))
-    it('every one still parses', () => {
+    const cleaned = all.map((c) => ({ ...c, out: parseParagraph({ paragraph: asSentences(c.paragraph) }, c.names, c.target) }))
+    it('there are 36, and the ones that still show something show no floating figure, foreign figure or repeat', () => {
       expect(all).toHaveLength(36)
-      for (const c of cleaned) expect(c.out, c.run + c.target).not.toBeNull()
-    })
-    it('none shows a claim about another package, a repeat or a stray claim with no words around it', () => {
       for (const { run, target, out } of cleaned) {
+        if (out === null) continue
         const seen = new Set<string>()
         out.forEach((seg, i) => {
-          if (seg.t === 'text') return expect(seg.s, `${run} ${target}`).not.toBe('')
-          const about = seg.t === 'compare' ? seg.package === target || seg.peer === target : seg.package === target
-          expect(about, `${run} ${target} #${i}`).toBe(true)
-          const key = seg.t === 'compare' ? `${seg.package}|${seg.peer}|${seg.metric}` : figureKey(seg)
+          if (seg.t === 'text') return
+          expect(seg.t === 'compare' ? seg.package === target || seg.peer === target : seg.package === target, `${run} ${target} #${i}`).toBe(true)
+          const key = JSON.stringify(seg.t === 'compare' ? [seg.package, seg.peer, seg.metric] : [seg.kind, seg.package, seg.kind === 'day_value' ? seg.day : seg.kind === 'unusual_day' || seg.kind === 'day' ? seg.value : seg.kind.startsWith('window_') ? String(seg.span === 'last30') : ''])
           expect(seen.has(key), `${run} ${target} #${i} repeats ${key}`).toBe(false)
           seen.add(key)
-          if (seg.t === 'claim') {
-            const around = (s: Segment | undefined) => s?.t === 'claim' || (s?.t === 'text' && s.s.trim() !== '')
-            expect(around(out[i - 1]) || around(out[i + 1]), `${run} ${target} #${i} has no words around it`).toBe(true)
-          }
         })
+        // every sentence ends whole: the paragraph ends on a stop or a compare
+        const last = out[out.length - 1]!
+        expect(last.t === 'compare' || (last.t === 'text' && /[.!?]\s*$/.test(last.s)), `${run} ${target}`).toBe(true)
       }
     })
-    it('removes exactly the stray claims (19 in 16 paragraphs); the text is byte for byte except in a paragraph where a dropped claim broke a sentence', () => {
-      let dropped = 0
-      let changed = 0
-      const cut: string[] = []
-      const words = (segs: Segment[]) => segs.filter((s) => s.t === 'text' && s.s !== '').map((s) => (s as { s: string }).s).join('|')
-      for (const { run, target, paragraph, out } of cleaned) {
-        const before = paragraph.filter((s) => s.t !== 'text').length
-        const after = out.filter((s) => s.t !== 'text').length
-        dropped += before - after
-        if (before !== after) changed += 1
-        if (words(out) === words(paragraph)) continue
-        cut.push(`${run} ${target}`)
-        // what is left is the model's own text up to a stop, never a half sentence
-        expect(words(paragraph).startsWith(words(out).replace(/\s+$/, '').replace(/\|$/, '')), `${run} ${target}`).toBe(true)
-        expect(words(out), `${run} ${target}`).toMatch(/[.!?]\s*$/)
-      }
-      expect({ dropped, changed }).toEqual({ dropped: 19, changed: 16 })
-      // the one captured paragraph that read "<dropped claim> is the only spike cited here."
-      expect(cut).toEqual(['item8-390-dark-run drizzle-orm'])
+    it('most captured paragraphs survive whole sentences (the rule does not empty the page)', () => {
+      expect(cleaned.filter((c) => c.out !== null).length).toBeGreaterThanOrEqual(30)
     })
   })
 })

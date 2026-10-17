@@ -50,13 +50,13 @@ export function explainRequest(body: unknown, headers: Record<string, string> = 
   })
 }
 
-export const PARAGRAPH = {
-  paragraph: [
-    { t: 'text', s: 'react totals ' },
-    { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
-    { t: 'compare', package: 'react', peer: 'vite', metric: 'change_pct' },
-  ],
-}
+/** One whole sentence, as the model sends it (a list of sentences) and as the browser is shown it (flat segments). */
+const SENTENCE = [
+  { t: 'text', s: 'react totals ' },
+  { t: 'claim', kind: 'window_total', package: 'react', span: 'window', day: '', value: '5765986637' },
+  { t: 'compare', package: 'react', peer: 'vite', metric: 'change_pct' },
+]
+export const PARAGRAPH = { paragraph: [{ sentence: SENTENCE }], shown: SENTENCE }
 
 export interface ChatOptions {
   content?: string | null

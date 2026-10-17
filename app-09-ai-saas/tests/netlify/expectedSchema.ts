@@ -18,7 +18,7 @@ export function expectedSchema(names: string[]): object {
     properties: {
       paragraph: {
         type: 'array',
-        items: {
+        items: { type: 'object', additionalProperties: false, required: ['sentence'], properties: { sentence: { type: 'array', items: {
           anyOf: [
             { type: 'object', additionalProperties: false, required: ['t', 's'], properties: { t: { type: 'string', enum: ['text'] }, s: { type: 'string' } } },
             // Rev 8.3: a total and a window length need a span; the model wrote span none for a correct total (SP2 item 5).
@@ -37,7 +37,7 @@ export function expectedSchema(names: string[]): object {
               },
             },
           ],
-        },
+        } } } },
       },
     },
   }

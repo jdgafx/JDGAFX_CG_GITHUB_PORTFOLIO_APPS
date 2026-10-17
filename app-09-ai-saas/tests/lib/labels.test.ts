@@ -3,6 +3,7 @@ import type { Judged } from '../../shared/claims'
 import type { Segment } from '../../shared/types'
 import { parseParagraph } from '../../netlify/shared/boundary'
 import { checkRows, closingStop, labelFor, separatorBetween, type Shown } from '../../src/lib/labels'
+import { asSentences } from '../netlify/sentences'
 import captured from '../fixtures/sp2-e2ed80c-paragraphs.json'
 import { stubFacts, stubWindow } from '../ui/stubCore'
 
@@ -90,7 +91,7 @@ describe('rev 8.3: no comparison clause runs into what follows, in the 36 captur
     judged.map((j, i) => (i > 0 ? separatorBetween(judged[i - 1]!, j) : '') + (j.seg.t === 'text' ? j.seg.s : j.seg.t === 'compare' ? '<CMP>' : '<CLAIM> label')).join('')
   const rendered = (captured as Array<{ names: string[]; target: string; paragraph: Segment[] }>).map((c) => ({
     ...c,
-    text: shownText(parseParagraph({ paragraph: c.paragraph }, c.names, c.target)!.map((seg): Judged => ({ seg, verdict: 'neutral', rendered: '' }))),
+    text: shownText(parseParagraph({ paragraph: asSentences(c.paragraph) }, c.names, c.target)!.map((seg): Judged => ({ seg, verdict: 'neutral', rendered: '' }))),
   }))
   it('every compare is followed by a stop, a comma or the end, and preceded by the start or a stop', () => {
     expect(rendered.filter((r) => r.text.includes('<CMP>')).length).toBeGreaterThan(20)

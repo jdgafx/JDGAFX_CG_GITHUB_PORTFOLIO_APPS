@@ -20,6 +20,7 @@ export function SYSTEM_RULES(windowName: string, target: string): string {
     '8. Rows marked no-data or possible-gap are missing npm data, not real drops. Do not call them unusual and do not quote their value.',
     '9. Releases: name a release as a possible cause of an unusual day only where its row says release same day or release N day(s) before; say so in words (code adds the version). Where the row says no release within 2 days, say the data does not show a cause. Where it says release data unavailable, say the release history could not be loaded; never say there was no release.',
     `10. Write one paragraph about ${target}, at most 120 words, comparing it with the peer packages where useful.`,
+    '11. The paragraph is a list of sentences. Each sentence lists its own text segments and the claims for the figures it states, in reading order, and holds every figure it mentions: a figure never sits outside the sentence that states it. Each sentence is complete on its own, with a subject and a verb in its text, and its last text segment ends with a full stop (a sentence that ends on a compare claim needs none; code writes it). Never leave a figure without a verb of its own sentence, and never start a sentence with a bare figure. Code drops a whole sentence when any figure in it fails its checks.',
   ].join('\n')
 }
 
@@ -65,7 +66,10 @@ export function CLAIM_SCHEMA(names: string[]): object {
       paragraph: {
         type: 'array',
         items: {
-          anyOf: [
+          type: 'object',
+          additionalProperties: false,
+          required: ['sentence'],
+          properties: { sentence: { type: 'array', items: { anyOf: [
             text(),
             // A positive count with no leading zero: the model wrote 0 as a placeholder for a total and a peak (Step 0.5).
             // A total and a window length need a span: a correct total with span none was shown "differs from npm" (SP2 item 5).
@@ -75,7 +79,7 @@ export function CLAIM_SCHEMA(names: string[]): object {
             claimBranch(names, ['peak_day', 'unusual_day', 'day'], DATE, '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
             claimBranch(names, ['change_pct'], '^$', '^$'),
             compareBranch(names),
-          ],
+          ] } } },
         },
       },
     },

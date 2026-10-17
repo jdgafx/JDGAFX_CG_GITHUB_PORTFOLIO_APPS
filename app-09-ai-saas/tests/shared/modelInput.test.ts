@@ -237,9 +237,12 @@ describe('SYSTEM_RULES', () => {
         `Write figure claims only about ${target}; peers appear only in compare claims. State each figure once.\n`,
       )
       .replace('baselines, counts of days, version', 'baselines, counts of days other than a window length (a window_days claim), version')
-  it('is the live text plus the rev 7, rev 8 and rev 8.3 replacements, for a year and a month window', () => {
-    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev83(loadGolden('system-rev8.txt'), 'react')) // the capture, Step 0.5
-    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev83(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'), 'vite'))
+  // Rev 8.5 (RZ.2): the paragraph is a list of sentences; rule 11 says what a sentence is.
+  const RULE_11 = '11. The paragraph is a list of sentences. Each sentence lists its own text segments and the claims for the figures it states, in reading order, and holds every figure it mentions: a figure never sits outside the sentence that states it. Each sentence is complete on its own, with a subject and a verb in its text, and its last text segment ends with a full stop (a sentence that ends on a compare claim needs none; code writes it). Never leave a figure without a verb of its own sentence, and never start a sentence with a bare figure. Code drops a whole sentence when any figure in it fails its checks.'
+  const rev85 = (rules: string): string => `${rules}\n${RULE_11}`
+  it('is the live text plus the rev 7, rev 8, rev 8.3 and rev 8.5 replacements, for a year and a month window', () => {
+    expect(SYSTEM_RULES('the past year', 'react')).toBe(rev85(rev83(loadGolden('system-rev8.txt'), 'react'))) // the capture, Step 0.5
+    expect(SYSTEM_RULES('the past month', 'vite')).toBe(rev85(rev83(rev8Rules(loadGolden('system-rev6-r2-vite.txt'), 'the past month'), 'vite')))
   })
   it('rev 8.3: the rules ask for window_days and no longer say "Never count days" or "Cite a peer\'s figure"', () => {
     const t = SYSTEM_RULES('the past month', 'vite')
@@ -272,16 +275,19 @@ describe('SYSTEM_RULES', () => {
 
 describe('CLAIM_SCHEMA', () => {
   type Branch = { properties: { kind?: { enum: string[] }; span?: { enum: string[] }; value?: { pattern: string } } }
-  const branches = (names: string[]) => (CLAIM_SCHEMA(names) as { properties: { paragraph: { items: { anyOf: Branch[] } } } }).properties.paragraph.items.anyOf
+  const branches = (names: string[]) => (CLAIM_SCHEMA(names) as { properties: { paragraph: { items: { properties: { sentence: { items: { anyOf: Branch[] } } } } } } }).properties.paragraph.items.properties.sentence.items.anyOf
   it('is the rev 8 schema accepted live (Step 0.5, r1 react), with the rev 8.3 branches: window_total and window_days take no span none', () => {
-    const live = loadGoldenJson<{ properties: { paragraph: { items: { anyOf: Array<Record<string, any>> } } } }>('schema-rev8-react.json') // eslint-disable-line @typescript-eslint/no-explicit-any
-    const items = live.properties.paragraph.items.anyOf
+    const live = loadGoldenJson<{ properties: { paragraph: { items: Record<string, any> } } }>('schema-rev8-react.json') // eslint-disable-line @typescript-eslint/no-explicit-any
+    const flat = live.properties.paragraph.items as { anyOf: Array<Record<string, any>> } // eslint-disable-line @typescript-eslint/no-explicit-any
+    const items = flat.anyOf
     const totals = items.find((b) => b.properties.kind?.enum.includes('window_total'))!
     const peak = structuredClone(totals)
     peak.properties.kind.enum = ['peak_value']
     totals.properties.kind.enum = ['window_total', 'window_days']
     totals.properties.span.enum = ['window', 'last30']
     items.splice(items.indexOf(totals) + 1, 0, peak)
+    // rev 8.5: the paragraph is a list of sentences, each a list of those segments
+    live.properties.paragraph.items = { type: 'object', additionalProperties: false, required: ['sentence'], properties: { sentence: { type: 'array', items: flat } } }
     expect(CLAIM_SCHEMA(['react', 'vite', 'zod', '@anthropic-ai/sdk'])).toEqual(live)
   })
   it('rev 8.3: span none is refused for window_total and window_days, and kept for the kinds that need no span', () => {
@@ -298,7 +304,7 @@ describe('CLAIM_SCHEMA', () => {
     for (const good of ['30', '90', '365']) expect(re.test(good), good).toBe(true)
   })
   it('the window_total and peak_value pattern refuses 0 and a leading zero, and keeps day_value open to 0', () => {
-    const anyOf = (CLAIM_SCHEMA(['a']) as { properties: { paragraph: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } }).properties.paragraph.items.anyOf
+    const anyOf = (CLAIM_SCHEMA(['a']) as { properties: { paragraph: { items: { properties: { sentence: { items: { anyOf: Array<{ properties: { kind?: { enum: string[] }; value?: { pattern: string } } }> } } } } } } }).properties.paragraph.items.properties.sentence.items.anyOf
     const re = (kind: string) => new RegExp(anyOf.find((b) => b.properties.kind?.enum.includes(kind))!.properties.value!.pattern)
     for (const kind of ['window_total', 'peak_value']) {
       expect(re(kind).test('0'), kind).toBe(false)
@@ -307,8 +313,8 @@ describe('CLAIM_SCHEMA', () => {
     }
     expect(re('day_value').test('0')).toBe(true)
   })
-  it('has a text branch, five per-kind claim branches and a compare branch', () => {
-    const items = (CLAIM_SCHEMA(['a', 'b']) as { properties: { paragraph: { items: { anyOf: unknown[] } } } }).properties.paragraph.items.anyOf
+  it('has a text branch, five per-kind claim branches and a compare branch, inside a sentence object', () => {
+    const items = (CLAIM_SCHEMA(['a', 'b']) as { properties: { paragraph: { items: { properties: { sentence: { items: { anyOf: unknown[] } } } } } } }).properties.paragraph.items.properties.sentence.items.anyOf
     expect(items).toHaveLength(7)
   })
 })

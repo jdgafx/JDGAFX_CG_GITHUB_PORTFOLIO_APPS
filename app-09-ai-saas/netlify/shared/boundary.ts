@@ -184,126 +184,82 @@ function figureKey(seg: Exclude<Segment, { t: 'text' }>): string {
   return `${seg.kind}|${seg.package}|${part}`
 }
 
-/** Words that end in a stop without ending the sentence ("vs. ", "e.g. ", "approx. "). "etc." and "No." can end one, so they are not here. */
-const ABBREVIATION = /(?:^|[^a-z])(?:e\.g|i\.e|vs|approx|cf|ca|fig|mr|mrs|ms|dr|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)$/i
-
-/** Where sentences end in the model's text: a stop before a space or the end, after a word that is not an abbreviation. A decimal point ("4.5") or a thousands comma ("29,696,229") is no stop. */
-function stopsIn(s: string): number[] {
-  return [...s.matchAll(/[.!?](?=\s|$)/g)].filter((m) => m[0] !== '.' || !ABBREVIATION.test(s.slice(0, m.index))).map((m) => m.index)
-}
+/** A sentence ends on a full stop, a question or exclamation mark (a closing quote or bracket may follow), or on a compare clause (code writes its stop). */
+const ENDS_WHOLE = /[.!?]["')\]]*\s*$/
 
 /**
- * A dropped claim leaves its sentence with a hole ("Across the past year, ___ is compared below."). When a dropped
- * segment has words of its own sentence right beside it (the nearest segment on a side that is not blank text: its
- * text has words before the stop on that side), that sentence is cut whole: from the stop before it to the stop that
- * ends it, kept claims inside it included. A blank or empty text segment between is not a neighbour: "On ", "", dropped
- * date, 29,696,229 still has "On" beside the hole. A kept claim beside the drop fills the hole (two claims side by side
- * are one phrase). Text outside that sentence is unchanged, and a dropped segment with no such words beside it changes
- * nothing. `work` holds null where a segment was dropped; only those first drops start a cut, and a cut segment becomes null.
+ * Why a sentence cannot be shown, or null when it can (rev 8.5). The model writes each sentence together with the
+ * claims for its own figures, so the rule is per sentence: it goes whole when ANY figure in it is not the target's, or
+ * states a figure that is already stated (or is stated twice in it), when it has no words of its own (a compare is a clause), or when it does
+ * not end on a stop or a compare. Nothing is cut out of a sentence, so no half sentence and no floating figure remains.
  */
-function cutBrokenSentences(work: Array<Segment | null>): void {
-  const dropped = work.flatMap((seg, i) => (seg === null ? [i] : []))
-  for (const i of dropped) {
-    let broken = false
-    const gone: number[] = []
-    let backKeep: { at: number; s: string } | null = null
-    let forwardKeep: { at: number; s: string } | null = null
-    let beside = true
-    for (let j = i - 1; j >= 0; j--) {
-      const seg = work[j]
-      if (!seg) continue
-      if (seg.t === 'text' && seg.s.trim() === '') {
-        gone.push(j)
-        continue
-      }
-      const edge = beside
-      beside = false
-      if (seg.t !== 'text') {
-        gone.push(j)
-        continue
-      }
-      const last = stopsIn(seg.s).at(-1)
-      const cut = last === undefined ? 0 : last + 1
-      if (edge && seg.s.slice(cut).trim() !== '') broken = true
-      if (last === undefined) {
-        gone.push(j)
-        continue
-      }
-      backKeep = { at: j, s: seg.s.slice(0, cut) + (/^\s*/.exec(seg.s.slice(cut))?.[0] ?? '') }
-      break
-    }
-    beside = true
-    for (let j = i + 1; j < work.length; j++) {
-      const seg = work[j]
-      if (!seg) continue
-      if (seg.t === 'text' && seg.s.trim() === '') {
-        gone.push(j)
-        continue
-      }
-      const edge = beside
-      beside = false
-      if (seg.t !== 'text') {
-        gone.push(j)
-        continue
-      }
-      const first = stopsIn(seg.s)[0]
-      if (edge && seg.s.slice(0, first ?? seg.s.length).trim() !== '') broken = true
-      if (first === undefined) {
-        gone.push(j)
-        continue
-      }
-      forwardKeep = { at: j, s: seg.s.slice(first + 1) }
-      break
-    }
-    if (!broken) continue
-    for (const j of gone) work[j] = null
-    for (const keep of [backKeep, forwardKeep]) if (keep) work[keep.at] = { t: 'text', s: keep.s }
+function sentenceFault(sentence: Segment[], target: string, seen: Set<string>): string | null {
+  const keys: string[] = []
+  for (const seg of sentence) {
+    if (seg.t === 'text') continue
+    if (seg.t === 'compare' ? seg.package !== target && seg.peer !== target : seg.package !== target) return 'figure about another package'
+    const key = figureKey(seg)
+    if (seen.has(key) || keys.includes(key)) return 'figure already stated'
+    keys.push(key)
   }
+  // a compare is a whole clause written by code, so it counts as words
+  if (!sentence.some((seg) => seg.t === 'compare' || (seg.t === 'text' && /\p{L}/u.test(seg.s)))) return 'no words'
+  const last = [...sentence].reverse().find((seg) => seg.t !== 'text' || seg.s.trim() !== '')
+  if (!last || (last.t === 'claim') || (last.t === 'text' && !ENDS_WHOLE.test(last.s))) return 'does not end whole'
+  for (const key of keys) seen.add(key)
+  return null
 }
 
 /**
- * The paragraph a package is shown with (rev 8.3, rev 8.4). Nothing is added. These are dropped: an empty text segment,
- * a claim about a package other than `target` (a compare must name it), a claim that states a figure already stated
- * (the first stays, whatever value the later one carries), and a figure claim with no text of words and no other claim
- * on either side. A sentence that a dropped claim sat in is dropped whole (rev 8.4), so no half sentence reaches the
- * page; the rest of the model's text is byte for byte. Every later step (figure numbers, checks, the figure table) sees
+ * The paragraph a package is shown with (rev 8.5): the whole sentences that pass `sentenceFault`, in the model's order,
+ * as one flat list of segments with a single space between sentences. Nothing inside a sentence is changed, added or
+ * cut; the edge spaces of each sentence are trimmed. Every later step (figure numbers, checks, the figure table) sees
  * only what is kept.
  */
-function tidy(segments: Segment[], target: string): Segment[] {
+function tidy(sentences: Segment[][], target: string): Segment[] {
   const seen = new Set<string>()
-  const work = segments.map((seg): Segment | null => {
-    if (seg.t === 'text') return seg
-    if (seg.t === 'compare' ? seg.package !== target && seg.peer !== target : seg.package !== target) return null
-    const key = figureKey(seg)
-    return seen.has(key) ? null : (seen.add(key), seg)
-  })
-  cutBrokenSentences(work)
-  const kept = work.filter((seg): seg is Segment => seg !== null && !(seg.t === 'text' && seg.s === ''))
-  const anchored = (seg: Segment | undefined): boolean => seg?.t === 'claim' || (seg?.t === 'text' && seg.s.trim() !== '')
-  return kept.filter((seg, i) => seg.t !== 'claim' || anchored(kept[i - 1]) || anchored(kept[i + 1]))
+  const out: Segment[] = []
+  for (const sentence of sentences) {
+    if (sentenceFault(sentence, target, seen) !== null) continue
+    const parts = sentence.filter((seg) => !(seg.t === 'text' && seg.s === ''))
+    while (parts[0]?.t === 'text' && parts[0].s.trim() === '') parts.shift()
+    while (parts.at(-1)?.t === 'text' && (parts.at(-1) as { s: string }).s.trim() === '') parts.pop()
+    const first = parts[0]
+    const last = parts[parts.length - 1]
+    if (first?.t === 'text') parts[0] = { t: 'text', s: first.s.trimStart() }
+    if (last?.t === 'text') parts[parts.length - 1] = { t: 'text', s: last.s.trimEnd() }
+    if (out.length > 0) out.push({ t: 'text', s: ' ' })
+    out.push(...parts)
+  }
+  return out
 }
 
 /**
- * The model's decoded answer as segments, or null when it is not a non-empty list of well-formed segments naming
- * only the requested packages. This checks structure, never the prose or the figures: judging is the browser's.
- * What the browser is shown is `tidy`'d for `target`.
+ * The model's decoded answer as sentences of segments, or null when it is not a non-empty list of sentences, each a
+ * list of well-formed segments naming only the requested packages. This checks structure, never the prose or the
+ * figures: judging is the browser's. What the browser is shown is `tidy`'d for `target`.
  */
 export function parseParagraph(value: unknown, names: string[], target: string): Segment[] | null {
   if (!isRecord(value) || !Array.isArray(value.paragraph) || value.paragraph.length === 0) return null
   const known = (v: unknown): v is string => typeof v === 'string' && names.includes(v)
-  const out: Segment[] = []
-  for (const seg of value.paragraph as unknown[]) {
-    if (!isRecord(seg)) return null
-    if (seg.t === 'text' && typeof seg.s === 'string') {
-      out.push({ t: 'text', s: seg.s })
-    } else if (seg.t === 'claim' && typeof seg.kind === 'string' && KINDS.includes(seg.kind) && known(seg.package) && typeof seg.span === 'string' && SPANS.includes(seg.span) && typeof seg.day === 'string' && typeof seg.value === 'string') {
-      out.push({ t: 'claim', kind: seg.kind as FigureKind, package: seg.package, span: seg.span as 'window' | 'last30' | 'none', day: seg.day, value: seg.value })
-    } else if (seg.t === 'compare' && known(seg.package) && known(seg.peer) && typeof seg.metric === 'string' && METRICS.includes(seg.metric)) {
-      out.push({ t: 'compare', package: seg.package, peer: seg.peer, metric: seg.metric as 'window_total' | 'last30_total' | 'change_pct' | 'peak_value' })
-    } else {
-      return null
+  const sentences: Segment[][] = []
+  for (const item of value.paragraph as unknown[]) {
+    if (!isRecord(item) || !Array.isArray(item.sentence)) return null
+    const out: Segment[] = []
+    for (const seg of item.sentence as unknown[]) {
+      if (!isRecord(seg)) return null
+      if (seg.t === 'text' && typeof seg.s === 'string') {
+        out.push({ t: 'text', s: seg.s })
+      } else if (seg.t === 'claim' && typeof seg.kind === 'string' && KINDS.includes(seg.kind) && known(seg.package) && typeof seg.span === 'string' && SPANS.includes(seg.span) && typeof seg.day === 'string' && typeof seg.value === 'string') {
+        out.push({ t: 'claim', kind: seg.kind as FigureKind, package: seg.package, span: seg.span as 'window' | 'last30' | 'none', day: seg.day, value: seg.value })
+      } else if (seg.t === 'compare' && known(seg.package) && known(seg.peer) && typeof seg.metric === 'string' && METRICS.includes(seg.metric)) {
+        out.push({ t: 'compare', package: seg.package, peer: seg.peer, metric: seg.metric as 'window_total' | 'last30_total' | 'change_pct' | 'peak_value' })
+      } else {
+        return null
+      }
     }
+    sentences.push(out)
   }
-  const shown = tidy(out, target)
+  const shown = tidy(sentences, target)
   return shown.length > 0 ? shown : null
 }
