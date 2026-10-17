@@ -22,7 +22,7 @@ export function ReplayLabel({ info, onRunLive, disabled }: ReplayLabelProps) {
         <span data-replay-cost>{label.cost}</span>
         <span aria-hidden="true"> · </span>
         <button type="button" className="ds-button replay-label__live" onClick={onRunLive} disabled={disabled}>
-          Run it live
+          Run it live (uses a real, paid model call)
         </button>
       </p>
       {label.speedNote && <p className="ds-help" data-replay-speed>{label.speedNote}</p>}

@@ -89,7 +89,7 @@ describe('replay glue', () => {
     expect(html).toContain('judged by anthropic/claude-test')
     expect(html).toContain('judge call $0.000412')
     expect(html).toContain('Shown at 1.5x speed; the real run took 7.0 s.')
-    expect(html).toMatch(/<button[^>]*>Run it live<\/button>/)
+    expect(html).toMatch(/<button[^>]*>Run it live \(uses a real, paid model call\)<\/button>/)
   })
 })
 
@@ -102,6 +102,14 @@ describe('a replay never votes', () => {
     expect(buttons.length).toBeGreaterThanOrEqual(3)
     for (const button of buttons) expect(button).toContain('disabled=""')
     expect(html).toContain('This is a replay, so voting is off')
+  })
+
+  it('names the paid model call wherever a replay points to Run it live', () => {
+    const phrase = 'Run it live (uses a real, paid model call)'
+    const blindHtml = renderToStaticMarkup(BlindAnswers({ blind, vote: { state: 'idle' }, onVote: () => {}, replay: true }))
+    expect(blindHtml).toContain(phrase)
+    expect(readFileSync('src/components/ReplayLabel.tsx', 'utf8')).toContain('Run it live (uses a real, paid model call)')
+    expect(readFileSync('src/components/JudgeCard.tsx', 'utf8').replace(/\s+/g, ' ')).toContain(phrase)
   })
 
   it('leaves the vote buttons live for a visitor\'s own run', () => {
