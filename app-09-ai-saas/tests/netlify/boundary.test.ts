@@ -155,9 +155,12 @@ const NAMES = ['vite', 'webpack', 'esbuild']
 const tidy = (paragraph: Segment[], target = 'vite') => parseParagraph({ paragraph }, NAMES, target)
 
 describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s own figures once, with words around it', () => {
-  it('drops a repeat of a claim, keeping the first, and the model\'s text byte for byte', () => {
-    const out = tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again '), claim('window_total', 'vite', '837275395')])
-    expect(out).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again ')])
+  it('drops a repeat of a claim, keeping the first, and the model\'s text byte for byte where no sentence is broken', () => {
+    const out = tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again. '), claim('window_total', 'vite', '837275395')])
+    expect(out).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again. ')])
+  })
+  it('a repeat that leaves "Again " with nothing after it takes that half sentence', () => {
+    expect(tidy([text('Total '), claim('window_total', 'vite', '837275395'), text('. Again '), claim('window_total', 'vite', '837275395')])).toEqual([text('Total '), claim('window_total', 'vite', '837275395'), text('. ')])
   })
   it('a figure stated again with another value or span is still the same figure: the first stays (placeholders 1 and 0, span none)', () => {
     const peak = claim('peak_value', 'webpack', '12326693')
@@ -186,6 +189,29 @@ describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s ow
     expect(tidy([claim('peak_value', 'vite', '5')])).toBeNull() // nothing else left
     const kept = [text('Peak '), claim('peak_day', 'vite', '2026-10-01'), claim('peak_value', 'vite', '39379494'), text(' downloads')]
     expect(tidy(kept)).toEqual(kept) // two claims side by side are one phrase
+  })
+  it('a dropped claim never leaves half a sentence: the sentence it sat in goes with it (the "Across the past year, is compared below." fragment)', () => {
+    // a compare between two peers is dropped; its words around it would read "Across the past year,  is compared below."
+    expect(tidy([text('Vite grew. Across the past year, '), cmp('webpack', 'esbuild'), text(' is compared below. Vite peaked on '), claim('peak_day', 'vite', '2026-10-01'), text('.')])).toEqual([
+      text('Vite grew. '),
+      text(' Vite peaked on '),
+      claim('peak_day', 'vite', '2026-10-01'),
+      text('.'),
+    ])
+    // a repeated claim in the middle of a sentence takes its whole sentence, kept claims included, and the paragraph ends on a whole sentence
+    const first = claim('window_total', 'vite', '837275395')
+    expect(tidy([text('Total '), first, text('. Again, over the year, '), claim('window_total', 'vite', '837275395'), text(' downloads in all. Peak '), claim('peak_value', 'vite', '5'), text('.')])).toEqual([
+      text('Total '),
+      first,
+      text('. '),
+      text(' Peak '),
+      claim('peak_value', 'vite', '5'),
+      text('.'),
+    ])
+    // the whole paragraph is one broken sentence: nothing whole is left, so nothing is shown
+    expect(tidy([text('Across the past year, '), cmp('webpack', 'esbuild'), text(' is compared below')])).toBeNull()
+    // a drop with no words of its own sentence around it changes nothing
+    expect(tidy([text('Done. '), claim('window_total', 'webpack', '1'), text('. Next.')])).toEqual([text('Done. '), text('. Next.')])
   })
   it('drops empty text segments and nothing else of the text', () => {
     expect(tidy([text(''), text(' '), text('a'), text('')])).toEqual([text(' '), text('a')])
@@ -222,17 +248,25 @@ describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s ow
         })
       }
     })
-    it('removes exactly the stray claims: 19 claims in 16 paragraphs, and no text byte', () => {
+    it('removes exactly the stray claims (19 in 16 paragraphs); the text is byte for byte except in a paragraph where a dropped claim broke a sentence', () => {
       let dropped = 0
       let changed = 0
-      for (const { paragraph, out } of cleaned) {
+      const cut: string[] = []
+      const words = (segs: Segment[]) => segs.filter((s) => s.t === 'text' && s.s !== '').map((s) => (s as { s: string }).s).join('|')
+      for (const { run, target, paragraph, out } of cleaned) {
         const before = paragraph.filter((s) => s.t !== 'text').length
         const after = out.filter((s) => s.t !== 'text').length
         dropped += before - after
         if (before !== after) changed += 1
-        expect(out.filter((s) => s.t === 'text').map((s) => (s as { s: string }).s).join('|')).toBe(paragraph.filter((s) => s.t === 'text' && s.s !== '').map((s) => (s as { s: string }).s).join('|'))
+        if (words(out) === words(paragraph)) continue
+        cut.push(`${run} ${target}`)
+        // what is left is the model's own text up to a stop, never a half sentence
+        expect(words(paragraph).startsWith(words(out).replace(/\s+$/, '').replace(/\|$/, '')), `${run} ${target}`).toBe(true)
+        expect(words(out), `${run} ${target}`).toMatch(/[.!?]\s*$/)
       }
       expect({ dropped, changed }).toEqual({ dropped: 19, changed: 16 })
+      // the one captured paragraph that read "<dropped claim> is the only spike cited here."
+      expect(cut).toEqual(['item8-390-dark-run drizzle-orm'])
     })
   })
 })

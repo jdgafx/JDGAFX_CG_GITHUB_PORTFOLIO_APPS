@@ -184,20 +184,86 @@ function figureKey(seg: Exclude<Segment, { t: 'text' }>): string {
   return `${seg.kind}|${seg.package}|${part}`
 }
 
+/** Where sentences end in the model's text: a stop before a space or the end. Text holds no digits, so no decimal point. */
+const STOP = /[.!?](?=\s|$)/g
+
 /**
- * The paragraph a package is shown with (rev 8.3). Nothing is added and no text is changed; these are dropped: an empty
- * text segment, a claim about a package other than `target` (a compare must name it), a claim that states a figure
- * already stated (the first stays, whatever value the later one carries), and a figure claim with no text of words and
- * no other claim on either side. Every later step (figure numbers, checks, the figure table) sees only what is kept.
+ * A dropped claim leaves its sentence with a hole ("Across the past year, ___ is compared below."). When a dropped
+ * segment has words of its own sentence right beside it (the text next to it has words before the stop on that side),
+ * that sentence is cut whole: from the stop before it to the stop that ends it, kept claims inside it included. Text
+ * outside that sentence is unchanged, and a dropped segment with no such words beside it changes nothing.
+ * `work` holds null where a segment was dropped; only those first drops start a cut, and a cut segment becomes null.
+ */
+function cutBrokenSentences(work: Array<Segment | null>): void {
+  const dropped = work.flatMap((seg, i) => (seg === null ? [i] : []))
+  for (const i of dropped) {
+    let broken = false
+    const gone: number[] = []
+    let backKeep: { at: number; s: string } | null = null
+    let forwardKeep: { at: number; s: string } | null = null
+    let beside = true
+    for (let j = i - 1; j >= 0; j--) {
+      const seg = work[j]
+      if (!seg) continue
+      const edge = beside
+      beside = false
+      if (seg.t !== 'text') {
+        gone.push(j)
+        continue
+      }
+      const last = [...seg.s.matchAll(STOP)].at(-1)
+      const cut = last ? last.index + 1 : 0
+      if (edge && seg.s.slice(cut).trim() !== '') broken = true
+      if (!last) {
+        gone.push(j)
+        continue
+      }
+      backKeep = { at: j, s: seg.s.slice(0, cut) + (/^\s*/.exec(seg.s.slice(cut))?.[0] ?? '') }
+      break
+    }
+    beside = true
+    for (let j = i + 1; j < work.length; j++) {
+      const seg = work[j]
+      if (!seg) continue
+      const edge = beside
+      beside = false
+      if (seg.t !== 'text') {
+        gone.push(j)
+        continue
+      }
+      const first = [...seg.s.matchAll(STOP)][0]
+      if (edge && seg.s.slice(0, first ? first.index : seg.s.length).trim() !== '') broken = true
+      if (!first) {
+        gone.push(j)
+        continue
+      }
+      forwardKeep = { at: j, s: seg.s.slice(first.index + 1) }
+      break
+    }
+    if (!broken) continue
+    for (const j of gone) work[j] = null
+    for (const keep of [backKeep, forwardKeep]) if (keep) work[keep.at] = { t: 'text', s: keep.s }
+  }
+}
+
+/**
+ * The paragraph a package is shown with (rev 8.3, rev 8.4). Nothing is added. These are dropped: an empty text segment,
+ * a claim about a package other than `target` (a compare must name it), a claim that states a figure already stated
+ * (the first stays, whatever value the later one carries), and a figure claim with no text of words and no other claim
+ * on either side. A sentence that a dropped claim sat in is dropped whole (rev 8.4), so no half sentence reaches the
+ * page; the rest of the model's text is byte for byte. Every later step (figure numbers, checks, the figure table) sees
+ * only what is kept.
  */
 function tidy(segments: Segment[], target: string): Segment[] {
   const seen = new Set<string>()
-  const kept = segments.filter((seg) => {
-    if (seg.t === 'text') return seg.s !== ''
-    if (seg.t === 'compare' ? seg.package !== target && seg.peer !== target : seg.package !== target) return false
+  const work = segments.map((seg): Segment | null => {
+    if (seg.t === 'text') return seg
+    if (seg.t === 'compare' ? seg.package !== target && seg.peer !== target : seg.package !== target) return null
     const key = figureKey(seg)
-    return !seen.has(key) && !!seen.add(key)
+    return seen.has(key) ? null : (seen.add(key), seg)
   })
+  cutBrokenSentences(work)
+  const kept = work.filter((seg): seg is Segment => seg !== null && !(seg.t === 'text' && seg.s === ''))
   const anchored = (seg: Segment | undefined): boolean => seg?.t === 'claim' || (seg?.t === 'text' && seg.s.trim() !== '')
   return kept.filter((seg, i) => seg.t !== 'claim' || anchored(kept[i - 1]) || anchored(kept[i + 1]))
 }
