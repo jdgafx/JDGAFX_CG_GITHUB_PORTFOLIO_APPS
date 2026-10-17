@@ -184,15 +184,22 @@ function figureKey(seg: Exclude<Segment, { t: 'text' }>): string {
   return `${seg.kind}|${seg.package}|${part}`
 }
 
-/** Where sentences end in the model's text: a stop before a space or the end. Text holds no digits, so no decimal point. */
-const STOP = /[.!?](?=\s|$)/g
+/** Words that end in a stop without ending the sentence ("vs. ", "e.g. ", "approx. "). "etc." and "No." can end one, so they are not here. */
+const ABBREVIATION = /(?:^|[^a-z])(?:e\.g|i\.e|vs|approx|cf|ca|fig|mr|mrs|ms|dr|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)$/i
+
+/** Where sentences end in the model's text: a stop before a space or the end, after a word that is not an abbreviation. A decimal point ("4.5") or a thousands comma ("29,696,229") is no stop. */
+function stopsIn(s: string): number[] {
+  return [...s.matchAll(/[.!?](?=\s|$)/g)].filter((m) => m[0] !== '.' || !ABBREVIATION.test(s.slice(0, m.index))).map((m) => m.index)
+}
 
 /**
  * A dropped claim leaves its sentence with a hole ("Across the past year, ___ is compared below."). When a dropped
- * segment has words of its own sentence right beside it (the text next to it has words before the stop on that side),
- * that sentence is cut whole: from the stop before it to the stop that ends it, kept claims inside it included. Text
- * outside that sentence is unchanged, and a dropped segment with no such words beside it changes nothing.
- * `work` holds null where a segment was dropped; only those first drops start a cut, and a cut segment becomes null.
+ * segment has words of its own sentence right beside it (the nearest segment on a side that is not blank text: its
+ * text has words before the stop on that side), that sentence is cut whole: from the stop before it to the stop that
+ * ends it, kept claims inside it included. A blank or empty text segment between is not a neighbour: "On ", "", dropped
+ * date, 29,696,229 still has "On" beside the hole. A kept claim beside the drop fills the hole (two claims side by side
+ * are one phrase). Text outside that sentence is unchanged, and a dropped segment with no such words beside it changes
+ * nothing. `work` holds null where a segment was dropped; only those first drops start a cut, and a cut segment becomes null.
  */
 function cutBrokenSentences(work: Array<Segment | null>): void {
   const dropped = work.flatMap((seg, i) => (seg === null ? [i] : []))
@@ -205,16 +212,20 @@ function cutBrokenSentences(work: Array<Segment | null>): void {
     for (let j = i - 1; j >= 0; j--) {
       const seg = work[j]
       if (!seg) continue
+      if (seg.t === 'text' && seg.s.trim() === '') {
+        gone.push(j)
+        continue
+      }
       const edge = beside
       beside = false
       if (seg.t !== 'text') {
         gone.push(j)
         continue
       }
-      const last = [...seg.s.matchAll(STOP)].at(-1)
-      const cut = last ? last.index + 1 : 0
+      const last = stopsIn(seg.s).at(-1)
+      const cut = last === undefined ? 0 : last + 1
       if (edge && seg.s.slice(cut).trim() !== '') broken = true
-      if (!last) {
+      if (last === undefined) {
         gone.push(j)
         continue
       }
@@ -225,19 +236,23 @@ function cutBrokenSentences(work: Array<Segment | null>): void {
     for (let j = i + 1; j < work.length; j++) {
       const seg = work[j]
       if (!seg) continue
+      if (seg.t === 'text' && seg.s.trim() === '') {
+        gone.push(j)
+        continue
+      }
       const edge = beside
       beside = false
       if (seg.t !== 'text') {
         gone.push(j)
         continue
       }
-      const first = [...seg.s.matchAll(STOP)][0]
-      if (edge && seg.s.slice(0, first ? first.index : seg.s.length).trim() !== '') broken = true
-      if (!first) {
+      const first = stopsIn(seg.s)[0]
+      if (edge && seg.s.slice(0, first ?? seg.s.length).trim() !== '') broken = true
+      if (first === undefined) {
         gone.push(j)
         continue
       }
-      forwardKeep = { at: j, s: seg.s.slice(first.index + 1) }
+      forwardKeep = { at: j, s: seg.s.slice(first + 1) }
       break
     }
     if (!broken) continue

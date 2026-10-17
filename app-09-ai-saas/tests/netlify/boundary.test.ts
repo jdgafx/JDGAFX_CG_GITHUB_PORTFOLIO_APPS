@@ -213,6 +213,42 @@ describe('parseParagraph (rev 8.3): the paragraph shows each of the target\'s ow
     // a drop with no words of its own sentence around it changes nothing
     expect(tidy([text('Done. '), claim('window_total', 'webpack', '1'), text('. Next.')])).toEqual([text('Done. '), text('. Next.')])
   })
+  describe('a dropped claim takes its whole sentence wherever it sits (the "On 29,696,229 downloads were a spike" fragment)', () => {
+    const gone = claim('unusual_day', 'webpack', '2026-03-26') // a claim about another package: dropped
+    const n = claim('day_value', 'vite', '29696229', { day: '2026-03-26' })
+    const tail = text(' downloads were a spike with no release close to that date. Next, the total.')
+    const after = text(' Next, the total.')
+    it('"On <dropped>, N downloads ..." goes whole, the text before and after it byte for byte', () => {
+      expect(tidy([text('Vite grew. On '), gone, text(', '), n, tail])).toEqual([text('Vite grew. '), after])
+    })
+    it('empty or blank text between the words and the dropped date does not hide the words (the production shape)', () => {
+      expect(tidy([text('Vite grew. On '), text(''), gone, n, tail])).toEqual([text('Vite grew. '), after])
+      expect(tidy([text('Vite grew. On'), text(' '), gone, text(''), text(' '), n, tail])).toEqual([text('Vite grew. '), after])
+      expect(tidy([text('Vite grew. On '), gone, text(''), n, tail])).toEqual([text('Vite grew. '), after])
+    })
+    it('a dropped claim at the start of a sentence, in the middle after a preposition, and at the end', () => {
+      expect(tidy([text('Vite grew. '), gone, text(' was the only spike. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
+      expect(tidy([text('Vite grew. Since '), text(''), gone, text(' it rose, and peaked at '), n, text('. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
+      expect(tidy([text('Vite grew. It peaked on '), text(' '), gone, text('. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
+      expect(tidy([text('Vite grew. By the end, '), text(''), gone, text('')])).toEqual([text('Vite grew. ')])
+    })
+    it('a number with thousands commas, a decimal or an abbreviation in the text is not a sentence end', () => {
+      expect(tidy([text('Vite grew 4.5 percent. In 2026, 29,696,229 was seen on '), text(''), gone, text(', up from 1,234,567 or 1.5 million. Next.')])).toEqual([text('Vite grew 4.5 percent. '), text(' Next.')])
+      expect(tidy([text('Vite grew. Compared with approx. '), text(''), gone, text(' it was e.g. a spike vs. the month before, i.e. odd. Next.')])).toEqual([text('Vite grew. '), text(' Next.')])
+      // an abbreviation before the sentence start does not hide the stop that ends the sentence before it
+      expect(tidy([text('Vite grew vs. webpack. In '), text(''), gone, text(' it spiked. Next.')])).toEqual([text('Vite grew vs. webpack. '), text(' Next.')])
+    })
+    it('kept claims inside the cut sentence go with it; kept claims in other sentences stay', () => {
+      const keep = claim('window_total', 'vite', '837275395')
+      const peak = claim('peak_value', 'vite', '5')
+      expect(tidy([text('Total '), keep, text('. On '), text(''), gone, text(' there were '), n, text(' downloads. Peak '), peak, text('.')])).toEqual([text('Total '), keep, text('. '), text(' Peak '), peak, text('.')])
+    })
+    it('a kept claim beside the drop fills the hole, and a drop with no words in its sentence changes nothing', () => {
+      const peak = claim('peak_value', 'vite', '5')
+      expect(tidy([text('Vite grew. Peak '), peak, gone, text('.')])).toEqual([text('Vite grew. Peak '), peak, text('.')])
+      expect(tidy([text('Vite grew. '), text(''), gone, text(' '), text('. Next.')])).toEqual([text('Vite grew. '), text(' '), text('. Next.')])
+    })
+  })
   it('drops empty text segments and nothing else of the text', () => {
     expect(tidy([text(''), text(' '), text('a'), text('')])).toEqual([text(' '), text('a')])
   })
