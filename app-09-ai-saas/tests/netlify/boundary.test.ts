@@ -191,6 +191,13 @@ describe('parseParagraph (rev 8.5): the paragraph is whole sentences; a sentence
     expect(tidy([S1, [text('Is it flat?')]])).toEqual([...S1, text(' '), text('Is it flat?')])
     expect(tidy([[text('Vite rose '), claim('change_pct', 'vite', ''), text('.')], [text('Compared with webpack: '), cmp('vite', 'webpack')]])).toHaveLength(6)
   })
+  it('a figure that runs into a new sentence with no stop between goes whole (production run 2: "... of 2,603,987 The data does not show a cause")', () => {
+    const runOn = [text('Vite had an unusual drop on '), claim('unusual_day', 'vite', '2025-12-25'), text(' with downloads of '), claim('day_value', 'vite', '2603987', { day: '2025-12-25' }), text(' The data does not show a cause for this drop.')]
+    expect(tidy([S1, runOn, S2])).toEqual([...S1, text(' '), ...S2])
+    // a lower-case continuation after a figure is one sentence
+    const ok = [text('Vite had '), total, text(' downloads, and Webpack fewer.')]
+    expect(tidy([ok])).toEqual(ok.map((x, i) => (i === 2 ? text(' downloads, and Webpack fewer.') : x)))
+  })
   it('the stop may be followed by a closing quote or bracket, and a figure may sit before the first words', () => {
     const q = [claim('peak_value', 'vite', '5'), text(' downloads was the peak (a record).')]
     expect(tidy([q])).toEqual(q)

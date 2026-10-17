@@ -190,7 +190,7 @@ const ENDS_WHOLE = /[.!?]["')\]]*\s*$/
 /**
  * Why a sentence cannot be shown, or null when it can (rev 8.5). The model writes each sentence together with the
  * claims for its own figures, so the rule is per sentence: it goes whole when ANY figure in it is not the target's, or
- * states a figure that is already stated (or is stated twice in it), when it has no words of its own (a compare is a clause), or when it does
+ * states a figure that is already stated (or is stated twice in it), when it has no words of its own (a compare is a clause), when a figure runs into a new capitalised sentence with no stop, or when it does
  * not end on a stop or a compare. Nothing is cut out of a sentence, so no half sentence and no floating figure remains.
  */
 function sentenceFault(sentence: Segment[], target: string, seen: Set<string>): string | null {
@@ -204,6 +204,8 @@ function sentenceFault(sentence: Segment[], target: string, seen: Set<string>): 
   }
   // a compare is a whole clause written by code, so it counts as words
   if (!sentence.some((seg) => seg.t === 'compare' || (seg.t === 'text' && /\p{L}/u.test(seg.s)))) return 'no words'
+  // a figure followed by a new capitalised sentence with no stop between: two sentences written as one ("... 2,603,987 The data does not ...")
+  if (sentence.some((seg, i) => seg.t === 'text' && sentence[i - 1]?.t === 'claim' && /^\s+\p{Lu}/u.test(seg.s))) return 'run-on'
   const last = [...sentence].reverse().find((seg) => seg.t !== 'text' || seg.s.trim() !== '')
   if (!last || (last.t === 'claim') || (last.t === 'text' && !ENDS_WHOLE.test(last.s))) return 'does not end whole'
   for (const key of keys) seen.add(key)
