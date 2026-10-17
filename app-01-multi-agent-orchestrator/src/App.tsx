@@ -348,6 +348,7 @@ export default function App() {
             <ReportCard
               key={runId}
               phase={phase}
+              replay={replaying && replay.info !== null}
               synthesizer={agents.synthesizer}
               sources={agents.retriever.sources ?? []}
               error={pipelineError}

@@ -6,6 +6,7 @@ import { milliseconds, shortModel } from '../lib/format'
 import type { AgentState, Source } from '../types'
 import { AuditSummary } from './AuditSummary'
 import { Markdown } from './Markdown'
+import { ReplayBadge } from './ReplayLabel'
 import { SourcePanel } from './SourcePanel'
 
 interface StateProps {
@@ -52,6 +53,8 @@ interface ReportCardProps {
   onRetryAudit: () => void
   /** Rendered after the source list; the page puts the export group here on a phone. */
   after?: ReactNode
+  /** True while the report on screen is the replayed run: a badge on the result says so. */
+  replay?: boolean
 }
 
 /** On a wide screen the source panel sits beside the report; on a narrow one it follows the report and is scrolled to. */
@@ -61,7 +64,7 @@ const WIDE = '(min-width: 1000px)'
 const sourcesOpenAtStart = () => typeof window === 'undefined' || window.matchMedia(WIDE).matches
 
 /** The page's lead: the final report with every cited sentence badged, the audit summary above it and the source panel beside it. */
-export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit, after }: ReportCardProps) {
+export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit, after, replay = false }: ReportCardProps) {
   const [selected, setSelected] = useState<number | null>(null)
   const [sourcesOpen, setSourcesOpen] = useState(sourcesOpenAtStart)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -93,6 +96,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
   if (!text) {
     return (
       <section className="ds-section ds-run__result" aria-label="Final report" aria-live="polite">
+        {replay && <ReplayBadge />}
         {phase === 'running' ? (
           <ReportState tone="loading" title="Researching" body="The cited report appears here when the Synthesizer is done, then every cited sentence is audited against its source." />
         ) : phase === 'failed' ? (
@@ -130,6 +134,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
 
   return (
     <section className="ds-section ds-run__result" aria-label="Final report" aria-live="polite">
+      {replay && <ReplayBadge />}
       <div className="ds-lead audit">
         <div className="ds-lead__meta">
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>

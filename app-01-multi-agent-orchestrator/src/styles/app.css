@@ -216,3 +216,4 @@
   .ds-trace__state, .ds-badge, .ds-chip, .verdict, .ds-legend, .ds-choice__text, .ds-choice__meta, .ds-cite__n, .ds-cite__url, .ds-lead__foot,
   .stage-tabs__state, .stage-tabs .ds-seg__btn, .stage-tabs button, .md-cite, .ds-footer { font-size: 14px; }
 }
+.ds-badge.replay-badge { display: flex; justify-content: center; max-width: none; margin: 0 0 12px; padding: 8px 12px; white-space: normal; text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; border: 2px solid currentColor; }
