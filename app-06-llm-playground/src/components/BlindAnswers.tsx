@@ -88,7 +88,7 @@ export function BlindAnswers({ blind, vote, onVote, replay = false }: BlindAnswe
       </div>
       {replay && (
         <p className="ds-help" role="note">
-          This is a replay, so voting is off and nothing is sent. Choose Run it live to run your own and vote.
+          This is a replay, so voting is off and nothing is sent. Choose Run it live (uses a real, paid model call) to run your own and vote.
         </p>
       )}
       {vote.state === 'failed' && (
