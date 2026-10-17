@@ -2,6 +2,7 @@ import type { HumanDecision, IssueRef } from '../types'
 import type { Phase, RunView } from '../lib/run-state'
 import { approvalVisible, type StreamFlow } from '../lib/stream-view'
 import { ApprovalCard } from './ApprovalCard'
+import { ReplayBadge } from './ReplayLabel'
 import { DuplicatesCard } from './DuplicatesCard'
 import { TriageCard } from './TriageCard'
 
@@ -120,6 +121,7 @@ export function ResultCard({ run, phase, flow, busy, replay, searching, onDecide
 
   return (
     <section className="ds-section ds-run__result" aria-label="Triage result" aria-live="polite">
+      {replay ? <ReplayBadge /> : null}
       {run.issue ? <Banner issue={run.issue} /> : null}
       {main}
       <DuplicatesCard report={run.duplicates} searching={searching} />
