@@ -83,6 +83,14 @@ describe('readAuditRequest', () => {
     expect(request.sources[0]?.snippet).toHaveLength(501)
   })
 
+  it('accepts all eight sources of a run at full length, from every site, and keeps each site name', async () => {
+    const sites = ['Web', 'Web', 'Web', 'arXiv', 'arXiv', 'Hacker News', 'Hacker News', 'Wikipedia']
+    const sources = sites.map((site, i) => ({ n: i + 1, title: 'T', site, snippet: 'x'.repeat(500) }))
+    const request = await readAuditRequest(post({ report: 'Fact [1].', sources }))
+    expect(request.sources.map(source => source.site)).toEqual(sites)
+    expect(request.sources.every(source => source.snippet.length === 500)).toBe(true)
+  })
+
   it.each([
     ['not JSON', 'nope', 'Invalid JSON.'],
     ['no report', { sources: [] }, 'Missing report.'],

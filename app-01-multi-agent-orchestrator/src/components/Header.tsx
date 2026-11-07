@@ -35,7 +35,7 @@ export function Header({ badgeLabel, badgeTone, live }: HeaderProps) {
             <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
             {live.text}
           </p>
-          <p className="ds-subtitle">Looks a question up on Wikipedia and Hacker News, answers it with four agents, then checks every cited sentence against its source.</p>
+          <p className="ds-subtitle">Searches the live web, arXiv, Hacker News and Wikipedia for a question, answers it with four agents, then checks every cited sentence against its source.</p>
         </div>
         <p className="ds-showcase">
           <strong>What this showcases:</strong> a fixed multi-agent pipeline grounded in live public sources, and an audit of the final report that marks each

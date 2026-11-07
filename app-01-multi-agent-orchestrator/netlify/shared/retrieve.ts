@@ -1,25 +1,34 @@
 import type { Source } from '../../src/types'
 import { withDeadline } from './deadline'
 
-/** Wikimedia asks API clients to identify themselves. */
+/** Wikimedia and arXiv ask API clients to identify themselves. */
 const USER_AGENT = 'AgentFlow/1.0 (https://jdgafx-app-01-multi-agent-orchestrator.netlify.app; portfolio project)'
 
-/** Both lookups run in parallel under this one ceiling. The run budget can shorten it. */
+/** Every lookup runs in parallel under its own copy of this ceiling. The run budget can shorten it. */
 export const RETRIEVE_TIMEOUT_MS = 4_000
-/** A reply larger than this is refused unread. Real replies are a few KB. */
+/** A reply larger than this is refused unread. Real replies are a few KB to a few tens of KB. */
 const MAX_RESPONSE_BYTES = 200_000
-/** Characters of one source passed to the model and shown on the page. */
+/** Characters of one source passed to the model and shown on the page. The audit endpoint takes the same. */
 export const MAX_SNIPPET_CHARS = 500
-/** Characters of the whole source block in the Researcher's message. */
-export const MAX_PROMPT_SOURCES_CHARS = 3_200
-const WIKIPEDIA_LIMIT = 3
+/** Characters of the whole source block in the Researcher's message: room for eight sources of about 550 characters. */
+export const MAX_PROMPT_SOURCES_CHARS = 4_400
+/** At most 8 sources reach the Researcher and the audit endpoint: web 3, arXiv 2, Hacker News 2, Wikipedia 1. */
+const WEB_LIMIT = 3
+const ARXIV_LIMIT = 2
 const HN_LIMIT = 2
+const WIKIPEDIA_LIMIT = 1
+/** Candidates asked for, so the relevance rule has some to drop. */
+const WEB_CANDIDATES = 6
+const ARXIV_CANDIDATES = 10
+const WIKIPEDIA_CANDIDATES = 5
 const HN_MIN_POINTS = 20
 const MAX_TERMS = 8
 const MAX_TITLE_CHARS = 200
 
 const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php'
 const HN_API = 'https://hn.algolia.com/api/v1/search'
+const ARXIV_API = 'https://export.arxiv.org/api/query'
+const TAVILY_SEARCH_API = 'https://api.tavily.com/search'
 
 export type RawSource = Omit<Source, 'n'>
 
@@ -45,20 +54,21 @@ export function searchTerms(query: string): string {
   return terms.length > 0 ? terms.join(' ') : query.trim().slice(0, 120)
 }
 
-export function wikipediaSearchUrl(terms: string): string {
+/** `any` asks for pages that carry any of the words (OR) instead of all of them, which long questions need. */
+export function wikipediaSearchUrl(terms: string, any = false): string {
   const params = new URLSearchParams({
     action: 'query',
     format: 'json',
     formatversion: '2',
     generator: 'search',
-    gsrsearch: terms,
+    gsrsearch: any ? terms.split(' ').filter(Boolean).join(' OR ') : terms,
     gsrnamespace: '0',
-    gsrlimit: String(WIKIPEDIA_LIMIT),
+    gsrlimit: String(WIKIPEDIA_CANDIDATES),
     prop: 'extracts',
     exintro: '1',
     explaintext: '1',
     exchars: String(MAX_SNIPPET_CHARS),
-    exlimit: String(WIKIPEDIA_LIMIT),
+    exlimit: String(WIKIPEDIA_CANDIDATES),
   })
   return `${WIKIPEDIA_API}?${params}`
 }
@@ -75,6 +85,23 @@ export function hnSearchUrl(terms: string): string {
   return `${HN_API}?${params}`
 }
 
+/** arXiv answers XML. Any of the words, best match first; the relevance rule then keeps the real matches. */
+export function arxivSearchUrl(terms: string): string {
+  const query = terms
+    .split(' ')
+    .map(word => word.replace(/"/g, ''))
+    .filter(Boolean)
+    .map(word => `all:"${word}"`)
+    .join(' OR ')
+  const params = new URLSearchParams({ search_query: query, start: '0', max_results: String(ARXIV_CANDIDATES), sortBy: 'relevance' })
+  return `${ARXIV_API}?${params}`
+}
+
+/** What Tavily is sent: the raw question and one search call. No page extraction. */
+export function tavilySearchBody(query: string): string {
+  return JSON.stringify({ query, max_results: WEB_CANDIDATES, search_depth: 'basic', include_answer: false })
+}
+
 /** Collapses whitespace, drops control characters and cuts at a word boundary with an ellipsis. */
 export function capText(text: string, max: number): string {
   // eslint-disable-next-line no-control-regex
@@ -89,34 +116,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Parentheses are escaped too, so the link still parses inside markdown. */
+/** Brackets and parentheses are escaped, so a link still parses inside a markdown list line. */
+function escapeLinkChars(url: string): string {
+  return url.replace(/[()[\]]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
 export function wikipediaArticleUrl(title: string): string {
-  const path = encodeURIComponent(title.replace(/ /g, '_')).replace(/\(/g, '%28').replace(/\)/g, '%29')
-  return `https://en.wikipedia.org/wiki/${path}`
-}
-
-/** Articles in search rank order. A page without a title or without intro text is dropped. */
-export function parseWikipedia(body: unknown): RawSource[] {
-  const pages = isRecord(body) && isRecord(body.query) && Array.isArray(body.query.pages) ? body.query.pages : []
-  const ranked: Array<{ index: number; source: RawSource }> = []
-  for (const page of pages) {
-    if (!isRecord(page)) continue
-    const title = typeof page.title === 'string' ? capText(page.title, MAX_TITLE_CHARS) : ''
-    const extract = typeof page.extract === 'string' ? capText(page.extract, MAX_SNIPPET_CHARS) : ''
-    if (!title || !extract) continue
-    const index = typeof page.index === 'number' ? page.index : Number.MAX_SAFE_INTEGER
-    ranked.push({ index, source: { title, site: 'Wikipedia', url: wikipediaArticleUrl(title), snippet: extract } })
-  }
-  return ranked
-    .sort((a, b) => a.index - b.index)
-    .slice(0, WIKIPEDIA_LIMIT)
-    .map(entry => entry.source)
-}
-
-function monthYear(iso: string): string | undefined {
-  const time = Date.parse(iso)
-  if (Number.isNaN(time)) return undefined
-  return new Date(time).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+  return `https://en.wikipedia.org/wiki/${escapeLinkChars(encodeURIComponent(title.replace(/ /g, '_')))}`
 }
 
 function httpsHost(value: unknown): string | undefined {
@@ -129,18 +135,64 @@ function httpsHost(value: unknown): string | undefined {
   }
 }
 
-/** Search words a story title must carry: 60% of them, at most three. Loose matches are dropped. */
-function hnWordsNeeded(termCount: number): number {
+/** A page link from a search reply: https only, no login in it, brackets escaped. Anything else is dropped. */
+function webLink(value: unknown): string | undefined {
+  if (!httpsHost(value)) return undefined
+  const url = new URL(String(value))
+  if (url.username || url.password || url.href.length > 1_000) return undefined
+  return escapeLinkChars(url.href)
+}
+
+const stem = (word: string) => (word.length > 3 ? word.replace(/s$/, '') : word)
+const wordsIn = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}+#]+/gu) ?? []
+
+/** Search words a source must carry in its title and text: 60% of them, at most three. Loose matches are dropped. */
+function wordsNeeded(termCount: number): number {
   return Math.min(3, Math.ceil(termCount * 0.6))
 }
 
 /**
+ * The one relevance rule, the same for every site: the title and text carry enough of the question's topic words.
+ * A word matches ignoring case and a plural s; a hyphenated or dotted word (server-sent, Node.js) needs all its parts.
+ * shortcut: no stemming beyond the plural s, so "streaming" does not match "stream"; upgrade if real questions lose sources to it.
+ */
+export function isRelevant(terms: string, title: string, text: string): boolean {
+  const topic = terms.split(' ').filter(Boolean)
+  const have = new Set(wordsIn(`${title} ${text}`).map(stem))
+  const hits = topic.filter(term => {
+    const parts = wordsIn(term).map(stem)
+    return parts.length > 0 && parts.every(part => have.has(part))
+  })
+  return hits.length >= wordsNeeded(topic.length)
+}
+
+/** Articles in search rank order. A page without a title or intro text, or off topic, is dropped. */
+export function parseWikipedia(body: unknown, terms: string): RawSource[] {
+  const pages = isRecord(body) && isRecord(body.query) && Array.isArray(body.query.pages) ? body.query.pages : []
+  const ranked: Array<{ index: number; source: RawSource }> = []
+  for (const page of pages) {
+    if (!isRecord(page)) continue
+    const title = typeof page.title === 'string' ? capText(page.title, MAX_TITLE_CHARS) : ''
+    const extract = typeof page.extract === 'string' ? capText(page.extract, MAX_SNIPPET_CHARS) : ''
+    if (!title || !extract || !isRelevant(terms, title, extract)) continue
+    const index = typeof page.index === 'number' ? page.index : Number.MAX_SAFE_INTEGER
+    ranked.push({ index, source: { title, site: 'Wikipedia', url: wikipediaArticleUrl(title), snippet: extract } })
+  }
+  return ranked.sort((a, b) => a.index - b.index).map(entry => entry.source)
+}
+
+function monthYear(iso: string): string | undefined {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return undefined
+  return new Date(time).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+/**
  * Hacker News stories that match the question. The link is always the discussion page, built
- * from a numeric id. A hit whose title does not carry enough of the search words is dropped.
+ * from a numeric id. A hit that fails the relevance rule is dropped.
  */
 export function parseHn(body: unknown, terms: string): RawSource[] {
   const hits = isRecord(body) && Array.isArray(body.hits) ? body.hits : []
-  const needed = hnWordsNeeded(terms.split(' ').filter(Boolean).length)
   const out: RawSource[] = []
   for (const hit of hits) {
     if (!isRecord(hit)) continue
@@ -149,29 +201,71 @@ export function parseHn(body: unknown, terms: string): RawSource[] {
     const points = typeof hit.points === 'number' && Number.isFinite(hit.points) ? hit.points : undefined
     if (!title || !id || points === undefined || points < HN_MIN_POINTS) continue
 
-    const highlight = isRecord(hit._highlightResult) && isRecord(hit._highlightResult.title) ? hit._highlightResult.title : {}
-    const matched = Array.isArray(highlight.matchedWords) ? highlight.matchedWords.length : 0
-    if (matched < needed) continue
-
     const comments = typeof hit.num_comments === 'number' && Number.isFinite(hit.num_comments) ? hit.num_comments : 0
     const when = typeof hit.created_at === 'string' ? monthYear(hit.created_at) : undefined
     const host = httpsHost(hit.url)
     const note = [`${points.toLocaleString('en-US')} points`, `${comments.toLocaleString('en-US')} comments`, when]
       .filter(Boolean)
       .join(', ')
-    out.push({
-      title,
-      site: 'Hacker News',
-      url: `https://news.ycombinator.com/item?id=${id}`,
-      snippet: capText(`Hacker News story "${title}"${host ? `, linking to ${host}` : ''}. ${note}.`, MAX_SNIPPET_CHARS),
-      note,
-    })
+    const snippet = capText(`Hacker News story "${title}"${host ? `, linking to ${host}` : ''}. ${note}.`, MAX_SNIPPET_CHARS)
+    if (!isRelevant(terms, title, snippet)) continue
+    out.push({ title, site: 'Hacker News', url: `https://news.ycombinator.com/item?id=${id}`, snippet, note })
     if (out.length === HN_LIMIT) break
   }
   return out
 }
 
-/** Numbers the sources 1..n, Wikipedia first. The Researcher cites these numbers. */
+/**
+ * Pages from a Tavily search reply. The link is the one Tavily returned, kept only when it is a clean https link.
+ * Its text is the snippet Tavily extracted. A result that fails the relevance rule is dropped.
+ */
+export function parseWebSearch(body: unknown, terms: string): RawSource[] {
+  const results = isRecord(body) && Array.isArray(body.results) ? body.results : []
+  const out: RawSource[] = []
+  for (const item of results) {
+    if (!isRecord(item)) continue
+    const url = webLink(item.url)
+    const host = httpsHost(item.url)
+    const extract = typeof item.content === 'string' ? capText(item.content, MAX_SNIPPET_CHARS) : ''
+    const title = typeof item.title === 'string' && item.title.trim() ? capText(item.title, MAX_TITLE_CHARS) : (host ?? '')
+    if (!url || !host || !title || !extract || !isRelevant(terms, title, extract)) continue
+    out.push({ title, site: 'Web', url, snippet: extract, note: host })
+    if (out.length === WEB_LIMIT) break
+  }
+  return out
+}
+
+function xmlText(entry: string, tag: string): string {
+  const found = entry.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`))
+  return (found?.[1] ?? '')
+    .replace(/&#(\d+);/g, (_all, code: string) => String.fromCodePoint(Math.min(Number(code), 0x10ffff)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/**
+ * Papers from an arXiv Atom reply. The link is built from the paper id (https://arxiv.org/abs/<id>), never copied.
+ * An error entry has no such id and is dropped. A paper that fails the relevance rule is dropped.
+ */
+export function parseArxiv(xml: unknown, terms: string): RawSource[] {
+  if (typeof xml !== 'string') return []
+  const out: RawSource[] = []
+  for (const entry of xml.split('<entry>').slice(1)) {
+    const id = xmlText(entry, 'id').trim().match(/^https?:\/\/arxiv\.org\/abs\/([A-Za-z0-9.\-/]{1,40})$/)?.[1]
+    const title = capText(xmlText(entry, 'title'), MAX_TITLE_CHARS)
+    const abstract = capText(xmlText(entry, 'summary'), MAX_SNIPPET_CHARS)
+    if (!id || !title || !abstract || !isRelevant(terms, title, abstract)) continue
+    const when = monthYear(xmlText(entry, 'published').trim())
+    out.push({ title, site: 'arXiv', url: `https://arxiv.org/abs/${id}`, snippet: abstract, ...(when ? { note: `preprint, ${when}` } : {}) })
+    if (out.length === ARXIV_LIMIT) break
+  }
+  return out
+}
+
+/** Numbers the sources 1..n in the order given (web first). The Researcher cites these numbers. */
 export function numberSources(...groups: RawSource[][]): Source[] {
   return groups.flat().map((source, i) => ({ ...source, n: i + 1 }))
 }
@@ -191,8 +285,8 @@ export function sourcesPromptBlock(sources: Source[]): string {
 
 class RetrieveError extends Error {}
 
-/** Reads a JSON body, refusing more than MAX_RESPONSE_BYTES. */
-async function readJson(response: Response): Promise<unknown> {
+/** Reads a body as text, refusing more than MAX_RESPONSE_BYTES. */
+async function readText(response: Response): Promise<string> {
   if (Number(response.headers.get('content-length') ?? '0') > MAX_RESPONSE_BYTES) throw new RetrieveError('sent too much data')
   const reader = response.body?.getReader()
   if (!reader) throw new RetrieveError('sent an empty reply')
@@ -209,7 +303,10 @@ async function readJson(response: Response): Promise<unknown> {
   } finally {
     await reader.cancel().catch(() => {})
   }
-  const text = new TextDecoder().decode(Buffer.concat(chunks))
+  return new TextDecoder().decode(Buffer.concat(chunks))
+}
+
+function parseJson(text: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
@@ -217,12 +314,29 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+interface RequestOptions {
+  /** A POST with a JSON body. Without it the request is a GET. */
+  post?: { body: string; key: string }
+  accept: 'application/json' | 'application/atom+xml'
+  /** What an HTTP status means for this site, when it is more than "answered HTTP n". */
+  explain?: (status: number) => string | undefined
+}
+
 /**
  * One request. A dropped connection (fetch throws a TypeError) is tried once more under the same
  * signal, since such drops are brief. A timeout, an HTTP error status or a bad body is not retried.
  */
-async function fetchJson(url: string, signal: AbortSignal, fetchImpl: typeof fetch): Promise<unknown> {
-  const init = { signal, headers: { Accept: 'application/json', 'User-Agent': USER_AGENT } }
+async function fetchText(url: string, signal: AbortSignal, fetchImpl: typeof fetch, options: RequestOptions): Promise<string> {
+  const { post, accept, explain } = options
+  const init: RequestInit = {
+    signal,
+    headers: {
+      Accept: accept,
+      'User-Agent': USER_AGENT,
+      ...(post ? { 'Content-Type': 'application/json', Authorization: `Bearer ${post.key}` } : {}),
+    },
+    ...(post ? { method: 'POST', body: post.body } : {}),
+  }
   let response: Response
   try {
     response = await fetchImpl(url, init)
@@ -230,8 +344,15 @@ async function fetchJson(url: string, signal: AbortSignal, fetchImpl: typeof fet
     if (!(err instanceof TypeError) || signal.aborted) throw err
     response = await fetchImpl(url, init)
   }
-  if (!response.ok) throw new RetrieveError(`answered HTTP ${response.status}`)
-  return readJson(response)
+  if (!response.ok) throw new RetrieveError(explain?.(response.status) ?? `answered HTTP ${response.status}`)
+  return readText(response)
+}
+
+/** Tavily: 401/403 is a bad key, and 429 or its plan-limit statuses 432/433 mean the monthly credits are used up. */
+function explainTavily(status: number): string | undefined {
+  if (status === 401 || status === 403) return 'refused its key'
+  if (status === 429 || status === 432 || status === 433) return 'over its monthly limit'
+  return undefined
 }
 
 function failureReason(err: unknown): string {
@@ -253,47 +374,79 @@ export interface RetrieveOptions {
   signal: AbortSignal
   timeoutMs?: number
   fetchImpl?: typeof fetch
+  /** The Tavily key. Defaults to TAVILY_API_KEY. Without one the web search is named as not set up and the others carry on. */
+  webKey?: string
 }
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-function describe(wiki: RawSource[], hn: RawSource[], problems: string[]): string {
-  const found = [
-    wiki.length > 0 ? `${plural(wiki.length, 'Wikipedia article')}` : '',
-    hn.length > 0 ? `${plural(hn.length, 'Hacker News thread')}` : '',
-  ].filter(Boolean)
+function describe(found: Array<[RawSource[], string]>, problems: string[], reached: boolean): string {
+  const parts = found.filter(([sources]) => sources.length > 0).map(([sources, word]) => plural(sources.length, word))
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? '')
   const trouble = problems.join('; ')
-  if (found.length > 0) return `Found ${found.join(' and ')}.${trouble ? ` ${trouble}.` : ''}`
-  if (trouble) return `No sources retrieved: ${trouble}.`
-  return 'No sources found for this question on Wikipedia or Hacker News.'
+  if (list) return `Found ${list}.${trouble ? ` ${trouble}.` : ''}`
+  if (!reached) return `No sources retrieved: ${trouble}.`
+  return `No sources found for this question on the web, arXiv, Hacker News or Wikipedia.${trouble ? ` ${trouble}.` : ''}`
 }
 
 /**
- * Looks the question up on Wikipedia and Hacker News in parallel. Each lookup has its own
- * deadline, so a slow source cannot hold the other. A lookup that fails is named in the
- * detail and the other one still counts. Nothing is invented: no hits means an empty list.
+ * Looks the question up on the web (Tavily), arXiv, Hacker News and Wikipedia in parallel. Each lookup has
+ * its own deadline, so a slow site cannot hold the others. A lookup that fails is named in the detail and
+ * the others still count. One relevance rule decides what each site's results are worth keeping. Nothing
+ * is invented: no hits means an empty list.
  */
 export async function retrieveSources(query: string, options: RetrieveOptions): Promise<RetrieveResult> {
-  const { signal, timeoutMs = RETRIEVE_TIMEOUT_MS, fetchImpl = fetch } = options
+  const { signal, timeoutMs = RETRIEVE_TIMEOUT_MS, fetchImpl = fetch, webKey = process.env.TAVILY_API_KEY } = options
   const terms = searchTerms(query)
-  // The deadline covers the body read too: a source that sends headers and then stalls still ends at the limit.
-  const lookup = (url: string) => withDeadline(timeoutMs, signal, lookupSignal => fetchJson(url, lookupSignal, fetchImpl))
+  // The deadline covers the body read too: a site that sends headers and then stalls still ends at the limit.
+  const get = (url: string, request: RequestOptions) => withDeadline(timeoutMs, signal, lookupSignal => fetchText(url, lookupSignal, fetchImpl, request))
+  const getJson = async (url: string) => parseJson(await get(url, { accept: 'application/json' }))
 
-  const [wikiOutcome, hnOutcome] = await Promise.allSettled([lookup(wikipediaSearchUrl(terms)), lookup(hnSearchUrl(terms))])
+  // Wikipedia gets the all-words request and an any-word one beside it: a long question finds no page that has every word.
+  const wikipedia = async (): Promise<RawSource[]> => {
+    const outcomes = await Promise.allSettled([getJson(wikipediaSearchUrl(terms)), getJson(wikipediaSearchUrl(terms, true))])
+    const [exact, any] = outcomes
+    if (exact?.status === 'rejected' && any?.status === 'rejected') throw exact.reason
+    const pages = outcomes.flatMap(outcome => (outcome.status === 'fulfilled' ? parseWikipedia(outcome.value, terms) : []))
+    return pages.filter((page, i) => pages.findIndex(other => other.url === page.url) === i).slice(0, WIKIPEDIA_LIMIT)
+  }
+
+  const lookups: Array<{ label: string; word: string; run: Promise<RawSource[]> | undefined }> = [
+    {
+      label: 'Web search',
+      word: 'web page',
+      run: webKey
+        ? get(TAVILY_SEARCH_API, { accept: 'application/json', post: { body: tavilySearchBody(query), key: webKey }, explain: explainTavily }).then(text =>
+            parseWebSearch(parseJson(text), terms),
+          )
+        : undefined,
+    },
+    { label: 'arXiv', word: 'arXiv paper', run: get(arxivSearchUrl(terms), { accept: 'application/atom+xml' }).then(xml => parseArxiv(xml, terms)) },
+    { label: 'Hacker News', word: 'Hacker News thread', run: getJson(hnSearchUrl(terms)).then(body => parseHn(body, terms)) },
+    { label: 'Wikipedia', word: 'Wikipedia article', run: wikipedia() },
+  ]
+
+  const outcomes = await Promise.allSettled(lookups.map(lookup => lookup.run ?? Promise.reject(new RetrieveError('is not set up on this server'))))
   const problems: string[] = []
-  let wiki: RawSource[] = []
-  let hn: RawSource[] = []
-
-  if (wikiOutcome.status === 'fulfilled') wiki = parseWikipedia(wikiOutcome.value)
-  else problems.push(`Wikipedia ${failureReason(wikiOutcome.reason)}`)
-  if (hnOutcome.status === 'fulfilled') hn = parseHn(hnOutcome.value, terms)
-  else problems.push(`Hacker News ${failureReason(hnOutcome.reason)}`)
+  const found: Array<[RawSource[], string]> = []
+  let answered = 0
+  for (const [i, outcome] of outcomes.entries()) {
+    const lookup = lookups[i]
+    if (!lookup) continue
+    if (outcome.status === 'fulfilled') {
+      answered += 1
+      found.push([outcome.value, lookup.word])
+    } else {
+      problems.push(`${lookup.label} ${failureReason(outcome.reason)}`)
+      found.push([[], lookup.word])
+    }
+  }
 
   return {
-    sources: numberSources(wiki, hn),
-    detail: describe(wiki, hn, problems),
-    reached: problems.length < 2,
+    sources: numberSources(...found.map(([sources]) => sources)),
+    detail: describe(found, problems, answered > 0),
+    reached: answered > 0,
   }
 }

@@ -28,11 +28,11 @@ export interface Example {
   sources: string
 }
 
-/** Questions that Wikipedia and Hacker News can ground, so the Researcher has sources to cite and the audit has text to check. */
+/** Questions that the web, arXiv, Hacker News and Wikipedia can ground, so the Researcher has sources to cite and the audit has text to check. */
 export const EXAMPLES: Example[] = [
-  { label: 'Space telescope', question: 'What did the James Webb Space Telescope find in early galaxies?', sources: 'Wikipedia articles and Hacker News stories' },
-  { label: 'Gene editing', question: 'How does CRISPR gene editing work and where is it used?', sources: 'Wikipedia articles and Hacker News stories' },
-  { label: 'Systems languages', question: 'Why are developers adopting Rust for systems programming?', sources: 'Wikipedia articles and Hacker News stories' },
+  { label: 'Space telescope', question: 'What did the James Webb Space Telescope find in early galaxies?', sources: 'web pages, arXiv papers, Hacker News stories and Wikipedia articles' },
+  { label: 'Gene editing', question: 'How does CRISPR gene editing work and where is it used?', sources: 'web pages, arXiv papers, Hacker News stories and Wikipedia articles' },
+  { label: 'Systems languages', question: 'Why are developers adopting Rust for systems programming?', sources: 'web pages, arXiv papers, Hacker News stories and Wikipedia articles' },
 ]
 
 export const EXAMPLE_QUERIES = EXAMPLES.map(example => example.question)

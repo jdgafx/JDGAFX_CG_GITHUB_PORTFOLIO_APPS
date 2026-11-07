@@ -10,7 +10,7 @@ import {
   type Judgment,
   type JudgedSpan,
 } from '../../src/lib/audit'
-import type { AuditCallTrace, AuditClaim, AuditResult, ModelFacts, Source, StageUsage } from '../../src/types'
+import { SOURCE_SITES, type AuditCallTrace, type AuditClaim, type AuditResult, type ModelFacts, type Source, type StageUsage } from '../../src/types'
 import type { AgentConfig } from './agents'
 import { RequestError, readJsonBody } from './gate'
 import { modelFacts, newestModel } from './newest-model'
@@ -84,7 +84,7 @@ export async function readAuditRequest(req: Request): Promise<AuditRequest> {
     if (!isRecord(raw) || typeof raw.title !== 'string' || typeof raw.snippet !== 'string' || raw.n !== i + 1) {
       throw new RequestError(400, 'Sources must be numbered from 1, each with a title and text.')
     }
-    const site = raw.site === 'Hacker News' ? 'Hacker News' : 'Wikipedia'
+    const site = SOURCE_SITES.find(name => name === raw.site) ?? 'Wikipedia'
     sources.push({
       n: i + 1,
       title: raw.title.slice(0, 200),

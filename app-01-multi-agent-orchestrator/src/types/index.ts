@@ -16,12 +16,16 @@ export interface StageUsage {
   cost?: number
 }
 
+/** The sites a source can come from: a live web search result, an arXiv paper, a Hacker News story, a Wikipedia article. */
+export const SOURCE_SITES = ['Web', 'arXiv', 'Hacker News', 'Wikipedia'] as const
+export type SourceSite = (typeof SOURCE_SITES)[number]
+
 /** One retrieved public source. `n` is the number the Researcher cites as [n]. */
 export interface Source {
   n: number
   title: string
-  site: 'Wikipedia' | 'Hacker News'
-  /** A link the server built itself from validated ids, always https. */
+  site: SourceSite
+  /** An https link: built by the server from a validated id or title, or (web) the link the search returned, checked and escaped. */
   url: string
   /** The capped text the Researcher was given, shown to the visitor as it was sent. */
   snippet: string

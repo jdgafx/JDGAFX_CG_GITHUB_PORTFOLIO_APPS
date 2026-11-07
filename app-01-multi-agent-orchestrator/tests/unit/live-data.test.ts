@@ -10,7 +10,7 @@ const at = new Date(2026, 9, 9, 14, 5)
 
 describe('liveDataView', () => {
   it('is idle before and during retrieval', () => {
-    expect(liveDataView({ status: 'idle' }, null)).toMatchObject({ state: 'idle', text: 'Live data: Wikipedia + Hacker News' })
+    expect(liveDataView({ status: 'idle' }, null)).toMatchObject({ state: 'idle', text: 'Live data: Web + arXiv + Hacker News + Wikipedia' })
     expect(liveDataView({ status: 'working' }, null).state).toBe('idle')
   })
 
@@ -21,11 +21,11 @@ describe('liveDataView', () => {
 
   it('says how long ago the sources were fetched, not a fetch time, while a replay shows', () => {
     expect(liveDataView({ status: 'complete', sources: [wiki, hn] }, at, '3 h ago')).toMatchObject({ state: 'idle', text: 'Recorded data: Wikipedia + Hacker News · fetched 3 h ago' })
-    expect(liveDataView({ status: 'working' }, null, '3 h ago').text).toBe('Live data: Wikipedia + Hacker News')
+    expect(liveDataView({ status: 'working' }, null, '3 h ago').text).toBe('Live data: Web + arXiv + Hacker News + Wikipedia')
   })
 
   it('fails on an error or when nothing was found', () => {
-    expect(liveDataView({ status: 'error' }, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
+    expect(liveDataView({ status: 'error' }, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Web + arXiv + Hacker News + Wikipedia' })
     expect(liveDataView({ status: 'complete', sources: [] }, at).state).toBe('failed')
     expect(liveDataView({ status: 'skipped' }, null).state).toBe('failed')
   })

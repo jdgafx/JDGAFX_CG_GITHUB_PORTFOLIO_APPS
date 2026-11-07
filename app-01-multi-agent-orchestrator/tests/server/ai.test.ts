@@ -115,7 +115,7 @@ describe('ai function: success path', () => {
       usage: { prompt_tokens: 750, completion_tokens: 180, total_tokens: 930, cost: expect.closeTo(0.00063, 10) },
     })
     expect(summary?.trace).toEqual([
-      expect.objectContaining({ name: 'Retrieve', status: 'ok', detail: 'Found 2 Wikipedia articles and 1 Hacker News thread.' }),
+      expect.objectContaining({ name: 'Retrieve', status: 'ok', detail: 'Found 1 Hacker News thread and 1 Wikipedia article.' }),
       expect.objectContaining({ name: 'Researcher', status: 'ok', tokens: 40, cost: 0.0001 }),
       expect.objectContaining({ name: 'Analyst', status: 'ok', tokens: 30, cost: 0.00008 }),
       expect.objectContaining({ name: 'Critic', status: 'ok', tokens: 20, cost: 0.00005 }),

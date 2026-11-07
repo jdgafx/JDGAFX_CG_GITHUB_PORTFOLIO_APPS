@@ -90,7 +90,7 @@ export default function App() {
           return
         case 'retrieve_start':
           setActiveTab('retriever')
-          setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'working', detail: 'Looking up Wikipedia and Hacker News.' } }))
+          setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'working', detail: 'Searching the web, arXiv, Hacker News and Wikipedia.' } }))
           setAnnouncement('Retrieve is fetching public sources.')
           return
         case 'retrieve_complete': {

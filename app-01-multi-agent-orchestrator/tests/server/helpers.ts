@@ -4,6 +4,7 @@ import { MODEL_LIST_URL } from '../../netlify/shared/newest-model'
 export const SITE = 'https://site.example'
 export const ENDPOINT = `${SITE}/api/ai`
 export const KEY = 'test-only-placeholder'
+export const WEB_KEY = 'test-only-web-placeholder'
 export const SERVED = 'anthropic/claude-haiku-5.5'
 export const FIXED_MODEL = '~anthropic/claude-haiku-latest'
 /** The list names the alias's newest target as SERVED, so replies that name SERVED are 'match'. */
@@ -22,9 +23,12 @@ let requestCount = 0
 /** Registers the per-test setup: a placeholder key, and a fetch that fails loudly if a test did not plan a call. */
 export function installHarness(): void {
   let savedKey: string | undefined
+  let savedWebKey: string | undefined
   beforeEach(() => {
     savedKey = process.env.OPENROUTER_API_KEY
+    savedWebKey = process.env.TAVILY_API_KEY
     process.env.OPENROUTER_API_KEY = KEY
+    process.env.TAVILY_API_KEY = WEB_KEY
     // A call that no test planned fails loudly instead of reaching the network.
     vi.stubGlobal(
       'fetch',
@@ -37,6 +41,8 @@ export function installHarness(): void {
   afterEach(() => {
     if (savedKey === undefined) delete process.env.OPENROUTER_API_KEY
     else process.env.OPENROUTER_API_KEY = savedKey
+    if (savedWebKey === undefined) delete process.env.TAVILY_API_KEY
+    else process.env.TAVILY_API_KEY = savedWebKey
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -100,13 +106,15 @@ export function stageOf(systemPrompt: string | undefined): Stage {
 
 export const WIKIPEDIA_HOST = 'https://en.wikipedia.org/'
 export const HN_HOST = 'https://hn.algolia.com/'
+export const ARXIV_HOST = 'https://export.arxiv.org/'
+export const WEB_HOST = 'https://api.tavily.com/'
 
-// Recorded shapes of the two public APIs. The app itself fetches them live.
+// Recorded shapes of the public APIs. The app itself fetches them live. Each page carries enough of the QUERY's topic words to pass the relevance rule.
 export const WIKIPEDIA_BODY = {
   query: {
     pages: [
-      { title: 'Server-sent events', index: 1, extract: 'Server-sent events (SSE) is a technology where a browser receives automatic updates from a server via HTTP.' },
-      { title: 'WebSocket', index: 2, extract: 'WebSocket is a computer communications protocol providing full-duplex channels over a single TCP connection.' },
+      { title: 'Server-sent events', index: 1, extract: 'Server-sent events (SSE) is a technology where a browser receives automatic updates from a server via HTTP, suited to streaming LLM output.' },
+      { title: 'WebSocket', index: 2, extract: 'WebSocket is a computer communications protocol providing full-duplex channels over a single TCP connection, used for streaming output.' },
     ],
   },
 }
@@ -114,30 +122,36 @@ export const HN_BODY = {
   hits: [
     {
       objectID: '31010000',
-      title: 'Server-sent events vs WebSockets for streaming',
+      title: 'Server-sent events vs WebSockets for streaming LLM output',
       url: 'https://example.com/sse',
       points: 210,
       num_comments: 88,
       created_at: '2022-04-02T10:00:00Z',
-      _highlightResult: { title: { matchedWords: ['sse', 'websockets', 'streaming'] } },
     },
   ],
 }
 
+export const EMPTY_FEED = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>ArXiv Query</title></feed>'
+
 export type PublicReply = (init?: RequestInit) => Response | Promise<Response>
 
+/** The replies of the public sources. A web or arXiv reply left out answers with nothing found. */
 export interface Retrieval {
   wikipedia: PublicReply
   hn: PublicReply
+  web?: PublicReply
+  arxiv?: PublicReply
 }
 
 export const jsonReply = (body: unknown, status = 200): PublicReply => () => new Response(JSON.stringify(body), { status })
 export const GOOD_RETRIEVAL: Retrieval = { wikipedia: jsonReply(WIKIPEDIA_BODY), hn: jsonReply(HN_BODY) }
 
-/** A call to one of the two public sources, or undefined for a provider call. */
+/** A call to one of the public sources, or undefined for a provider call. */
 export function retrievalCall(url: string, retrieval: Retrieval, init?: RequestInit): Response | Promise<Response> | undefined {
   if (url.startsWith(WIKIPEDIA_HOST)) return retrieval.wikipedia(init)
   if (url.startsWith(HN_HOST)) return retrieval.hn(init)
+  if (url.startsWith(WEB_HOST)) return (retrieval.web ?? jsonReply({ results: [] }))(init)
+  if (url.startsWith(ARXIV_HOST)) return (retrieval.arxiv ?? (() => new Response(EMPTY_FEED, { status: 200 })))(init)
   if (url === MODEL_LIST_URL) return jsonReply(MODEL_LIST_BODY)()
   return undefined
 }
@@ -149,11 +163,11 @@ export function stubFetch(provider: (...args: Parameters<typeof fetch>) => Respo
   return fetchMock
 }
 
-/** The calls that went to the model provider, not to Wikipedia, Hacker News or the model list. */
+/** The calls that went to the model provider, not to a public source or the model list. */
 export function providerCalls(fetchMock: ReturnType<typeof stubFetch>) {
   return fetchMock.mock.calls.filter(call => {
     const url = String(call[0])
-    return !url.startsWith(WIKIPEDIA_HOST) && !url.startsWith(HN_HOST) && url !== MODEL_LIST_URL
+    return ![WIKIPEDIA_HOST, HN_HOST, WEB_HOST, ARXIV_HOST].some(host => url.startsWith(host)) && url !== MODEL_LIST_URL
   })
 }
 
