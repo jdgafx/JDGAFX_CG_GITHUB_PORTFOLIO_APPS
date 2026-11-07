@@ -112,10 +112,11 @@ describe('ai function: success path', () => {
       agent: 'synthesizer',
       result: expect.stringMatching(/^SSE is one-way and simpler to proxy\. WebSockets are two-way and heavier\.\n\n### Sources\n/),
       model: { servedModel: SERVED, newestModel: SERVED, modelCheck: 'match' },
-      usage: { prompt_tokens: 750, completion_tokens: 180, total_tokens: 930, cost: expect.closeTo(0.00063, 10) },
+      // The four stages plus the relevance check of Retrieve (600 in, 100 out, $0.0002).
+      usage: { prompt_tokens: 1350, completion_tokens: 280, total_tokens: 1630, cost: expect.closeTo(0.00083, 10) },
     })
     expect(summary?.trace).toEqual([
-      expect.objectContaining({ name: 'Retrieve', status: 'ok', detail: 'Found 2 Wikipedia articles and 1 Hacker News thread.' }),
+      expect.objectContaining({ name: 'Retrieve', status: 'ok', detail: 'Found 1 Hacker News thread and 1 Wikipedia article. The relevance check kept 2 of 3 results.', tokens: 100, cost: 0.0002 }),
       expect.objectContaining({ name: 'Researcher', status: 'ok', tokens: 40, cost: 0.0001 }),
       expect.objectContaining({ name: 'Analyst', status: 'ok', tokens: 30, cost: 0.00008 }),
       expect.objectContaining({ name: 'Critic', status: 'ok', tokens: 20, cost: 0.00005 }),

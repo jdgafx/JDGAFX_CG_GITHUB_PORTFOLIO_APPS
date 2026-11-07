@@ -9,8 +9,8 @@ export interface LiveDataView {
   title: string
 }
 
-const HOSTS = 'en.wikipedia.org, hn.algolia.com'
-const FALLBACK_SITES = 'Wikipedia + Hacker News'
+const HOSTS = 'api.tavily.com, export.arxiv.org, hn.algolia.com, en.wikipedia.org'
+const FALLBACK_SITES = 'Web + arXiv + Hacker News + Wikipedia'
 
 const clock = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
 

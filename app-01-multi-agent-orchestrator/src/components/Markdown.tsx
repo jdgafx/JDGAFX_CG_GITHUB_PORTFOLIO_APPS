@@ -29,9 +29,9 @@ const namesOf = (sources: Source[]) => {
   const snippets = sources.map(source => (source.site === 'Hacker News' ? source.snippet.split(source.title).join(' ') : source.snippet))
   // A capital in a snippet mid-sentence ("On the Eiffel Tower, ...") marks a name. A title's first word is capitalised whatever it is ("Did", "History"), so it needs that proof.
   const inSentences = snippets.flatMap(snippet => [...snippet.matchAll(/(?<=[^.!?\s]\s+)(\p{Lu}[\p{L}\p{N}-]+)/gu)].map(match => match[1] ?? ''))
-  // A Hacker News title is Title Case whatever it says, so only a Wikipedia title's capitals (Eiffel Tower, Mount Everest) name something.
+  // A Hacker News, web or arXiv title is Title Case whatever it says, so only a Wikipedia title's capitals (Eiffel Tower, Mount Everest) name something.
   const inTitles = sources
-    .filter(source => source.site !== 'Hacker News')
+    .filter(source => source.site === 'Wikipedia')
     .flatMap(source => [...source.title.matchAll(/\p{Lu}[\p{L}\p{N}-]+/gu)].filter(match => match.index > 0).map(match => match[0]))
   // A capital inside a sentence is a name only if the word is never written in lower case in the sources ("Stock Exchange" does not make "stock market" a name).
   const named = inSentences.filter(word => !text.includes(word.toLowerCase()) || inTitles.includes(word))

@@ -1,6 +1,6 @@
 import { EXAMPLES } from './agents'
 
-export const HOWTO_WHAT = 'Four agents answer a question from Wikipedia and Hacker News, then audit every citation.'
+export const HOWTO_WHAT = 'Four agents answer a question from live web pages, arXiv papers, Hacker News and Wikipedia, then audit every citation.'
 
 /** Each quoted label is the exact text of a control on the page; a test reads the components to keep them equal. */
 export const HOWTO_STEPS: readonly string[] = [

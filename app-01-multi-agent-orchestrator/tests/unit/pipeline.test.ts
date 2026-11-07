@@ -80,7 +80,7 @@ describe('a failed Retrieve', () => {
     const settled = settleAgents(agents, false)
     expect(derivePhase(settled, false, false)).toBe('failed')
     expect(['researcher', 'analyst', 'critic', 'synthesizer'].map(role => settled[role as 'critic'].status)).toEqual(['skipped', 'skipped', 'skipped', 'skipped'])
-    expect(liveDataView(settled.retriever, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Wikipedia + Hacker News' })
+    expect(liveDataView(settled.retriever, null)).toMatchObject({ state: 'failed', text: 'Live data unavailable: Web + arXiv + Hacker News + Wikipedia' })
     expect(statusView(settled.retriever).word).toBe('Failed')
   })
 })

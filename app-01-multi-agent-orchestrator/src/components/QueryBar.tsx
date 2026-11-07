@@ -76,7 +76,7 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
             />
             <p id="research-query-count" className={length > MAX_QUERY_CHARS ? 'ds-help ds-help--error' : 'ds-help'}>
               {length.toLocaleString('en-US')} of {MAX_QUERY_CHARS.toLocaleString('en-US')} characters
-              {length > MAX_QUERY_CHARS ? `. Too long by ${(length - MAX_QUERY_CHARS).toLocaleString('en-US')}: shorten it to start.` : '. Wikipedia and Hacker News are searched for it.'}
+              {length > MAX_QUERY_CHARS ? `. Too long by ${(length - MAX_QUERY_CHARS).toLocaleString('en-US')}: shorten it to start.` : '. The web, arXiv, Hacker News and Wikipedia are searched for it.'}
             </p>
           </div>
         </form>

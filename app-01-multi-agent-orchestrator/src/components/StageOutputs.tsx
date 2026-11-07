@@ -17,7 +17,7 @@ function EmptyState({ agent }: { agent: AgentState }) {
   const name = AGENT_META[agent.id].name
   switch (agent.status) {
     case 'working':
-      return <p className="app-note">{agent.id === 'retriever' ? 'Retrieve is looking up Wikipedia and Hacker News. The sources appear when it finishes.' : `${name} is working. Its text appears when it finishes.`}</p>
+      return <p className="app-note">{agent.id === 'retriever' ? 'Retrieve is searching the web, arXiv, Hacker News and Wikipedia. The sources appear when it finishes.' : `${name} is working. Its text appears when it finishes.`}</p>
     case 'error':
       return (
         <div className="ds-notice ds-notice--error" role="alert">

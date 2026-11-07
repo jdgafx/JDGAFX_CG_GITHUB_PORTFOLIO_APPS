@@ -73,7 +73,7 @@ async function runOneStage(
 }
 
 /**
- * Retrieves public sources, then runs the four model stages in order, all against one shared
+ * Retrieves public sources (one relevance model call included), then runs the four model stages in order, all against one shared
  * deadline, and reports each step as it ends. Retrieval draws on the same run budget, so a slow
  * lookup shortens the stages instead of adding to the run. When the visitor leaves, no later step
  * starts and the call in flight is aborted.
@@ -95,6 +95,8 @@ async function runPipeline(
   const found = await retrieveSources(query, {
     signal: runSignal,
     timeoutMs: Math.min(RETRIEVE_TIMEOUT_MS, deadline - Date.now()),
+    provider,
+    deadline,
   })
   if (runSignal.aborted) return
   const retrieveMs = Date.now() - runStart
@@ -104,14 +106,16 @@ async function runPipeline(
     status: found.reached ? 'ok' : 'failed',
     ms: retrieveMs,
     detail: found.detail,
+    // The relevance check is the one model call inside Retrieve; its bill belongs to the run.
+    ...(found.usage ? { usage: found.usage } : {}),
   }
   // No sources means no live data. A report from model memory would be substitute data, so the run ends here, before any model call.
   if (found.sources.length === 0) {
-    send({ type: 'agent_error', agent: 'retriever', ms: retrieveMs, error: `${NO_DATA_MESSAGE} ${found.detail}` })
+    send({ type: 'agent_error', agent: 'retriever', ms: retrieveMs, error: `${NO_DATA_MESSAGE} ${found.detail}`, ...(found.usage ? { usage: found.usage } : {}) })
     for (const agent of AGENTS) send({ type: 'agent_skipped', agent: agent.role, detail: 'Not started: no live data was retrieved.' })
     return
   }
-  send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail })
+  send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail, ...(found.usage ? { usage: found.usage } : {}) })
 
   // One list fetch per run, started before the first model call. It is awaited after each reply and never adds more than its own timeout.
   const newestP = newestModel()
@@ -174,8 +178,8 @@ async function runPipeline(
   }
 
   if (runSignal.aborted) return
-  // Skipped stages and the retrieval were never model calls, so they are left out of the totals.
-  const called = records.filter(record => record.status !== 'skipped')
+  // Skipped stages were never model calls, so they are left out of the totals. Retrieve counts only when its relevance check made a call.
+  const called = [...(retrieveRecord.usage ? [retrieveRecord] : []), ...records.filter(record => record.status !== 'skipped')]
   send({
     type: 'session_complete',
     agent: 'synthesizer',

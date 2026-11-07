@@ -52,11 +52,11 @@ describe('stalled bodies end at the limit', () => {
   it('a source whose body never finishes is reported as not answering in time', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => stalledBody())
     const started = Date.now()
-    const result = await retrieveSources('James Webb telescope', { signal: new AbortController().signal, timeoutMs: 60, fetchImpl })
+    const result = await retrieveSources('James Webb telescope', { signal: new AbortController().signal, timeoutMs: 60, fetchImpl, webKey: 'test-key' })
     expect(Date.now() - started).toBeLessThan(2_000)
     expect(result.reached).toBe(false)
     expect(result.sources).toEqual([])
-    expect(result.detail).toBe('No sources retrieved: Wikipedia did not answer in time; Hacker News did not answer in time.')
+    expect(result.detail).toBe('No sources retrieved: Web search did not answer in time; arXiv did not answer in time; Hacker News did not answer in time; Wikipedia did not answer in time.')
   })
 
   it('a model stream that stalls after its headers ends as a timeout at the stage cap', async () => {

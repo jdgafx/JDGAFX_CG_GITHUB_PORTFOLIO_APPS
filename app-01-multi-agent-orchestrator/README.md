@@ -1,8 +1,8 @@
 # AgentFlow: multi-agent research orchestrator
 
-AgentFlow answers one research question from live public sources. A Retrieve step first looks the question up on Wikipedia and Hacker News. Then four model calls run in a fixed order. A Researcher lists key facts from those sources with [n] citations, an Analyst finds patterns in them, a Critic names gaps, and a Synthesizer writes the final report from those three outputs. The report keeps the citations and ends with a Sources list of links. A fifth step, the Audit, then checks every sentence of that report that carries a [n] marker against the text of the source it cites, and marks each one supported, partly supported or not supported. The page draws the six steps as a graph, shows a trace with the time of each step and the tokens and cost of each model stage, and shows the model the provider served. The report can be exported as PDF, Word or Markdown, and each file includes the sources.
+AgentFlow answers one research question from live public sources. A Retrieve step first looks the question up on the live web (Tavily search), on arXiv, on Hacker News and, as background, on Wikipedia; one model call then keeps only the results that are about the question. Then four model calls run in a fixed order. A Researcher lists key facts from those sources with [n] citations, an Analyst finds patterns in them, a Critic names gaps, and a Synthesizer writes the final report from those three outputs. The report keeps the citations and ends with a Sources list of links. A fifth step, the Audit, then checks every sentence of that report that carries a [n] marker against the text of the source it cites, and marks each one supported, partly supported or not supported. The page draws the six steps as a graph, shows a trace with the time of each step and the tokens and cost of each model stage, and shows the model the provider served. The report can be exported as PDF, Word or Markdown, and each file includes the sources.
 
-What this showcases: a fixed multi-agent pipeline grounded in live public data, and a citation audit that checks each cited claim in the final report against its source and shows the sentence of the source that backs it, or that nothing does.
+What this showcases: a fixed multi-agent pipeline grounded in fresh public data (web pages, papers, discussions), and a citation audit that checks each cited claim in the final report against its source and shows the sentence of the source that backs it, or that nothing does.
 
 Each stage's output appears when that stage has finished. The server reads each model reply as it arrives, but it sends a stage to the browser only when that stage ends.
 
@@ -12,7 +12,7 @@ The step names below are the ones the Run trace shows.
 
 | Step | What it does | Output cap | Time cap |
 | --- | --- | --- | --- |
-| Retrieve | Searches Wikipedia and Hacker News for the question, in parallel, and numbers what it finds | no model call | 4 s |
+| Retrieve | Searches the web, arXiv, Hacker News and Wikipedia for the question, in parallel, and then one model call keeps only the results that are about the question, and numbers them (at most 8 sources) | one relevance call (3,000 tokens) | 4 s per site, then 6 s |
 | Researcher | Lists three to five key facts, each cited as [n] to a retrieved source | 2,200 tokens | 8.5 s |
 | Analyst | Finds two or three patterns in the research and keeps the citations | 2,200 tokens | 8.5 s |
 | Critic | Names two or three gaps, including claims with no citation or one source | 2,000 tokens | 7.5 s |
@@ -35,13 +35,20 @@ The audit uses the same model constant as the stages, sends no temperature and l
 
 ### Retrieval
 
-- **Wikipedia:** one request to `en.wikipedia.org/w/api.php` (`generator=search`, `prop=extracts`, `exintro`, `explaintext`) returns the top three articles with their intro text, cut to 500 characters each.
-- **Hacker News:** one request to `hn.algolia.com/api/v1/search` returns stories with more than 20 points. A story is kept only when its title carries enough of the search words, and at most two are kept. Its source text is the title, points, comments and month, which are the facts the API gives.
-- **Search words:** the question is cut down to its topic words (question openers and filler are dropped, at most eight kept) before it is sent.
-- **Numbering and links:** sources are numbered 1 to n, Wikipedia first. Every link is built by the server from a validated title or numeric id, never copied from the upstream reply.
-- **Limits:** both requests run in parallel under one 4 second ceiling, each with its own `AbortSignal.timeout`, and a reply over 200 KB is refused. A dropped connection is tried once more. Retrieval draws on the same 27 second run budget as the model stages, so a slow lookup shortens the stages instead of adding to the run.
-- **Honest failure:** if a site fails or finds nothing, the trace says which and why. If no source is found at all, the run stops before any model call: the page shows "Live data unavailable", Retrieve is Failed, and no report is written, because a report from model memory would be substitute data. If only one site fails, the run goes on with the other and the trace names the one that was unavailable. No source is ever made up.
+Four sites are asked in parallel. Up to 8 sources are kept: web 3, arXiv 2, Hacker News 2, Wikipedia 1.
+
+- **Web (Tavily):** one `POST` to `api.tavily.com/search` with the raw question (the search call only, basic depth, no page extraction). Each result is a page title, link and the extract Tavily returned, cut to 500 characters. The link is the one Tavily returned, kept only when it is `https` with no login in it, and with brackets and parentheses escaped so it survives markdown. It is never built from a title. The key is `TAVILY_API_KEY`, read only on the server; without it the trace says "Web search is not set up on this server" and the other sites carry on.
+- **arXiv:** one request to `export.arxiv.org/api/query` for papers that carry any of the topic words, best match first. arXiv answers XML, read by a short parser. The link is built from the paper id (`https://arxiv.org/abs/<id>`, without the version number, so it always opens the latest). The source text is the abstract, cut to 500 characters.
+- **Hacker News:** one request to `hn.algolia.com/api/v1/search` returns stories with more than 20 points. Its source text is the title, points, comments and month, which are the facts the API gives. The link is the discussion page, built from the numeric id.
+- **Wikipedia (background):** two requests to `en.wikipedia.org/w/api.php` (`generator=search`, `prop=extracts`, `exintro`, `explaintext`): one for pages that carry all the topic words and one for pages that carry any of them (a long question has no page with every word). The intro is cut to 500 characters; two candidates go to the relevance call and the first relevant one is kept.
+- **One relevance call for every site:** after the four lookups, one model call (the same Haiku model and OpenRouter client as the stages) is given the question and every candidate (about 14: web 5, arXiv 4, Hacker News 3, Wikipedia 2) with its site, title, a 300 character excerpt and its date, and answers JSON only: `{"results":[{"n":1,"relevant":true}, ...]}`. Code reads only `n` and `relevant`, drops an out-of-range or repeated number, and keeps the relevant results up to the caps above. Code does not judge relevance itself: there are no word lists, no overlap rules and no score cut-offs, so a nonsense question finds no source on any site and shows no unrelated one. A page that two sites both found (a Wikipedia or arXiv link inside the web results, say) is one candidate, kept under the web result, so it is never counted twice as two sources that agree. The call has its own 6 second deadline inside the run budget (it takes about 3 s). If it fails, times out or answers something unreadable, the web search's own ranking stands for the web (top 3) and the other sites are dropped, and the trace says "The relevance check ... so web results are in the search's own order and the other sites were left out." (or "... so none of the results were used" when the web search gave nothing) Its tokens and cost are on the Retrieve step of the trace and in the run totals. If it keeps nothing, the run stops with "No sources found" before any stage runs.
+- **Page text:** markdown images and "Image 9: ..." caption lines are taken out of a web result before the 500 character cut.
+- **Search words:** the question is cut down to its topic words (question openers and filler are dropped, at most eight kept) for arXiv, Hacker News and Wikipedia. Tavily gets the question as typed, cut to its first 400 characters (Tavily's query limit; the page allows 500).
+- **Numbering and links:** sources are numbered 1 to n, web first, then arXiv, Hacker News and Wikipedia. Every link is https.
+- **Limits:** each lookup has its own 4 second deadline (body read included) and the relevance call its own 6 seconds, and a reply over 200 KB is refused. A dropped connection is tried once more. Retrieval draws on the same 27 second run budget as the model stages, so a slow lookup or relevance call shortens the stages instead of adding to the run. All eight sources of a full set reach the Researcher in one block of at most 4,400 characters.
+- **Honest failure:** if a site fails, hits a limit or finds nothing, the trace says which and why (a Tavily 429 reads "Web search over its monthly limit"). The others carry on. If no source is found at all, the run stops before any model call: the page shows "Live data unavailable", Retrieve is Failed, and no report is written, because a report from model memory would be substitute data. No source is ever made up.
 - **Prompt safety:** source text is passed as quoted data and the Researcher is told it is not instructions. The model never writes the Sources list: the server appends it from the retrieved list, so the links cannot be invented.
+- **Free tier:** the web search uses the Tavily free tier (1,000 searches a month), shared with the research agent in app-11. One question is one search.
 
 ## What the page shows
 
@@ -60,7 +67,7 @@ The page follows the portfolio's design system (instrument-bench masthead with t
 Browser (React, Vite, SVG graph)
   -> POST /api/ai        body: { "query": "..." }
        Netlify Function (netlify/functions/ai.ts)
-         -> Wikipedia and Hacker News search APIs, in parallel (Retrieve)
+         -> Tavily web search, arXiv, Hacker News and Wikipedia, in parallel (Retrieve)
          -> OpenRouter chat completions, one request per stage
          <- each model reply, read as it arrives
   <- server-sent events: retrieve_start, retrieve_complete, agent_start,
@@ -76,7 +83,7 @@ Browser, when the report is done
   <- one JSON body: claims with verdicts and verified quotes, summary, usage, model, time
 ```
 
-- **Keys:** `OPENROUTER_API_KEY` is read only on the server, in `netlify/shared/provider.ts`. The browser never receives it.
+- **Keys:** `OPENROUTER_API_KEY` is read only on the server, in `netlify/shared/provider.ts`, and `TAVILY_API_KEY` only in `netlify/shared/retrieve.ts`. The browser never receives either.
 - **Model:** one server constant, the OpenRouter alias `~anthropic/claude-haiku-latest`, which resolves to the newest Claude Haiku. The page and its figures show the model OpenRouter answered with, not the alias. The page has no model picker, and a model field sent by a client is ignored.
 - **Every provider call:** sends an explicit `max_tokens` and asks for usage, including cost. No reasoning override is sent, so the model keeps its default thinking; thinking tokens count against `max_tokens`, so each ceiling is sized to hold both.
 - **Where the logic lives:** retrieval (URLs, parsing, caps, timeouts) is in `netlify/shared/retrieve.ts`. The four stage prompts and caps are in `netlify/shared/agents.ts`. Reading the provider reply and retrying are in `netlify/shared/stream.ts`. Request checks are in `netlify/shared/gate.ts`.
@@ -108,7 +115,7 @@ Browser, when the report is done
 | A stage returns no text after its retry, and its last attempt timed out | The AI provider did not answer in time. |
 | A stage returns no text after its retry, for another reason | {Stage} returned no text. Try again. |
 | A stage fails for another reason | {Stage} could not finish. Try again. |
-| Wikipedia or Hacker News fails or finds nothing | Not an error. The trace line and the Retrieve tab say what happened, and the run goes on without those sources. |
+| The web search, arXiv, Hacker News or Wikipedia fails, hits a limit or finds nothing | Not an error. The trace line and the Retrieve tab say what happened, and the run goes on without those sources. |
 | The browser cannot reach the server | Could not reach the server. Check your connection and try again. |
 
 Raw provider bodies, stack traces and key material are never shown.
@@ -118,6 +125,7 @@ Raw provider bodies, stack traces and key material are never shown.
 Environment variable names. Set the values in your own shell or in the Netlify site settings:
 
 - `OPENROUTER_API_KEY`: required for real runs. Server only.
+- `TAVILY_API_KEY`: the web search. Server only. Without it the other three sites still answer and the trace says the web search is not set up.
 - `OPENROUTER_URL`: optional. Defaults to OpenRouter's chat completions endpoint.
 - `ALLOWED_ORIGINS`: optional. Extra browser origins, comma separated, allowed to call the function.
 
@@ -127,13 +135,15 @@ npm run dev        # UI only. Vite proxies /api to localhost:8888, so research r
 npx netlify dev    # UI and functions together on localhost:8888. Needs the Netlify CLI.
 ```
 
-Checks, none of which call a real provider or a public API:
+Checks. These call no real provider or public API, except `npm run test:live`:
 
 ```bash
-npm test           # unit tests and function smoke tests. The provider, Wikipedia and Hacker News are mocked with fetch stubs.
+npm test           # unit tests and function smoke tests. The provider and the four public sources are mocked with fetch stubs.
 npm run lint
 npm run typecheck
 npm run build
+bash tests/live/run-live.sh   # live: asks the real web search, arXiv, Hacker News, Wikipedia and the relevance model (keys from the Netlify site). Not part of npm test.
+bash tests/live/serve-local.sh 8947   # serves the app and functions locally (netlify dev --offline, real keys); then AGENTFLOW_DRAFT_URL=http://localhost:8947 bash tests/live/run-live.sh tests/live/draft-run.test.ts does full runs with audit
 ```
 
 Tests live in `tests/unit` (the audit's claim extraction, pre-pass, quote verification, verdict rules and summary; the audit request checks and verdict parsing; the page's audit client; rendering of the badges, summary, panel and report states; retrieval URLs, parsing and degradation with recorded-shape fixtures, source numbering and the Sources section, graph layout and trace rows, stage definitions, request checks, frame parsing, retry and deadline rules, usage math, markdown, export text, and the browser's event parser) and `tests/server` (the research function's full response, read frame by frame, and the audit function end to end with a mocked provider).
@@ -142,7 +152,7 @@ Tests live in `tests/unit` (the audit's claim extraction, pre-pass, quote verifi
 
 https://jdgafx-app-01-multi-agent-orchestrator.netlify.app
 
-The masthead shows a "Live data: Wikipedia + Hacker News" chip. It lights up, with the fetch time, only when the retrieval step returned sources, and reads "Live data unavailable" when it failed or found nothing. Nothing canned is reachable: a failed lookup is an error, never substitute data.
+The masthead shows a "Live data: Web + arXiv + Hacker News + Wikipedia" chip, naming the sites that really answered. It lights up, with the fetch time, only when the retrieval step returned sources, and reads "Live data unavailable" when it failed or found nothing. Nothing canned is reachable: a failed lookup is an error, never substitute data.
 
 ## Known limits
 
@@ -151,13 +161,14 @@ The masthead shows a "Live data: Wikipedia + Hacker News" chip. It lights up, wi
 - The rate limit is per warm function instance. It resets when an instance restarts.
 - Token counts and cost come from the provider's usage report. When the provider sends no figure, the page says "not reported".
 - The served model is the one OpenRouter reports in its reply. The request names the Haiku alias, so the served model is whichever Haiku the alias resolves to; the page shows what OpenRouter reports, never the alias.
-- The audit checks citations, not truth. It judges each claim against the extract of the source it cites (at most 500 characters of a Wikipedia intro, or the title and counts of a Hacker News story), so a claim the article supports further down shows as partly or not supported, and the panel says when an extract is cut. The verdicts come from one model and its quotes are verified word for word, but the verdicts themselves have no labelled evaluation set yet. The audit relies on the model to spot reversed order or direction ("after" where the source says "until"). The code lowers or caps a verdict only on what it can match exactly: a quote that is not in the source, a number or name the source lacks, a ranking word the source does not use, and a reason in which the model itself admits a gap or a contradiction.
+- The audit checks citations, not truth. It judges each claim against the extract of the source it cites (at most 500 characters of a web page extract, an arXiv abstract or a Wikipedia intro, or the title and counts of a Hacker News story), so a claim the article supports further down shows as partly or not supported, and the panel says when an extract is cut. The verdicts come from one model and its quotes are verified word for word, but the verdicts themselves have no labelled evaluation set yet. The audit relies on the model to spot reversed order or direction ("after" where the source says "until"). The code lowers or caps a verdict only on what it can match exactly: a quote that is not in the source, a number or name the source lacks, a ranking word the source does not use, and a reason in which the model itself admits a gap or a contradiction.
 - The audit trusts the sources the page sends with the report. It does not fetch them again, so a caller who edits that request can audit against text of their choosing. That affects only the caller's own audit.
 - A sentence about the research itself (for example "this rests on a single source") is recognised by its wording and not audited. A sentence the patterns miss is audited like any claim.
 - The checks in code only ever lower a verdict, never raise one: a supported verdict is capped to partly when the quote is not found, a number or name is missing from the source, a superlative is not stated, or the model's own reason admits a gap. The cost is under-credit: a hedged claim whose core the source states ("generally described as…") can come back partly or not supported.
 - Only cited sentences are audited. An uncited sentence in the report is not judged, and the Synthesizer is told to leave analysis and critique uncited.
-- Retrieval is keyword search over Wikipedia article intros and Hacker News titles. A Hacker News source carries only the title and counts, not the discussion. A question with no good Wikipedia article gets weak sources.
-- Retrieval can take up to 4 seconds of the 27 second budget, which leaves the Synthesizer less time.
+- A web source is the extract the search returned, not the whole page, and a Hacker News source carries only the title and counts, not the discussion. One model call decides which results are about the question; it can be wrong, and when it fails the web results are used in the search's own order and the other sites are dropped. A nonsense question finds none and gets no report. How recent the web sources are depends on what the search ranks first; the page shows each source's host or date, and does not promise the newest.
+- The web search uses the Tavily free tier (1,000 searches a month, shared with app-11). When it runs out the trace says so and the other three sites carry on. arXiv adds no source to a general question, which is correct.
+- Retrieval can take up to 4 seconds of the 27 second budget (typically under 1 second), which leaves the Synthesizer less time.
 - On a slow provider the Synthesizer can be cut off or not run inside the 27 second budget. The page marks those stages.
 - A stage cut off before its finish reason keeps its text and is labelled cut off in the trace, the graph and the report.
 - An error before the stream starts, such as an unreachable server, appears in the alert. No stage is marked failed in that case, because none has started.

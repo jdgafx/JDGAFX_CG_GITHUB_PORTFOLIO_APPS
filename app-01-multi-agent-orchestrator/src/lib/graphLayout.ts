@@ -41,7 +41,7 @@ export interface Layout {
 }
 
 const SUBS: Record<StepId, string> = {
-  retriever: 'Wikipedia, Hacker News',
+  retriever: 'web, arXiv, HN, Wikipedia',
   researcher: 'cited facts',
   analyst: 'patterns',
   critic: 'gaps',
