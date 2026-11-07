@@ -143,6 +143,7 @@ npm run lint
 npm run typecheck
 npm run build
 bash tests/live/run-live.sh   # live: asks the real web search, arXiv, Hacker News, Wikipedia and the relevance model (keys from the Netlify site). Not part of npm test.
+bash tests/live/serve-local.sh 8947   # serves the app and functions locally (netlify dev --offline, real keys); then AGENTFLOW_DRAFT_URL=http://localhost:8947 bash tests/live/run-live.sh tests/live/draft-run.test.ts does full runs with audit
 ```
 
 Tests live in `tests/unit` (the audit's claim extraction, pre-pass, quote verification, verdict rules and summary; the audit request checks and verdict parsing; the page's audit client; rendering of the badges, summary, panel and report states; retrieval URLs, parsing and degradation with recorded-shape fixtures, source numbering and the Sources section, graph layout and trace rows, stage definitions, request checks, frame parsing, retry and deadline rules, usage math, markdown, export text, and the browser's event parser) and `tests/server` (the research function's full response, read frame by frame, and the audit function end to end with a mocked provider).
