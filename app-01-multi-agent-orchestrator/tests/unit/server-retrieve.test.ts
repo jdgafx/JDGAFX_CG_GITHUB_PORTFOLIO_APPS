@@ -15,6 +15,7 @@ import {
   relevanceMessage,
   retrieveSources,
   searchTerms,
+  sourceKey,
   sourcesPromptBlock,
   tavilySearchBody,
   wikipediaArticleUrl,
@@ -138,6 +139,20 @@ describe('request URLs', () => {
       search_depth: 'basic',
       include_answer: false,
     })
+  })
+
+  it('cuts the question to the 400 characters Tavily accepts, and the gate allows 500', () => {
+    const long = `${'word '.repeat(99)}end`.padEnd(500, 'x')
+    expect(long).toHaveLength(500)
+    expect(JSON.parse(tavilySearchBody(long)).query).toHaveLength(400)
+    expect(JSON.parse(tavilySearchBody('  short  ')).query).toBe('short')
+  })
+
+  it('gives one key to the same page whichever site found it', () => {
+    expect(sourceKey('https://en.wikipedia.org/wiki/A_%5BB%5D')).toBe(sourceKey('https://en.wikipedia.org/wiki/A_[B]/'))
+    expect(sourceKey('https://www.arxiv.org/pdf/2610.01234v2.pdf')).toBe(sourceKey('https://arxiv.org/abs/2610.01234'))
+    expect(sourceKey('https://news.ycombinator.com/item?id=1')).not.toBe(sourceKey('https://news.ycombinator.com/item?id=2'))
+    expect(sourceKey('https://example.com/a')).not.toBe(sourceKey('https://example.com/b'))
   })
 
   it('escapes the query text and builds article links that survive markdown', () => {
@@ -566,6 +581,35 @@ describe('retrieveSources', () => {
     expect(result.judged).toBe(false)
     expect(result.sources.map(source => source.title)).toEqual(['Page 1'])
     expect(result.detail).toContain('The relevance check did not answer in time')
+  })
+
+  it('counts a page once when the web search and another site both found it, keeping the web one', async () => {
+    const fetchImpl = fetchBy({
+      web: () =>
+        json({
+          results: [
+            { title: 'Webb on Wikipedia', url: 'https://en.wikipedia.org/wiki/James_Webb_Space_Telescope', content: 'text' },
+            { title: 'Webb paper as pdf', url: 'https://arxiv.org/pdf/2610.01234v2', content: 'text' },
+          ],
+        }),
+      arxiv: () => xml(arxivFeed(arxivEntry('2610.01234v1', 'James Webb telescope galaxies', 'early galaxies'))),
+      wiki: () => json(WIKIPEDIA_REPLY),
+      judge: keepTitles('Webb on Wikipedia', 'Webb paper as pdf', 'James Webb telescope galaxies', 'James Webb Space Telescope'),
+    })
+    const result = await retrieveSources('anything at all', options(fetchImpl))
+    expect(result.sources.map(source => [source.site, source.title])).toEqual([
+      ['Web', 'Webb on Wikipedia'],
+      ['Web', 'Webb paper as pdf'],
+    ])
+    expect(result.candidates).toBe(3) // two web pages and Hubble; the Webb arXiv paper and Webb Wikipedia article were the same pages
+    expect(new Set(result.sources.map(source => source.url)).size).toBe(result.sources.length)
+  })
+
+  it('does not claim web results are in order when there were none and the relevance call failed', async () => {
+    const fetchImpl = fetchBy({ hn: () => json({ hits: [hnHit()] }), judge: () => new Response('nope', { status: 401 }) })
+    const result = await retrieveSources('anything at all', options(fetchImpl))
+    expect(result.sources).toEqual([])
+    expect(result.detail).toBe('No sources found for this question on the web, arXiv, Hacker News or Wikipedia. The relevance check could not get an answer from the AI provider, so none of the results were used.')
   })
 
   it('falls back when no provider is set up', async () => {

@@ -87,7 +87,7 @@ export interface AgentState {
 /** Every event the server streams. Both sides import this type, so keep it the only copy. */
 export type StreamEvent =
   | { type: 'retrieve_start' }
-  | { type: 'retrieve_complete'; ms: number; sources: Source[]; detail: string }
+  | { type: 'retrieve_complete'; ms: number; sources: Source[]; detail: string; usage?: StageUsage }
   | { type: 'agent_start'; agent: ModelRole; maxTokens: number }
   | { type: 'agent_chunk'; agent: ModelRole; content: string }
   | {

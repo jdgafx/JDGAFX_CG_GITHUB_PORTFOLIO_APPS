@@ -103,9 +103,12 @@ export function arxivSearchUrl(terms: string): string {
   return `${ARXIV_API}?${params}`
 }
 
-/** What Tavily is sent: the raw question and one search call. No page extraction. */
+/** Tavily refuses a query over 400 characters (HTTP 400); the gate allows 500, so the search gets the first 400. */
+const TAVILY_MAX_QUERY_CHARS = 400
+
+/** What Tavily is sent: the question (cut to Tavily's limit) and one search call. No page extraction. */
 export function tavilySearchBody(query: string): string {
-  return JSON.stringify({ query, max_results: WEB_CANDIDATES, search_depth: 'basic', include_answer: false })
+  return JSON.stringify({ query: query.trim().slice(0, TAVILY_MAX_QUERY_CHARS), max_results: WEB_CANDIDATES, search_depth: 'basic', include_answer: false })
 }
 
 /** Collapses whitespace, drops control characters and cuts at a word boundary with an ellipsis. */
@@ -252,6 +255,29 @@ export function parseArxiv(xml: unknown): RawSource[] {
     if (out.length === ARXIV_CANDIDATES) break
   }
   return out
+}
+
+/**
+ * The page a link opens, whichever site found it: host and path (percent-decoding undone, no trailing slash, no arXiv
+ * version or /pdf form), plus the id of a Hacker News item. Two links with the same key are the same source.
+ */
+export function sourceKey(link: string): string {
+  try {
+    const url = new URL(link)
+    let path = url.pathname
+    try {
+      path = decodeURIComponent(path)
+    } catch {
+      /* keep the raw path */
+    }
+    path = path.replace(/\/+$/, '')
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    if (host.endsWith('arxiv.org')) path = path.replace(/^\/pdf\//, '/abs/').replace(/\.pdf$/, '').replace(/v\d+$/, '')
+    const id = host === 'news.ycombinator.com' ? (url.searchParams.get('id') ?? '') : ''
+    return `${host}${path}${id ? `?id=${id}` : ''}`.toLowerCase()
+  } catch {
+    return link
+  }
 }
 
 /** Numbers the sources 1..n in the order given (web first). The Researcher cites these numbers. */
@@ -551,7 +577,17 @@ export async function retrieveSources(query: string, options: RetrieveOptions): 
   }
 
   // Web first, then arXiv, Hacker News, Wikipedia: the order the sources are numbered in.
-  const candidates: Candidate[] = results.flatMap((sources, group) => sources.map(source => ({ source, group }))).map((candidate, i) => ({ ...candidate, n: i + 1 }))
+  // A page found by two sites (a Wikipedia or arXiv link in the web results, say) is one source, kept under the first site, so it never counts twice.
+  const seen = new Set<string>()
+  const candidates: Candidate[] = results
+    .flatMap((sources, group) => sources.map(source => ({ source, group })))
+    .filter(({ source }) => {
+      const key = sourceKey(source.url)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map((candidate, i) => ({ ...candidate, n: i + 1 }))
 
   let judgment: Judgment | undefined
   if (candidates.length > 0) judgment = await judgeRelevance(query, candidates, options, provider)
@@ -567,7 +603,10 @@ export async function retrieveSources(query: string, options: RetrieveOptions): 
 
   let detail = describe(found, problems, answered > 0)
   if (judged) detail += ` The relevance check kept ${sources.length} of ${candidates.length} results.`
-  else if (judgment) detail += ` The relevance check ${judgment.why}, so web results are in the search's own order and the other sites were left out.`
+  else if (judgment) {
+    const fallback = sources.length > 0 ? "web results are in the search's own order and the other sites were left out" : 'none of the results were used'
+    detail += ` The relevance check ${judgment.why}, so ${fallback}.`
+  }
 
   return {
     sources,

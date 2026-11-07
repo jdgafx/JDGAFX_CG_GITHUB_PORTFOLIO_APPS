@@ -97,7 +97,7 @@ export default function App() {
           const { ms, sources, detail } = event
           sourcesRef.current = sources
           setFetchedAt(new Date())
-          setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'complete', ms, sources, detail } }))
+          setAgents(prev => ({ ...prev, retriever: { ...prev.retriever, status: 'complete', ms, sources, detail, ...(event.usage ? { usage: event.usage } : {}) } }))
           setAnnouncement(sources.length > 0 ? `Retrieve found ${sources.length} sources.` : 'Retrieve found no sources.')
           return
         }
@@ -300,7 +300,9 @@ export default function App() {
   const stageMsTotal = AGENT_ORDER.reduce((sum, role) => sum + (agents[role].ms ?? 0), 0)
   const totalMs = summary?.totalMs ?? (isRunning ? elapsedMs : stageMsTotal > 0 ? stageMsTotal : undefined)
   const totalIsStageSum = !summary && !isRunning && stageMsTotal > 0
-  const usage = summary ? summary.usage : sumUsage(startedRoles.map(role => agents[role].usage))
+  // Retrieve counts only when its relevance check made a call (it then carries usage), as the server's own total does.
+  const countedUsage = [...(agents.retriever.usage ? [agents.retriever.usage] : []), ...startedRoles.map(role => agents[role].usage)]
+  const usage = summary ? summary.usage : sumUsage(countedUsage)
   // The readout names the model of the Synthesizer, whose reply is the report shown. Never another stage's model.
   const model = summary ? summary.model : agents.synthesizer.model
   const modelCalls = [...MODEL_ORDER.flatMap(role => agents[role].calls ?? []), ...(audit.view.result?.calls ?? [])]

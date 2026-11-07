@@ -111,11 +111,11 @@ async function runPipeline(
   }
   // No sources means no live data. A report from model memory would be substitute data, so the run ends here, before any model call.
   if (found.sources.length === 0) {
-    send({ type: 'agent_error', agent: 'retriever', ms: retrieveMs, error: `${NO_DATA_MESSAGE} ${found.detail}` })
+    send({ type: 'agent_error', agent: 'retriever', ms: retrieveMs, error: `${NO_DATA_MESSAGE} ${found.detail}`, ...(found.usage ? { usage: found.usage } : {}) })
     for (const agent of AGENTS) send({ type: 'agent_skipped', agent: agent.role, detail: 'Not started: no live data was retrieved.' })
     return
   }
-  send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail })
+  send({ type: 'retrieve_complete', ms: retrieveMs, sources: found.sources, detail: found.detail, ...(found.usage ? { usage: found.usage } : {}) })
 
   // One list fetch per run, started before the first model call. It is awaited after each reply and never adds more than its own timeout.
   const newestP = newestModel()

@@ -136,6 +136,8 @@ describe('ai function: retrieval', () => {
       type: 'agent_error',
       agent: 'retriever',
       error: 'Live data unavailable, so no report was written. No sources found for this question on the web, arXiv, Hacker News or Wikipedia. The relevance check kept 0 of 4 results.',
+      // The billed relevance call is reported even though the run stops, so the page's total includes it.
+      usage: { prompt_tokens: 600, completion_tokens: 50, total_tokens: 650, cost: 0.0002 },
     })
   })
 
@@ -190,6 +192,8 @@ describe('ai function: retrieval', () => {
     // The four stages (400 in, 40 out, $0.9375) plus the relevance check (600 in, 100 out, $0.0002).
     expect(events.at(-1)).toMatchObject({ usage: { prompt_tokens: 1000, completion_tokens: 140, total_tokens: 1140, cost: 0.9377 } })
     expect((events.at(-1)?.trace as Array<Record<string, unknown>>)[0]).toMatchObject({ name: 'Retrieve', tokens: 100, cost: 0.0002 })
+    // The browser's running total needs the same bill as soon as Retrieve ends, not only at session_complete.
+    expect(events.find(event => event.type === 'retrieve_complete')).toMatchObject({ usage: { cost: 0.0002, completion_tokens: 100 } })
   })
 
   it('stops during retrieval when the visitor leaves, aborts every lookup and calls no model', async () => {
