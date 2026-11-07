@@ -1,6 +1,7 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  ignore = "[ \"$CONTEXT\" = production ] && ! git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ../shared && exit 1; exit 0"
 
 [functions]
   directory = "netlify/functions"

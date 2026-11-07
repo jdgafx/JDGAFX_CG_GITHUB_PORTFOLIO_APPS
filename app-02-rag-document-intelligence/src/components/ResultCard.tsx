@@ -3,6 +3,7 @@ import { parseAnswer, sentencesCiting, supportingSentence } from '../lib/evidenc
 import { count, score } from '../lib/format'
 import { locationLabel } from '../lib/location'
 import { AnswerBody, citeKey } from './AnswerBody'
+import { ReplayBadge } from './ReplayLabel'
 import { SourcePanel } from './SourcePanel'
 import type { DocumentState, Turn } from '../types'
 
@@ -197,15 +198,18 @@ interface ResultCardProps {
   onSelect: (selection: Selection) => void
   onClose: () => void
   onRetry: () => void
+  /** True while the answer on screen is the replayed run: a badge on the result says so. */
+  replay?: boolean
 }
 
 /** The page's lead once a question has ended: the answer, or the reason there is none. */
-export function ResultCard({ doc, phase, turns, error, hasSteps, selection, onSelect, onClose, onRetry }: ResultCardProps) {
+export function ResultCard({ doc, phase, turns, error, hasSteps, selection, onSelect, onClose, onRetry, replay = false }: ResultCardProps) {
   const leadTurn = phase === 'done' ? turns[turns.length - 1] : undefined
   const earlier = leadTurn ? turns.slice(0, -1) : turns
 
   return (
     <section className="ds-section ds-run__result" aria-label="Answer" aria-live="polite">
+      {replay && <ReplayBadge />}
       {leadTurn && doc ? (
         <TurnCard turn={leadTurn} doc={doc} lead selection={selection} onSelect={onSelect} onClose={onClose} />
       ) : phase === 'running' ? (
