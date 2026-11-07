@@ -6,5 +6,6 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/live/**/*.test.ts'],
     testTimeout: 120_000,
+    disableConsoleIntercept: true,
   },
 })

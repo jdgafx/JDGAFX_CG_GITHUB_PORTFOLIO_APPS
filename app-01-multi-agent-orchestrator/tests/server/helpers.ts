@@ -141,6 +141,8 @@ export interface Retrieval {
   hn: PublicReply
   web?: PublicReply
   arxiv?: PublicReply
+  /** The relevance call at the end of Retrieve. Left out, it marks every candidate relevant. */
+  judge?: PublicReply
 }
 
 export const jsonReply = (body: unknown, status = 200): PublicReply => () => new Response(JSON.stringify(body), { status })
@@ -156,19 +158,46 @@ export function retrievalCall(url: string, retrieval: Retrieval, init?: RequestI
   return undefined
 }
 
-/** Routes the public-source calls to a fixture and every other call to the given provider handler. */
+/** The relevance call at the end of Retrieve is a provider call; it is told apart from the four stages by its system prompt. */
+export function isRelevanceCall(init: RequestInit | undefined): boolean {
+  try {
+    const sent = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> }
+    return sent.messages?.[0]?.content?.startsWith('You decide which search results') === true
+  } catch {
+    return false
+  }
+}
+
+/** The default relevance reply: every candidate shown is relevant. */
+function keepEvery(init: RequestInit | undefined): Response {
+  const sent = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+  const shown = (sent.messages[1]?.content.match(/^\d+\. \[/gm) ?? []).length
+  return reply(JSON.stringify({ results: Array.from({ length: shown }, (_, i) => ({ n: i + 1, relevant: true })) }), 0.0002, 600, 100)()
+}
+
+/** Routes the public-source calls to a fixture, the relevance call to its fixture, and every other call to the given provider handler. */
 export function stubFetch(provider: (...args: Parameters<typeof fetch>) => Response | Promise<Response>, retrieval = GOOD_RETRIEVAL) {
-  const fetchMock = vi.fn<typeof fetch>(async (...args) => retrievalCall(String(args[0]), retrieval, args[1]) ?? provider(...args))
+  const fetchMock = vi.fn<typeof fetch>(async (...args) => {
+    const call = retrievalCall(String(args[0]), retrieval, args[1])
+    if (call) return call
+    if (isRelevanceCall(args[1])) return retrieval.judge ? retrieval.judge(args[1]) : keepEvery(args[1])
+    return provider(...args)
+  })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
 
-/** The calls that went to the model provider, not to a public source or the model list. */
+/** The calls that went to the model provider for a stage or the audit, not to a public source, the model list or the relevance check. */
 export function providerCalls(fetchMock: ReturnType<typeof stubFetch>) {
   return fetchMock.mock.calls.filter(call => {
     const url = String(call[0])
-    return ![WIKIPEDIA_HOST, HN_HOST, WEB_HOST, ARXIV_HOST].some(host => url.startsWith(host)) && url !== MODEL_LIST_URL
+    return ![WIKIPEDIA_HOST, HN_HOST, WEB_HOST, ARXIV_HOST].some(host => url.startsWith(host)) && url !== MODEL_LIST_URL && !isRelevanceCall(call[1])
   })
+}
+
+/** The relevance calls of Retrieve. */
+export function relevanceCalls(fetchMock: ReturnType<typeof stubFetch>) {
+  return fetchMock.mock.calls.filter(call => isRelevanceCall(call[1]))
 }
 
 /** Routes each provider call to the reply planned for its stage, judged from the system prompt sent. */

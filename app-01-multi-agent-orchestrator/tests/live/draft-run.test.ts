@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { EXTRA_QUESTIONS, REAL_QUESTIONS } from './questions'
 
-// LIVE, on a Netlify DRAFT deploy: one full run per real question, as a visitor's page does it.
+// LIVE, against a running copy of the app: one full run per real question, as a visitor's page does it. The copy is a Netlify
+// draft deploy or `netlify dev` on this machine (the function then uses the site's own keys).
 //   AGENTFLOW_DRAFT_URL=https://<draft-id>--jdgafx-app-01-multi-agent-orchestrator.netlify.app npm run test:live -- tests/live/draft-run.test.ts
-// It fails (it does not skip) when the draft address is missing. Each run costs one research run and one audit.
+//   AGENTFLOW_DRAFT_URL=http://localhost:8888 npm run test:live -- tests/live/draft-run.test.ts
+// It fails (it does not skip) when the address is missing. Each run costs one research run and one audit.
 
 const BASE = (process.env.AGENTFLOW_DRAFT_URL ?? '').replace(/\/+$/, '')
 
@@ -23,7 +25,7 @@ async function research(query: string) {
 
 describe('a full run on the draft deploy', () => {
   it('has the draft address', () => {
-    expect(BASE, 'AGENTFLOW_DRAFT_URL must be set to the draft deploy address').toMatch(/^https:\/\//)
+    expect(BASE, 'AGENTFLOW_DRAFT_URL must be set to the draft deploy address or http://localhost:<port>').toMatch(/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$)/)
   })
 
   for (const question of [...REAL_QUESTIONS, ...EXTRA_QUESTIONS]) {
@@ -56,7 +58,7 @@ describe('a full run on the draft deploy', () => {
         opened[source.n] = `${source.site} ${status}`
         expect([404, 410, 0].includes(status) || status >= 500, `${source.url} answered ${status}`).toBe(false)
       }
-      console.log(`DRAFT ${JSON.stringify({ question, seconds: Math.round((Date.now() - started) / 1000), sites: sources.map(source => source.site), audit: audited.summary, opened })}`)
+      console.log(`DRAFT ${JSON.stringify({ question, seconds: Math.round((Date.now() - started) / 1000), kept: sources.map(source => `${source.n}. [${source.site}] ${source.title}`), detail: retrieved?.detail, audit: audited.summary, opened })}`)
     })
   }
 })

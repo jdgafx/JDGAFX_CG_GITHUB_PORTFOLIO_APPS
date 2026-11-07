@@ -10,6 +10,7 @@ import {
   jsonReply,
   plan,
   providerCalls,
+  relevanceCalls,
   reply,
   request,
   stubFetch,
@@ -48,11 +49,11 @@ describe('ai function: retrieval', () => {
     expect(events[0]).toEqual({ type: 'retrieve_start' })
     expect(retrieved.sources.map(source => [source.n, source.site, source.title, source.url])).toEqual([
       [1, 'Web', 'Streaming LLM output: SSE or WebSockets', 'https://blog.example.com/sse-or-websockets'],
-      [2, 'arXiv', 'Streaming LLM output over SSE and WebSockets', 'https://arxiv.org/abs/2610.01234v1'],
+      [2, 'arXiv', 'Streaming LLM output over SSE and WebSockets', 'https://arxiv.org/abs/2610.01234'],
       [3, 'Hacker News', 'Server-sent events vs WebSockets for streaming LLM output', 'https://news.ycombinator.com/item?id=31010000'],
       [4, 'Wikipedia', 'Server-sent events', 'https://en.wikipedia.org/wiki/Server-sent_events'],
     ])
-    expect(retrieved.detail).toBe('Found 1 web page, 1 arXiv paper, 1 Hacker News thread and 1 Wikipedia article.')
+    expect(retrieved.detail).toBe('Found 1 web page, 1 arXiv paper, 1 Hacker News thread and 1 Wikipedia article. The relevance check kept 4 of 5 results.')
     expect(typeof retrieved.ms).toBe('number')
 
     const researcherMessage = (JSON.parse(String(providerCalls(fetchMock)[0]?.[1]?.body)) as { messages: Array<{ content: string }> }).messages[1]?.content
@@ -68,7 +69,7 @@ describe('ai function: retrieval', () => {
         '### Sources',
         '',
         '1. [Streaming LLM output: SSE or WebSockets](https://blog.example.com/sse-or-websockets) - Web, blog.example.com',
-        '2. [Streaming LLM output over SSE and WebSockets](https://arxiv.org/abs/2610.01234v1) - arXiv, preprint, Oct 2026',
+        '2. [Streaming LLM output over SSE and WebSockets](https://arxiv.org/abs/2610.01234) - arXiv, preprint, Oct 2026',
         '3. [Server-sent events vs WebSockets for streaming LLM output](https://news.ycombinator.com/item?id=31010000) - Hacker News, 210 points, 88 comments, Apr 2022',
         '4. [Server-sent events](https://en.wikipedia.org/wiki/Server-sent_events) - Wikipedia',
         '',
@@ -117,6 +118,51 @@ describe('ai function: retrieval', () => {
     expect(providerCalls(fetchMock)).toHaveLength(0)
   })
 
+  it('stops before any stage when the relevance check finds nothing in the results about the question, and shows no unrelated source', async () => {
+    const none = (init?: RequestInit) => {
+      const sent = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      const shown = (sent.messages[1]?.content.match(/^\d+\. \[/gm) ?? []).length
+      return reply(JSON.stringify({ results: Array.from({ length: shown }, (_, i) => ({ n: i + 1, relevant: false })) }), 0.0002, 600, 50)()
+    }
+    const fetchMock = plan(
+      { researcher: reply('x', 0, 1, 1), analyst: reply('x', 0, 1, 1), critic: reply('x', 0, 1, 1), synthesizer: reply('x', 0, 1, 1) },
+      { ...GOOD_RETRIEVAL, web: jsonReply(WEB_BODY), judge: none },
+    )
+    const events = await frames(await handler(request(VALID_BODY)))
+    expect(relevanceCalls(fetchMock)).toHaveLength(1)
+    expect(providerCalls(fetchMock)).toHaveLength(0)
+    expect(events.some(event => event.type === 'retrieve_complete' || event.type === 'agent_chunk' || event.type === 'session_complete')).toBe(false)
+    expect(events[1]).toMatchObject({
+      type: 'agent_error',
+      agent: 'retriever',
+      error: 'Live data unavailable, so no report was written. No sources found for this question on the web, arXiv, Hacker News or Wikipedia. The relevance check kept 0 of 4 results.',
+    })
+  })
+
+  it('keeps only the sources the relevance check marks relevant, and numbers the Researcher\'s sources from them', async () => {
+    const onlyHn = (init?: RequestInit) => {
+      const sent = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      const lines = sent.messages[1]?.content.split('\n').filter(line => /^\d+\. \[/.test(line)) ?? []
+      return reply(JSON.stringify({ results: lines.map((line, i) => ({ n: i + 1, relevant: line.includes('[Hacker News]') })) }), 0.0002, 600, 50)()
+    }
+    const fetchMock = plan(
+      {
+        researcher: reply('- A [1].', 0.1, 10, 10),
+        analyst: reply('- B [1].', 0.1, 10, 10),
+        critic: reply('- C.', 0.1, 10, 10),
+        synthesizer: reply('D [1].', 0.1, 10, 10),
+      },
+      { ...GOOD_RETRIEVAL, web: jsonReply(WEB_BODY), judge: onlyHn },
+    )
+    const events = await frames(await handler(request(VALID_BODY)))
+    const retrieved = events[1] as { sources: Array<{ n: number; site: string }>; detail: string }
+    expect(retrieved.sources.map(source => [source.n, source.site])).toEqual([[1, 'Hacker News']])
+    expect(retrieved.detail).toBe('Found 1 Hacker News thread. The relevance check kept 1 of 4 results.')
+    const researcherMessage = (JSON.parse(String(providerCalls(fetchMock)[0]?.[1]?.body)) as { messages: Array<{ content: string }> }).messages[1]?.content
+    expect(researcherMessage).toContain('[1] Hacker News: Server-sent events vs WebSockets')
+    expect(researcherMessage).not.toContain('Wikipedia')
+  })
+
   it('keeps going when only one source fails, and names which one was unavailable', async () => {
     const fetchMock = plan(
       {
@@ -133,7 +179,7 @@ describe('ai function: retrieval', () => {
     expect(events.at(-1)).toMatchObject({ type: 'session_complete' })
   })
 
-  it('keeps retrieval out of the model usage totals', async () => {
+  it('counts the relevance check of Retrieve in the run totals and on the Retrieve step', async () => {
     plan({
       researcher: reply('- A [1].', 0.5, 100, 10),
       analyst: reply('- B [1].', 0.25, 100, 10),
@@ -141,7 +187,9 @@ describe('ai function: retrieval', () => {
       synthesizer: reply('D [1].', 0.0625, 100, 10),
     })
     const events = await frames(await handler(request(VALID_BODY)))
-    expect(events.at(-1)).toMatchObject({ usage: { prompt_tokens: 400, completion_tokens: 40, total_tokens: 440, cost: 0.9375 } })
+    // The four stages (400 in, 40 out, $0.9375) plus the relevance check (600 in, 100 out, $0.0002).
+    expect(events.at(-1)).toMatchObject({ usage: { prompt_tokens: 1000, completion_tokens: 140, total_tokens: 1140, cost: 0.9377 } })
+    expect((events.at(-1)?.trace as Array<Record<string, unknown>>)[0]).toMatchObject({ name: 'Retrieve', tokens: 100, cost: 0.0002 })
   })
 
   it('stops during retrieval when the visitor leaves, aborts every lookup and calls no model', async () => {

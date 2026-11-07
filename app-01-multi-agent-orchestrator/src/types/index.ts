@@ -1,7 +1,7 @@
 /** The four stages that call the model, in pipeline order. */
 export type ModelRole = 'researcher' | 'analyst' | 'critic' | 'synthesizer'
 
-/** Every step of a run. The retriever fetches public sources and makes no model call. */
+/** Every step of a run. The retriever fetches public sources and makes one model call, to drop results that are not about the question. */
 export type AgentRole = 'retriever' | ModelRole
 
 /** 'stopped' is set in the browser when the visitor ends the run during this stage. */

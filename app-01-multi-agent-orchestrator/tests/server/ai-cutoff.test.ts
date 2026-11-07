@@ -122,8 +122,9 @@ describe('ai function: a failed stage carries what it was billed', () => {
     const error = events.find(event => event.type === 'agent_error')
     // Both attempts were billed: 2 x (10 in, 4000 out, $0.001).
     expect(error).toMatchObject({ agent: 'researcher', usage: { prompt_tokens: 20, completion_tokens: 8000, total_tokens: 8020 } })
-    expect(events.at(-1)).toMatchObject({ type: 'session_complete', usage: { prompt_tokens: 20, completion_tokens: 8000, total_tokens: 8020 } })
-    expect(((events.at(-1)?.usage ?? {}) as { cost: number }).cost).toBeCloseTo(0.002, 6)
+    // The run totals add the relevance check of Retrieve (600 in, 100 out, $0.0002) to the two cut-off attempts.
+    expect(events.at(-1)).toMatchObject({ type: 'session_complete', usage: { prompt_tokens: 620, completion_tokens: 8100, total_tokens: 8720 } })
+    expect(((events.at(-1)?.usage ?? {}) as { cost: number }).cost).toBeCloseTo(0.0022, 6)
   })
 })
 

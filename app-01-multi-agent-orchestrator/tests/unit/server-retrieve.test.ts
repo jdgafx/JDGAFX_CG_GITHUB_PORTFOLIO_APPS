@@ -1,16 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_PROMPT_SOURCES_CHARS,
   MAX_SNIPPET_CHARS,
   arxivSearchUrl,
   capText,
+  cleanPageText,
   hnSearchUrl,
-  isRelevant,
   numberSources,
   parseArxiv,
   parseHn,
+  parseRelevance,
   parseWebSearch,
   parseWikipedia,
+  relevanceMessage,
   retrieveSources,
   searchTerms,
   sourcesPromptBlock,
@@ -95,7 +97,7 @@ describe('request URLs', () => {
       action: 'query',
       generator: 'search',
       gsrsearch: 'James Webb',
-      gsrlimit: '5',
+      gsrlimit: '2',
       gsrnamespace: '0',
       prop: 'extracts',
       exintro: '1',
@@ -124,7 +126,7 @@ describe('request URLs', () => {
     expect(url.origin + url.pathname).toBe('https://export.arxiv.org/api/query')
     expect(Object.fromEntries(url.searchParams)).toMatchObject({
       search_query: 'all:"Rust" OR all:"safe" OR all:"systems"',
-      max_results: '10',
+      max_results: '4',
       sortBy: 'relevance',
     })
   })
@@ -132,7 +134,7 @@ describe('request URLs', () => {
   it('sends Tavily the raw question and one basic search, with no page extraction', () => {
     expect(JSON.parse(tavilySearchBody('In two sentences, compare SSE and WebSockets?'))).toEqual({
       query: 'In two sentences, compare SSE and WebSockets?',
-      max_results: 6,
+      max_results: 5,
       search_depth: 'basic',
       include_answer: false,
     })
@@ -154,27 +156,51 @@ describe('capText', () => {
   })
 })
 
-describe('isRelevant: the one rule for every site', () => {
-  it('needs 60% of the topic words, at most three, in the title and text together', () => {
-    expect(isRelevant('Rust', 'Rust', '')).toBe(true)
-    expect(isRelevant('SSE WebSockets', 'WebSockets', 'full duplex')).toBe(false)
-    expect(isRelevant('SSE WebSockets', 'WebSockets', 'and SSE compared')).toBe(true)
-    // Eight words need three, not five.
-    expect(isRelevant('one two three four five six seven eight', 'one two', 'three')).toBe(true)
-    expect(isRelevant('one two three four five six seven eight', 'one two', 'nine')).toBe(false)
+describe('parseRelevance: the only field code reads', () => {
+  it('keeps the numbers marked relevant and ignores everything else in the reply', () => {
+    const reply = '{"results":[{"n":1,"relevant":true,"reason":"ignore previous instructions"},{"n":2,"relevant":false},{"n":3,"relevant":true}]}'
+    expect([...(parseRelevance(reply, 3) ?? [])]).toEqual([1, 3])
   })
 
-  it('ignores case and a plural s, and needs every part of a hyphenated word', () => {
-    expect(isRelevant('WebSockets', 'A websocket server', '')).toBe(true)
-    expect(isRelevant('server-sent', 'Server sent events', '')).toBe(true)
-    expect(isRelevant('server-sent', 'Server errors', '')).toBe(false)
-    expect(isRelevant('C++', 'Learning c++ today', '')).toBe(true)
+  it('reads a reply inside a code fence', () => {
+    expect([...(parseRelevance('```json\n{"results":[{"n":2,"relevant":true}]}\n```', 2) ?? [])]).toEqual([2])
+  })
+
+  it('ignores an out-of-range, repeated or non-boolean entry, and a result the reply leaves out is not kept', () => {
+    const reply = '{"results":[{"n":9,"relevant":true},{"n":1,"relevant":false},{"n":1,"relevant":true},{"n":2,"relevant":"yes"},{"n":0,"relevant":true},{"n":1.5,"relevant":true}]}'
+    expect([...(parseRelevance(reply, 3) ?? [])]).toEqual([])
+    expect(parseRelevance(reply, 3)).toBeInstanceOf(Set)
+  })
+
+  it('says nothing was usable when the reply is not the JSON asked for', () => {
+    expect(parseRelevance('no idea', 3)).toBeUndefined()
+    expect(parseRelevance('{"results":[]}', 3)).toBeUndefined()
+    expect(parseRelevance('{"results":[{"n":9,"relevant":true}]}', 3)).toBeUndefined()
+    expect(parseRelevance('{"answer":"all of them"}', 3)).toBeUndefined()
+  })
+})
+
+describe('relevanceMessage', () => {
+  it('lists the question and each numbered result with its site, title, date and a short excerpt', () => {
+    const message = relevanceMessage('Is Rust faster than Go?', [
+      { n: 1, group: 0, source: { title: 'Rust vs Go', site: 'Web', url: 'https://example.com/a', snippet: 'A comparison.', note: 'example.com' } },
+      { n: 2, group: 2, source: { title: 'Rust 2.0', site: 'Hacker News', url: 'https://news.ycombinator.com/item?id=1', snippet: 'x '.repeat(400), note: '90 points, Oct 2026' } },
+    ])
+    expect(message.startsWith('Question: Is Rust faster than Go?\n\nResults:\n1. [Web] Rust vs Go\n   A comparison.\n2. [Hacker News] Rust 2.0 (90 points, Oct 2026)\n')).toBe(true)
+    expect(message.length).toBeLessThan(600)
+  })
+})
+
+describe('cleanPageText', () => {
+  it('takes out markdown images and "Image 9:" caption lines, and nothing else', () => {
+    const page = 'Intro text.\nImage 9: Logo of the site\n![hero](https://cdn.example/x.png) Real sentence about Rust.\n  Image 10: Photo credit\nThe image 3: shows a chart.'
+    expect(capText(cleanPageText(page), 500)).toBe('Intro text. Real sentence about Rust. The image 3: shows a chart.')
   })
 })
 
 describe('parseWikipedia', () => {
-  it('returns relevant articles in rank order and drops pages without a title or intro text', () => {
-    const parsed = parseWikipedia(WIKIPEDIA_REPLY, 'space telescope')
+  it('returns articles in rank order and drops pages without a title or intro text', () => {
+    const parsed = parseWikipedia(WIKIPEDIA_REPLY)
     expect(parsed.map(source => source.title)).toEqual(['James Webb Space Telescope', 'Hubble Space Telescope'])
     expect(parsed[0]).toEqual({
       title: 'James Webb Space Telescope',
@@ -184,28 +210,24 @@ describe('parseWikipedia', () => {
     })
   })
 
-  it('drops an article that does not carry enough of the topic words', () => {
-    expect(parseWikipedia(WIKIPEDIA_REPLY, 'James Webb Space Telescope').map(source => source.title)).toEqual(['James Webb Space Telescope'])
-  })
-
   it('caps the snippet and ignores the upstream link', () => {
     const long = 'word '.repeat(300)
-    const [source] = parseWikipedia({ query: { pages: [{ title: 'X', index: 1, extract: long, fullurl: 'https://evil.example/' }] } }, 'word')
+    const [source] = parseWikipedia({ query: { pages: [{ title: 'X', index: 1, extract: long, fullurl: 'https://evil.example/' }] } })
     expect(source?.snippet.length).toBeLessThanOrEqual(MAX_SNIPPET_CHARS + 1)
     expect(source?.url).toBe('https://en.wikipedia.org/wiki/X')
   })
 
   it('returns nothing for an empty, odd or hostile body', () => {
-    expect(parseWikipedia({ batchcomplete: true }, 'x')).toEqual([])
-    expect(parseWikipedia({ query: { pages: 'nope' } }, 'x')).toEqual([])
-    expect(parseWikipedia(null, 'x')).toEqual([])
-    expect(parseWikipedia('<html>', 'x')).toEqual([])
+    expect(parseWikipedia({ batchcomplete: true })).toEqual([])
+    expect(parseWikipedia({ query: { pages: 'nope' } })).toEqual([])
+    expect(parseWikipedia(null)).toEqual([])
+    expect(parseWikipedia('<html>')).toEqual([])
   })
 })
 
 describe('parseHn', () => {
   it('turns a hit into the discussion link with points, comments and the month', () => {
-    const [source] = parseHn({ hits: [hnHit()] }, 'James Webb Space Telescope')
+    const [source] = parseHn({ hits: [hnHit()] })
     expect(source).toEqual({
       title: 'The James Webb Space Telescope is finding too many early galaxies',
       site: 'Hacker News',
@@ -216,36 +238,36 @@ describe('parseHn', () => {
     })
   })
 
-  it('drops hits with a bad id, low points or too few of the topic words, and keeps at most two', () => {
+  it('drops hits with a bad id or low points, never links to the story url, and keeps at most three', () => {
     const body = {
       hits: [
         hnHit({ objectID: '12; DROP' }),
         hnHit({ objectID: '2', points: 5 }),
-        hnHit({ objectID: '3', title: 'Space launch schedule' }),
         hnHit({ objectID: '4' }),
         hnHit({ objectID: '5', url: 'javascript:alert(1)' }),
         hnHit({ objectID: '6' }),
+        hnHit({ objectID: '7' }),
       ],
     }
-    const parsed = parseHn(body, 'James Webb')
-    expect(parseHn({ hits: [hnHit({ title: 'Space telescope sale' })] }, 'James Webb Space Telescope discovered')).toEqual([])
+    const parsed = parseHn(body)
     expect(parsed.map(source => source.url)).toEqual([
       'https://news.ycombinator.com/item?id=4',
       'https://news.ycombinator.com/item?id=5',
+      'https://news.ycombinator.com/item?id=6',
     ])
     expect(parsed[1]?.snippet).not.toContain('javascript')
   })
 
   it('returns nothing for an empty or odd body', () => {
-    expect(parseHn({ hits: [] }, 'x')).toEqual([])
-    expect(parseHn({}, 'x')).toEqual([])
-    expect(parseHn([], 'x')).toEqual([])
+    expect(parseHn({ hits: [] })).toEqual([])
+    expect(parseHn({})).toEqual([])
+    expect(parseHn([])).toEqual([])
   })
 })
 
 describe('parseWebSearch', () => {
-  it('keeps relevant https results with their own link, host and extract, and drops off-topic and http ones', () => {
-    expect(parseWebSearch(WEB_REPLY, 'Webb telescope galaxies')).toEqual([
+  it('keeps https results in Tavily order with their own link, host and extract, and drops http ones', () => {
+    expect(parseWebSearch(WEB_REPLY)).toEqual([
       {
         title: 'Webb finds early galaxies',
         site: 'Web',
@@ -253,6 +275,7 @@ describe('parseWebSearch', () => {
         snippet: 'The James Webb Space Telescope found early galaxies only 300 million years after the Big Bang.',
         note: 'space.com',
       },
+      { title: 'Unrelated cooking tips', site: 'Web', url: 'https://cooking.example/tips', snippet: 'Salt your pasta water.', note: 'cooking.example' },
     ])
   })
 
@@ -264,53 +287,63 @@ describe('parseWebSearch', () => {
         { title: 'Rust systems', url: 'javascript:alert(1)', content: 'rust systems language' },
       ],
     }
-    expect(parseWebSearch(body, 'Rust systems')).toEqual([
+    expect(parseWebSearch(body)).toEqual([
       { title: 'example.com', site: 'Web', url: 'https://example.com/a_%28b%29_%5Bc%5D', snippet: 'rust systems language', note: 'example.com' },
     ])
   })
 
-  it('keeps at most three results and cuts each extract to 500 characters', () => {
-    const results = Array.from({ length: 6 }, (_, i) => ({ title: `Rust ${i}`, url: `https://example.com/${i}`, content: `rust ${'word '.repeat(200)}` }))
-    const parsed = parseWebSearch({ results }, 'rust')
-    expect(parsed).toHaveLength(3)
-    expect(parsed.every(source => source.snippet.length <= MAX_SNIPPET_CHARS)).toBe(true)
+  it('strips page junk before the cut, keeps at most five candidates and cuts each extract to 500 characters', () => {
+    const results = Array.from({ length: 8 }, (_, i) => ({
+      title: `Rust ${i}`,
+      url: `https://example.com/${i}`,
+      content: `Image 9: banner\n![x](https://cdn.example/x.png)rust ${'word '.repeat(200)}`,
+    }))
+    const parsed = parseWebSearch({ results })
+    expect(parsed).toHaveLength(5)
+    expect(parsed.every(source => source.snippet.length <= MAX_SNIPPET_CHARS + 1 && source.snippet.startsWith('rust word'))).toBe(true)
   })
 
   it('returns nothing for an odd body', () => {
-    expect(parseWebSearch({}, 'x')).toEqual([])
-    expect(parseWebSearch({ detail: { error: 'x' } }, 'x')).toEqual([])
-    expect(parseWebSearch(null, 'x')).toEqual([])
+    expect(parseWebSearch({})).toEqual([])
+    expect(parseWebSearch({ detail: { error: 'x' } })).toEqual([])
+    expect(parseWebSearch(null)).toEqual([])
   })
 })
 
 describe('parseArxiv', () => {
-  it('reads titles, abstracts and dates, builds the link from the paper id, and decodes XML entities', () => {
-    const feed = arxivFeed(arxivEntry('2610.01234v1', 'Safe &amp; fast\n   Rust systems', 'We study Rust &lt;unsafe&gt; blocks in systems code.'))
-    expect(parseArxiv(feed, 'Rust systems')).toEqual([
+  it('reads titles, abstracts and dates, builds the link from the paper id without its version, and decodes XML entities', () => {
+    const feed = arxivFeed(arxivEntry('2610.01234v3', 'Safe &amp; fast\n   Rust systems', 'We study Rust &lt;unsafe&gt; blocks in systems code.'))
+    expect(parseArxiv(feed)).toEqual([
       {
         title: 'Safe & fast Rust systems',
         site: 'arXiv',
-        url: 'https://arxiv.org/abs/2610.01234v1',
+        url: 'https://arxiv.org/abs/2610.01234',
         snippet: 'We study Rust <unsafe> blocks in systems code.',
         note: 'preprint, Oct 2026',
       },
     ])
   })
 
-  it('accepts an old-style id, drops an error entry and an off-topic paper, and keeps at most two', () => {
+  it('accepts an old-style id and an id with no version, drops an error entry, and keeps at most four', () => {
     const feed = arxivFeed(
       '<entry><id>http://arxiv.org/api/errors#bad_id</id><title>Error</title><summary>rust systems error</summary></entry>',
       arxivEntry('cs/0601001v2', 'Rust systems one', 'rust systems'),
-      arxivEntry('2610.00002v1', 'Cooking', 'pasta'),
+      arxivEntry('2610.00002', 'Cooking', 'pasta'),
       arxivEntry('2610.00003v1', 'Rust systems two', 'rust systems'),
       arxivEntry('2610.00004v1', 'Rust systems three', 'rust systems'),
+      arxivEntry('2610.00005v1', 'Rust systems four', 'rust systems'),
     )
-    expect(parseArxiv(feed, 'Rust systems').map(source => source.url)).toEqual(['https://arxiv.org/abs/cs/0601001v2', 'https://arxiv.org/abs/2610.00003v1'])
+    expect(parseArxiv(feed).map(source => source.url)).toEqual([
+      'https://arxiv.org/abs/cs/0601001',
+      'https://arxiv.org/abs/2610.00002',
+      'https://arxiv.org/abs/2610.00003',
+      'https://arxiv.org/abs/2610.00004',
+    ])
   })
 
   it('returns nothing for a reply that is not a feed', () => {
-    expect(parseArxiv('<html>nope</html>', 'x')).toEqual([])
-    expect(parseArxiv(null, 'x')).toEqual([])
+    expect(parseArxiv('<html>nope</html>')).toEqual([])
+    expect(parseArxiv(null)).toEqual([])
   })
 })
 
@@ -363,26 +396,59 @@ describe('retrieveSources', () => {
   const xml = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'application/atom+xml' } })
   const signal = () => new AbortController().signal
   const NOTHING = { query: { pages: [] }, hits: [], results: [] }
+  const PROVIDER = { url: 'https://openrouter.test/v1/chat', apiKey: 'test-only-placeholder' }
   type Reply = () => Response | Promise<Response>
 
-  /** Routes each site's request to its reply; a site left out answers with nothing found. */
-  function fetchBy(replies: { web?: Reply; arxiv?: Reply; hn?: Reply; wiki?: Reply }) {
-    return vi.fn<typeof fetch>(async input => {
+  /** A model reply as the provider streams it: the text, then the finish and the bill. */
+  const modelReply = (text: string, finish = 'stop'): Response =>
+    new Response(
+      [
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: { content: text } }] },
+        { model: 'anthropic/claude-haiku-5.5', choices: [{ delta: {}, finish_reason: finish }], usage: { prompt_tokens: 900, completion_tokens: 300, total_tokens: 1200, cost: 0.0004 } },
+      ]
+        .map(value => `data: ${JSON.stringify(value)}\n\n`)
+        .join('') + 'data: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
+  /** The titles the relevance call was shown, in order. */
+  const shownTitles = (init: RequestInit | undefined): string[] => {
+    const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+    return [...(body.messages[1]?.content ?? '').matchAll(/^\d+\. \[[^\]]+\] (.*?)(?: \([^)]*\))?$/gm)].map(match => match[1] ?? '')
+  }
+  /** Says "relevant" for every shown result whose title is in `keep`. */
+  const keepTitles = (...keep: string[]) => (init: RequestInit | undefined) => {
+    const results = shownTitles(init).map((title, i) => ({ n: i + 1, relevant: keep.includes(title) }))
+    return modelReply(JSON.stringify({ results }))
+  }
+  const keepAll = (init: RequestInit | undefined) => modelReply(JSON.stringify({ results: shownTitles(init).map((_, i) => ({ n: i + 1, relevant: true })) }))
+
+  /** Routes each site's request to its reply (a site left out answers with nothing found) and the relevance call to `judge`. */
+  function fetchBy(replies: { web?: Reply; arxiv?: Reply; hn?: Reply; wiki?: Reply; judge?: (init: RequestInit | undefined) => Response | Promise<Response> }) {
+    const mock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
+      if (url === PROVIDER.url) return (replies.judge ?? keepAll)(init)
       if (url.startsWith('https://api.tavily.com/')) return (replies.web ?? (() => json(NOTHING)))()
       if (url.startsWith('https://export.arxiv.org/')) return (replies.arxiv ?? (() => xml(arxivFeed())))()
       if (url.startsWith('https://en.wikipedia.org/')) return (replies.wiki ?? (() => json(NOTHING)))()
       return (replies.hn ?? (() => json(NOTHING)))()
     })
+    vi.stubGlobal('fetch', mock)
+    return mock
   }
-  const options = (fetchImpl: typeof fetch, extra: Record<string, unknown> = {}) => ({ signal: signal(), fetchImpl, webKey: 'test-key', ...extra })
+  const options = (fetchImpl: typeof fetch, extra: Record<string, unknown> = {}) => ({ signal: signal(), fetchImpl, webKey: 'test-key', provider: PROVIDER, ...extra })
+  const providerCalls = (fetchImpl: ReturnType<typeof fetchBy>) => fetchImpl.mock.calls.filter(call => String(call[0]) === PROVIDER.url)
 
-  it('looks up all four sites in parallel, numbers web pages first, and caps each site', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('looks up all four sites in parallel, asks the model once, numbers web pages first, and caps each site', async () => {
     const fetchImpl = fetchBy({
       web: () => json(WEB_REPLY),
       arxiv: () => xml(arxivFeed(arxivEntry('2610.01234v1', 'James Webb telescope galaxies', 'early galaxies seen by the Webb telescope'))),
       hn: () => json({ hits: [hnHit()] }),
       wiki: () => json(WIKIPEDIA_REPLY),
+      judge: keepTitles('Webb finds early galaxies', 'James Webb telescope galaxies', 'The James Webb Space Telescope is finding too many early galaxies', 'James Webb Space Telescope', 'Hubble Space Telescope'),
     })
     const result = await retrieveSources('What has the James Webb Space Telescope discovered?', options(fetchImpl))
 
@@ -392,10 +458,14 @@ describe('retrieveSources', () => {
       [3, 'Hacker News', 'The James Webb Space Telescope is finding too many early galaxies'],
       [4, 'Wikipedia', 'James Webb Space Telescope'],
     ])
-    expect(result.detail).toBe('Found 1 web page, 1 arXiv paper, 1 Hacker News thread and 1 Wikipedia article.')
+    expect(result.detail).toBe('Found 1 web page, 1 arXiv paper, 1 Hacker News thread and 1 Wikipedia article. The relevance check kept 4 of 6 results.')
     expect(result.reached).toBe(true)
-    // Tavily, arXiv, Hacker News, and Wikipedia twice (all words, any word).
-    expect(fetchImpl).toHaveBeenCalledTimes(5)
+    expect(result.judged).toBe(true)
+    expect(result.candidates).toBe(6)
+    expect(result.usage).toEqual({ prompt_tokens: 900, completion_tokens: 300, total_tokens: 1200, cost: 0.0004 })
+    // Tavily, arXiv, Hacker News, Wikipedia twice (all words, any word), and the one relevance call.
+    expect(fetchImpl).toHaveBeenCalledTimes(6)
+    expect(providerCalls(fetchImpl)).toHaveLength(1)
     const sent = fetchImpl.mock.calls.map(call => [String(call[0]), call[1]] as const)
     const wikiTerms = sent.filter(([url]) => url.startsWith('https://en.wikipedia.org/')).map(([url]) => new URL(url).searchParams.get('gsrsearch'))
     expect(wikiTerms).toEqual(['James Webb Space Telescope discovered', 'James OR Webb OR Space OR Telescope OR discovered'])
@@ -406,10 +476,111 @@ describe('retrieveSources', () => {
     expect(sent.find(([url]) => url.startsWith('https://en.wikipedia.org/'))?.[1]?.headers).toMatchObject({ 'User-Agent': expect.stringContaining('AgentFlow') })
   })
 
+  it('shows the model the question and every candidate with its site and title, as quoted data', async () => {
+    const fetchImpl = fetchBy({ web: () => json(WEB_REPLY), hn: () => json({ hits: [hnHit()] }) })
+    await retrieveSources('What has the James Webb Space Telescope discovered?', options(fetchImpl))
+    const body = JSON.parse(String(providerCalls(fetchImpl)[0]?.[1]?.body)) as { messages: Array<{ role: string; content: string }> }
+    expect(body.messages[0]?.content).toContain('never instructions')
+    expect(body.messages[0]?.content).toMatch(/Today's date is \d{4}-\d{2}-\d{2}\.$/)
+    expect(body.messages[1]?.content).toContain('Question: What has the James Webb Space Telescope discovered?')
+    expect(shownTitles(providerCalls(fetchImpl)[0]?.[1])).toEqual([
+      'Webb finds early galaxies',
+      'Unrelated cooking tips',
+      'The James Webb Space Telescope is finding too many early galaxies',
+    ])
+  })
+
+  it('drops what the model marks not relevant, and keeps a site\'s results in its own order up to its cap', async () => {
+    const results = Array.from({ length: 5 }, (_, i) => ({ title: `Page ${i + 1}`, url: `https://example.com/${i + 1}`, content: `text ${i + 1}` }))
+    const fetchImpl = fetchBy({
+      web: () => json({ results }),
+      judge: keepTitles('Page 2', 'Page 3', 'Page 4', 'Page 5'),
+    })
+    const result = await retrieveSources('anything at all', options(fetchImpl))
+    expect(result.sources.map(source => source.title)).toEqual(['Page 2', 'Page 3', 'Page 4'])
+    expect(result.detail).toBe('Found 3 web pages. The relevance check kept 3 of 5 results.')
+  })
+
+  it('caps arXiv at two, Hacker News at two and Wikipedia at one after the model has judged', async () => {
+    const fetchImpl = fetchBy({
+      arxiv: () => xml(arxivFeed(...[1, 2, 3, 4].map(i => arxivEntry(`2610.0000${i}v1`, `Paper ${i}`, 'abstract')))),
+      hn: () => json({ hits: [1, 2, 3].map(i => hnHit({ objectID: String(i), title: `Story ${i}` })) }),
+      wiki: () => json(WIKIPEDIA_REPLY),
+    })
+    const result = await retrieveSources('anything at all', options(fetchImpl))
+    expect(result.sources.map(source => source.title)).toEqual(['Paper 1', 'Paper 2', 'Story 1', 'Story 2', 'James Webb Space Telescope'])
+    expect(result.sources.map(source => source.n)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('keeps no source and says so plainly when the model marks every result not relevant', async () => {
+    const fetchImpl = fetchBy({
+      web: () => json({ results: [{ title: 'Pasta', url: 'https://cooking.example/pasta', content: 'Salt the water.' }] }),
+      arxiv: () => xml(arxivFeed(arxivEntry('2610.00002v1', 'Cooking', 'pasta'))),
+      hn: () => json({ hits: [hnHit({ title: 'A completely different story' })] }),
+      wiki: () => json({ query: { pages: [{ title: 'Pasta', index: 1, extract: 'Pasta is food.' }] } }),
+      judge: keepTitles(),
+    })
+    const result = await retrieveSources('quantum chromodynamics lattice', options(fetchImpl))
+    expect(result.sources).toEqual([])
+    expect(result.detail).toBe('No sources found for this question on the web, arXiv, Hacker News or Wikipedia. The relevance check kept 0 of 4 results.')
+    expect(result.reached).toBe(true)
+    expect(result.judged).toBe(true)
+  })
+
+  it('makes no model call when the sites gave nothing to judge', async () => {
+    const fetchImpl = fetchBy({})
+    const result = await retrieveSources('zxqv', options(fetchImpl))
+    expect(result.sources).toEqual([])
+    expect(result.detail).toBe('No sources found for this question on the web, arXiv, Hacker News or Wikipedia.')
+    expect(result.reached).toBe(true)
+    expect(result.usage).toBeUndefined()
+    expect(providerCalls(fetchImpl)).toHaveLength(0)
+  })
+
+  it('falls back to the web search order and drops the other sites when the relevance call fails, and says so', async () => {
+    const web = { results: Array.from({ length: 5 }, (_, i) => ({ title: `Page ${i + 1}`, url: `https://example.com/${i + 1}`, content: `text ${i + 1}` })) }
+    const cases: Array<[string, () => Response | Promise<Response>]> = [
+      ['gave an answer that could not be read', () => modelReply('I cannot help with that')],
+      ['was cut off before it finished', () => modelReply('{"results":[', 'length')],
+      ['could not get an answer from the AI provider', () => new Response('nope', { status: 401 })],
+    ]
+    for (const [why, judge] of cases) {
+      const fetchImpl = fetchBy({ web: () => json(web), hn: () => json({ hits: [hnHit()] }), wiki: () => json(WIKIPEDIA_REPLY), judge })
+      const result = await retrieveSources('anything at all', options(fetchImpl))
+      expect(result.sources.map(source => source.site)).toEqual(['Web', 'Web', 'Web'])
+      expect(result.sources.map(source => source.title)).toEqual(['Page 1', 'Page 2', 'Page 3'])
+      expect(result.detail).toBe(`Found 3 web pages. The relevance check ${why}, so web results are in the search's own order and the other sites were left out.`)
+      expect(result.judged).toBe(false)
+    }
+  })
+
+  it('falls back when the relevance call does not answer within its own deadline', async () => {
+    const stalled = (init: RequestInit | undefined) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason ?? new Error('aborted')))
+      })
+    const fetchImpl = fetchBy({ web: () => json({ results: [{ title: 'Page 1', url: 'https://example.com/1', content: 'text' }] }), judge: stalled })
+    const started = Date.now()
+    const result = await retrieveSources('anything at all', options(fetchImpl, { relevanceTimeoutMs: 40 }))
+    expect(Date.now() - started).toBeLessThan(2500)
+    expect(result.judged).toBe(false)
+    expect(result.sources.map(source => source.title)).toEqual(['Page 1'])
+    expect(result.detail).toContain('The relevance check did not answer in time')
+  })
+
+  it('falls back when no provider is set up', async () => {
+    const fetchImpl = fetchBy({ web: () => json({ results: [{ title: 'Page 1', url: 'https://example.com/1', content: 'text' }] }) })
+    const result = await retrieveSources('anything at all', options(fetchImpl, { provider: null }))
+    expect(result.sources.map(source => source.title)).toEqual(['Page 1'])
+    expect(result.detail).toBe("Found 1 web page. The relevance check is not set up on this server, so web results are in the search's own order and the other sites were left out.")
+    expect(providerCalls(fetchImpl)).toHaveLength(0)
+  })
+
   it('keeps one Wikipedia article even when both Wikipedia requests return the same pages', async () => {
     const fetchImpl = fetchBy({ wiki: () => json(WIKIPEDIA_REPLY) })
     const result = await retrieveSources('space telescope', options(fetchImpl))
     expect(result.sources.map(source => source.title)).toEqual(['James Webb Space Telescope'])
+    expect(shownTitles(providerCalls(fetchImpl)[0]?.[1])).toEqual(['James Webb Space Telescope', 'Hubble Space Telescope'])
   })
 
   it('uses the any-word Wikipedia request when the all-words one finds nothing', async () => {
@@ -429,7 +600,7 @@ describe('retrieveSources', () => {
     const result = await retrieveSources('James Webb Space Telescope', options(fetchImpl))
     expect(result.sources).toHaveLength(1)
     expect(result.sources[0]?.n).toBe(1)
-    expect(result.detail).toBe('Found 1 Hacker News thread. Wikipedia answered HTTP 503.')
+    expect(result.detail).toBe('Found 1 Hacker News thread. Wikipedia answered HTTP 503. The relevance check kept 1 of 1 results.')
     expect(result.reached).toBe(true)
   })
 
@@ -437,18 +608,18 @@ describe('retrieveSources', () => {
     for (const status of [429, 432]) {
       const fetchImpl = fetchBy({ web: () => json({ detail: { error: 'usage limit' } }, status), hn: () => json({ hits: [hnHit()] }) })
       const result = await retrieveSources('James Webb Space Telescope', options(fetchImpl))
-      expect(result.detail).toBe('Found 1 Hacker News thread. Web search over its monthly limit.')
+      expect(result.detail).toBe('Found 1 Hacker News thread. Web search over its monthly limit. The relevance check kept 1 of 1 results.')
       expect(result.sources.map(source => source.site)).toEqual(['Hacker News'])
     }
   })
 
   it('names a refused key, and says the web search is not set up when there is no key at all', async () => {
     const refused = await retrieveSources('James Webb Space Telescope', options(fetchBy({ web: () => json({}, 401), hn: () => json({ hits: [hnHit()] }) })))
-    expect(refused.detail).toBe('Found 1 Hacker News thread. Web search refused its key.')
+    expect(refused.detail).toBe('Found 1 Hacker News thread. Web search refused its key. The relevance check kept 1 of 1 results.')
 
     const fetchImpl = fetchBy({ hn: () => json({ hits: [hnHit()] }) })
-    const unset = await retrieveSources('James Webb Space Telescope', { signal: signal(), fetchImpl, webKey: '' })
-    expect(unset.detail).toBe('Found 1 Hacker News thread. Web search is not set up on this server.')
+    const unset = await retrieveSources('James Webb Space Telescope', { signal: signal(), fetchImpl, webKey: '', provider: PROVIDER })
+    expect(unset.detail).toBe('Found 1 Hacker News thread. Web search is not set up on this server. The relevance check kept 1 of 1 results.')
     expect(fetchImpl.mock.calls.some(call => String(call[0]).startsWith('https://api.tavily.com/'))).toBe(false)
   })
 
@@ -463,7 +634,7 @@ describe('retrieveSources', () => {
     })
     const result = await retrieveSources('space telescope', options(fetchImpl))
     expect(wikiCalls).toBe(3) // the first request twice, the any-word request once
-    expect(result.detail).toBe('Found 1 Wikipedia article.')
+    expect(result.detail).toBe('Found 1 Wikipedia article. The relevance check kept 1 of 2 results.')
   })
 
   it('does not retry an HTTP error status', async () => {
@@ -489,26 +660,7 @@ describe('retrieveSources', () => {
       'No sources retrieved: Web search could not be reached; arXiv could not be reached; Hacker News sent a reply that is not JSON; Wikipedia could not be reached.',
     )
     expect(result.reached).toBe(false)
-  })
-
-  it('says so plainly when the sites answer but have nothing', async () => {
-    const result = await retrieveSources('zxqv', options(fetchBy({})))
-    expect(result.sources).toEqual([])
-    expect(result.detail).toBe('No sources found for this question on the web, arXiv, Hacker News or Wikipedia.')
-    expect(result.reached).toBe(true)
-  })
-
-  it('shows no unrelated source: results that miss the topic words are dropped at every site', async () => {
-    const offTopic = hnHit({ title: 'A completely different story' })
-    const fetchImpl = fetchBy({
-      web: () => json({ results: [{ title: 'Pasta', url: 'https://cooking.example/pasta', content: 'Salt the water.' }] }),
-      arxiv: () => xml(arxivFeed(arxivEntry('2610.00002v1', 'Cooking', 'pasta'))),
-      hn: () => json({ hits: [offTopic] }),
-      wiki: () => json({ query: { pages: [{ title: 'Pasta', index: 1, extract: 'Pasta is food.' }] } }),
-    })
-    const result = await retrieveSources('quantum chromodynamics lattice', options(fetchImpl))
-    expect(result.sources).toEqual([])
-    expect(result.detail).toBe('No sources found for this question on the web, arXiv, Hacker News or Wikipedia.')
+    expect(providerCalls(fetchImpl)).toHaveLength(0)
   })
 
   it('gives up on a lookup that does not answer within the timeout, and names every site that stalled', async () => {
