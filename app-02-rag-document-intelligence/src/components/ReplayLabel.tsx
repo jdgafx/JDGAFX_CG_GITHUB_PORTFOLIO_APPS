@@ -56,3 +56,12 @@ export function LiveLabel({ report }: LiveLabelProps) {
     </div>
   )
 }
+
+// Sits at the top of the result area itself while the run on screen is a recording, so the result is never mistaken for a live one.
+export function ReplayBadge() {
+  return (
+    <p className="ds-badge ds-badge--warning replay-badge" data-replay-badge>
+      REPLAY of a recorded run, not live
+    </p>
+  )
+}

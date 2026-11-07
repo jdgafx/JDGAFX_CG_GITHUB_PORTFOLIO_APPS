@@ -343,10 +343,11 @@ export default function App() {
 
           <div className="ds-run">
             {replay.info && <ReplayLabel info={replay.info} onRunLive={tryIt} disabled={reading} />}
-            {!replay.info && phase === 'done' && latest?.state === 'answered' && !notFound && <LiveLabel report={latest.report} />}
+            {!replay.info && !reading && phase === 'done' && latest?.state === 'answered' && !notFound && <LiveLabel report={latest.report} />}
             <ResultCard
               doc={doc}
               phase={phase}
+              replay={replay.info !== null}
               turns={turns}
               error={askError}
               hasSteps={(running ? liveTrace : (latest?.report.trace ?? [])).length > 0}

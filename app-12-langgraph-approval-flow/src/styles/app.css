@@ -499,3 +499,4 @@ h1, h2, h3, .ds-title { font-family: var(--ds-font); }
   .ds-app[data-replay] .ds-run { order: -1; }
   .ds-app[data-replay] .howto { order: 2; }
 }
+.ds-badge.replay-badge { display: flex; justify-content: center; max-width: none; margin: 0 0 12px; padding: 8px 12px; white-space: normal; text-align: center; font-size: 14px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; border: 2px solid currentColor; }
