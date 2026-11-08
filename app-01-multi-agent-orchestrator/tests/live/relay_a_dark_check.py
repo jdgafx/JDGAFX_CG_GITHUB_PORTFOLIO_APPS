@@ -78,7 +78,7 @@ FIRST_SCREEN = """() => {
 
 # Every text node's colour against the background actually behind it (alpha-composited up the ancestors); a gradient behind text is reported, not skipped.
 CONTRAST = """() => {
-  const parse = c => { const m = c.match(/[\\d.]+/g).map(Number); return {r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1}; };
+  const parse = c => { const m = c.match(/[\\d.]+/g).map(Number), k = c.startsWith('color(srgb') ? 255 : 1; return {r: m[0] * k, g: m[1] * k, b: m[2] * k, a: m.length > 3 ? m[3] : 1}; };
   const over = (top, bot) => { const a = top.a + bot.a * (1 - top.a);
     return a === 0 ? {r: 0, g: 0, b: 0, a: 0} : {r: (top.r * top.a + bot.r * bot.a * (1 - top.a)) / a, g: (top.g * top.a + bot.g * bot.a * (1 - top.a)) / a, b: (top.b * top.a + bot.b * bot.a * (1 - top.a)) / a, a}; };
   const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
@@ -255,6 +255,7 @@ def run_viewport(browser, url, size, recording, out, shots):
     shots.append((tag, "2 s after", out / f"{tag}-after.png", "phone-dark-first.png" if phone else "laptop-dark-first.png"))
     shots.append((tag, "full result", out / f"{tag}-after-full.png", "phone-dark-result.png" if phone else "laptop-dark-result.png"))
     check_relay_log(page, tag)
+    result_look(page, tag)
     if w == 1440:
         page.evaluate("() => document.fonts.ready.then(() => true)")
         colours = page.evaluate(COLOURS)
@@ -301,7 +302,7 @@ def live_question(browser, url, size, out):
     wait_ended(page, 150)
     page.wait_for_timeout(1000)
     chip = page.inner_text(".live-data").strip()
-    links = page.eval_on_selector_all(".source-list li a.ds-cite__title", "els => els.map(e => [e.textContent, e.href])")
+    links = page.eval_on_selector_all("ol.ds-cite a.ds-cite__title", "els => els.map(e => [e.textContent, e.href])")
     page.screenshot(path=str(out / "live-question.png"), full_page=True)
     m = re.search(r"fetched (\d\d):(\d\d)", chip)
     fresh = False
@@ -314,6 +315,56 @@ def live_question(browser, url, size, out):
         ok(f"live question ({time.time() - started:.0f} s): chip {chip!r}; {len(links)} cited sources, e.g. {links[0][0][:50]!r} {links[0][1]}")
     if errors:
         fail(f"live question console errors: {errors[:2]}")
+    ctx.close()
+
+
+def result_look(page, tag):
+    """The result as the A result screens show it: the question as the headline, four agent cards with stage times, the lead-blue citation audit, Cited sources."""
+    r = page.evaluate("""() => {
+      const bg = el => el ? getComputedStyle(el).backgroundColor : null;
+      return {h1: document.querySelector('h1')?.textContent.trim(), asked: document.querySelector('#research-query')?.value.trim(),
+        audit: bg(document.querySelector('.audit-summary')), auditText: (document.querySelector('.audit-summary__line')?.textContent || '').trim(),
+        times: [...document.querySelectorAll('[data-relay-node] .relay-word')].map(e => e.textContent.trim()),
+        cited: (document.querySelector('.relay-report .ds-disclosure > summary')?.textContent || '').trim(),
+        citedOpen: !!document.querySelector('.relay-report .ds-disclosure[open]')};
+    }""")
+    bad = []
+    if not r["h1"] or r["h1"] != r["asked"]:
+        bad.append(f"headline {r['h1']!r} is not the question {r['asked']!r}")
+    if r["audit"] != rgb(BUTTON):
+        bad.append(f"citation audit card is {r['audit']}, wanted {rgb(BUTTON)}")
+    if not re.match(r"^\d+ of \d+ cited claims? supported$", r["auditText"]):
+        bad.append(f"audit headline {r['auditText']!r}")
+    if len(r["times"]) != 4 or not all(re.search(r"\d+(\.\d)? s$", t) for t in r["times"]):
+        bad.append(f"agent cards without stage times: {r['times']}")
+    if not r["cited"].startswith("Cited sources") or not r["citedOpen"]:
+        bad.append(f"cited sources list: {r['cited']!r}, open {r['citedOpen']}")
+    if bad:
+        fail(f"{tag} result look: " + "; ".join(bad))
+    else:
+        ok(f"{tag} result look: question headline, audit card {r['auditText']!r}, agent times {r['times']}, cited sources open")
+
+
+def stop_keeps_export(browser, url, size, recording):
+    """Stop during the auto-played replay, before the Synthesizer has written: the finished stages must still be exportable."""
+    errors = []
+    ctx, page = new_page(browser, size, errors, recording)
+    page.goto(url)
+    tag = f"{size[0]}x{size[1]}"
+    try:
+        # The Critic starts after the Researcher and the Analyst wrote: there is output to export, and no report yet.
+        page.wait_for_selector("[data-relay-node][data-agent=critic][data-state=active]", timeout=60000)
+        page.get_by_role("button", name="Stop", exact=True).click(timeout=5000)
+        page.wait_for_selector(".ds-app[data-run=stopped]", timeout=10000)
+        page.wait_for_timeout(500)
+        names = [page.get_by_role("button", name=n).count() for n in ("PDF", "DOCX", "Markdown")]
+        enabled = page.evaluate("() => [...document.querySelectorAll('.export--run button')].filter(b => !b.disabled).length")
+        if names != [1, 1, 1] or enabled != 3:
+            fail(f"{tag} after Stop: export buttons PDF/DOCX/Markdown found {names}, enabled {enabled}")
+        else:
+            ok(f"{tag} after Stop in the replay: PDF, DOCX and Markdown export are there and enabled")
+    except Exception as e:
+        fail(f"{tag} after Stop: {e}")
     ctx.close()
 
 
@@ -360,6 +411,8 @@ def main():
         browser = pw.chromium.launch()
         for size in VIEWPORTS:
             run_viewport(browser, url, size, args.recording, out, shots)
+        for size in VIEWPORTS[::2]:
+            stop_keeps_export(browser, url, size, args.recording)
         if args.live:
             live_question(browser, url, (1440, 900), out)
         contact_sheet(browser, shots, out)

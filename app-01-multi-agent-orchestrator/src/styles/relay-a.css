@@ -139,6 +139,56 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 .relay-showcase { max-width: 80ch; margin-bottom: 8px; }
 .relay-showcase strong { color: var(--ds-text); }
 
+/* The question is the headline once it is asked (clamped to three lines; the full text is in the title). */
+.relay-headline[data-asked] { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
+/* The result, as in the A result screens: the audit as a lead-blue card (right of the report on a laptop, above it on a phone), the report in a card, the sources listed under it. */
+.relay-audit { display: grid; gap: 16px; min-width: 0; }
+.relay-report { padding: 32px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; }
+.relay-report .ds-section__title { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ds-text-muted); }
+.relay-report .md h3 { font-size: 26px; }
+.relay-report .ds-disclosure > summary { font: 800 18px/1.3 var(--ds-display); color: var(--ds-text); }
+.relay-report .ds-cite { border-top: 0; }
+.relay-report .ds-cite li { border-bottom: 0; padding: 6px 0; }
+.audit-summary { padding: 24px; color: var(--relay-ink); background: var(--ds-accent); border: 0; align-content: start; }
+.audit-summary__eyebrow { margin: 0; font: 800 12px/1 var(--ds-display); letter-spacing: 0.1em; text-transform: uppercase; }
+.audit-summary__line { font-size: 20px; font-weight: 500; line-height: 1.3; color: var(--relay-ink); font-family: var(--ds-font); }
+.audit-summary__big { display: block; font: 800 clamp(44px, 5vw, 64px)/1.05 var(--ds-display); letter-spacing: -0.03em; }
+.audit-summary .ds-hint { color: var(--relay-ink); }
+.audit-summary .audit-bar { height: 16px; padding: 3px; gap: 3px; border-radius: 999px; background: var(--relay-ink); }
+.audit-summary .audit-bar > span { border-radius: 999px; }
+.audit-summary .audit-bar > [data-verdict='supported'] { background: var(--relay-synthesizer); }
+.audit-summary .audit-bar > [data-verdict='partly'] { background: #ffd23f; }
+.audit-summary .audit-bar > [data-verdict='unsupported'] { background: var(--relay-critic); }
+.audit-summary .audit-bar--pending { background: color-mix(in srgb, var(--relay-ink) 55%, var(--ds-accent)); }
+.audit-summary .audit-legend { flex-direction: column; gap: 8px; }
+.audit-summary .audit-legend .verdict { display: flex; width: 100%; padding: 10px 14px; font-size: 16px; font-weight: 700; color: var(--relay-ink); background: color-mix(in srgb, var(--relay-ink) 14%, var(--ds-accent)); border: 1px solid color-mix(in srgb, var(--relay-ink) 22%, var(--ds-accent)); border-radius: 14px; }
+.audit-summary .audit-legend .verdict .ds-num { order: 2; margin-left: auto; font-weight: 800; }
+.audit-summary .audit-legend [data-zero='true'] .verdict { background: transparent; border-style: dashed; }
+.audit-note, .audit-state { border-radius: 24px; }
+.relay-audit .audit__body[data-open='true'] { grid-template-columns: minmax(0, 1fr); }
+.relay-audit .panel { position: static; max-height: none; overflow: visible; padding: 20px; border-radius: 20px; }
+.panel[data-verdict='unsupported'] { background: color-mix(in srgb, var(--ds-danger) 12%, var(--ds-surface)); border-color: color-mix(in srgb, var(--ds-danger) 45%, var(--ds-surface)); }
+.panel[data-verdict='partly'] { background: color-mix(in srgb, var(--ds-warning) 10%, var(--ds-surface)); border-color: color-mix(in srgb, var(--ds-warning) 40%, var(--ds-surface)); }
+@media (min-width: 1000px) {
+  .relay-audit { grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; align-items: start; }
+  .relay-audit > .relay-report { grid-column: 1; grid-row: 1; }
+  .relay-audit > :not(.relay-report) { grid-column: 2; grid-row: 1; }
+}
+
+/* Once a run is on screen, a laptop shows the four agents as four cards with their stage times. */
+@media (min-width: 721px) {
+  .ds-app:not([data-run='idle']) .relay-track-card { padding: 0; background: transparent; border: 0; }
+  .ds-app:not([data-run='idle']) .relay-track::before { display: none; }
+  .ds-app:not([data-run='idle']) .relay-node { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 16px; padding: 16px 24px; text-align: left; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; }
+  .ds-app:not([data-run='idle']) .relay-dot { grid-row: 1 / span 2; margin: 0; border-radius: 16px; }
+  .ds-app:not([data-run='idle']) .relay-dot::after { border-radius: 50%; }
+  .ds-app:not([data-run='idle']) .relay-node[data-state='done'] .relay-dot::after { border-radius: 0; }
+  .ds-app:not([data-run='idle']) .relay-note { display: none; }
+  .ds-app:not([data-run='idle']) .relay-word { font-size: 16px; font-weight: 700; }
+  .ds-app:not([data-run='idle']) .relay-node[data-state='done'] .relay-word { color: var(--c); }
+}
+
 /* Phone: the A phone layout. The header wraps, the headline is smaller, the track is four compact nodes. */
 @media (max-width: 720px) {
   .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
@@ -170,6 +220,9 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
   .relay-name { font-size: 11px; }
   .relay-note { display: none; }
   .relay-word { font-size: 11px; }
+  .relay-report { padding: 20px 16px; border-radius: 20px; }
+  .audit-summary { padding: 20px 16px; border-radius: 20px; }
+  .relay-audit { gap: 12px; }
 }
 @media (max-width: 380px) {
   .relay-headline { font-size: 20px; }

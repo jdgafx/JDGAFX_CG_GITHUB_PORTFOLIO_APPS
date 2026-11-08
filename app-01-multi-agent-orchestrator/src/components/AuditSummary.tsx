@@ -8,6 +8,19 @@ interface AuditSummaryProps {
   onRetry: () => void
 }
 
+/** "14 of 16" large, the rest of the sentence under it; the text is the same sentence. */
+function HeadLine({ line }: { line: string }) {
+  const m = line.match(/^(\d+ of \d+)( .*)$/)
+  return m ? (
+    <>
+      <span className="ds-num audit-summary__big">{m[1]}</span>
+      <span className="ds-num">{m[2]}</span>
+    </>
+  ) : (
+    <span className="ds-num">{line}</span>
+  )
+}
+
 /** The audit's headline: "14 of 16 cited claims supported", a bar of the four verdicts, and a legend with the counts. */
 export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
   const { phase, summary } = view
@@ -39,6 +52,7 @@ export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
 
   return (
     <section className="audit-summary" aria-label="Citation audit" data-phase={phase}>
+      <p className="audit-summary__eyebrow" aria-hidden="true">Citation audit</p>
       <p className="audit-summary__line" role="status" tabIndex={-1} data-audit-focus>
         {running ? (
           <>
@@ -46,7 +60,7 @@ export function AuditSummary({ view, onRetry }: AuditSummaryProps) {
           </>
         ) : (
           <>
-            <span className="ds-num">{summaryLine(summary)}</span>
+            <HeadLine line={summaryLine(summary)} />
           </>
         )}
       </p>

@@ -19,7 +19,7 @@ import {
   hasUsefulOutput,
 } from './lib/agents'
 import { isAbortError, runErrorMessage, startResearch } from './lib/api'
-import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT } from './lib/howto'
+import { HOWTO_HINT, HOWTO_STEPS, HOWTO_WHAT, TRY_IT, stepsFolded } from './lib/howto'
 import { buildSteps } from './lib/graphLayout'
 import { derivePhase, failInFlight, keepFirstError, settleAgents, type RunPhase } from './lib/pipeline'
 import { buildTraceRows } from './lib/traceRows'
@@ -328,9 +328,16 @@ export default function App() {
 
       <main className="ds-main">
         <section className="relay-hero" aria-label="Research">
-          <h1 className="relay-headline">
-            Four agents answer a question from the live web, arXiv, <span className="relay-pill">Hacker News</span> and <span className="relay-pill">Wikipedia</span>, then audit every citation.
-          </h1>
+          {/* Once a question has been asked, the headline is that question, as in the result design. */}
+          {ranQuery && phase !== 'ready' ? (
+            <h1 className="relay-headline" data-asked="true" title={ranQuery}>
+              {ranQuery}
+            </h1>
+          ) : (
+            <h1 className="relay-headline">
+              Four agents answer a question from the live web, arXiv, <span className="relay-pill">Hacker News</span> and <span className="relay-pill">Wikipedia</span>, then audit every citation.
+            </h1>
+          )}
           <div className="relay-card">
             <QueryBar
               query={query}
@@ -345,7 +352,7 @@ export default function App() {
               onExample={setQuery}
             />
             {/* A replay keeps the steps open: the visitor reads them while the recording plays. A run of their own folds them away. */}
-            <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready' && !replaying} hint={HOWTO_HINT} />
+            <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={stepsFolded(phase, replaying)} hint={HOWTO_HINT} />
           </div>
         </section>
 

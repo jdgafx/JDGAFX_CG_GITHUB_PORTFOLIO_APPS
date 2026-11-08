@@ -60,13 +60,10 @@ interface ReportCardProps {
 /** On a wide screen the source panel sits beside the report; on a narrow one it follows the report and is scrolled to. */
 const WIDE = '(min-width: 1000px)'
 
-/** The source list is open on a wide screen and folded on a phone, where the panel shows each source on selection. */
-const sourcesOpenAtStart = () => typeof window === 'undefined' || window.matchMedia(WIDE).matches
-
 /** The page's lead: the final report with every cited sentence badged, the audit summary above it and the source panel beside it. */
 export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit, after, replay = false }: ReportCardProps) {
   const [selected, setSelected] = useState<number | null>(null)
-  const [sourcesOpen, setSourcesOpen] = useState(sourcesOpenAtStart)
+  const [sourcesOpen, setSourcesOpen] = useState(true)
   const panelRef = useRef<HTMLDivElement>(null)
   const lastPhase = useRef(audit.phase)
 
@@ -94,7 +91,10 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
   }
 
   if (!text) {
+    // A run stopped or failed before the Synthesizer still keeps its finished stages, so its export bar stays.
+    const keepsStages = phase === 'stopped' || phase === 'failed' || phase === 'partial'
     return (
+      <>
       <section className="ds-section ds-run__result" aria-label="Final report" aria-live="polite">
         {replay && <ReplayBadge />}
         {phase === 'running' ? (
@@ -121,6 +121,8 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
           />
         )}
       </section>
+      {keepsStages && after}
+      </>
     )
   }
 
@@ -135,13 +137,14 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
   return (
     <section className="ds-section ds-run__result" aria-label="Final report" aria-live="polite">
       {replay && <ReplayBadge />}
-      <div className="ds-lead audit">
+      <div className="audit relay-audit">
+        <AuditSummary view={audit} onRetry={onRetryAudit} />
+        <div className="ds-lead relay-report">
         <div className="ds-lead__meta">
           <h2 className="ds-section__title" tabIndex={-1} data-result-focus>
             Final report
           </h2>
         </div>
-        <AuditSummary view={audit} onRetry={onRetryAudit} />
         <div className="audit__body" data-open={claim ? 'true' : undefined}>
           <div className="audit__report">
             {audit.claims.length > 0 && (
@@ -157,7 +160,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
           <p className="ds-help">No sources were retrieved, so the report cites none.</p>
         ) : (
           <details className="ds-disclosure" open={sourcesOpen} onToggle={event => setSourcesOpen(event.currentTarget.open)}>
-            <summary>Sources ({sources.length})</summary>
+            <summary>Cited sources ({sources.length})</summary>
             <ol className="ds-cite" aria-label="Sources">
               {sources.map(source => (
                 <li key={source.n}>
@@ -173,6 +176,7 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
         )}
         <p className="ds-lead__foot">{foot}</p>
         {after}
+        </div>
       </div>
     </section>
   )

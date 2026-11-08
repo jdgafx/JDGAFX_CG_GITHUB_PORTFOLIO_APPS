@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { RelayTrack } from '../../src/components/RelayTrack'
 import { createAgents } from '../../src/lib/agents'
 import { buildSteps } from '../../src/lib/graphLayout'
+import { stepsFolded } from '../../src/lib/howto'
 
 const states = (html: string) => [...html.matchAll(/data-agent="(\w+)" data-state="(\w+)"/g)].map(m => `${m[1]}:${m[2]}`)
 
@@ -21,6 +21,10 @@ describe('relay track', () => {
 
 describe('the steps stay open while a replay plays', () => {
   it('folds How to use only for a result of the visitor, not for the replay', () => {
-    expect(readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')).toContain("hasResult={phase !== 'ready' && !replaying}")
+    expect(stepsFolded('ready', false)).toBe(false)
+    expect(stepsFolded('running', true)).toBe(false)
+    expect(stepsFolded('complete', true)).toBe(false)
+    expect(stepsFolded('running', false)).toBe(true)
+    expect(stepsFolded('complete', false)).toBe(true)
   })
 })

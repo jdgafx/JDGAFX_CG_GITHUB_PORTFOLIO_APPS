@@ -83,7 +83,7 @@ export const SourcePanel = forwardRef<HTMLDivElement, SourcePanelProps>(function
     .sort((a, b) => Number(hasQuote(claim, b.n)) - Number(hasQuote(claim, a.n)))
 
   return (
-    <div className="panel" ref={ref} role="region" aria-label="Source text" aria-live="polite">
+    <div className="panel" data-verdict={claim.verdict} ref={ref} role="region" aria-label="Source text" aria-live="polite">
       <h3 className="panel__title" tabIndex={-1} data-panel-focus>
         Claim {claim.id}
         <VerdictBadge verdict={claim.verdict} />
