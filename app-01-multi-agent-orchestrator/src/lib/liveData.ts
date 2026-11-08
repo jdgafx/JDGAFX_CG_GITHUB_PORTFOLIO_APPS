@@ -29,5 +29,7 @@ export function liveDataView(retriever: Pick<AgentState, 'status' | 'sources'>, 
     if (replayAge !== null) return { state: 'idle', text: `Recorded data: ${sites} · fetched ${replayAge}`, title: `Not fetched now: the replayed run read ${HOSTS} when it was recorded.` }
     return { state: 'live', text: `Live data: ${sites} · fetched ${clock(fetchedAt)}`, title: HOSTS }
   }
+  // A replay is playing but its retrieval has not answered yet: the data will be recorded, never live, so the chip must not say live.
+  if (replayAge !== null) return { state: 'idle', text: 'Recorded data: replaying a stored run', title: `Not fetched now: the replayed run read ${HOSTS} when it was recorded.` }
   return { state: 'idle', text: `Live data: ${FALLBACK_SITES}`, title: HOSTS }
 }

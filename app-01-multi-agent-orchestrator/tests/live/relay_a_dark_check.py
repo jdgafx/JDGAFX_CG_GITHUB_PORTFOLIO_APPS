@@ -168,6 +168,16 @@ def new_page(browser, size, errors, recording):
     return ctx, page
 
 
+def wait_ended(page, seconds):
+    """Polls with evaluate, which the page's CSP allows; wait_for_function would need unsafe-eval."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if page.evaluate("() => document.querySelector('.ds-app')?.dataset.run === 'done' && document.querySelector('.ds-badge')?.textContent.trim() !== 'Auditing'"):
+            return
+        page.wait_for_timeout(250)
+    raise TimeoutError("the run did not end")
+
+
 def first_screen(page, tag, want_chip):
     res = page.evaluate(FIRST_SCREEN)
     if res["problems"]:
@@ -179,7 +189,7 @@ def first_screen(page, tag, want_chip):
 
 
 def check_relay_log(page, tag):
-    log = page.evaluate("window.__relayLog")
+    log = page.evaluate("() => window.__relayLog")
     first_active, bad = {}, []
     for e in log:
         active = [AGENTS[i] for i, s in enumerate(e["nodes"]) if s == "active"]
@@ -208,7 +218,7 @@ def run_viewport(browser, url, size, recording, out, shots):
     ctx, page = new_page(browser, size, errors, recording)
     page.goto(url + ("&" if "?" in url else "?") + "replay=off")
     page.wait_for_selector(".live-data")
-    page.evaluate("document.fonts.ready")
+    page.evaluate("() => document.fonts.ready.then(() => true)")
     first_screen(page, f"{tag} idle", r"^Live data")
     page.screenshot(path=str(out / f"{tag}-idle.png"))
     shots.append((tag, "idle", out / f"{tag}-idle.png", "phone-dark-first.png" if phone else "laptop-dark-first.png"))
@@ -233,7 +243,7 @@ def run_viewport(browser, url, size, recording, out, shots):
     page.screenshot(path=str(out / f"{tag}-mid.png"))
     shots.append((tag, "mid-replay", out / f"{tag}-mid.png", "phone-dark-first.png" if phone else "laptop-dark-first.png"))
     try:
-        page.wait_for_function("document.querySelector('.ds-app')?.dataset.run === 'done' && document.querySelector('.ds-badge')?.textContent.trim() !== 'Auditing'", timeout=120000)
+        wait_ended(page, 120)
     except Exception:
         fail(f"{tag}: the replay did not end within 120 s")
         ctx.close()
@@ -246,7 +256,7 @@ def run_viewport(browser, url, size, recording, out, shots):
     shots.append((tag, "full result", out / f"{tag}-after-full.png", "phone-dark-result.png" if phone else "laptop-dark-result.png"))
     check_relay_log(page, tag)
     if w == 1440:
-        page.evaluate("document.fonts.ready")
+        page.evaluate("() => document.fonts.ready.then(() => true)")
         colours = page.evaluate(COLOURS)
         if colours["bg"] != rgb(BG) or colours["h1"] != rgb(TEXT) or colours["button"] != rgb(BUTTON):
             fail(f"colours: page {colours['bg']}, heading {colours['h1']}, main button {colours['button']}; wanted {rgb(BG)}, {rgb(TEXT)}, {rgb(BUTTON)}")
@@ -288,7 +298,7 @@ def live_question(browser, url, size, out):
     page.fill("#research-query", question)
     started = time.time()
     page.click("button[type=submit]")
-    page.wait_for_function("document.querySelector('.ds-app')?.dataset.run === 'done' && document.querySelector('.ds-badge')?.textContent.trim() !== 'Auditing'", timeout=150000)
+    wait_ended(page, 150)
     page.wait_for_timeout(1000)
     chip = page.inner_text(".live-data").strip()
     links = page.eval_on_selector_all(".source-list li a.ds-cite__title", "els => els.map(e => [e.textContent, e.href])")

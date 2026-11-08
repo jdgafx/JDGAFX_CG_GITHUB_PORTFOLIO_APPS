@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { ArrowRight } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { EXAMPLES, MAX_QUERY_CHARS } from '../lib/agents'
 
 interface QueryBarProps {
@@ -16,12 +17,8 @@ interface QueryBarProps {
   onExample: (text: string) => void
 }
 
-/** The examples start open beside the run on a wide screen and closed on a phone, where they would push the run down. */
-const examplesOpenAtStart = () => window.matchMedia('(min-width: 1000px)').matches
-
 /** The research section: the topic field with its count, the Start and Stop dock, the status line and the examples. */
 export function QueryBar({ query, running, auditing, announcement, pipelineError, onQueryChange, onDismissError, onStart, onStop, onExample }: QueryBarProps) {
-  const [examplesOpen, setExamplesOpen] = useState(examplesOpenAtStart)
   const stopRef = useRef<HTMLButtonElement>(null)
   const length = Array.from(query.trim()).length
   const valid = length >= 1 && length <= MAX_QUERY_CHARS
@@ -32,11 +29,6 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
     if (running) stopRef.current?.focus({ preventScroll: true })
   }, [running])
 
-  // On a phone the open examples list would push the report off screen, so starting a run closes it.
-  const closeExamples = () => {
-    if (!window.matchMedia('(min-width: 1000px)').matches) setExamplesOpen(false)
-  }
-
   return (
     <>
       <section className="ds-section" aria-label="Research">
@@ -46,7 +38,6 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
           onSubmit={event => {
             event.preventDefault()
             if (valid && !busy) {
-              closeExamples()
               onStart()
             }
           }}
@@ -58,7 +49,7 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
             <textarea
               id="research-query"
               className="ds-textarea"
-              rows={3}
+              rows={2}
               value={query}
               placeholder="What should the four agents research?"
               disabled={running}
@@ -69,14 +60,13 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
               onKeyDown={event => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && valid && !busy) {
                   event.preventDefault()
-                  closeExamples()
-                  onStart()
+                      onStart()
                 }
               }}
             />
             <p id="research-query-count" className={length > MAX_QUERY_CHARS ? 'ds-help ds-help--error' : 'ds-help'}>
               {length.toLocaleString('en-US')} of {MAX_QUERY_CHARS.toLocaleString('en-US')} characters
-              {length > MAX_QUERY_CHARS ? `. Too long by ${(length - MAX_QUERY_CHARS).toLocaleString('en-US')}: shorten it to start.` : '. The web, arXiv, Hacker News and Wikipedia are searched for it.'}
+              {length > MAX_QUERY_CHARS ? `. Too long by ${(length - MAX_QUERY_CHARS).toLocaleString('en-US')}: shorten it to start.` : ''}
             </p>
           </div>
         </form>
@@ -85,6 +75,7 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
       <div className="ds-actions">
         <button type="submit" form="research-form" className="ds-button ds-button--primary" disabled={!valid || busy}>
           Start research
+          <ArrowRight size={18} aria-hidden="true" />
         </button>
         {busy && (
           <button type="button" className="ds-button" onClick={onStop} ref={stopRef}>
@@ -106,8 +97,10 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
         </div>
       )}
 
-      <details className="ds-disclosure" open={examplesOpen} onToggle={event => setExamplesOpen(event.currentTarget.open)}>
-        <summary>Examples</summary>
+      <div className="relay-examples" role="group" aria-labelledby="examples-label">
+        <span id="examples-label" className="relay-examples__label">
+          Examples:
+        </span>
         <ul className="ds-choice-list">
           {EXAMPLES.map(example => (
             <li key={example.label}>
@@ -115,19 +108,15 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
                 type="button"
                 className={query === example.question ? 'ds-choice ds-choice--selected' : 'ds-choice'}
                 disabled={busy}
-                onClick={() => {
-                  closeExamples()
-                  onExample(example.question)
-                }}
+                title={example.question}
+                onClick={() => onExample(example.question)}
               >
                 <span className="ds-choice__label">{example.label}</span>
-                <span className="ds-choice__text">{example.question}</span>
-                <span className="ds-choice__meta">{example.sources}</span>
               </button>
             </li>
           ))}
         </ul>
-      </details>
+      </div>
     </>
   )
 }

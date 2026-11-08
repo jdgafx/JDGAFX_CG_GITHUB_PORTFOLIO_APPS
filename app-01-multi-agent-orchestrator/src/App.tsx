@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ExportBar, type ExportKind, type ExportState } from './components/ExportBar'
-import { GraphView } from './components/GraphView'
 import { liveDataView } from './lib/liveData'
 import { Header, type BadgeTone } from './components/Header'
 import { HowTo } from './components/HowTo'
 import { QueryBar } from './components/QueryBar'
+import { RelayTrack } from './components/RelayTrack'
 import { ReadoutStrip, type ReadoutState } from './components/ReadoutStrip'
 import { ReportCard } from './components/ReportCard'
 import { ReplayLabel } from './components/ReplayLabel'
@@ -327,9 +327,11 @@ export default function App() {
       <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt, replaying && replay.info ? replayLabel(replay.info.recording, replay.info.startedAt, replay.info.speed).age : null)} />
 
       <main className="ds-main">
-        <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready'} hint={HOWTO_HINT} />
-        <div className="ds-bench">
-          <div className="ds-controls">
+        <section className="relay-hero" aria-label="Research">
+          <h1 className="relay-headline">
+            Four agents answer a question from the live web, arXiv, <span className="relay-pill">Hacker News</span> and <span className="relay-pill">Wikipedia</span>, then audit every citation.
+          </h1>
+          <div className="relay-card">
             <QueryBar
               query={query}
               running={isRunning}
@@ -342,46 +344,53 @@ export default function App() {
               onStop={handleStop}
               onExample={setQuery}
             />
-            <ExportBar variant="rail" state={exportState} busy={exporting} onExport={handleExport} />
+            {/* A replay keeps the steps open: the visitor reads them while the recording plays. A run of their own folds them away. */}
+            <HowTo what={HOWTO_WHAT} steps={HOWTO_STEPS} onTry={() => handleTry(TRY_IT.question)} disabled={isRunning || auditing} hasResult={phase !== 'ready' && !replaying} hint={HOWTO_HINT} />
           </div>
+        </section>
 
-          <div className="ds-run">
-            {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
-            <ReportCard
-              key={runId}
-              phase={phase}
-              replay={replaying && replay.info !== null}
-              synthesizer={agents.synthesizer}
-              sources={agents.retriever.sources ?? []}
-              error={pipelineError}
-              hasSteps={AGENT_ORDER.some(role => agents[role].status === 'complete' || agents[role].status === 'error')}
-              audit={audit.view}
-              onRetryRun={() => void startRun(ranQuery || query)}
-              onRetryAudit={audit.retry}
-              after={<ExportBar variant="run" state={exportState} busy={exporting} onExport={handleExport} />}
-            />
-            <ReadoutStrip state={readoutState} totalMs={totalMs} totalIsStageSum={totalIsStageSum} usage={usage} model={model} calls={modelCalls} summary={summary} audit={audit.view} />
-            <GraphView steps={steps} />
-            <RunTrace rows={traceRows} />
-            <StageOutputs agents={agents} active={activeTab} onSelect={setActiveTab} />
-            {showNotices && (
-              <div className="ds-notice app-notes ds-run__trace">
-                {notices.map(message => (
-                  <p key={message}>{message}</p>
-                ))}
-                <div>
-                  <button type="button" className="ds-button" onClick={() => setNoticesHidden(true)}>
-                    Hide notes
-                  </button>
-                </div>
+        <RelayTrack steps={steps} />
+
+        <div className="ds-run">
+          {replaying && replay.info ? <ReplayLabel info={replay.info} onRunLive={() => void runLive()} /> : null}
+          <ReportCard
+            key={runId}
+            phase={phase}
+            replay={replaying && replay.info !== null}
+            synthesizer={agents.synthesizer}
+            sources={agents.retriever.sources ?? []}
+            error={pipelineError}
+            hasSteps={AGENT_ORDER.some(role => agents[role].status === 'complete' || agents[role].status === 'error')}
+            audit={audit.view}
+            onRetryRun={() => void startRun(ranQuery || query)}
+            onRetryAudit={audit.retry}
+            after={<ExportBar variant="run" state={exportState} busy={exporting} onExport={handleExport} />}
+          />
+          <ReadoutStrip state={readoutState} totalMs={totalMs} totalIsStageSum={totalIsStageSum} usage={usage} model={model} calls={modelCalls} summary={summary} audit={audit.view} />
+          <RunTrace rows={traceRows} />
+          <StageOutputs agents={agents} active={activeTab} onSelect={setActiveTab} />
+          {showNotices && (
+            <div className="ds-notice app-notes ds-run__trace">
+              {notices.map(message => (
+                <p key={message}>{message}</p>
+              ))}
+              <div>
+                <button type="button" className="ds-button" onClick={() => setNoticesHidden(true)}>
+                  Hide notes
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </main>
 
       <footer className="ds-footer">
-        <div className="ds-footer__inner">Christopher Gentile</div>
+        <div className="ds-footer__inner">
+          <p className="relay-showcase">
+            <strong>What this showcases:</strong> a fixed multi-agent pipeline grounded in live public sources, and an audit of the final report that marks each cited claim supported, partly supported or not supported, with the sentence of the source that backs it.
+          </p>
+          <p>Christopher Gentile</p>
+        </div>
       </footer>
     </div>
   )

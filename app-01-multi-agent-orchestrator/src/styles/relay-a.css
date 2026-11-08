@@ -1,0 +1,179 @@
+/* AgentFlow, "Relay A" look, dark only. The one app-local theme file: it loads after tokens.css, components.css and app.css, which stay
+   byte-identical to the other apps. It sets the shared tokens for this app and adds the hero, the relay track and the type.
+   Palette (from the A dark design screens): page #07162b, card #0e2340, line #1f3a5f, text #eaf2ff, muted #9db0cc, lead blue #6aa2ff,
+   teal #2dd4cf, orange #ff9340, lime #b6ee3c, highlighter #ffd23f. Ink on any of those fills is #07162b (white on them is under 4.5:1). */
+
+:root {
+  color-scheme: dark;
+  --ds-font: "Manrope", system-ui, "Segoe UI", sans-serif;
+  --ds-display: "Plus Jakarta Sans", "Manrope", system-ui, sans-serif;
+  --ds-mono: "Manrope", system-ui, sans-serif;
+  --ds-bg: #07162b;
+  --ds-surface: #0e2340;
+  --ds-surface-2: #0a1c35;
+  --ds-border: #1f3a5f;
+  --ds-border-strong: #5f7da8;
+  --ds-text: #eaf2ff;
+  --ds-text-muted: #9db0cc;
+  --ds-accent: #6aa2ff;
+  --ds-accent-text: #07162b;
+  --ds-accent-soft: color-mix(in srgb, #6aa2ff 14%, #0e2340);
+  --ds-accent-dim: color-mix(in srgb, #6aa2ff 45%, #0e2340);
+  --ds-success: #3ddc8a;
+  --ds-success-soft: color-mix(in srgb, #3ddc8a 15%, #0e2340);
+  --ds-warning: #ffc83d;
+  --ds-warning-soft: color-mix(in srgb, #ffc83d 14%, #0e2340);
+  --ds-danger: #ff7a59;
+  --ds-danger-soft: color-mix(in srgb, #ff7a59 14%, #0e2340);
+  --ds-focus: #9cc2ff;
+  --ds-radius: 16px;
+  --ds-radius-sm: 12px;
+  --relay-researcher: #6aa2ff;
+  --relay-analyst: #2dd4cf;
+  --relay-critic: #ff9340;
+  --relay-synthesizer: #b6ee3c;
+  --relay-ink: #07162b;
+}
+
+html, body { background: var(--ds-bg); color: var(--ds-text); font-family: var(--ds-font); }
+code, kbd, pre, .ds-mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title, .howto__title, .ds-state__title, .audit-summary__line, .md h3, .md h4 {
+  font-family: var(--ds-display); font-weight: 800; letter-spacing: -0.01em;
+}
+
+/* Masthead: mark, name and status on the left, the data chip on the right. The 4px run rail only shows while a run is live. */
+.ds-header { background: transparent; border-bottom: 0; }
+.ds-header::before { background: transparent; }
+.ds-header__inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding-top: 28px; padding-bottom: 0; }
+.relay-brand { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.relay-logo { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; color: var(--relay-ink); background: var(--ds-accent); }
+.relay-wordmark { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: -0.02em; }
+.ds-badge { font-family: var(--ds-font); font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0; background: var(--ds-surface); border-color: var(--ds-border); }
+.ds-badge--accent { background: var(--ds-accent-soft); }
+.ds-chip.live-data { padding: 8px 16px; font-family: var(--ds-font); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 999px; }
+.live-data .ds-dot--ok { background: var(--relay-synthesizer); }
+.live-data[data-state='failed'] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
+.ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 40px; padding-right: 40px; }
+.ds-main { gap: 24px; padding-top: 28px; }
+
+/* Hero: the headline, and one card with the research field, the examples and the steps. */
+.relay-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: center; }
+.relay-headline { max-width: 20em; font-size: clamp(28px, 3.5vw, 46px); line-height: 1.14; letter-spacing: -0.025em; }
+.relay-pill { display: inline-block; padding: 0 12px; line-height: 1.15; color: var(--relay-ink); background: #ffd23f; border-radius: 999px; }
+.relay-card { display: grid; gap: 12px; min-width: 0; padding: 24px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; box-shadow: 0 20px 40px -24px rgb(0 0 0 / 0.6); }
+@media (min-width: 1000px) { .relay-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 48px; } }
+
+.relay-card .ds-label { font-size: 13px; color: var(--ds-text-muted); }
+.relay-card .ds-field { gap: 6px; }
+.ds-textarea { min-height: 56px; padding: 12px 16px; resize: none; line-height: 1.45; font-weight: 500; background: var(--ds-bg); border: 1px solid var(--ds-border); border-radius: 14px; }
+.ds-textarea:hover { border-color: var(--ds-border-strong); }
+.relay-card .ds-actions { position: static; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; flex-wrap: nowrap; }
+.relay-card .ds-actions .ds-button--primary { flex: 1; }
+.relay-card .app-status { height: 0; min-height: 0; margin: 0; overflow: hidden; clip-path: inset(50%); }
+.relay-card .app-alert { margin: 0; }
+.ds-button { font-family: var(--ds-display); font-weight: 700; border-radius: 999px; border-color: var(--ds-border-strong); }
+.ds-button--primary { min-height: 52px; font-size: 16px; font-weight: 800; letter-spacing: 0; text-transform: none; color: var(--relay-ink); background: var(--ds-accent); border-color: var(--ds-accent); }
+.ds-button:disabled, .ds-button--primary:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-border); border-color: var(--ds-border); }
+.ds-button--quiet { color: var(--ds-text-muted); border-color: transparent; background: transparent; }
+
+.relay-examples { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.relay-examples__label { font-size: 13px; font-weight: 700; color: var(--ds-text-muted); }
+.relay-examples ul { display: contents; }
+.relay-examples li { display: contents; }
+.relay-examples .ds-choice { display: inline-flex; width: auto; min-height: 36px; padding: 4px 14px; font-size: 13px; font-weight: 600; background: var(--ds-bg); border: 1px solid var(--ds-border); border-radius: 999px; }
+.relay-examples .ds-choice__label { font-size: 13px; }
+.relay-examples .ds-choice:hover:not(:disabled) { border-color: var(--ds-accent); }
+.relay-examples .ds-choice--selected { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: var(--ds-accent); }
+.relay-examples .ds-choice:disabled { opacity: 1; color: var(--ds-text-muted); }
+
+/* How to use: the four steps, each numbered in the colour of an agent. Ink on the coloured numbers. */
+.relay-card .howto { display: grid; gap: 12px; margin-top: 4px; padding: 20px 0 0; background: transparent; border: 0; border-top: 1px solid var(--ds-border); border-radius: 0; }
+.howto__title { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ds-text-muted); }
+.howto__toggle { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.howto__body { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.howto__what { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.howto__steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: step; font-size: 14px; line-height: 1.4; color: var(--ds-text); }
+.howto__steps li { position: relative; min-height: 20px; padding-left: 34px; counter-increment: step; font-weight: 500; }
+.howto__steps li::before { content: counter(step); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 22px; height: 22px; font: 800 12px/1 var(--ds-display); color: var(--relay-ink); border-radius: 50%; background: var(--relay-researcher); }
+.howto__steps li:nth-child(2)::before { background: var(--relay-analyst); }
+.howto__steps li:nth-child(3)::before { background: var(--relay-critic); }
+.howto__steps li:nth-child(4)::before { background: var(--relay-synthesizer); }
+.relay-card .howto__try { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; grid-column: 1; grid-row: auto; text-align: left; }
+.relay-card .howto__try .ds-button { min-height: 36px; padding: 0 16px; font-size: 14px; }
+.howto__hint { font-size: 13px; color: var(--ds-text-muted); }
+
+/* The relay track: the four agents in order. Node n is lit while stage n runs; the word under it says the same. */
+.relay-track-card { padding: 24px 32px 20px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; }
+.relay-track { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; padding: 0; list-style: none; }
+.relay-track::before { content: ""; position: absolute; top: 23px; left: 12.5%; right: 12.5%; border-top: 2.5px dashed var(--ds-border); }
+.relay-node { --c: var(--relay-researcher); position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
+.relay-node[data-agent='analyst'] { --c: var(--relay-analyst); }
+.relay-node[data-agent='critic'] { --c: var(--relay-critic); }
+.relay-node[data-agent='synthesizer'] { --c: var(--relay-synthesizer); }
+.relay-dot { position: relative; display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 8px; border: 2.5px solid var(--c); border-radius: 50%; background: color-mix(in srgb, var(--c) 15%, var(--ds-surface)); transition: box-shadow 160ms var(--ds-ease), background-color 160ms var(--ds-ease); }
+.relay-dot::after { content: ""; width: 16px; height: 16px; border-radius: 50%; background: var(--c); }
+.relay-name { font: 800 16px/1.2 var(--ds-display); letter-spacing: -0.01em; color: var(--ds-text); }
+.relay-note { font-size: 12px; font-weight: 500; color: var(--ds-text-muted); }
+.relay-word { font-size: 13px; font-weight: 600; color: var(--ds-text-muted); }
+.relay-node[data-state='active'] .relay-dot { background: var(--ds-surface); box-shadow: 0 0 0 6px color-mix(in srgb, var(--c) 30%, transparent); animation: relay-pulse 1.2s ease-in-out infinite; }
+.relay-node[data-state='active'] .relay-word { color: var(--c); }
+.relay-node[data-state='done'] .relay-dot { background: var(--c); }
+.relay-node[data-state='done'] .relay-dot::after { width: 20px; height: 20px; border-radius: 0; background: var(--relay-ink); clip-path: polygon(14% 52%, 26% 40%, 42% 56%, 76% 18%, 88% 30%, 42% 80%); }
+.relay-node[data-state='failed'] .relay-dot::after { background: var(--ds-danger); }
+.relay-node[data-state='failed'] .relay-word { color: var(--ds-danger); }
+.relay-node[data-state='skipped'] .relay-dot::after, .relay-node[data-state='stopped'] .relay-dot::after { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+@keyframes relay-pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--c) 12%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .relay-node[data-state='active'] .relay-dot { animation: none; } }
+
+/* The run below the first screen: cards in the same shape and type. */
+.ds-run { display: grid; gap: 20px; min-width: 0; }
+.ds-card, .ds-panel, .ds-state, .ds-strip, .ds-metrics, .audit-summary, .panel { border-radius: 24px; }
+.ds-strip__value, .ds-metric__value { font-family: var(--ds-display); font-weight: 800; }
+.ds-strip__label { font-family: var(--ds-font); font-size: 13px; text-transform: none; letter-spacing: 0; }
+.ds-trace__name { font-family: var(--ds-display); font-size: 15px; font-weight: 800; text-transform: none; letter-spacing: 0; }
+.ds-trace__step { border-radius: 16px; }
+.ds-trace__lane { background: var(--ds-bg); border-color: var(--ds-border); }
+.replay-label { background: var(--ds-accent-soft); border-color: var(--ds-accent-dim); }
+.replay-label__line strong { font-family: var(--ds-display); text-transform: none; letter-spacing: 0; }
+.ds-footer { color: var(--ds-text-muted); border-top-color: var(--ds-border); }
+.relay-showcase { max-width: 80ch; margin-bottom: 8px; }
+.relay-showcase strong { color: var(--ds-text); }
+
+/* Phone: the A phone layout. The header wraps, the headline is smaller, the track is four compact nodes. */
+@media (max-width: 720px) {
+  .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
+  .ds-header__inner { padding-top: 16px; gap: 8px; }
+  .ds-chip.live-data { width: 100%; padding: 4px 12px; font-size: 12px; line-height: 1.3; }
+  .ds-main { gap: 12px; padding-top: 12px; }
+  .relay-hero { gap: 12px; }
+  .relay-headline { font-size: 22px; line-height: 1.18; }
+  .relay-card { gap: 8px; padding: 12px; border-radius: 20px; }
+  .relay-card .ds-field { gap: 4px; }
+  .relay-card .ds-label { font-size: 12px; line-height: 1.3; }
+  .relay-card .ds-help:not(.ds-help--error) { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ds-textarea { min-height: 52px; padding: 8px 12px; font-size: 14px; line-height: 1.4; }
+  .relay-examples { gap: 6px 8px; }
+  .relay-examples .ds-choice { min-height: 32px; padding: 2px 12px; }
+  .relay-card .howto { gap: 6px; padding-top: 8px; }
+  .howto__toggle { min-height: 28px; padding: 0 8px; }
+  .howto__steps { gap: 6px; font-size: 13px; }
+  .howto__steps li { padding-left: 30px; }
+  .howto__steps li::before { width: 20px; height: 20px; }
+  .ds-button--primary { min-height: 48px; }
+  .relay-card .howto__try .ds-button { min-height: 36px; }
+  .relay-track-card { padding: 12px 8px 10px; border-radius: 20px; }
+  .relay-track { gap: 4px; }
+  .relay-track::before { top: 13px; border-top-width: 2px; }
+  .relay-dot { width: 28px; height: 28px; margin-bottom: 4px; border-width: 2px; }
+  .relay-dot::after { width: 10px; height: 10px; }
+  .relay-node[data-state='done'] .relay-dot::after { width: 14px; height: 14px; }
+  .relay-name { font-size: 11px; }
+  .relay-note { display: none; }
+  .relay-word { font-size: 11px; }
+}
+@media (max-width: 380px) {
+  .relay-headline { font-size: 20px; }
+  .relay-wordmark { font-size: 20px; }
+  .relay-logo { width: 32px; height: 32px; border-radius: 11px; }
+  .howto__hint { display: none; }
+}
