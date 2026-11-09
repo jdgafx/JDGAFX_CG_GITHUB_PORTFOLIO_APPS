@@ -74,7 +74,10 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 .ds-button { font-family: var(--ds-display); font-weight: 700; border-radius: 999px; border-color: var(--ds-border-strong); }
 .ds-button--primary { min-height: 52px; font-size: 16px; font-weight: 800; letter-spacing: 0; text-transform: none; color: var(--relay-ink); background: var(--ds-accent); border-color: var(--ds-accent); }
 .ds-button:disabled, .ds-button--primary:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-border); border-color: var(--ds-border); }
-.relay-stop { position: fixed; right: 20px; bottom: 20px; z-index: 30; min-height: 48px; padding: 0 24px; color: var(--ds-text); background: var(--ds-surface); border-color: var(--ds-border-strong); box-shadow: 0 12px 28px -8px rgb(0 0 0 / 0.7); }
+/* While a run is on, Stop stays on screen as it does on main (the sticky dock, 1000px and up); on a phone it sits next to Start, in the card. */
+@media (min-width: 1000px) {
+  .relay-stop { position: fixed; right: 20px; bottom: 20px; z-index: 30; min-height: 48px; padding: 0 24px; color: var(--ds-text); background: var(--ds-surface); border-color: var(--ds-border-strong); box-shadow: 0 12px 28px -8px rgb(0 0 0 / 0.7); }
+}
 .ds-button--quiet { color: var(--ds-text-muted); border-color: transparent; background: transparent; }
 
 .relay-examples { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
