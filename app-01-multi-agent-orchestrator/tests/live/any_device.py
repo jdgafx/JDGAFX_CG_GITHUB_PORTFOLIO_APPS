@@ -167,7 +167,8 @@ def open_state(ctx, url, state, rec, first_screen=None):
     body = P.compressed(rec, 1 if frozen or state == "idle" else 12)
     page.route(P.RAW, lambda r: r.fulfill(status=200, body=body, headers={"content-type": "application/json", "access-control-allow-origin": "*"}))
     if frozen:
-        page.clock.install()  # install alone lets time flow; pause_at (below, once the page runs) stops it until run_for moves it
+        page.clock.install()  # install alone lets time flow; pause_at stops it, before the page loads, until run_for moves it (Python takes seconds)
+        page.clock.pause_at(time.time() + 5)
     page.goto(url + ("?replay=off" if state == "idle" else ""))
     if not poll(page, "() => !!document.querySelector('.live-data')", 20):
         raise RuntimeError("the page did not render")
@@ -175,7 +176,6 @@ def open_state(ctx, url, state, rec, first_screen=None):
         raise RuntimeError("the fonts did not load (the sums need the real fonts)")
     problems = []
     if frozen:
-        page.clock.pause_at(time.time() + 1)  # Python takes seconds
         want = FROZEN[state]
         for _ in range(3000):
             b = page.evaluate(BADGE)
