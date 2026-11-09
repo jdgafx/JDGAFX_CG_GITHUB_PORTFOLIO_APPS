@@ -10,11 +10,12 @@ Scroll positions: top, mid, bottom. Rules, each reported as "FAIL <rule> <size> 
   G1 sideways scroll   G2 text outside its bordered card or clipping box   G3 text over text, pills touching   G4 text covered by another element, Stop over text
   G6 touch control under 44 px (touch rows)   G7 each layout switch changes once, at its width (sweep)   G8 Stop in the masthead, on screen; sticky only >=1000x521
   G9 source panel title on screen, hit-testable, focused when below the report, within 1 s   G10 first screen at the T-009 sizes   G11 masthead height equal in
-  critic and done   G12 audit summary beside the report from 1200 px, above it below   G13 Start by keyboard puts focus on Stop without scrolling
+  critic and done   G14 masthead height the same for every chip text and badge label   G15 a control's text on the middle of the control   G12 audit summary beside the report from 1200 px, above it below   G13 Start by keyboard puts focus on Stop without scrolling
 Skipped everywhere: visually hidden boxes, line-clamped text, text inside a scroll container; text scrolled under a stuck masthead (E).
 """
-import argparse, contextlib, json, multiprocessing, re, sys, time
+import argparse, contextlib, datetime, json, multiprocessing, re, sys, time
 from pathlib import Path
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 import parity_walk as P
 
@@ -25,6 +26,10 @@ BADGE = "() => (document.querySelector('.ds-badge')?.textContent || '').trim()"
 SIG = "() => (document.querySelector('.ds-app')?.dataset.run || '') + '|' + (document.querySelector('.ds-badge')?.textContent || '').trim()"
 SWITCHES = (721, 1000, 1120, 1200, 826)
 WIDTHS = sorted(set(range(320, 2561, 4)) | {t for s in SWITCHES for t in (s, s - 1)})
+# What the chip and the badge can say (liveData.ts, App.tsx): the masthead must be the same height for each.
+CHIP_TEXTS = ["Live data: Web + arXiv + Hacker News + Wikipedia", "Live data: Web + arXiv + Hacker News + Wikipedia · fetched 17:25", "Recorded data: replaying a stored run",
+              "Recorded data: Web + arXiv + Hacker News + Wikipedia · fetched 47 h ago", "Live data unavailable: Web + arXiv + Hacker News + Wikipedia"]
+BADGE_TEXTS = ["Ready", "Running: Researcher", "Running: Analyst", "Running: Critic", "Running: Synthesizer", "Auditing", "Done", "Stopped"]
 T009 = {(1440, 900), (1280, 800), (390, 844), (360, 740)}
 # width, height, device pixel ratio, touch (design.md, "Device classes")
 DEVICES = [(320, 568, 2, 1), (360, 740, 3, 1), (360, 780, 3, 1), (375, 667, 2, 1), (393, 659, 3, 1), (390, 844, 3, 1), (414, 896, 3, 1), (412, 839, 2.625, 1),
@@ -117,6 +122,25 @@ GEOMETRY = r"""(opt) => {
     if (underBar((r.left + r.right) / 2, (r.top + r.bottom) / 2) && !hdr.contains(e)) continue;
     if (r.width < 43.99 || r.height < 43.99) add('G6', `${label(e)} "${(e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 20)}" is ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
+  // G15: the text of a pill, button or tab sits on the middle of its box (a stretched label leaves an empty band under the text)
+  for (const e of document.querySelectorAll('button, [role=tab], .ds-choice, summary, a.ds-button')) {
+    const r = e.getBoundingClientRect(); if (r.width === 0 || r.height === 0 || (stuck && r.top < hr.bottom && !hdr.contains(e))) continue;
+    const mine = lines.filter(l => e.contains(l.p)); if (!mine.length) continue;
+    const top = Math.min(...mine.map(l => l.r.top)), bottom = Math.max(...mine.map(l => l.r.bottom));
+    if (bottom - top > 1.7 * parseFloat(getComputedStyle(e).fontSize) * 1.5) continue;
+    const off = (top + bottom) / 2 - (r.top + r.bottom) / 2;
+    if (Math.abs(off) > 2) add('G15', `${label(e)} "${mine[0].t}" sits ${off.toFixed(0)} px ${off < 0 ? 'above' : 'below'} the middle of its ${Math.round(r.height)} px box`);
+  }
+  // G14: the masthead is as tall for the longest chip text and the widest badge label as for the shortest
+  if (opt.variants && hdr) {
+    const chip = hdr.querySelector('.live-data'), badge = hdr.querySelector('.ds-badge'), heights = {};
+    for (const [kind, el, texts] of [['chip text', chip, opt.chips], ['badge label', badge, opt.badges]]) {
+      const keep = el.innerHTML, dot = el.querySelector('.ds-dot');
+      heights[kind] = texts.map(t => { el.replaceChildren(dot.cloneNode(true), document.createTextNode(t)); return hdr.getBoundingClientRect().height; });
+      el.innerHTML = keep;
+    }
+    for (const [kind, hs] of Object.entries(heights)) if (Math.max(...hs) - Math.min(...hs) > 1) add('G14', `the masthead is ${Math.min(...hs).toFixed(0)}-${Math.max(...hs).toFixed(0)} px tall depending on the ${kind}`);
+  }
   const node = document.querySelector('.relay-node'), panel = document.querySelector('.panel'), rep = document.querySelector('.audit__report');
   const summary = document.querySelector('.audit-summary'), card = document.querySelector('.relay-report');
   return {problems: out, stuck, mastH: hr ? hr.height : null,
@@ -155,10 +179,12 @@ def poll(page, expr, seconds, arg=None):
     return None
 
 
-def make_context(browser, size, dpr, touch):
+def make_context(browser, size, dpr, touch, url):
+    """Only the page's own host (the local server, or a draft's URL), the replay's host and Google Fonts are reachable; calls to the page's /api/ get a 503."""
     ctx = browser.new_context(viewport={"width": size[0], "height": size[1]}, device_scale_factor=dpr, has_touch=bool(touch), is_mobile=bool(touch), service_workers="block")
-    ctx.route(re.compile(r"^https?://(?!(%s)).*" % "|".join(re.escape(h) for h in P.ALLOWED_HOSTS)), lambda r: r.abort())
-    ctx.route(re.compile(r"^http://127\.0\.0\.1:\d+/api/.*"), lambda r: r.fulfill(status=503, body="{}"))
+    hosts = P.ALLOWED_HOSTS + (urlparse(url).hostname,)
+    ctx.route(re.compile(r"^https?://(?!(%s)(:\d+)?/).*" % "|".join(re.escape(h) for h in hosts)), lambda r: r.abort())
+    ctx.route(re.compile(r"^https?://%s(:\d+)?/api/.*" % re.escape(urlparse(url).hostname)), lambda r: r.fulfill(status=503, body="{}"))
     return ctx
 
 
@@ -208,12 +234,12 @@ def open_state(ctx, url, state, rec, first_screen=None):
     return page, (page.evaluate(SIG) if frozen else None), problems
 
 
-def scan(page, touch):
-    """G1-G4 and G6 plus the facts, at top, mid and bottom."""
+def scan(page, touch, variants=False):
+    """G1-G4, G6, G14, G15 plus the facts, at top, mid and bottom (G14 only at the top, and only when asked)."""
     res = []
     for pos, f in (("top", 0), ("mid", 0.5), ("bottom", 1)):
         page.evaluate("(f) => scrollTo({top: (document.documentElement.scrollHeight - innerHeight) * f, behavior: 'instant'})", f)
-        info = page.evaluate(GEOMETRY, {"touch": touch, "selector": P.SELECTOR})
+        info = page.evaluate(GEOMETRY, {"touch": touch, "selector": P.SELECTOR, "variants": variants and pos == "top", "chips": CHIP_TEXTS, "badges": BADGE_TEXTS})
         info["pos"] = pos
         res.append(info)
     page.evaluate("() => scrollTo({top: 0, behavior: 'instant'})")
@@ -238,11 +264,11 @@ def sweep_task(args):
     with sync_playwright() as pw:
         browser = getattr(pw, browser_name).launch()
         try:
-            ctx = make_context(browser, (1280, 800), 1, False)
+            ctx = make_context(browser, (1280, 800), 1, False, url)
             page, sig, _ = open_state(ctx, url, state, rec)
             for w in widths:
                 page.set_viewport_size({"width": w, "height": 800})
-                for info in scan(page, False):
+                for info in scan(page, False, state == "critic"):
                     for rule, msg in info["problems"]:
                         e = res["found"].setdefault(f"{rule}|{msg}", {"w": set(), "pos": set()})
                         e["w"].add(w); e["pos"].add(info["pos"])
@@ -328,7 +354,7 @@ def device_task(args):
         browser = getattr(pw, browser_name).launch()
         try:
             for state in STATES:
-                ctx = make_context(browser, (w, h), dpr, touch)  # a fresh context per state: a context that has held a frozen page does not replay again
+                ctx = make_context(browser, (w, h), dpr, touch, url)  # a fresh context per state: a context that has held a frozen page does not replay again
                 try:
                     fs =first_screen if (w, h) in T009 and state in ("idle", "critic", "done") else None
                     page, sig, fs_problems = open_state(ctx, url, state, rec, fs)
@@ -338,7 +364,7 @@ def device_task(args):
                         bad = check_panel(page, False)
                         if bad:
                             fails.append(f"G9 {tag} {state}: {bad}")
-                    seen = scan(page, bool(touch))
+                    seen = scan(page, bool(touch), state == "critic")
                     found = {}
                     for info in seen:
                         for rule, msg in info["problems"]:
@@ -380,7 +406,7 @@ def device_task(args):
                 except Exception as e:
                     fails.append(f"{tag} {state}: could not reach or measure the state: {str(e).splitlines()[0][:160]}")
                 ctx.close()
-            ctx = make_context(browser, (w, h), dpr, touch)
+            ctx = make_context(browser, (w, h), dpr, touch, url)
             if stats.get("critic") is not None and stats.get("done") is not None and abs(stats["critic"] - stats["done"]) > 1:
                 fails.append(f"G11 {tag}: the masthead is {stats['critic']:.0f} px tall in critic and {stats['done']:.0f} px in done")
             # G13: Start by keyboard puts focus on Stop and the page does not move
@@ -428,6 +454,8 @@ def devices(url, log, fail, first_screen, out, browser_name="chromium", rec=None
 
 def run(url, log, fail, quick, first_screen, out, recording=None, browser_name="chromium", only=None):
     rec = P.published_replay(recording)
+    # The app refuses a replay older than 3 days (isStale); a saved recording must not turn layout checks into stale-replay failures, so it is dated 2 h ago.
+    rec = {**rec, "recorded_at": (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S.000Z")}
     if only != "devices" and not quick:
         sweep(url, log, fail, browser_name, rec)
     if only != "sweep":

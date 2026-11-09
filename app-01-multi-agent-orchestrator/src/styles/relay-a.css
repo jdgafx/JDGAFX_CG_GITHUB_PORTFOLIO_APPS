@@ -46,13 +46,18 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 /* Masthead: mark, name and status on the left, the data chip on the right. The 4px run rail only shows while a run is live. */
 .ds-header { background: transparent; border-bottom: 0; }
 .ds-header::before { background: transparent; }
-.ds-header__inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding-top: 28px; padding-bottom: 0; }
-.relay-brand { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+/* The masthead keeps one shape whatever the chip says and whichever stage the badge names, so nothing below it moves when the data arrives or a stage changes.
+   Phone (up to 720): the brand row, then the chip beside Stop. 721 to 1119: brand and Stop, then the chip on its own row (its longest text, 500 px, needs more than the
+   room left beside them). 1120 and up: one row; 80 gutters + 361 brand + 16 + 500 chip + 16 + 120 Stop = 1093 <= 1120. */
+.ds-header__inner { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; padding-top: 28px; padding-bottom: 0; }
+.relay-brand { grid-column: 1; grid-row: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+@media (min-width: 1120px) { .ds-header__inner { display: flex; flex-wrap: wrap; justify-content: space-between; }}
 .relay-logo { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; color: var(--relay-ink); background: var(--ds-accent); }
 .relay-wordmark { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: -0.02em; }
-.ds-badge { min-width: 11rem; font-family: var(--ds-font); font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0; background: var(--ds-surface); border-color: var(--ds-border); }
+.relay-brand .ds-badge { min-width: 12.5rem; font-family: var(--ds-font); font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0; background: var(--ds-surface); border-color: var(--ds-border); }
 .ds-badge--accent { background: var(--ds-accent-soft); }
-.ds-chip.live-data { margin-left: auto; padding: 8px 16px; font-family: var(--ds-font); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 999px; }
+.ds-chip.live-data { grid-column: 1 / -1; grid-row: 2; justify-self: start; margin-left: 0; padding: 8px 16px; font-family: var(--ds-font); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 999px; }
+@media (min-width: 1120px) { .ds-chip.live-data { margin-left: auto; } }
 .live-data .ds-dot--ok { background: var(--relay-synthesizer); }
 .live-data[data-state='failed'] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 40px; padding-right: 40px; }
@@ -78,7 +83,7 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 .ds-button:disabled, .ds-button--primary:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-border); border-color: var(--ds-border); }
 /* Stop lives in the masthead, after the data chip, in a slot of fixed size: the same box holds "Stop", "Stop audit" and (when no run is on) an empty
    aria-hidden span, so the masthead is the same height whether or not a run is on and nothing below it moves. */
-.relay-stop { box-sizing: border-box; flex: none; width: 8rem; min-height: 44px; }
+.relay-stop { box-sizing: border-box; flex: none; grid-column: 2; grid-row: 1; width: 8rem; min-height: 44px; }
 button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds-bg); border-color: var(--ds-border-strong); }
 .ds-button--quiet { color: var(--ds-text-muted); border-color: transparent; background: transparent; }
 
@@ -86,7 +91,7 @@ button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds
 .relay-examples__label { font-size: 13px; font-weight: 700; color: var(--ds-text-muted); }
 .relay-examples ul { display: contents; }
 .relay-examples li { display: contents; }
-.relay-examples .ds-choice { display: inline-flex; width: auto; min-height: 36px; padding: 4px 14px; font-size: 13px; font-weight: 600; background: var(--ds-bg); border: 1px solid var(--ds-border); border-radius: 999px; }
+.relay-examples .ds-choice { display: inline-flex; align-items: center; width: auto; min-height: 36px; padding: 4px 14px; font-size: 13px; font-weight: 600; background: var(--ds-bg); border: 1px solid var(--ds-border); border-radius: 999px; }
 .relay-examples .ds-choice__label { font-size: 13px; }
 .relay-examples .ds-choice:hover:not(:disabled) { border-color: var(--ds-accent); }
 .relay-examples .ds-choice--selected { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: var(--ds-accent); }
@@ -215,7 +220,13 @@ button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds
 @media (max-width: 720px) {
   .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
   .ds-header__inner { padding-top: 16px; gap: 8px; }
-  .ds-chip.live-data { flex: 1 1 12rem; margin-left: 0; padding: 4px 12px; font-size: 12px; line-height: 1.3; }
+  /* The chip shares a row with Stop and is clamped to two lines (44 px, Stop's height with its padding), so the row is the same height for every text; the full text is its tooltip. */
+  .relay-brand { grid-column: 1 / -1; }
+  .relay-brand { gap: 8px; }
+  .relay-brand .ds-badge { min-width: 11.5rem; font-size: 12px; } /* 12px: "Running: Synthesizer" is 170 px wide */
+  .ds-chip.live-data { grid-column: 1; justify-self: stretch; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding: 4px 12px; font-size: 12px; line-height: 1.3; }
+  .live-data .ds-dot { display: inline-block; margin-right: 8px; vertical-align: 1px; }
+  .relay-stop { grid-row: 2; width: 6.5rem; }
   .ds-main { gap: 12px; padding-top: 12px; }
   .relay-hero { gap: 12px; }
   .relay-headline { font-size: 22px; line-height: 1.18; }

@@ -62,7 +62,7 @@ export function Header({ badgeLabel, badgeTone, live, busy, running, onStop }: H
             {badgeLabel}
           </span>
         </div>
-        <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={live.title}>
+        <p className="ds-chip live-data" data-state={live.state} role="status" aria-live="polite" title={`${live.text}. ${live.title}`}>
           <span className={`ds-dot ${live.state === 'live' ? 'ds-dot--ok' : live.state === 'failed' ? 'ds-dot--failed' : 'ds-dot--skipped'}`} aria-hidden="true" />
           {live.text}
         </p>
