@@ -81,11 +81,6 @@
 .panel__pre-row dd { font-family: var(--ds-font); font-size: 13px; }
 .panel__pre-row[data-ok="false"] dd { color: var(--ds-danger); font-weight: 600; }
 
-@container (min-width: 760px) {
-  .audit__body[data-open="true"] { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; align-items: start; }
-  .panel { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
-}
-
 /* Stage outputs */
 .stage-tabs { display: flex; flex-wrap: wrap; max-width: 100%; }
 .stage-tabs > button { display: grid; justify-items: start; gap: 0; padding: 4px 16px; text-align: left; }

@@ -35,6 +35,8 @@
   --relay-ink: #07162b;
 }
 
+/* Safari on an iPhone in landscape would enlarge text, and every width sum below would stop holding. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body { background: var(--ds-bg); color: var(--ds-text); font-family: var(--ds-font); }
 code, kbd, pre, .ds-mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
 h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title, .howto__title, .ds-state__title, .audit-summary__line, .md h3, .md h4 {
@@ -48,9 +50,9 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 .relay-brand { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .relay-logo { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; color: var(--relay-ink); background: var(--ds-accent); }
 .relay-wordmark { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: -0.02em; }
-.ds-badge { font-family: var(--ds-font); font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0; background: var(--ds-surface); border-color: var(--ds-border); }
+.ds-badge { min-width: 11rem; font-family: var(--ds-font); font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0; background: var(--ds-surface); border-color: var(--ds-border); }
 .ds-badge--accent { background: var(--ds-accent-soft); }
-.ds-chip.live-data { padding: 8px 16px; font-family: var(--ds-font); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 999px; }
+.ds-chip.live-data { margin-left: auto; padding: 8px 16px; font-family: var(--ds-font); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 999px; }
 .live-data .ds-dot--ok { background: var(--relay-synthesizer); }
 .live-data[data-state='failed'] { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: transparent; }
 .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 40px; padding-right: 40px; }
@@ -59,7 +61,7 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 /* Hero: the headline, and one card with the research field, the examples and the steps. */
 .relay-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: center; }
 .relay-headline { max-width: 20em; font-size: clamp(28px, 3.5vw, 46px); line-height: 1.14; letter-spacing: -0.025em; }
-.relay-pill { display: inline-block; padding: 0 12px; line-height: 1.15; color: var(--relay-ink); background: #ffd23f; border-radius: 999px; }
+.relay-pill { display: inline-block; margin-block: 2px; padding: 0 12px; line-height: 1.15; color: var(--relay-ink); background: #ffd23f; border-radius: 999px; }
 .relay-card { display: grid; gap: 12px; min-width: 0; padding: 24px; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; box-shadow: 0 20px 40px -24px rgb(0 0 0 / 0.6); }
 @media (min-width: 1000px) { .relay-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 48px; } }
 
@@ -74,10 +76,10 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 .ds-button { font-family: var(--ds-display); font-weight: 700; border-radius: 999px; border-color: var(--ds-border-strong); }
 .ds-button--primary { min-height: 52px; font-size: 16px; font-weight: 800; letter-spacing: 0; text-transform: none; color: var(--relay-ink); background: var(--ds-accent); border-color: var(--ds-accent); }
 .ds-button:disabled, .ds-button--primary:disabled { opacity: 1; color: var(--ds-text-muted); background: var(--ds-border); border-color: var(--ds-border); }
-/* While a run is on, Stop stays on screen as it does on main (the sticky dock, 1000px and up); on a phone it sits next to Start, in the card. */
-@media (min-width: 1000px) {
-  .relay-stop { position: fixed; right: 20px; bottom: 20px; z-index: 30; min-height: 48px; padding: 0 24px; color: var(--ds-text); background: var(--ds-surface); border-color: var(--ds-border-strong); box-shadow: 0 12px 28px -8px rgb(0 0 0 / 0.7); }
-}
+/* Stop lives in the masthead, after the data chip, in a slot of fixed size: the same box holds "Stop", "Stop audit" and (when no run is on) an empty
+   aria-hidden span, so the masthead is the same height whether or not a run is on and nothing below it moves. */
+.relay-stop { box-sizing: border-box; flex: none; width: 8rem; min-height: 44px; }
+button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds-bg); border-color: var(--ds-border-strong); }
 .ds-button--quiet { color: var(--ds-text-muted); border-color: transparent; background: transparent; }
 
 .relay-examples { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
@@ -178,14 +180,18 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
 }
 .panel[data-verdict='unsupported'] { background: color-mix(in srgb, var(--ds-danger) 12%, var(--ds-surface)); border-color: color-mix(in srgb, var(--ds-danger) 45%, var(--ds-surface)); }
 .panel[data-verdict='partly'] { background: color-mix(in srgb, var(--ds-warning) 10%, var(--ds-surface)); border-color: color-mix(in srgb, var(--ds-warning) 40%, var(--ds-surface)); }
-@media (min-width: 1000px) {
+/* The audit summary goes beside the report when the report card still has the 680px the source panel needs:
+   80 page gutters + 340 summary + 32 gap + 64 report padding + 2 report border + 680 panel threshold = 1198, so 1200. */
+@media (min-width: 1200px) {
   .relay-audit { grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; align-items: start; }
   .relay-audit > .relay-report { grid-column: 1; grid-row: 1; }
   .relay-audit > :not(.relay-report) { grid-column: 2; grid-row: 1; }
 }
 
-/* Once a run is on screen, a laptop shows the four agents as four cards with their stage times. */
-@media (min-width: 721px) {
+/* Once a run is on screen, a wide window shows the four agents as four cards with their stage times. Four cards need
+   4 x (24 padding + 48 dot + 16 gap + 128 widest line "Finished · 123.4 s" + 24 padding + 2 border) + 3 x 16 gap + 80 page gutters = 1096, so 1120
+   (24 px over, for a fallback font). Below it the track keeps the compact form (48px dots, 16px names). */
+@media (min-width: 1120px) {
   .ds-app:not([data-run='idle']) .relay-track-card { padding: 0; background: transparent; border: 0; }
   .ds-app:not([data-run='idle']) .relay-track::before { display: none; }
   .ds-app:not([data-run='idle']) .relay-node { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 16px; padding: 16px 24px; text-align: left; background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 24px; }
@@ -197,11 +203,19 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
   .ds-app:not([data-run='idle']) .relay-node[data-state='done'] .relay-word { color: var(--c); }
 }
 
+/* While a run or an audit is on, the masthead (with Stop) stays at the top, only where main's stop dock did. The fill is the page colour, so at
+   scroll 0 it looks as without. --relay-head-h is the masthead's height, written by Header while busy; scrolled-to content and the sticky source panel stay below it. */
+@media (min-width: 1000px) and (min-height: 521px) {
+  .ds-header[data-busy] { position: sticky; top: 0; z-index: 30; background: var(--ds-bg); box-shadow: 0 8px 16px -12px rgb(0 0 0 / 0.7); }
+  html { scroll-padding-top: var(--relay-head-h, 0px); }
+  .ds-header[data-busy] ~ .ds-main .panel { top: calc(var(--relay-head-h, 0px) + 16px); max-height: calc(100vh - var(--relay-head-h, 0px) - 32px); }
+}
+
 /* Phone: the A phone layout. The header wraps, the headline is smaller, the track is four compact nodes. */
 @media (max-width: 720px) {
   .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
   .ds-header__inner { padding-top: 16px; gap: 8px; }
-  .ds-chip.live-data { width: 100%; padding: 4px 12px; font-size: 12px; line-height: 1.3; }
+  .ds-chip.live-data { flex: 1 1 12rem; margin-left: 0; padding: 4px 12px; font-size: 12px; line-height: 1.3; }
   .ds-main { gap: 12px; padding-top: 12px; }
   .relay-hero { gap: 12px; }
   .relay-headline { font-size: 22px; line-height: 1.18; }
@@ -237,4 +251,12 @@ h1, h2, h3, .relay-wordmark, .ds-section__title, .ds-card__title, .panel__title,
   .relay-wordmark { font-size: 20px; }
   .relay-logo { width: 32px; height: 32px; border-radius: 11px; }
   .howto__hint { display: none; }
+}
+
+/* Touch screens: every control is a fingertip, 44 x 44. Links inside report sentences keep their size (WCAG 2.5.5 inline exception).
+   The phone rules above set 28, 32 and 36px with higher specificity, so their selectors are repeated here, last. */
+@media (pointer: coarse) {
+  button, summary, [role='tab'], .ds-choice, .relay-stop,
+  .relay-examples .ds-choice, .howto__toggle, .relay-card .howto__try .ds-button, .replay-label__line .ds-button { min-height: 44px; min-width: 44px; }
+  .ds-cite__title, .panel__source-title a { display: inline-flex; align-items: center; min-height: 44px; }
 }

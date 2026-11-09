@@ -1,5 +1,4 @@
 import { ArrowRight } from 'lucide-react'
-import { useEffect, useRef } from 'react'
 import { EXAMPLES, MAX_QUERY_CHARS } from '../lib/agents'
 
 interface QueryBarProps {
@@ -13,21 +12,14 @@ interface QueryBarProps {
   onQueryChange: (value: string) => void
   onDismissError: () => void
   onStart: () => void
-  onStop: () => void
   onExample: (text: string) => void
 }
 
-/** The research section: the topic field with its count, the Start and Stop dock, the status line and the examples. */
-export function QueryBar({ query, running, auditing, announcement, pipelineError, onQueryChange, onDismissError, onStart, onStop, onExample }: QueryBarProps) {
-  const stopRef = useRef<HTMLButtonElement>(null)
+/** The research section: the topic field with its count, the Start button, the status line and the examples. */
+export function QueryBar({ query, running, auditing, announcement, pipelineError, onQueryChange, onDismissError, onStart, onExample }: QueryBarProps) {
   const length = Array.from(query.trim()).length
   const valid = length >= 1 && length <= MAX_QUERY_CHARS
   const busy = running || auditing
-
-  // Focus follows the action: Stop takes focus when a run starts, without moving the page.
-  useEffect(() => {
-    if (running) stopRef.current?.focus({ preventScroll: true })
-  }, [running])
 
   return (
     <>
@@ -77,11 +69,6 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
           Start research
           <ArrowRight size={18} aria-hidden="true" />
         </button>
-        {busy && (
-          <button type="button" className="ds-button relay-stop" onClick={onStop} ref={stopRef}>
-            {running ? 'Stop' : 'Stop audit'}
-          </button>
-        )}
       </div>
 
       <p className="ds-help app-status" role="status" aria-live="polite">

@@ -324,7 +324,7 @@ export default function App() {
 
   return (
     <div className="ds-app" data-run={FOCUS_PHASE[phase]} data-replay={replaying && replay.info ? 'true' : undefined}>
-      <Header badgeLabel={badge.label} badgeTone={badge.tone} live={liveDataView(agents.retriever, fetchedAt, replaying && replay.info ? replayLabel(replay.info.recording, replay.info.startedAt, replay.info.speed).age : null)} />
+      <Header badgeLabel={badge.label} badgeTone={badge.tone} busy={isRunning || auditing} running={isRunning} onStop={handleStop} live={liveDataView(agents.retriever, fetchedAt, replaying && replay.info ? replayLabel(replay.info.recording, replay.info.startedAt, replay.info.speed).age : null)} />
 
       <main className="ds-main">
         <section className="relay-hero" aria-label="Research">
@@ -348,7 +348,6 @@ export default function App() {
               onQueryChange={setQuery}
               onDismissError={() => setPipelineError(null)}
               onStart={handleStart}
-              onStop={handleStop}
               onExample={setQuery}
             />
             {/* A replay keeps the steps open: the visitor reads them while the recording plays. A run of their own folds them away. */}

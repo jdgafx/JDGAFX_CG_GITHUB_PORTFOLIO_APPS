@@ -61,8 +61,10 @@ GEOMETRY = r"""(opt) => {
     const rg = document.createRange(); rg.selectNodeContents(n);
     for (const r of rg.getClientRects()) {
       if (r.width < 0.5 || r.height < 0.5) continue;
-      if (underBar((r.left + r.right) / 2, (r.top + r.bottom) / 2) && !hdr.contains(p)) continue;
-      lines.push({p, r, t: t.slice(0, 24)});
+      // E: text scrolled under a stuck masthead is hidden by its opaque fill; of a line half under it, only the part below the bar counts.
+      const top = stuck && !hdr.contains(p) ? Math.max(r.top, hr.bottom) : r.top;
+      if (r.bottom - top < 0.5 || underBar((r.left + r.right) / 2, (top + r.bottom) / 2) && !hdr.contains(p)) continue;
+      lines.push({p, r: {left: r.left, right: r.right, top, bottom: r.bottom, width: r.width, height: r.bottom - top}, t: t.slice(0, 24)});
     }
   }
   // G2: outside the nearest bordered card (sideways) or a clipping box (any side)
