@@ -91,7 +91,7 @@ GEOMETRY = r"""(opt) => {
   for (let i = 0; i + 1 < pills.length; i++) {
     const a = pills[i], b = pills[i + 1];
     const gap = Math.max(0, b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom);
-    if (gap < 2) add('G3', `the headline pills are ${gap.toFixed(1)} px apart`);
+    if (gap < 2) add('G3', 'the two headline pills are under 2 px apart');
   }
   // G4: the point at the middle of a visible text line hits something else; Stop over text
   for (const {p, r, t} of lines) {
@@ -123,6 +123,9 @@ GEOMETRY = r"""(opt) => {
     stop: stop ? {text: stop.textContent.trim(), inHeader: !!hdr && hdr.contains(stop), inView: sr.left >= 0 && sr.top >= 0 && sr.right <= vw && sr.bottom <= vh} : null,
     summary: summary && card ? {left: summary.getBoundingClientRect().left, bottom: summary.getBoundingClientRect().bottom, rleft: card.getBoundingClientRect().left, rright: card.getBoundingClientRect().right, rtop: card.getBoundingClientRect().top} : null};
 }"""
+
+# What a visitor does: the first cited sentence comes into view, then it is clicked.
+CLICK_CLAIM = "() => { const c = document.querySelector('.claim'); if (c) { c.scrollIntoView({block: 'center', behavior: 'instant'}); c.click(); } return !!c; }"
 
 PANEL = """() => {
   const t = document.querySelector('[data-panel-focus]'), rep = document.querySelector('.audit__report'), pa = document.querySelector('.panel');
@@ -164,7 +167,7 @@ def open_state(ctx, url, state, rec, first_screen=None):
     body = P.compressed(rec, 1 if frozen or state == "idle" else 12)
     page.route(P.RAW, lambda r: r.fulfill(status=200, body=body, headers={"content-type": "application/json", "access-control-allow-origin": "*"}))
     if frozen:
-        page.clock.install()
+        page.clock.install()  # install alone lets time flow; pause_at (below, once the page runs) stops it until run_for moves it
     page.goto(url + ("?replay=off" if state == "idle" else ""))
     if not poll(page, "() => !!document.querySelector('.live-data')", 20):
         raise RuntimeError("the page did not render")
@@ -172,6 +175,7 @@ def open_state(ctx, url, state, rec, first_screen=None):
         raise RuntimeError("the fonts did not load (the sums need the real fonts)")
     problems = []
     if frozen:
+        page.clock.pause_at(time.time() + 1)  # Python takes seconds
         want = FROZEN[state]
         for _ in range(3000):
             b = page.evaluate(BADGE)
@@ -188,11 +192,11 @@ def open_state(ctx, url, state, rec, first_screen=None):
             if not poll(page, "() => document.querySelector('.ds-app')?.dataset.run === 'stopped'", 10):
                 raise RuntimeError("Stop did not stop the run")
     elif state in ("done", "panel"):
-        P.wait_done(page)
+        P.wait_done(page, 150)  # a loaded machine is slow; the replay itself is compressed to seconds
         if first_screen and state == "done":
             page.wait_for_timeout(2000)
         if state == "panel":
-            page.evaluate("() => document.querySelector('.claim').click()")
+            page.evaluate(CLICK_CLAIM)
             if not poll(page, "() => !!document.querySelector('.panel')", 5):
                 raise RuntimeError("the first claim opened no source panel")
     if first_screen and state in ("idle", "critic", "done"):
@@ -321,10 +325,10 @@ def device_task(args):
     with sync_playwright() as pw:
         browser = getattr(pw, browser_name).launch()
         try:
-            ctx = make_context(browser, (w, h), dpr, touch)
             for state in STATES:
+                ctx = make_context(browser, (w, h), dpr, touch)  # a fresh context per state: a context that has held a frozen page does not replay again
                 try:
-                    fs = first_screen if (w, h) in T009 and state in ("idle", "critic", "done") else None
+                    fs =first_screen if (w, h) in T009 and state in ("idle", "critic", "done") else None
                     page, sig, fs_problems = open_state(ctx, url, state, rec, fs)
                     if fs_problems:
                         fails.append(f"G10 {tag} {state}: " + "; ".join(fs_problems))
@@ -363,7 +367,7 @@ def device_task(args):
                                 fails.append(f"G12 {tag} {state}: the audit summary (bottom {sm['bottom']:.0f}) is not above the report (top {sm['rtop']:.0f}) at {w} px")
                     if sig is not None and page.evaluate(SIG) != sig:
                         fails.append(f"FROZEN {tag} {state}: the state moved from {sig} to {page.evaluate(SIG)} while it was measured")
-                    if state == "auditing" and page.evaluate("() => { const c = document.querySelector('.claim'); if (c) c.click(); return !!c; }"):
+                    if state == "auditing" and page.evaluate(CLICK_CLAIM):
                         bad = check_panel(page, True)
                         if bad:
                             fails.append(f"G9 {tag} {state}: a source panel opened now: {bad}")
@@ -373,6 +377,8 @@ def device_task(args):
                     page.close()
                 except Exception as e:
                     fails.append(f"{tag} {state}: could not reach or measure the state: {str(e).splitlines()[0][:160]}")
+                ctx.close()
+            ctx = make_context(browser, (w, h), dpr, touch)
             if stats.get("critic") is not None and stats.get("done") is not None and abs(stats["critic"] - stats["done"]) > 1:
                 fails.append(f"G11 {tag}: the masthead is {stats['critic']:.0f} px tall in critic and {stats['done']:.0f} px in done")
             # G13: Start by keyboard puts focus on Stop and the page does not move
