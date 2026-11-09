@@ -19,6 +19,8 @@ const REPORT = ['## Findings', 'JWST is designed for infrared astronomy [1]. Thi
 
 const PASS = { sourceSupports: 'yes', subjectMatches: 'yes', causeMatches: 'not_applicable', allPartsCovered: 'yes' } as const
 const NONE = { sourceSupports: 'no', subjectMatches: 'no', causeMatches: 'not_applicable', allPartsCovered: 'no' } as const
+/** The markup's text only: the headline's first part sits in its own span. */
+const plain = (markup: string) => markup.replace(/<[^>]+>/g, '')
 const html = (element: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(element)
 
 function settled(): AuditClaim[] {
@@ -83,7 +85,7 @@ describe('AuditSummary states', () => {
 
   it('shows the headline, the bar and the legend with counts when done', () => {
     const out = html(createElement(AuditSummary, { view: viewOf(settled()), onRetry: noop }))
-    expect(out).toContain('1 of 2 cited claims supported')
+    expect(plain(out)).toContain('1 of 2 cited claims supported')
     expect(out).toContain('1 not supported.')
     expect(out).toContain('aria-label="Audit result: 1 supported, 1 not supported"')
     expect(out).toContain('data-zero="true"')
@@ -135,7 +137,7 @@ describe('unverified verdict', () => {
     expect(panel).toContain('The quoted text was not found in the source, so support is not confirmed.')
     expect(panel).not.toContain('<mark')
     const out = html(createElement(AuditSummary, { view: viewOf([claim]), onRetry: noop }))
-    expect(out).toContain('0 of 1 cited claim supported')
+    expect(plain(out)).toContain('0 of 1 cited claim supported')
     expect(out).toContain('1 unverified.')
     expect(out).toContain('aria-label="Audit result: 1 unverified"')
   })
@@ -169,7 +171,7 @@ describe('ReportCard states', () => {
     const claims = settled()
     const out = card('complete', { synthesizer: { ...agent, output: REPORT, status: 'complete' }, audit: { ...viewOf(claims), result: { claims, summary: summarize(claims), overLimit: 0, usage: {}, ms: 3200, model: { servedModel: 'anthropic/claude-haiku-5.5', newestModel: 'anthropic/claude-haiku-5.5', modelCheck: 'match' } } } })
     expect(out).toContain('data-result-focus')
-    expect(out).toContain('1 of 2 cited claims supported')
+    expect(plain(out)).toContain('1 of 2 cited claims supported')
     expect(out).toContain('Audited by claude-haiku-5.5 in 3,200 ms')
     expect(out).not.toContain('class="panel')
     expect(out).not.toContain('data-open')
@@ -293,7 +295,7 @@ describe('about the research', () => {
     expect(panel).toContain('about the research, not checked against a source')
     expect(panel).not.toContain('No sentence of the cited source backs this claim')
     const out = html(createElement(AuditSummary, { view: viewOf([claim]), onRetry: noop }))
-    expect(out).toContain('0 of 1 cited claim supported')
+    expect(plain(out)).toContain('0 of 1 cited claim supported')
     expect(out).toContain('1 about the research.')
     expect(out).toContain('data-verdict="unsupported" data-zero="true"')
     expect(out).toContain('data-verdict="supported" data-zero="true"')

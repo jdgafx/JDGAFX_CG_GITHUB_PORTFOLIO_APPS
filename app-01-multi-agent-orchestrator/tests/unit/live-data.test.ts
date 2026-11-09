@@ -21,7 +21,8 @@ describe('liveDataView', () => {
 
   it('says how long ago the sources were fetched, not a fetch time, while a replay shows', () => {
     expect(liveDataView({ status: 'complete', sources: [wiki, hn] }, at, '3 h ago')).toMatchObject({ state: 'idle', text: 'Recorded data: Wikipedia + Hacker News · fetched 3 h ago' })
-    expect(liveDataView({ status: 'working' }, null, '3 h ago').text).toBe('Live data: Web + arXiv + Hacker News + Wikipedia')
+    expect(liveDataView({ status: 'working' }, null, '3 h ago')).toMatchObject({ state: 'idle', text: 'Recorded data: replaying a stored run' })
+    expect(liveDataView({ status: 'working' }, null).text).toBe('Live data: Web + arXiv + Hacker News + Wikipedia')
   })
 
   it('fails on an error or when nothing was found', () => {
