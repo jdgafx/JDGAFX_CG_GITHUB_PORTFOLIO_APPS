@@ -9,6 +9,7 @@ Per viewport (1440x900, 1280x800, 390x844, 360x740), in a fresh browser context 
   default URL: at load, mid-replay, 2 s after the replay ends: the same three things inside the viewport, scrollY 0;
                 the chip says 'Recorded data: <sources>' while the recording plays
   relay track: node n is active exactly while stage n runs, driven by the page's own steps data (logged in the page)
+Parity walk (--dist): every control found in main's DOM (1cb0af1) is clicked on main and on the branch build, in four states, at all four widths; see parity_walk.py.
 Once (at 1440x900): fonts loaded, 0 CSP errors, browser-reported colours equal the A dark hex values, every text/background
 pair on the page >= 4.5:1 (>= 3:1 large text), tokens.css and components.css byte-identical to 1cb0af1.
 --live types one real question on the page and needs fresh cited sources (a paid model call: run it once, on the draft copy).
@@ -256,6 +257,7 @@ def run_viewport(browser, url, size, recording, out, shots):
     shots.append((tag, "full result", out / f"{tag}-after-full.png", "phone-dark-result.png" if phone else "laptop-dark-result.png"))
     check_relay_log(page, tag)
     result_look(page, tag)
+    contrast_check(page, tag)
     if w == 1440:
         page.evaluate("() => document.fonts.ready.then(() => true)")
         colours = page.evaluate(COLOURS)
@@ -272,14 +274,6 @@ def run_viewport(browser, url, size, recording, out, shots):
             fail(f"fonts not applied: heading {colours['h1font']}, body {colours['bodyfont']}")
         else:
             ok("fonts: Plus Jakarta Sans 800 and Manrope 500 loaded and applied")
-        rows = page.evaluate(CONTRAST)
-        low = [r for r in rows if not r["ok"]]
-        if not rows:
-            fail("contrast: no text found")
-        elif low:
-            fail(f"contrast: {len(low)} of {len(rows)} text/background pairs under the limit: " + "; ".join(f"{r['tag']} {r['text']!r} {r['got']}<{r['need']}" for r in low[:8]))
-        else:
-            ok(f"contrast: all {len(rows)} text/background pairs on the page pass (lowest {min(r['got'] for r in rows)}:1)")
     css = [e for e in errors if "Content Security Policy" in e or "CSP" in e]
     other = [e for e in errors if e not in css]
     if css:
@@ -288,6 +282,23 @@ def run_viewport(browser, url, size, recording, out, shots):
         fail(f"{tag}: console/page errors: {other[:3]}")
     ctx.close()
     return errors
+
+
+def contrast_check(page, tag):
+    """Every text pair on the page at this width: with nothing selected, then with each cited sentence selected (the source panel open in its verdict-tinted card)."""
+    for label, claim in [("report", None)] + [(f"source panel for claim {i + 1}", i) for i in range(page.locator(".claim").count())]:
+        if claim is not None:
+            page.locator(".claim").nth(claim).click()
+            page.wait_for_selector(".panel", timeout=3000)
+            page.wait_for_timeout(300)
+        rows = page.evaluate(CONTRAST)
+        low = [r for r in rows if not r["ok"]]
+        if not rows:
+            fail(f"{tag} contrast ({label}): no text found")
+        elif low:
+            fail(f"{tag} contrast ({label}): {len(low)} of {len(rows)} text/background pairs under the limit: " + "; ".join(f"{r['tag']} {r['text']!r} {r['got']}<{r['need']}" for r in low[:8]))
+        else:
+            ok(f"{tag} contrast ({label}): all {len(rows)} text/background pairs pass (lowest {min(r['got'] for r in rows)}:1)")
 
 
 def live_question(browser, url, size, out):
@@ -417,6 +428,14 @@ def main():
             live_question(browser, url, (1440, 900), out)
         contact_sheet(browser, shots, out)
         browser.close()
+        if args.dist:
+            import parity_walk
+            repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, cwd=app_root).stdout.strip())
+            main_app = parity_walk.reference_build(repo, app_root.name)
+            print(f"parity walk: main {parity_walk.BASE_COMMIT} built in {main_app}, branch {app_root}")
+            parity_walk.run(VIEWPORTS, main_app, app_root, netlify_csp(app_root), args.recording, ok, fail)
+        else:
+            print("parity walk needs --dist (it serves the branch build next to main's build); not run on a URL")
     tokens_unchanged()
     print(f"evidence in {out}")
     if fails:
