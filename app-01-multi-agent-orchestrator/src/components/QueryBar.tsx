@@ -60,7 +60,7 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
               onKeyDown={event => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && valid && !busy) {
                   event.preventDefault()
-                      onStart()
+                  onStart()
                 }
               }}
             />
@@ -78,7 +78,7 @@ export function QueryBar({ query, running, auditing, announcement, pipelineError
           <ArrowRight size={18} aria-hidden="true" />
         </button>
         {busy && (
-          <button type="button" className="ds-button" onClick={onStop} ref={stopRef}>
+          <button type="button" className="ds-button relay-stop" onClick={onStop} ref={stopRef}>
             {running ? 'Stop' : 'Stop audit'}
           </button>
         )}

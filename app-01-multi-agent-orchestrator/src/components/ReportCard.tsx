@@ -57,9 +57,6 @@ interface ReportCardProps {
   replay?: boolean
 }
 
-/** On a wide screen the source panel sits beside the report; on a narrow one it follows the report and is scrolled to. */
-const WIDE = '(min-width: 1000px)'
-
 /** The page's lead: the final report with every cited sentence badged, the audit summary above it and the source panel beside it. */
 export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit, onRetryRun, onRetryAudit, after, replay = false }: ReportCardProps) {
   const [selected, setSelected] = useState<number | null>(null)
@@ -79,11 +76,12 @@ export function ReportCard({ phase, synthesizer, sources, error, hasSteps, audit
 
   const select = (id: number) => {
     setSelected(id)
-    if (window.matchMedia(WIDE).matches) return
-    // On a narrow screen the panel is below the report: bring it into view and move focus to it.
+    // Beside the report the panel is sticky and already on screen. Below it (not enough room), bring it into view and move focus to it.
     requestAnimationFrame(() => {
       const panel = panelRef.current
       if (!panel) return
+      const report = panel.parentElement?.querySelector('.audit__report')
+      if (report && panel.getBoundingClientRect().left >= report.getBoundingClientRect().right - 1) return
       const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       panel.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' })
       panel.querySelector<HTMLElement>('[data-panel-focus]')?.focus({ preventScroll: true })
