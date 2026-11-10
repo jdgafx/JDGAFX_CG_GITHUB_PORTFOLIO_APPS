@@ -9,7 +9,8 @@ Per viewport (1440x900, 1280x800, 390x844, 360x740), in a fresh browser context 
   default URL: at load, mid-replay, 2 s after the replay ends: the same three things inside the viewport, scrollY 0;
                 the chip says 'Recorded data: <sources>' while the recording plays
   relay track: node n is active exactly while stage n runs, driven by the page's own steps data (logged in the page)
-Parity walk (--dist): every control found in main's DOM (1cb0af1) is clicked on main and on the branch build, in four states, at all four widths; see parity_walk.py.
+Any device (any_device.py, T-016 design): the width sweep (320-2560 px, 7 states, 3 scroll positions, rules G1-G4 and G7) and the 27 named devices (G1-G4, G6, G8-G13); --quick skips the sweep.
+Parity walk (--dist): every control found in main's DOM (1cb0af1) is clicked on main and on the branch build, in four states, at the six PARITY_SIZES; see parity_walk.py.
 Once (at 1440x900): fonts loaded, 0 CSP errors, browser-reported colours equal the A dark hex values, every text/background
 pair on the page >= 4.5:1 (>= 3:1 large text), tokens.css and components.css byte-identical to 1cb0af1.
 --live types one real question on the page and needs fresh cited sources (a paid model call: run it once, on the draft copy).
@@ -24,6 +25,8 @@ BASE_COMMIT = "1cb0af1"
 RAW = "https://raw.githubusercontent.com/jdgafx/JDGAFX_CG_GITHUB_PORTFOLIO_APPS/replays/app-01-multi-agent-orchestrator.json"
 DESIGN = Path.home() / "factory-hq/drafts/JDGAFX-T-013/A"
 VIEWPORTS = [(1440, 900), (1280, 800), (390, 844), (360, 740)]
+# The parity walk covers the T-009 sizes plus the two where Stop and the track used to collide (iPad landscape, a short wide window).
+PARITY_SIZES = [(1440, 900), (1280, 800), (390, 844), (360, 740), (1024, 768), (1280, 480)]
 AGENTS = ["Researcher", "Analyst", "Critic", "Synthesizer"]
 NODE_HEX = ["#6aa2ff", "#2dd4cf", "#ff9340", "#b6ee3c"]
 BG, TEXT, BUTTON = "#07162b", "#eaf2ff", "#6aa2ff"
@@ -121,6 +124,7 @@ COLOURS = """() => {
   return {bg: c(document.body, 'backgroundColor'), h1: c(document.querySelector('h1'), 'color'),
     h1font: c(document.querySelector('h1'), 'fontFamily'), bodyfont: c(document.body, 'fontFamily'),
     button: c(document.querySelector('button[type=submit]'), 'backgroundColor'),
+    replay: c(document.querySelector('[data-replay-badge]'), 'backgroundColor'),
     nodes: [...document.querySelectorAll('[data-relay-node] [data-relay-dot]')].map(d => getComputedStyle(d).borderTopColor),
     fonts: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '') + ' ' + f.weight),
     check800: document.fonts.check('800 54px "Plus Jakarta Sans"'), check500: document.fonts.check('500 14px Manrope')};
@@ -263,6 +267,8 @@ def run_viewport(browser, url, size, recording, out, shots):
         colours = page.evaluate(COLOURS)
         if colours["bg"] != rgb(BG) or colours["h1"] != rgb(TEXT) or colours["button"] != rgb(BUTTON):
             fail(f"colours: page {colours['bg']}, heading {colours['h1']}, main button {colours['button']}; wanted {rgb(BG)}, {rgb(TEXT)}, {rgb(BUTTON)}")
+        elif colours["replay"] not in (None, rgb("#0e2340")):  # None: the run on screen is not a recording
+            fail(f"REPLAY label fill {colours['replay']}, wanted the card navy {rgb('#0e2340')}")
         elif colours["nodes"] != [rgb(x) for x in NODE_HEX]:
             fail(f"relay node colours {colours['nodes']}, wanted {[rgb(x) for x in NODE_HEX]}")
         else:
@@ -408,6 +414,7 @@ def main():
     ap.add_argument("--dist")
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--recording")
+    ap.add_argument("--quick", action="store_true", help="skip the width sweep (builder iterations); the judge runs the full check")
     ap.add_argument("--out", default=f"/tmp/relay-a-dark-check-{int(time.time())}")
     args = ap.parse_args()
     if bool(args.url) == bool(args.dist):
@@ -428,12 +435,14 @@ def main():
             live_question(browser, url, (1440, 900), out)
         contact_sheet(browser, shots, out)
         browser.close()
+        import any_device
+        any_device.run(url, ok, fail, args.quick, FIRST_SCREEN, out, args.recording)
         if args.dist:
             import parity_walk
             repo = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, cwd=app_root).stdout.strip())
             main_app = parity_walk.reference_build(repo, app_root.name)
             print(f"parity walk: main {parity_walk.BASE_COMMIT} built in {main_app}, branch {app_root}")
-            parity_walk.run(VIEWPORTS, main_app, app_root, netlify_csp(app_root), args.recording, ok, fail)
+            parity_walk.run(PARITY_SIZES, main_app, app_root, netlify_csp(app_root), args.recording, ok, fail)
         else:
             print("parity walk needs --dist (it serves the branch build next to main's build); not run on a URL")
     tokens_unchanged()
