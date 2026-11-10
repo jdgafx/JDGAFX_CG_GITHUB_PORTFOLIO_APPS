@@ -124,6 +124,7 @@ COLOURS = """() => {
   return {bg: c(document.body, 'backgroundColor'), h1: c(document.querySelector('h1'), 'color'),
     h1font: c(document.querySelector('h1'), 'fontFamily'), bodyfont: c(document.body, 'fontFamily'),
     button: c(document.querySelector('button[type=submit]'), 'backgroundColor'),
+    replay: c(document.querySelector('[data-replay-badge]'), 'backgroundColor'),
     nodes: [...document.querySelectorAll('[data-relay-node] [data-relay-dot]')].map(d => getComputedStyle(d).borderTopColor),
     fonts: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '') + ' ' + f.weight),
     check800: document.fonts.check('800 54px "Plus Jakarta Sans"'), check500: document.fonts.check('500 14px Manrope')};
@@ -266,6 +267,8 @@ def run_viewport(browser, url, size, recording, out, shots):
         colours = page.evaluate(COLOURS)
         if colours["bg"] != rgb(BG) or colours["h1"] != rgb(TEXT) or colours["button"] != rgb(BUTTON):
             fail(f"colours: page {colours['bg']}, heading {colours['h1']}, main button {colours['button']}; wanted {rgb(BG)}, {rgb(TEXT)}, {rgb(BUTTON)}")
+        elif colours["replay"] not in (None, rgb("#0e2340")):  # None: the run on screen is not a recording
+            fail(f"REPLAY label fill {colours['replay']}, wanted the card navy {rgb('#0e2340')}")
         elif colours["nodes"] != [rgb(x) for x in NODE_HEX]:
             fail(f"relay node colours {colours['nodes']}, wanted {[rgb(x) for x in NODE_HEX]}")
         else:

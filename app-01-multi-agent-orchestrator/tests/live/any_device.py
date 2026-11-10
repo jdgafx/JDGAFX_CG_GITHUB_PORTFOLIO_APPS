@@ -28,7 +28,7 @@ SWITCHES = (721, 1000, 1120, 1200, 826)
 WIDTHS = sorted(set(range(320, 2561, 4)) | {t for s in SWITCHES for t in (s, s - 1)})
 # What the chip and the badge can say (liveData.ts, App.tsx): the masthead must be the same height for each.
 CHIP_TEXTS = ["Live data: Web + arXiv + Hacker News + Wikipedia", "Live data: Web + arXiv + Hacker News + Wikipedia · fetched 17:25", "Recorded data: replaying a stored run",
-              "Recorded data: Web + arXiv + Hacker News + Wikipedia · fetched 47 h ago", "Live data unavailable: Web + arXiv + Hacker News + Wikipedia"]
+              "Recorded data: Web + arXiv + Hacker News + Wikipedia · fetched 47 h ago", "Recorded data: Web + arXiv + Hacker News + Wikipedia · fetched 2 days ago", "Live data unavailable: Web + arXiv + Hacker News + Wikipedia"]
 BADGE_TEXTS = ["Ready", "Running: Researcher", "Running: Analyst", "Running: Critic", "Running: Synthesizer", "Auditing", "Done", "Stopped"]
 T009 = {(1440, 900), (1280, 800), (390, 844), (360, 740)}
 # width, height, device pixel ratio, touch (design.md, "Device classes")
@@ -53,7 +53,7 @@ GEOMETRY = r"""(opt) => {
     const s = getComputedStyle(el), b = el.getBoundingClientRect();
     const clipsBox = s.overflowX !== 'visible' || s.overflowY !== 'visible';
     const own = s.display !== 'contents' && ((s.clipPath || '').includes('inset(50%)') || (clipsBox && (b.width <= 1 || b.height <= 1))
-      || (s.webkitLineClamp && s.webkitLineClamp !== 'none') || /auto|scroll/.test(s.overflowX + s.overflowY));
+      || (s.webkitLineClamp && s.webkitLineClamp !== 'none' && !el.matches('.live-data')) || /auto|scroll/.test(s.overflowX + s.overflowY));
     const r = own || skipped(el.parentElement);
     memo.set(el, r);
     return r;
