@@ -222,12 +222,14 @@ button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds
 @media (max-width: 720px) {
   .ds-header__inner, .ds-main, .ds-footer__inner { padding-left: 16px; padding-right: 16px; }
   .ds-header__inner { padding-top: 16px; gap: 8px; }
-  /* The chip shares a row with Stop and keeps the height of its longest text ("Recorded data: Web + arXiv + Hacker News + Wikipedia · fetched 2 days ago",
-     measured: 2 lines from 400 px, 3 from 344, 4 under that), so the row is the same height for every text and no text is cut. */
+  /* The chip shares a row with Stop. Here it is a plain line of text, not a pill with a dot (its words already say live, recorded or unavailable): the pill's
+     padding cost a line. It keeps the height of its longest text ("... fetched 2 days ago", measured), so the row is the same height for every text and none is cut. */
   .relay-brand { grid-column: 1 / -1; }
   .relay-brand { gap: 8px; }
   .relay-brand .ds-badge { min-width: 11.5rem; font-size: 12px; } /* 12px: "Running: Synthesizer" is 170 px wide */
-  .ds-chip.live-data { grid-column: 1; justify-self: stretch; min-height: calc(2 * 1.3em + 10px); padding: 4px 12px; font-size: 12px; line-height: 1.3; }
+  .ds-chip.live-data { grid-column: 1; justify-self: stretch; min-height: 2.6em; padding: 0; font-size: 12px; line-height: 1.3; background: transparent; border: 0; border-radius: 0; }
+  .live-data .ds-dot { display: none; }
+  .ds-chip.live-data:not([data-state='failed']) { color: var(--ds-text-muted); } /* a caption under the name; the question below is the loud thing */
   .relay-stop { grid-row: 2; width: 6.5rem; }
   .ds-main { gap: 12px; padding-top: 12px; }
   .relay-hero { gap: 12px; }
@@ -259,9 +261,8 @@ button.relay-stop { padding: 0 12px; color: var(--ds-text); background: var(--ds
   .audit-summary { padding: 20px 16px; border-radius: 20px; }
   .relay-audit { gap: 12px; }
 }
-@media (max-width: 399px) { .ds-chip.live-data { min-height: calc(3 * 1.3em + 10px); } }
-@media (max-width: 343px) { .ds-chip.live-data { min-height: calc(4 * 1.3em + 10px); } }
-@media (max-width: 380px) {
+@media (max-width: 359px) { .ds-chip.live-data { min-height: 3.9em; } }
+@media (max-width: 387px) {
   .relay-headline { font-size: 20px; }
   .relay-wordmark { font-size: 20px; }
   .relay-logo { width: 32px; height: 32px; border-radius: 11px; }
